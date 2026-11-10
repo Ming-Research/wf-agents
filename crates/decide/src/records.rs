@@ -36,6 +36,8 @@ pub struct Records {
     pub asked: Vec<Asked>,
     /// Each such call the person answered.
     pub answered: Vec<Answered>,
+    /// Each refusal put into the session of a run that was under way when it was made.
+    pub delivered: Vec<Delivered>,
     /// Every write of every product.
     pub versions: Vec<Version>,
     /// Every refusal.
@@ -56,7 +58,7 @@ pub struct Started {
     pub at: Seq,
     /// The version of each thing the run was built on.
     pub basis: BTreeMap<ProductId, Built>,
-    /// The refusals the run was given: those that were among its reasons to run.
+    /// The refusals the run was given as it started: those that were among its reasons to run.
     pub given: Vec<RefusalId>,
 }
 
@@ -90,6 +92,14 @@ pub struct Asked {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Answered {
     pub call: CallId,
+    pub at: Seq,
+}
+
+/// A refusal put into the session of a run that was under way: the run is given it from then on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Delivered {
+    pub run: RunId,
+    pub refusal: RefusalId,
     pub at: Seq,
 }
 

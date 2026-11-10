@@ -91,8 +91,15 @@ fn a_work_walks_its_cells_in_order_and_has_ended_once_its_last_cell_has_a_record
 #[test]
 fn nothing_is_decided_while_a_cell_runs_or_the_work_is_paused_and_a_cancelled_work_has_ended() {
     let mut w = World::new(vec![cell("a", &[], &[]), cell("b", &[], &[])]);
-    w.start("a");
-    assert_eq!(w.decide(), Decision::Busy { cell: "a".into() });
+    let run = w.start("a");
+    assert_eq!(
+        w.decide(),
+        Decision::Busy {
+            cell: "a".into(),
+            run,
+            deliver: vec![]
+        }
+    );
     w.pause();
     assert_eq!(w.decide(), Decision::Paused);
     w.cancel();
@@ -301,6 +308,52 @@ fn a_refusal_is_not_ended_by_a_run_that_was_not_given_it_nor_by_the_mark_of_a_lo
 }
 
 #[test]
+fn a_refusal_made_while_its_writer_runs_is_put_into_that_run_which_then_answers_it() {
+    let cells = vec![
+        cell("research", &["background"], &["plan"]),
+        cell("implement", &["plan"], &[]),
+    ];
+    let mut w = World::with_gate(cells);
+    w.person_writes("background");
+    w.run("research", &[], &[("plan", Matters)]);
+    w.run("implement", &[], &[]);
+    w.person_writes("background");
+    w.start("research");
+    // The owner refuses the plan while the research runs: the walk says to put the refusal into its session.
+    let refusal = w.owner_refuses("plan", "take the other way");
+    assert_eq!(w.deliver(), vec![refusal]);
+    // Once delivered it is not delivered again, and what the run then writes ends it.
+    assert_eq!(w.deliver(), vec![]);
+    w.finish("research", &[], &[("plan", Matters)]);
+    assert_eq!(w.runs_next().as_deref(), Some("implement"));
+}
+
+#[test]
+fn what_a_run_wrote_before_a_refusal_was_put_into_it_does_not_end_the_refusal() {
+    let cells = vec![
+        cell("research", &["background"], &["plan"]),
+        cell("implement", &["plan"], &[]),
+    ];
+    let mut w = World::with_gate(cells);
+    w.person_writes("background");
+    w.run("research", &[], &[("plan", Matters)]);
+    w.run("implement", &[], &[]);
+    w.person_writes("background");
+    w.start("research");
+    let refusal = w.owner_refuses("plan", "take the other way");
+    // The run writes the plan before the refusal reaches it, and nothing after.
+    w.writes("research", "plan", Matters);
+    assert_eq!(w.deliver(), vec![refusal]);
+    w.finish("research", &[], &[]);
+    assert_eq!(w.runs_next().as_deref(), Some("research"));
+    assert!(
+        w.because()
+            .iter()
+            .any(|c| matches!(c, Cause::Refused { refusal: r, .. } if *r == refusal))
+    );
+}
+
+#[test]
 fn a_cell_that_leaves_what_was_refused_as_it_was_is_run_again_up_to_its_limit_and_then_the_owner_decides() {
     let mut research = cell("research", &[], &["plan"]);
     research.limit = 2;
@@ -490,7 +543,7 @@ fn a_run_that_waits_for_a_person_holds_the_walk_there_and_is_running_again_once_
         cell("implement", &["plan"], &[]),
     ]);
     w.run("research", &[], &[("plan", Matters)]);
-    w.start("implement");
+    let run = w.start("implement");
     let call = w.wait_for("implement", "a ruling on the token", Who::Owner);
     let on = vec![Waited::Call {
         call,
@@ -508,7 +561,9 @@ fn a_run_that_waits_for_a_person_holds_the_walk_there_and_is_running_again_once_
     assert_eq!(
         w.decide(),
         Decision::Busy {
-            cell: "implement".into()
+            cell: "implement".into(),
+            run,
+            deliver: vec![]
         }
     );
 }

@@ -4,8 +4,8 @@
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoned, Answered, Asked, CallId, Cause, Cell, CellId, Decision, Finished, Flow, LetGo, Outcome, Pause,
-    ProductId, Records, Refusal, RefusalId, Refuser, RunId, Seq, Started, TestName, Tests, Version, Who, Writer,
+    Abandoned, Answered, Asked, CallId, Cause, Cell, CellId, Decision, Delivered, Finished, Flow, LetGo, Outcome,
+    Pause, ProductId, Records, Refusal, RefusalId, Refuser, RunId, Seq, Started, TestName, Tests, Version, Who, Writer,
     decide,
 };
 
@@ -179,6 +179,12 @@ impl World {
         });
     }
 
+    /// The cell's run, still under way, writes the product.
+    pub fn writes(&mut self, cell: &str, product: &str, write: Write) {
+        let run = self.open(cell);
+        self.write(product, Writer::Run(run), write);
+    }
+
     /// Finishes the cell's run with these answers and these writes.
     pub fn finish(&mut self, cell: &str, answers: &[(&str, &str)], writes: &[(&str, Write)]) {
         let run = self.open(cell);
@@ -283,6 +289,22 @@ impl World {
         };
         let at = self.tick();
         self.records.abandoned.push(Abandoned { run, at });
+    }
+
+    /// Puts into the running run's session the refusals the walk says to deliver, as the engine would.
+    pub fn deliver(&mut self) -> Vec<RefusalId> {
+        let Decision::Busy { run, deliver, .. } = self.decide() else {
+            panic!("no cell runs: {:?}", self.decide())
+        };
+        for refusal in &deliver {
+            let at = self.tick();
+            self.records.delivered.push(Delivered {
+                run,
+                refusal: *refusal,
+                at,
+            });
+        }
+        deliver
     }
 
     /// The owner lets the cell go on after it reached its limit.

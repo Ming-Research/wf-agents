@@ -15,7 +15,7 @@ pub mod walk;
 
 pub use flow::{Cell, CellId, Condition, Flow, FlowFault, OutputName, ProductId, TestName};
 pub use records::{
-    Abandoned, Answered, Asked, Built, CallId, Finished, LetGo, Outcome, Pause, Records, Refusal, RefusalId, Refuser,
-    RunId, Seq, Started, Tests, Version, Who, Writer,
+    Abandoned, Answered, Asked, Built, CallId, Delivered, Finished, LetGo, Outcome, Pause, Records, Refusal, RefusalId,
+    Refuser, RunId, Seq, Started, Tests, Version, Who, Writer,
 };
 pub use walk::{Cause, Decision, End, Stale, Waited, decide};

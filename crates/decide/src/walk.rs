@@ -21,8 +21,13 @@ pub enum Decision {
     Ended(End),
     /// The work is paused: nothing is decided until it is let on.
     Paused,
-    /// A cell is running: nothing is decided until it stops.
-    Busy { cell: CellId },
+    /// A cell is running: nothing is decided until it stops. `deliver` are the refusals made since that its run
+    /// answers for and was not given: the engine puts them into the run's session and records them as delivered.
+    Busy {
+        cell: CellId,
+        run: RunId,
+        deliver: Vec<RefusalId>,
+    },
     /// The cell runs: why, what the run is built on, and the refusals it is given. The engine records the run as
     /// started with exactly these.
     Run {
@@ -122,8 +127,19 @@ pub fn decide(flow: &Flow, records: &Records, tests: &dyn Tests) -> Decision {
     }
     // One cell of a work at a time. A run that waits for a person is not running.
     if let Some(run) = walk.runs.values().find(|r| walk.running(r)) {
+        let cell = run.started.cell.clone();
+        let deliver = walk
+            .records
+            .refusals
+            .iter()
+            .filter(|r| walk.given(run, r.id).is_none() && walk.stands(r) && walk.has_force(r))
+            .filter(|r| walk.answers_for(&r.product).iter().any(|c| c.id == cell))
+            .map(|r| r.id)
+            .collect();
         return Decision::Busy {
-            cell: run.started.cell.clone(),
+            cell,
+            run: run.started.run,
+            deliver,
         };
     }
     // A waiting run that no longer stands is abandoned before anything else: its call would be answered for nothing.
@@ -376,8 +392,21 @@ impl<'a> Walk<'a> {
             .or_else(|| record.started.basis.get(product).map(|b| b.meaning))
     }
 
+    /// When the run was given the refusal: as it started, or when the refusal was put into its session while it was
+    /// under way.
+    fn given(&self, run: &RunView<'a>, refusal: RefusalId) -> Option<Seq> {
+        if run.started.given.contains(&refusal) {
+            return Some(run.started.at);
+        }
+        let delivered = self.records.delivered.iter();
+        delivered
+            .filter(|d| d.run == run.started.run && d.refusal == refusal)
+            .map(|d| d.at)
+            .min()
+    }
+
     /// Whether the refusal still stands: the product has not been written since by a person or from outside, nor by a
-    /// finished run that was given the refusal.
+    /// finished run that had been given the refusal when it wrote.
     fn stands(&self, refusal: &Refusal) -> bool {
         !self.records.versions.iter().any(|v| {
             v.product == refusal.product
@@ -388,7 +417,7 @@ impl<'a> Walk<'a> {
                     Writer::Run(id) => self
                         .runs
                         .get(&id)
-                        .is_some_and(|r| r.finished.is_some() && r.started.given.contains(&refusal.id)),
+                        .is_some_and(|r| r.finished.is_some() && self.given(r, refusal.id).is_some_and(|at| at < v.at)),
                 }
         })
     }
