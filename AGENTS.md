@@ -10,3 +10,10 @@ What an agent needs to know for this repository, beyond the rules every agent is
 - Everything in the repository is written in English.
 - Keep keys, credentials, personal paths and machine-local settings out of the repository, its commits and its PR
   descriptions.
+- The code is Rust, edition 2024, on the toolchain `rust-toolchain.toml` pins. It is formatted by rustfmt
+  (`rustfmt.toml`), passes clippy with warnings as errors, and uses no `unsafe`; the root `Cargo.toml` sets these for
+  every crate. A new crate goes under `crates/` and takes its version, edition and lints from the workspace.
+- Tests run in CI (`.github/workflows/ci.yml`), not on the machine the agents run on, where they only fight the owner
+  for the processor; `cargo check` and `cargo clippy` of a crate are light enough to run there. Before pushing, run
+  `rustfmt` on each Rust file you changed or added, naming each file: CI checks the format first.
+- A change reaches `next` through a pull request whose CI is green and which a session other than its writer reviewed.

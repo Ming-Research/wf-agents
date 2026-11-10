@@ -1,0 +1,38 @@
+name: ci
+
+# Every check of the code: the format, clippy with warnings as errors, and the tests. It runs on each pull request
+# into `next` and on each push to `next`, on GitHub's machines from a clean start.
+on:
+  pull_request:
+    branches:
+      - next
+  push:
+    branches:
+      - next
+
+permissions:
+  contents: read
+
+# A newer push to the same pull request makes the older run pointless; `next` keeps every run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/next' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Installs the toolchain rust-toolchain.toml pins, with its components.
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # Formatting first: it needs no build, so a misformatted push fails in seconds.
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Test
+        run: cargo test --workspace --locked
