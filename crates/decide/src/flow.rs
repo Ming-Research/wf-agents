@@ -1,8 +1,10 @@
-//! The flow as the deciding code reads it: the cells in their order, and the blocks each reads and writes.
+//! The flow as the deciding code reads it: the cells in their order, the blocks each reads and writes, and the named
+//! tests their conditions and preconditions are.
 //!
 //! Only what decides the next step is here. What a cell is given, what it hands in and how it is run belong to the
 //! parts of the engine that act.
 
+use std::collections::BTreeMap;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -48,10 +50,42 @@ name!(
     TestName
 );
 
-/// The cells of a flow, in the order the walk takes them.
+/// The cells of a flow, in the order the walk takes them, and the named tests they use.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Flow {
     cells: Vec<Cell>,
+    tests: BTreeMap<TestName, Test>,
+}
+
+/// A named test: a test of the values of blocks of the work itself, which the walk works out from the versions it
+/// reads. What people and the outside do reaches it only as blocks they write.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Test {
+    /// How the blocks it reads make it hold.
+    pub kind: TestKind,
+    /// The blocks it reads, each a choice.
+    pub reads: Vec<BlockId>,
+    /// The value it tests for in each block it reads.
+    pub is: String,
+}
+
+/// How the blocks a named test reads make it hold, by which of them have the value it tests for now. A block never
+/// written has no value. A new kind is a new function of the walk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TestKind {
+    /// Every block read has the value.
+    All,
+    /// At least one block read has the value.
+    Any,
+    /// No block read has the value.
+    None,
+    /// No block read both stands and has the value. A block stands unless its current version was written by a run
+    /// of a cell that is skipped now; what a person or the outside wrote always stands. So a judging cell's word holds
+    /// while the cell is not skipped, and holds nothing once it is. The kind reads the current version alone, and so
+    /// is defined for a block that one cell writes, people and the outside besides: of two cells writing it, a skipped
+    /// one's write would hide the other's word. The compiler holds definitions to that.
+    NoneStanding,
 }
 
 /// Why cells do not make a flow.
@@ -68,11 +102,13 @@ pub enum FlowFault {
     LastHasCondition(CellId),
     /// The cell's limit is zero: it could never run again for what a cell after it wrote, nor be let go on.
     NoLimit(CellId),
+    /// The cell's condition or a precondition is a named test the flow does not have.
+    NoSuchTest(CellId, TestName),
 }
 
 impl Flow {
-    /// The flow of these cells, in this order.
-    pub fn new(cells: Vec<Cell>) -> Result<Self, FlowFault> {
+    /// The flow of these cells, in this order, with these named tests.
+    pub fn new(cells: Vec<Cell>, tests: BTreeMap<TestName, Test>) -> Result<Self, FlowFault> {
         let Some(last) = cells.last() else {
             return Err(FlowFault::Empty);
         };
@@ -91,13 +127,29 @@ impl Flow {
             {
                 return Err(FlowFault::ConditionOnOwnOutput(cell.id.clone()));
             }
+            let condition = match &cell.applies {
+                Some(Condition::Test(test)) => Some(test),
+                _ => None,
+            };
+            if let Some(test) = condition
+                .into_iter()
+                .chain(&cell.requires)
+                .find(|t| !tests.contains_key(t))
+            {
+                return Err(FlowFault::NoSuchTest(cell.id.clone(), test.clone()));
+            }
         }
-        Ok(Self { cells })
+        Ok(Self { cells, tests })
     }
 
     /// The cells, in the order the walk takes them.
     pub fn cells(&self) -> &[Cell] {
         &self.cells
+    }
+
+    /// The named tests, by name: each that a cell uses, and any other the flow was given.
+    pub fn tests(&self) -> &BTreeMap<TestName, Test> {
+        &self.tests
     }
 
     /// Where the cell of this name is in the order.
@@ -113,7 +165,8 @@ pub struct Cell {
     /// When the cell runs at all; with none it always may. A cell whose condition is not met is skipped: what it wrote
     /// before still counts.
     pub applies: Option<Condition>,
-    /// The preconditions: while one does not hold, the work waits before this cell.
+    /// The preconditions, each a named test of the flow: while one does not hold, the work waits before this cell for
+    /// the owner.
     pub requires: Vec<TestName>,
     /// The blocks the cell reads: when one has changed in meaning since the cell last ran, the cell runs again.
     pub inputs: Vec<BlockId>,
@@ -144,6 +197,6 @@ impl Cell {
 pub enum Condition {
     /// The block's current value is this one (principle yes-no-forks).
     Is { block: BlockId, value: String },
-    /// The named test holds.
+    /// The named test of the flow holds.
     Test(TestName),
 }

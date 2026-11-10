@@ -202,6 +202,27 @@ describe('a comparison', () => {
   });
 });
 
+describe('a test of what stands', () => {
+  it('is said with what it does not count in the head of the cell that waits on it and in its panel', () => {
+    const approved = test('approved', 'No judge refuses', 'noneStanding', ['verdict', 'deep_verdict'], 'no');
+    const flow = flowOf(
+      [
+        cell('judge', { outputs: ['verdict', 'deeper'] }),
+        cell('deep', { condition: { on: 'block', block: 'deeper', value: 'yes' }, outputs: ['deep_verdict'] }),
+        cell('merge', { kind: 'engine', line: null, preconditions: [approved] }),
+      ],
+      { verdict: { values: ['yes', 'no'] }, deeper: { values: ['yes', 'no'] }, deep_verdict: { values: ['yes', 'no'] } },
+    );
+    const page = draw({ state: 'compiled', flow });
+    const words = 'No judge refuses (none of verdict, deep_verdict is no, not counting what a cell skipped now wrote)';
+    expect(page.querySelectorAll('thead .cell-head')[2].querySelector('.cell-waits')?.textContent).toBe(
+      `waits until ${words}`,
+    );
+    click(page.querySelectorAll('thead .cell-head .head-button')[2]);
+    expect(page.querySelector('aside[aria-label="Cell merge"]')?.textContent).toContain(words);
+  });
+});
+
 describe('a comparison of tests and sources', () => {
   it('lists a test changed and a block’s source changed as it lists the others, and marks the source on the chart', () => {
     const was = test('ready', 'Ready', 'all', ['x']);

@@ -162,3 +162,96 @@ fn a_test_may_read_choices_people_or_the_outside_write_before_any_cell() {
     );
     assert_eq!(compiled.blocks[&"checks".into()].readers.tests, ["checked".into()]);
 }
+
+#[test]
+fn a_test_of_what_stands_reads_no_block_a_cell_after_its_cell_writes_and_another_kind_may() {
+    // The judge, before the answer, writes needs_design; the check, after it, writes it too.
+    let source = edit(
+        valid(),
+        "check.toml",
+        r#"outputs = ["ci"]"#,
+        r#"outputs = ["ci", "needs_design"]"#,
+    );
+    let reads = r#"reads = ["confirmed", "needs_design"]"#;
+    let source = edit(source, FLOW_FILE, r#"reads = ["confirmed"]"#, reads);
+    // A test that every block has the value is held to the rule of a condition on a block: written before is enough.
+    compiled(&source);
+    let all = "kind = \"all\"\nreads = [\"confirmed\", \"needs_design\"]";
+    let standing = "kind = \"none_standing\"\nreads = [\"confirmed\", \"needs_design\"]";
+    let source = edit(source, FLOW_FILE, all, standing);
+    let after = TestWrittenAfter {
+        test: "plan_confirmed".into(),
+        block: "needs_design".into(),
+        cell: "check".into(),
+    };
+    let two = StandingWrittenByTwo {
+        test: "plan_confirmed".into(),
+        block: "needs_design".into(),
+        cell: "check".into(),
+    };
+    assert_eq!(
+        faults(&source),
+        [
+            at(FLOW_FILE, "tests.plan_confirmed.reads[1]", two),
+            at("answer.toml", "requires[0]", after),
+        ]
+    );
+}
+
+#[test]
+fn a_test_of_what_stands_reads_only_blocks_one_cell_writes_and_people_or_the_outside_may_write_them_too() {
+    let standing = "kind = \"none_standing\"\nreads = [\"ci\"]";
+    let source = edit(valid(), FLOW_FILE, "kind = \"none\"\nreads = [\"ci\"]", standing);
+    // The check alone writes ci, and people too.
+    compiled(&source);
+    let source = edit(
+        source,
+        FLOW_FILE,
+        "values = [\"green\", \"red\"]",
+        "values = [\"green\", \"red\"]\npeople = true",
+    );
+    compiled(&source);
+    // The judge writes it too: a skipped judge's write could hide the other's word, and is refused.
+    let source = edit(
+        source,
+        "judge.toml",
+        r#"outputs = ["needs_design", "opinions"]"#,
+        r#"outputs = ["needs_design", "opinions", "ci"]"#,
+    );
+    let what = StandingWrittenByTwo {
+        test: "may_merge".into(),
+        block: "ci".into(),
+        cell: "check".into(),
+    };
+    assert_eq!(faults(&source), [at(FLOW_FILE, "tests.may_merge.reads[0]", what)]);
+}
+
+#[test]
+fn a_test_without_a_writer_before_or_after_its_cell_is_not_written_before_it() {
+    let source = edit(
+        valid(),
+        FLOW_FILE,
+        "[blocks.plan]",
+        "[blocks.never]\nvalues = [\"yes\", \"no\"]\n\n[blocks.plan]",
+    );
+    let source = edit(
+        source,
+        FLOW_FILE,
+        r#"reads = ["confirmed"]"#,
+        r#"reads = ["confirmed", "never"]"#,
+    );
+    let not_written = NoWriter {
+        block: "never".to_string(),
+    };
+    let not_before = TestNotWrittenBefore {
+        test: "plan_confirmed".into(),
+        block: "never".into(),
+    };
+    assert_eq!(
+        faults(&source),
+        [
+            at(FLOW_FILE, "blocks.never", not_written),
+            at("answer.toml", "requires[0]", not_before),
+        ]
+    );
+}

@@ -168,27 +168,29 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
     .collect();
     assert_eq!(compiled.blocks, expected);
 
-    let test = |says: &str, kind, reads: &str, is: &str| Test {
-        says: says.to_string(),
+    let words: Vec<(&str, &str)> = compiled.tests.iter().map(|(t, w)| (t.as_str(), w.as_str())).collect();
+    assert_eq!(
+        words,
+        [
+            ("has_comment", "The item has a comment"),
+            ("may_merge", "The work may merge"),
+            ("plan_confirmed", "The owner confirmed the plan"),
+        ]
+    );
+    let test = |kind, reads: &str, is: &str| Test {
         kind,
         reads: vec![reads.into()],
         is: is.to_string(),
     };
     let expected: BTreeMap<TestName, Test> = [
-        (
-            "has_comment",
-            test("The item has a comment", TestKind::Any, "commented", "yes"),
-        ),
-        ("may_merge", test("The work may merge", TestKind::None, "ci", "red")),
-        (
-            "plan_confirmed",
-            test("The owner confirmed the plan", TestKind::All, "confirmed", "yes"),
-        ),
+        ("has_comment", test(TestKind::Any, "commented", "yes")),
+        ("may_merge", test(TestKind::None, "ci", "red")),
+        ("plan_confirmed", test(TestKind::All, "confirmed", "yes")),
     ]
     .into_iter()
     .map(|(name, t)| (name.into(), t))
     .collect();
-    assert_eq!(compiled.tests, expected);
+    assert_eq!(*compiled.flow.tests(), expected);
 }
 
 #[test]

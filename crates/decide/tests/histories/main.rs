@@ -11,15 +11,21 @@
 //!   the outside writes) with a chance of one in three and writes each with one in four; it runs only when the choice
 //!   is yes in one in five, and only while the named test "flip" holds in one in seven. A cell other than the merge has
 //!   the precondition "ready" in one history of four, holding at first in half of those; "flip" fails at first in one
-//!   history of four; the merge's precondition holds in two histories of five. The shapes give a block both a person
-//!   and a cell write (every block cells write, since people write them too), a block two cells write of which the
-//!   later does not read it, a judge writing opinions for a cell before it, and that cell skipped while the judge runs.
+//!   history of four; the merge's precondition holds in two histories of five. Each of these tests is the owner's word,
+//!   a choice people write of the same name. In half the histories of the first test, drawn apart from the rest, a
+//!   judge stands before the merge, run only while "flip" holds and writing a verdict, yes or no; the merge then also
+//!   waits while the verdict stands at no (a `none_standing` test), its own word holding from the start. The shapes
+//!   give a block both a person and a cell write (every block cells write, since people write them too), a block two
+//!   cells write of which the later does not read it, a judge writing opinions for a cell before it, and that cell
+//!   skipped while the judge runs.
 //!   The flow does not change during a history: the walk's tests of a changed flow are in `walk/changed_flow.rs`.
 //! - people, in the first 0 to 39 steps, at a step with a chance of one in six and at every rest, in about equal shares
 //!   of a tenth: writing the brief; writing prose into a block cells write (an opinions block in a third of those, the
 //!   choice without a value in a sixth); writing the same marked as not mattering; setting the choice to yes or no;
 //!   confirming the choice; the outside writing main, mattering or not; turning "flip" or "ready"; letting a cell go
 //!   on; pausing or resuming; and, once in a hundred acts, cancelling the work, after which nothing more is decided.
+//!   Where the work waits on the verdict, the owner writes it as yes, in half the acts drawn apart from the rest; and
+//!   in eight acts in a hundred of a history with a judge, the owner writes it as yes or no.
 //!   Half the prose goes where it bears on what is going on: into an input of the cell the work waits at or of a cell
 //!   that is skipped, or into a block the open run's cell may write, so that people write while a round is under way
 //!   and while a run is at rest, and write for a cell while it is skipped.
@@ -51,11 +57,13 @@ use std::collections::BTreeMap;
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::{Mutex, PoisonError};
 
-use decide::{Abandoned, BlockId, Cell, CellId, Condition, Decision, End, Outcome, RunId, Seq, Waited, Who};
+use decide::{
+    Abandoned, BlockId, Cell, CellId, Condition, Decision, End, RunId, Seq, Test, TestKind, TestName, Waited, Who,
+};
 use properties::{Moment, Seen, Verdict};
 use reading::{Reading, Writer};
 use support::Says::{DoesNotMatter, Matters, Value};
-use support::{Says, World, cell};
+use support::{GATE, Says, World, cell, gate};
 
 /// What the histories of a test are drawn from: the shape of the flow, or any; and the number of steps below which
 /// people stop acting.
@@ -90,6 +98,12 @@ const MAIN: &str = "main";
 
 /// The blocks cells may write: prose, opinions for a cell, and the choice.
 const WRITTEN: [&str; 6] = ["b0", "b1", "b2", "op0", "op1", CHOICE];
+
+/// The judge's verdict, a choice of yes or no that only the judge and the owner write.
+pub const VERDICT: &str = "verdict";
+
+/// The merge's precondition in the histories with a judge: the verdict does not stand at no.
+pub const UNREFUSED: &str = "the verdict is no refusal";
 
 /// The most rounds a run has before its agent finishes: within a run, how often a return is sent back is bounded by the
 /// engine, outside the deciding code.
@@ -214,6 +228,9 @@ fn draw_cells(rng: &mut Rng, shape: Option<usize>) -> Vec<Cell> {
 struct History {
     w: World,
     rng: Rng,
+    /// Draws what the histories with a judge add, apart from `rng`, so that the histories without one go as they did
+    /// before the judge was added.
+    judged: Option<Rng>,
     log: Vec<String>,
     /// Whether the work is paused, as people last left it.
     paused: bool,
@@ -232,24 +249,43 @@ struct History {
 impl History {
     fn new(seed: u64, shape: Option<usize>) -> Self {
         let mut rng = Rng::new(seed);
-        let cells = draw_cells(&mut rng, shape);
-        let mut w = World::with_gate(cells);
-        if rng.chance(40) {
-            w.set("the merge may go", Outcome::Holds);
+        let mut cells = draw_cells(&mut rng, shape);
+        let mut extra = Rng::new(seed ^ 0x0BAD_5EED_CAFE_F00D);
+        let judged = (shape.is_none() && extra.chance(50)).then_some(extra);
+        let mut w = if judged.is_some() {
+            let mut judge = when_flipped(cell("judge", &[BRIEF, "b0"], &[VERDICT]));
+            judge.limit = 2;
+            cells.push(judge);
+            let mut merge = gate();
+            merge.requires.push(UNREFUSED.into());
+            cells.push(merge);
+            let unrefused = Test {
+                kind: TestKind::NoneStanding,
+                reads: vec![VERDICT.into()],
+                is: "no".to_string(),
+            };
+            World::with_tests(cells, [(TestName::from(UNREFUSED), unrefused)].into())
+        } else {
+            World::with_gate(cells)
+        };
+        if rng.chance(40) || judged.is_some() {
+            w.says(GATE, true);
         }
         if rng.chance(50) {
-            w.set("ready", Outcome::Waits { who: Who::Architect });
+            w.says("ready", false);
         }
         if rng.chance(25) {
-            w.set("flip", Outcome::Waits { who: Who::Architect });
+            w.says("flip", false);
         }
         let log = vec![
             format!("flow: {:?}", w.flow.cells()),
-            format!("named tests: {:?}", w.named.0),
+            format!("named tests: {:?}", w.flow.tests()),
+            format!("written at first: {:?}", w.records.written),
         ];
         Self {
             w,
             rng,
+            judged,
             log,
             paused: false,
             last_move: None,
@@ -274,7 +310,6 @@ impl History {
         self.note(format!("decision: {decision:?}"));
         self.moments.push(Moment {
             upto: properties::last_place(&self.w.records),
-            named: self.w.named.0.clone(),
             decision: decision.clone(),
         });
         self.check(&decision);
@@ -394,7 +429,7 @@ impl History {
         }
         self.looked_at = (r.started.len(), r.finished.len(), r.abandoned.len());
         let seed = properties::last_place(r).0;
-        properties::decision(v, flow, &self.w.named, &reading, decision, decide::paused(r), seed);
+        properties::decision(v, flow, &reading, decision, decide::paused(r), seed);
     }
 
     /// The round under way of the run ends as its agent returns: it finishes, returns with nothing, or rests at a call.
@@ -422,8 +457,9 @@ impl History {
                 let mut writes: Vec<(&str, Says)> = Vec::new();
                 for b in &spec.outputs {
                     if self.rng.chance(60) {
-                        let block = WRITTEN.into_iter().find(|w| *w == b.as_str()).expect("a known block");
-                        let says = if block == CHOICE && self.rng.chance(80) {
+                        let known = WRITTEN.into_iter().chain([VERDICT]);
+                        let block = known.into_iter().find(|w| *w == b.as_str()).expect("a known block");
+                        let says = if (block == CHOICE || block == VERDICT) && self.rng.chance(80) {
                             Value(if self.rng.chance(50) { "yes" } else { "no" })
                         } else if self.rng.chance(50) {
                             Matters
@@ -434,10 +470,10 @@ impl History {
                     }
                 }
                 self.w.returns(cell.as_str());
-                if let Some(because) = decide::stale(&self.w.flow, &self.w.records, &self.w.named, run) {
+                if let Some(because) = decide::stale(&self.w.flow, &self.w.records, run) {
                     self.note(format!("{cell} returns, stale ({because:?}): the engine abandons it"));
                     let reading = Reading::new(&self.w.records);
-                    properties::abandoned(&mut self.verdict, &self.w.flow, &self.w.named, &reading, run, &because);
+                    properties::abandoned(&mut self.verdict, &self.w.flow, &reading, run, &because);
                     let at = self.w.tick();
                     self.w.records.abandoned.push(Abandoned { run, at });
                 } else {
@@ -475,14 +511,14 @@ impl History {
         self.paused = !self.paused;
     }
 
-    /// The choice's current value: that of its latest write.
-    fn choice(&self) -> Option<String> {
+    /// The current value of the block: that of its latest write.
+    fn value(&self, block: &str) -> Option<String> {
         let r = &self.w.records;
         let by_cells =
             (r.finished.iter()).flat_map(|f| f.writes.iter().map(move |x| (f.at, x.block.clone(), x.value.clone())));
         let by_people = r.written.iter().map(|x| (x.at, x.block.clone(), x.value.clone()));
         let latest: Option<(Seq, BlockId, Option<String>)> = (by_cells.chain(by_people))
-            .filter(|(_, b, _)| b.as_str() == CHOICE)
+            .filter(|(_, b, _)| b.as_str() == block)
             .max_by_key(|(at, _, _)| *at);
         latest.and_then(|(_, _, v)| v)
     }
@@ -516,8 +552,8 @@ impl History {
         let open = self.open_run().map(|(cell, _)| cell);
         let reading = Reading::new(&self.w.records);
         let mut bearing: Vec<&BlockId> = Vec::new();
-        for c in self.w.flow.cells() {
-            if Some(&c.id) == at || !reading.applies(c, &self.w.named) {
+        for (i, c) in self.w.flow.cells().iter().enumerate() {
+            if Some(&c.id) == at || !reading.applies(&self.w.flow, i) {
                 bearing.extend(&c.inputs);
             }
             if Some(&c.id) == open.as_ref() {
@@ -548,8 +584,26 @@ impl History {
                     self.w.let_go(at.as_str());
                     return;
                 }
+                Waited::Precondition { test, .. }
+                    if test.as_str() == UNREFUSED && self.judged.as_mut().is_some_and(|j| j.chance(50)) =>
+                {
+                    self.note(format!("the owner writes {VERDICT} as yes"));
+                    self.person_writes_now();
+                    self.w.person_sets(VERDICT, "yes");
+                    return;
+                }
                 _ => {}
             }
+        }
+        // In a history with a judge, the owner now and then writes the verdict, as yes or no.
+        if let Some(judged) = &mut self.judged
+            && judged.chance(8)
+        {
+            let value = if judged.chance(50) { "yes" } else { "no" };
+            self.note(format!("the owner writes {VERDICT} as {value}"));
+            self.person_writes_now();
+            self.w.person_sets(VERDICT, value);
+            return;
         }
         let prose = self.prose_block(at);
         match self.rng.below(100) {
@@ -580,7 +634,7 @@ impl History {
                 self.w.person_sets(CHOICE, value);
             }
             41..=50 => {
-                if let Some(value) = self.choice() {
+                if let Some(value) = self.value(CHOICE) {
                     self.note(format!("a person confirms {CHOICE} as {value}"));
                     self.person_writes_now();
                     self.w.person_confirms(CHOICE, &value);
@@ -597,12 +651,12 @@ impl History {
             }
             61..=70 => {
                 let test = if self.rng.chance(50) { "flip" } else { "ready" };
-                let outcome = match self.w.named.0.get(&test.into()) {
-                    Some(Outcome::Waits { .. }) => Outcome::Holds,
-                    _ => Outcome::Waits { who: Who::Architect },
-                };
-                self.note(format!("the test {test} comes to {outcome:?}"));
-                self.w.set(test, outcome);
+                let holds = self.value(test).as_deref() == Some("no");
+                self.note(format!(
+                    "the owner's word {test} comes to {}",
+                    if holds { "yes" } else { "no" }
+                ));
+                self.w.says(test, holds);
             }
             71..=80 => {
                 let cells = self.w.flow.cells();
@@ -678,7 +732,7 @@ fn one_history(seed: u64, drawn: Drawn, log: &mut Vec<String>, verdict: &mut Ver
                 assert!(steps <= bound, "the work has not come to rest within {bound} steps");
             }
             let rest = h.w.decide();
-            properties::reaches(&mut h.verdict, &h.w.flow, &h.w.records, &h.w.named, &rest, &h.moments);
+            properties::reaches(&mut h.verdict, &h.w.flow, &h.w.records, &rest, &h.moments);
         }
         properties::replay(&mut h.verdict, &h.w.flow, &h.w.records, &h.moments);
         h.count_blocks();
