@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Comparison, Definition } from './api';
 import { Views } from './App';
 import type { Route } from './route';
+import type { Serves } from './serves';
 import { small } from './testing';
 import { fixtureCall, fixtureItems, fixtureRound, fixtureVersion, fixtureWork } from './works/fixtures';
 import { type Source, SourceContext } from './works/source';
@@ -37,7 +38,7 @@ async function settle() {
 }
 
 /// Draws the views and gives the way to go to another route, and how often the flow was read.
-function drawViews(first: Route) {
+function drawViews(first: Route, serves: Serves | null = 'all') {
   let reads = 0;
   const loadFlow = async (): Promise<{ definition: Definition; comparison: Comparison }> => {
     reads += 1;
@@ -50,7 +51,7 @@ function drawViews(first: Route) {
     act(() =>
       root.render(
         <SourceContext.Provider value={source}>
-          <Views route={route} loadFlow={loadFlow} />
+          <Views route={route} loadFlow={loadFlow} serves={serves} />
         </SourceContext.Provider>,
       ),
     );
@@ -60,6 +61,33 @@ function drawViews(first: Route) {
 }
 
 const shown = (container: HTMLElement) => container.querySelector('.view:not([hidden])') as HTMLElement;
+
+describe('the views on a server that gives the flow alone', () => {
+  it('say so in place of the console and the works, and offer the flow and the sample data', async () => {
+    const { container, go } = drawViews({ view: 'works' }, 'flow');
+    await settle();
+    expect(shown(container).querySelector('table.works')).toBeNull();
+    expect(shown(container).textContent).toContain('This server gives the flow alone');
+    const links = () => [...shown(container).querySelectorAll('a')].map((a) => a.getAttribute('href'));
+    expect(links()).toEqual(['#/flow', '?fixtures#/works']);
+    go({ view: 'console' });
+    expect(links()).toEqual(['#/flow', '?fixtures#/console']);
+    go({ view: 'work', work: 43 });
+    expect(links()).toEqual(['#/flow', '?fixtures#/works/43']);
+  });
+
+  it('still show the flow', async () => {
+    const { container } = drawViews({ view: 'flow' }, 'flow');
+    await settle();
+    expect(shown(container).querySelector('.matrix')).not.toBeNull();
+  });
+
+  it('show neither a view nor a failure while the server is being asked', async () => {
+    const { container } = drawViews({ view: 'works' }, null);
+    await settle();
+    expect(shown(container).textContent).toBe('Reading');
+  });
+});
 
 describe('the views', () => {
   it('shows the view each route names', async () => {
