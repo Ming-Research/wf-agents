@@ -7,7 +7,6 @@ inputs = [
   "plan_agent",
   "questions",
   "tree_changes",
-  "context",
   "answers_research",
   "answers_design",
   "opinions_plan_review",
