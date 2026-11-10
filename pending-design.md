@@ -23,7 +23,8 @@ The words these entries use, each with one meaning:
 - An **opinion** is what someone has to say to a cell about what it did. A cell that can be told something has a block
   of opinions among its inputs.
 - A cell is **skipped** when its condition is not met.
-- A run at rest is **stale** when its cell is skipped, or when a block it started from has changed in meaning.
+- A run at rest is **stale** when its cell is skipped, or when a block its cell reads has changed in meaning since
+  the run started.
 - A run is a **way round** when each of its reasons is a block whose meaning a cell after it last changed.
 - A work's **records** are all that is recorded of it: its runs, their rounds and calls, and every write of every
   block. They are only added to.

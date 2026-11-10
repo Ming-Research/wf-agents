@@ -66,7 +66,7 @@ pub enum Abandoning {
     Cancelled,
     /// Its cell is skipped now, or is no longer in the flow.
     NoLongerApplies,
-    /// This block has changed in meaning since the run started from it.
+    /// This block, which its cell reads, has changed in meaning since the run started from it.
     Outdated { block: BlockId },
 }
 
@@ -386,15 +386,20 @@ impl<'a> Walk<'a> {
             .collect()
     }
 
-    /// Why the run at rest is stale, if it is.
+    /// Why the run at rest is stale, if it is: its cell is skipped, or a block the cell reads has changed in meaning
+    /// since the run started. A block the cell may write and does not read makes no run stale: a cell runs again
+    /// only for what it reads, and one that must take account of what others write to a block reads that block.
     fn stale(&self, run: &RunView<'a>) -> Option<Abandoning> {
         let cell = (self.flow.place(&run.started.cell)).map(|i| &self.flow.cells()[i]);
-        if !cell.is_some_and(|c| self.applies(c)) {
+        let Some(cell) = cell.filter(|c| self.applies(c)) else {
             return Some(Abandoning::NoLongerApplies);
-        }
-        (run.started.basis.iter())
-            .find(|(block, version)| self.meaning_of(block, **version) != self.meaning_now(block))
-            .map(|(block, _)| Abandoning::Outdated { block: block.clone() })
+        };
+        (cell.inputs.iter())
+            .find(|block| {
+                let from = run.started.basis.get(*block).copied().flatten();
+                self.meaning_of(block, from) != self.meaning_now(block)
+            })
+            .map(|block| Abandoning::Outdated { block: block.clone() })
     }
 
     /// The calls the run rests at that have no result yet.

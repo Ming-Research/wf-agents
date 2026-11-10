@@ -24,50 +24,33 @@ fn a_run_at_rest_is_abandoned_when_an_input_changes_in_meaning_and_its_cell_runs
 }
 
 #[test]
-fn a_run_at_rest_is_abandoned_when_a_person_writes_an_opinion_it_may_write() {
-    let (mut w, _, c1) = reviewed();
+fn a_run_at_rest_is_left_when_a_person_writes_an_opinion_it_may_write() {
+    let (mut w, ..) = reviewed();
     w.person_writes("plan");
-    let c2 = w.run("implement", &[("code", Matters)]);
+    w.run("implement", &[("code", Matters)]);
     let review = w.start("review");
     w.returns("review");
-    let opinion = w.person_writes("opinions");
-    assert_eq!(w.decide(), abandon("review", review, outdated("opinions")));
-    w.abandon();
-    // The implementation, before the review, runs first for the person's opinion; the review's own reason, the code,
-    // still stands.
+    w.person_writes("opinions");
+    // The opinions are no input of the review, so its run is not stale. The implementation, before the review, runs
+    // first for the person's opinion.
     assert_eq!(
         reasons(&w.decide()),
         ("implement".into(), vec![("opinions".into(), false)])
     );
+    // It changes nothing the review reads, and the review's run goes on from where it rested.
     w.run("implement", &[]);
-    assert_eq!(
-        w.decide(),
-        runs(
-            "review",
-            vec![changed("code", Some(c1), false)],
-            &[("code", Some(c2)), ("opinions", Some(opinion))]
-        )
-    );
+    assert_eq!(w.decide(), go_on("review", review));
 }
 
 #[test]
-fn a_run_at_rest_is_abandoned_when_a_person_writes_a_block_it_may_write() {
-    let (mut w, b1, ..) = planned();
-    let b2 = w.person_writes("background");
+fn a_run_at_rest_is_left_when_a_person_writes_a_block_it_may_write_and_does_not_read() {
+    let (mut w, ..) = planned();
+    w.person_writes("background");
     let research = w.start("research");
     w.returns("research");
-    let plan = w.person_writes("plan");
-    assert_eq!(w.decide(), abandon("research", research, outdated("plan")));
-    w.abandon();
-    // The plan is no input of the research: it runs again for the background alone, from the person's plan.
-    assert_eq!(
-        w.decide(),
-        runs(
-            "research",
-            vec![changed("background", Some(b1), false)],
-            &[("background", Some(b2)), ("plan", Some(plan))]
-        )
-    );
+    w.person_writes("plan");
+    // The plan is no input of the research: a cell runs again only for what it reads.
+    assert_eq!(w.decide(), go_on("research", research));
 }
 
 #[test]
