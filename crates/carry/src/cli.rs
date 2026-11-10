@@ -58,6 +58,7 @@ pub fn arguments(agents: &Agents, protocol: &str, schema: &str, session: Uuid, b
         .collect();
     args.extend(["--append-system-prompt".to_string(), protocol.to_string()]);
     args.extend(["--json-schema".to_string(), schema.to_string()]);
+    args.extend(["--setting-sources".to_string(), agents.setting_sources.clone()]);
     args.extend(agents.args.iter().cloned());
     let flag = match begin {
         Begin::New => "--session-id",
@@ -198,6 +199,7 @@ mod tests {
             slots: 2,
             args: vec!["--strict-mcp-config".to_string()],
             env: Vec::new(),
+            setting_sources: "user".to_string(),
             config_dir: None,
             owner_language: "Chinese".to_string(),
             work_budget_usd: None,
@@ -258,6 +260,8 @@ mod tests {
             "PROTOCOL",
             "--json-schema",
             "SCHEMA",
+            "--setting-sources",
+            "user",
             "--strict-mcp-config",
         ];
         let mut new: Vec<String> = common.iter().map(|a| a.to_string()).collect();

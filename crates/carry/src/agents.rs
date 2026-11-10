@@ -15,8 +15,8 @@
 //! What each round was told and what the program printed are kept for reading, in `rounds/<work>/<run>-<round>` in
 //! the data directory: `.message.md` and `.result.json` for its first try, `.message.2.md` and `.result.2.json` for
 //! the next, and so on. While the program runs, its process group is written in `.pgid` there; a group left named
-//! there by a process of the engine that ended is stopped before the round is run again, so that a session has one
-//! program at a time.
+//! there by a process of the engine that ended is stopped before the round is run again, or before the round's stop
+//! ends it, so that a session has one program at a time and a stopped round's program does not run on.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -127,7 +127,14 @@ impl Rounds for Agents {
         acts::prune(&self.inner.held, &round);
         let key = (round.work, round.run, round.number);
         if let Some(reply) = self.inner.held.stop(key, reply) {
-            reply.ended(Came::HandsIn(Vec::new()), Spent::default());
+            // Nothing here carries the round out; a program a process of the engine that ended left running for it
+            // is stopped before the round ends.
+            let group = self.inner.kept(&round).with_extension("pgid");
+            let dir = git::place(&self.inner.data, &git::tag(&self.inner.installation), round.work).dir;
+            tokio::spawn(async move {
+                process::stop_left(&group, &dir).await;
+                reply.ended(Came::HandsIn(Vec::new()), Spent::default());
+            });
         }
     }
 }
@@ -146,7 +153,7 @@ impl Inner {
                 .map_err(|e| format!("{}: {e}", parent.display()))?;
         }
         let group = base.with_extension("pgid");
-        process::stop_left(&group, &self.settings.agents.command).await;
+        process::stop_left(&group, &dir).await;
         let session = session::session(self.installation, round.work, line);
         let mut begin = cli::begin(flow, work, line);
         let before = cli::spent_before(flow, work, line);

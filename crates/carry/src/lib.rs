@@ -33,7 +33,7 @@ use std::sync::Arc;
 
 use service::Carriers;
 
-pub use acts::{Acts, FAILED, PASSED};
+pub use acts::{Acts, FAILED, PASSED, faults};
 pub use agents::{Agents, PROTOCOL, ROUNDS};
 pub use process::{STOP_WAIT, TAIL};
 pub use settings::Settings;

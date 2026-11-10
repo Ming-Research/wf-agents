@@ -65,6 +65,7 @@ impl Repo {
                 repo,
                 main: "main".to_string(),
                 check: check.to_string(),
+                allowed_config: Vec::new(),
             },
             data,
         }
@@ -232,4 +233,148 @@ async fn the_merge_needs_the_checkout_on_main() {
         .await
         .expect_err("the merge is refused");
     assert!(refused.contains("not on the main branch"), "{refused}");
+}
+
+/// Writes a program at the path that leaves a mark at `marked` when it is run.
+fn marking(path: &Path, marked: &Path) {
+    std::fs::write(path, format!("#!/bin/sh\ntouch '{}'\n", marked.display())).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[tokio::test]
+async fn the_start_runs_no_hook_of_the_repository() {
+    let repo = Repo::new("true");
+    let hooks = repo.project.repo.join(".git/hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    let marked = repo.data.join("hook-ran");
+    marking(&hooks.join("post-checkout"), &marked);
+    start(&repo.project, &repo.place(WORK)).await.expect("the work starts");
+    assert!(!marked.exists(), "the repository's hook was run");
+}
+
+#[tokio::test]
+async fn the_check_runs_no_file_system_monitor_of_the_repository() {
+    let mut repo = Repo::new("true");
+    // Allowed, so that the check goes on to run its commands, none of which runs it.
+    repo.project.allowed_config = vec!["core.fsmonitor".to_string()];
+    start(&repo.project, &repo.place(WORK)).await.unwrap();
+    let marked = repo.data.join("monitor-ran");
+    let monitor = repo.data.join("monitor");
+    marking(&monitor, &marked);
+    run(
+        &repo.project.repo,
+        &["config", "core.fsmonitor", &monitor.display().to_string()],
+    );
+    checked(&repo).await;
+    assert!(!marked.exists(), "the repository's file-system monitor was run");
+}
+
+#[tokio::test]
+async fn the_merge_refuses_a_repository_whose_configuration_names_a_program() {
+    for (key, value) in [
+        ("core.fsmonitor", "/bin/true"),
+        ("core.hooksPath", "hooks"),
+        ("merge.ours.driver", "true"),
+        ("filter.lfs.clean", "cat"),
+    ] {
+        let repo = Repo::new("true");
+        let started = start(&repo.project, &repo.place(WORK)).await.unwrap();
+        let head = commit(&started.place.dir, "farewell.txt", "Bye.\n");
+        run(&repo.project.repo, &["config", key, value]);
+        let refused = merge(&repo.project, &repo.place(WORK), Some(&head))
+            .await
+            .expect_err(key);
+        assert!(refused.contains(&key.to_ascii_lowercase()), "{key}: {refused}");
+        assert!(
+            !repo.project.repo.join("farewell.txt").exists(),
+            "{key}: nothing was merged"
+        );
+    }
+}
+
+#[tokio::test]
+async fn the_start_refuses_a_repository_whose_local_configuration_could_run_a_program() {
+    let repo = Repo::new("true");
+    run(&repo.project.repo, &["config", "core.pager", "less"]);
+    let refused = start(&repo.project, &repo.place(WORK)).await.expect_err("refused");
+    assert!(refused.contains("core.pager (local)"), "{refused}");
+    assert!(refused.contains("allowed_config"), "{refused}");
+    assert!(!repo.place(WORK).dir.exists(), "nothing was made");
+}
+
+#[tokio::test]
+async fn the_check_refuses_what_the_works_own_worktree_configuration_names() {
+    let mut repo = Repo::new("true");
+    start(&repo.project, &repo.place(WORK)).await.unwrap();
+    run(&repo.project.repo, &["config", "extensions.worktreeConfig", "true"]);
+    run(&repo.place(WORK).dir, &["config", "--worktree", "core.editor", "vim"]);
+    repo.project.allowed_config = vec!["extensions.worktreeconfig".to_string()];
+    let refused = check(&repo.project, &repo.place(WORK), &Mutex::new(()), &mut Stop::never())
+        .await
+        .expect_err("refused");
+    assert!(refused.contains("core.editor (worktree)"), "{refused}");
+    assert!(!refused.contains("extensions"), "an allowed key is let be: {refused}");
+}
+
+#[tokio::test]
+async fn what_an_included_file_names_is_refused() {
+    let mut repo = Repo::new("true");
+    let included = repo.data.join("included.config");
+    std::fs::write(&included, "[diff \"word\"]\n\ttextconv = cat\n").unwrap();
+    run(
+        &repo.project.repo,
+        &["config", "include.path", &included.display().to_string()],
+    );
+    let refused = start(&repo.project, &repo.place(WORK)).await.expect_err("refused");
+    assert!(refused.contains("include.path"), "{refused}");
+    repo.project.allowed_config = vec!["include.path".to_string()];
+    let refused = start(&repo.project, &repo.place(WORK)).await.expect_err("refused");
+    assert!(refused.contains("diff.word.textconv"), "{refused}");
+}
+
+#[tokio::test]
+async fn an_allowed_key_lets_the_work_start_and_merge() {
+    let mut repo = Repo::new("true");
+    run(&repo.project.repo, &["config", "filter.lfs.clean", "cat"]);
+    run(&repo.project.repo, &["config", "filter.lfs.smudge", "cat"]);
+    repo.project.allowed_config = vec!["filter.lfs.*".to_string()];
+    let started = start(&repo.project, &repo.place(WORK)).await.expect("allowed");
+    let head = commit(&started.place.dir, "farewell.txt", "Bye.\n");
+    merge(&repo.project, &repo.place(WORK), Some(&head))
+        .await
+        .expect("allowed");
+}
+
+#[test]
+fn every_key_that_could_run_a_program_is_named() {
+    for key in [
+        "core.fsmonitor",
+        "core.hookspath",
+        "filter.x.clean",
+        "merge.x.driver",
+        "diff.x.textconv",
+        "diff.x.command",
+        "diff.external",
+        "gpg.program",
+        "gpg.ssh.program",
+        "include.path",
+        "includeif.gitdir:/x.path",
+        "extensions.worktreeconfig",
+        "core.sshcommand",
+        "core.gitproxy",
+        "credential.helper",
+        "core.editor",
+        "sequence.editor",
+        "core.pager",
+    ] {
+        assert!(runs_code(key), "{key}");
+    }
+    for key in ["user.name", "core.autocrlf", "merge.conflictstyle", "diff.renames"] {
+        assert!(!runs_code(key), "{key}");
+    }
+    let patterns = ["filter.lfs.*".to_string(), "core.pager".to_string()];
+    assert!(allowed(&patterns, "filter.lfs.clean"));
+    assert!(allowed(&patterns, "core.pager"));
+    assert!(!allowed(&patterns, "filter.crypt.clean"));
 }
