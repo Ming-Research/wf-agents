@@ -58,7 +58,7 @@ fn a_cell_names_a_block_once_among_its_inputs_and_once_among_its_outputs() {
 }
 
 #[test]
-fn every_block_a_cell_reads_is_written_by_a_cell_people_or_the_outside() {
+fn every_block_is_written_by_a_cell_people_or_the_outside() {
     let source = edit(valid(), FLOW_FILE, "[blocks.plan]", "[blocks.notes]\n\n[blocks.plan]");
     let source = edit(
         source,
@@ -69,7 +69,21 @@ fn every_block_a_cell_reads_is_written_by_a_cell_people_or_the_outside() {
     let what = NoWriter {
         block: "notes".to_string(),
     };
-    assert_eq!(faults(&source), [at("plan.toml", "inputs[2]", what)]);
+    assert_eq!(faults(&source), [at(FLOW_FILE, "blocks.notes", what)]);
+}
+
+#[test]
+fn a_block_shown_on_the_page_still_has_a_writer() {
+    let source = edit(
+        valid(),
+        FLOW_FILE,
+        "[blocks.plan]",
+        "[blocks.notes]\nshown = true\n\n[blocks.plan]",
+    );
+    let what = NoWriter {
+        block: "notes".to_string(),
+    };
+    assert_eq!(faults(&source), [at(FLOW_FILE, "blocks.notes", what)]);
 }
 
 #[test]
@@ -81,19 +95,15 @@ fn a_block_a_cell_reads_may_be_written_by_a_cell_after_it() {
 }
 
 #[test]
-fn every_block_a_cell_writes_is_read_by_a_cell_a_condition_the_page_or_a_named_test() {
+fn every_block_is_read_by_a_cell_a_condition_the_page_or_a_named_test() {
     let source = edit(valid(), FLOW_FILE, "[blocks.plan]", "[blocks.log]\n\n[blocks.plan]");
     let outputs = r#"outputs = ["needs_design", "opinions"]"#;
-    let source = edit(
-        source,
-        "judge.toml",
-        outputs,
-        r#"outputs = ["needs_design", "opinions", "log"]"#,
-    );
+    let with_log = r#"outputs = ["needs_design", "opinions", "log"]"#;
+    let source = edit(source, "judge.toml", outputs, with_log);
     let what = NoReader {
         block: "log".to_string(),
     };
-    assert_eq!(faults(&source), [at("judge.toml", "outputs[2]", what)]);
+    assert_eq!(faults(&source), [at(FLOW_FILE, "blocks.log", what)]);
 
     let shown = edit(
         valid(),
@@ -101,22 +111,34 @@ fn every_block_a_cell_writes_is_read_by_a_cell_a_condition_the_page_or_a_named_t
         "[blocks.plan]",
         "[blocks.log]\nshown = true\n\n[blocks.plan]",
     );
-    let shown = edit(
-        shown,
-        "judge.toml",
-        outputs,
-        r#"outputs = ["needs_design", "opinions", "log"]"#,
-    );
-    compiled(&shown);
+    compiled(&edit(shown, "judge.toml", outputs, with_log));
 }
 
 #[test]
-fn a_declared_block_that_nothing_writes_and_nothing_reads_is_a_fault() {
-    let source = edit(valid(), FLOW_FILE, "[blocks.plan]", "[blocks.spare]\n\n[blocks.plan]");
-    let what = BlockUnused {
-        block: "spare".to_string(),
+fn a_block_people_write_still_has_a_reader() {
+    let source = edit(
+        valid(),
+        FLOW_FILE,
+        "[blocks.plan]",
+        "[blocks.notes]\npeople = true\n\n[blocks.plan]",
+    );
+    let what = NoReader {
+        block: "notes".to_string(),
     };
-    assert_eq!(faults(&source), [at(FLOW_FILE, "blocks.spare", what)]);
+    assert_eq!(faults(&source), [at(FLOW_FILE, "blocks.notes", what)]);
+}
+
+#[test]
+fn a_block_that_nothing_writes_and_nothing_reads_has_both_faults_the_writer_first() {
+    let source = edit(valid(), FLOW_FILE, "[blocks.plan]", "[blocks.spare]\n\n[blocks.plan]");
+    let block = || "spare".to_string();
+    assert_eq!(
+        faults(&source),
+        [
+            at(FLOW_FILE, "blocks.spare", NoWriter { block: block() }),
+            at(FLOW_FILE, "blocks.spare", NoReader { block: block() }),
+        ]
+    );
 }
 
 #[test]

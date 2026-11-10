@@ -124,12 +124,11 @@ pub enum FaultKind {
     ValuesEmpty,
     /// The block is not declared in `flow.toml`.
     NoSuchBlock { block: String },
-    /// A cell reads a block that no cell, no person and nothing outside writes.
+    /// The block has no writer: no cell of the order, no person and nothing outside writes it.
     NoWriter { block: String },
-    /// A cell writes a block that no cell, no condition, no page and no named test reads.
+    /// The block has no reader: no cell of the order reads it, no condition reads its value, and neither the owner's
+    /// page nor a named test shows it.
     NoReader { block: String },
-    /// A declared block that nothing writes and nothing reads.
-    BlockUnused { block: String },
     /// A condition reads a block that is not a choice.
     NotAChoice { block: String },
     /// A condition waits for a value the choice does not offer.
@@ -371,7 +370,7 @@ impl<'a> Definition<'a> {
         self.flow.blocks[block].shown || !uses.readers.is_empty() || !uses.conditions.is_empty()
     }
 
-    /// The faults of the declared blocks: values that make no choice, and blocks nothing writes or reads.
+    /// The faults of the declared blocks: values that make no choice, a block with no writer, and one with no reader.
     fn check_blocks(&self, faults: &mut Vec<Fault>) {
         for (name, block) in &self.flow.blocks {
             if let Some(values) = &block.values {
@@ -383,8 +382,12 @@ impl<'a> Definition<'a> {
                     faults.push(fault(FLOW_FILE, field, what));
                 }
             }
-            if !self.written(name) && !self.read(name) {
-                let what = FaultKind::BlockUnused { block: name.clone() };
+            if !self.written(name) {
+                let what = FaultKind::NoWriter { block: name.clone() };
+                faults.push(fault(FLOW_FILE, format!("blocks.{name}"), what));
+            }
+            if !self.read(name) {
+                let what = FaultKind::NoReader { block: name.clone() };
                 faults.push(fault(FLOW_FILE, format!("blocks.{name}"), what));
             }
         }
@@ -488,26 +491,14 @@ impl<'a> Definition<'a> {
             let what = FaultKind::UndeclaredTest { test: test.to_string() };
             (!self.flow.tests.contains_key(test)).then_some(what)
         }));
-        found.extend(check_list(&file.inputs, "inputs", |block| {
-            let block = block.to_string();
-            if !self.flow.blocks.contains_key(&block) {
-                Some(FaultKind::NoSuchBlock { block })
-            } else if !self.written(&block) {
-                Some(FaultKind::NoWriter { block })
-            } else {
-                None
-            }
-        }));
-        found.extend(check_list(&file.outputs, "outputs", |block| {
-            let block = block.to_string();
-            if !self.flow.blocks.contains_key(&block) {
-                Some(FaultKind::NoSuchBlock { block })
-            } else if !self.read(&block) {
-                Some(FaultKind::NoReader { block })
-            } else {
-                None
-            }
-        }));
+        let declared = |block: &str| {
+            let what = FaultKind::NoSuchBlock {
+                block: block.to_string(),
+            };
+            (!self.flow.blocks.contains_key(block)).then_some(what)
+        };
+        found.extend(check_list(&file.inputs, "inputs", declared));
+        found.extend(check_list(&file.outputs, "outputs", declared));
         faults.extend(found.into_iter().map(|(field, what)| fault(&name, field, what)));
 
         let cell = Cell {

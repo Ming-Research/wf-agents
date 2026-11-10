@@ -86,14 +86,17 @@ fn no_cell_is_in_the_order_twice() {
 }
 
 #[test]
-fn an_empty_order_is_a_fault_and_leaves_every_cell_out_of_it_and_what_only_cells_use_unused() {
+fn an_empty_order_is_a_fault_and_leaves_every_cell_out_of_it_and_every_test_and_block_without_its_cells() {
     let order = "order = [\"plan\", \"judge\", \"design\", \"answer\", \"check\", \"merge\"]";
     let source = edit(valid(), FLOW_FILE, order, "order = []");
-    let unused_block = |block: &str| {
-        let what = BlockUnused {
-            block: block.to_string(),
-        };
-        at(FLOW_FILE, &format!("blocks.{block}"), what)
+    let block = |name: &str| (format!("blocks.{name}"), name.to_string());
+    let unwritten = |name: &str| {
+        let (field, block) = block(name);
+        at(FLOW_FILE, &field, NoWriter { block })
+    };
+    let unread = |name: &str| {
+        let (field, block) = block(name);
+        at(FLOW_FILE, &field, NoReader { block })
     };
     let unused_test = |test: &str| {
         let what = UnusedTest { test: test.to_string() };
@@ -107,10 +110,19 @@ fn an_empty_order_is_a_fault_and_leaves_every_cell_out_of_it_and_what_only_cells
         faults(&source),
         [
             at(FLOW_FILE, "order", OrderEmpty),
-            unused_block("ci"),
-            unused_block("design"),
-            unused_block("needs_design"),
-            unused_block("plan"),
+            unwritten("ci"),
+            unread("ci"),
+            unread("comments"),
+            unwritten("design"),
+            unread("design"),
+            unread("main"),
+            unwritten("needs_design"),
+            unread("needs_design"),
+            unread("opinions"),
+            unwritten("plan"),
+            unread("plan"),
+            unwritten("reply"),
+            unread("request"),
             unused_test("has_comment"),
             unused_test("may_merge"),
             unused_test("plan_confirmed"),
