@@ -21,6 +21,10 @@ pub struct Work {
     pub calls: BTreeMap<CallId, Call>,
     /// The result of each call that has one.
     pub results: BTreeMap<CallId, String>,
+    /// What each round that ended took, by its run and its number in the run, the first being one.
+    pub spent: BTreeMap<(RunId, usize), Spent>,
+    /// When each thing that happened was taken, in order: the first place given to its entries, and the time.
+    pub moments: Vec<Moment>,
 }
 
 impl Work {
@@ -41,12 +45,43 @@ impl Work {
         Seq(places.map(|at| at.0).max().unwrap_or(0) + 1)
     }
 
+    /// When the entry at this place was added: the time of the thing that happened it belongs to.
+    pub fn time_of(&self, place: Seq) -> Option<Time> {
+        self.moments.iter().rev().find(|m| m.from <= place).map(|m| m.at)
+    }
+
     /// A name no run and no call of the work has yet: one after the latest.
     pub(crate) fn name(&self) -> u64 {
         let r = &self.records;
         let names = (r.started.iter().map(|s| s.run.0)).chain(r.called.iter().map(|c| c.call.0));
         names.max().unwrap_or(0) + 1
     }
+}
+
+/// A time, as whatever drives the engine reads its clock: milliseconds since the start of 1970. The engine reads no
+/// clock itself (principle `outside-behind-interfaces`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Time(pub u64);
+
+/// A thing that happened to the work was taken at this time, and its entries begin at this place.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Moment {
+    pub from: Seq,
+    pub at: Time,
+}
+
+/// What a round took, as whatever ran it reports (principle `measure-speed-and-cost`). An act of the engine's own
+/// takes none of these.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Spent {
+    /// Its cost, in millionths of a dollar.
+    pub usd_micros: u64,
+    /// The tokens sent that were not read from the cache.
+    pub input_tokens: u64,
+    /// The tokens sent that were read from the cache.
+    pub cached_tokens: u64,
+    /// The tokens that came back.
+    pub output_tokens: u64,
 }
 
 /// What a round is given.

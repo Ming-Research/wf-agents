@@ -11,15 +11,23 @@ use decide::{
 use flow::Compiled;
 
 use crate::event::{Came, Effect, Event, Refused};
-use crate::work::{Ask, Back, Call, Given, Work};
+use crate::work::{Ask, Back, Call, Given, Moment, Time, Work};
 
-/// Takes one thing that happened to the work, and gives what is to be done for it outside the engine. Where the
-/// records cannot be those of a work nothing is given: the deciding code says so when asked.
-pub fn handle(flow: &Compiled, tests: &dyn Tests, work: &mut Work, event: Event) -> Result<Vec<Effect>, Refused> {
+/// Takes one thing that happened to the work, at the time the driver's clock gives, and gives what is to be done for
+/// it outside the engine. Where the records cannot be those of a work nothing is given: the deciding code says so when
+/// asked.
+pub fn handle(
+    flow: &Compiled,
+    tests: &dyn Tests,
+    work: &mut Work,
+    now: Time,
+    event: Event,
+) -> Result<Vec<Effect>, Refused> {
     let returned = match &event {
         Event::Returned { run, .. } => Some(*run),
         _ => None,
     };
+    let from = work.tick();
     take(flow, work, event)?;
     // What a round handed in is taken as the round ends: where it meets everything the flow requires and the run is
     // not stale, the run finishes here, before the walk, so that no cell before it comes between.
@@ -36,6 +44,10 @@ pub fn handle(flow: &Compiled, tests: &dyn Tests, work: &mut Work, event: Event)
     }
     let mut effects = Vec::new();
     advance(flow, tests, work, &mut effects);
+    // Everything added for this thing that happened was added now.
+    if work.tick() > from {
+        work.moments.push(Moment { from, at: now });
+    }
     Ok(effects)
 }
 
@@ -133,14 +145,16 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
                 work.records.cancelled = Some(work.tick());
             }
         }
-        Event::Returned { run, came } => {
+        Event::Returned { run, came, spent } => {
             if began(work, run) == ended(work, run) {
                 return Err(Refused::NoRoundUnderWay(run));
             }
-            // The round of a run that was abandoned has ended too, and what came back from it is dropped.
+            // The round of a run that was abandoned has ended too, and what came back from it is dropped; what it
+            // took is kept.
             let kept = open(work, run);
             let at = work.tick();
             work.records.returned.push(Returned { run, at });
+            work.spent.insert((run, ended(work, run)), spent);
             if kept {
                 let back = match came {
                     Came::HandsIn(handed) => Back::HandedIn(handed),
