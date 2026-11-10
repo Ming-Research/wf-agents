@@ -1,6 +1,6 @@
 // What the panel beside the console shows of the item selected: its number, its title, which brings the item into view
 // in the tree, and the flow its work runs on; a line of where the item stands and a line of what its work does, with
-// the works page's strip of the work's cells and what the work has taken; what the owner does to the work (let it on,
+// the works page's strip of the work's cells and where its time went; what the owner does to the work (let it on,
 // pause it, cancel it); and two tabs. The first says what the work waits for, and holds the notes: a box to write for a
 // cell, in a block that people write, chosen above it, with the cells that read that block named under it. The second
 // holds what of the work the lines do not say, and the legend of the strip's marks. With no item selected it says how
@@ -18,6 +18,7 @@ import { Button, Panel, PanelPart } from '../parts';
 import type { Act, Item, Summary, Waited, WorkPage } from '../works-api';
 import { StateLegend, Strip } from '../works/marks';
 import { type ItemStanding, standingOf } from './items';
+import { barOf, barSpans, TimeTrack } from './track';
 import { age, dollars, type Mood, moodOf } from './snap';
 
 const ago = (at: number) => age(Date.now() - at).label;
@@ -203,11 +204,11 @@ function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
       <a href={`#/works/${w.number}`} className="cw-mono" title={`Open work ${w.number}`}>
         W{w.number}
       </a>
-      {/* How far it has come and what it has taken, together at the line's right end. */}
+      {/* How far it has come and where its time went, together at the line's right end. */}
       <span className="cw-progress">
         <Strip cells={w.cells} />
-        <span className="cw-mono" title="What its rounds have taken">
-          {dollars(w.spent.usdMicros)}
+        <span className="cw-track">
+          <TimeTrack spans={barSpans(w.bar ?? (page === null ? '' : barOf(page)))} />
         </span>
       </span>
     </Line>
