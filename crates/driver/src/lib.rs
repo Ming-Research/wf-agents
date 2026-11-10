@@ -231,14 +231,8 @@ impl Driver {
         for event in first {
             handle(&flow, &mut work, now, event).map_err(Failed::Refused)?;
         }
-        // MUTANT: the item and its work are added without the pause, which a second save keeps.
-        let mut unpaused = work.clone();
-        unpaused.records.pauses.clear();
         let (item, number) = (self.store)
-            .add(&new.title, &new.depends_on, &new.flow, now, &unpaused)
-            .map_err(|fault| self.stop(Fault::Store(fault), false))?;
-        (self.store)
-            .save(number, &work)
+            .add(&new.title, &new.depends_on, &new.flow, now, &work)
             .map_err(|fault| self.stop(Fault::Store(fault), false))?;
         let mut depends_on = new.depends_on;
         depends_on.sort();
@@ -273,7 +267,8 @@ impl Driver {
         let was = self.works.get(&work).and_then(|held| held.ended);
         self.turn(now, work, event, &mut todos)?;
         let held = self.works.get(&work);
-        if was.is_none() && held.and_then(|held| held.ended) == Some(End::Merged) {
+        // MUTANT: what a merge means to the works that waited for it is not written.
+        if false && was.is_none() && held.and_then(|held| held.ended) == Some(End::Merged) {
             // The item has merged: that is written to each work whose item depended on it and now waits for none.
             let item = held.map(|held| held.head.item);
             let waiting: Vec<WorkNumber> = (self.works.iter())
