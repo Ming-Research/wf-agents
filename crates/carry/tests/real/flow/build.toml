@@ -1,0 +1,6 @@
+title = "Build"
+kind = "agent"
+line = "engineer"
+task = "Build what the request asks for, and commit it."
+inputs = ["request", "place", "failures"]
+outputs = ["code"]

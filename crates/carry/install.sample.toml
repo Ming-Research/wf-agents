@@ -1,0 +1,35 @@
+# The settings of an installation of wf-agents: `install.toml` in the data directory, or the file
+# `wf-agents run --settings <file>` names. `wf-agents run` without `--script` reads it. A key not written here is
+# refused.
+
+[project]
+# The local git repository the works are done in: its own checkout, which stays on the main branch. Each work has a
+# branch `work-<n>` and a worktree `<data>/worktrees/<n>` made from the main branch's head, and is merged here.
+repo = "/path/to/the/repository"
+# The repository's main branch.
+main = "main"
+# A shell command run in a work's worktree, by the check before the merge and by the agents' tool `check`; its exit
+# with 0 means the work passes.
+check = "cargo test"
+
+[agents]
+# The command line program that runs an agent's round.
+command = "claude"
+# The model every round is run with.
+model = "claude-haiku-5-5"
+# How many agents' rounds run at once; the others wait their turn.
+slots = 2
+# What the program is given on every round after what the engine gives it.
+# `--setting-sources user` keeps the program from loading a settings file the worktree holds.
+args = ["--permission-mode", "acceptEdits", "--tools", "Bash,Read,Edit,Write,Grep,Glob", "--strict-mcp-config", "--disable-slash-commands", "--setting-sources", "user"]
+# The program is given only these variables of the engine's environment: PATH, HOME, USER, LANG and LC_*, TMPDIR, TERM
+# and SHELL, and those named here, such as an API key.
+# env = ["ANTHROPIC_API_KEY"]
+# The program's own directory of settings and sign-in, given as CLAUDE_CONFIG_DIR. Left out, the program uses its own
+# default.
+# config_dir = "/path/to/a/config/dir"
+# The language of the blocks the owner reads; everything in the repository is written in English.
+owner_language = "Chinese"
+# What a work's rounds may spend in all, in dollars: once a round ends with the work over it, the work is paused for
+# the owner, who may let it on. Left out, there is no budget.
+work_budget_usd = 5.0

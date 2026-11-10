@@ -1,0 +1,33 @@
+# A small flow with every act of the engine's, for the tests of the real carriers: the start makes the work's place,
+# the build commits in it, the check checks it and may send it back with what failed, and the merge merges what the
+# check passed.
+name = "acts"
+order = ["start", "build", "check", "merge"]
+
+[limits]
+runs = 3
+returns = 2
+calls = 4
+
+[lines.engineer]
+
+[blocks.request]
+people = true
+
+[blocks.place]
+
+[blocks.code]
+
+[blocks.failures]
+
+[blocks.passed]
+values = ["yes", "no"]
+
+[blocks.merged]
+shown = true
+
+[tests.passed]
+says = "The check passed"
+kind = "all"
+reads = ["passed"]
+is = "yes"
