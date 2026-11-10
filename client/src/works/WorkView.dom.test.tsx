@@ -195,11 +195,11 @@ describe('the list of works', () => {
     source.loadItems = () => (fail ? Promise.reject(new Error('the server went away')) : base());
     const page = draw(<WorksList />, source);
     await settle();
-    expect(page.querySelectorAll('tbody tr.work-row')).toHaveLength(9);
+    expect(page.querySelectorAll('tbody tr.work-row')).toHaveLength(10);
     fail = true;
     act(() => source.changed({ works: [41], items: true }));
     await settle();
-    expect(page.querySelectorAll('tbody tr.work-row')).toHaveLength(9);
+    expect(page.querySelectorAll('tbody tr.work-row')).toHaveLength(10);
     expect(page.querySelector('.read-failed')?.textContent).toContain('the server went away');
     fail = false;
     const before = source.reads.items;

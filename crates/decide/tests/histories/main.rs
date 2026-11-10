@@ -34,10 +34,10 @@
 //!   or not as a coin says, the choice as yes or no in four of five and without a value in one), returning with
 //!   nothing in a quarter, and resting at a call in a quarter (the owner's in two of ten, the architect's in one, the
 //!   engine's otherwise); its third round always finishes. A run found stale as its round ends is abandoned, not
-//!   finished, as the engine does. In half the histories of the first test, drawn apart from the rest, a round before
-//!   the third of a cell other than the merge fails in eight in a hundred: it ends with nothing come back and the
-//!   engine pauses the work with the reason, as the engine's loop does; people let the work on as from any pause.
-//! - once people stop, the owner lets the work on if it is paused, whoever paused it.
+//!   finished, as the engine does. In half the histories of the first test that have no judge, drawn apart from the
+//!   rest, a round before the third of a cell other than the merge fails in twelve in a hundred: it ends with nothing
+//!   come back and the engine pauses the work with the reason, as the engine's loop does; people let the work on as
+//!   from any pause, and once they stop the owner lets the work on, whoever paused it.
 //!
 //! A second test draws only the sixth shape, with people acting in the first 0 to 99 steps: its judge then runs while
 //! the cell it judges is skipped, over what a person wrote for that cell, and the cell runs again afterwards, which
@@ -260,7 +260,8 @@ impl History {
         let mut extra = Rng::new(seed ^ 0x0BAD_5EED_CAFE_F00D);
         let judged = (shape.is_none() && extra.chance(50)).then_some(extra);
         let mut failing = Rng::new(seed ^ 0x00FA_11ED_0F0F_0F0F);
-        let failing = (shape.is_none() && failing.chance(50)).then_some(failing);
+        // Rounds fail only in histories with no judge, so that those with one go as they did before rounds failed.
+        let failing = (shape.is_none() && judged.is_none() && failing.chance(50)).then_some(failing);
         let mut w = if judged.is_some() {
             let mut judge = when_flipped(cell("judge", &[BRIEF, "b0"], &[VERDICT]));
             judge.limit = 2;
@@ -477,7 +478,7 @@ impl History {
         if !is_merge
             && rounds < ROUNDS
             && let Some(failing) = &mut self.failing
-            && failing.chance(8)
+            && failing.chance(12)
         {
             self.note(format!("{cell}'s round fails: the engine pauses the work"));
             self.w.fails(cell.as_str(), "the agent could not start");
@@ -763,8 +764,8 @@ fn one_history(seed: u64, drawn: Drawn, log: &mut Vec<String>, verdict: &mut Ver
             }
         }
         h.note("people stop".into());
-        // The owner lets the work on, whoever paused it.
-        if h.paused && !h.cancelled {
+        // In a history whose rounds fail, the owner lets the work on, whoever paused it.
+        if h.failing.is_some() && h.paused && !h.cancelled {
             h.toggle_pause();
         }
         if !h.cancelled {
