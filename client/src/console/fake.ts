@@ -104,6 +104,7 @@ export function fakeShown(count: number): Shown[] {
                   on: [{ kind: 'call', call: 1, who: 'owner', what: { kind: 'question', who: 'owner', question: '?' } }],
                 },
           paused: false,
+          bar: 'mmmtt..mmm',
           cells: cells.map(
             (cell, k): CellNow => ({
               cell,

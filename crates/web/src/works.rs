@@ -69,7 +69,19 @@ pub struct Summary {
     pub spent: Spent,
     /// When something last happened to it; none where nothing has.
     pub last: Option<u64>,
+    /// When its first round began; none before it has one.
+    #[serde(default)]
+    pub from: Option<u64>,
+    /// Where its time went, from its first round's begin to its last round's end (the one under way counted to now),
+    /// cut into [`BAR_CELLS`] equal cells, one character each in order: `m` where an agent's rounds ran most of the
+    /// cell, `t` where an engine cell's rounds or the tools' calls did, `.` where less than half of it was run by
+    /// either; empty for a work with no round or a span with no length.
+    #[serde(default)]
+    pub bar: String,
 }
+
+/// How many equal cells a work's time bar is cut into.
+const BAR_CELLS: u64 = 96;
 
 /// What a work does now.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -679,8 +691,80 @@ impl Summary {
             cells,
             spent: runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)),
             last: work.moments.last().map(|moment| moment.at.0),
+            from: (runs.iter().flat_map(|run| &run.rounds)).map(|round| round.began).min(),
+            bar: bar(kept, &runs),
         })
     }
+}
+
+/// The work's time bar ([`Summary::bar`]): its span from its first round's begin to its last round's end cut into
+/// [`BAR_CELLS`] equal cells, each the character of what ran most of it. A round of an agent's cell is a model's; a
+/// round of an engine cell, and a tool's call from when it was made to when it was done, are the tools'. A call to a
+/// person waits rather than runs.
+fn bar(kept: Kept<'_>, runs: &[Run]) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
+    let agent = |cell: &str| {
+        (kept.flow.cells.iter())
+            .find(|spec| spec.id.as_str() == cell)
+            .is_some_and(|spec| spec.act.is_none())
+    };
+    let rounds = || runs.iter().flat_map(|run| &run.rounds);
+    let end = |round: &Round| round.ended.unwrap_or(now).max(round.began);
+    let (Some(from), Some(until)) = (rounds().map(|r| r.began).min(), rounds().map(end).max()) else {
+        return String::new();
+    };
+    let span = until.saturating_sub(from);
+    if span == 0 {
+        return String::new();
+    }
+    // Times are counted from `from` and multiplied by `BAR_CELLS`, so that cell i is the stretch from `span * i` up to
+    // `span * (i + 1)` and every cell is `span` long, with no edge of a cell divided out for each stretch.
+    let mut stretches: Vec<(u64, u64, bool)> = Vec::new();
+    for run in runs {
+        let model = agent(&run.cell);
+        for round in &run.rounds {
+            stretches.push((round.began, end(round), model));
+        }
+        for call in &run.calls {
+            if matches!(call.what, Call::Tool { .. }) {
+                stretches.push((call.made, call.done.unwrap_or(now).max(call.made), false));
+            }
+        }
+    }
+    let mut in_cell = vec![(0_u64, 0_u64); BAR_CELLS as usize];
+    for (start, stop, model) in stretches {
+        let (start, stop) = (start.clamp(from, until), stop.clamp(from, until));
+        if stop <= start {
+            continue;
+        }
+        let (s, e) = ((start - from) * BAR_CELLS, (stop - from) * BAR_CELLS);
+        let first = (s / span).min(BAR_CELLS - 1);
+        let last = (e.saturating_sub(BAR_CELLS) / span).min(BAR_CELLS - 1);
+        for i in first..=last {
+            let lo = span * i;
+            let overlap = e.min(lo + span).saturating_sub(s.max(lo));
+            let cell = &mut in_cell[i as usize];
+            if model {
+                cell.0 += overlap;
+            } else {
+                cell.1 += overlap;
+            }
+        }
+    }
+    (in_cell.iter())
+        .map(|&(model, tool)| {
+            // A cell that models and tools together ran less than half of, or none, is no one's.
+            if (model + tool) * 2 < span {
+                '.'
+            } else if model >= tool {
+                'm'
+            } else {
+                't'
+            }
+        })
+        .collect()
 }
 
 impl Now {

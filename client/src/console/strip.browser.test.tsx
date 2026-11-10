@@ -40,6 +40,7 @@ const working = (id: number, cells: CellNow[]): Shown => ({
     number: id,
     now: { kind: 'round', cell: 'c1', run: 1, round: 1, since: Date.now() },
     paused: false,
+    bar: '',
     cells,
     from: Date.now(),
     usdMicros: 12_340_000,

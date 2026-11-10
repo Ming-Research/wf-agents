@@ -21,7 +21,11 @@ export type ShownWork = {
   /// No round of it begins; a round under way goes on.
   paused: boolean;
   cells: CellNow[];
+  /// When its first round began, from which its age is counted; when it was added, before it has a round or from an
+  /// engine that does not say.
   from: number;
+  /// Where its time went, in equal cells (`Summary.bar`); empty where the engine does not say.
+  bar: string;
   usdMicros: number;
   last: number | null;
 };
@@ -125,7 +129,8 @@ export function shownTree(data: Items): Shown[] {
               now: w.now,
               paused: w.paused,
               cells: w.cells,
-              from: w.added,
+              from: w.from ?? w.added,
+              bar: w.bar ?? '',
               usdMicros: w.spent.usdMicros,
               last: w.last,
             }

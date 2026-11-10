@@ -101,6 +101,12 @@ export interface Summary {
   spent: Spent;
   /// When something last happened to it.
   last: number | null;
+  /// When its first round began; none before it has one. Absent from an engine that does not give it yet.
+  from?: number | null;
+  /// Where its time went, from its first round's begin to its last round's end, cut into equal cells, one character
+  /// each: `m` an agent's rounds, `t` an engine cell's rounds or the tools' calls, `.` neither. Empty with no round;
+  /// absent from an engine that does not give it yet.
+  bar?: string;
 }
 
 export interface Item {

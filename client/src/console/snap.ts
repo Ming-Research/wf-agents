@@ -21,7 +21,7 @@
 //
 // Brought over from the console of the engine on `main` (`client/src/console/snap.ts`), its layout, its motion and every
 // constant as they were. What changed: a card's second row draws the works page's strip of the work's cells where it
-// drew the stages, and what the work has taken where it drew where its time went; the marks the new interface has
+// drew the stages; the marks the new interface has
 // nothing for (an item new to the owner, messages unread, returns sent back) are gone; the colours the page's tokens
 // came from are read from the tokens, so that the canvas follows light and dark; and the canvas follows the size of
 // what holds it, which the docked panel changes, besides the window's.
@@ -132,6 +132,10 @@ const LIGHT = {
   over: '#7891fc',
   /// The words on a filled tag.
   onTag: '#ffffff',
+  /// Where a work's time went: a model's, the tools', idle.
+  model: '#4b5563',
+  tools: '#9ca3af',
+  idle: '#e5e7eb',
   /// What joins an item to those under it: Primer's neutral muted, `#818b981f` in light and `#656c7633` in dark, as
   /// the console on `main` read it, a little lighter.
   other: '#818b98',
@@ -185,6 +189,10 @@ export function themed(): typeof LIGHT {
     violet: t.chosen,
     other: '#656c76',
     otherAlpha: 0.85 * (0x33 / 255),
+    // Where a work's time went, its greys turned over for the dark card: a model's the strongest, idle the faintest.
+    model: between(t.ink, t.card, 0.3),
+    tools: between(t.muted, t.card, 0.3),
+    idle: between(t.hair, t.card, 0.2),
   };
 }
 
@@ -660,8 +668,8 @@ export class SnapScene {
   /// The node of an item: a card, white, or while a work goes on on it a faint tint of the colour of what the work does
   /// with an edge of a deeper shade of it; its edge the accent's tint above a work. On its first row its number in its
   /// state's colour, its title, and at the right how many things its work waits for from the owner, white on red; on
-  /// the second row, for an item whose work goes on, the strip of the work's cells as the works page draws it, what the
-  /// work has taken, and how long it has gone on.
+  /// the second row, for an item whose work goes on, the strip of the work's cells as the works page draws it, where
+  /// its time went, and how long it has gone on.
   private node(item: Shown, k: number): Container {
     const s = this.styles as Styles;
     const view = new Container();
@@ -727,14 +735,19 @@ export class SnapScene {
     if (item.work === null || mood === null) return view;
     const w = item.work;
     const row2 = top + h - (WORK_ROW * ROW) / 2 - 3;
-    // What the work has taken, where the line of where its time went ended, before how long it has gone on.
-    const spent = new BitmapText({ text: dollars(w.usdMicros), style: s.mono(PALETTE.muted) });
-    spent.position.set(NODE_W - 8 - 36 - spent.width, row2 - spent.height / 2);
-    // The second row: the work's strip, as the works page draws it, ending short of what the work has taken.
-    this.strip(view, item.id, k, w.cells, x, row2, spent.x - 8);
+    // Where its time went, on a thin line: a model's, the tools', or idle; nothing where the engine does not say.
+    const barW = 70;
+    const barX = NODE_W - 8 - 36 - barW;
+    const cells = [...w.bar];
+    const kind = { m: PALETTE.model, t: PALETTE.tools, '.': PALETTE.idle };
+    const cw = barW / Math.max(1, cells.length);
+    const track = new Graphics();
+    cells.forEach((c, i) => track.rect(barX + i * cw, row2 - 1, cw, 2).fill(kind[c as 'm' | 't' | '.'] ?? kind['.']));
+    // The second row: the work's strip, as the works page draws it, ending short of where its time went.
+    this.strip(view, item.id, k, w.cells, x, row2, barX - 8);
     // How long it has gone on, at the right, its colour by its age; the label is kept up as time passes.
     const label = new BitmapText({ text: '', style: s.mono(PALETTE.muted) });
-    view.addChild(spent, label);
+    view.addChild(track, label);
     this.ages.set(k, { from: w.from, label, shown: '', row: row2 });
     this.age(k);
     return view;
