@@ -136,12 +136,29 @@ describe('the chart', () => {
     click(heads[0]);
     const plan = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
     expect(texts(plan, '.panel-part-label')).toEqual(['Task', 'Session', 'Reads 2', 'May write 1']);
-    expect(plan.querySelector('.panel-task')?.textContent).toBe('Write the plan from the request.\nSay what it leaves out.');
+    expect(plan.querySelector('.content')?.textContent).toBe('Write the plan from the request.\nSay what it leaves out.');
     click(heads[4]);
     const check = page.querySelector('aside[aria-label="Cell check"]') as HTMLElement;
     expect(texts(check, '.panel-part-label')).toEqual(['Act', 'Reads 2', 'May write 1']);
     const act = [...check.querySelectorAll('.panel-part')].find((p) => p.querySelector('.panel-part-label')?.textContent === 'Act');
     expect(act?.querySelector('.mono')?.textContent).toBe('check');
+  });
+
+  it('shows a change of a task with the line breaks of what it was and what it is, each on its own', () => {
+    const was = 'Write the plan.\nSay what it leaves out.';
+    const is = 'Write the plan.\n\nSay what it leaves out.';
+    const page = draw(
+      { state: 'compiled', flow: flowOf([cell('a', { task: is, outputs: ['x'] })], { x: { shown: true } }) },
+      {
+        state: 'compared',
+        against: { state: 'compiled', flow: flowOf([cell('a', { task: was, outputs: ['x'] })], { x: { shown: true } }) },
+        changes: [{ kind: 'task', cell: 'a', before: was, after: is }],
+      },
+    );
+    const change = page.querySelector('.changes .change') as HTMLElement;
+    expect(change.querySelector('del.change-text')?.textContent).toBe(was);
+    expect(change.querySelector('ins.change-text')?.textContent).toBe(is);
+    expect(change.textContent).not.toContain('→');
   });
 
   it('shows everything about a block chosen by its row’s name', () => {

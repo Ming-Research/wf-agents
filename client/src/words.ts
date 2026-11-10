@@ -63,15 +63,15 @@ export function faultWords(fault: Fault): string {
     case 'noSuchLine':
       return `The line ${w.line} is not declared in flow.toml.`;
     case 'noTask':
-      return "An agent's cell has no task: its agent would be told nothing to do.";
+      return "An agent's cell has no task, or one of no words: its agent would be told nothing to do.";
     case 'engineHasTask':
       return "An engine's cell has a task, which no agent reads.";
     case 'noAct':
       return "An engine's cell names no act to carry it out.";
     case 'agentHasAct':
-      return `An agent carries the cell out, but it names the act ${w.act}.`;
+      return `An agent carries the cell out, but the cell names the act "${w.act}".`;
     case 'unknownAct':
-      return `The engine has no act named ${w.act}.`;
+      return `The engine has no act named "${w.act}".`;
     case 'valuesEmpty':
       return 'A choice has no values to choose from.';
     case 'noSuchBlock':

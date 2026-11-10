@@ -297,11 +297,13 @@ fn words(what: &FaultKind) -> String {
         F::NoLine => "an agent's cell names no line to run in".to_string(),
         F::EngineHasLine { line } => format!("an engine's cell runs in no session, but names the line {line}"),
         F::NoSuchLine { line } => format!("the line {line} is not declared in flow.toml"),
-        F::NoTask => "an agent's cell has no task: its agent would be told nothing to do".to_string(),
+        F::NoTask => {
+            "an agent's cell has no task, or one of no words: its agent would be told nothing to do".to_string()
+        }
         F::EngineHasTask => "an engine's cell has a task, which no agent reads".to_string(),
         F::NoAct => "an engine's cell names no act to carry it out".to_string(),
-        F::AgentHasAct { act } => format!("an agent carries the cell out, but it names the act {act}"),
-        F::UnknownAct { act } => format!("the engine has no act named {act}"),
+        F::AgentHasAct { act } => format!("an agent carries the cell out, but the cell names the act \"{act}\""),
+        F::UnknownAct { act } => format!("the engine has no act named \"{act}\""),
         F::ValuesEmpty => "a choice has no values to choose from".to_string(),
         F::NoSuchBlock { block } => format!("the block {block} is not declared in flow.toml"),
         F::NoWriter { block } => format!("nothing writes {block}: no cell of the order, no person and nothing outside"),

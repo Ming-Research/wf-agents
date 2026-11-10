@@ -122,7 +122,7 @@ describe('the words of the page', () => {
       faultWords({ file: 'design.toml', field: 'when.block', what: { kind: 'conditionNotWrittenBefore', block: 'go' } }),
     ).toBe('The condition reads go, which neither a cell before this one, people nor the outside write.');
     expect(faultWords({ file: 'plan.toml', field: 'task', what: { kind: 'noTask' } })).toBe(
-      "An agent's cell has no task: its agent would be told nothing to do.",
+      "An agent's cell has no task, or one of no words: its agent would be told nothing to do.",
     );
     expect(faultWords({ file: 'check.toml', field: 'task', what: { kind: 'engineHasTask' } })).toBe(
       "An engine's cell has a task, which no agent reads.",
@@ -131,10 +131,14 @@ describe('the words of the page', () => {
       "An engine's cell names no act to carry it out.",
     );
     expect(faultWords({ file: 'plan.toml', field: 'act', what: { kind: 'agentHasAct', act: 'merge' } })).toBe(
-      'An agent carries the cell out, but it names the act merge.',
+      'An agent carries the cell out, but the cell names the act "merge".',
     );
     expect(faultWords({ file: 'check.toml', field: 'act', what: { kind: 'unknownAct', act: 'deploy' } })).toBe(
-      'The engine has no act named deploy.',
+      'The engine has no act named "deploy".',
+    );
+    // A name padded or empty shows as it is written.
+    expect(faultWords({ file: 'check.toml', field: 'act', what: { kind: 'unknownAct', act: 'merge ' } })).toBe(
+      'The engine has no act named "merge ".',
     );
   });
 });
