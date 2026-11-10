@@ -9,7 +9,7 @@ import { type BlockRow, type CellColumn, type Matrix, markOf, where } from './ma
 import { ListRow, Panel, PanelPart, STATUS_WORDS, type Status, StatusLine } from './parts';
 
 /// Whether the panel is folded away, and the way to fold it or bring it back.
-export type Fold = { folded: boolean; onFold: () => void };
+export type Fold = { folded: boolean; onFold: () => void; edge?: ReactNode };
 
 /// The status line of what a change did to a thing, when it did anything.
 function ChangeStatus({ status, changes }: { status: Status; changes: number }) {
@@ -212,7 +212,15 @@ export function CellPanel(props: {
       label={`Cell ${cell.id}`}
       id={cell.id}
       title={cell.title}
-      belongs={cell.kind === 'agent' ? `${runBy(cell)} line` : 'engine'}
+      belongs={
+        cell.kind === 'agent' ? (
+          <>
+            <span className="line-name">{runBy(cell)}</span> line
+          </>
+        ) : (
+          'engine'
+        )
+      }
       lines={
         <>
           <ChangeStatus status={column.status} changes={changes.length} />
@@ -231,6 +239,7 @@ export function CellPanel(props: {
           {cell.preconditions.length > 0 && (
             <StatusLine word="Waits until">{cell.preconditions.map((p) => p.words).join('; ')}</StatusLine>
           )}
+          <OwnLimits cell={cell} flow={flow} />
         </>
       }
       {...fold}
@@ -276,7 +285,7 @@ export function CellPanel(props: {
         </ul>
       </PanelPart>
 
-      <PanelPart label="May write" count={cell.outputs.length} last>
+      <PanelPart label="May write" count={cell.outputs.length} last={changes.length > 0}>
         <ul className="uses">
           {cell.outputs.map((name) => {
             const block = blocks.get(name) as Block;
@@ -298,21 +307,19 @@ export function CellPanel(props: {
         </ul>
       </PanelPart>
 
-      <PanelPart label="Limits" last={changes.length > 0}>
-        <ul className="uses">
-          {(['runs', 'returns', 'calls'] as const).map((limit) => (
-            <ListRow key={limit}>
-              <span className="mono">{cell.limits[limit]}</span>
-              <span>{LIMIT_WORDS[limit]}</span>
-              <span className="muted">
-                {cell.limits[limit] === flow.limits[limit] ? "the flow's" : `its own; the flow's is ${flow.limits[limit]}`}
-              </span>
-            </ListRow>
-          ))}
-        </ul>
-      </PanelPart>
       <ChangesHere changes={changes} />
     </Panel>
+  );
+}
+
+/// The limits a cell sets of its own, where they differ from the flow's, which the view's line says once.
+function OwnLimits({ cell, flow }: { cell: Cell; flow: Flow }) {
+  const own = (['runs', 'returns', 'calls'] as const).filter((l) => cell.limits[l] !== flow.limits[l]);
+  if (own.length === 0) return null;
+  return (
+    <StatusLine word="Limits of its own">
+      {own.map((l) => `${cell.limits[l]} ${LIMIT_WORDS[l]} (the flow's: ${flow.limits[l]})`).join(', ')}
+    </StatusLine>
   );
 }
 

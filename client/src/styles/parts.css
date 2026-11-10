@@ -145,7 +145,7 @@ button {
 }
 
 .view-facts {
-  flex: 1 1 var(--chart-names);
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
   color: var(--muted);

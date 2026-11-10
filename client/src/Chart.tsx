@@ -5,7 +5,7 @@
 // every way back shows at a glance. The blocks' names stay in place as the chart scrolls sideways, and the cells' heads
 // as it scrolls down, in the chart's own frame.
 
-import { useEffect, useRef, useState } from 'react';
+import { type CSSProperties, type RefObject, useEffect, useRef, useState } from 'react';
 
 import type { Block, Cell, Change } from './api';
 import {
@@ -18,7 +18,8 @@ import {
   type Spot,
   hasMark,
 } from './matrix';
-import { STATUS_WORDS, Sign, Tag } from './parts';
+import { Edge, STATUS_WORDS, Sign, Tag } from './parts';
+import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from './sizes';
 import { conditionWords } from './words';
 
 /// What the owner chose: a cell, a block, or nothing.
@@ -133,6 +134,40 @@ export function Breakable({ name }: { name: string }) {
   );
 }
 
+/// The widths the chart's columns take, in pixels: the names' column at first, and a cell's column at least, at most
+/// when the cells share the free width evenly, and at most when dragged. Kept in step with tokens.css.
+export const WIDTHS = { names: 200, namesMin: 120, namesMax: 480, cellMin: 88, cellShare: 160, cellMax: 480 };
+
+/// How wide the table is: the whole width of its frame, the cells sharing evenly what the names' column and the cells
+/// whose width was dragged leave, each up to `cellShare`, so that a few cells on a wide window do not grow absurd; and
+/// at least as wide as every column at its least, the frame scrolling sideways below that.
+export function tableWidth(names: number, cells: string[], dragged: Record<string, number>): { width: string; minWidth: string } {
+  const set = cells.reduce((n, c) => n + (dragged[c] ?? 0), 0);
+  const free = cells.filter((c) => dragged[c] === undefined).length;
+  const most = names + set + free * WIDTHS.cellShare;
+  const least = names + set + free * WIDTHS.cellMin;
+  return { width: `min(100%, ${most}px)`, minWidth: `${least}px` };
+}
+
+/// Scrolls the frame by a wheel or a trackpad wherever the pointer is over it, the fixed row of heads and the fixed
+/// column of names too, which a browser may leave unscrolled.
+function useWheel(frame: RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    const el = frame.current;
+    if (!el) return;
+    const wheel = (e: WheelEvent) => {
+      const over = e.target instanceof Element ? e.target.closest('thead, th.lead') : null;
+      if (!over || e.ctrlKey) return;
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? el.clientHeight : 1;
+      const [dx, dy] = e.shiftKey && e.deltaX === 0 ? [e.deltaY, 0] : [e.deltaX, e.deltaY];
+      e.preventDefault();
+      el.scrollBy({ left: dx * unit, top: dy * unit });
+    };
+    el.addEventListener('wheel', wheel, { passive: false });
+    return () => el.removeEventListener('wheel', wheel);
+  }, [frame]);
+}
+
 interface ChartProps {
   matrix: Matrix;
   chosen: Chosen;
@@ -143,6 +178,15 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
   const { blocks, cells, spots } = matrix;
   const [pointed, setPointed] = useState<number | null>(null);
   const frame = useRef<HTMLDivElement>(null);
+  const [names, setNames] = useKeptWidth(WIDTH_KEYS.names, WIDTHS.namesMin, WIDTHS.namesMax);
+  const [widths, setWidth] = useKeptWidths(WIDTH_KEYS.cells, WIDTHS.cellMin, WIDTHS.cellMax);
+  useWheel(frame);
+  const namesWidth = names ?? WIDTHS.names;
+  const size = tableWidth(
+    namesWidth,
+    cells.map((c) => c.id),
+    widths,
+  );
 
   // What is chosen elsewhere (the list of changes, a panel) is brought into view in the frame.
   useEffect(() => {
@@ -157,11 +201,25 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
 
   return (
     <div className="frame" ref={frame} onMouseLeave={() => setPointed(null)}>
-      <table className="matrix">
+      <table className="matrix" style={size as CSSProperties}>
+        <colgroup>
+          <col style={{ width: namesWidth }} />
+          {cells.map((column) => (
+            <col key={column.id} style={widths[column.id] !== undefined ? { width: widths[column.id] } : undefined} />
+          ))}
+        </colgroup>
         <thead>
           <tr>
-            <th className="lead corner" scope="col">
-              <span className="label">Block</span>
+            <th className="lead corner" scope="col" aria-label="Blocks down the side, cells across">
+              <span className="label corner-cells">Cells →</span>
+              <span className="label corner-blocks">Blocks ↓</span>
+              <Edge
+                side="right"
+                label="Drag the width of the blocks' names"
+                start={() => namesWidth}
+                onDrag={setNames}
+                onReset={() => setNames(null)}
+              />
             </th>
             {cells.map((column, c) => (
               <CellHead
@@ -171,6 +229,7 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
                 pointed={pointed === c}
                 onChoose={() => onChoose(chosenCell === column.id ? null : { cell: column.id })}
                 onPoint={() => setPointed(c)}
+                onWidth={(w) => setWidth(column.id, w)}
               />
             ))}
           </tr>
@@ -213,8 +272,11 @@ function CellHead(props: {
   pointed: boolean;
   onChoose: () => void;
   onPoint: () => void;
+  /// Sets the column's width as dragged, or, with none, lets the cells share the width again.
+  onWidth: (width: number | null) => void;
 }) {
-  const { column, chosen, pointed, onChoose, onPoint } = props;
+  const { column, chosen, pointed, onChoose, onPoint, onWidth } = props;
+  const head = useRef<HTMLTableCellElement>(null);
   const cell = (column.cell ?? column.other) as Cell;
   const changed = (...kinds: Change['kind'][]) => (kinds.some((k) => column.changed.has(k)) ? 'changed-field' : '');
   const when = cell.condition ? `runs when ${conditionWords(cell.condition)}` : '';
@@ -227,11 +289,12 @@ function CellHead(props: {
       }`}
       data-key={`cell:${column.id}`}
       onMouseEnter={onPoint}
+      ref={head}
     >
       <button type="button" className="head-button" aria-pressed={chosen} onClick={onChoose}>
         <span className={`cell-id ${changed('cellMoved')}`}>{column.id}</span>
         <span className={`cell-title ${changed('title')}`}>{cell.title}</span>
-        <span className={`cell-line ${changed('kind', 'line')}`}>
+        <span className={`cell-line ${cell.kind === 'agent' ? 'line-name' : ''} ${changed('kind', 'line')}`}>
           <Breakable name={runBy(cell)} />
         </span>
         {when && (
@@ -249,6 +312,13 @@ function CellHead(props: {
         )}
         <Tag status={column.status} />
       </button>
+      <Edge
+        side="right"
+        label={`Drag the width of ${column.id}'s column`}
+        start={() => head.current?.getBoundingClientRect().width ?? WIDTHS.cellShare}
+        onDrag={onWidth}
+        onReset={() => onWidth(null)}
+      />
     </th>
   );
 }

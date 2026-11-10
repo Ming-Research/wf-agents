@@ -2,7 +2,7 @@
 // tag, a label, a list row, the docked panel, and the few signs the chart's heads use. Each is drawn by its class in
 // styles/parts.css from the tokens in styles/tokens.css.
 
-import type { ReactNode } from 'react';
+import type { PointerEvent as Press, ReactNode } from 'react';
 
 /// The bar: the page's name, the views as text tabs (the one shown marked), and at its right what belongs to the page
 /// as a whole.
@@ -66,6 +66,52 @@ export function Switch<T extends string>({ label, choices, value, onChange }: {
   );
 }
 
+/// An edge the owner drags to change the width of what it is the edge of: a hairline that shows under the pointer and
+/// the cursor of a resize. `onDrag` is told the width at the start of the drag and how far the pointer has moved since
+/// (to the right for an edge at the right, to the left for one at the left); a double click resets the width.
+export function Edge({ side, label, start, onDrag, onReset }: {
+  side: 'left' | 'right';
+  label: string;
+  /// The width when a drag starts.
+  start: () => number;
+  onDrag: (width: number) => void;
+  onReset: () => void;
+}) {
+  const press = (e: Press<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const el = e.currentTarget;
+    const from = e.clientX;
+    const was = start();
+    el.setPointerCapture(e.pointerId);
+    const move = (m: PointerEvent) => onDrag(was + (side === 'right' ? m.clientX - from : from - m.clientX));
+    const up = () => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  };
+  return (
+    <div
+      className={`edge edge-${side}`}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      title={`${label}; a double click sets it back`}
+      onPointerDown={press}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onReset();
+      }}
+      onClick={(e) => e.stopPropagation()}
+    />
+  );
+}
+
 /// What a change did to a thing.
 export type Status = 'same' | 'added' | 'removed' | 'changed';
 
@@ -103,20 +149,24 @@ export function LinkButton({ onClick, children }: { onClick: () => void; childre
 /// The panel docked at the right of a view, laid out as the console's drawer: a handle on its left edge that folds it
 /// away and brings it back; a head with the thing's id and title on one line and what it belongs to at the right; one
 /// or more status lines under it; then its sections; and room at its bottom for a box that answers (`foot`).
-export function Panel({ label, id, title, belongs, lines, folded, onFold, foot, children }: {
+export function Panel({ label, id, title, belongs, lines, folded, onFold, foot, edge, children }: {
   /// What the panel is about, for a reader of the screen.
   label: string;
   id?: ReactNode;
-  title: ReactNode;
+  /// None for a panel that has nothing to show yet, which has no head.
+  title?: ReactNode;
   belongs?: ReactNode;
   lines?: ReactNode;
   folded: boolean;
   onFold: () => void;
   foot?: ReactNode;
+  /// The edge that drags the panel's width.
+  edge?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <aside className={folded ? 'drawer drawer-folded' : 'drawer'} aria-label={label}>
+      {!folded && edge}
       <button
         type="button"
         className="drawer-tab"
@@ -128,11 +178,13 @@ export function Panel({ label, id, title, belongs, lines, folded, onFold, foot, 
         {folded ? '‹' : '›'}
       </button>
       <div className="drawer-inner" hidden={folded}>
-        <header className="drawer-head">
-          {id !== undefined && <span className="drawer-id">{id}</span>}
-          <h2 className="drawer-title">{title}</h2>
-          {belongs !== undefined && <span className="drawer-belongs">{belongs}</span>}
-        </header>
+        {title !== undefined && (
+          <header className="drawer-head">
+            {id !== undefined && <span className="drawer-id">{id}</span>}
+            <h2 className="drawer-title">{title}</h2>
+            {belongs !== undefined && <span className="drawer-belongs">{belongs}</span>}
+          </header>
+        )}
         {lines}
         <div className="drawer-body">{children}</div>
         {foot !== undefined && <div className="drawer-foot">{foot}</div>}

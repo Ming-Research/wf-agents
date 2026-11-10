@@ -35,15 +35,12 @@
   --focus: 2px;
   --hover-time: 100ms;
 
-  /* The docked panel's width, and the height of the handle on its edge. */
+  /* The docked panel's width until the owner drags it, and the height of the handle on its edge. */
   --panel: 360px;
   --chart-tab: 72px;
 
-  /* The chart's own sizes: the blocks' names, the narrowest and widest a cell's column gets, the mark and the room its
-     row line stops short of, the way back's line and arrow. */
-  --chart-names: 200px;
-  --chart-cell-min: 64px;
-  --chart-cell-max: 120px;
+  /* The chart's own sizes: the mark and the room its row line stops short of, the way back's line and arrow. The
+     columns' widths are worked out in Chart.tsx (WIDTHS), where the owner's drags are kept. */
   --chart-mark: 16px;
   --chart-mark-half: 8px;
   --chart-line: 1px;

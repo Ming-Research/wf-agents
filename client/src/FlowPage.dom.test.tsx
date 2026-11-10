@@ -188,3 +188,64 @@ describe('the page round the view', () => {
     expect(drawer()).toBeNull();
   });
 });
+
+describe('the panel and the widths', () => {
+  afterEach(() => localStorage.clear());
+
+  it('has its handle from the start, folded, and opened with nothing chosen says what to choose', () => {
+    const page = draw({ state: 'compiled', flow: small() });
+    const drawer = page.querySelector('aside[aria-label="Nothing chosen"]') as HTMLElement;
+    expect(drawer.querySelector('.drawer-tab')).not.toBeNull();
+    expect(drawer.querySelector('.drawer-inner')?.hasAttribute('hidden')).toBe(true);
+    expect(page.querySelector('.view-body')?.className).toContain('panel-folded');
+    click(drawer.querySelector('.drawer-tab'));
+    expect(drawer.textContent).toContain("Choose a cell's head or a block's name");
+    expect(page.querySelector('.view-body')?.className).not.toContain('panel-folded');
+  });
+
+  it('opens with the list of changes when comparing', () => {
+    const flow = small();
+    const page = draw(
+      { state: 'compiled', flow },
+      { state: 'compared', against: { state: 'compiled', flow }, changes: [] },
+    );
+    const drawer = page.querySelector('aside[aria-label="What changed"]') as HTMLElement;
+    expect(drawer.querySelector('.drawer-inner')?.hasAttribute('hidden')).toBe(false);
+  });
+
+  it('says the flow’s limits once, in the view’s line, and a cell’s own limit in its panel', () => {
+    const page = draw({ state: 'compiled', flow: small() });
+    expect(page.querySelector('.view-facts')?.textContent).toBe(
+      'Limits of a cell: 3 ways round in a row, 2 returns sent back, 40 calls',
+    );
+    click(page.querySelectorAll('thead .cell-head .head-button')[0]);
+    const plan = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
+    expect(plan.textContent).not.toContain('Limit');
+    click(page.querySelectorAll('thead .cell-head .head-button')[3]);
+    const answer = page.querySelector('aside[aria-label="Cell answer"]') as HTMLElement;
+    expect(texts(answer, '.status-line')).toContain(
+      "Limits of its own5 runs in a row that are ways round (the flow's: 3)",
+    );
+  });
+
+  it('labels the corner for both: the cells to its right, the blocks under it', () => {
+    const page = draw({ state: 'compiled', flow: small() });
+    expect(texts(page, '.corner .label')).toEqual(['Cells →', 'Blocks ↓']);
+  });
+
+  it('marks the lines’ names, not the engine', () => {
+    const page = draw({ state: 'compiled', flow: small() });
+    const lines = [...page.querySelectorAll('thead .cell-line')].map((e) => [
+      e.textContent,
+      e.classList.contains('line-name'),
+    ]);
+    expect(lines).toEqual([
+      ['engineer', true],
+      ['review', true],
+      ['engineer', true],
+      ['engineer', true],
+      ['engine', false],
+      ['engine', false],
+    ]);
+  });
+});

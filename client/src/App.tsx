@@ -4,15 +4,19 @@
 // change to the flow here, so when there is a definition to compare against, what changed is marked on the chart and
 // listed in the panel.
 
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { type Comparison, type Definition, type Flow, load } from './api';
 import { Chart, type Chosen, Legend } from './Chart';
 import { type Version, changeBlock, changeCell, matrix } from './matrix';
-import { Bar, Panel, StatusLine, Switch } from './parts';
+import { Bar, Edge, Panel, StatusLine, Switch } from './parts';
+import { WIDTH_KEYS, useKeptWidth } from './sizes';
 import { BlockPanel, CellPanel, ChangesList, Faults, type Fold } from './Side';
 import { type Theme, useTheme } from './theme';
 import { LIMIT_WORDS } from './words';
+
+/// The panel's width at first, and the least and most it is dragged to.
+const PANEL = { first: 360, min: 280, max: 720 };
 
 type Loaded = { definition: Definition; comparison: Comparison } | { failed: string };
 
@@ -75,7 +79,9 @@ function limitsHint(flow: Flow): string {
 export function FlowPage({ definition, comparison }: { definition: Definition; comparison: Comparison }) {
   const [version, setVersion] = useState<Version>('after');
   const [chosen, setChosen] = useState<Chosen>(null);
-  const [folded, setFolded] = useState(false);
+  // The panel is folded away at first, unless there is a list of changes to read in it.
+  const [folded, setFolded] = useState(() => comparison.state !== 'compared' || comparison.changes === null);
+  const [panelWidth, setPanelWidth] = useKeptWidth(WIDTH_KEYS.panel, PANEL.min, PANEL.max);
 
   const after = definition.state === 'compiled' ? definition.flow : undefined;
   const against = comparison.state === 'compared' ? comparison.against : undefined;
@@ -125,9 +131,22 @@ export function FlowPage({ definition, comparison }: { definition: Definition; c
   const column = chosen && 'cell' in chosen ? drawn.cells.find((c) => c.id === chosen.cell) : undefined;
   const row = chosen && 'block' in chosen ? drawn.blocks.find((b) => b.name === chosen.block) : undefined;
   const flowOf = (inShown: boolean) => (inShown ? shownFlow : shownFlow === after ? (before ?? after) : after);
-  const fold: Fold = { folded, onFold: () => setFolded((f) => !f) };
+  const edge = (
+    <Edge
+      side="left"
+      label="Drag the panel's width"
+      start={() => panelWidth ?? PANEL.first}
+      onDrag={setPanelWidth}
+      onReset={() => setPanelWidth(null)}
+    />
+  );
+  const fold: Fold = { folded, onFold: () => setFolded((f) => !f), edge };
 
-  let panel = null;
+  let panel = (
+    <Panel label="Nothing chosen" {...fold}>
+      <p className="muted">Choose a cell's head or a block's name to see everything about it</p>
+    </Panel>
+  );
   if (column) {
     panel = (
       <CellPanel
@@ -191,7 +210,10 @@ export function FlowPage({ definition, comparison }: { definition: Definition; c
           <Legend waysBack={drawn.waysBack} comparing={comparing} />
         </span>
       </div>
-      <main className={`view-body ${panel ? 'with-panel' : ''} ${folded ? 'panel-folded' : ''}`}>
+      <main
+        className={`view-body with-panel ${folded ? 'panel-folded' : ''}`}
+        style={panelWidth !== null ? ({ '--panel-width': `${panelWidth}px` } as CSSProperties) : undefined}
+      >
         <Chart matrix={drawn} chosen={chosen} onChoose={choose} />
         {panel}
       </main>
