@@ -105,7 +105,8 @@ fn a_work_goes_from_cell_to_cell_as_each_hands_in_and_rests_at_the_merge_for_the
     };
     let (write, cell, given) = round(&handle(&flow, &tests, &mut work, Time(1), request).unwrap());
     assert_eq!(cell, "write");
-    assert!(matches!(&given, Given::Task { because, .. } if because == &[Cause::NoRecord]));
+    assert_eq!(given, Given::Task);
+    assert_eq!(work.records.started[0].because, [Cause::NoRecord]);
     // While the round is under way it is what a driver that starts anew is given again.
     assert_eq!(round(&pending(&work)), (write, cell, given));
 

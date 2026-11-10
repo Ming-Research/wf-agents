@@ -27,7 +27,8 @@ CREATE TABLE depends (
     CHECK (on_item < item)
 );
 
--- A work done for an item, on the flow it names. Its number is given by the store, counting from one.
+-- A work done for an item, on a flow. Its number is given by the store, counting from one. `flow` is the flow's name
+-- only: which version of the flow the work ran on is not kept yet.
 CREATE TABLE works (
     number INTEGER PRIMARY KEY,
     item INTEGER NOT NULL REFERENCES items (number),
@@ -181,8 +182,8 @@ CREATE TABLE given (
     FOREIGN KEY (work, run) REFERENCES started (work, run)
 );
 
--- What came back at the end of a round of a run (JSON), the first round being one. A round of a run that was
--- abandoned while it was under way has none: what came back from it was dropped.
+-- What came back at the end of a round of a run (JSON), the first round being one. A round that ended after its run
+-- was abandoned has none: what came back from it was dropped.
 CREATE TABLE back (
     work INTEGER NOT NULL,
     run INTEGER NOT NULL,

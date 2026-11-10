@@ -1,6 +1,8 @@
 //! Storage: what makes the items and the works of the engine outlive the process.
 //!
-//! The engine holds no state: everything kept of a work is its [`Work`], which the engine's loop only adds to. After
+//! The engine holds no state: everything kept of a work is its [`Work`], defined in the crate `work` beneath both the
+//! engine's loop and storage, so that storage does not depend on the loop (entry `engine-in-layers`). The loop only
+//! adds to a work. After
 //! each thing that happens to a work, whatever drives the engine [saves](Store::save) the work, and on starting it
 //! [loads](Store::load) every work. The store also keeps the items, the things to be done: a work is done for one item,
 //! and an item may have several works over time.
@@ -19,8 +21,8 @@ mod tables;
 use std::path::Path;
 
 use decide::{BlockId, CallId, RunId, Seq};
-use engine::{Time, Work};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
+use work::{Time, Work};
 
 pub use items::{Item, ItemNumber, WorkHead, WorkNumber};
 
@@ -148,7 +150,8 @@ impl Store {
         items::items(&self.db)
     }
 
-    /// Adds a work for the item, on the flow named, and gives its number. The work has nothing kept of it yet.
+    /// Adds a work for the item, on the flow of this name, and gives its number. The work has nothing kept of it yet.
+    /// Only the flow's name is kept: which version of the flow the work runs on is not kept yet.
     pub fn add_work(&mut self, item: ItemNumber, flow: &str, at: Time) -> Result<WorkNumber, Fault> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let number = items::add_work(&tx, item, flow, at)?;
@@ -169,7 +172,8 @@ impl Store {
 
     /// Keeps what the work has that the store does not hold yet, in one transaction. What the store holds of it must
     /// be where the given work begins: where it holds an entry the work lacks or holds otherwise, nothing is kept and
-    /// the fault says where. Saving a work the store holds whole keeps nothing.
+    /// the fault says where. Saving a work the store holds whole keeps nothing. Each call reads the whole of what the
+    /// store holds of the work, to compare it with the given work.
     pub fn save(&mut self, work: WorkNumber, given: &Work) -> Result<(), Fault> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         items::known(&tx, work)?;

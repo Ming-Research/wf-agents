@@ -655,6 +655,7 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
 
 #[test]
 fn whole_works_keep_the_engines_properties_with_and_without_stops() {
+    // The hook is the whole process's: this test must stay alone in its binary, or it hides the panics of the others.
     let hook = panic::take_hook();
     panic::set_hook(Box::new(|_| {}));
     let mut failures = Vec::new();

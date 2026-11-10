@@ -19,12 +19,6 @@ fn held() -> (Db, Store, WorkNumber, Work) {
     (db, store, work, d.work)
 }
 
-/// The first run that has an entry in the map, and its entries.
-fn first_run<T>(map: &mut BTreeMap<RunId, Vec<T>>) -> (RunId, &mut Vec<T>) {
-    let (run, list) = map.iter_mut().find(|(_, l)| !l.is_empty()).expect("a run with entries");
-    (*run, list)
-}
-
 /// Each way of changing an entry the store holds: the table that holds it, and the entry it changes.
 type Change = fn(&mut Work) -> (&'static str, Entry);
 
@@ -100,17 +94,17 @@ fn changes() -> Vec<Change> {
             ("contents", entry)
         },
         |w| {
-            let (run, list) = first_run(&mut w.given);
-            list[0] = Given::Results(vec![]);
-            ("given", Entry::Round { run, round: 1 })
+            let (&(run, round), given) = w.given.iter_mut().next().expect("a round given");
+            *given = Given::Results(vec![]);
+            ("given", Entry::Round { run, round })
         },
         |w| {
-            let (run, list) = first_run(&mut w.back);
-            list[0] = match list[0] {
+            let (&(run, round), back) = w.back.iter_mut().next().expect("a round come back");
+            *back = match back {
                 Back::Asked(_) => Back::HandedIn(vec![]),
                 Back::HandedIn(_) => Back::Asked(vec![]),
             };
-            ("back", Entry::Round { run, round: 1 })
+            ("back", Entry::Round { run, round })
         },
         |w| {
             let (call, what) = w.calls.iter_mut().next().expect("a call");
@@ -159,15 +153,11 @@ fn removals() -> Vec<Change> {
             ("contents", Entry::Version { block, at })
         },
         |w| {
-            let (run, list) = first_run(&mut w.given);
-            let round = list.len();
-            list.pop();
+            let ((run, round), _) = w.given.pop_last().expect("a round given");
             ("given", Entry::Round { run, round })
         },
         |w| {
-            let (run, list) = first_run(&mut w.back);
-            let round = list.len();
-            list.pop();
+            let ((run, round), _) = w.back.pop_last().expect("a round come back");
             ("back", Entry::Round { run, round })
         },
         |w| ("calls", Entry::Call(w.calls.pop_last().expect("a call").0)),

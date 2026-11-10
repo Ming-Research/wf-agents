@@ -265,11 +265,20 @@ fn round_effect(run: RunId, cell: &str, number: usize, given: Given) -> Effect {
     }
 }
 
-fn task(because: Vec<Cause>, basis: &[(&str, Option<Seq>)]) -> Given {
-    Given::Task {
-        because,
-        basis: basis.iter().map(|(b, v)| (BlockId::from(*b), *v)).collect(),
-    }
+/// Why a run started and the version of each block it started from, as its first round's task is read with them.
+type Start = (Vec<Cause>, BTreeMap<BlockId, Option<Seq>>);
+
+fn started_with(because: Vec<Cause>, basis: &[(&str, Option<Seq>)]) -> Start {
+    let basis = basis.iter().map(|(b, v)| (BlockId::from(*b), *v)).collect();
+    (because, basis)
+}
+
+/// Why the run started and what it started from, as its entry of the records says.
+fn start_of(w: &W, run: RunId) -> Start {
+    let started = (w.work.records.started.iter())
+        .find(|s| s.run == run)
+        .expect("the run started");
+    (started.because.clone(), started.basis.clone())
 }
 
 fn changed(block: &str, was: Option<Seq>, behind: bool) -> Cause {
@@ -282,12 +291,7 @@ fn changed(block: &str, was: Option<Seq>, behind: bool) -> Cause {
 
 /// What the run's first round was given.
 fn given_of(w: &W, run: RunId) -> Given {
-    w.work
-        .given
-        .get(&run)
-        .and_then(|g| g.first())
-        .expect("a round was given")
-        .clone()
+    w.work.given.get(&(run, 1)).expect("a round was given").clone()
 }
 
 /// The calls given to be made, each with its run and what it is.

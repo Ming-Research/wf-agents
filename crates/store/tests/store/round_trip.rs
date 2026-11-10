@@ -13,14 +13,14 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
     let w = &d.work;
     let r = &w.records;
 
-    let given: Vec<&Given> = w.given.values().flatten().collect();
-    assert!(given.iter().any(|g| matches!(g, Given::Task { .. })), "no task");
+    let given: Vec<&Given> = w.given.values().collect();
+    assert!(given.iter().any(|g| matches!(g, Given::Task)), "no task");
     assert!(given.iter().any(|g| matches!(g, Given::Results(_))), "no results");
     assert!(
         given.iter().any(|g| matches!(g, Given::SentBack(_))),
         "nothing sent back"
     );
-    let back: Vec<&Back> = w.back.values().flatten().collect();
+    let back: Vec<&Back> = w.back.values().collect();
     assert!(back.iter().any(|b| matches!(b, Back::Asked(_))), "nothing asked");
     assert!(back.iter().any(|b| matches!(b, Back::HandedIn(_))), "nothing handed in");
 

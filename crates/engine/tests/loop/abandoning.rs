@@ -19,7 +19,7 @@ fn a_run_at_rest_whose_start_changed_is_abandoned_its_calls_withdrawn_and_its_ce
     let (effects, third) = w.person_writes("request");
     let again = w.work.records.started.last().expect("a run").run;
     let text = w.work.records.finished[0].at;
-    let given = task(
+    let start = started_with(
         vec![changed("request", Some(first), false)],
         &[
             ("request", Some(third)),
@@ -32,9 +32,10 @@ fn a_run_at_rest_whose_start_changed_is_abandoned_its_calls_withdrawn_and_its_ce
         effects,
         vec![
             Effect::Withdraw { call: calls[1] },
-            round_effect(again, "write", 1, given)
+            round_effect(again, "write", 1, Given::Task)
         ]
     );
+    assert_eq!(start_of(&w, again), start);
     assert!(w.work.records.abandoned.iter().any(|a| a.run == rerun));
     // The withdrawal is to be done until the call is said to have its result, which then changes nothing else.
     assert_eq!(pending(&w.work)[0], Effect::Withdraw { call: calls[1] });
@@ -56,7 +57,7 @@ fn a_run_whose_last_round_ends_after_what_it_started_from_changed_is_abandoned_a
     assert!(w.work.records.abandoned.iter().any(|a| a.run == write));
     assert!(!w.work.contents.keys().any(|(b, _)| b.as_str() == "text"));
     let again = w.work.records.started.last().expect("a run").run;
-    let given = task(
+    let start = started_with(
         vec![Cause::NoRecord],
         &[
             ("request", Some(request)),
@@ -65,5 +66,6 @@ fn a_run_whose_last_round_ends_after_what_it_started_from_changed_is_abandoned_a
             ("text", None),
         ],
     );
-    assert_eq!(effects, vec![round_effect(again, "write", 1, given)]);
+    assert_eq!(effects, vec![round_effect(again, "write", 1, Given::Task)]);
+    assert_eq!(start_of(&w, again), start);
 }

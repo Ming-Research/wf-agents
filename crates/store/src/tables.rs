@@ -7,10 +7,10 @@ use decide::{
     Abandoned, BlockId, CallId, Called, CellId, Done, Finished, LetGo, Pause, Returned, Round, RunId, Seq, Started,
     Write, Written,
 };
-use engine::{Moment, Spent, Time, Work};
 use rusqlite::{Connection, Row, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use work::{Moment, Spent, Time, Work};
 
 use crate::{Divergence, Entry, Fault, WorkNumber};
 
@@ -196,21 +196,15 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     .into_iter()
     .collect();
 
-    for (run, given) in rows(
-        db,
-        "SELECT run, given FROM given WHERE work = ?1 ORDER BY run, round",
-        w,
-        |row| Ok((RunId(row.get(0)?), row.get::<_, String>(1)?)),
-    )? {
-        out.given.entry(run).or_default().push(parse("given", &given)?);
+    for (round, given) in rows(db, "SELECT run, round, given FROM given WHERE work = ?1", w, |row| {
+        Ok(((RunId(row.get(0)?), row.get(1)?), row.get::<_, String>(2)?))
+    })? {
+        out.given.insert(round, parse("given", &given)?);
     }
-    for (run, back) in rows(
-        db,
-        "SELECT run, back FROM back WHERE work = ?1 ORDER BY run, round",
-        w,
-        |row| Ok((RunId(row.get(0)?), row.get::<_, String>(1)?)),
-    )? {
-        out.back.entry(run).or_default().push(parse("back", &back)?);
+    for (round, back) in rows(db, "SELECT run, round, back FROM back WHERE work = ?1", w, |row| {
+        Ok(((RunId(row.get(0)?), row.get(1)?), row.get::<_, String>(2)?))
+    })? {
+        out.back.insert(round, parse("back", &back)?);
     }
 
     for (call, what) in rows(db, "SELECT call, what FROM calls WHERE work = ?1", w, |row| {
@@ -284,9 +278,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
             at: *at,
         }
     })?;
-    let (given_by_round, back_by_round) = (by_round(&given.given), by_round(&given.back));
-    let given_rounds = gained("given", &by_round(&held.given), &given_by_round, round_entry)?;
-    let back = gained("back", &by_round(&held.back), &back_by_round, round_entry)?;
+    let given_rounds = gained("given", &held.given, &given.given, round_entry)?;
+    let back = gained("back", &held.back, &given.back, round_entry)?;
     let calls = gained("calls", &held.calls, &given.calls, |c| Entry::Call(*c))?;
     let results = gained("results", &held.results, &given.results, |c| Entry::Call(*c))?;
     let spent = gained("spent", &held.spent, &given.spent, round_entry)?;
@@ -469,13 +462,6 @@ fn gained<'a, K: Ord, V: PartialEq>(
         }
     }
     Ok(given.iter().filter(|(k, _)| !held.contains_key(k)).collect())
-}
-
-/// The rounds of each run, keyed by the run and the round's number, the first being one.
-fn by_round<T>(lists: &BTreeMap<RunId, Vec<T>>) -> BTreeMap<(RunId, usize), &T> {
-    (lists.iter())
-        .flat_map(|(run, list)| (1..).zip(list).map(move |(round, t)| ((*run, round), t)))
-        .collect()
 }
 
 fn round_entry(&(run, round): &(RunId, usize)) -> Entry {

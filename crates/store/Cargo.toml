@@ -9,12 +9,14 @@ repository.workspace = true
 
 [dependencies]
 decide = { path = "../decide" }
-engine = { path = "../engine" }
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+work = { path = "../work" }
 
 [dev-dependencies]
+# The tests make works by driving the engine's loop.
+engine = { path = "../engine" }
 flow = { path = "../flow" }
 tempfile.workspace = true
 

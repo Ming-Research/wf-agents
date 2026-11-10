@@ -1,10 +1,13 @@
 //! What is kept of a work: its records, and the content the records name. Nothing here is changed once it is
 //! written, and nothing is kept that the records already say.
+//!
+//! The engine's loop adds to a [`Work`] and storage keeps it; both depend on this crate, which depends on the deciding
+//! code alone (entry `engine-in-layers`), so that storage does not depend on the loop.
 
 use std::collections::BTreeMap;
 
 use decide::run::{Limit, Unmet};
-use decide::{BlockId, CallId, Cause, Records, RunId, Seq, Who};
+use decide::{BlockId, CallId, Records, RunId, Seq, Who};
 use serde::{Deserialize, Serialize};
 
 /// Everything kept of one work.
@@ -14,10 +17,11 @@ pub struct Work {
     pub records: Records,
     /// The content of each version of each block; the version is named by the place of the entry that wrote it.
     pub contents: BTreeMap<(BlockId, Seq), String>,
-    /// What each round of each run was given, in order.
-    pub given: BTreeMap<RunId, Vec<Given>>,
-    /// What came back at the end of each round of each run, in order.
-    pub back: BTreeMap<RunId, Vec<Back>>,
+    /// What each round that began was given, by its run and its number in the run, the first being one.
+    pub given: BTreeMap<(RunId, usize), Given>,
+    /// What came back at the end of each round that ended while its run was open, by its run and its number in the
+    /// run, the first being one. A round that ended after its run was abandoned has none: what came back was dropped.
+    pub back: BTreeMap<(RunId, usize), Back>,
     /// What each call is.
     pub calls: BTreeMap<CallId, Call>,
     /// The result of each call that has one.
@@ -29,8 +33,9 @@ pub struct Work {
 }
 
 impl Work {
-    /// The next place in the order of what happened to the work: one after the latest entry of its records.
-    pub(crate) fn tick(&self) -> Seq {
+    /// The next place in the order of what happened to the work: one after the latest entry of its records. Whoever
+    /// adds an entry to the records asks for it, and gives the entry this place.
+    pub fn tick(&self) -> Seq {
         let r = &self.records;
         let places = (r.started.iter().map(|e| e.at))
             .chain(r.rounds.iter().map(|e| e.at))
@@ -52,8 +57,9 @@ impl Work {
         self.moments.iter().rev().find(|m| m.from <= place).map(|m| m.at)
     }
 
-    /// A name no run and no call of the work has yet: one after the latest.
-    pub(crate) fn name(&self) -> u64 {
+    /// A name no run and no call of the work has yet: one after the latest. Whoever starts a run or makes a call asks
+    /// for it, and names the run or the call so.
+    pub fn name(&self) -> u64 {
         let r = &self.records;
         let names = (r.started.iter().map(|s| s.run.0)).chain(r.called.iter().map(|c| c.call.0));
         names.max().unwrap_or(0) + 1
@@ -89,11 +95,9 @@ pub struct Spent {
 /// What a round is given.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Given {
-    /// The first round: the cell's task, with why the cell runs and the version of each block it starts from.
-    Task {
-        because: Vec<Cause>,
-        basis: BTreeMap<BlockId, Option<Seq>>,
-    },
+    /// The first round: the cell's task. Why the cell runs and the version of each block it starts from are the
+    /// run's `Started` entry of the records, read there by whoever needs them.
+    Task,
     /// The results of the calls the round before asked for.
     Results(Vec<CallId>),
     /// Why what the round before handed in was sent back.

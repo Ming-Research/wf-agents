@@ -2,8 +2,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use engine::Time;
 use rusqlite::{Connection, OptionalExtension, params};
+use work::Time;
 
 use crate::Fault;
 
@@ -32,7 +32,7 @@ pub struct WorkHead {
     pub number: WorkNumber,
     /// The item it is done for.
     pub item: ItemNumber,
-    /// The flow it runs on.
+    /// The name of the flow it runs on. Which version of the flow it ran on is not kept yet.
     pub flow: String,
     /// When it was added.
     pub added: Time,

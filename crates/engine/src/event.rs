@@ -3,7 +3,7 @@
 use decide::run::Unmet;
 use decide::{BlockId, CallId, CellId, Outsider, RunId};
 
-use crate::work::{Ask, Call, Given, Handed, Spent};
+use work::{Ask, Call, Given, Handed, Spent};
 
 /// One thing that happened to a work.
 #[derive(Clone, Debug, PartialEq, Eq)]

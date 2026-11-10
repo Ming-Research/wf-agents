@@ -85,9 +85,9 @@ fn a_cell_gone_round_to_its_limit_waits_for_the_owner_and_runs_once_let_go_on() 
         .count();
     assert_eq!(ways_round, 3);
     let effects = w.on(Event::LetGo { cell: "write".into() });
-    let (_, cell, number, given) = round(&effects);
-    assert_eq!((cell.as_str(), number), ("write", 1));
-    assert!(matches!(given, Given::Task { because, .. } if because.iter().all(|c| !c.forward())));
+    let (run, cell, number, given) = round(&effects);
+    assert_eq!((cell.as_str(), number, given), ("write", 1, Given::Task));
+    assert!(start_of(&w, run).0.iter().all(|c| !c.forward()));
 }
 
 #[test]
