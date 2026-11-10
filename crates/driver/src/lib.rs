@@ -191,8 +191,8 @@ impl Driver {
         let mut todos = driver.pending();
         let numbers: Vec<WorkNumber> = driver.works.keys().copied().collect();
         for number in numbers {
-            let look = (driver.agree(now, number, &mut todos))
-                .and_then(|()| driver.turn(now, number, Event::Look, &mut todos));
+            // MUTANT: a dependencies block that has come apart from what it stands for is left as it is.
+            let look = driver.turn(now, number, Event::Look, &mut todos).map(drop);
             match look {
                 Ok(_) => {}
                 Err(Failed::Stopped { fault, .. }) => return Err(fault),
@@ -267,8 +267,7 @@ impl Driver {
         let was = self.works.get(&work).and_then(|held| held.ended);
         self.turn(now, work, event, &mut todos)?;
         let held = self.works.get(&work);
-        // MUTANT: what a merge means to the works that waited for it is not written.
-        if false && was.is_none() && held.and_then(|held| held.ended) == Some(End::Merged) {
+        if was.is_none() && held.and_then(|held| held.ended) == Some(End::Merged) {
             // The item has merged: that is written to each work whose item depended on it and now waits for none.
             let item = held.map(|held| held.head.item);
             let waiting: Vec<WorkNumber> = (self.works.iter())
