@@ -19,7 +19,7 @@
 //!
 //! And once people stop, the owner lets the work on if it is paused, for whatever reason, and no round fails any more:
 //! the work then rests within
-//! the bound stated on `History::bound` (entry a-work-comes-to-rest), at rest it is not paused and the walk waits or has
+//! the bound stated on `bound` (entry a-work-comes-to-rest), at rest it is not paused and the walk waits or has
 //! ended, and `pending` holds only calls for a person; a cancelled work ends with nothing pending, and a look at it
 //! gives nothing. The same history ends with the same work run twice, and with its stops as without them, failed rounds
 //! among them.
