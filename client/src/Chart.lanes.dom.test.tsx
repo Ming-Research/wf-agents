@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { Chart } from './Chart';
 import { matrix } from './matrix';
+import type { Flow } from './api';
 import { cell, flowOf } from './testing';
 
 let unmount: (() => void) | undefined;
@@ -18,8 +19,8 @@ afterEach(() => {
 
 /// A plan that research writes, design reads and writes, implement reads and writes, and review reads: the row's
 /// line runs from research to review, and a way back from implement to design along a stretch of it.
-function drawn(): HTMLElement {
-  const flow = flowOf(
+const BOTH = () =>
+  flowOf(
     [
       cell('research', { outputs: ['plan'] }),
       cell('design', { inputs: ['plan'], outputs: ['plan'] }),
@@ -28,6 +29,14 @@ function drawn(): HTMLElement {
     ],
     { plan: {} },
   );
+
+/// Opinions that two cells read and a cell after them writes: nothing of them goes forward.
+const BACK_ALONE = () =>
+  flowOf([cell('plan', { inputs: ['opinions'] }), cell('build', { inputs: ['opinions'] }), cell('judge', { outputs: ['opinions'] })], {
+    opinions: {},
+  });
+
+function drawn(flow: Flow): HTMLElement {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
@@ -43,8 +52,16 @@ const crossings = (page: HTMLElement) =>
   );
 
 describe('a way back along the row\'s line', () => {
+  it('runs alone in the middle where the row has no line, with its arrow at each read it reaches', () => {
+    const [plan, build, judge] = crossings(drawn(BACK_ALONE()));
+    expect(plan).toEqual(['seg seg-right back', 'arrow']);
+    // The way back passes through this read to the one before it.
+    expect(build).toEqual(['seg seg-left back', 'seg seg-right back', 'arrow']);
+    expect(judge).toEqual(['seg seg-left back']);
+  });
+
   it('keeps to its lane beside the line, and neither covers the other', () => {
-    const [research, design, implement, review] = crossings(drawn());
+    const [research, design, implement, review] = crossings(drawn(BOTH()));
     // Before the way back the line runs alone, in the middle.
     expect(research).toEqual(['seg seg-right line']);
     // Between the read the work goes back to and the write that sends it, both run, each in its lane; the arrow is

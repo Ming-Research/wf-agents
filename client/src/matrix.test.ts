@@ -141,6 +141,17 @@ describe('the ways back', () => {
     expect(spots.map((spot) => spot.back)).toEqual(['right', 'through', 'through', 'through', 'left']);
   });
 
+  it('start the row\'s line at a mark left of the first write that no way back reaches, so that none stands alone', () => {
+    // A precondition of the first cell reads what people and a later cell write: no way back reaches a precondition.
+    const waits = test('ready', 'x is yes', 'all', ['x']);
+    const flow = flowOf([cell('a', { preconditions: [waits] }), cell('b', { outputs: ['x'] }), cell('c', { inputs: ['x'] })], {
+      x: { people: true, values: ['yes', 'no'] },
+    });
+    const spots = matrix({ after: flow }, 'after').spots[0];
+    expect(spots.map((spot) => spot.line)).toEqual(['right', 'through', 'left']);
+    expect(spots.every((spot) => spot.back === 'none')).toBe(true);
+  });
+
   it('count a read by a condition, and every pair of a read and a later write', () => {
     const flow = flowOf(
       [
