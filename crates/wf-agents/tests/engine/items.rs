@@ -84,15 +84,16 @@ fn a_work_is_paused_written_let_go_and_cancelled_from_the_command_line() {
         ]),
         "Added item 2 with its work 2, paused: let it on with `wf-agents resume 2`.\n"
     );
+    // A precondition holds the work before its cell whether or not it is paused.
+    let waits = "waits at plan for the owner: Every item this one depends on has merged";
     let list = engine.says(&["list"]);
     assert!(
-        list.ends_with("Item 2 \"Say goodbye\", work 2 on trial, after 1: paused\n"),
+        list.ends_with(&format!("Item 2 \"Say goodbye\", work 2 on trial, after 1: {waits}\n")),
         "{list}"
     );
     assert_eq!(engine.says(&["resume", "2"]), "Work 2 goes on.\n");
-    engine.until(&["show", "2"], |line| {
-        line == "Now: waits at plan for the owner: Every item this one depends on has merged."
-    });
+    let shown = engine.says(&["show", "2"]);
+    assert!(shown.contains(&format!("\nNow: {waits}.\nPaused: no.\n")), "{shown}");
     assert_eq!(engine.says(&["pause", "2"]), "Work 2 is paused.\n");
     assert_eq!(
         engine.says(&["write", "2", "opinions", "--text", "Keep it short."]),
