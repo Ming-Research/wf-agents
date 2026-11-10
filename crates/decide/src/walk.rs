@@ -489,7 +489,7 @@ fn read_versions<'a>(
         at: w.at,
         by: None,
         outsider: Some(w.by),
-        matters: w.matters || w.by == Outsider::Person,
+        matters: w.matters,
         value: w.value.as_deref(),
     });
     let by_runs = records.finished.iter().flat_map(|f| {
