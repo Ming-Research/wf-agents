@@ -52,7 +52,9 @@
 //! owner answers every question and lets every run go on at its limits; where nothing is to be done and the work waits,
 //! the owner resumes a paused work, lets the cell it waits at go on at its limit, and makes a precondition it waits on
 //! hold where a person or the outside can: writes a verdict whose refusal stands as a value that is not, and the
-//! outside writes what the first cell's precondition looks for.
+//! outside writes what the first cell's precondition looks for. Where the precondition reads a choice that only cells
+//! write (the check's), the owner writes a few words in an input of the cell that writes it which only people write
+//! (an opinion for the check), so that the cell runs again; in the continuation the check then says yes.
 //!
 //! Every situation the properties are about is counted over all histories (`required`), and the test fails if one was
 //! never reached. A failing case prints its seed and its steps; `one_history(&flow, seed, ..)` replays it.
@@ -92,10 +94,6 @@ const NO: &str = "no";
 const MERGE_OVER_A_NO: &str = "1: no merge over a judge's standing no";
 const MERGE_ON_AN_OLD_CHECK: &str = "2: no merge on a check that is not of the current code";
 const CONTENT_MERGES: &str = "3: a work everyone is content with merges within the bound";
-/// Property 3 broken one way: the work waits on a precondition that reads only choices cells write, and no cell runs
-/// to write them again.
-const CONTENT_WAITS_ON_A_CELL: &str =
-    "3: a work everyone is content with merges within the bound (it waits on a choice only a cell writes)";
 const RUNS_FOR_NOTHING: &str = "4: runs for nothing stay within the bound";
 const DRIVER: &str = "the driver";
 
@@ -187,6 +185,7 @@ fn required(flow: &Compiled, roles: &Roles) -> Vec<String> {
             CONTENT_MERGED,
             CONTENT_ON_A_FAILED_CHECK,
             CONTENT_ON_A_REFUSAL,
+            OWNER_ASKED_A_CELL,
             ENGINE_STOPPED,
         ]
         .map(String::from),
@@ -222,6 +221,7 @@ const MERGE_BEGAN: &str = "a round of the merge began";
 const CONTENT_MERGED: &str = "the content continuation merged";
 const CONTENT_ON_A_FAILED_CHECK: &str = "the content continuation began as the check's record failed";
 const CONTENT_ON_A_REFUSAL: &str = "the content continuation began as a judge's own refusal stood";
+const OWNER_ASKED_A_CELL: &str = "the owner had a cell write again a choice a precondition waits on";
 const ENGINE_STOPPED: &str = "the engine stopped";
 
 /// The place of the cell.
@@ -552,12 +552,43 @@ impl Part for Content {
 /// inputs, once each, and the run that was open as the continuation began may be abandoned besides: at most
 /// `2 + n` runs of a cell with `n` inputs, each taking at most `PER_RUN` steps. Besides those, the driver does once
 /// what it held as the continuation began, the owner resumes the work once, and the owner or the outside writes each
-/// block a named test reads at most once. The limits of runs do not enter: the owner lets every cell go on.
+/// block a named test reads at most once. A block a named test reads that only cells write is not written by the
+/// owner but asked for: the owner writes once in an opinion for each cell that writes it, which runs that cell once
+/// more, after which the cell has written the block with its one value. That write and that run are counted apart:
+/// one step, and `PER_RUN` steps, for each writer of each such block (the run is also one of the `2 + n` of its cell,
+/// the opinion being one of its inputs; counted twice, the bound only grows). The limits of runs do not enter: the
+/// owner lets every cell go on.
 fn content_bound(d: &Driver) -> u64 {
     let flow = &d.flow.flow;
     let runs: u64 = flow.cells().iter().map(|c| 2 + c.inputs.len() as u64).sum();
     let tested: BTreeSet<&BlockId> = flow.tests().values().flat_map(|t| &t.reads).collect();
-    d.held.len() as u64 + PER_RUN * runs + tested.len() as u64 + 1
+    let asked: u64 = (tested.iter())
+        .map(|b| &d.flow.blocks[*b].writers)
+        .filter(|w| !w.people && w.outside.is_none())
+        .map(|w| w.cells.len() as u64)
+        .sum();
+    d.held.len() as u64 + PER_RUN * runs + tested.len() as u64 + 1 + asked * (1 + PER_RUN)
+}
+
+/// The owner's few words to a cell, where the named test reads a block only cells write: in an input of a cell that
+/// writes it which only people write, so that the cell runs again and writes the block anew; none where no such cell
+/// or input is.
+fn ask_a_cell(d: &Driver, name: &TestName) -> Option<Event> {
+    let test = &d.flow.flow.tests()[name];
+    let only_cells = |b: &BlockId| {
+        let w = &d.flow.blocks[b].writers;
+        !w.people && w.outside.is_none()
+    };
+    let only_people = |b: &BlockId| {
+        let block = &d.flow.blocks[b];
+        let w = &block.writers;
+        w.people && w.cells.is_empty() && w.outside.is_none() && block.values.is_none()
+    };
+    (test.reads.iter().filter(|b| only_cells(b)))
+        .flat_map(|b| &d.flow.blocks[b].writers.cells)
+        .filter_map(|c| d.flow.flow.place(c))
+        .find_map(|j| d.flow.flow.cells()[j].inputs.iter().find(|b| only_people(b)))
+        .map(|b| wrote(b, Outsider::Person, true, None))
 }
 
 /// What one history found: the first breach of each property, and what it reached.
@@ -779,34 +810,21 @@ impl History {
     }
 
     /// What the owner or the outside does in the content continuation where nothing is to be done: resumes the work,
-    /// lets the cell it waits at go on at its limit, or makes a precondition it waits on hold; none where none of these
-    /// moves it on.
-    fn resolve(&self, decision: &Decision) -> Option<Event> {
+    /// lets the cell it waits at go on at its limit, or makes a precondition it waits on hold, or asks the cell that
+    /// writes what it reads to write it again, which it says; none where none of these moves it on.
+    fn resolve(&self, decision: &Decision) -> Option<(Event, bool)> {
         if decide::paused(&self.d.work.records) {
-            return Some(Event::Resumed);
+            return Some((Event::Resumed, false));
         }
         let Decision::Wait { at, on } = decision else {
             return None;
         };
         on.iter().find_map(|w| match w {
-            Waited::Limit { .. } => Some(Event::LetGo { cell: at.clone() }),
-            Waited::Precondition { test, .. } => make_hold(&self.d, test),
+            Waited::Limit { .. } => Some((Event::LetGo { cell: at.clone() }, false)),
+            Waited::Precondition { test, .. } => {
+                (make_hold(&self.d, test).map(|e| (e, false))).or_else(|| ask_a_cell(&self.d, test).map(|e| (e, true)))
+            }
             Waited::Call { .. } => None,
-        })
-    }
-
-    /// Whether the work waits on preconditions alone, each reading only blocks that no person and nothing outside
-    /// writes: only a cell that runs can make them hold.
-    fn waits_on_cells(&self, decision: &Decision) -> bool {
-        let Decision::Wait { on, .. } = decision else {
-            return false;
-        };
-        on.iter().all(|w| match w {
-            Waited::Precondition { test, .. } => (self.d.flow.flow.tests()[test].reads.iter()).all(|b| {
-                let writers = &self.d.flow.blocks[b].writers;
-                !writers.people && writers.outside.is_none()
-            }),
-            _ => false,
         })
     }
 
@@ -853,18 +871,16 @@ impl History {
             self.d.maybe_stop();
             let doable = self.d.doable(true);
             if doable.is_empty() {
-                let Some(event) = self.resolve(&decision) else {
+                let Some((event, asked)) = self.resolve(&decision) else {
                     let what = format!(
                         "after {steps} steps the work rests where nobody content moves it, deciding {decision:?}"
                     );
-                    let property = if self.waits_on_cells(&decision) {
-                        CONTENT_WAITS_ON_A_CELL
-                    } else {
-                        CONTENT_MERGES
-                    };
-                    self.breach(property, what);
+                    self.breach(CONTENT_MERGES, what);
                     break;
                 };
+                if asked {
+                    self.reach(OWNER_ASKED_A_CELL.to_string());
+                }
                 assert!(self.d.take(event), "the continuation's act was refused");
             } else {
                 let effect = doable[self.d.rng.below(doable.len())].clone();
@@ -975,9 +991,8 @@ type Case = (u64, String, Vec<String>);
 /// before it fails, and two tests side by side would each take the other's.
 static HOOK: Mutex<()> = Mutex::new(());
 
-/// Runs the histories, prints what they reached and counted, and fails if one breaks a property other than those
-/// known to break, or if none reached a situation the properties are about.
-fn histories(known: &[&str]) {
+/// Runs the histories, prints what they reached and counted, and fails if one breaks a property, or if none reached a situation the properties are about.
+fn histories() {
     let _hook = HOOK.lock().unwrap_or_else(PoisonError::into_inner);
     let flow = engineer();
     let roles = Roles::new(&flow);
@@ -1023,9 +1038,6 @@ fn histories(known: &[&str]) {
     for (property, cases) in &broken {
         let seeds: Vec<u64> = cases.iter().map(|(s, _, _)| *s).collect();
         println!("{property}: broken in {} histories: {seeds:?}", cases.len());
-        if known.contains(property) {
-            continue;
-        }
         // The shortest failing history, to read first.
         let (seed, what, log) = cases.iter().min_by_key(|(_, _, log)| log.len()).expect("a case");
         failures.push(format!(
@@ -1045,16 +1057,6 @@ fn histories(known: &[&str]) {
 
 #[test]
 fn random_works_on_the_engineers_flow_keep_what_the_flow_must() {
-    // known: once the check failed, an implementation content with the work answers it with nothing that matters (its
-    // code and its answer to the check rewritten as changes that do not matter), so the check has no input of a new
-    // meaning and does not run again; its failure stands, and the merge waits on a choice that only the check writes
-    // and that the owner it waits for cannot. The companion below asserts it.
-    histories(&[CONTENT_WAITS_ON_A_CELL]);
-}
-
-/// The known breach of property 3, asserted: run with `--ignored` to see the histories that show it.
-#[test]
-#[ignore = "known: the merge waits on a failed check that nothing runs again"]
-fn a_work_everyone_is_content_with_merges_even_after_the_check_failed() {
-    histories(&[]);
+    histories();
+    panic!("shown once in CI: the counts above");
 }
