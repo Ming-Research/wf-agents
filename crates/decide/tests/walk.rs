@@ -956,16 +956,12 @@ fn a_cell_that_given_a_refusal_does_not_write_the_product_again_leaves_it_to_the
             vec![refusal]
         )
     );
-    // The research hands the plan to design: it says design is needed and writes no plan. Nothing is withdrawn.
+    // The research hands the plan to design: it says design is needed and writes no plan. Nothing is withdrawn. The
+    // design has no record, which is its reason to run (the others are reasons of a record); it is given the refusal.
     w.run("research", YES, &[]);
     assert_eq!(
         w.decide(),
-        runs(
-            "design",
-            vec![Cause::NoRecord, refused(refusal, "plan", OWNER)],
-            &[("plan", Some(plan))],
-            vec![refusal]
-        )
+        runs("design", vec![Cause::NoRecord], &[("plan", Some(plan))], vec![refusal])
     );
     let design = w.run("design", &[], &[("plan", Matters)]);
     let designed = w.version(design);
@@ -1285,6 +1281,39 @@ fn a_change_of_path_made_by_the_answer_of_a_later_cell_is_a_way_round_for_the_fi
 }
 
 #[test]
+fn a_circle_closed_by_a_condition_comes_to_rest_whatever_the_later_cell_answers() {
+    let cells = vec![
+        with_limit(1, cell("first", &["p"], &["x"])),
+        cell("second", &["x"], &[]),
+        on_fork("third", "second", &[], &["p"]),
+    ];
+    let mut w = World::with_gate(cells);
+    // The agents: the first and the third write anew at every run, the second answers yes and no in turn.
+    let mut yes = true;
+    for _ in 0..30 {
+        match w.decide() {
+            Decision::Run { cell, .. } if cell.as_str() == "second" => {
+                w.run("second", if yes { YES } else { NO }, &[]);
+                yes = !yes;
+            }
+            Decision::Run { cell, .. } if cell.as_str() == "first" => {
+                w.run("first", &[], &[("x", Matters)]);
+            }
+            Decision::Run { cell, .. } if cell.as_str() == "third" => {
+                w.run("third", &[], &[("p", Matters)]);
+            }
+            Decision::Wait { .. } => return,
+            other => panic!("the walk decides {other:?}"),
+        }
+    }
+    let first: Vec<_> = (w.records.started.iter())
+        .filter(|s| s.cell.as_str() == "first")
+        .map(|s| s.because.clone())
+        .collect();
+    panic!("thirty runs and the work has not come to rest; the first cell ran because of {first:?}");
+}
+
+#[test]
 fn a_cell_rebuilding_a_lost_product_again_and_again_is_bounded_by_its_limit() {
     let mut w = World::with_gate(vec![
         with_limit(2, cell("load", &[], &["session"])),
@@ -1387,7 +1416,7 @@ fn an_unmet_precondition_of_the_merge_and_a_refusal_no_cell_answers_are_waited_f
     w.run("research", &[], &[]);
     assert_eq!(
         w.decide(),
-        wait("merge", vec![merge_word(), unanswered(refusal, "plan", OWNER)])
+        wait("merge", vec![unanswered(refusal, "plan", OWNER), merge_word()])
     );
 }
 
