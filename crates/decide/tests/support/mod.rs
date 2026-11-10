@@ -118,6 +118,7 @@ impl World {
             cell: next,
             because,
             basis,
+            over,
             given,
         } = self.decide()
         else {
@@ -132,6 +133,7 @@ impl World {
             at,
             because,
             basis,
+            over,
             given,
         });
         let at = self.tick();
@@ -175,16 +177,16 @@ impl World {
             .at
     }
 
-    /// What the run was started from, of the product, as the decision gave it.
+    /// What the run started from, of a product its cell depends on, as the decision gave it.
     pub fn basis_of(&self, run: RunId, product: &str) -> Option<Seq> {
         let id: ProductId = product.into();
+        (self.started(run).basis.get(&id).copied()).flatten()
+    }
+
+    fn started(&self, run: RunId) -> &Started {
         (self.records.started.iter())
             .find(|s| s.run == run)
             .expect("the run started")
-            .basis
-            .get(&id)
-            .copied()
-            .flatten()
     }
 
     fn under_way(&self, run: RunId) -> bool {

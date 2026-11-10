@@ -15,15 +15,24 @@ use support::{World, cell, gate, merge_word, resting};
 
 // What the tests build their expectations from.
 
-/// The decision to run the cell, because of these, from these versions, given these refusals.
-fn runs(cell: &str, because: Vec<Cause>, basis: &[(&str, Option<Seq>)], given: Vec<RefusalId>) -> Decision {
+/// Versions of products, by name.
+type Versions<'a> = &'a [(&'a str, Option<Seq>)];
+
+/// No versions: the cell depends on nothing, or may write nothing.
+const NONE: Versions<'static> = &[];
+
+fn versions(of: Versions<'_>) -> BTreeMap<ProductId, Option<Seq>> {
+    of.iter().map(|(p, v)| (ProductId::from(*p), *v)).collect()
+}
+
+/// The decision to run the cell, because of these, from these versions of what it depends on, over these versions of
+/// what it may write, given these refusals.
+fn runs(cell: &str, because: Vec<Cause>, basis: Versions<'_>, over: Versions<'_>, given: Vec<RefusalId>) -> Decision {
     Decision::Run {
         cell: cell.into(),
         because,
-        basis: basis
-            .iter()
-            .map(|(p, v)| (ProductId::from(*p), *v))
-            .collect::<BTreeMap<_, _>>(),
+        basis: versions(basis),
+        over: versions(over),
         given,
     }
 }
@@ -48,10 +57,9 @@ fn wait(at: &str, on: Vec<Waited>) -> Decision {
     Decision::Wait { at: at.into(), on }
 }
 
-fn changed(product: &str, before: bool) -> Cause {
+fn changed(product: &str) -> Cause {
     Cause::Changed {
         product: product.into(),
-        before,
     }
 }
 
@@ -128,12 +136,18 @@ const COMMENT: &str = "the item has a comment";
 #[test]
 fn the_cells_run_in_their_order_and_a_work_ends_when_the_merge_has_a_record() {
     let mut w = World::new(vec![cell("a", &[], &["p"]), cell("b", &["p"], &[]), Cell::new("merge")]);
-    assert_eq!(w.decide(), runs("a", vec![Cause::NoRecord], &[("p", None)], vec![]));
+    assert_eq!(
+        w.decide(),
+        runs("a", vec![Cause::NoRecord], NONE, &[("p", None)], vec![])
+    );
     let a = w.run("a", &[], &[("p", Matters)]);
     let p = w.version(a);
-    assert_eq!(w.decide(), runs("b", vec![Cause::NoRecord], &[("p", Some(p))], vec![]));
+    assert_eq!(
+        w.decide(),
+        runs("b", vec![Cause::NoRecord], &[("p", Some(p))], NONE, vec![])
+    );
     w.run("b", &[], &[]);
-    assert_eq!(w.decide(), runs("merge", vec![Cause::NoRecord], &[], vec![]));
+    assert_eq!(w.decide(), runs("merge", vec![Cause::NoRecord], NONE, NONE, vec![]));
     w.run("merge", &[], &[]);
     assert_eq!(w.decide(), Decision::Ended(End::Passed));
 }
@@ -149,7 +163,7 @@ fn a_cell_whose_condition_on_the_answer_before_it_is_not_met_is_skipped() {
 fn a_cell_whose_condition_on_the_answer_before_it_is_met_runs() {
     let mut w = World::with_gate(vec![cell("ask", &[], &[]), on_fork("extra", "ask", &[], &[])]);
     w.run("ask", YES, &[]);
-    assert_eq!(w.decide(), runs("extra", vec![Cause::NoRecord], &[], vec![]));
+    assert_eq!(w.decide(), runs("extra", vec![Cause::NoRecord], NONE, NONE, vec![]));
 }
 
 #[test]
@@ -168,7 +182,7 @@ fn a_condition_on_the_answer_of_a_cell_that_is_off_the_path_is_not_met() {
     let topic = w.person_writes("topic");
     assert_eq!(
         w.decide(),
-        runs("first", vec![changed("topic", true)], &[("topic", Some(topic))], vec![])
+        runs("first", vec![changed("topic")], &[("topic", Some(topic))], NONE, vec![])
     );
     w.run("first", NO, &[]);
     // The second cell is off the path, so its record, which answered yes, counts for nothing: the third is off the
@@ -182,7 +196,7 @@ fn a_condition_that_is_a_named_test_puts_its_cell_on_the_path_while_the_test_hol
     w.set(COMMENT, Outcome::Waits { who: Who::Owner });
     assert_eq!(w.decide(), resting());
     w.set(COMMENT, Outcome::Holds);
-    assert_eq!(w.decide(), runs("comments", vec![Cause::NoRecord], &[], vec![]));
+    assert_eq!(w.decide(), runs("comments", vec![Cause::NoRecord], NONE, NONE, vec![]));
 }
 
 #[test]
@@ -230,7 +244,7 @@ fn a_run_is_busy_only_while_a_round_is_under_way_and_at_rest_goes_on_when_the_wa
     w.go_on("a");
     assert_eq!(w.decide(), busy("a", run));
     w.finish("a", &[], &[]);
-    assert_eq!(w.decide(), runs("b", vec![Cause::NoRecord], &[], vec![]));
+    assert_eq!(w.decide(), runs("b", vec![Cause::NoRecord], NONE, NONE, vec![]));
 }
 
 /// A work with the cell that takes comments before its implementation, the implementation resting between two rounds
@@ -260,7 +274,8 @@ fn a_cell_before_a_run_at_rest_runs_first_and_the_run_then_goes_on_if_nothing_it
         runs(
             "comments",
             vec![Cause::NoRecord],
-            &[("comments", Some(comments)), ("notes", None)],
+            &[("comments", Some(comments))],
+            &[("notes", None)],
             vec![]
         )
     );
@@ -285,7 +300,7 @@ fn a_cell_after_a_run_at_rest_does_not_run_while_the_run_is_open() {
     w.finish("a", &[], &[]);
     assert_eq!(
         w.decide(),
-        runs("b", vec![changed("y", true)], &[("y", Some(y))], vec![])
+        runs("b", vec![changed("y")], &[("y", Some(y))], NONE, vec![])
     );
 }
 
@@ -356,7 +371,7 @@ fn a_paused_work_begins_no_round_while_a_round_under_way_is_still_busy_and_resum
     w.pause();
     assert_eq!(w.decide(), Decision::Paused);
     w.resume();
-    assert_eq!(w.decide(), runs("b", vec![Cause::NoRecord], &[], vec![]));
+    assert_eq!(w.decide(), runs("b", vec![Cause::NoRecord], NONE, NONE, vec![]));
 }
 
 // Stale runs.
@@ -371,7 +386,7 @@ fn a_run_at_rest_is_abandoned_when_its_cell_goes_off_the_path() {
     let topic = w.person_writes("topic");
     assert_eq!(
         w.decide(),
-        runs("ask", vec![changed("topic", true)], &[("topic", Some(topic))], vec![])
+        runs("ask", vec![changed("topic")], &[("topic", Some(topic))], NONE, vec![])
     );
     w.run("ask", NO, &[]);
     assert_eq!(w.decide(), abandon("extra", extra, Stale::NoLongerApplies));
@@ -392,7 +407,8 @@ fn a_run_at_rest_is_abandoned_when_a_cell_before_it_changes_the_meaning_of_what_
         runs(
             "implement",
             vec![Cause::NoRecord],
-            &[("plan", Some(plan)), ("notes", Some(notes)), ("code", None)],
+            &[("plan", Some(plan)), ("notes", Some(notes))],
+            &[("code", None)],
             vec![]
         )
     );
@@ -415,8 +431,9 @@ fn a_run_at_rest_goes_on_when_what_it_started_from_was_rewritten_in_a_way_said_n
         w.decide(),
         runs(
             "research",
-            vec![changed("background", true)],
-            &[("background", Some(background)), ("plan", Some(plan))],
+            vec![changed("background")],
+            &[("background", Some(background))],
+            &[("plan", Some(plan))],
             vec![]
         )
     );
@@ -425,7 +442,7 @@ fn a_run_at_rest_goes_on_when_what_it_started_from_was_rewritten_in_a_way_said_n
 }
 
 #[test]
-fn a_run_at_rest_is_abandoned_when_a_person_writes_a_product_it_may_write() {
+fn a_run_at_rest_is_abandoned_when_a_person_writes_a_product_it_is_to_write_over() {
     let cells = vec![
         cell("research", &["background"], &["plan"]),
         cell("implement", &["plan"], &["code"]),
@@ -443,16 +460,49 @@ fn a_run_at_rest_is_abandoned_when_a_person_writes_a_product_it_may_write() {
     assert_eq!(w.decide(), abandon("implement", implement, outdated("code")));
     w.abandon();
     // The implementation does not depend on the code, so the person's write is no reason of its own: it runs again
-    // for the plan that changed.
+    // for the plan that changed, over the person's code.
     assert_eq!(
         w.decide(),
         runs(
             "implement",
-            vec![changed("plan", true)],
-            &[("plan", Some(plan)), ("code", Some(code))],
+            vec![changed("plan")],
+            &[("plan", Some(plan))],
+            &[("code", Some(code))],
             vec![]
         )
     );
+}
+
+#[test]
+fn a_later_cells_write_does_not_make_a_run_at_rest_of_an_earlier_cell_stale() {
+    // The later cell is on the path by a named test; what it wrote while on the path comes back when the test holds
+    // again, while the earlier cell's run is at rest.
+    let cells = vec![
+        cell("early", &["topic", "plan"], &["plan"]),
+        on_test("late is on", cell("late", &[], &["plan"])),
+    ];
+    let mut w = World::with_gate(cells);
+    w.person_writes("topic");
+    let plan = w.person_writes("plan");
+    w.run("early", &[], &[]);
+    w.run("late", &[], &[("plan", Matters)]);
+    assert_eq!(w.decide(), resting());
+    w.set("late is on", Outcome::Waits { who: Who::Owner });
+    let topic = w.person_writes("topic");
+    assert_eq!(
+        w.decide(),
+        runs(
+            "early",
+            vec![changed("topic")],
+            &[("topic", Some(topic)), ("plan", Some(plan))],
+            &[("plan", Some(plan))],
+            vec![]
+        )
+    );
+    let early = w.start("early");
+    w.returns("early");
+    w.set("late is on", Outcome::Holds);
+    assert_eq!(w.decide(), go_on("early", early));
 }
 
 #[test]
@@ -478,8 +528,9 @@ fn a_run_at_rest_is_abandoned_when_a_person_refuses_what_its_cell_answers_for_an
         w.decide(),
         runs(
             "research",
-            vec![changed("background", true), refused(refusal, "plan", OWNER)],
-            &[("background", Some(background)), ("plan", Some(plan))],
+            vec![changed("background"), refused(refusal, "plan", OWNER)],
+            &[("background", Some(background))],
+            &[("plan", Some(plan))],
             vec![refusal]
         )
     );
@@ -489,8 +540,9 @@ fn a_run_at_rest_is_abandoned_when_a_person_refuses_what_its_cell_answers_for_an
         w.decide(),
         runs(
             "implement",
-            vec![changed("plan", true)],
+            vec![changed("plan")],
             &[("plan", Some(plan))],
+            NONE,
             vec![]
         )
     );
@@ -516,8 +568,9 @@ fn a_run_at_rest_is_abandoned_when_a_cell_refuses_what_its_cell_answers_for_and_
         w.decide(),
         runs(
             "implement",
-            vec![changed("plan", true), refused(refusal, "code", Refuser::Run(review))],
-            &[("plan", Some(plan)), ("code", Some(code))],
+            vec![changed("plan"), refused(refusal, "code", Refuser::Run(review))],
+            &[("plan", Some(plan))],
+            &[("code", Some(code))],
             vec![refusal]
         )
     );
@@ -542,7 +595,8 @@ fn a_run_at_rest_is_not_abandoned_for_a_refusal_an_earlier_cell_answers() {
         runs(
             "research",
             vec![refused(refusal, "plan", OWNER)],
-            &[("background", Some(background)), ("plan", Some(plan))],
+            &[("background", Some(background))],
+            &[("plan", Some(plan))],
             vec![refusal]
         )
     );
@@ -570,13 +624,13 @@ fn a_change_in_meaning_runs_only_the_cells_that_depend_on_what_changed() {
     let x = w.person_writes("x");
     assert_eq!(
         w.decide(),
-        runs("a", vec![changed("x", true)], &[("x", Some(x)), ("p", Some(p))], vec![])
+        runs("a", vec![changed("x")], &[("x", Some(x))], &[("p", Some(p))], vec![])
     );
     let a = w.run("a", &[], &[("p", Matters)]);
     let p = w.version(a);
     assert_eq!(
         w.decide(),
-        runs("c", vec![changed("p", true)], &[("p", Some(p))], vec![])
+        runs("c", vec![changed("p")], &[("p", Some(p))], NONE, vec![])
     );
     w.run("c", &[], &[]);
     assert_eq!(w.decide(), resting());
@@ -603,24 +657,104 @@ fn a_cell_does_not_run_for_its_own_write_of_what_it_depends_on() {
     let plan = w.version(design);
     assert_eq!(
         w.decide(),
-        runs("implement", vec![Cause::NoRecord], &[("plan", Some(plan))], vec![])
+        runs(
+            "implement",
+            vec![Cause::NoRecord],
+            &[("plan", Some(plan))],
+            NONE,
+            vec![]
+        )
     );
     w.run("implement", &[], &[]);
     assert_eq!(w.decide(), resting());
 }
 
 #[test]
-fn a_cell_runs_for_a_later_cells_write_that_matters_of_a_product_it_wrote_and_depends_on() {
+fn a_cell_does_not_run_for_a_later_cells_write_of_a_product_it_wrote_and_depends_on() {
     let mut w = World::with_gate(vec![
         cell("design", &["plan"], &["plan"]),
         cell("revise", &["plan"], &["plan"]),
     ]);
-    w.run("design", &[], &[("plan", Matters)]);
-    let revise = w.run("revise", &[], &[("plan", Matters)]);
-    let plan = w.version(revise);
+    let design = w.run("design", &[], &[("plan", Matters)]);
+    let plan = w.version(design);
     assert_eq!(
         w.decide(),
-        runs("design", vec![changed("plan", false)], &[("plan", Some(plan))], vec![])
+        runs(
+            "revise",
+            vec![Cause::NoRecord],
+            &[("plan", Some(plan))],
+            &[("plan", Some(plan))],
+            vec![]
+        )
+    );
+    w.run("revise", &[], &[("plan", Matters)]);
+    assert_eq!(w.decide(), resting());
+}
+
+#[test]
+fn a_cell_between_two_writers_of_a_block_sees_the_earlier_ones_version_and_a_cell_after_both_the_later_ones() {
+    let cells = vec![
+        cell("draft", &[], &["plan"]),
+        cell("judge", &["plan"], &[]),
+        cell("amend", &[], &["plan"]),
+        cell("build", &["plan"], &[]),
+    ];
+    let mut w = World::with_gate(cells);
+    let draft = w.run("draft", &[], &[("plan", Matters)]);
+    let drafted = w.version(draft);
+    assert_eq!(
+        w.decide(),
+        runs("judge", vec![Cause::NoRecord], &[("plan", Some(drafted))], NONE, vec![])
+    );
+    w.run("judge", &[], &[]);
+    // The later writer writes over the earlier one's version.
+    assert_eq!(
+        w.decide(),
+        runs("amend", vec![Cause::NoRecord], NONE, &[("plan", Some(drafted))], vec![])
+    );
+    let amend = w.run("amend", &[], &[("plan", Matters)]);
+    let amended = w.version(amend);
+    assert_eq!(
+        w.decide(),
+        runs("build", vec![Cause::NoRecord], &[("plan", Some(amended))], NONE, vec![])
+    );
+    w.run("build", &[], &[]);
+    // The judge, between the two, does not see the amendment.
+    assert_eq!(w.decide(), resting());
+}
+
+#[test]
+fn a_cell_that_depends_on_and_may_write_a_product_starts_from_what_was_before_it_and_writes_over_its_own() {
+    let cells = vec![
+        cell("research", &[], &["plan"]),
+        cell("design", &["plan", "style"], &["plan"]),
+    ];
+    let mut w = World::with_gate(cells);
+    let research = w.run("research", &[], &[("plan", Matters)]);
+    let researched = w.version(research);
+    let style = w.person_writes("style");
+    assert_eq!(
+        w.decide(),
+        runs(
+            "design",
+            vec![Cause::NoRecord],
+            &[("plan", Some(researched)), ("style", Some(style))],
+            &[("plan", Some(researched))],
+            vec![]
+        )
+    );
+    let design = w.run("design", &[], &[("plan", Matters)]);
+    let designed = w.version(design);
+    let style = w.person_writes("style");
+    assert_eq!(
+        w.decide(),
+        runs(
+            "design",
+            vec![changed("style")],
+            &[("plan", Some(researched)), ("style", Some(style))],
+            &[("plan", Some(designed))],
+            vec![]
+        )
     );
 }
 
@@ -633,7 +767,13 @@ fn a_lost_product_runs_the_cell_that_wrote_it_and_rebuilt_as_not_mattering_runs_
     w.lose("session");
     assert_eq!(
         w.decide(),
-        runs("load", vec![gone("session")], &[("session", Some(session))], vec![])
+        runs(
+            "load",
+            vec![gone("session")],
+            NONE,
+            &[("session", Some(session))],
+            vec![]
+        )
     );
     w.run("load", &[], &[("session", DoesNotMatter)]);
     assert_eq!(w.decide(), resting());
@@ -656,26 +796,39 @@ fn a_loss_followed_by_a_write_of_a_cell_that_goes_off_the_path_still_counts_as_l
     w.lose("session");
     assert_eq!(
         w.decide(),
-        runs("load", vec![gone("session")], &[("session", Some(session))], vec![])
+        runs(
+            "load",
+            vec![gone("session")],
+            NONE,
+            &[("session", Some(session))],
+            vec![]
+        )
     );
     // Before the loss is made good, the path changes: the other cell that may write the session comes on the path,
     // writes it, and goes off the path again. What it wrote is then absent, and the loss stands.
     w.person_writes("topic");
     w.run("ask", YES, &[]);
+    // The other cell comes before the load: it sees nothing the load wrote.
     assert_eq!(
         w.decide(),
-        runs("alt", vec![Cause::NoRecord], &[("session", Some(session))], vec![])
+        runs("alt", vec![Cause::NoRecord], NONE, &[("session", None)], vec![])
     );
     w.run("alt", &[], &[("session", Matters)]);
     let topic = w.person_writes("topic");
     assert_eq!(
         w.decide(),
-        runs("ask", vec![changed("topic", true)], &[("topic", Some(topic))], vec![])
+        runs("ask", vec![changed("topic")], &[("topic", Some(topic))], NONE, vec![])
     );
     w.run("ask", NO, &[]);
     assert_eq!(
         w.decide(),
-        runs("load", vec![gone("session")], &[("session", Some(session))], vec![])
+        runs(
+            "load",
+            vec![gone("session")],
+            NONE,
+            &[("session", Some(session))],
+            vec![]
+        )
     );
 }
 
@@ -694,8 +847,9 @@ fn a_persons_write_always_changes_the_meaning() {
         w.decide(),
         runs(
             "implement",
-            vec![changed("plan", true)],
+            vec![changed("plan")],
             &[("plan", Some(plan))],
+            NONE,
             vec![]
         )
     );
@@ -710,14 +864,13 @@ fn a_write_from_outside_the_work_always_changes_the_meaning() {
     let main = w.outside_writes("main");
     assert_eq!(
         w.decide(),
-        runs("check", vec![changed("main", true)], &[("main", Some(main))], vec![])
+        runs("check", vec![changed("main")], &[("main", Some(main))], NONE, vec![])
     );
 }
 
 // Meaning.
 
 #[test]
-#[ignore = "the code gives the write the meaning of the design's absent version, so the implementation does not run and the work rests"]
 fn a_write_said_not_to_matter_after_a_version_now_absent_changes_the_meaning_for_who_was_built_on_that_version() {
     let cells = vec![
         cell("research", &["background"], &["plan"]),
@@ -726,35 +879,45 @@ fn a_write_said_not_to_matter_after_a_version_now_absent_changes_the_meaning_for
     ];
     let mut w = World::with_gate(cells);
     w.person_writes("background");
-    w.run("research", YES, &[("plan", Matters)]);
+    let research = w.run("research", YES, &[("plan", Matters)]);
+    let researched = w.version(research);
     let design = w.run("design", &[], &[("plan", Matters)]);
     let designed = w.version(design);
     assert_eq!(
         w.decide(),
-        runs("implement", vec![Cause::NoRecord], &[("plan", Some(designed))], vec![])
+        runs(
+            "implement",
+            vec![Cause::NoRecord],
+            &[("plan", Some(designed))],
+            NONE,
+            vec![]
+        )
     );
     w.run("implement", &[], &[]);
     let background = w.person_writes("background");
+    // The research writes over its own plan: the design's comes after it.
     assert_eq!(
         w.decide(),
         runs(
             "research",
-            vec![changed("background", true)],
-            &[("background", Some(background)), ("plan", Some(designed))],
+            vec![changed("background")],
+            &[("background", Some(background))],
+            &[("plan", Some(researched))],
             vec![]
         )
     );
-    // The research no longer sends the work to design, and says its own plan does not matter compared with the
-    // design's, which it started from. The design is now off the path and its plan absent: the implementation was
-    // built on a version that no longer counts, and runs.
+    // The research no longer sends the work to design, and says its own plan does not matter compared with its
+    // earlier one. The design is now off the path and its plan absent: the implementation was built on a version
+    // that no longer counts, and runs.
     let research = w.run("research", NO, &[("plan", DoesNotMatter)]);
     let plan = w.version(research);
     assert_eq!(
         w.decide(),
         runs(
             "implement",
-            vec![changed("plan", true)],
+            vec![changed("plan")],
             &[("plan", Some(plan))],
+            NONE,
             vec![]
         )
     );
@@ -786,7 +949,8 @@ fn a_cells_refusal_runs_the_writer_given_it_whose_write_ends_it_and_brings_the_r
         runs(
             "implement",
             vec![refused(refusal, "code", by)],
-            &[("plan", plan), ("code", Some(code))],
+            &[("plan", plan)],
+            &[("code", Some(code))],
             vec![refusal]
         )
     );
@@ -798,6 +962,7 @@ fn a_cells_refusal_runs_the_writer_given_it_whose_write_ends_it_and_brings_the_r
             "review",
             vec![answered(refusal, "code")],
             &[("code", Some(code))],
+            NONE,
             vec![]
         )
     );
@@ -835,7 +1000,8 @@ fn a_refuser_that_does_not_depend_on_what_it_refused_is_brought_back_by_the_answ
         runs(
             "research",
             vec![refused(refusal, "plan", by)],
-            &[("background", background), ("plan", Some(plan))],
+            &[("background", background)],
+            &[("plan", Some(plan))],
             vec![refusal]
         )
     );
@@ -845,7 +1011,8 @@ fn a_refuser_that_does_not_depend_on_what_it_refused_is_brought_back_by_the_answ
         runs(
             "comments",
             vec![answered(refusal, "plan")],
-            &[("comments", comments), ("notes", None)],
+            &[("comments", comments)],
+            &[("notes", None)],
             vec![]
         )
     );
@@ -875,7 +1042,8 @@ fn a_persons_refusal_runs_the_writer_given_it_and_brings_back_no_cell() {
         runs(
             "research",
             vec![refused(refusal, "plan", OWNER)],
-            &[("background", background), ("plan", Some(plan))],
+            &[("background", background)],
+            &[("plan", Some(plan))],
             vec![refusal]
         )
     );
@@ -897,7 +1065,8 @@ fn a_refusal_is_not_ended_by_the_write_of_a_run_that_was_not_given_it() {
         runs(
             "research",
             vec![refused(refusal, "plan", OWNER)],
-            &[("background", Some(background)), ("plan", Some(plan))],
+            &[("background", Some(background))],
+            &[("plan", Some(plan))],
             vec![refusal]
         )
     );
@@ -912,17 +1081,19 @@ fn of_two_cells_that_wrote_a_refused_product_the_first_on_the_path_answers() {
     ];
     let mut w = World::with_gate(cells);
     let background = w.person_writes("background");
-    w.run("research", &[], &[("plan", Matters)]);
-    let design = w.run("design", &[], &[("plan", Matters)]);
-    let designed = w.version(design);
+    let research = w.run("research", &[], &[("plan", Matters)]);
+    let researched = w.version(research);
+    w.run("design", &[], &[("plan", Matters)]);
     w.run("implement", &[], &[]);
     let refusal = w.owner_refuses("plan");
+    // The research writes over its own version: the design's, which the owner refused, comes after it.
     assert_eq!(
         w.decide(),
         runs(
             "research",
             vec![refused(refusal, "plan", OWNER)],
-            &[("background", Some(background)), ("plan", Some(designed))],
+            &[("background", Some(background))],
+            &[("plan", Some(researched))],
             vec![refusal]
         )
     );
@@ -931,7 +1102,13 @@ fn of_two_cells_that_wrote_a_refused_product_the_first_on_the_path_answers() {
     // The research's write ends the refusal: the design runs for the change, and is given nothing.
     assert_eq!(
         w.decide(),
-        runs("design", vec![changed("plan", true)], &[("plan", Some(plan))], vec![])
+        runs(
+            "design",
+            vec![changed("plan")],
+            &[("plan", Some(plan))],
+            &[("plan", Some(plan))],
+            vec![]
+        )
     );
 }
 
@@ -953,7 +1130,8 @@ fn a_cell_that_given_a_refusal_does_not_write_the_product_again_leaves_it_to_the
         runs(
             "research",
             vec![refused(refusal, "plan", OWNER)],
-            &[("background", Some(background)), ("plan", Some(plan))],
+            &[("background", Some(background))],
+            &[("plan", Some(plan))],
             vec![refusal]
         )
     );
@@ -962,7 +1140,13 @@ fn a_cell_that_given_a_refusal_does_not_write_the_product_again_leaves_it_to_the
     w.run("research", YES, &[]);
     assert_eq!(
         w.decide(),
-        runs("design", vec![Cause::NoRecord], &[("plan", Some(plan))], vec![refusal])
+        runs(
+            "design",
+            vec![Cause::NoRecord],
+            &[("plan", Some(plan))],
+            &[("plan", Some(plan))],
+            vec![refusal]
+        )
     );
     let design = w.run("design", &[], &[("plan", Matters)]);
     let designed = w.version(design);
@@ -970,8 +1154,9 @@ fn a_cell_that_given_a_refusal_does_not_write_the_product_again_leaves_it_to_the
         w.decide(),
         runs(
             "implement",
-            vec![changed("plan", true)],
+            vec![changed("plan")],
             &[("plan", Some(designed))],
+            NONE,
             vec![]
         )
     );
@@ -997,17 +1182,20 @@ fn every_run_of_a_cell_that_may_write_a_refused_product_is_given_the_refusal_eve
         runs(
             "design",
             vec![refused(refusal, "plan", OWNER)],
+            NONE,
             &[("plan", Some(plan))],
             vec![refusal]
         )
     );
+    // The research writes over nothing (the design's plan comes after it), and is given the refusal all the same.
     let background = w.person_writes("background");
     assert_eq!(
         w.decide(),
         runs(
             "research",
-            vec![changed("background", true)],
-            &[("background", Some(background)), ("plan", Some(plan))],
+            vec![changed("background")],
+            &[("background", Some(background))],
+            &[("plan", None)],
             vec![refusal]
         )
     );
@@ -1025,8 +1213,9 @@ fn a_refusal_no_cell_answers_holds_the_work_before_the_first_cell_that_depends_o
         w.decide(),
         runs(
             "implement",
-            vec![changed("plan", true)],
+            vec![changed("plan")],
             &[("plan", Some(plan))],
+            NONE,
             vec![]
         )
     );
@@ -1054,7 +1243,8 @@ fn a_cells_refusal_loses_force_when_that_cell_runs_again() {
         runs(
             "implement",
             vec![refused(refusal, "code", by)],
-            &[("plan", Some(plan)), ("notes", None), ("code", Some(code))],
+            &[("plan", Some(plan)), ("notes", None)],
+            &[("code", Some(code))],
             vec![refusal]
         )
     );
@@ -1063,8 +1253,9 @@ fn a_cells_refusal_loses_force_when_that_cell_runs_again() {
         w.decide(),
         runs(
             "comments",
-            vec![changed("comments", true)],
-            &[("comments", Some(comments)), ("notes", None)],
+            vec![changed("comments")],
+            &[("comments", Some(comments))],
+            &[("notes", None)],
             vec![]
         )
     );
@@ -1101,6 +1292,7 @@ fn a_refusal_of_a_version_written_by_a_cell_now_off_the_path_has_no_force_even_a
         runs(
             "alt",
             vec![refused(refusal, "plan", OWNER)],
+            NONE,
             &[("plan", Some(plan))],
             vec![refusal]
         )
@@ -1110,8 +1302,9 @@ fn a_refusal_of_a_version_written_by_a_cell_now_off_the_path_has_no_force_even_a
         w.decide(),
         runs(
             "research",
-            vec![changed("background", true)],
+            vec![changed("background")],
             &[("background", Some(background))],
+            NONE,
             vec![]
         )
     );
@@ -1119,7 +1312,7 @@ fn a_refusal_of_a_version_written_by_a_cell_now_off_the_path_has_no_force_even_a
     // The refused plan is absent: nobody answers, and nothing is held; the implementation runs for its loss.
     assert_eq!(
         w.decide(),
-        runs("implement", vec![changed("plan", true)], &[("plan", None)], vec![])
+        runs("implement", vec![changed("plan")], &[("plan", None)], NONE, vec![])
     );
 }
 
@@ -1137,7 +1330,7 @@ fn at_limit(w: &mut World, runs: u32) {
     assert_eq!(w.decide(), wait("implement", vec![Waited::Limit { runs }]));
 }
 
-/// The decision to run the implementation for the review's latest refusal, given it.
+/// The decision to run the implementation for the latest refusal, given it.
 fn runs_for_refusal(w: &World) -> Decision {
     let refusal = w.records.refusals.last().expect("a refusal").id;
     let by = w.records.refusals.last().expect("a refusal").by.clone();
@@ -1145,7 +1338,8 @@ fn runs_for_refusal(w: &World) -> Decision {
     runs(
         "implement",
         vec![refused(refusal, "code", by)],
-        &[("plan", w.basis_of(record, "plan")), ("code", Some(w.version(record)))],
+        &[("plan", w.basis_of(record, "plan"))],
+        &[("code", Some(w.version(record)))],
         vec![refusal],
     )
 }
@@ -1189,8 +1383,9 @@ fn a_run_for_a_reason_from_before_its_cell_starts_the_count_anew() {
         w.decide(),
         runs(
             "implement",
-            vec![changed("plan", true)],
-            &[("plan", Some(plan)), ("code", Some(code))],
+            vec![changed("plan")],
+            &[("plan", Some(plan))],
+            &[("code", Some(code))],
             vec![]
         )
     );
@@ -1219,78 +1414,92 @@ fn a_persons_refusal_starts_the_count_anew() {
 }
 
 #[test]
-fn two_cells_sending_each_other_back_are_bounded_by_the_earlier_ones_limit() {
-    let mut w = World::with_gate(vec![
-        with_limit(2, cell("a", &["y"], &["x"])),
-        cell("b", &["x"], &["y"]),
-    ]);
+fn two_cells_sending_each_other_back_by_refusals_are_bounded_by_the_earlier_ones_limit() {
+    // The later cell refuses what the earlier writes and writes what nobody before it depends on.
+    let mut w = World::with_gate(vec![with_limit(2, cell("a", &[], &["x"])), cell("b", &["x"], &["y"])]);
     w.run("a", &[], &[("x", Matters)]);
     w.run("b", &[], &[("y", Matters)]);
     for _ in 0..2 {
+        let refusal = w.refuse("b", "x");
+        let by = Refuser::Run(w.record("b"));
         let x = w.version(w.record("a"));
-        let y = w.version(w.record("b"));
         assert_eq!(
             w.decide(),
             runs(
                 "a",
-                vec![changed("y", false)],
-                &[("y", Some(y)), ("x", Some(x))],
-                vec![]
+                vec![refused(refusal, "x", by)],
+                NONE,
+                &[("x", Some(x))],
+                vec![refusal]
             )
         );
         let a = w.run("a", &[], &[("x", Matters)]);
         let x = w.version(a);
+        let y = w.version(w.record("b"));
         // The later cell's every run has a reason from before it: the earlier one's write.
         assert_eq!(
             w.decide(),
-            runs("b", vec![changed("x", true)], &[("x", Some(x)), ("y", Some(y))], vec![])
+            runs(
+                "b",
+                vec![changed("x"), answered(refusal, "x")],
+                &[("x", Some(x))],
+                &[("y", Some(y))],
+                vec![]
+            )
         );
         w.run("b", &[], &[("y", Matters)]);
     }
+    w.refuse("b", "x");
     assert_eq!(w.decide(), wait("a", vec![Waited::Limit { runs: 2 }]));
 }
 
 #[test]
-#[ignore = "the code counts any change of path as a reason from before the cell (Changed { before: true }) and runs the first cell again"]
-fn a_change_of_path_made_by_the_answer_of_a_later_cell_is_a_way_round_for_the_first_cell_of_the_circle() {
-    // The first cell depends on what the third writes; the third is on the path by the second's answer, and the
-    // second depends on what the first writes: a circle of cells sending each other back.
+fn a_later_cells_write_of_what_an_earlier_one_depends_on_changes_nothing_for_the_earlier_one() {
+    let mut w = World::with_gate(vec![cell("a", &["y"], &["x"]), cell("b", &["x"], &["y"])]);
+    w.run("a", &[], &[("x", Matters)]);
+    w.run("b", &[], &[("y", Matters)]);
+    assert_eq!(w.decide(), resting());
+}
+
+/// A circle through a condition: the first cell depends on what the third writes, the third is on the path by the
+/// second's answer, and the second depends on what the first writes and on a topic people write.
+fn circle() -> World {
     let cells = vec![
         with_limit(1, cell("first", &["p"], &["x"])),
-        cell("second", &["x"], &[]),
+        cell("second", &["x", "topic"], &[]),
         on_fork("third", "second", &[], &["p"]),
     ];
-    let mut w = World::with_gate(cells);
+    World::with_gate(cells)
+}
+
+#[test]
+fn a_later_cell_leaving_the_path_changes_nothing_for_a_cell_before_it() {
+    let mut w = circle();
     w.run("first", &[], &[("x", Matters)]);
     w.run("second", YES, &[]);
-    let third = w.run("third", &[], &[("p", Matters)]);
-    let p = w.version(third);
+    w.run("third", &[], &[("p", Matters)]);
+    // The first does not see what the third wrote.
+    assert_eq!(w.decide(), resting());
+    let topic = w.person_writes("topic");
     let x = w.version(w.record("first"));
     assert_eq!(
         w.decide(),
         runs(
-            "first",
-            vec![changed("p", false)],
-            &[("p", Some(p)), ("x", Some(x))],
+            "second",
+            vec![changed("topic")],
+            &[("x", Some(x)), ("topic", Some(topic))],
+            NONE,
             vec![]
         )
     );
-    w.run("first", &[], &[("x", Matters)]);
     w.run("second", NO, &[]);
-    // The third's write is now absent because the second, after the first, answered otherwise: the first would run
-    // only for what the cells after it did, a second way round in a row, past its limit of one.
-    assert_eq!(w.decide(), wait("first", vec![Waited::Limit { runs: 1 }]));
+    // The third's write is now absent; the first never saw it.
+    assert_eq!(w.decide(), resting());
 }
 
 #[test]
-#[ignore = "the first cell alternates between before: false and before: true runs, never reaching its limit, and the work runs without end"]
 fn a_circle_closed_by_a_condition_comes_to_rest_whatever_the_later_cell_answers() {
-    let cells = vec![
-        with_limit(1, cell("first", &["p"], &["x"])),
-        cell("second", &["x"], &[]),
-        on_fork("third", "second", &[], &["p"]),
-    ];
-    let mut w = World::with_gate(cells);
+    let mut w = circle();
     // The agents: the first and the third write anew at every run, the second answers yes and no in turn.
     let mut yes = true;
     for _ in 0..30 {
@@ -1329,7 +1538,13 @@ fn a_cell_rebuilding_a_lost_product_again_and_again_is_bounded_by_its_limit() {
         let session = w.version(w.record("load"));
         assert_eq!(
             w.decide(),
-            runs("load", vec![gone("session")], &[("session", Some(session))], vec![])
+            runs(
+                "load",
+                vec![gone("session")],
+                NONE,
+                &[("session", Some(session))],
+                vec![]
+            )
         );
         w.run("load", &[], &[("session", DoesNotMatter)]);
     }
@@ -1437,7 +1652,7 @@ fn a_cell_new_to_the_flow_has_no_record_and_runs_when_the_walk_reaches_it() {
         cell("b", &[], &[]),
         gate(),
     ]);
-    assert_eq!(w.decide(), runs("new", vec![Cause::NoRecord], &[], vec![]));
+    assert_eq!(w.decide(), runs("new", vec![Cause::NoRecord], NONE, NONE, vec![]));
 }
 
 #[test]
@@ -1446,7 +1661,7 @@ fn what_a_cell_taken_out_of_the_flow_wrote_is_absent() {
     w.run("a", &[], &[("p", Matters)]);
     w.run("b", &[], &[]);
     w.install(vec![cell("b", &["p"], &[]), gate()]);
-    assert_eq!(w.decide(), runs("b", vec![changed("p", true)], &[("p", None)], vec![]));
+    assert_eq!(w.decide(), runs("b", vec![changed("p")], &[("p", None)], NONE, vec![]));
 }
 
 #[test]

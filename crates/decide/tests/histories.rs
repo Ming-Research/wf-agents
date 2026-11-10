@@ -108,9 +108,16 @@ fn draw_cells(rng: &mut Rng) -> Vec<Cell> {
         }
         cells.push(c);
     }
-    // Now and then the first cell depends on what a later one may write: a circle of cells sending each other back.
+    // Now and then a later cell writes what an earlier one depends on. A cell sees only what was written before it, so
+    // this must send nobody back.
     if rng.chance(25) {
         cells[0].follows.push("p2".into());
+    }
+    if rng.chance(30) {
+        let last = cells.len() - 1;
+        if !cells[last].writes.iter().any(|p| p.as_str() == "p0") {
+            cells[last].writes.push("p0".into());
+        }
     }
     for c in &mut cells {
         c.limit = 1 + rng.below(2) as u32;
@@ -351,11 +358,12 @@ impl History {
     ///
     /// Once people stop, a run of a cell is a way round unless it has a reason from before the cell or from a person:
     /// its cell has no record, a person's refusal made before they stopped, a person's write made before they
-    /// stopped, or a change by a cell before it. Nobody lets a cell go on any more, so between two runs that are not
-    /// ways round a cell runs at most its limit of ways round. The runs that are not ways round number at most two
-    /// (the cell's first, the person's last write), two for each person's refusal (the cell answers it, and once more
-    /// if it took it up again after handing it on), and one for each run of a cell before it, whose finishing changed
-    /// what it depends on or which cells are on the path. So the cell at place `i`, of limit `L_i`, runs at most
+    /// stopped, or a change of what it depends on, which it sees only as people, the outside and the cells before it
+    /// wrote it. Nobody lets a cell go on any more, so between two runs that are not ways round a cell runs at most its
+    /// limit of ways round. The runs that are not ways round number at most two (the cell's first, the person's last
+    /// write), two for each person's refusal (the cell answers it, and once more if it took it up again after handing
+    /// it on), and one for each run of a cell before it, whose finishing changed what it sees or which cells are on
+    /// the path (a condition reads only cells before its own). So the cell at place `i`, of limit `L_i`, runs at most
     /// `R_i = (L_i + 1) * (2 + 2P + R_0 + ... + R_(i-1))` times, plus the one run open when people stopped. A run takes
     /// at most `4 * ROUNDS` steps (each round's end, an engine call done, the going on, and its start or abandonment).
     fn bound(&self) -> u64 {
