@@ -1,4 +1,4 @@
-// What the page's tests build definitions from: cells written in short, and the flow they make as the interface would
+// What the page's tests and the works page's fixtures build definitions from: cells written in short, and the flow they make as the interface would
 // give it, with who writes and reads each block worked out as the compiler does.
 
 import type { Block, Cell, Flow, Limits, Test, TestKind } from './api';

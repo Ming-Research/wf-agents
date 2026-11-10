@@ -156,6 +156,18 @@ fn words(what: &FaultKind) -> String {
     }
 }
 
+/// The address the flow page is printed at: the page shows the view its address's hash names, and this server serves
+/// the flow alone.
+fn flow_page(address: SocketAddr) -> String {
+    format!("http://{address}/#/flow")
+}
+
+#[test]
+fn the_flow_page_is_printed_at_the_flow_view() {
+    let address = SocketAddr::from((Ipv4Addr::LOCALHOST, 7490));
+    assert_eq!(flow_page(address), "http://127.0.0.1:7490/#/flow");
+}
+
 fn page(dir: PathBuf, against: Option<PathBuf>, port: u16) -> ExitCode {
     let shown = dir.display().to_string();
     let compared = against.as_ref().map(|a| a.display().to_string());
@@ -177,7 +189,7 @@ fn page(dir: PathBuf, against: Option<PathBuf>, port: u16) -> ExitCode {
             }
         };
         let against = compared.map(|c| format!(", compared against {c}")).unwrap_or_default();
-        println!("The flow page of {shown}{against} is at http://{address}/");
+        println!("The flow page of {shown}{against} is at {}", flow_page(address));
         match web::serve(listener, flows).await {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {

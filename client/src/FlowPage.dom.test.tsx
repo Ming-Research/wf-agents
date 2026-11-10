@@ -218,20 +218,20 @@ describe('a definition that does not compile', () => {
 });
 
 describe('the page round the view', () => {
-  it('shows the one view in the bar and switches light and dark, following the system at first', () => {
+  it('shows the views in the bar, the one shown marked, and switches light and dark, following the system at first', () => {
     const container = document.createElement('div');
     document.body.append(container);
     const root = createRoot(container);
     act(() =>
       root.render(
-        <Shell>
+        <Shell route={{ view: 'work', work: 3 }}>
           <p>view</p>
         </Shell>,
       ),
     );
     unmount = () => act(() => root.unmount());
-    expect(texts(container, '.bar-tab')).toEqual(['Flow']);
-    expect(container.querySelector('.bar-tab')?.getAttribute('aria-current')).toBe('page');
+    expect(texts(container, '.bar-tab')).toEqual(['Console', 'Works', 'Flow']);
+    expect(texts(container, '.bar-tab[aria-current="page"]')).toEqual(['Works']);
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
     click([...container.querySelectorAll('.switch-choice')].find((b) => b.textContent === 'Dark'));
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark');

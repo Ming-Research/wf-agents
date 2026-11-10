@@ -50,6 +50,11 @@
   /* How far a block's row stays under the frame's top when it is brought into view: the cells' heads are over it. */
   --chart-head-room: 140px;
 
+  /* The works page: how high what a work waits for grows before it scrolls, leaving the history its room; and how high
+     an opened content grows in the panel before it scrolls. */
+  --waits-height: 40vh;
+  --content-height: 320px;
+
   /* Colour, light. The ground the page is laid on, and the white of what is read on it, as the console's paper. */
   --ground: #f6f7f9;
   --card: #ffffff;
@@ -73,6 +78,7 @@
   /* The way back: the purple the flow chart has drawn it in, Primer's done colour. */
   --violet: #8250df;
   --green-text: #23795a;
+  --blue-text: #0969da;
   --orange-text: #b45309;
   --red-text: #c53030;
   --on-colour: #ffffff;
@@ -99,6 +105,7 @@
     --red: #ff6b70;
     --violet: #ab7df8;
     --green-text: #45c08a;
+    --blue-text: #4fb4ff;
     --orange-text: #ff9a3c;
     --red-text: #ff6b70;
     --on-colour: #0f1012;
@@ -122,6 +129,7 @@
   --red: #ff6b70;
   --violet: #ab7df8;
   --green-text: #45c08a;
+  --blue-text: #4fb4ff;
   --orange-text: #ff9a3c;
   --red-text: #ff6b70;
   --on-colour: #0f1012;
@@ -134,4 +142,5 @@
   --green-tint: color-mix(in srgb, var(--green) 10%, var(--card));
   --orange-tint: color-mix(in srgb, var(--orange) 10%, var(--card));
   --red-tint: color-mix(in srgb, var(--red) 10%, var(--card));
+  --blue-tint: color-mix(in srgb, var(--blue) 10%, var(--card));
 }
