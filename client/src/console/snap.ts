@@ -21,10 +21,10 @@
 //
 // Brought over from the console of the engine on `main` (`client/src/console/snap.ts`), its layout, its motion and every
 // constant as they were. What changed: a card's second row draws the works page's strip of the work's cells where it
-// drew the stages; the marks the new interface has
-// nothing for (an item new to the owner, messages unread, returns sent back) are gone; the colours the page's tokens
-// came from are read from the tokens, so that the canvas follows light and dark; and the canvas follows the size of
-// what holds it, which the docked panel changes, besides the window's.
+// drew the stages; what the new interface has nothing for
+// yet (an item new to the owner, messages unread) is read from the console's made-up data (`mock.ts`); the colours the
+// page's tokens came from are read from the tokens, so that the canvas follows light and dark; and the canvas follows
+// the size of what holds it, besides the window's.
 
 import { Application, BitmapText, Container, FillGradient, Graphics, TextStyle } from 'pixi.js';
 
@@ -132,6 +132,9 @@ const LIGHT = {
   over: '#7891fc',
   /// The words on a filled tag.
   onTag: '#ffffff',
+  /// What is new to the owner: the line inside a card's left edge, and its mark on the map.
+  unseen: '#6a82fd',
+  accent: '#3b5bfd',
   /// Where a work's time went: a model's, the tools', idle.
   model: '#4b5563',
   tools: '#9ca3af',
@@ -464,6 +467,7 @@ export class SnapScene {
   private drawnStrips = new Map<number, DrawnStrip>();
   /// For each column, the ranks of its items whose works wait for the owner, which the map marks.
   private asking: number[][] = [];
+  private fresh: number[][] = [];
   private columns: Column[] = [];
   /// For each column, each rank's group: how many items above in the column to the left have items here before it.
   private group: Int32Array[] = [];
@@ -623,6 +627,7 @@ export class SnapScene {
       return p;
     });
     this.asking = tree.columns.map((col) => col.flatMap((i, r) => (items[i].asks > 0 ? [r] : [])));
+    this.fresh = tree.columns.map((col) => col.flatMap((i, r) => (items[i].unseen ? [r] : [])));
     // The items a work goes on on, and those above them up to their roots: from the roots one sees which branches
     // have work on.
     this.lit = new Uint8Array(items.length);
@@ -701,7 +706,9 @@ export class SnapScene {
         width: 1,
       }),
     );
-    // The room for the line that marked an item new to the owner is kept, so that the numbers stand where they stood.
+    // While the item is new to the owner, a line inside the card's left edge, a little in from it and short of its top
+    // and bottom; the room for it kept on every card, so that the numbers and titles stand in line.
+    if (item.unseen) view.addChild(new Graphics().roundRect(4, top + 5, 3, h - 10, 1.5).fill(PALETTE.unseen));
     const x = 14;
     const number = new BitmapText({
       text: String(item.id),
@@ -715,10 +722,11 @@ export class SnapScene {
     title.position.set(x + Math.max(26, number.width + 8), row1 - title.height / 2);
     view.addChild(number, title);
     // At the right of the first row: how many things its work waits for from the owner, white on red, the strongest
-    // mark a card has, as what the owner looks for first; and, while its work is not drawn, a lock framed in grey with
+    // mark a card has, as what the owner looks for first; its messages unread, white on orange; its returns sent back,
+    // framed in grey; and, while its work is not drawn, a lock framed in grey with
     // how many items it waits for to merge, which stand under it.
     let right = NODE_W - 8;
-    const tag = (text: string, fill: string, sign: 'lock' | null, solid: boolean) => {
+    const tag = (text: string, fill: string, sign: 'back' | 'lock' | null, solid: boolean) => {
       const t = new BitmapText({ text, style: s.mono(solid ? PALETTE.onTag : fill) });
       const pad = 4;
       const icon = sign !== null ? 10 : 0;
@@ -738,11 +746,23 @@ export class SnapScene {
           .lineTo(ax + 6.5, row1 - 1)
           .stroke({ color: fill, width: 1.2 });
       }
+      if (sign === 'back') {
+        // A small arrow turning back, drawn: the font may have no such sign.
+        g.moveTo(ax + 7, row1 - 4)
+          .lineTo(ax + 7, row1 + 1)
+          .lineTo(ax + 1, row1 + 1)
+          .moveTo(ax + 3, row1 - 1)
+          .lineTo(ax + 1, row1 + 1)
+          .lineTo(ax + 3, row1 + 3)
+          .stroke({ color: fill, width: 1.2 });
+      }
       t.position.set(right + pad + icon, row1 - t.height / 2);
       view.addChild(g, t);
       right -= 6;
     };
     if (item.asks > 0) tag(String(item.asks), PALETTE.red, null, true);
+    if (item.unread > 0) tag(String(item.unread), PALETTE.asked, null, true);
+    if (item.work !== null && item.work.sentBack > 0) tag(String(item.work.sentBack), PALETTE.muted, 'back', false);
     if (item.work === null && item.blocked > 0) tag(String(item.blocked), PALETTE.muted, 'lock', false);
     // The title ends where the badges begin.
     fit(title, right - title.x);
@@ -1095,7 +1115,11 @@ export class SnapScene {
       const to = mid + (this.slot(d, n - 1) + this.rowsAt(d, n - 1) - c.at) * this.mapRow;
       const left = MAP_PAD + d * (MAP_STRIP + MAP_APART);
       this.mapBars.rect(left, from, MAP_STRIP, Math.max(1, to - from)).fill(mix(PALETTE.mapBar, PALETTE.over, c.warm));
-      // Where works wait for the owner, red across the bar.
+      // Where items are new to the owner, the accent across the bar; where works wait for the owner, red, over it.
+      for (const r of this.fresh[d] ?? []) {
+        const at = mid + (this.slot(d, r) + this.rowsAt(d, r) / 2 - c.at) * this.mapRow;
+        this.mapBars.rect(left - 1, at - 1, MAP_STRIP + 2, 2).fill(PALETTE.accent);
+      }
       for (const r of this.asking[d] ?? []) {
         const at = mid + (this.slot(d, r) + this.rowsAt(d, r) / 2 - c.at) * this.mapRow;
         this.mapBars.rect(left - 1, at - 1, MAP_STRIP + 2, 2).fill(PALETTE.red);
@@ -1311,17 +1335,25 @@ export class SnapScene {
     // blue and ringed in blue, over everything else, the item itself glowing too; each comes in quickly, and fades out
     // once the pointer has left.
     // Over a shadow, the item it points to and those above it light too; over an item, each of its shadows and those
-    // above each, up to its root, which depend on it too.
+    // above each, up to its root, which depend on it too. The items straight under it, which it depends on, light
+    // as well, one level and no further, so that both what waits for it and what it waits for show at once.
     const lit = (from: number) => {
       const set = new Set<number>();
       const light = (start: number) => {
         for (let i = start; i >= 0 && !set.has(i); i = t.parent[i]) set.add(i);
       };
+      const under = (of: number) => {
+        for (const kid of t.children[of]) set.add(kid);
+      };
       if (from < 0) return set;
       light(from);
+      under(from);
       const id = this.ids[from];
       const to = this.real.get(id);
-      if (this.shadows[from] === 1 && to !== undefined) light(to);
+      if (this.shadows[from] === 1 && to !== undefined) {
+        light(to);
+        under(to);
+      }
       if (this.shadows[from] === 0) for (const sh of this.shadowsOf.get(id) ?? []) light(sh);
       return set;
     };

@@ -78,6 +78,9 @@ pub struct Summary {
     /// either; empty for a work with no round or a span with no length.
     #[serde(default)]
     pub bar: String,
+    /// How many of its rounds were given back what the round before handed in, sent back as it did not do.
+    #[serde(default)]
+    pub sent_back: usize,
 }
 
 /// How many equal cells a work's time bar is cut into.
@@ -693,6 +696,9 @@ impl Summary {
             last: work.moments.last().map(|moment| moment.at.0),
             from: (runs.iter().flat_map(|run| &run.rounds)).map(|round| round.began).min(),
             bar: bar(kept, &runs),
+            sent_back: (runs.iter().flat_map(|run| &run.rounds))
+                .filter(|round| matches!(round.given, Given::SentBack { .. }))
+                .count(),
         })
     }
 }

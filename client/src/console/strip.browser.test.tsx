@@ -34,6 +34,8 @@ const working = (id: number, cells: CellNow[]): Shown => ({
   standing: 'open',
   asks: 0,
   blocked: 0,
+  unseen: false,
+  unread: 0,
   begun: true,
   shadow: false,
   work: {
@@ -41,6 +43,7 @@ const working = (id: number, cells: CellNow[]): Shown => ({
     now: { kind: 'round', cell: 'c1', run: 1, round: 1, since: Date.now() },
     paused: false,
     bar: '',
+    sentBack: 0,
     cells,
     from: Date.now(),
     usdMicros: 12_340_000,

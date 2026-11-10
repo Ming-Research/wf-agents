@@ -373,9 +373,245 @@ a.cw-mono:hover {
 
 /* The notes: the block written in, the box, and the line of who reads it with the button that sends it. */
 .cw-notes {
-  margin-top: var(--space-16);
+  margin-top: 24px;
   padding-top: var(--space-12);
   border-top: var(--hairline) solid var(--line);
+}
+
+.cw-note {
+  margin: var(--space-8) 0;
+  padding: var(--space-8) var(--space-12);
+  border-radius: 6px;
+  background: var(--ground);
+}
+
+/* The owner's own notes: a wash of the purple of what is chosen. */
+.cw-note-owner {
+  background: color-mix(in srgb, var(--accent) 8%, var(--card));
+}
+
+.cw-note-head {
+  display: flex;
+  gap: var(--space-8);
+  color: var(--muted);
+  font-size: var(--size-small);
+}
+
+.cw-note-quote,
+.cw-quoted span {
+  margin: var(--space-4) 0;
+  padding-left: var(--space-8);
+  border-left: var(--console-edge-width) solid var(--line);
+  color: var(--muted);
+}
+
+.cw-quoted {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.cw-unquote {
+  flex: none;
+  display: flex;
+  padding: var(--space-4);
+  border: none;
+  border-radius: var(--corner);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.cw-unquote:hover {
+  background: var(--step);
+}
+
+/* Typing `@` offers the names one can write to. */
+.cw-names {
+  display: flex;
+  gap: var(--space-8);
+  margin: var(--space-4) 0;
+}
+
+.cw-names button {
+  padding: var(--space-2) var(--space-8);
+  border: var(--hairline) solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--size-small);
+  cursor: pointer;
+}
+
+/* The body: its sections, each a heading over its passages. A passage stands in line with its heading; one changed
+   since the owner read the item is marked in the margin to its left, as a card new to the owner is. */
+.cw-section {
+  margin-bottom: var(--space-16);
+}
+
+.cw-section h3 {
+  margin: 0 0 var(--space-4);
+  font-size: var(--size-small);
+  font-weight: var(--weight-strong);
+}
+
+.cw-part {
+  margin-left: calc(-1 * (var(--console-edge-width) + var(--space-4)));
+  padding-left: var(--space-4);
+  border-left: var(--console-edge-width) solid transparent;
+}
+
+.cw-changed {
+  border-left-color: var(--console-accent);
+}
+
+.cw-md p {
+  margin: 0 0 var(--space-8);
+}
+
+.cw-md code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+}
+
+.cw-code {
+  margin: 0 0 var(--space-8);
+  padding: var(--space-8);
+  overflow-x: auto;
+  border-radius: 6px;
+  background: var(--ground);
+  font-size: var(--size-small);
+}
+
+/* A choice that waits for the owner: the amber of what waits for them, light; once confirmed, grey. */
+.cw-choice {
+  margin: var(--space-8) 0;
+  padding: var(--space-12);
+  border: var(--hairline) solid color-mix(in srgb, var(--orange) 50%, var(--card));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--orange) 6%, var(--card));
+}
+
+.cw-choice-done {
+  border-color: var(--line);
+  background: var(--ground);
+}
+
+.cw-choice-q {
+  margin: 0 0 var(--space-8);
+  font-weight: var(--weight-strong);
+}
+
+.cw-option {
+  display: block;
+  width: 100%;
+  margin-bottom: var(--space-8);
+  padding: var(--space-8) var(--space-12);
+  border: var(--hairline) solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cw-option:disabled {
+  cursor: default;
+}
+
+/* The option picked is filled; the one under the pointer is ringed. */
+.cw-option.on {
+  border-color: var(--accent-tint);
+  background: var(--accent-tint);
+}
+
+.cw-option:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.cw-option-label {
+  display: flex;
+  gap: var(--space-8);
+  font-weight: var(--weight-strong);
+}
+
+.cw-option-detail {
+  display: block;
+  color: var(--muted);
+  font-size: var(--size-small);
+}
+
+.cw-tag {
+  padding: 0 var(--space-4);
+  border-radius: var(--corner);
+  background: var(--blue-tint);
+  color: var(--blue-text);
+  font-size: var(--size-label);
+  font-weight: var(--weight);
+}
+
+/* The plan's Confirm: as wide as the body. */
+.cw-confirm {
+  margin: var(--space-12) 0;
+}
+
+.cw-confirm-button {
+  width: 100%;
+  justify-content: center;
+}
+
+.cw-confirm-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The button that quotes a passage selected, just above it. */
+.cw-item .cw-quote-offer {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  transform: translate(-50%, calc(-100% - 6px));
+  padding: var(--space-2) var(--space-8);
+  border: var(--hairline) solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: var(--size-small);
+  box-shadow: var(--console-shadow);
+  cursor: pointer;
+}
+
+/* While something in the item is new to the owner: a strip over the body, its mark in line with the changed passages'
+   and its words with the body's, saying what changed, and a link that marks the item read. */
+.cw-fresh {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+  margin: 0 0 var(--space-12) calc(-1 * (var(--console-edge-width) + var(--space-4)));
+  padding: 6px var(--space-12) 6px var(--space-4);
+  border-left: var(--console-edge-width) solid var(--console-accent);
+  background: var(--console-accent-wash);
+  font-size: var(--size-small);
+}
+
+.cw-item .cw-fresh-read {
+  flex: none;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--console-accent-strong);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cw-item .cw-fresh-read:hover {
+  text-decoration: underline;
 }
 
 .cw-notes h3 {
@@ -435,6 +671,22 @@ a.cw-mono:hover {
 /* What of the work the lines do not say: the page's label and value pairs, a section's room over the legend under
    them. */
 .cw-facts {
-  margin-bottom: var(--space-16);
-  padding-top: var(--space-4);
+  margin: 0 0 var(--space-16);
+}
+
+.cw-facts div {
+  display: flex;
+  gap: var(--space-16);
+  padding: var(--space-8) 0;
+  border-bottom: var(--hairline) solid var(--line);
+}
+
+.cw-facts dt {
+  flex: none;
+  width: 160px;
+  color: var(--muted);
+}
+
+.cw-facts dd {
+  margin: 0;
 }

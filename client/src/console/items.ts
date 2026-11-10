@@ -9,6 +9,7 @@
 // them by number is.
 
 import type { CellNow, Item, Items, Now, Summary, Waited } from '../works-api';
+import { itemMock } from './mock';
 
 /// What the item is to deliver: not yet, delivered, or given up.
 export type ItemStanding = 'open' | 'done' | 'cancelled';
@@ -26,6 +27,8 @@ export type ShownWork = {
   from: number;
   /// Where its time went, in equal cells (`Summary.bar`); empty where the engine does not say.
   bar: string;
+  /// How many of its returns were sent back.
+  sentBack: number;
   usdMicros: number;
   last: number | null;
 };
@@ -38,6 +41,10 @@ export type Shown = {
   asks: number;
   /// How many items it depends on are not merged yet.
   blocked: number;
+  /// New to the owner, or changed since they last read it (mock: `mock.ts`).
+  unseen: boolean;
+  /// Messages from others the owner has not read (mock: `mock.ts`).
+  unread: number;
   /// Whether its work has begun: until it has, the card says how many items it waits for.
   begun: boolean;
   /// A shadow of the item under an item that depends on it by a dependency that is not its main one: it points to the
@@ -114,12 +121,15 @@ export function shownTree(data: Items): Shown[] {
     const i = byId.get(id);
     const w = i?.work;
     making.add(id);
+    const mock = i === undefined ? null : itemMock(i);
     const shown: Shown = {
       id,
       title: i?.title ?? '',
       standing: standing(id),
       asks: w === undefined ? 0 : asksOf(w.now),
       blocked: (i?.dependsOn ?? []).filter((d) => byId.has(d) && standing(d) !== 'done').length,
+      unseen: mock?.unseen ?? false,
+      unread: mock?.unread ?? 0,
       begun: w !== undefined && started(w),
       shadow: false,
       work:
@@ -131,6 +141,7 @@ export function shownTree(data: Items): Shown[] {
               cells: w.cells,
               from: w.from ?? w.added,
               bar: w.bar ?? '',
+              sentBack: w.sentBack ?? 0,
               usdMicros: w.spent.usdMicros,
               last: w.last,
             }
@@ -155,6 +166,8 @@ export function shownTree(data: Items): Shown[] {
     standing: standing(id),
     asks: 0,
     blocked: 0,
+    unseen: false,
+    unread: 0,
     begun: false,
     shadow: true,
     work: null,

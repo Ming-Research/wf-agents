@@ -18,6 +18,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Items, WorkPage } from '../works-api';
 import { Drawer } from './Drawer';
+import { goalMock } from './mock';
 import { fakeShown } from './fake';
 import { type Shown, shownTree, standingOf } from './items';
 import { ItemPanel, type PageState } from './ItemWindow';
@@ -178,6 +179,9 @@ export function ConsolePage({ source: given }: { source?: Source } = {}) {
             page={shownPage}
             act={source.act}
             waitsFor={waitsFor}
+            goal={selected !== null && goalMock(selected.work !== null, selected.children.length)}
+            open={open}
+            onRead={() => latestData.current !== undefined && scene.current?.show(shownTree(latestData.current))}
             onTitle={() => scene.current?.reveal(item.number, room(open))}
           />
         )}

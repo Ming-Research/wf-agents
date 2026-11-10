@@ -107,6 +107,9 @@ export interface Summary {
   /// each: `m` an agent's rounds, `t` an engine cell's rounds or the tools' calls, `.` neither. Empty with no round;
   /// absent from an engine that does not give it yet.
   bar?: string;
+  /// How many of its rounds were given back what the round before handed in; absent from an engine that does not give
+  /// it yet.
+  sentBack?: number;
 }
 
 export interface Item {

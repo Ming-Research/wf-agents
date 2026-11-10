@@ -30,6 +30,8 @@ const HEIGHT = 640;
 const card = (id: number, children: Shown[] = []): Shown => ({
   id,
   title: `Item ${id}`,
+  unseen: false,
+  unread: 0,
   standing: 'open',
   asks: 0,
   blocked: 0,
