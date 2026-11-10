@@ -4,8 +4,8 @@
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoned, CallId, Called, Cause, Cell, CellId, Decision, Done, Finished, Flow, LetGo, Outcome, Outsider, Pause,
-    Records, Returned, Round, RunId, Seq, Stale, Started, TestName, Tests, Waited, Who, Write, Written, decide,
+    Abandoned, CallId, Called, Cell, CellId, Decision, Done, Finished, Flow, LetGo, Outcome, Outsider, Pause, Records,
+    Returned, Round, RunId, Seq, Stale, Started, TestName, Tests, Waited, Who, Write, Written, decide,
 };
 
 /// The named tests, each holding unless the test of the walk set it otherwise.
@@ -50,6 +50,14 @@ pub fn merge_word() -> Waited {
     }
 }
 
+/// What a work whose last cell is [`gate`] decides when nothing else is to be done: it waits for the owner's word.
+pub fn resting() -> Decision {
+    Decision::Wait {
+        at: "merge".into(),
+        on: vec![merge_word()],
+    }
+}
+
 /// A cell that reads these blocks and may write those.
 pub fn cell(id: &str, inputs: &[&str], outputs: &[&str]) -> Cell {
     let mut c = Cell::new(id);
@@ -79,13 +87,9 @@ impl World {
         w
     }
 
-    /// Whether nothing is to be done but wait for the owner's word at the merge.
-    pub fn rests(&self) -> bool {
-        self.decide()
-            == Decision::Wait {
-                at: "merge".into(),
-                on: vec![merge_word()],
-            }
+    /// Installs a changed flow over the same records.
+    pub fn install(&mut self, cells: Vec<Cell>) {
+        self.flow = Flow::new(cells).expect("the cells make a flow");
     }
 
     pub fn tick(&mut self) -> Seq {
@@ -100,14 +104,6 @@ impl World {
 
     pub fn decide(&self) -> Decision {
         decide(&self.flow, &self.records, &self.named)
-    }
-
-    /// The cell the walk says to run and why; any other decision is a fault of the test.
-    pub fn runs(&self) -> (String, Vec<Cause>) {
-        match self.decide() {
-            Decision::Run { cell, because, .. } => (cell.0, because),
-            other => panic!("the walk runs nothing: {other:?}"),
-        }
     }
 
     /// Sets what a named test comes to.
@@ -248,6 +244,20 @@ impl World {
     /// Something outside the work writes the block.
     pub fn outside_writes(&mut self, block: &str) -> Seq {
         self.outsider_writes(block, Outsider::Outside, None)
+    }
+
+    /// Something outside the work writes the block, and the owner says the change does not matter to the works under
+    /// way: a changed specification of a cell, for one.
+    pub fn outside_writes_not_mattering(&mut self, block: &str) -> Seq {
+        let at = self.tick();
+        self.records.written.push(Written {
+            block: block.into(),
+            by: Outsider::Outside,
+            matters: false,
+            value: None,
+            at,
+        });
+        at
     }
 
     fn outsider_writes(&mut self, block: &str, by: Outsider, value: Option<String>) -> Seq {
