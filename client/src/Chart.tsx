@@ -1,15 +1,27 @@
-// The chart: the matrix of the cells, in the order of the walk, against the blocks they read and write. It is how the
-// owner checks the flow (Article 7), so every cell and every block is on it, and what a cell does with a block is a
-// mark where they cross. A write below a read of the same block, by a later cell, is the work going back: its rail is
-// drawn up the column to each read it sends the work back to, so that every way back shows at a glance. The cells'
-// own columns stay in place as the blocks scroll under them in the chart's own frame.
+// The chart: the matrix of the blocks, one to a row, against the cells, one to a column in the order of the walk. It is
+// how the owner checks the flow (Article 7), so every cell and every block is on it, and what a cell does with a block
+// is a mark where they cross. A write right of a read of the same block, by a later cell, is the work going back: its
+// rail is drawn leftwards along the row to each read it sends the work back to, so that every way back shows at a
+// glance. Names are written level, so that the many blocks are read down the side without turning the head; the cells,
+// fewer, share the width in equal columns. The blocks' names stay in place as the chart scrolls sideways, and the
+// cells' heads as it scrolls down, in the chart's own frame.
 
 import { CopilotIcon, EyeIcon, GearIcon, GlobeIcon, PersonIcon } from '@primer/octicons-react';
 import { Label } from '@primer/react';
-import { useEffect, useRef, useState } from 'react';
+import { type CSSProperties, useEffect, useRef, useState } from 'react';
 
-import type { Cell } from './api';
-import { type Column, type Mark, MARK_PARTS, hasMark, type MarkPart, type Matrix, type Row, type Spot, type Status } from './matrix';
+import type { Block, Cell, Change } from './api';
+import {
+  type BlockRow,
+  type CellColumn,
+  type Mark,
+  MARK_PARTS,
+  type MarkPart,
+  type Matrix,
+  type Spot,
+  type Status,
+  hasMark,
+} from './matrix';
 import { conditionWords } from './words';
 
 /// What the owner chose: a cell, a block, or nothing.
@@ -73,7 +85,7 @@ export function MarkGlyph({ spot }: { spot: Spot }) {
 }
 
 /// The legend of the marks, which the bar of the page carries in one line.
-export function Legend({ waysBack }: { waysBack: number }) {
+export function Legend({ waysBack, comparing }: { waysBack: number; comparing: boolean }) {
   const spot = (mark: Partial<Mark>): Spot => ({
     mark: { read: false, write: false, condition: false, ...mark },
     added: { read: false, write: false, condition: false },
@@ -108,7 +120,32 @@ export function Legend({ waysBack }: { waysBack: number }) {
       <li>
         <EyeIcon size={12} /> shown
       </li>
+      {comparing &&
+        (['added', 'removed', 'changed'] as const).map((status) => (
+          <li key={status}>
+            <span className={`legend-status status-${status}`} aria-hidden="true" /> {STATUS_WORDS[status].words}
+          </li>
+        ))}
     </ul>
+  );
+}
+
+/// A name that may break after each underscore, and nowhere else, when its column is narrow.
+export function Breakable({ name }: { name: string }) {
+  const parts = name.split('_');
+  return (
+    <>
+      {parts.map((part, i) => (
+        <span key={i}>
+          {part}
+          {i < parts.length - 1 && (
+            <>
+              _<wbr />
+            </>
+          )}
+        </span>
+      ))}
+    </>
   );
 }
 
@@ -116,7 +153,7 @@ export function Legend({ waysBack }: { waysBack: number }) {
 export function RunBy({ cell }: { cell: Cell }) {
   return cell.kind === 'agent' ? (
     <span className="run-by">
-      <CopilotIcon size={12} aria-label="agent" /> {cell.line}
+      <CopilotIcon size={12} aria-label="agent" /> <Breakable name={cell.line ?? ''} />
     </span>
   ) : (
     <span className="run-by">
@@ -132,12 +169,9 @@ interface ChartProps {
 }
 
 export function Chart({ matrix, chosen, onChoose }: ChartProps) {
-  const { rows, columns, spots } = matrix;
+  const { blocks, cells, spots } = matrix;
   const [pointed, setPointed] = useState<number | null>(null);
   const frame = useRef<HTMLDivElement>(null);
-  const cellOf = (row: Row) => row.cell ?? row.other;
-  const hasCondition = rows.some((r) => cellOf(r)?.condition);
-  const hasPreconditions = rows.some((r) => (cellOf(r)?.preconditions.length ?? 0) > 0);
 
   // What is chosen elsewhere (the list of changes, a panel) is brought into view in the frame.
   useEffect(() => {
@@ -149,98 +183,52 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
 
   const chosenCell = chosen && 'cell' in chosen ? chosen.cell : null;
   const chosenBlock = chosen && 'block' in chosen ? chosen.block : null;
-  const lead = ['lead-cell', ...(hasCondition ? ['lead-condition'] : []), ...(hasPreconditions ? ['lead-pre'] : [])];
-  const leadClass = (i: number) => `lead ${lead[i]} ${i === lead.length - 1 ? 'lead-last' : ''}`;
 
   return (
     <div className="frame" ref={frame} onMouseLeave={() => setPointed(null)}>
-      <table className={`matrix leads-${lead.length}`}>
+      <table className="matrix" style={{ '--cells': cells.length } as CSSProperties}>
+        <colgroup>
+          <col className="lead-col" />
+          {cells.map((column) => (
+            <col key={column.id} />
+          ))}
+        </colgroup>
         <thead>
           <tr>
-            <th className={leadClass(0)} scope="col">
-              Cell
+            <th className="lead corner" scope="col">
+              Block
             </th>
-            {hasCondition && (
-              <th className={leadClass(1)} scope="col">
-                Runs when
-              </th>
-            )}
-            {hasPreconditions && (
-              <th className={leadClass(lead.length - 1)} scope="col">
-                Waits until
-              </th>
-            )}
-            {columns.map((column, c) => (
-              <BlockHead
-                key={column.name}
+            {cells.map((column, c) => (
+              <CellHead
+                key={column.id}
                 column={column}
-                chosen={chosenBlock === column.name}
+                chosen={chosenCell === column.id}
                 pointed={pointed === c}
-                onChoose={() => onChoose(chosenBlock === column.name ? null : { block: column.name })}
+                onChoose={() => onChoose(chosenCell === column.id ? null : { cell: column.id })}
                 onPoint={() => setPointed(c)}
               />
             ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, r) => {
-            const cell = cellOf(row);
-            if (!cell) return null;
-            const isChosen = chosenCell === row.id;
-            const absent = !row.cell;
+          {blocks.map((row, r) => {
+            const block = row.block ?? row.other;
+            if (!block) return null;
+            const isChosen = chosenBlock === row.name;
             return (
               <tr
-                key={row.id}
-                className={`row status-${row.status} ${absent ? 'absent' : ''} ${isChosen ? 'chosen' : ''}`}
+                key={row.name}
+                className={`row status-${row.status} ${row.block ? '' : 'absent'} ${isChosen ? 'chosen' : ''}`}
               >
-                <th className={leadClass(0)} scope="row" data-key={`cell:${row.id}`}>
-                  <button
-                    type="button"
-                    className="cell-button"
-                    aria-pressed={isChosen}
-                    onClick={() => onChoose(isChosen ? null : { cell: row.id })}
-                  >
-                    <span className="cell-line">
-                      <span className={`cell-id ${row.changed.has('cellMoved') ? 'changed-field' : ''}`}>
-                        {row.id}
-                      </span>
-                      <span className={`cell-title ${row.changed.has('title') ? 'changed-field' : ''}`}>
-                        {cell.title}
-                      </span>
-                    </span>
-                    <span
-                      className={`cell-sub ${row.changed.has('kind') || row.changed.has('line') ? 'changed-field' : ''}`}
-                    >
-                      <RunBy cell={cell} />
-                      <StatusLabel status={row.status} />
-                    </span>
-                  </button>
-                </th>
-                {hasCondition && (
-                  <td className={`${leadClass(1)} ${row.changed.has('condition') ? 'changed-field' : ''}`}>
-                    {cell.condition && conditionWords(cell.condition)}
-                  </td>
-                )}
-                {hasPreconditions && (
-                  <td
-                    className={`${leadClass(lead.length - 1)} ${
-                      row.changed.has('preconditionAdded') || row.changed.has('preconditionRemoved')
-                        ? 'changed-field'
-                        : ''
-                    }`}
-                  >
-                    {cell.preconditions.map((p) => (
-                      <div key={p.name}>{p.words}</div>
-                    ))}
-                  </td>
-                )}
-                {columns.map((column, c) => (
+                <BlockHead row={row} chosen={isChosen} onChoose={() => onChoose(isChosen ? null : { block: row.name })} />
+                {cells.map((column, c) => (
                   <SpotCell
-                    key={column.name}
+                    key={column.id}
                     spot={spots[r][c]}
-                    cell={row.id}
-                    column={column}
-                    chosen={chosenBlock === column.name}
+                    cell={column.id}
+                    block={row.name}
+                    absent={!column.cell}
+                    chosen={chosenCell === column.id}
                     pointed={pointed === c}
                     onPoint={() => setPointed(c)}
                   />
@@ -254,45 +242,83 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
   );
 }
 
-function BlockHead(props: {
-  column: Column;
+/// The head of a cell's column: its id and title, who runs it, and, shortened to what the column holds, when it runs
+/// and what it waits for; the whole words are on the pointer's tip and in the cell's panel.
+function CellHead(props: {
+  column: CellColumn;
   chosen: boolean;
   pointed: boolean;
   onChoose: () => void;
   onPoint: () => void;
 }) {
   const { column, chosen, pointed, onChoose, onPoint } = props;
-  const block = column.block ?? column.other;
-  if (!block) return null;
-  const changed = (kind: 'values' | 'people' | 'outside' | 'shown') => (column.changed.has(kind) ? 'changed-field' : '');
+  const cell = column.cell ?? column.other;
+  if (!cell) return null;
+  const changed = (...kinds: Change['kind'][]) => (kinds.some((k) => column.changed.has(k)) ? 'changed-field' : '');
+  const when = cell.condition ? `runs when ${conditionWords(cell.condition)}` : '';
+  const waits = cell.preconditions.map((p) => p.words).join('; ');
   return (
     <th
       scope="col"
-      className={`block-head status-${column.status} ${column.block ? '' : 'absent'} ${chosen ? 'chosen' : ''} ${
+      className={`cell-head status-${column.status} ${column.cell ? '' : 'absent'} ${chosen ? 'chosen' : ''} ${
         pointed ? 'pointed' : ''
       }`}
-      data-key={`block:${column.name}`}
+      data-key={`cell:${column.id}`}
       onMouseEnter={onPoint}
     >
+      <button type="button" className="head-button" aria-pressed={chosen} onClick={onChoose}>
+        <span className={`cell-id ${changed('cellMoved')}`}>{column.id}</span>
+        <span className={`cell-title ${changed('title')}`}>{cell.title}</span>
+        <span className={`cell-sub ${changed('kind', 'line')}`}>
+          <RunBy cell={cell} />
+        </span>
+        {when && (
+          <span className={`cell-when ${changed('condition')}`} title={when}>
+            {when}
+          </span>
+        )}
+        {waits && (
+          <span className={`cell-waits ${changed('preconditionAdded', 'preconditionRemoved')}`} title={`waits until ${waits}`}>
+            waits until {waits}
+          </span>
+        )}
+        <StatusLabel status={column.status} />
+      </button>
+    </th>
+  );
+}
+
+/// The name of a block at the left of its row, with who besides cells writes it, whether it is shown, and the values
+/// of a choice. What a change did to it is the colour of its edge, which the legend names, so that the name keeps the
+/// room.
+function BlockHead({ row, chosen, onChoose }: { row: BlockRow; chosen: boolean; onChoose: () => void }) {
+  const block = (row.block ?? row.other) as Block;
+  const changed = (kind: 'values' | 'people' | 'outside' | 'shown') => (row.changed.has(kind) ? 'changed-field' : '');
+  const status = row.status === 'same' ? '' : `, ${STATUS_WORDS[row.status].words}`;
+  return (
+    <th scope="row" className="lead block-head" data-key={`block:${row.name}`}>
       <button
         type="button"
         className="head-button"
         aria-pressed={chosen}
-        aria-label={`Block ${column.name}${column.status === 'same' ? '' : `, ${STATUS_WORDS[column.status].words}`}`}
-        title={column.status === 'same' ? column.name : `${column.name}: ${STATUS_WORDS[column.status].words}`}
+        aria-label={`Block ${row.name}${status}`}
         onClick={onChoose}
       >
-        <span className="who">
-          {block.writtenBy.people && <PersonIcon size={12} aria-label="people write it" className={changed('people')} />}
-          {block.writtenBy.outside && (
-            <GlobeIcon size={12} aria-label="the outside writes it" className={changed('outside')} />
-          )}
-          {block.readBy.shown && <EyeIcon size={12} aria-label="shown" className={changed('shown')} />}
+        <span className="block-line">
+          <span className="block-name" title={row.name}>
+            {row.name}
+          </span>
+          <span className="who">
+            {block.writtenBy.people && (
+              <PersonIcon size={12} aria-label="people write it" className={changed('people')} />
+            )}
+            {block.writtenBy.outside && (
+              <GlobeIcon size={12} aria-label="the outside writes it" className={changed('outside')} />
+            )}
+            {block.readBy.shown && <EyeIcon size={12} aria-label="shown" className={changed('shown')} />}
+          </span>
         </span>
-        <span className="vertical">
-          <span className="block-name">{column.name}</span>
-          {block.values && <span className={`block-values ${changed('values')}`}>{block.values.join(' · ')}</span>}
-        </span>
+        {block.values && <span className={`block-values ${changed('values')}`}>{block.values.join(' · ')}</span>}
       </button>
     </th>
   );
@@ -301,28 +327,34 @@ function BlockHead(props: {
 function SpotCell(props: {
   spot: Spot;
   cell: string;
-  column: Column;
+  block: string;
+  absent: boolean;
   chosen: boolean;
   pointed: boolean;
   onPoint: () => void;
 }) {
-  const { spot, cell, column, chosen, pointed, onPoint } = props;
-  // The upper half of the crossing carries the way back when it does, the column's line otherwise; so the lower.
-  const upper = spot.back === 'up' || spot.back === 'through' ? 'back' : spot.line === 'up' || spot.line === 'through' ? 'line' : null;
-  const lower =
-    spot.back === 'down' || spot.back === 'through' ? 'back' : spot.line === 'down' || spot.line === 'through' ? 'line' : null;
-  const words = markWords(cell, column.name, spot);
+  const { spot, cell, block, absent, chosen, pointed, onPoint } = props;
+  // The left half of the crossing carries the way back when it does, the row's line otherwise; so the right.
+  const half = (side: 'left' | 'right') =>
+    spot.back === side || spot.back === 'through'
+      ? 'back'
+      : spot.line === side || spot.line === 'through'
+        ? 'line'
+        : null;
+  const left = half('left');
+  const right = half('right');
+  const words = markWords(cell, block, spot);
   const marked = hasMark(spot.mark) || hasMark(spot.added) || hasMark(spot.removed);
   return (
     <td
-      className={`spot ${marked ? 'has-mark' : ''} ${column.block ? '' : 'absent'} ${chosen ? 'chosen' : ''} ${
+      className={`spot ${marked ? 'has-mark' : ''} ${absent ? 'absent' : ''} ${chosen ? 'chosen' : ''} ${
         pointed ? 'pointed' : ''
       }`}
       onMouseEnter={onPoint}
       title={words || undefined}
     >
-      {upper && <span className={`seg seg-up ${upper}`} aria-hidden="true" />}
-      {lower && <span className={`seg seg-down ${lower}`} aria-hidden="true" />}
+      {left && <span className={`seg seg-left ${left}`} aria-hidden="true" />}
+      {right && <span className={`seg seg-right ${right}`} aria-hidden="true" />}
       {spot.backTo && <span className="arrow" aria-hidden="true" />}
       <MarkGlyph spot={spot} />
       {words && <span className="visually-hidden">{words}</span>}

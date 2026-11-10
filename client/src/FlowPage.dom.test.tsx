@@ -36,10 +36,14 @@ function click(element: Element | null | undefined) {
   act(() => (element as HTMLElement).click());
 }
 
+/// The row of a block.
+const rowOf = (page: HTMLElement, block: string) =>
+  [...page.querySelectorAll('tbody tr')].find((tr) => tr.querySelector('.block-name')?.textContent === block) as HTMLElement;
+
 describe('the chart', () => {
-  it('shows the cells in the order of the walk, the blocks as columns, and what each cell does with each block', () => {
+  it('shows the blocks down the side, the cells across in the order of the walk, and what each cell does with each block', () => {
     const page = draw({ state: 'compiled', flow: small() });
-    expect(texts(page, 'tbody .cell-title')).toEqual([
+    expect(texts(page, 'thead .cell-title')).toEqual([
       'Plan',
       'Judge the plan',
       'Design',
@@ -47,7 +51,7 @@ describe('the chart', () => {
       'Check with the latest main',
       'Merge',
     ]);
-    expect(texts(page, 'thead .block-name')).toEqual([
+    expect(texts(page, 'tbody .block-name')).toEqual([
       'request',
       'plan',
       'needs_design',
@@ -58,24 +62,31 @@ describe('the chart', () => {
       'main',
       'ci',
     ]);
-    const plan = page.querySelectorAll('tbody tr')[0];
-    expect(texts(plan as HTMLElement, '.spot .visually-hidden')).toEqual([
-      'plan reads request',
+    expect(texts(rowOf(page, 'plan'), '.spot .visually-hidden')).toEqual([
       'plan may write plan',
-      'plan reads opinions',
+      'judge reads plan',
+      'design reads plan',
+      'answer reads plan',
     ]);
-    const design = page.querySelectorAll('tbody tr')[2];
-    expect(design.textContent).toContain('needs_design is yes');
-    expect(texts(design as HTMLElement, '.spot .visually-hidden')[1]).toBe('design runs only by the value of needs_design');
-    expect(page.querySelectorAll('tbody tr')[3].textContent).toContain('The owner confirmed the plan');
-    // The one way back: judge writes the opinions plan reads.
+    expect(texts(rowOf(page, 'needs_design'), '.spot .visually-hidden')).toEqual([
+      'judge may write needs_design',
+      'design runs only by the value of needs_design',
+    ]);
+    expect(rowOf(page, 'needs_design').querySelector('.block-values')?.textContent).toBe('yes · no');
+    const heads = [...page.querySelectorAll('thead .cell-head')];
+    expect(heads[2].querySelector('.cell-when')?.textContent).toBe('runs when needs_design is yes');
+    expect(heads[3].querySelector('.cell-waits')?.textContent).toBe('waits until The owner confirmed the plan');
+    expect(heads[3].querySelector('.cell-waits')?.getAttribute('title')).toBe('waits until The owner confirmed the plan');
+    // The one way back: judge writes the opinions plan reads, and the arrow is at plan's read.
     expect(page.querySelector('.legend')?.textContent).toContain('way back (1)');
-    expect(page.querySelectorAll('.arrow')).toHaveLength(1);
+    const arrows = [...page.querySelectorAll('.arrow')];
+    expect(arrows).toHaveLength(1);
+    expect(arrows[0].closest('td')?.textContent).toBe('plan reads opinions');
   });
 
-  it('shows everything about a cell chosen, and about a block chosen from it', () => {
+  it('shows everything about a cell chosen by its column’s head, and about a block chosen from it', () => {
     const page = draw({ state: 'compiled', flow: small() });
-    click(page.querySelectorAll('tbody .cell-button')[0]);
+    click(page.querySelectorAll('thead .cell-head .head-button')[0]);
     const panel = page.querySelector('section[aria-label="Cell plan"]') as HTMLElement;
     expect(panel.textContent).toContain('sharing its session with design, answer');
     expect(texts(panel, '.uses li')).toEqual([
@@ -86,6 +97,14 @@ describe('the chart', () => {
     click([...panel.querySelectorAll('button.link')].find((b) => b.textContent === 'opinions'));
     const block = page.querySelector('section[aria-label="Block opinions"]') as HTMLElement;
     expect(block.textContent).toContain('judge → plan');
+  });
+
+  it('shows everything about a block chosen by its row’s name', () => {
+    const page = draw({ state: 'compiled', flow: small() });
+    click(rowOf(page, 'ci').querySelector('.head-button'));
+    const panel = page.querySelector('section[aria-label="Block ci"]') as HTMLElement;
+    expect(panel.textContent).toContain('a choice of green, red');
+    expect(rowOf(page, 'ci').className).toContain('chosen');
   });
 });
 
@@ -110,11 +129,12 @@ describe('a comparison', () => {
     );
     expect(texts(page, '.change-group h3')).toEqual(['a First', 'b B', 'Block y']);
     expect(texts(page, '.changes .change')).toEqual(['TitleA → First', 'Readsy', 'Declared']);
-    expect(page.querySelector('tbody tr')?.className).toContain('status-changed');
+    expect(page.querySelector('thead .cell-head')?.className).toContain('status-changed');
+    expect(rowOf(page, 'y').className).toContain('status-added');
     expect(page.querySelectorAll('.part.added')).toHaveLength(1);
 
     click([...page.querySelectorAll('button')].find((b) => b.textContent === 'As it was'));
-    expect(texts(page, 'tbody .cell-title')).toEqual(['A', 'B']);
+    expect(texts(page, 'thead .cell-title')).toEqual(['A', 'B']);
   });
 });
 

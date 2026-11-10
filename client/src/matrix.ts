@@ -1,6 +1,6 @@
-// The chart as a matrix: the cells as rows in the order of the walk, the blocks as columns, and at each crossing what
+// The chart as a matrix: the blocks as rows, the cells as columns in the order of the walk, and at each crossing what
 // the cell does with the block. Everything the chart draws is worked out here, from the interface's JSON alone, so
-// that it can be tested without drawing: the order of the columns, the marks, the ways back and what changed.
+// that it can be tested without drawing: the order of the rows, the marks, the ways back and what changed.
 //
 // When there is a definition to compare against, the matrix holds the cells and blocks of both: the one whose version
 // is shown in its order, each that only the other has standing after the one it followed there (of those that did not
@@ -35,11 +35,11 @@ export function hasMark(mark: Mark): boolean {
   return mark.read || mark.write || mark.condition;
 }
 
-/// The order of the blocks' columns. A block stands where it is first written in the walk, a cell's outputs together
+/// The order of the blocks' rows. A block stands where it is first written in the walk, a cell's outputs together
 /// in the order the cell lists them; a block no cell writes (what people or the outside write) stands just before the
 /// first cell that reads it, its inputs in their order, a condition's block first; a block no cell writes or reads
-/// stands last. Ties go by name. The matrix then goes down to the right like a staircase, each cell's writes beside
-/// each other and next to the reads that follow from them, and a write below a read stands out as a way back.
+/// stands last. Ties go by name. The marks then step down to the right like a staircase, each cell's writes one under
+/// another and next to the reads that follow from them, and a write right of a read stands out as a way back.
 export function blockOrder(flow: Flow): string[] {
   const place = new Map(flow.cells.map((c, i) => [c.id, i]));
   const key = (block: Block): [number, number, number] => {
@@ -96,8 +96,8 @@ export function merged(shown: string[], other: string[], moved: ReadonlySet<stri
 /// Where a thing of the matrix stands between the two versions.
 export type Status = 'same' | 'added' | 'removed' | 'changed';
 
-/// A row: a cell.
-export interface Row {
+/// A column: a cell.
+export interface CellColumn {
   id: string;
   /// The cell in the version shown; none when only the other version has it.
   cell?: Cell;
@@ -109,8 +109,8 @@ export interface Row {
   changed: Set<Change['kind']>;
 }
 
-/// A column: a block.
-export interface Column {
+/// A row: a block.
+export interface BlockRow {
   name: string;
   block?: Block;
   other?: Block;
@@ -118,8 +118,9 @@ export interface Column {
   changed: Set<Change['kind']>;
 }
 
-/// How a column's line runs through one crossing: from the crossing's middle down, up, both, or not at all.
-export type Segment = 'none' | 'down' | 'up' | 'through';
+/// How a row's line runs through one crossing: from the crossing's middle to the right (towards later cells), to the
+/// left, both, or not at all.
+export type Segment = 'none' | 'right' | 'left' | 'through';
 
 /// One crossing of a row and a column.
 export interface Spot {
@@ -129,11 +130,11 @@ export interface Spot {
   added: Mark;
   /// Those only the version compared against has: taken out by the change.
   removed: Mark;
-  /// The column's line, from its first mark to its last, which the eye follows down the rows.
+  /// The row's line, from its first mark to its last, which the eye follows along the cells.
   line: Segment;
-  /// The way back: from a write up to the reads above it of the same block, by other cells.
+  /// The way back: from a later cell's write leftwards to the reads of the same block by cells before it.
   back: Segment;
-  /// A read that a write below it sends the work back to.
+  /// A read that a write right of it sends the work back to.
   backTo: boolean;
 }
 
@@ -142,11 +143,13 @@ export type Version = 'after' | 'before';
 /// The matrix of one version, holding the cells and blocks of the other too when comparing.
 export interface Matrix {
   version: Version;
-  rows: Row[];
-  columns: Column[];
-  /// By row, then by column.
+  /// The rows, top to bottom.
+  blocks: BlockRow[];
+  /// The columns, left to right: the order of the walk.
+  cells: CellColumn[];
+  /// By block, then by cell.
   spots: Spot[][];
-  /// How many ways back the version shown has: pairs of a block's write and a read above it.
+  /// How many ways back the version shown has: pairs of a block's read and a later cell's write of it.
   waysBack: number;
 }
 
@@ -173,12 +176,12 @@ export function matrix(versions: Versions, version: Version): Matrix {
   const other = before ? (version === 'before' ? after : before) : undefined;
 
   const moved = new Set(changes.flatMap((c) => (c.kind === 'cellMoved' ? [c.cell] : [])));
-  const rowIds = merged(
+  const cellIds = merged(
     shown.cells.map((c) => c.id),
     other?.cells.map((c) => c.id) ?? [],
     moved,
   );
-  const columnNames = merged(blockOrder(shown), other ? blockOrder(other) : []);
+  const blockNames = merged(blockOrder(shown), other ? blockOrder(other) : []);
 
   const cellChanges = new Map<string, Set<Change['kind']>>();
   const blockChanges = new Map<string, Set<Change['kind']>>();
@@ -197,7 +200,7 @@ export function matrix(versions: Versions, version: Version): Matrix {
 
   const cellIn = (flow: Flow | undefined, id: string) => flow?.cells.find((c) => c.id === id);
   const blockIn = (flow: Flow | undefined, name: string) => flow?.blocks.find((b) => b.name === name);
-  const rows: Row[] = rowIds.map((id) => {
+  const cells: CellColumn[] = cellIds.map((id) => {
     const changed = cellChanges.get(id) ?? new Set();
     return {
       id,
@@ -207,7 +210,7 @@ export function matrix(versions: Versions, version: Version): Matrix {
       changed,
     };
   });
-  const columns: Column[] = columnNames.map((name) => {
+  const blocks: BlockRow[] = blockNames.map((name) => {
     const changed = blockChanges.get(name) ?? new Set();
     return {
       name,
@@ -218,46 +221,45 @@ export function matrix(versions: Versions, version: Version): Matrix {
     };
   });
 
-  const spots: Spot[][] = rows.map((row) =>
-    columns.map((column) => {
-      const mark = row.cell && column.block ? markOf(row.cell, column.name) : NO_MARK;
-      const a = markOf(cellIn(after, row.id), column.name);
-      const b = before ? markOf(cellIn(before, row.id), column.name) : a;
-      const only = (x: Mark, y: Mark): Mark => ({
-        read: x.read && !y.read,
-        write: x.write && !y.write,
-        condition: x.condition && !y.condition,
-      });
+  const only = (x: Mark, y: Mark): Mark => ({
+    read: x.read && !y.read,
+    write: x.write && !y.write,
+    condition: x.condition && !y.condition,
+  });
+  const spots: Spot[][] = blocks.map((row) =>
+    cells.map((column) => {
+      const mark = column.cell && row.block ? markOf(column.cell, row.name) : NO_MARK;
+      const a = markOf(cellIn(after, column.id), row.name);
+      const b = before ? markOf(cellIn(before, column.id), row.name) : a;
       return { mark, added: only(a, b), removed: only(b, a), line: 'none', back: 'none', backTo: false };
     }),
   );
 
   let waysBack = 0;
-  columns.forEach((_, c) => {
-    const marks = spots.map((row) => row[c].mark);
-    const marked = marks.flatMap((m, r) => (hasMark(m) ? [r] : []));
-    const reads = marks.flatMap((m, r) => (m.read || m.condition ? [r] : []));
-    const writes = marks.flatMap((m, r) => (m.write ? [r] : []));
-    paint(spots, c, 'line', marked[0], marked[marked.length - 1]);
-    const lowestWrite = writes[writes.length - 1];
-    const reached = reads.filter((r) => lowestWrite !== undefined && r < lowestWrite);
-    for (const r of reached) spots[r][c].backTo = true;
-    waysBack += reads.reduce((n, r) => n + writes.filter((w) => w > r).length, 0);
+  for (const row of spots) {
+    const marks = row.map((spot) => spot.mark);
+    const marked = marks.flatMap((m, c) => (hasMark(m) ? [c] : []));
+    const reads = marks.flatMap((m, c) => (m.read || m.condition ? [c] : []));
+    const writes = marks.flatMap((m, c) => (m.write ? [c] : []));
+    paint(row, 'line', marked[0], marked[marked.length - 1]);
+    const lastWrite = writes[writes.length - 1];
+    const reached = reads.filter((c) => lastWrite !== undefined && c < lastWrite);
+    for (const c of reached) row[c].backTo = true;
+    waysBack += reads.reduce((n, c) => n + writes.filter((w) => w > c).length, 0);
     if (reached.length > 0) {
-      const top = reached[0];
-      const bottom = Math.max(...writes.filter((w) => w > top));
-      paint(spots, c, 'back', top, bottom);
+      const first = reached[0];
+      paint(row, 'back', first, Math.max(...writes.filter((w) => w > first)));
     }
-  });
+  }
 
-  return { version, rows, columns, spots, waysBack };
+  return { version, blocks, cells, spots, waysBack };
 }
 
-/// Paints a line in a column from the middle of row `top` to the middle of row `bottom`.
-function paint(spots: Spot[][], column: number, which: 'line' | 'back', top?: number, bottom?: number): void {
-  if (top === undefined || bottom === undefined || top >= bottom) return;
-  for (let r = top; r <= bottom; r += 1) {
-    spots[r][column][which] = r === top ? 'down' : r === bottom ? 'up' : 'through';
+/// Paints a line along a row from the middle of the crossing at `from` to the middle of the one at `to`.
+function paint(row: Spot[], which: 'line' | 'back', from?: number, to?: number): void {
+  if (from === undefined || to === undefined || from >= to) return;
+  for (let c = from; c <= to; c += 1) {
+    row[c][which] = c === from ? 'right' : c === to ? 'left' : 'through';
   }
 }
 
