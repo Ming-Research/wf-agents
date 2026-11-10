@@ -129,11 +129,11 @@ mod tests {
         assert_eq!(settings.agents.slots, 2);
         assert_eq!(settings.agents.config_dir, None);
         assert_eq!(settings.budget_micros(), Some(5_000_000));
-        let args = settings.agents.args.join(" ");
         assert!(
-            args.ends_with("--setting-sources user"),
-            "a worktree's own settings are not loaded: {args}"
+            !settings.agents.args.iter().any(|a| a == "--setting-sources"),
+            "the code gives it"
         );
+        assert_eq!(settings.agents.setting_sources, "user");
         assert!(settings.agents.env.is_empty());
     }
 

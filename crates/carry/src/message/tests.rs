@@ -366,10 +366,9 @@ fn a_changed_input_with_a_version_before_is_read_as_a_difference() {
         )),
         "{told}"
     );
-    assert!(
-        told.contains(&format!("`request plan opinions opinions@{first}..{second} code`")),
-        "{told}"
-    );
+    let (request, plan, code) = (small.request(), small.wrote("plan"), small.wrote("build"));
+    let all = format!("`request@{request} plan@{plan} opinions@{second} opinions@{first}..{second} code@{code}`");
+    assert!(told.contains(&all), "{told}");
 }
 
 #[test]
