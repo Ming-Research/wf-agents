@@ -219,7 +219,8 @@ impl Driver {
         // What is kept of the work from its start: the pause, what the driver says of the item's dependencies, and
         // what people wrote, in that order. Being paused from its first entry, the work is given nothing to do.
         let mut work = Work::default();
-        let mut first = vec![Event::Paused];
+        // MUTANT: the pause is kept by a second save after the item, its work and the first writes are added.
+        let mut first = Vec::new();
         first.extend(self.dependencies(&flow, &new.depends_on, &work));
         first.extend(new.writes.into_iter().map(|write| Event::Wrote {
             block: write.block,
@@ -233,6 +234,10 @@ impl Driver {
         }
         let (item, number) = (self.store)
             .add(&new.title, &new.depends_on, &new.flow, now, &work)
+            .map_err(|fault| self.stop(Fault::Store(fault), false))?;
+        handle(&flow, &mut work, now, Event::Paused).map_err(Failed::Refused)?;
+        (self.store)
+            .save(number, &work)
             .map_err(|fault| self.stop(Fault::Store(fault), false))?;
         let mut depends_on = new.depends_on;
         depends_on.sort();
@@ -350,18 +355,13 @@ impl Driver {
         let Some(held) = self.works.get_mut(&number) else {
             return Err(Failed::NoSuchWork(number));
         };
-        // MUTANT: what the work was is saved before the thing that happened is taken, so that what is given out is
-        // kept only at the next call.
-        if let Err(fault) = self.store.save(number, &held.work) {
-            return Err(self.stop(Fault::Store(fault), false));
-        }
-        let Some(held) = self.works.get_mut(&number) else {
-            return Err(Failed::NoSuchWork(number));
-        };
         let before = held.work.tick();
         let effects = handle(&held.flow, &mut held.work, now, event).map_err(Failed::Refused)?;
         if held.work.tick() == before {
             return Ok(false);
+        }
+        if let Err(fault) = self.store.save(number, &held.work) {
+            return Err(self.stop(Fault::Store(fault), false));
         }
         held.ended = end_of(&held.flow, &held.work);
         todos.extend(effects.into_iter().map(|effect| Todo { work: number, effect }));
