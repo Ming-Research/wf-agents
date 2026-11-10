@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import type { TestKind } from './api';
 import { test } from './testing';
 import { changeWords, conditionWords, faultWords, readsWords, writersBesideCells } from './words';
 
@@ -13,13 +14,17 @@ describe('the words of the page', () => {
   });
 
   it('say what a test reads by its kind, for one block and for several', () => {
-    const reads = (kind: 'all' | 'any' | 'none', blocks: string[]) => readsWords(test('t', '', kind, blocks));
+    const reads = (kind: TestKind, blocks: string[]) => readsWords(test('t', '', kind, blocks));
     expect(reads('all', ['go'])).toBe('go is yes');
     expect(reads('any', ['go'])).toBe('go is yes');
     expect(reads('none', ['go'])).toBe('go is not yes');
     expect(reads('all', ['needs_design', 'changes_tree'])).toBe('all of needs_design, changes_tree are yes');
     expect(reads('any', ['needs_design', 'changes_tree'])).toBe('any of needs_design, changes_tree is yes');
     expect(reads('none', ['needs_design', 'changes_tree'])).toBe('none of needs_design, changes_tree is yes');
+    expect(reads('noneStanding', ['verdict'])).toBe('verdict is not yes, not counting what a cell skipped now wrote');
+    expect(reads('noneStanding', ['verdict', 'deep_verdict'])).toBe(
+      'none of verdict, deep_verdict is yes, not counting what a cell skipped now wrote',
+    );
   });
 
   it('say the source outside that writes a block', () => {
@@ -98,6 +103,23 @@ describe('the words of the page', () => {
         what: { kind: 'testNotWrittenBefore', test: 'may_merge', block: 'ci' },
       }),
     ).toBe('The test may_merge reads ci, which neither a cell before this one, people nor the outside write.');
+    expect(
+      faultWords({
+        file: 'plan.toml',
+        field: 'requires[0]',
+        what: { kind: 'testWrittenAfter', test: 'may_merge', block: 'ci', cell: 'check' },
+      }),
+    ).toBe('The test may_merge reads ci, which check, a cell after this one, writes.');
+    expect(
+      faultWords({
+        file: 'flow.toml',
+        field: 'tests.approved.reads[0]',
+        what: { kind: 'standingWrittenByTwo', test: 'approved', block: 'verdict', cell: 'deep' },
+      }),
+    ).toBe(
+      "The test approved, of what stands, reads verdict, which deep writes as well as a cell before it: a skipped " +
+        "cell's write would hide the other's word.",
+    );
     expect(
       faultWords({
         file: 'check.toml',

@@ -13,6 +13,7 @@ mod flows;
 mod inputs;
 mod limit;
 mod meaning;
+mod named_tests;
 mod opinions;
 mod order;
 mod preconditions;
@@ -23,8 +24,8 @@ mod stale;
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoned, Abandoning, BlockId, CallId, Cause, Cell, Condition, Decision, Done, End, Flow, FlowFault, Outcome,
-    RecordFault, Returned, Round, RunId, Seq, Waited, Who, Write, Written,
+    Abandoned, Abandoning, BlockId, CallId, Cause, Cell, Condition, Decision, Done, End, Flow, FlowFault, RecordFault,
+    Returned, Round, RunId, Seq, Waited, Who, Write, Written,
 };
 use support::Says::{DoesNotMatter, Matters, Value};
 use support::{World, cell, gate, merge_word, resting};

@@ -121,11 +121,7 @@ impl W {
 
     /// What the deciding code decides for the work as it is.
     fn decision(&self) -> decide::Decision {
-        decide::decide(
-            &self.flow.flow,
-            &self.work.records,
-            &self.flow.tests(&self.work.records),
-        )
+        decide::decide(&self.flow.flow, &self.work.records)
     }
 
     /// The event, which the loop must refuse, leaving the work exactly as it was; and why.

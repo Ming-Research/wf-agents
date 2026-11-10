@@ -317,7 +317,7 @@ impl History {
             "the moments do not follow the records: {places:?}"
         );
         assert!(
-            !matches!(decide(&self.flow.flow, r, &self.flow.tests(r)), Decision::Fault(_)),
+            !matches!(decide(&self.flow.flow, r), Decision::Fault(_)),
             "the records are faulty"
         );
         for effect in &self.held {
@@ -619,7 +619,7 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
             steps += 1;
             assert!(steps <= bound, "the work has not come to rest within {bound} steps");
         }
-        let decision = decide(&h.flow.flow, &h.work.records, &h.flow.tests(&h.work.records));
+        let decision = decide(&h.flow.flow, &h.work.records);
         let paused = decide::paused(&h.work.records);
         assert!(
             matches!(decision, Decision::Wait { .. } | Decision::Paused | Decision::Ended(_))

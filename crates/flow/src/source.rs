@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::{fs, io};
 
+use decide::TestKind;
 use serde::Deserialize;
 
 /// The name of the file that holds what belongs to the flow as a whole.
@@ -106,38 +107,12 @@ pub struct BlockFile {
 pub struct TestFile {
     /// The words shown for the test.
     pub says: String,
-    /// How the blocks it reads make it hold.
+    /// How the blocks it reads make it hold: `all`, `any`, `none` or `none_standing`; another is refused.
     pub kind: TestKind,
     /// The blocks it reads, each a choice.
     pub reads: Vec<String>,
     /// The value it looks for in each block it reads.
     pub is: String,
-}
-
-/// How the blocks a named test reads make it hold. Each kind is a function of whether each block read has the value
-/// the test looks for now (see [`TestKind::holds`]); a block never written has no value. A new kind is a new function.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TestKind {
-    /// Every block read has the value.
-    All,
-    /// At least one block read has the value.
-    Any,
-    /// No block read has the value.
-    None,
-}
-
-impl TestKind {
-    /// Whether a test of this kind holds, given, for each block it reads, whether the block has the value the test
-    /// looks for now.
-    pub fn holds(self, has: impl IntoIterator<Item = bool>) -> bool {
-        let mut has = has.into_iter();
-        match self {
-            Self::All => has.all(|h| h),
-            Self::Any => has.any(|h| h),
-            Self::None => !has.any(|h| h),
-        }
-    }
 }
 
 /// The file of one cell.

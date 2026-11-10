@@ -653,7 +653,7 @@ impl Now {
                             },
                             WaitedOf::Precondition { test, who } => Waited::Precondition {
                                 test: test.to_string(),
-                                words: (kept.flow.tests.get(test).map(|t| t.says.clone()))
+                                words: (kept.flow.tests.get(test).cloned())
                                     .ok_or_else(|| Broken(format!("the flow has no test {test}")))?,
                                 who: Person::of(who),
                             },
