@@ -177,7 +177,18 @@ fn a_block_that_nothing_writes_and_nothing_reads_has_both_faults_the_writer_firs
 fn a_choice_has_values_each_given_once() {
     let ci = "values = [\"green\", \"red\"]";
     let source = edit(valid(), FLOW_FILE, ci, "values = []");
-    assert_eq!(faults(&source), [at(FLOW_FILE, "blocks.ci.values", ValuesEmpty)]);
+    // The test that reads ci then looks for a value it does not offer.
+    let red = NotAValue {
+        block: "ci".to_string(),
+        is: "red".to_string(),
+    };
+    assert_eq!(
+        faults(&source),
+        [
+            at(FLOW_FILE, "blocks.ci.values", ValuesEmpty),
+            at(FLOW_FILE, "tests.may_merge.reads[0]", red),
+        ]
+    );
 
     let source = edit(valid(), FLOW_FILE, ci, "values = [\"green\", \"red\", \"green\"]");
     let what = Twice {
