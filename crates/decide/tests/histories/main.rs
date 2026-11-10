@@ -49,6 +49,7 @@ mod reading;
 
 use std::collections::BTreeMap;
 use std::panic::{self, AssertUnwindSafe};
+use std::sync::{Mutex, PoisonError};
 
 use decide::{Abandoned, BlockId, Cell, CellId, Condition, Decision, End, Outcome, RunId, Seq, Waited, Who};
 use properties::{Moment, Seen, Verdict};
@@ -689,8 +690,13 @@ fn one_history(seed: u64, drawn: Drawn, log: &mut Vec<String>, verdict: &mut Ver
     }
 }
 
+/// Held while a test runs its histories: each silences the panic hook while its histories run and gives it back
+/// before it fails, and two tests side by side would each take the other's.
+static HOOK: Mutex<()> = Mutex::new(());
+
 /// Runs this many histories drawn so, and fails if one breaks a property, or if none reached one of these situations.
 fn histories(drawn: Drawn, seeds: u64, reached: &[&str]) {
+    let _hook = HOOK.lock().unwrap_or_else(PoisonError::into_inner);
     let hook = panic::take_hook();
     panic::set_hook(Box::new(|_| {}));
     let mut failures = Vec::new();
