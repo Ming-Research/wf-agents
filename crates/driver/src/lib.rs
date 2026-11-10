@@ -9,14 +9,16 @@
 //!
 //! What happens to one work reaches another only as a write of a block of the other. The driver is itself what writes
 //! one such block: a block whose source is [`DEPENDENCIES`] says whether the items the work's item depends on have
-//! merged, and the driver writes it as an item is added, when the last of those items merges, and, on opening,
-//! wherever the block and what it stands for have come apart.
+//! merged, and the driver writes it as an item is added, when the last of those items merges, and, on opening, for
+//! every work that has not ended, wherever the block and what it stands for have come apart. A work that has ended
+//! is added to no more.
 //!
 //! What the driver holds of a work in memory is what the store holds of it: a work is saved each time it grows, and
 //! what is to be done is given out only once the store holds the entries that say so. Stopped at any moment and
 //! [opened](Driver::open) again, the driver gives again everything that was to be done and is not known as done
 //! (principle `effects-known-as-done`). When the store fails the driver stops: it gives the fault to every later call
-//! and shows nothing more, and is to be opened again (principle `nothing-passes-for-normal`).
+//! and shows nothing more of the works, which it may hold otherwise than the store does, and is to be opened again
+//! (principle `nothing-passes-for-normal`).
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
