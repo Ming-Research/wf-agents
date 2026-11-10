@@ -3,8 +3,8 @@
 use decide::Condition;
 use flow::{CellChange, Change, FLOW_FILE, Kind, Limit};
 
-use crate::from_valid;
 use crate::support::{edit, valid};
+use crate::{compiled, from_valid};
 
 fn of(cell: &str, change: CellChange) -> Change {
     Change::Cell {
@@ -218,6 +218,45 @@ fn a_list_in_another_order_with_the_same_names_changes_nothing() {
         "outputs = [\"opinions\", \"needs_design\"]",
     );
     assert_eq!(from_valid(&after), []);
+}
+
+#[test]
+fn a_block_a_cell_must_write_put_in_or_taken_out_is_a_change_after_its_outputs() {
+    let outputs = "outputs = [\"needs_design\", \"opinions\"]";
+    let before = edit(
+        valid(),
+        "judge.toml",
+        outputs,
+        &format!("{outputs}\nmust_write = [\"opinions\"]"),
+    );
+    let after = edit(
+        valid(),
+        "judge.toml",
+        outputs,
+        "outputs = [\"needs_design\", \"opinions\", \"plan\"]\nmust_write = [\"needs_design\"]",
+    );
+    assert_eq!(
+        flow::compare(&compiled(&before), &compiled(&after)),
+        [
+            of("judge", CellChange::OutputAdded("plan".into())),
+            of("judge", CellChange::MustWriteRemoved("opinions".into())),
+            of("judge", CellChange::MustWriteAdded("needs_design".into())),
+        ]
+    );
+    // The same blocks in another order change nothing.
+    let both = |list: &str| {
+        edit(
+            valid(),
+            "judge.toml",
+            outputs,
+            &format!("{outputs}\nmust_write = {list}"),
+        )
+    };
+    let (a, b) = (
+        both("[\"opinions\", \"needs_design\"]"),
+        both("[\"needs_design\", \"opinions\"]"),
+    );
+    assert_eq!(flow::compare(&compiled(&a), &compiled(&b)), []);
 }
 
 #[test]

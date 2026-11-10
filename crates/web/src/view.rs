@@ -116,6 +116,8 @@ pub struct Cell {
     pub inputs: Vec<String>,
     /// The blocks it may write, as the definition lists them.
     pub outputs: Vec<String>,
+    /// The blocks among those that every hand-in of it includes, as the definition lists them.
+    pub must_write: Vec<String>,
     pub limits: Limits,
 }
 
@@ -222,6 +224,10 @@ pub enum What {
     },
     ValuesEmpty,
     NoSuchBlock {
+        block: String,
+    },
+    /// The cell must write the block each time, and it is not among its outputs.
+    NotAnOutput {
         block: String,
     },
     NoWriter {
@@ -395,6 +401,16 @@ pub enum Change {
         cell: String,
         block: String,
     },
+    /// Every hand-in of the cell must now include the block.
+    MustWriteAdded {
+        cell: String,
+        block: String,
+    },
+    /// Every hand-in of the cell no longer needs to include the block.
+    MustWriteRemoved {
+        cell: String,
+        block: String,
+    },
     CellLimit {
         cell: String,
         limit: Limit,
@@ -474,6 +490,7 @@ impl Flow {
                 preconditions: cell.requires.iter().map(|t| Test::of(t, compiled)).collect(),
                 inputs: names(&cell.inputs),
                 outputs: names(&cell.outputs),
+                must_write: names(&spec.must_write),
                 limits: Limits {
                     runs: cell.limit,
                     returns: spec.returns,
@@ -603,6 +620,7 @@ impl What {
             F::UnknownAct { act } => What::UnknownAct { act },
             F::ValuesEmpty => What::ValuesEmpty,
             F::NoSuchBlock { block } => What::NoSuchBlock { block },
+            F::NotAnOutput { block } => What::NotAnOutput { block },
             F::NoWriter { block } => What::NoWriter { block },
             F::NoReader { block } => What::NoReader { block },
             F::UnknownSource { block, source } => What::UnknownSource { block, source },
@@ -760,6 +778,8 @@ impl Change {
             CellChange::InputRemoved(b) => Change::InputRemoved { cell, block: block(b) },
             CellChange::OutputAdded(b) => Change::OutputAdded { cell, block: block(b) },
             CellChange::OutputRemoved(b) => Change::OutputRemoved { cell, block: block(b) },
+            CellChange::MustWriteAdded(b) => Change::MustWriteAdded { cell, block: block(b) },
+            CellChange::MustWriteRemoved(b) => Change::MustWriteRemoved { cell, block: block(b) },
             CellChange::Limit {
                 limit,
                 before: from,

@@ -32,6 +32,8 @@ type CellIn = {
   act?: string;
   inputs: string[];
   outputs: string[];
+  /// The blocks among its outputs that every hand-in of it includes; none where it is left out.
+  mustWrite?: string[];
   condition?: Cell['condition'];
   preconditions?: Test[];
 };
@@ -53,6 +55,7 @@ function flowOf(
     preconditions: c.preconditions ?? [],
     inputs: c.inputs,
     outputs: c.outputs,
+    mustWrite: c.mustWrite ?? [],
     limits: LIMITS,
   }));
   const tests = [...new Map(all.flatMap((c) => c.preconditions).map((t) => [t.name, t])).values()];

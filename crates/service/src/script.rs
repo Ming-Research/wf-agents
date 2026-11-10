@@ -38,13 +38,14 @@
 //!
 //! A run is the cell's nth run in its work, and a round the nth of its run, each counted from one; `run` and `round`
 //! are one where they are left out. Where the script says nothing of a round, the round hands in each output of its
-//! cell that no cell before it reads, each with a short content made up for it, saying the change matters, and with
-//! the value the script names for the block or else its first, where the block is a choice. An output a cell before it
-//! reads is a way back, an opinion on what that cell did, which an agent writes only when it has one: by default it
-//! has none, so that a script that says nothing of a judging cell has it content and does not send the work round
-//! until its limit. A block handed in with no content or no value is given
-//! them the same way. The engine's own acts take no cost and no tokens. What a round returns depends on nothing but its
-//! flow, cell, run and round, so that a round given again after the process started again returns what it would have.
+//! cell that no cell before it reads, and each the cell must write, each with a short content made up for it, saying
+//! the change matters, and with the value the script names for the block or else its first, where the block is a
+//! choice. An output a cell before it reads is a way back, an opinion on what that cell did, which an agent writes only
+//! when it has one: by default it has none, so that a script that says nothing of a judging cell has it content and
+//! does not send the work round until its limit; one the cell must write each time it writes all the same, so that the
+//! round is not sent back. A block handed in with no content or no value is given them the same way. The engine's own
+//! acts take no cost and no tokens. What a round returns depends on nothing but its flow, cell, run and round, so that
+//! a round given again after the process started again returns what it would have.
 
 use std::collections::BTreeMap;
 
@@ -312,7 +313,7 @@ impl Script {
                 let place = flow.flow.place(&cell.id);
                 let outputs = place.map_or(&[][..], |place| &flow.flow.cells()[place].outputs);
                 // An output an earlier cell reads is a way back, an opinion on what that cell did: an agent writes one
-                // only when it has one, and by default it has none.
+                // only when it has one, and by default it has none, unless the cell must write it each time.
                 let back = |block: &BlockId| {
                     let readers = flow
                         .blocks
@@ -323,7 +324,7 @@ impl Script {
                 };
                 Came::HandsIn(
                     (outputs.iter())
-                        .filter(|block| !back(block))
+                        .filter(|block| !back(block) || cell.must_write.contains(block))
                         .map(|block| Handed {
                             block: block.clone(),
                             content: content(block.as_str()),

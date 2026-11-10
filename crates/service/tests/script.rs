@@ -119,6 +119,32 @@ fn a_round_the_script_says_nothing_of_hands_in_the_outputs_no_earlier_cell_reads
 }
 
 #[test]
+fn a_round_the_script_says_nothing_of_hands_in_too_every_block_its_cell_must_write() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/trial/flow");
+    let mut source = flow::read(&dir).unwrap();
+    let review = source.cells.get_mut("review").unwrap();
+    *review = review.replacen(
+        "outputs = [\"opinions\", \"verdict\"]",
+        "outputs = [\"opinions\", \"verdict\"]\nmust_write = [\"opinions\"]",
+        1,
+    );
+    let has = flow::Has {
+        sources: BTreeSet::from([driver::DEPENDENCIES.to_string()]),
+        acts: BTreeSet::from(["merge".to_string()]),
+    };
+    let flow = flow::compile(&source, &has).unwrap();
+    // The opinions are a way back, and are written all the same: the review must write them each time.
+    let words = |block: &str| format!("The {block} as review wrote it in its run 1, round 1.");
+    assert_eq!(
+        Script::default().round(&flow, cell(&flow, "review"), 1, 1).came,
+        Came::HandsIn(vec![
+            handed("opinions", &words("opinions"), None),
+            handed("verdict", &words("verdict"), Some("yes")),
+        ])
+    );
+}
+
+#[test]
 fn a_choice_is_handed_in_at_the_value_the_script_names_for_it() {
     let flow = trial();
     let script = Script::read("[flows.trial.values]\nverdict = \"no\"\n").unwrap();

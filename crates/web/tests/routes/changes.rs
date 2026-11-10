@@ -61,6 +61,24 @@ async fn the_changes_are_given_in_their_order_with_the_definition_compared_again
 }
 
 #[tokio::test]
+async fn a_block_a_cell_must_write_put_in_or_taken_out_is_given_with_its_cell() {
+    let after = edit(
+        tiny(),
+        Some("review"),
+        "must_write = [\"content\"]",
+        "must_write = [\"opinions\"]",
+    );
+    let router = serve(&Shared::new(Ok(after)), Some(&Shared::new(Ok(tiny()))));
+    assert_eq!(
+        get_json(&router, "/api/v1/flow/changes").await["changes"],
+        json!([
+            { "kind": "mustWriteRemoved", "cell": "review", "block": "content" },
+            { "kind": "mustWriteAdded", "cell": "review", "block": "opinions" },
+        ])
+    );
+}
+
+#[tokio::test]
 async fn a_condition_and_a_precondition_changed_are_given_with_their_tests_as_declared() {
     let before = edit(tiny(), Some("merge"), "requires = [\"may_merge\"]", "requires = []");
     let before = edit(

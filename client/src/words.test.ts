@@ -47,6 +47,16 @@ describe('the words of the page', () => {
       changeWords({ kind: 'condition', cell: 'a', before: null, after: { on: 'block', block: 'x', value: 'no' } }),
     ).toEqual({ what: 'Runs when', before: 'always', after: 'x is no' });
     expect(changeWords({ kind: 'inputRemoved', cell: 'a', block: 'x' })).toEqual({ what: 'Reads', before: 'x', after: '' });
+    expect(changeWords({ kind: 'mustWriteAdded', cell: 'a', block: 'x' })).toEqual({
+      what: 'Writes each time',
+      before: '',
+      after: 'x',
+    });
+    expect(changeWords({ kind: 'mustWriteRemoved', cell: 'a', block: 'x' })).toEqual({
+      what: 'Writes each time',
+      before: 'x',
+      after: '',
+    });
     expect(changeWords({ kind: 'values', block: 'x', before: null, after: ['yes', 'no'] })).toEqual({
       what: 'Values',
       before: 'not a choice',
@@ -105,6 +115,9 @@ describe('the words of the page', () => {
     ).toBe('main is written by the source mirror, which the engine does not have.');
     expect(faultWords({ file: 'flow.toml', field: 'tests.t.reads', what: { kind: 'readsEmpty', test: 't' } })).toBe(
       'The test t reads no block.',
+    );
+    expect(faultWords({ file: 'judge.toml', field: 'must_write[1]', what: { kind: 'notAnOutput', block: 'plan' } })).toBe(
+      'The cell must write plan each time, but plan is not among the blocks it may write.',
     );
     expect(
       faultWords({

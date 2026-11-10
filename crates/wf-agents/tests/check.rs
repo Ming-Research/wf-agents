@@ -51,6 +51,18 @@ fn a_block_that_names_a_source_the_engine_does_not_have_is_a_fault() {
 }
 
 #[test]
+fn a_block_a_cell_must_write_that_is_not_among_its_outputs_is_a_fault() {
+    let outputs = r#"outputs = ["needs_design", "opinions"]"#;
+    let dir = small_with("judge.toml", outputs, &format!("{outputs}\nmust_write = [\"plan\"]"));
+    let out = check(dir.path());
+    assert!(!out.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&out.stderr),
+        "judge.toml must_write[0]: the cell must write plan each time, but plan is not among the blocks it may write\n"
+    );
+}
+
+#[test]
 fn a_cell_that_names_an_act_the_engine_does_not_have_is_a_fault() {
     let dir = small_with("merge.toml", "act = \"merge\"", "act = \"deploy\"");
     let out = check(dir.path());
