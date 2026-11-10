@@ -33,7 +33,7 @@ mod words;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
-use decide::{BlockId, CallId, CellId, Outsider, Pauser};
+use decide::{BlockId, CallId, CellId, Outsider, Pauser, RunId};
 use driver::{Driver, Failed, NewItem, Todo};
 use engine::{Effect, Event};
 use flow::{CellSpec, Compiled, Kind};
@@ -41,7 +41,7 @@ use store::{ItemNumber, Storage, WorkNumber};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use work::{Ask, Call, Time};
 
-pub use carriers::{CallReply, Carriers, Round, RoundReply, Rounds, ToolCall, Tools, WITHDRAWN};
+pub use carriers::{CallReply, Carriers, Returned, Round, RoundReply, Rounds, Told, ToolCall, Tools, Try, WITHDRAWN};
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use script::Script;
 pub use scripted::Scripted;
@@ -165,6 +165,8 @@ impl Inbox {
 pub struct Handle {
     to: mpsc::UnboundedSender<Message>,
     changed: broadcast::Sender<Changed>,
+    /// Asked, off the loop, what they kept of a round.
+    carriers: Carriers,
 }
 
 impl Service {
@@ -200,6 +202,7 @@ impl Service {
         Handle {
             to: self.to.clone(),
             changed: self.changed.clone(),
+            carriers: self.carriers.clone(),
         }
     }
 
@@ -424,10 +427,7 @@ impl Service {
 
     /// What carries out the rounds of cells of this kind.
     fn rounds(&self, kind: Kind) -> &dyn Rounds {
-        match kind {
-            Kind::Agent => &*self.carriers.agents,
-            Kind::Engine => &*self.carriers.acts,
-        }
+        &**self.carriers.rounds(kind)
     }
 
     /// How many things that happened each work has taken.
@@ -483,6 +483,44 @@ impl Handle {
     /// Each change from now on.
     pub fn changes(&self) -> broadcast::Receiver<Changed> {
         self.changed.subscribe()
+    }
+
+    /// What the round of this number of the run was told and what came back of it, as the carrier of its cell's kind
+    /// kept them: none where there is no such work, and inside, none where the work has no such round, or why it could
+    /// not be read. Which carrier it is is read between two things the loop takes, and what it kept on a thread of its
+    /// own, so that the loop goes on taking what happens while the disk is read.
+    pub async fn told(
+        &self,
+        work: WorkNumber,
+        run: RunId,
+        round: usize,
+    ) -> Result<Option<Result<Option<Told>, String>>, Refusal> {
+        let kind = self
+            .read(move |driver| {
+                let kept = driver.work(work)?;
+                if !kept.work.given.contains_key(&(run, round)) {
+                    return Some(Ok(None));
+                }
+                let started = kept.work.records.started.iter().find(|s| s.run == run);
+                let spec = started.and_then(|s| cell_spec(kept.flow, &s.cell));
+                Some(match spec {
+                    Some(spec) => Ok(Some(spec.kind)),
+                    None => Err(format!("its run {} is of no cell of the flow it runs on", run.0)),
+                })
+            })
+            .await?;
+        let kind = match kind {
+            Some(Ok(Some(kind))) => kind,
+            Some(Ok(None)) => return Ok(Some(Ok(None))),
+            Some(Err(why)) => return Ok(Some(Err(why))),
+            None => return Ok(None),
+        };
+        let rounds = self.carriers.rounds(kind).clone();
+        let told = tokio::task::spawn_blocking(move || rounds.told(work, run, round)).await;
+        Ok(Some(match told {
+            Ok(told) => told.map(Some),
+            Err(e) => Err(format!("what was kept of it could not be read: {e}")),
+        }))
     }
 }
 

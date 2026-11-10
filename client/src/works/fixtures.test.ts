@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Run, Step } from '../works-api';
-import { fixtureItems, fixtureRound, fixtureVersion, fixtureWork } from './fixtures';
+import { fixtureItems, fixtureRound, fixtureTold, fixtureVersion, fixtureWork } from './fixtures';
 import { isWayRound } from './words';
 
 const runs = (steps: Step[]) => steps.filter((s): s is Step & Run & { kind: 'run' } => s.kind === 'run');
@@ -26,6 +26,10 @@ describe('the fixtures', () => {
   it('hold a long history with a return sent back, tools’ results, an abandoned run, ways round and a write by the outside', () => {
     const page = fixtureWork(41);
     const all = runs(page.steps);
+    // One round with what it was told and what it returned.
+    const told = all.flatMap((r) => r.rounds.map((d) => fixtureTold(41, r.run, d.number))).filter((t) => t.tries.length > 0);
+    expect(told).toHaveLength(1);
+    expect(told[0].tries[0].returned?.kind).toBe('read');
     expect(all.some((r) => r.rounds.some((d) => d.given.kind === 'sentBack'))).toBe(true);
     expect(all.some((r) => r.calls.some((c) => c.what.kind === 'tool' && c.done !== null))).toBe(true);
     expect(all.some((r) => r.end?.kind === 'abandoned')).toBe(true);

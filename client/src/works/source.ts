@@ -6,13 +6,14 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import * as api from '../works-api';
-import type { Act, CallPage, Changed, Items, RoundPage, VersionPage, WorkPage } from '../works-api';
+import type { Act, CallPage, Changed, Items, RoundPage, ToldPage, VersionPage, WorkPage } from '../works-api';
 
 export interface Source {
   loadItems(): Promise<Items>;
   loadWork(work: number): Promise<WorkPage>;
   loadVersion(work: number, block: string, at: number): Promise<VersionPage>;
   loadRound(work: number, run: number, round: number): Promise<RoundPage>;
+  loadTold(work: number, run: number, round: number): Promise<ToldPage>;
   loadCall(work: number, call: number): Promise<CallPage>;
   act(work: number, what: Act): Promise<null>;
   /// Tells `onChanged` each time something happened, and `onOpened` each time the stream of changes opens, the first
@@ -26,6 +27,7 @@ export const INTERFACE: Source = {
   loadWork: api.loadWork,
   loadVersion: api.loadVersion,
   loadRound: api.loadRound,
+  loadTold: api.loadTold,
   loadCall: api.loadCall,
   act: api.act,
   changes(onChanged, onOpened) {
@@ -50,6 +52,7 @@ export const FIXTURES: Source = {
   loadWork: async (work) => (await import('./fixtures')).fixtureWork(work),
   loadVersion: async (work, block, at) => (await import('./fixtures')).fixtureVersion(work, block, at),
   loadRound: async (work, run, round) => (await import('./fixtures')).fixtureRound(work, run, round),
+  loadTold: async (work, run, round) => (await import('./fixtures')).fixtureTold(work, run, round),
   loadCall: async (work, call) => (await import('./fixtures')).fixtureCall(work, call),
   act: async (work, what) => {
     console.info(`works/${work}/acts`, what);

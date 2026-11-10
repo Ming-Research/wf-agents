@@ -109,7 +109,7 @@ drawn line with an arrow.
 - **Read failed** (`.read-failed`): one line in red on the red tint under the view's line, when a view could not be read
   again; what is shown stays, from before, and so does what the owner typed.
 - **Content** (`Opener`): a link, "Show content" or "Show result", that reads a content only when the owner opens it and
-  shows it under the link as it is: preformatted monospace on the ground, in a hairline frame, wrapping, scrolling past
+  shows it under the link as it is (`Unfold` is the same link for what is shown otherwise, as what a round was told): preformatted monospace on the ground, in a hairline frame, wrapping, scrolling past
   its height. A content is read once; it does not change.
 
 ## The works page
@@ -189,7 +189,11 @@ The panel of a step, docked at the right as the flow page's, and like it with th
   from, each block's version (`plan@12`) opening its content; each round, its times in its label, as pairs: what it
   was given (its task, the results of its calls, each opening its result, or each reason its return was sent back),
   what came back (what it asked for, or each block handed in with its value, whether the run said it matters,
-  its length and its content), and what it took; then its calls, each with what it was, when it was made and done, and
+  its length and its content), and what it took; under them, each opened by itself and read when first
+  opened, what it was told, the message as it was written, and what it returned, the agent's closing words, its
+  structured return opened by itself and one muted line of its turns, time and models, each try in order and labelled
+  "try 1", "try 2" where the round was tried more than once, or one muted line where nothing was kept of the round, as
+  of a script's or the engine's; then its calls, each with what it was, when it was made and done, and
   its result, a call of an abandoned run with none said to be withdrawn with it; and how it ended, with each block it
   wrote and what the engine made of it: whether that version changed the block's meaning (a choice changes it when its
   value does, whatever the run said). A cause from a cell after it is said to be so, and "a way round" only when every

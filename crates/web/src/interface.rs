@@ -1,9 +1,10 @@
 //! The routes of the items and the works, as `client/src/works-api.ts` reads them. Each read and each act goes to the
-//! engine's loop through its [`Handle`], which takes them in order with everything else that happens.
+//! engine's loop through its [`Handle`], which takes them in order with everything else that happens; what a round was
+//! told and returned is read off the loop, from its carrier.
 //!
 //! A refusal answers with a status of 4xx and [`Refusal`]: 404 for a work, version, round or call there is none of,
 //! 400 for what cannot be read, and 422 for what the engine refused. A work that cannot be shown, which the engine never
-//! makes, answers 500, and an engine that stopped 503, each saying why.
+//! makes, and what was kept of a round that cannot be read answer 500, and an engine that stopped 503, each saying why.
 
 use axum::Router;
 use axum::body::Bytes;
@@ -13,13 +14,16 @@ use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post};
+use decide::RunId;
 use driver::Failed;
 use serde::Serialize;
 use service::Handle;
 use store::WorkNumber;
 use tokio::sync::broadcast::error::RecvError;
 
-use crate::works::{Act, Added, Broken, CallPage, Changed, Items, NewItem, Refusal, RoundPage, VersionPage, WorkPage};
+use crate::works::{
+    Act, Added, Broken, CallPage, Changed, Items, NewItem, Refusal, RoundPage, ToldPage, VersionPage, WorkPage,
+};
 
 /// The routes of the items and the works, over the engine's loop.
 pub fn router(handle: Handle) -> Router {
@@ -28,6 +32,7 @@ pub fn router(handle: Handle) -> Router {
         .route("/api/v1/works/{work}", get(work))
         .route("/api/v1/works/{work}/versions/{block}/{at}", get(version))
         .route("/api/v1/works/{work}/runs/{run}/rounds/{number}", get(round))
+        .route("/api/v1/works/{work}/runs/{run}/rounds/{number}/told", get(told))
         .route("/api/v1/works/{work}/calls/{call}", get(call))
         .route("/api/v1/works/{work}/acts", post(act))
         .route("/api/v1/changes", get(changes))
@@ -94,6 +99,17 @@ async fn round(State(handle): State<Handle>, path: Result<Path<(u64, u64, usize)
     let missing = format!("Work {} has no round {round} of run {run}.", number.0);
     let page = handle.read(move |driver| driver.work(number).map(|_| RoundPage::of(driver, number, run, round)));
     found(page.await, number, missing)
+}
+
+async fn told(State(handle): State<Handle>, path: Result<Path<(u64, u64, usize)>, PathRejection>) -> Response {
+    let (number, run, round) = match path {
+        Ok(Path((number, run, round))) => (WorkNumber(number), run, round),
+        Err(rejection) => return unreadable(&rejection),
+    };
+    let missing = format!("Work {} has no round {round} of run {run}.", number.0);
+    let told = handle.told(number, RunId(run), round).await;
+    let page = told.map(|work| work.map(|told| told.map(|round| round.map(ToldPage::of)).map_err(Broken)));
+    found(page, number, missing)
 }
 
 async fn call(State(handle): State<Handle>, path: Result<Path<(u64, u64)>, PathRejection>) -> Response {

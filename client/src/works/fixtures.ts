@@ -6,8 +6,9 @@
 // The works, one for each item: one with a round under way; one waiting for the owner's answer to a question; one
 // with a run at its limit of returns sent back; one with a cell at its limit of ways round; one paused; one paused by
 // the engine because a round failed; one merged; one cancelled after a let-go; one with a fault; and one long history, waiting at the merge for the owner, with a
-// return sent back, tool calls and their results, a run abandoned because the owner wrote an opinion for an earlier
-// cell, a review's opinions sending the implementation round twice, and a write by the outside.
+// return sent back, tool calls and their results, a round with what it was told and returned, a run abandoned because
+// the owner wrote an opinion for an earlier cell, a review's opinions sending the implementation round twice, and a
+// write by the outside.
 
 import type { Flow } from '../api';
 import { cell, flowOf, test } from '../testing';
@@ -29,6 +30,7 @@ import type {
   Run,
   Spent,
   Step,
+  ToldPage,
   Unmet,
   Version,
   VersionPage,
@@ -157,6 +159,8 @@ class History {
   readonly contents = new Map<string, string>();
   readonly rounds = new Map<string, RoundPage>();
   readonly callPages = new Map<number, CallPage>();
+  /// What a round was told and returned, by its run and number, where it was kept.
+  readonly told = new Map<string, ToldPage>();
   private readonly refused = new Map<Round, Unmet[]>();
 
   constructor(start: number) {
@@ -483,6 +487,40 @@ interface Built {
   history: History;
 }
 
+/// What the plan's second round of the long history was told, and what came back of it.
+const PLAN_TOLD: ToldPage = {
+  tries: [
+    {
+      message: [
+        '# Plan (cell `plan`), round 2',
+        '',
+        '## Results of your calls',
+        '',
+        '- call 1, `read` `{"block":"request"}`: Show what each round of a work cost…',
+        "- call 2, `read` `{\"path\":\"client/look.md\"}`: # The page's look…",
+      ].join('\n'),
+      returned: {
+        kind: 'read',
+        text: 'The plan puts each round\'s cost in the step panel and the totals in the work\'s head. It needs deep research: how to round a cost below a cent.',
+        structured: JSON.stringify(
+          {
+            hands_in: [
+              { block: 'plan', content: '# Plan\n\n- A column of cost in the list\n- …', matters: true },
+              { block: 'needs_deep_research', content: '', value: 'yes' },
+            ],
+            asks: [],
+          },
+          null,
+          2,
+        ),
+        turns: 4,
+        durationMs: 118_000,
+        models: ['claude-haiku-5-5'],
+      },
+    },
+  ],
+};
+
 function long(start: number): Built {
   const h = new History(start);
   h.wrote(
@@ -499,7 +537,7 @@ function long(start: number): Built {
       { kind: 'tool', name: 'read', input: '{"path":"client/look.md"}', result: '# The page\'s look\n\nThe owner\'s page is an instrument panel…' },
     ],
   });
-  h.round(plan, {
+  const handed = h.round(plan, {
     hands: [
       {
         block: 'plan',
@@ -508,6 +546,7 @@ function long(start: number): Built {
       { block: 'needs_deep_research', content: '', value: 'yes' },
     ],
   });
+  h.told.set(`${plan.run}/${handed.number}`, PLAN_TOLD);
   h.finish(plan);
   // The deep research hands in a block it may not write, and is sent back.
   const deep = h.start('deep_research');
@@ -757,6 +796,12 @@ export function fixtureRound(n: number, run: number, round: number): RoundPage {
   const page = work(n).history.rounds.get(`${run}/${round}`);
   if (!page) throw new Error(`no round ${round} of run ${run}`);
   return page;
+}
+
+export function fixtureTold(n: number, run: number, round: number): ToldPage {
+  const history = work(n).history;
+  if (!history.rounds.has(`${run}/${round}`)) throw new Error(`no round ${round} of run ${run}`);
+  return history.told.get(`${run}/${round}`) ?? { tries: [] };
 }
 
 export function fixtureCall(n: number, call: number): CallPage {

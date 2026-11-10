@@ -1,6 +1,6 @@
 // The marks of the works page: how a cell stands for a work, as a small square in the colour of its state, and the
 // strip of one such mark per cell of a work's flow; the line of what a work does now, a dot in its tone and its words;
-// and a part that opens a content only when the owner asks for it.
+// and a part that opens a content, or anything read, only when the owner asks for it.
 
 import { type ReactNode, useState } from 'react';
 
@@ -70,14 +70,23 @@ export function NowLine({ now, paused = false }: { now: Now; paused?: boolean })
   );
 }
 
-/// A content the owner opens: read when first opened, then shown as it is, preformatted.
-export function Opener({ label, load }: { label: ReactNode; load: () => Promise<string> }) {
+/// A content as it is, preformatted.
+export function Content({ text }: { text: string }) {
+  return <pre className="content">{text === '' ? <span className="muted">(empty)</span> : text}</pre>;
+}
+
+/// What the owner opens: read when first opened, then shown as `show` draws it.
+export function Unfold<T>({ label, load, show }: {
+  label: ReactNode;
+  load: () => Promise<T>;
+  show: (value: T) => ReactNode;
+}) {
   const [open, setOpen] = useState(false);
-  const [content, setContent] = useState<{ text: string } | { failed: string } | null>(null);
+  const [content, setContent] = useState<{ value: T } | { failed: string } | null>(null);
   const toggle = () => {
     if (!open && content === null) {
       load().then(
-        (text) => setContent({ text }),
+        (value) => setContent({ value }),
         (e: unknown) => setContent({ failed: e instanceof Error ? e.message : String(e) }),
       );
     }
@@ -94,8 +103,13 @@ export function Opener({ label, load }: { label: ReactNode; load: () => Promise<
         ) : 'failed' in content ? (
           <p className="small failed">It could not be read: {content.failed}</p>
         ) : (
-          <pre className="content">{content.text === '' ? <span className="muted">(empty)</span> : content.text}</pre>
+          show(content.value)
         ))}
     </div>
   );
+}
+
+/// A content the owner opens: read when first opened, then shown as it is, preformatted.
+export function Opener({ label, load }: { label: ReactNode; load: () => Promise<string> }) {
+  return <Unfold label={label} load={load} show={(text) => <Content text={text} />} />;
 }

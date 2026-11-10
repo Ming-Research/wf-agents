@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use decide::{CallId, Pauser, RunId};
 use engine::{Came, Event};
-use flow::{CellSpec, Compiled};
+use flow::{CellSpec, Compiled, Kind};
 use store::WorkNumber;
 use tokio::sync::mpsc;
 use work::{Given, Spent, Work};
@@ -44,6 +44,45 @@ pub trait Rounds: Send + Sync {
     /// saying what it took; what came back is dropped. A round has one end: where the reply it was given with is
     /// still held, that one is used and this one dropped, and where the round has ended already this one is dropped.
     fn stop(&self, round: Round, reply: RoundReply);
+
+    /// What the round of this number of the run was told and what came back of it, each try in order, as far as
+    /// this carrier keeps them; no try where it keeps nothing, as by default. Unlike the others, this is called off
+    /// the loop, on a thread that may wait on the disk; an error says why what was kept could not be read.
+    fn told(&self, work: WorkNumber, run: RunId, round: usize) -> Result<Told, String> {
+        let _ = (work, run, round);
+        Ok(Told::default())
+    }
+}
+
+/// What a round was told and what came back of it, as its carrier kept them: each try of it, in order. A round is
+/// tried more than once where its carrier ran its program again for it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Told {
+    pub tries: Vec<Try>,
+}
+
+/// One try of a round.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Try {
+    /// The message it was told, as it was written.
+    pub message: String,
+    /// What came back, or why what was kept of it could not be read; none where nothing of it was kept: while the try
+    /// is under way, or where it was stopped or never got as far as its program.
+    pub returned: Option<Result<Returned, String>>,
+}
+
+/// What came back of a try, as far as the page is given it: never the whole of what the program printed, which holds
+/// what is not for the page, such as ids of sessions and of credentials.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Returned {
+    /// The agent's closing words.
+    pub text: Option<String>,
+    /// The structured return, as pretty-printed JSON.
+    pub structured: Option<String>,
+    pub turns: Option<u64>,
+    pub duration_ms: Option<u64>,
+    /// The models it was answered by, by name.
+    pub models: Vec<String>,
 }
 
 /// What runs the tools that agents ask for.
@@ -69,6 +108,16 @@ pub struct Carriers {
     /// The rounds of the cells that are the engine's own acts.
     pub acts: Arc<dyn Rounds>,
     pub tools: Arc<dyn Tools>,
+}
+
+impl Carriers {
+    /// What carries out the rounds of cells of this kind.
+    pub fn rounds(&self, kind: Kind) -> &Arc<dyn Rounds> {
+        match kind {
+            Kind::Agent => &self.agents,
+            Kind::Engine => &self.acts,
+        }
+    }
 }
 
 /// A round of a run, to give or to stop.

@@ -10,7 +10,7 @@ import { Views } from './App';
 import type { Route } from './route';
 import type { Serves } from './serves';
 import { small } from './testing';
-import { fixtureCall, fixtureItems, fixtureRound, fixtureVersion, fixtureWork } from './works/fixtures';
+import { fixtureCall, fixtureItems, fixtureRound, fixtureTold, fixtureVersion, fixtureWork } from './works/fixtures';
 import { type Source, SourceContext } from './works/source';
 
 let unmount: (() => void) | undefined;
@@ -26,6 +26,7 @@ const source: Source = {
   loadWork: async (n) => fixtureWork(n),
   loadVersion: async (n, block, at) => fixtureVersion(n, block, at),
   loadRound: async (n, run, round) => fixtureRound(n, run, round),
+  loadTold: async (n, run, round) => fixtureTold(n, run, round),
   loadCall: async (n, call) => fixtureCall(n, call),
   act: async () => null,
   changes: () => () => undefined,

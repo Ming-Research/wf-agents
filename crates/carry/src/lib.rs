@@ -11,6 +11,7 @@
 //! - [`returns`]: the one form of every agent's return, and what came back read from it.
 //! - [`cli`]: the command line of a round, and what it printed read into what came back and what it took.
 //! - `agents`: the agents' rounds, run with the command line, a few at a time.
+//! - `kept`: what each round of an agent was told and returned, where it is kept and how it is read back.
 //! - `tools`: the tools, `read` and `check`.
 //! - [`session`]: the session of each line of each work, worked out from the installation's id.
 //! - `held` and `process`: what a carrier holds while it carries something out, and the programs it runs to do so.
@@ -20,6 +21,7 @@ mod agents;
 pub mod cli;
 pub mod git;
 mod held;
+mod kept;
 pub mod message;
 mod process;
 pub mod read;

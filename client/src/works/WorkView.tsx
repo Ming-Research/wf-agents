@@ -9,7 +9,7 @@ import { type CSSProperties, useCallback, useEffect, useMemo, useState } from 'r
 import { Edge } from '../parts';
 import type { Fold } from '../Side';
 import { PANEL, WIDTH_KEYS, useKeptWidth } from '../sizes';
-import type { Act, RoundPage, WorkPage } from '../works-api';
+import type { Act, RoundPage, ToldPage, WorkPage } from '../works-api';
 import { ActButtons, type Draft, EMPTY_DRAFT, type Send, WaitsBand, WriteBox } from './Boxes';
 import { type Chosen, HistoryChart } from './History';
 import { NowLine } from './marks';
@@ -35,8 +35,8 @@ export function WorkView({ work }: { work: number }) {
   return <WorkScreen page={page} failed={failed} onActed={read} />;
 }
 
-/// The reads of a work's contents, each made once: a version, an ended round and a call's result do not change once
-/// there. A round under way is read again each time, since it has more to come.
+/// The reads of a work's contents, each made once: a version, an ended round, what it was told and returned, and a
+/// call's result do not change once there. A round under way is read again each time, since it has more to come.
 export function readerOf(source: Source, work: number): Reader {
   const once = new Map<string, Promise<unknown>>();
   const cached = <T,>(key: string, load: () => Promise<T>): Promise<T> => {
@@ -54,6 +54,10 @@ export function readerOf(source: Source, work: number): Reader {
       ended
         ? cached<RoundPage>(`r:${run}/${number}`, () => source.loadRound(work, run, number))
         : source.loadRound(work, run, number),
+    told: (run, number, ended) =>
+      ended
+        ? cached<ToldPage>(`t:${run}/${number}`, () => source.loadTold(work, run, number))
+        : source.loadTold(work, run, number),
     call: (call) => cached(`c:${call}`, async () => (await source.loadCall(work, call)).result),
   };
 }

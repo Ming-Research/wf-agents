@@ -9,6 +9,8 @@
 // - `GET  /api/v1/works/{work}`: one work, as it is now and step by step from its start (`WorkPage`).
 // - `GET  /api/v1/works/{work}/versions/{block}/{at}`: the content of a version of a block (`VersionPage`).
 // - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}`: one round in full (`RoundPage`).
+// - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}/told`: what the round was told and what came back of it, as
+//   its carrier kept them (`ToldPage`); no try where it kept nothing.
 // - `GET  /api/v1/works/{work}/calls/{call}`: a call with its result (`CallPage`).
 // - `POST /api/v1/works/{work}/acts`: what the owner does to a work (`Act`); answers with no content, or with why it
 //   was refused (`Refusal`) and a status of 4xx.
@@ -277,6 +279,35 @@ export interface RoundPage {
   handed: { block: string; content: string }[];
 }
 
+/// What came back of a try of a round: only what the page shows of what the agent's program printed, or why what was
+/// kept of it could not be read.
+export type Returned =
+  | {
+      kind: 'read';
+      /// The agent's closing words.
+      text: string | null;
+      /// The structured return, as pretty-printed JSON.
+      structured: string | null;
+      turns: number | null;
+      durationMs: number | null;
+      /// The models it was answered by, by name.
+      models: string[];
+    }
+  | { kind: 'unreadable'; why: string };
+
+/// One try of a round: the message it was told, as it was written, and what came back; none where nothing of it was
+/// kept: while it is under way, or where it was stopped or never got as far as its program.
+export interface Try {
+  message: string;
+  returned: Returned | null;
+}
+
+/// What a round was told and what came back of it, each try in order, as its carrier kept them; no try where it kept
+/// nothing, as of a round of the engine's own acts or of a script.
+export interface ToldPage {
+  tries: Try[];
+}
+
 /// What the owner does to a work.
 export type Act =
   /// Writes a block people write: what the item is about, an opinion for a cell, a choice (with its value).
@@ -335,6 +366,8 @@ export const loadVersion = (work: number, block: string, at: number) =>
   read<VersionPage>(`/api/v1/works/${work}/versions/${encodeURIComponent(block)}/${at}`);
 export const loadRound = (work: number, run: number, round: number) =>
   read<RoundPage>(`/api/v1/works/${work}/runs/${run}/rounds/${round}`);
+export const loadTold = (work: number, run: number, round: number) =>
+  read<ToldPage>(`/api/v1/works/${work}/runs/${run}/rounds/${round}/told`);
 export const loadCall = (work: number, call: number) => read<CallPage>(`/api/v1/works/${work}/calls/${call}`);
 export const act = (work: number, what: Act) => send<null>(`/api/v1/works/${work}/acts`, what);
 export const addItem = (item: NewItem) => send<Added>('/api/v1/items', item);
