@@ -21,8 +21,8 @@ pub mod walk;
 
 pub use flow::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Test, TestKind, TestName};
 pub use records::{
-    Abandoned, CallId, Called, Cause, Done, Finished, LetGo, Outsider, Pause, RecordFault, Records, Returned, Round,
-    RunId, Seq, Started, Who, Write, Written,
+    Abandoned, CallId, Called, Cause, Done, Finished, LetGo, Outsider, Pause, Pauser, RecordFault, Records, Returned,
+    Round, RunId, Seq, Started, Who, Write, Written,
 };
 pub use view::{CellView, InputView, OpenRun, VersionView, View, Writer, versions, view};
-pub use walk::{Abandoning, Decision, End, Waited, decide, paused, stale};
+pub use walk::{Abandoning, Decision, End, Waited, decide, pause, paused, stale};

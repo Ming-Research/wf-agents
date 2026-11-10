@@ -44,7 +44,13 @@ fn after_every_call_the_store_holds_what_the_driver_shows() {
     let todos = h.hands_in(wa, &[("text", None)]);
     assert_eq!(rounds(&todos), [(wa, "judge".to_string(), 1)]);
     // The judge's round is under way when the work is paused; the tool it asks for is made and its result taken.
-    h.on(wa, Event::Paused);
+    h.on(
+        wa,
+        Event::Paused {
+            by: Pauser::Owner,
+            why: None,
+        },
+    );
     let todos = h.returns(wa, Came::Asks(vec![tool("b")]));
     h.answer(wa, calls_of(&todos)[0]);
     h.let_on(wa);

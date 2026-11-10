@@ -6,6 +6,11 @@
 //! handed in meets everything, and writes its blocks then. How often something is sent back and how many calls are
 //! made each has a limit, at which the owner lets the run go on or cancels the work.
 //!
+//! A round may also fail: nothing came back, as when whatever carries it out could not start or gave nothing usable.
+//! The engine pauses the work as the round fails, so that the owner sees the cause first; once the work is let on, the
+//! run has its next round, given what the failed round was given. A failure counts against no limit: only the owner's
+//! letting the work on repeats it.
+//!
 //! The walk says which cell runs and which run goes on; this says what going on is.
 
 use std::collections::BTreeMap;
@@ -43,6 +48,8 @@ pub enum Return {
     },
     /// The blocks the run wrote were handed in.
     HandedIn(Vec<Write>),
+    /// The round failed: nothing came back.
+    Failed,
 }
 
 /// A call made for a round.
@@ -83,6 +90,8 @@ pub enum Step {
     Rest { calls: Vec<CallId> },
     /// Every call the last round asked for has its result: the run has its next round, which is given the results.
     Resume,
+    /// The last round failed: the run has its next round, which is given what the failed round was given.
+    Retry,
     /// What came back does not meet what the flow requires: it is sent back, the next round being given why.
     SendBack { unmet: Vec<Unmet> },
     /// What was handed in meets everything the flow requires: the run finishes, writing these blocks.
@@ -135,6 +144,8 @@ pub fn next(log: &Log, requires: Requires, paused: bool) -> Step {
     // whatever the counts were.
     let let_on = log.let_go > before;
     let unmet = match returned {
+        // A failure is no return that was sent back and makes no call: it counts against no limit.
+        Return::Failed => return held(Step::Retry, paused),
         Return::Asked { asked: 0, .. } => vec![Unmet::AsksNothing],
         Return::Asked { asked, made } if made.is_empty() => {
             let before: usize = earlier.iter().map(calls).sum();
@@ -180,7 +191,8 @@ fn calls(round: &Round) -> usize {
     }
 }
 
-/// Whether what the round returned was sent back: it is not the last round, and it handed in or asked for nothing.
+/// Whether what the round returned was sent back: it is not the last round, and it handed in or asked for nothing. A
+/// round that failed returned nothing to send back.
 fn sent_back(round: &Round) -> bool {
     matches!(
         round.returned,

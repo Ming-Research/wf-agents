@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 
 use decide::run::{self, Requires, Step, Unmet};
 use decide::{
-    Abandoned, BlockId, CallId, Called, Decision, Done, Finished, LetGo, Outsider, Pause, Returned, Round, RunId,
-    Started, Who, Write, Written, decide, paused, stale,
+    Abandoned, BlockId, CallId, Called, Decision, Done, Finished, LetGo, Outsider, Pause, Pauser, Returned, Round,
+    RunId, Started, Who, Write, Written, decide, paused, stale,
 };
 use flow::Compiled;
 
@@ -129,10 +129,28 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
             let at = work.tick();
             work.records.let_go.push(LetGo { cell, at });
         }
-        Event::Paused | Event::Resumed => {
+        Event::Paused { by, why } => {
+            // The engine's pause of a work that has ended, as one a carrier asks for as a round of a cancelled work
+            // ends, would hold back nothing and say what is not so: it adds nothing.
+            if by == Pauser::Engine && matches!(decide(&flow.flow, &work.records), Decision::Ended(_)) {
+                return Ok(());
+            }
             let at = work.tick();
-            let paused = event == Event::Paused;
-            work.records.pauses.push(Pause { paused, at });
+            work.records.pauses.push(Pause {
+                paused: true,
+                at,
+                by,
+                why,
+            });
+        }
+        Event::Resumed => {
+            let at = work.tick();
+            work.records.pauses.push(Pause {
+                paused: false,
+                at,
+                by: Pauser::Owner,
+                why: None,
+            });
         }
         Event::Cancelled => {
             if work.records.cancelled.is_none() {
@@ -156,6 +174,29 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
                     Came::Asks(asks) => Back::Asked(asks),
                 };
                 work.back.insert((run, number), back);
+            }
+        }
+        Event::Failed { run, why, spent } => {
+            if began(work, run) == ended(work, run) {
+                return Err(Refused::NoRoundUnderWay(run));
+            }
+            // The round has ended, failed, and what it took is kept. Of a run that goes on, the failure is kept as
+            // what came of the round, and the work is paused with its reason in the same moment, so that no round
+            // begins before the owner has seen it. Of a run that was abandoned it is dropped, as what came back is.
+            let kept = open(work, run);
+            let at = work.tick();
+            work.records.returned.push(Returned { run, at });
+            let number = ended(work, run);
+            work.spent.insert((run, number), spent);
+            if kept {
+                work.back.insert((run, number), Back::Failed { why: why.clone() });
+                let at = work.tick();
+                work.records.pauses.push(Pause {
+                    paused: true,
+                    at,
+                    by: Pauser::Engine,
+                    why: Some(why),
+                });
             }
         }
         Event::Done { call, result } => {
@@ -231,6 +272,12 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, effects: &mut Vec<Effect>)
     let given = match run::next(&log(work, run), requires, paused(&work.records)) {
         Step::Begin => Given::Task,
         Step::Resume => Given::Results(made(work, run, ended(work, run) - 1)),
+        Step::Retry => {
+            let Some(given) = work.given.get(&(run, ended(work, run))) else {
+                return false;
+            };
+            given.clone()
+        }
         Step::SendBack { unmet } => Given::SentBack(unmet),
         Step::Make => {
             let Some(Back::Asked(asks)) = last_back(work, run) else {
@@ -335,6 +382,7 @@ fn log(work: &Work, run: RunId) -> run::Log {
                 })
                 .collect(),
         ),
+        Back::Failed { .. } => run::Return::Failed,
     };
     let rounds = (0..began(work, run))
         .map(|i| run::Round {

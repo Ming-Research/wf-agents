@@ -106,7 +106,10 @@ fn a_return_asking_for_nothing_is_sent_back_as_asking_nothing() {
 fn the_owner_letting_a_cell_go_on_pausing_resuming_and_cancelling_are_each_recorded() {
     let mut w = W::new();
     w.on(Event::LetGo { cell: "judge".into() });
-    w.on(Event::Paused);
+    w.on(Event::Paused {
+        by: Pauser::Owner,
+        why: None,
+    });
     w.on(Event::Resumed);
     w.on(Event::Cancelled);
     let r = &w.work.records;
@@ -121,7 +124,13 @@ fn the_owner_letting_a_cell_go_on_pausing_resuming_and_cancelling_are_each_recor
 #[test]
 fn a_paused_work_is_given_nothing_and_when_let_on_is_given_its_next_round() {
     let mut w = W::new();
-    assert_eq!(w.on(Event::Paused), vec![]);
+    assert_eq!(
+        w.on(Event::Paused {
+            by: Pauser::Owner,
+            why: None
+        }),
+        vec![]
+    );
     let (effects, request) = w.person_writes("request");
     assert_eq!(effects, vec![]);
     let effects = w.on(Event::Resumed);

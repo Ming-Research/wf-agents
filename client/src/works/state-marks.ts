@@ -24,12 +24,13 @@ export type MarkLook =
   | { shape: 'square'; fill: string | null; edge: string; width: 'ring' | 'hairline' }
   | { shape: 'dash'; fill: string };
 
-/// Done filled green, running filled blue, at rest a blue ring, runs again an orange ring, not run yet a hairline ring,
-/// skipped a muted dash.
+/// Done filled green, running filled blue, at rest a blue ring, failed a red ring, runs again an orange ring, not run yet
+/// a hairline ring, skipped a muted dash.
 export const MARKS: Record<CellState, MarkLook> = {
   done: { shape: 'square', fill: '--green', edge: '--green', width: 'ring' },
   running: { shape: 'square', fill: '--blue', edge: '--blue', width: 'ring' },
   resting: { shape: 'square', fill: null, edge: '--blue', width: 'ring' },
+  failed: { shape: 'square', fill: null, edge: '--red', width: 'ring' },
   again: { shape: 'square', fill: null, edge: '--orange', width: 'ring' },
   notYet: { shape: 'square', fill: null, edge: '--muted', width: 'hairline' },
   skipped: { shape: 'dash', fill: '--muted' },

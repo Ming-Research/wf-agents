@@ -269,13 +269,13 @@ const TONE = () => ({
 /// waiting for something else.
 export type Mood = 'running' | 'owner' | 'paused' | 'halted' | 'waiting';
 
-/// A round under way or about to begin is running; a fault halts it; a work that waits for anything the owner gives
-/// waits for the owner.
+/// A round under way or about to begin is running; a fault halts it, and so does the engine pausing it, as for a round
+/// that failed; a work that waits for anything the owner gives waits for the owner.
 export function moodOf(w: Pick<ShownWork, 'now'>): Mood {
   const now = w.now;
   if (now.kind === 'round' || now.kind === 'next') return 'running';
   if (now.kind === 'fault') return 'halted';
-  if (now.kind === 'paused') return 'paused';
+  if (now.kind === 'paused') return now.by === 'engine' ? 'halted' : 'paused';
   if (now.kind === 'waits' && now.on.some((o) => whoGives(o) === 'owner')) return 'owner';
   return 'waiting';
 }

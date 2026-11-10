@@ -1,5 +1,6 @@
 //! The tables are only inserted into: neither the crate's code nor its schema says anything that would change or
-//! take out a row.
+//! take out a row. A migration replaces the one row of the schema's version, which no work's entries are, and nothing
+//! else.
 
 use std::fs;
 
@@ -18,12 +19,16 @@ fn words(text: &str) -> Vec<String> {
 fn neither_the_code_nor_the_schema_changes_or_takes_out_a_row() {
     let root = env!("CARGO_MANIFEST_DIR");
     let mut files = vec![format!("{root}/schema.sql")];
-    for entry in fs::read_dir(format!("{root}/src")).expect("the sources are listed") {
-        files.push(entry.expect("a source").path().display().to_string());
+    for dir in ["src", "migrations"] {
+        for entry in fs::read_dir(format!("{root}/{dir}")).expect("the sources are listed") {
+            files.push(entry.expect("a source").path().display().to_string());
+        }
     }
-    assert!(files.len() >= 3, "the sources were not found: {files:?}");
+    assert!(files.len() >= 4, "the sources were not found: {files:?}");
     for file in files {
         let text = fs::read_to_string(&file).expect("the source is read");
+        // The one change a migration makes to a row: its replacing the version's.
+        let text = text.replace("UPDATE schema_version SET version", "");
         let found: Vec<String> = (words(&text).into_iter())
             .filter(|w| CHANGING.contains(&w.as_str()))
             .collect();

@@ -11,40 +11,52 @@
 //!   after the last's;
 //! - an event the loop refuses leaves the work equal to what it was;
 //! - no finished run of a cell lacks a write of a block the cell must write, read from the records of the finishes and
-//!   the cells' definitions (entry a-run-is-one-mechanism).
+//!   the cells' definitions (entry a-run-is-one-mechanism);
+//! - a round that ended, failed or not, is never given to be done again: no round `pending` gives has ended; and while
+//!   the engine's pause for a failed round holds the work, `pending` gives no round at all;
+//! - a round after one that failed is given what the failed one was given, read from the records.
 //!
-//! And once people stop: the work rests within the bound stated on `History::bound` (entry a-work-comes-to-rest), at
-//! rest the walk waits, is paused or has ended, and `pending` holds only calls for a person; a cancelled work ends with
-//! nothing pending, and a look at it gives nothing. The same history ends with the same work run twice, and with its
-//! stops as without them.
+//! And once people stop, the owner lets the work on if it is paused, for whatever reason, and no round fails any more:
+//! the work then rests within
+//! the bound stated on `History::bound` (entry a-work-comes-to-rest), at rest it is not paused and the walk waits or has
+//! ended, and `pending` holds only calls for a person; a cancelled work ends with nothing pending, and a look at it
+//! gives nothing. The same history ends with the same work run twice, and with its stops as without them, failed rounds
+//! among them.
 //!
 //! What a step is, roughly. In the first 0 to 59 steps people act at a step with a chance of one in four; otherwise,
 //! and always once they stop, the driver does one of the things it holds, each with an equal chance:
-//! - a round under way ends: in half of them the agent hands in each block its cell may write with a chance of seven
-//!   in ten, those its cell must write each time too, so that it leaves one out at times, and, in one in ten, a block
-//!   it may not; a choice with one of its values in four of five, a wrong value or none otherwise; prose with a value
-//!   in one in twenty; each mattering or not as a coin says. In three in ten it asks for one to three calls, a tool in
-//!   seven of ten and a question for the owner or the architect otherwise; in two in ten it asks for nothing.
+//! - a round under way fails in one in ten while people act, the engine then pausing the work; otherwise it ends: in
+//!   half of them the agent hands in each block its cell may write with a chance of seven in ten, those its cell must
+//!   write each time too, so that it leaves one out at times, and, in one in ten, a block it may not; a choice with one
+//!   of its values in four of five, a wrong value or none otherwise; prose with a value in one in twenty; each mattering
+//!   or not as a coin says. In three in ten it asks for one to three calls, a tool in seven of ten and a question for
+//!   the owner or the architect otherwise; in two in ten it asks for nothing.
 //! - a call has its result: always for a tool; for a person or the owner's call at a limit only while people act.
-//! - a round given to be stopped ends, what it returns being dropped; a call given to be withdrawn is said to have its
-//!   result, that it was withdrawn.
+//! - a round given to be stopped ends, what it returns being dropped, or, while people act, fails in half of them; a
+//!   call given to be withdrawn is said to have its result, that it was withdrawn.
 //!
 //! A person's act is, in about equal shares of a tenth: a write of a block people may write (a choice with one of its
 //! values); a write that must be refused (of a block people may not write, of a choice with a wrong value, of a block
 //! the flow does not have); the outside writing main, mattering or not; letting a random cell go on; pausing or
-//! resuming; the owner's word at the merge, a choice the merge's named test reads, written the other way; a result of a
-//! call that has one already or of no call, or the return of a run that has no round under way; and, in one act in
-//! fifty, cancelling the work. The owner's word is yes from the start in two histories of five. The engine stops at
+//! resuming, a resume letting on a work the engine paused for a failed round as well as one the owner paused; the
+//! owner's word at the merge, a choice the merge's named test reads, written the other way; a result of a call that
+//! has one already or of no call, or the return of a run that has no round under way; and, in one act in fifty,
+//! cancelling the work. The owner's word is yes from the start in two histories of five. The engine stops at
 //! any step with a chance of one in twelve, and with one in two at a step when the driver holds a stop or a withdrawal
 //! not yet done.
+//!
+//! The histories must reach a failed round given again once the work is let on, and a run whose round failed abandoned
+//! because what it started from changed before the work was let on, and works that came to rest not paused: each is
+//! counted, a test of no history reaching one fails, and what was reached is written to the standard error.
 //!
 //! A failing case prints its seed and the steps it took; `one_history(seed, ..)` replays it.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write;
 use std::panic::{self, AssertUnwindSafe};
 
-use decide::{CallId, Decision, Outsider, RunId, Who, decide};
-use engine::{Ask, Call, Came, Effect, Event, Handed, Spent, Time, Work, handle, pending};
+use decide::{CallId, Decision, Outsider, Pauser, RunId, Who, decide};
+use engine::{Ask, Back, Call, Came, Effect, Event, Handed, Spent, Time, Work, handle, pending};
 use flow::{Compiled, Has, Source, compile};
 
 /// How many histories are run.
@@ -202,6 +214,14 @@ struct Seen {
     stopped: usize,
     /// Histories that ended cancelled.
     cancels: usize,
+    /// Rounds that failed, of a run that went on.
+    failed: usize,
+    /// Rounds given again once the work was let on, the round before them having failed.
+    retried: usize,
+    /// Runs abandoned, while the work was not cancelled, after their last round failed.
+    failed_abandoned: usize,
+    /// Histories whose work came to rest, once people stopped, not paused.
+    rested_unpaused: usize,
     /// Hand-ins that lacked a block their cell must write, by a run still open after them: sent back, or resting at
     /// the limit of returns.
     lacking: usize,
@@ -269,6 +289,7 @@ impl History {
     fn take(&mut self, event: Event) -> bool {
         self.note(format!("event: {event:?}"));
         let before = self.work.clone();
+        let failed = matches!(event, Event::Failed { .. });
         // The driver's clock: a second for each thing it hands the engine, so that a history with stops keeps the same
         // times as one without.
         self.clock += 1000;
@@ -276,6 +297,18 @@ impl History {
         match handle(&self.flow, &mut self.work, now, event) {
             Ok(effects) => {
                 self.note(format!("effects: {effects:?}"));
+                if failed && decide::pause(&self.work.records).is_some_and(|p| p.by == Pauser::Engine) {
+                    self.seen.failed += 1;
+                }
+                let r = &self.work.records;
+                for a in &r.abandoned[before.records.abandoned.len()..] {
+                    let ended = r.returned.iter().filter(|e| e.run == a.run).count();
+                    let last = self.work.back.get(&(a.run, ended));
+                    if r.cancelled.is_none() && matches!(last, Some(Back::Failed { .. })) {
+                        self.seen.failed_abandoned += 1;
+                    }
+                }
+                self.paused = decide::paused(&self.work.records);
                 for effect in effects {
                     match &effect {
                         Effect::Round { run, number, .. } => {
@@ -283,6 +316,9 @@ impl History {
                                 self.rounds.insert((*run, *number)),
                                 "round {number} of {run:?} given twice"
                             );
+                            if matches!(self.work.back.get(&(*run, number - 1)), Some(Back::Failed { .. })) {
+                                self.seen.retried += 1;
+                            }
                         }
                         // What is withdrawn or stopped is no longer to be done as it was: it is to be undone.
                         Effect::Withdraw { call } => {
@@ -326,6 +362,31 @@ impl History {
         let mut pending = pending(&self.work);
         pending.sort_by_key(key);
         assert_eq!(pending, self.held, "what is pending is not what the driver holds");
+        // A round that ended, as a failed one has, is not under way: none is to be done again.
+        for effect in &pending {
+            if let Effect::Round { run, number, .. } = effect {
+                assert!(
+                    !self.work.spent.contains_key(&(*run, *number)),
+                    "round {number} of {run:?} is pending though it ended"
+                );
+            }
+        }
+        // A round after one that failed is given what the failed one was given.
+        for (&(run, number), given) in &self.work.given {
+            if number > 1 && matches!(self.work.back.get(&(run, number - 1)), Some(Back::Failed { .. })) {
+                assert_eq!(
+                    Some(given),
+                    self.work.given.get(&(run, number - 1)),
+                    "round {number} of {run:?}, after a round that failed, is given otherwise than that round was"
+                );
+            }
+        }
+        if decide::pause(r).is_some_and(|p| p.by == Pauser::Engine) {
+            assert!(
+                !pending.iter().any(|e| matches!(e, Effect::Round { .. })),
+                "a round is pending while the engine's pause for a failed round holds the work"
+            );
+        }
         let under_way = (r.started.iter())
             .filter(|s| {
                 let began = r.rounds.iter().filter(|x| x.run == s.run).count();
@@ -383,8 +444,17 @@ impl History {
         }
     }
 
-    /// A round under way ends as its agent returns.
-    fn end_round(&mut self, run: RunId, cell: &str) {
+    /// A round under way fails, or ends as its agent returns.
+    fn end_round(&mut self, run: RunId, cell: &str, people: bool) {
+        // A round fails only while people act, as the other faults of the first part do, so that once they stop a
+        // work comes to rest by what its flow and its limits do.
+        if people && self.rng.chance(10) {
+            let spent = self.spent(run);
+            let why = format!("the agent of {cell} could not start");
+            let taken = self.take(Event::Failed { run, why, spent });
+            assert!(taken, "the failure of a round under way was refused");
+            return;
+        }
         let place = self.flow.flow.place(&cell.into()).expect("the cell is in the flow");
         let outputs = self.flow.flow.cells()[place].outputs.clone();
         let came = match self.rng.below(10) {
@@ -495,8 +565,14 @@ impl History {
                 }
             }
             50..=61 => {
-                self.paused = !self.paused;
-                if self.paused { Event::Paused } else { Event::Resumed }
+                if self.paused {
+                    Event::Resumed
+                } else {
+                    Event::Paused {
+                        by: Pauser::Owner,
+                        why: None,
+                    }
+                }
             }
             62..=73 => self.owner_says(!self.go),
             74..=86 => {
@@ -588,7 +664,7 @@ impl History {
         let at = self.held.iter().position(|e| *e == effect).expect("held");
         self.held.remove(at);
         match effect {
-            Effect::Round { run, cell, .. } => self.end_round(run, cell.as_str()),
+            Effect::Round { run, cell, .. } => self.end_round(run, cell.as_str(), people),
             Effect::Call { call, .. } => self.give_result(call),
             Effect::Withdraw { call } => {
                 let taken = self.take(Event::Done {
@@ -599,15 +675,21 @@ impl History {
                 self.closed.push(call);
             }
             Effect::Stop { run } => {
-                let came = Came::Asks(vec![]);
-                assert!(
-                    self.take(Event::Returned {
+                let spent = self.spent(run);
+                let end = if people && self.rng.chance(50) {
+                    Event::Failed {
                         run,
-                        came,
-                        spent: self.spent(run)
-                    }),
-                    "the end of a stopped round was refused"
-                );
+                        why: "stopped".to_string(),
+                        spent,
+                    }
+                } else {
+                    Event::Returned {
+                        run,
+                        came: Came::Asks(vec![]),
+                        spent,
+                    }
+                };
+                assert!(self.take(end), "the end of a stopped round was refused");
             }
         }
         true
@@ -668,6 +750,11 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
             h.check();
         }
         h.note("people stop".into());
+        // The owner lets the work on, whoever paused it.
+        if h.paused {
+            h.take(Event::Resumed);
+            h.check();
+        }
         let bound = h.bound();
         let mut steps = 0;
         while h.step(false) {
@@ -677,9 +764,13 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
         }
         let decision = decide(&h.flow.flow, &h.work.records);
         let paused = decide::paused(&h.work.records);
+        if !paused {
+            h.seen.rested_unpaused += 1;
+        }
+        // Let on as people stopped, and failing no round since, the work rests not paused: it waits or has ended.
+        assert!(!paused, "the work rests paused");
         assert!(
-            matches!(decision, Decision::Wait { .. } | Decision::Paused | Decision::Ended(_))
-                || (paused && matches!(decision, Decision::GoOn { .. })),
+            matches!(decision, Decision::Wait { .. } | Decision::Ended(_)),
             "the work rests deciding {decision:?}"
         );
         for effect in pending(&h.work) {
@@ -743,6 +834,10 @@ fn whole_works_keep_the_engines_properties_with_and_without_stops() {
                 seen.stops_undoing += s.stops_undoing;
                 seen.stopped += s.stopped;
                 seen.cancels += s.cancels;
+                seen.failed += s.failed;
+                seen.retried += s.retried;
+                seen.failed_abandoned += s.failed_abandoned;
+                seen.rested_unpaused += s.rested_unpaused;
                 seen.lacking += s.lacking;
                 seen.bound_finished += s.bound_finished;
             }
@@ -773,6 +868,13 @@ fn whole_works_keep_the_engines_properties_with_and_without_stops() {
         && seen.stopped > 0
         && seen.cancels > 0
         && seen.lacking > 0
-        && seen.bound_finished > 0;
+        && seen.bound_finished > 0
+        && seen.failed > 0
+        && seen.retried > 0
+        && seen.failed_abandoned > 0
+        && seen.rested_unpaused > 0;
+    // What the histories reached, said whatever comes of the test: written to the standard error itself, which the
+    // test harness does not hold back as it holds back what a test prints.
+    let _ = writeln!(std::io::stderr(), "the engine's histories reached: {seen:?}");
     assert!(every, "a class of step never occurred: {seen:?}");
 }

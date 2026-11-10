@@ -313,6 +313,10 @@
   color: var(--blue-text);
 }
 
+.state-text-failed {
+  color: var(--red-text);
+}
+
 .state-text-again {
   color: var(--orange-text);
 }
@@ -383,6 +387,16 @@
 .run-resting {
   border-left-color: var(--blue);
   border-left-style: dotted;
+}
+
+/* A run whose last round failed is at rest, in the colour of what failed. */
+.run-failed {
+  border-left-color: var(--red);
+  border-left-style: dotted;
+}
+
+.run-failed .run-word {
+  color: var(--red-text);
 }
 
 .run-writes {

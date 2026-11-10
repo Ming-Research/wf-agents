@@ -96,7 +96,7 @@ describe('what a card shows of an item', () => {
 
   it('counts the things a work waits for that the owner gives: their questions, their preconditions, a run let on', () => {
     expect(asksOf(waits)).toBe(3);
-    expect(asksOf({ kind: 'paused' })).toBe(0);
+    expect(asksOf({ kind: 'paused', by: 'owner', why: null })).toBe(0);
   });
 
   it('shows the work of an item once it has begun, and while it goes on; until it has begun, the items it waits for', () => {
@@ -114,7 +114,7 @@ describe('what a card shows of an item', () => {
   });
 
   it('shows the work of an item that has not begun while it is paused, at fault or waits, as every new item is', () => {
-    const paused: Item = { ...item(1, 'open', [4]), work: work(1, { kind: 'paused' }) };
+    const paused: Item = { ...item(1, 'open', [4]), work: work(1, { kind: 'paused', by: 'owner', why: null }) };
     const fault: Item = { ...item(2, 'open'), work: work(2, { kind: 'fault', words: 'No session' }) };
     const owner: Now = {
       kind: 'waits',

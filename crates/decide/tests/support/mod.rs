@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 
 use decide::{
     Abandoned, Abandoning, CallId, Called, Cell, CellId, Condition, Decision, Done, Finished, Flow, LetGo, Outsider,
-    Pause, Records, Returned, Round, RunId, Seq, Started, Test, TestKind, TestName, Waited, Who, Write, Written,
-    decide,
+    Pause, Pauser, Records, Returned, Round, RunId, Seq, Started, Test, TestKind, TestName, Waited, Who, Write,
+    Written, decide,
 };
 
 /// The owner's word of this name: a named test of the choice of the same name, which people write, that holds unless
@@ -343,14 +343,44 @@ impl World {
         self.records.let_go.push(LetGo { cell: cell.into(), at });
     }
 
+    /// The owner pauses the work.
     pub fn pause(&mut self) {
         let at = self.tick();
-        self.records.pauses.push(Pause { paused: true, at });
+        self.records.pauses.push(Pause {
+            paused: true,
+            at,
+            by: Pauser::Owner,
+            why: None,
+        });
     }
 
+    /// The engine pauses the work, for this reason: as when a round failed, or the work spent more than it may.
+    pub fn engine_pauses(&mut self, why: &str) {
+        let at = self.tick();
+        self.records.pauses.push(Pause {
+            paused: true,
+            at,
+            by: Pauser::Engine,
+            why: Some(why.to_string()),
+        });
+    }
+
+    /// The round under way of the cell's run fails: it ends with nothing come back, and the engine pauses the work
+    /// with the reason in the same step, as the engine's loop does. To the walk the run is then at rest.
+    pub fn fails(&mut self, cell: &str, why: &str) {
+        self.returns(cell);
+        self.engine_pauses(why);
+    }
+
+    /// The owner lets the work on again.
     pub fn resume(&mut self) {
         let at = self.tick();
-        self.records.pauses.push(Pause { paused: false, at });
+        self.records.pauses.push(Pause {
+            paused: false,
+            at,
+            by: Pauser::Owner,
+            why: None,
+        });
     }
 
     pub fn cancel(&mut self) {

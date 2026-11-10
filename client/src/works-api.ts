@@ -20,6 +20,9 @@ import type { Flow } from './api';
 
 export type Person = 'owner' | 'architect';
 
+/// Who paused a work: the owner, or the engine itself, as when a round failed or the work spent more than it may.
+export type Pauser = 'owner' | 'engine';
+
 /// The limit a run reached.
 export type Limit = { of: 'returns'; sentBack: number } | { of: 'calls'; made: number };
 
@@ -45,16 +48,18 @@ export type Now =
   | { kind: 'cancelled' }
   /// A round of this run of this cell is under way, since this time.
   | { kind: 'round'; cell: string; run: number; round: number; since: number }
-  /// It is paused, and what it would do next is begin a round.
-  | { kind: 'paused' }
+  /// It is paused, and what it would do next is begin a round: by the owner, who gives no reason, or by the engine
+  /// for this one.
+  | { kind: 'paused'; by: Pauser; why: string | null }
   /// It waits at this cell, for each of these.
   | { kind: 'waits'; at: string; on: Waited[] }
   /// It is about to do something at this cell; a work is never left so between two things that happen to it.
   | { kind: 'next'; cell: string };
 
-/// How a cell stands for a work: a round of its run is under way; its run is at rest; its condition is not met;
-/// it never finished a run; it has a record and runs again when the walk reaches it; its record knows everything.
-export type CellState = 'running' | 'resting' | 'skipped' | 'notYet' | 'again' | 'done';
+/// How a cell stands for a work: a round of its run is under way; its run is at rest; its run's last round failed,
+/// and is given again once the work is let on; its condition is not met; it never finished a run; it has a record and
+/// runs again when the walk reaches it; its record knows everything.
+export type CellState = 'running' | 'resting' | 'failed' | 'skipped' | 'notYet' | 'again' | 'done';
 
 export interface CellNow {
   cell: string;
@@ -171,7 +176,9 @@ export interface Handed {
   chars: number;
 }
 
-export type Back = { kind: 'asked'; asks: Ask[] } | { kind: 'handedIn'; blocks: Handed[] };
+/// What came back at the end of a round: calls asked for, blocks handed in, or nothing, the round having failed for
+/// this reason.
+export type Back = { kind: 'asked'; asks: Ask[] } | { kind: 'handedIn'; blocks: Handed[] } | { kind: 'failed'; why: string };
 
 export interface Round {
   /// The first being one.
@@ -230,7 +237,8 @@ export type Step =
       chars: number;
     }
   | { kind: 'letGo'; at: number; time: number; cell: string }
-  | { kind: 'paused'; at: number; time: number }
+  /// The work was paused: by the owner, or by the engine for this reason.
+  | { kind: 'paused'; at: number; time: number; by: Pauser; why: string | null }
   | { kind: 'resumed'; at: number; time: number }
   | { kind: 'cancelled'; at: number; time: number };
 

@@ -11,6 +11,7 @@ mod acts;
 mod cancelling;
 mod contract;
 mod dependencies;
+mod failing;
 mod going;
 mod pausing;
 mod stopped;
@@ -162,7 +163,9 @@ impl Trial {
             panic!("only the carriers send to the loop in these tests");
         };
         let unit = match &event {
-            Event::Returned { run, .. } => Some(Unit::Round(work, *run, self.began(work, *run))),
+            Event::Returned { run, .. } | Event::Failed { run, .. } => {
+                Some(Unit::Round(work, *run, self.began(work, *run)))
+            }
             Event::Done { call, .. } => Some(Unit::Call(work, *call)),
             _ => None,
         };

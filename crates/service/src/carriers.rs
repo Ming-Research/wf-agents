@@ -9,10 +9,15 @@
 //! What was to be done and is not known as done is handed out again when the process starts again, with the same
 //! work, run, round and call: a carrier recognises by those what it began before the stop (principle
 //! `effects-known-as-done`), and answers it once.
+//!
+//! A round a carrier cannot carry out it says failed, with why: the engine pauses the work with that reason as it takes
+//! it, and once the owner lets the work on the run's next round is given the same as the failed one, a new round that
+//! the carrier carries out anew. The carrier keeps nothing of a failed round, and tries nothing again itself: whatever
+//! made the round fail is for the owner to see first, on the page.
 
 use std::sync::Arc;
 
-use decide::{CallId, RunId};
+use decide::{CallId, Pauser, RunId};
 use engine::{Came, Event};
 use flow::{CellSpec, Compiled};
 use store::WorkNumber;
@@ -31,12 +36,8 @@ pub const WITHDRAWN: &str = "Withdrawn: its run was abandoned before it had its 
 /// elsewhere, on a task or a thread of its own, so that the loop is held up by no round.
 pub trait Rounds: Send + Sync {
     /// Gives the round: an agent is given it in the session of the cell's line, or the act is done. The round ends
-    /// when the reply says what came back and what it took. Given again after the process started again, it is the
-    /// same round, to be gone on with where what was done of it is known, and done again where it is not. Where the
-    /// round cannot be carried out, the reply says it failed ([`RoundReply::failed`]) and the carrier forgets it, so
-    /// that the same round, given again once its work is let on, is carried out anew. A round that failed is ended by
-    /// the loop: a stop of it given after the failure is dropped, and one given before it means that the failure is
-    /// ended as a stop is ([`RoundReply::ended`]), not said.
+    /// when the reply says what came back and what it took, or that it failed and why. Given again after the process started again, it is the
+    /// same round, to be gone on with where what was done of it is known, and done again where it is not.
     fn give(&self, round: Round, reply: RoundReply);
 
     /// Stops the round, which is under way: its work was cancelled. The round ends as it always does, by a reply
@@ -105,8 +106,6 @@ pub struct ToolCall {
 pub struct RoundReply {
     work: WorkNumber,
     run: RunId,
-    /// Which round of the run it is, the first being one.
-    number: usize,
     to: mpsc::UnboundedSender<Message>,
 }
 
@@ -119,8 +118,8 @@ pub struct CallReply {
 }
 
 impl RoundReply {
-    pub(crate) fn new(work: WorkNumber, run: RunId, number: usize, to: mpsc::UnboundedSender<Message>) -> Self {
-        RoundReply { work, run, number, to }
+    pub(crate) fn new(work: WorkNumber, run: RunId, to: mpsc::UnboundedSender<Message>) -> Self {
+        RoundReply { work, run, to }
     }
 
     /// The round ended: this came back, and it took this.
@@ -134,28 +133,34 @@ impl RoundReply {
         let _ = self.to.send(Message::Happened { work: self.work, event });
     }
 
-    /// The round ended as [`RoundReply::ended`] says, and its work is paused for this reason, which the owner reads:
-    /// the carrier found that the work should not go on before the owner has looked, as when it has spent more than
-    /// its budget. The pause is taken just before the end, so that what came back is taken and no next round begins.
-    /// The owner lets the work on again as from any pause.
+    /// The round ended as [`RoundReply::ended`] says, and its work is to wait for the owner, for this reason, which
+    /// the owner reads: the carrier found that the work should not go on before the owner has looked, as when it has
+    /// spent more than it may. The engine's pause and then the end are sent down the loop's one channel in that order,
+    /// so that the loop takes the pause while the round is still under way: what came back is taken as from any
+    /// round, and no next round begins. The owner lets the work on again as from any pause.
     pub fn ended_and_paused(self, came: Came, spent: Spent, why: String) {
-        let _ = self.to.send(Message::Hold { work: self.work, why });
+        let paused = Event::Paused {
+            by: Pauser::Engine,
+            why: Some(why),
+        };
+        // Where the loop has ended, the process is stopping: the round is handed out again when it starts again.
+        let _ = self.to.send(Message::Happened {
+            work: self.work,
+            event: paused,
+        });
         self.ended(came, spent);
     }
 
-    /// The round failed, for this reason: nothing came back, and nothing is known of what it took. The round stays
-    /// under way in the records, and its work is paused; when the owner lets the work on again, the same round is
-    /// given again, and a carrier that has failed a round gives it as if it were new. The carrier does not try again
-    /// itself: whatever made the round fail is for the owner to see first. Where the round's run was abandoned
-    /// meanwhile, or is abandoned while the work is paused, the loop ends the round with nothing handed in.
-    pub fn failed(self, why: String) {
-        let message = Message::Failed {
-            work: self.work,
+    /// The round failed, for this reason, having taken this: nothing came back. The engine pauses the work with the
+    /// reason as it takes this; once the owner lets the work on, the run's next round is given what this one was.
+    pub fn failed(self, why: String, spent: Spent) {
+        let event = Event::Failed {
             run: self.run,
-            number: self.number,
             why,
+            spent,
         };
-        let _ = self.to.send(message);
+        // Where the loop has ended, the process is stopping: the round is handed out again when it starts again.
+        let _ = self.to.send(Message::Happened { work: self.work, event });
     }
 }
 

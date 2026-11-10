@@ -24,6 +24,7 @@ import {
   fullTime,
   isWayRound,
   minuteOf,
+  pauseWords,
   runState,
   runTook,
 } from './words';
@@ -68,7 +69,7 @@ export function stepWords(step: Step, flow?: Flow): string {
     case 'letGo':
       return `the owner let ${step.cell} go on`;
     case 'paused':
-      return 'the owner paused the work';
+      return pauseWords(step.by, step.why);
     case 'resumed':
       return 'the owner let the work on';
     case 'cancelled':

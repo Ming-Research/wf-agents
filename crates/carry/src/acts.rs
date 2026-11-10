@@ -98,7 +98,8 @@ impl Rounds for Acts {
                     }
                 }
                 Err(why) => match inner.held.fail(key) {
-                    Some(Failing::Fail(reply)) => reply.failed(why),
+                    // An act of the engine's takes no cost and no tokens, failed or not.
+                    Some(Failing::Fail(reply)) => reply.failed(why, Spent::default()),
                     Some(Failing::End(reply)) => reply.ended(Came::HandsIn(Vec::new()), Spent::default()),
                     None => {}
                 },

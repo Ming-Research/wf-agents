@@ -24,7 +24,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use decide::{BlockId, Decision, End, Outsider, View, decide};
+use decide::{BlockId, Decision, End, Outsider, Pauser, View, decide};
 use engine::{Effect, Event, Refused, handle};
 use flow::Compiled;
 use store::{Item, ItemNumber, Storage, WorkHead, WorkNumber};
@@ -263,7 +263,10 @@ impl Driver {
         depends_on.sort();
         depends_on.dedup();
         let mut work = Work::default();
-        let mut first = vec![Event::Paused];
+        let mut first = vec![Event::Paused {
+            by: Pauser::Owner,
+            why: None,
+        }];
         first.extend(self.block(&flow, &depends_on, &work));
         first.extend(new.writes.into_iter().map(|write| Event::Wrote {
             block: write.block,

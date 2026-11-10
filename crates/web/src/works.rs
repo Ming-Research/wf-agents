@@ -17,8 +17,8 @@
 
 use decide::run::{Limit as LimitOf, Unmet as UnmetOf};
 use decide::{
-    BlockId, CallId, Cause as CauseOf, CellId, Decision, End, RunId, Seq, View, Waited as WaitedOf, Who,
-    Writer as WriterOf,
+    BlockId, CallId, Cause as CauseOf, CellId, Decision, End, Pauser as PauserOf, RunId, Seq, View, Waited as WaitedOf,
+    Who, Writer as WriterOf,
 };
 use driver::{Driver, Kept};
 use serde::{Deserialize, Serialize};
@@ -87,8 +87,9 @@ pub enum Now {
         round: usize,
         since: u64,
     },
-    /// It is paused, and what it would do next is begin a round.
-    Paused,
+    /// It is paused, and what it would do next is begin a round: by the owner, or by the engine itself for this
+    /// reason, as when a round failed.
+    Paused { by: Pauser, why: Option<String> },
     /// It waits at this cell, for each of these.
     Waits { at: String, on: Vec<Waited> },
     /// It is about to do something at this cell. A work is never left so between two things that happen to it.
@@ -114,6 +115,14 @@ pub enum Waited {
 pub enum Person {
     Owner,
     Architect,
+}
+
+/// Who paused a work: the owner, or the engine itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Pauser {
+    Owner,
+    Engine,
 }
 
 /// What a call is.
@@ -160,6 +169,9 @@ pub enum CellState {
     Running,
     /// Its run is at rest: for a call's result, or only for its next round.
     Resting,
+    /// Its run's last round failed: the run is at rest, and its next round, once the work is let on, is that round
+    /// again.
+    Failed,
     /// Its condition is not met, so it is skipped this time; what it wrote before still counts.
     Skipped,
     /// It has no record: it never finished a run.
@@ -300,8 +312,13 @@ pub enum Step {
     },
     /// The owner let the cell go on at its limit.
     LetGo { at: u64, time: u64, cell: String },
-    /// The work was paused.
-    Paused { at: u64, time: u64 },
+    /// The work was paused: by the owner, or by the engine itself for this reason.
+    Paused {
+        at: u64,
+        time: u64,
+        by: Pauser,
+        why: Option<String>,
+    },
     /// The work was let on again.
     Resumed { at: u64, time: u64 },
     /// The work's item was cancelled.
@@ -397,6 +414,8 @@ pub enum Back {
     Asked { asks: Vec<Ask> },
     /// These blocks were handed in.
     HandedIn { blocks: Vec<Handed> },
+    /// Nothing came back: the round failed, for this reason.
+    Failed { why: String },
 }
 
 /// What an agent asks for at the end of a round.
@@ -591,6 +610,7 @@ impl Summary {
                 cell: cell.cell.to_string(),
                 state: match (&cell.open, cell.applies, cell.record) {
                     (Some(open), ..) if open.under_way => CellState::Running,
+                    (Some(open), ..) if failed(work, open.run) => CellState::Failed,
                     (Some(_), ..) => CellState::Resting,
                     (None, false, _) => CellState::Skipped,
                     (None, true, None) => CellState::NotYet,
@@ -642,7 +662,10 @@ impl Now {
                     since: time(work, *last)?,
                 }
             }
-            Decision::Paused => Now::Paused,
+            Decision::Paused => Now::paused(work)?,
+            // A run at rest that goes on holds its next round while the work is paused: the engine leaves a work so
+            // only when it is paused, as when the run's last round failed.
+            Decision::GoOn { .. } if decide::paused(&work.records) => Now::paused(work)?,
             Decision::Wait { at, on } => Now::Waits {
                 at: at.to_string(),
                 on: (on.iter())
@@ -668,6 +691,24 @@ impl Now {
                 Now::Next { cell: cell.to_string() }
             }
         })
+    }
+
+    /// The work's pause, with who paused it and why.
+    fn paused(work: &Work) -> Result<Now, Broken> {
+        let pause = decide::pause(&work.records).ok_or_else(|| Broken("the work has no pause".to_string()))?;
+        Ok(Now::Paused {
+            by: Pauser::of(pause.by),
+            why: pause.why.clone(),
+        })
+    }
+}
+
+impl Pauser {
+    fn of(by: PauserOf) -> Pauser {
+        match by {
+            PauserOf::Owner => Pauser::Owner,
+            PauserOf::Engine => Pauser::Engine,
+        }
     }
 }
 
@@ -774,7 +815,12 @@ impl WorkPage {
         for pause in &work.records.pauses {
             let (at, time) = (pause.at.0, time(work, pause.at)?);
             steps.push(if pause.paused {
-                Step::Paused { at, time }
+                Step::Paused {
+                    at,
+                    time,
+                    by: Pauser::of(pause.by),
+                    why: pause.why.clone(),
+                }
             } else {
                 Step::Resumed { at, time }
             });
@@ -861,7 +907,7 @@ impl RoundPage {
                     content: h.content.clone(),
                 })
                 .collect(),
-            Some(BackOf::Asked(_)) | None => Vec::new(),
+            Some(BackOf::Asked(_) | BackOf::Failed { .. }) | None => Vec::new(),
         };
         Ok(Some(RoundPage {
             run: run.0,
@@ -958,6 +1004,12 @@ fn chars(work: &Work, block: &BlockId, at: Seq) -> Result<usize, Broken> {
     (work.contents.get(&(block.clone(), at)))
         .map(|content| content.chars().count())
         .ok_or_else(|| Broken(format!("the version of {block} at {} has no content", at.0)))
+}
+
+/// Whether the run's last round that ended failed.
+fn failed(work: &Work, run: RunId) -> bool {
+    let ended = work.records.returned.iter().filter(|r| r.run == run).count();
+    matches!(work.back.get(&(run, ended)), Some(BackOf::Failed { .. }))
 }
 
 /// The cell the run is of.
@@ -1068,6 +1120,7 @@ fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                         })
                         .collect(),
                 },
+                BackOf::Failed { why } => Back::Failed { why: why.clone() },
             });
             let spent = match ended {
                 None => None,

@@ -120,10 +120,14 @@ fn an_item_whose_work_cannot_be_kept_is_not_added() {
         Pause {
             paused: true,
             at: Seq(1),
+            by: Pauser::Owner,
+            why: None,
         },
         Pause {
             paused: false,
             at: Seq(1),
+            by: Pauser::Owner,
+            why: None,
         },
     ];
     assert!(matches!(

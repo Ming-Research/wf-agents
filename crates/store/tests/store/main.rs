@@ -13,7 +13,7 @@ mod round_trip;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use decide::{CallId, Outsider, RunId, Who};
+use decide::{CallId, Outsider, Pauser, RunId, Who};
 use engine::{Ask, Came, Effect, Event, Handed, Spent, Time, Work, handle, pending};
 use flow::{Compiled, Has, Source, compile};
 use rusqlite::Connection;
@@ -231,6 +231,14 @@ impl Driver {
         self.on(Event::Returned { run, came, spent })
     }
 
+    /// The round under way fails, for this reason: the engine pauses the work with it.
+    fn fail(&mut self, why: &str) -> Vec<Effect> {
+        let (run, _) = self.under_way();
+        let spent = self.spent();
+        let why = why.to_string();
+        self.on(Event::Failed { run, why, spent })
+    }
+
     /// What the next round to end took, told apart from every other.
     fn spent(&mut self) -> Spent {
         self.ended += 1;
@@ -332,7 +340,8 @@ fn question(who: Who) -> Ask {
 
 /// A history that leaves an entry of every kind: writes by a person and the outside with values and without, runs
 /// finished, sent back and abandoned, calls for a tool and a person, done and withdrawn, both limits of a run let go
-/// by the owner, a pause and a resume, a cell let go, and a cancel with a round under way.
+/// by the owner, a pause and a resume, a round that failed and the engine's pause for it, a cell let go, and a cancel
+/// with a round under way.
 fn history(d: &mut Driver) {
     d.wrote("request", Outsider::Person, None);
     // The outside writes while the writer's first round is under way: as the round ends its run is abandoned.
@@ -350,9 +359,16 @@ fn history(d: &mut Driver) {
     d.answer();
     d.end(hands_in(&[("text", None)]));
     // The judge asks the architect during a pause: the call is made, and its next round waits for the resume.
-    d.on(Event::Paused);
+    d.on(Event::Paused {
+        by: Pauser::Owner,
+        why: None,
+    });
     d.end(Came::Asks(vec![question(Who::Architect)]));
     d.answer();
+    d.on(Event::Resumed);
+    // The judge's round given the architect's answer fails, and the engine pauses the work; let on, the round is given
+    // again.
+    d.fail("The agent's program could not start.");
     d.on(Event::Resumed);
     // The judge rests at a question while the writer runs again for a new request: what the writer writes then
     // abandons the judge's run, and its call is withdrawn.

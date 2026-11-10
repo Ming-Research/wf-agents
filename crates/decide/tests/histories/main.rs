@@ -34,7 +34,10 @@
 //!   or not as a coin says, the choice as yes or no in four of five and without a value in one), returning with
 //!   nothing in a quarter, and resting at a call in a quarter (the owner's in two of ten, the architect's in one, the
 //!   engine's otherwise); its third round always finishes. A run found stale as its round ends is abandoned, not
-//!   finished, as the engine does.
+//!   finished, as the engine does. In half the histories of the first test that have no judge, drawn apart from the
+//!   rest, a round before the third of a cell other than the merge fails in twelve in a hundred: it ends with nothing
+//!   come back and the engine pauses the work with the reason, as the engine's loop does; people let the work on as
+//!   from any pause, and once they stop the owner lets the work on, whoever paused it.
 //!
 //! A second test draws only the sixth shape, with people acting in the first 0 to 99 steps: its judge then runs while
 //! the cell it judges is skipped, over what a person wrote for that cell, and the cell runs again afterwards, which
@@ -53,7 +56,8 @@ mod support;
 mod properties;
 mod reading;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write;
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::{Mutex, PoisonError};
 
@@ -231,6 +235,10 @@ struct History {
     /// Draws what the histories with a judge add, apart from `rng`, so that the histories without one go as they did
     /// before the judge was added.
     judged: Option<Rng>,
+    /// Draws which rounds fail, apart from `rng`, in the histories where rounds fail.
+    failing: Option<Rng>,
+    /// The runs whose last round failed and that have neither gone on nor been abandoned since.
+    failed: BTreeSet<RunId>,
     log: Vec<String>,
     /// Whether the work is paused, as people last left it.
     paused: bool,
@@ -252,6 +260,9 @@ impl History {
         let mut cells = draw_cells(&mut rng, shape);
         let mut extra = Rng::new(seed ^ 0x0BAD_5EED_CAFE_F00D);
         let judged = (shape.is_none() && extra.chance(50)).then_some(extra);
+        let mut failing = Rng::new(seed ^ 0x00FA_11ED_0F0F_0F0F);
+        // Rounds fail only in histories with no judge, so that those with one go as they did before rounds failed.
+        let failing = (shape.is_none() && judged.is_none() && failing.chance(50)).then_some(failing);
         let mut w = if judged.is_some() {
             let mut judge = when_flipped(cell("judge", &[BRIEF, "b0"], &[VERDICT]));
             judge.limit = 2;
@@ -286,6 +297,8 @@ impl History {
             w,
             rng,
             judged,
+            failing,
+            failed: BTreeSet::new(),
             log,
             paused: false,
             last_move: None,
@@ -356,11 +369,17 @@ impl History {
                 }
                 people
             }
-            Decision::GoOn { cell, .. } => {
+            Decision::GoOn { cell, run } => {
+                if self.failed.remove(run) {
+                    self.verdict.count(properties::FAILED_GOES_ON);
+                }
                 self.w.go_on(cell.as_str());
                 true
             }
-            Decision::Abandon { .. } => {
+            Decision::Abandon { run, because, .. } => {
+                if self.failed.remove(run) && *because != decide::Abandoning::Cancelled {
+                    self.verdict.count(properties::FAILED_ABANDONED);
+                }
                 self.w.abandon();
                 true
             }
@@ -400,6 +419,15 @@ impl History {
             })
             .count();
         assert!(under_way <= 1, "{under_way} runs have a round under way");
+        // A run whose last round failed is at rest: nothing of it is under way until it goes on.
+        for run in &self.failed {
+            let began = r.rounds.iter().filter(|x| x.run == *run).count();
+            let ended = r.returned.iter().filter(|x| x.run == *run).count();
+            assert_eq!(
+                began, ended,
+                "run {run:?} has a round under way after its last round failed"
+            );
+        }
         if under_way == 1 {
             assert!(
                 // A cancel holds wherever the work is, a round under way or not: the run is abandoned.
@@ -447,6 +475,19 @@ impl History {
             .clone();
         let is_merge = self.w.flow.cells().last().is_some_and(|c| c.id == cell);
         let rounds = self.w.records.rounds.iter().filter(|r| r.run == run).count();
+        // The merge finishes in its first round, as the engine's act does here: it fails no round.
+        if !is_merge
+            && rounds < ROUNDS
+            && let Some(failing) = &mut self.failing
+            && failing.chance(12)
+        {
+            self.note(format!("{cell}'s round fails: the engine pauses the work"));
+            self.w.fails(cell.as_str(), "the agent could not start");
+            self.paused = true;
+            self.failed.insert(run);
+            self.verdict.count(properties::FAILED);
+            return;
+        }
         let how = if is_merge || rounds >= ROUNDS {
             0
         } else {
@@ -724,6 +765,10 @@ fn one_history(seed: u64, drawn: Drawn, log: &mut Vec<String>, verdict: &mut Ver
             }
         }
         h.note("people stop".into());
+        // In a history whose rounds fail, the owner lets the work on, whoever paused it.
+        if h.failing.is_some() && h.paused && !h.cancelled {
+            h.toggle_pause();
+        }
         if !h.cancelled {
             let bound = h.bound();
             let mut steps = 0;
@@ -792,6 +837,22 @@ fn histories(drawn: Drawn, seeds: u64, reached: &[&str]) {
             log.join("\n")
         );
     }
+    // How often the rounds that failed were reached, said whatever comes of the test: written to the standard error
+    // itself, which the test harness does not hold back as it holds back what a test prints.
+    let failing = [
+        properties::FAILED,
+        properties::FAILED_GOES_ON,
+        properties::FAILED_ABANDONED,
+    ];
+    let counts: Vec<String> = failing
+        .iter()
+        .map(|what| format!("{what}: {}", seen.get(what)))
+        .collect();
+    let _ = writeln!(
+        std::io::stderr(),
+        "the deciding code's histories reached: {}",
+        counts.join("; ")
+    );
     let unreached: Vec<_> = reached.iter().filter(|what| seen.get(what) == 0).collect();
     assert!(
         unreached.is_empty(),

@@ -112,6 +112,9 @@ pub enum Back {
     Asked(Vec<Ask>),
     /// These blocks were handed in.
     HandedIn(Vec<Handed>),
+    /// Nothing came back: the round failed, for this reason, as whatever carried it out says. The engine paused the
+    /// work as it took this, and the run's next round is given what this one was given.
+    Failed { why: String },
 }
 
 /// A block as a run hands it in.
