@@ -83,7 +83,8 @@ fn a_return_of_a_run_with_no_round_under_way_is_refused() {
     assert_eq!(
         w.refused(Event::Returned {
             run: write,
-            came: wanting()
+            came: wanting(),
+            spent: Spent::default()
         }),
         Refused::NoRoundUnderWay(write)
     );
@@ -91,7 +92,8 @@ fn a_return_of_a_run_with_no_round_under_way_is_refused() {
     assert_eq!(
         w.refused(Event::Returned {
             run: unknown,
-            came: wanting()
+            came: wanting(),
+            spent: Spent::default()
         }),
         Refused::NoRoundUnderWay(unknown)
     );
@@ -103,7 +105,11 @@ fn a_return_of_a_run_that_finished_is_refused() {
     w.returns(write, hands_in(&[("text", None)]));
     let came = hands_in(&[("text", None)]);
     assert_eq!(
-        w.refused(Event::Returned { run: write, came }),
+        w.refused(Event::Returned {
+            run: write,
+            came,
+            spent: Spent::default(),
+        }),
         Refused::NoRoundUnderWay(write)
     );
 }

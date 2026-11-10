@@ -7,6 +7,8 @@
 //! - `pending` equals, as a set, what the driver holds (entries engine-holds-no-state, a-stop-changes-nothing);
 //! - at most one round is under way, and the deciding code never says the records are faulty;
 //! - every effect held names a run and a call the records hold, and no round is given twice;
+//! - the times of the moments never go back, the driver's clock never going back, and each moment's entries begin
+//!   after the last's;
 //! - an event the loop refuses leaves the work equal to what it was.
 //!
 //! And once people stop: the work rests within the bound stated on `History::bound` (entry a-work-comes-to-rest), at
@@ -39,7 +41,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{self, AssertUnwindSafe};
 
 use decide::{CallId, Decision, Outcome, Outsider, RunId, TestName, Tests, Who, decide};
-use engine::{Ask, Call, Came, Effect, Event, Handed, Work, handle, pending};
+use engine::{Ask, Call, Came, Effect, Event, Handed, Spent, Time, Work, handle, pending};
 use flow::{Compiled, Source, compile};
 
 /// How many histories are run.
@@ -202,6 +204,8 @@ struct History {
     /// Calls that were withdrawn or have their result.
     closed: Vec<CallId>,
     paused: bool,
+    /// The driver's clock, in milliseconds; it never goes back.
+    clock: u64,
     log: Vec<String>,
     seen: Seen,
 }
@@ -230,6 +234,7 @@ impl History {
             rounds: BTreeSet::new(),
             closed: Vec::new(),
             paused: false,
+            clock: 1_800_000_000_000,
             log: Vec::new(),
             seen: Seen::default(),
         }
@@ -243,7 +248,11 @@ impl History {
     fn take(&mut self, event: Event) -> bool {
         self.note(format!("event: {event:?}"));
         let before = self.work.clone();
-        match handle(&self.flow, &self.tests, &mut self.work, event) {
+        // The driver's clock: a second for each thing it hands the engine, so that a history with stops keeps the same
+        // times as one without.
+        self.clock += 1000;
+        let now = Time(self.clock);
+        match handle(&self.flow, &self.tests, &mut self.work, now, event) {
             Ok(effects) => {
                 self.note(format!("effects: {effects:?}"));
                 for effect in effects {
@@ -304,6 +313,16 @@ impl History {
             })
             .count();
         assert!(under_way <= 1, "{under_way} rounds are under way");
+        let times: Vec<Time> = self.work.moments.iter().map(|m| m.at).collect();
+        assert!(
+            times.windows(2).all(|t| t[0] <= t[1]),
+            "the times of the moments go back: {times:?}"
+        );
+        let places: Vec<_> = self.work.moments.iter().map(|m| m.from).collect();
+        assert!(
+            places.windows(2).all(|p| p[0] < p[1]),
+            "the moments do not follow the records: {places:?}"
+        );
         assert!(
             !matches!(decide(&self.flow.flow, r, &self.tests), Decision::Fault(_)),
             "the records are faulty"
@@ -389,7 +408,8 @@ impl History {
             }
             _ => Came::Asks(vec![]),
         };
-        let taken = self.take(Event::Returned { run, came });
+        let spent = self.spent(run);
+        let taken = self.take(Event::Returned { run, came, spent });
         assert!(taken, "the return of a round under way was refused");
     }
 
@@ -452,12 +472,23 @@ impl History {
             _ => Event::Returned {
                 run: RunId(10_000),
                 came: Came::Asks(vec![]),
+                spent: Spent::default(),
             },
         };
         let cancel = event == Event::Cancelled;
         let taken = self.take(event);
         if cancel {
             assert!(taken, "a cancel was refused");
+        }
+    }
+
+    /// What a round of the run took, as its agent reports it: told apart by the run and the clock.
+    fn spent(&self, run: RunId) -> Spent {
+        Spent {
+            usd_micros: run.0,
+            input_tokens: self.clock % 997,
+            cached_tokens: 0,
+            output_tokens: 1,
         }
     }
 
@@ -517,7 +548,11 @@ impl History {
             Effect::Stop { run } => {
                 let came = Came::Asks(vec![]);
                 assert!(
-                    self.take(Event::Returned { run, came }),
+                    self.take(Event::Returned {
+                        run,
+                        came,
+                        spent: self.spent(run)
+                    }),
                     "the end of a stopped round was refused"
                 );
             }

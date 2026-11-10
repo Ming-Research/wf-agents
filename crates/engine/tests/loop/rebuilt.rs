@@ -11,6 +11,8 @@ fn rebuilt(work: &Work) -> Work {
         back: work.back.clone(),
         calls: work.calls.clone(),
         results: work.results.clone(),
+        spent: work.spent.clone(),
+        moments: work.moments.clone(),
     }
 }
 
@@ -24,6 +26,7 @@ fn a_work_rebuilt_from_its_parts_goes_on_exactly_as_the_original() {
         flow: judged(),
         tests: Named(w.tests.0.clone()),
         work: rebuilt(&w.work),
+        clock: w.clock,
     };
     assert_eq!(copy.work, w.work);
     let events = [
@@ -34,12 +37,14 @@ fn a_work_rebuilt_from_its_parts_goes_on_exactly_as_the_original() {
         Event::Returned {
             run: judge,
             came: hands_in(&[("opinions", None)]),
+            spent: spent(7),
         },
         wrote("request", Outsider::Person, true, None),
         Event::Cancelled,
     ];
     for event in events {
         assert_eq!(copy.on(event.clone()), w.on(event));
+        assert_eq!(copy.clock, w.clock);
         assert_eq!(copy.work, w.work);
         assert_eq!(pending(&copy.work), pending(&w.work));
     }

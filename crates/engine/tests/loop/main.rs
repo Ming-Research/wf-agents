@@ -14,12 +14,13 @@ mod pausing;
 mod pending;
 mod rebuilt;
 mod refused;
+mod times;
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use decide::run::{Limit, Unmet};
 use decide::{BlockId, CallId, Cause, Outcome, Outsider, RunId, Seq, TestName, Tests, Who};
-use engine::{Ask, Call, Came, Effect, Event, Given, Handed, Refused, Work, handle, pending};
+use engine::{Ask, Call, Came, Effect, Event, Given, Handed, Refused, Spent, Time, Work, handle, pending};
 use flow::{Compiled, Source, compile};
 
 /// The named tests: the merge waits for the owner's word until a test sets it otherwise.
@@ -96,6 +97,8 @@ struct W {
     flow: Compiled,
     tests: Named,
     work: Work,
+    /// The driver's clock: the time the next event is taken at, a second after the last.
+    clock: u64,
 }
 
 impl W {
@@ -105,18 +108,21 @@ impl W {
             flow: judged(),
             tests: Named([("may_merge".into(), Outcome::Waits { who: Who::Owner })].into()),
             work: Work::default(),
+            clock: START,
         }
     }
 
     /// Takes the event, which the loop must take, and gives what is to be done.
     fn on(&mut self, event: Event) -> Vec<Effect> {
-        handle(&self.flow, &self.tests, &mut self.work, event).expect("the event is taken")
+        let now = self.tick();
+        handle(&self.flow, &self.tests, &mut self.work, now, event).expect("the event is taken")
     }
 
     /// The event, which the loop must refuse, leaving the work exactly as it was; and why.
     fn refused(&mut self, event: Event) -> Refused {
         let before = self.work.clone();
-        let why = handle(&self.flow, &self.tests, &mut self.work, event).expect_err("the event is refused");
+        let now = self.tick();
+        let why = handle(&self.flow, &self.tests, &mut self.work, now, event).expect_err("the event is refused");
         assert_eq!(self.work, before, "a refused event changed the work");
         why
     }
@@ -129,7 +135,19 @@ impl W {
 
     /// The round of the run under way ends with what came back.
     fn returns(&mut self, run: RunId, came: Came) -> Vec<Effect> {
-        self.on(Event::Returned { run, came })
+        self.returns_spending(run, came, spent(1))
+    }
+
+    /// The round of the run under way ends with what came back, having taken this.
+    fn returns_spending(&mut self, run: RunId, came: Came, spent: Spent) -> Vec<Effect> {
+        self.on(Event::Returned { run, came, spent })
+    }
+
+    /// The time the next event is taken at; the clock moves a second on.
+    fn tick(&mut self) -> Time {
+        let now = Time(self.clock);
+        self.clock += 1000;
+        now
     }
 
     /// The call has its result.
@@ -156,6 +174,19 @@ impl W {
         let (effects, request) = w.person_writes("request");
         let (run, ..) = round(&effects);
         (w, run, request)
+    }
+}
+
+/// The time of the first event a work takes.
+const START: u64 = 1_800_000_000_000;
+
+/// What a round took, all of it told apart by this number.
+fn spent(n: u64) -> Spent {
+    Spent {
+        usd_micros: n,
+        input_tokens: 10 * n,
+        cached_tokens: 100 * n,
+        output_tokens: 1000 * n,
     }
 }
 
