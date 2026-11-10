@@ -38,27 +38,28 @@ import type {
 
 const MINUTE = 60_000;
 
-/// The flow the works run on: a plan, a design when the plan asks for one, the implementation and its review, a check
-/// with the latest main, and the merge, which waits for the owner's approval.
+/// The flow the works run on: a plan, deep research when the plan asks for it, the implementation and its review, a
+/// check with the latest main, and the merge, which waits for the owner's approval.
 export const FLOW: Flow = flowOf(
   [
     cell('plan', {
       title: 'Plan',
-      task: 'Write the plan from the request, and say whether it needs a design.',
+      task: 'Write the plan from the request, and say whether it needs deep research.',
       inputs: ['request', 'opinions_plan'],
-      outputs: ['plan', 'needs_design'],
+      outputs: ['plan', 'needs_deep_research'],
     }),
-    cell('design', {
-      title: 'Design',
-      task: 'Design what the plan asks for.',
-      condition: { on: 'block', block: 'needs_design', value: 'yes' },
-      inputs: ['plan', 'opinions_design'],
-      outputs: ['design'],
+    cell('deep_research', {
+      title: 'Deep research',
+      line: 'deep_research',
+      task: 'Research what the plan leaves open, and write the solution.',
+      condition: { on: 'block', block: 'needs_deep_research', value: 'yes' },
+      inputs: ['plan', 'opinions_deep_research'],
+      outputs: ['solution'],
     }),
     cell('implement', {
       title: 'Implement',
-      task: 'Implement the plan and the design.\nAnswer what the review asked.',
-      inputs: ['plan', 'design', 'opinions_implement'],
+      task: 'Implement the plan and the solution.\nAnswer what the review asked.',
+      inputs: ['plan', 'solution', 'opinions_implement'],
       outputs: ['code', 'answer_review'],
     }),
     cell('review', {
@@ -91,9 +92,9 @@ export const FLOW: Flow = flowOf(
     request: { people: true, shown: true },
     opinions_plan: { people: true },
     plan: {},
-    needs_design: { values: ['yes', 'no'] },
-    design: {},
-    opinions_design: { people: true },
+    needs_deep_research: { values: ['yes', 'no'] },
+    solution: {},
+    opinions_deep_research: { people: true },
     code: {},
     answer_review: {},
     opinions_implement: { people: true },
@@ -426,7 +427,7 @@ class History {
 }
 
 
-/// The content of a plan, a design or code, long enough to look like one.
+/// The content of a plan, a solution or code, long enough to look like one.
 function prose(head: string, lines: string[]): string {
   return [`# ${head}`, '', ...lines.map((l) => `- ${l}`)].join('\n');
 }
@@ -435,13 +436,13 @@ const REQUEST_TEXT = (what: string) =>
   `${what}\n\nThe owner reads this page all day: keep it dense, and say plainly why the work is where it is.`;
 
 /// The plan and the implementation of a small work, up to a review that is content.
-function upToReview(h: History, what: string, design: boolean) {
+function upToReview(h: History, what: string, deepResearch: boolean) {
   h.wrote('request', 'person', REQUEST_TEXT(what));
   h.ran('plan', [
     { block: 'plan', content: prose('Plan', [what, 'Add the part to look.md', 'Test it in happy-dom']) },
-    { block: 'needs_design', content: '', value: design ? 'yes' : 'no' },
+    { block: 'needs_deep_research', content: '', value: deepResearch ? 'yes' : 'no' },
   ]);
-  if (design) h.ran('design', [{ block: 'design', content: prose('Design', ['One table, sticky heads']) }]);
+  if (deepResearch) h.ran('deep_research', [{ block: 'solution', content: prose('Solution', ['One table, sticky heads']) }]);
   h.ran('implement', [
     { block: 'code', content: 'commit 4be21c0: the change, with its tests' },
     { block: 'answer_review', content: 'Nothing to answer yet.' },
@@ -489,22 +490,22 @@ function long(start: number): Built {
         block: 'plan',
         content: prose('Plan', ['A column of cost in the list', 'Each round\'s cost in the step panel', 'Totals in the work\'s head']),
       },
-      { block: 'needs_design', content: '', value: 'yes' },
+      { block: 'needs_deep_research', content: '', value: 'yes' },
     ],
   });
   h.finish(plan);
-  // The design hands in a block it may not write, and is sent back.
-  const design = h.start('design');
-  h.round(design, {
+  // The deep research hands in a block it may not write, and is sent back.
+  const deep = h.start('deep_research');
+  h.round(deep, {
     minutes: 4,
     hands: [
-      { block: 'design', content: prose('Design', ['Dollars to the cent', 'Tokens in thousands']) },
+      { block: 'solution', content: prose('Solution', ['Dollars to the cent', 'Tokens in thousands']) },
       { block: 'code', content: 'a sketch of the column' },
     ],
     sentBack: [{ kind: 'notAnOutput', block: 'code' }],
   });
-  h.round(design, { minutes: 2, hands: [{ block: 'design', content: prose('Design', ['Dollars to the cent', 'Tokens in thousands']) }] });
-  h.finish(design);
+  h.round(deep, { minutes: 2, hands: [{ block: 'solution', content: prose('Solution', ['Dollars to the cent', 'Tokens in thousands']) }] });
+  h.finish(deep);
   // The implementation asks the owner a question and rests at it...
   const first = h.start('implement');
   h.round(first, {
@@ -523,11 +524,11 @@ function long(start: number): Built {
       block: 'plan',
       content: prose('Plan', ['A column of cost in the list', 'Each round\'s cost in the step panel', 'Totals in the work\'s head and the item\'s']),
     },
-    { block: 'needs_design', content: '', value: 'yes' },
+    { block: 'needs_deep_research', content: '', value: 'yes' },
   ]);
   h.abandon(first);
-  h.ran('design', [
-    { block: 'design', content: prose('Design', ['Dollars to the cent', 'Tokens in thousands', 'The item\'s totals']), matters: false },
+  h.ran('deep_research', [
+    { block: 'solution', content: prose('Solution', ['Dollars to the cent', 'Tokens in thousands', 'The item\'s totals']), matters: false },
   ]);
   const impl = h.start('implement');
   h.round(impl, {
@@ -581,7 +582,7 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
     h.wrote('request', 'person', REQUEST_TEXT('Keep the panel\'s width when the page is loaded again.'));
     h.ran('plan', [
       { block: 'plan', content: prose('Plan', ['Keep the width in the browser']) },
-      { block: 'needs_design', content: '', value: 'no' },
+      { block: 'needs_deep_research', content: '', value: 'no' },
     ]);
     const run = h.start('implement');
     h.round(run, { minutes: 7, asks: [{ kind: 'tool', name: 'shell', input: 'npm run typecheck', result: 'Found 0 errors.' }] });
@@ -614,7 +615,7 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
     h.wrote('request', 'person', REQUEST_TEXT('Say a choice\'s values after its name.'));
     h.ran('plan', [
       { block: 'plan', content: prose('Plan', ['The values after the name, muted']) },
-      { block: 'needs_design', content: '', value: 'no' },
+      { block: 'needs_deep_research', content: '', value: 'no' },
     ]);
     const run = h.start('implement');
     h.round(run, {
@@ -625,7 +626,7 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
       hands: [{ block: 'code', content: 'commit 1a2b3c6' }, { block: 'answer_review', content: 'x', value: 'done' }],
       sentBack: [{ kind: 'notAChoice', block: 'answer_review' }],
     });
-    h.round(run, { hands: [{ block: 'design', content: 'a design' }] });
+    h.round(run, { hands: [{ block: 'solution', content: 'a solution' }] });
     const limit = { kind: 'atLimit' as const, limit: { of: 'returns' as const, sentBack: 2 } };
     const call = h.atLimit(run, limit);
     keep({ page: h.page(44, 144, 'Say a choice\'s values', { kind: 'waits', at: 'implement', on: [{ kind: 'call', call, who: 'owner', what: limit }] }), history: h });
@@ -646,7 +647,7 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
     h.wrote('request', 'person', REQUEST_TEXT('Fold the panel away with Escape.'));
     h.ran('plan', [
       { block: 'plan', content: prose('Plan', ['Escape lets go of what is chosen']) },
-      { block: 'needs_design', content: '', value: 'no' },
+      { block: 'needs_deep_research', content: '', value: 'no' },
     ]);
     h.did('paused', 30);
     h.did('resumed', 60);
@@ -686,7 +687,7 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
     h.wrote('request', 'person', REQUEST_TEXT('Read the flow again on a change.'));
     h.ran('plan', [
       { block: 'plan', content: prose('Plan', ['Read again on the event']) },
-      { block: 'needs_design', content: '', value: 'no' },
+      { block: 'needs_deep_research', content: '', value: 'no' },
     ]);
     keep({ page: h.page(49, 149, 'Read the flow again', { kind: 'fault', words: 'Two entries of the work at place 3' }), history: h });
   }

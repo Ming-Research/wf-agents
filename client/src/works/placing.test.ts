@@ -35,7 +35,7 @@ describe('the rows and columns of a history', () => {
     expect(at(0).step.kind).toBe('wrote');
     expect(at(0).column).toBeNull();
     expect([...at(0).marks]).toEqual([[0, 'read']]);
-    // plan, design and the implementation's first run, which was abandoned.
+    // plan, deep research and the implementation's first run, which was abandoned.
     expect([1, 2, 3].map((i) => at(i).column)).toEqual([0, 1, 2]);
     const abandoned = step(3);
     expect(abandoned.kind === 'run' && abandoned.end?.kind).toBe('abandoned');
@@ -87,7 +87,7 @@ describe('the rows and columns of a history', () => {
   it('marks a condition that reads what was written and the cell let go, and shows the day where it changes', () => {
     const t = Date.UTC(2026, 10, 9, 12);
     const steps: Step[] = [
-      { kind: 'wrote', at: 1, time: t, block: 'needs_design', by: { kind: 'person' }, changed: true, value: 'yes', chars: 0 },
+      { kind: 'wrote', at: 1, time: t, block: 'needs_deep_research', by: { kind: 'person' }, changed: true, value: 'yes', chars: 0 },
       { kind: 'letGo', at: 2, time: t + 1000, cell: 'implement' },
       { kind: 'paused', at: 3, time: t + DAY },
     ];
