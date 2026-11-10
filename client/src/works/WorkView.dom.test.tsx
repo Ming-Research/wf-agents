@@ -286,7 +286,7 @@ describe('a work as it is read', () => {
 describe('the history of a work', () => {
   it('has a column for each cell with how it stands now, and a row for each step', () => {
     const { page } = drawWork(41);
-    expect(texts(page, 'thead .cell-title')).toEqual(['Plan', 'Design', 'Implement', 'Review the code', 'Check with the latest main', 'Merge']);
+    expect(texts(page, 'thead .cell-title')).toEqual(['Plan', 'Deep research', 'Implement', 'Review the code', 'Check with the latest main', 'Merge']);
     expect(texts(page, 'thead .cell-state').at(-1)).toBe('not run yet');
     const rows = [...page.querySelectorAll('tbody tr.step-row')];
     expect(rows).toHaveLength(fixtureWork(41).steps.length);
@@ -350,7 +350,7 @@ describe('the panel of a step', () => {
   it('shows why a return was sent back, and a way round', async () => {
     const { page } = drawWork(41);
     await chooseStep(page, 2);
-    const panel = page.querySelector('aside[aria-label="Run 2 of design"]') as HTMLElement;
+    const panel = page.querySelector('aside[aria-label="Run 2 of deep_research"]') as HTMLElement;
     expect(panel.textContent).toContain('it handed in code, which the cell may not write');
     await chooseStep(page, 9);
     const way = page.querySelector('aside[aria-label="Run 8 of implement"]') as HTMLElement;
@@ -360,19 +360,19 @@ describe('the panel of a step', () => {
 
   it('says what a run said of each change, and what the engine made of each block it wrote', async () => {
     const { page } = drawWork(41);
-    // The design's second run said its change did not matter, and the design kept its meaning.
+    // The deep research's second run said its change did not matter, and the solution kept its meaning.
     await chooseStep(page, 6);
-    const design = page.querySelector('aside[aria-label="Run 5 of design"]') as HTMLElement;
-    expect(design.textContent).toContain('said not to matter');
-    expect(design.textContent).toMatch(/kept the meaning of @\d+/);
-    // The plan's second run wrote needs_design as it was: a choice keeps its meaning while its value does.
+    const deep = page.querySelector('aside[aria-label="Run 5 of deep_research"]') as HTMLElement;
+    expect(deep.textContent).toContain('said not to matter');
+    expect(deep.textContent).toMatch(/kept the meaning of @\d+/);
+    // The plan's second run wrote needs_deep_research as it was: a choice keeps its meaning while its value does.
     await chooseStep(page, 5);
     const plan = page.querySelector('aside[aria-label="Run 4 of plan"]') as HTMLElement;
     const ended = [...plan.querySelectorAll('.panel-part')].find((p) => p.querySelector('h3')?.textContent === 'How it ended');
     const written = [...(ended?.querySelectorAll('.list-row') ?? [])];
     expect(written.map((r) => [r.querySelector('.mono')?.textContent, r.textContent?.includes('changed its meaning')])).toEqual([
       ['plan', true],
-      ['needs_design', false],
+      ['needs_deep_research', false],
     ]);
   });
 
@@ -395,8 +395,8 @@ describe('the panel of a step', () => {
     const implement = at.page.querySelector('aside[aria-label="Cell implement"]') as HTMLElement;
     expect(implement.querySelector('.status-word')?.textContent).toContain('Runs again');
     expect(implement.querySelector('.way-back')?.textContent).toContain('by a cell after it: a way round');
-    await chooseCell(at.page, 'design');
-    expect(at.page.querySelector('aside[aria-label="Cell design"]')?.textContent).toContain(
+    await chooseCell(at.page, 'deep_research');
+    expect(at.page.querySelector('aside[aria-label="Cell deep_research"]')?.textContent).toContain(
       'It does not run: its condition is not met, so it is skipped',
     );
     await chooseCell(at.page, 'plan');
@@ -547,10 +547,10 @@ describe('the box to write a block', () => {
     expect(writeBox(page).querySelector('.write-readers')?.textContent).toBe('Pick the block to write');
     type(writeBox(page).querySelector('textarea'), 'Look at the narrow window too.');
     expect(button(writeBox(page), 'Write')?.disabled).toBe(true);
-    type(writeBox(page).querySelector('#write-block'), 'opinions_design');
+    type(writeBox(page).querySelector('#write-block'), 'opinions_deep_research');
     await submit(writeBox(page));
     expect(source.acts).toEqual([
-      { work: 41, what: { kind: 'write', block: 'opinions_design', content: 'Look at the narrow window too.', value: null } },
+      { work: 41, what: { kind: 'write', block: 'opinions_deep_research', content: 'Look at the narrow window too.', value: null } },
     ]);
   });
 

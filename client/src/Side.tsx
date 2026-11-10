@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 
 import type { Block, Cell, Change, Fault, Flow } from './api';
 import { type Chosen, runBy } from './Chart';
+import { markedChange } from './diff';
 import { type BlockRow, type CellColumn, type Matrix, markOf, where } from './matrix';
 import { ListRow, Panel, PanelPart, STATUS_WORDS, type Status, StatusLine } from './parts';
 
@@ -40,11 +41,34 @@ function Choose({ chosen, onChoose, children }: { chosen: Chosen; onChoose: (c: 
   );
 }
 
+/// What was taken out or put in of a text, each line break in it after a "↵", so that a change of a line break alone
+/// shows.
+const marked = (text: string) => text.replace(/\n/g, '↵\n');
+
 /// One change: what changed, what it was, and what it is. A task is what its agent is told, so a change of one keeps
-/// its line breaks: what it was and what it is each stand as a block of their own, one under the other, and a change
-/// of a line break alone shows.
+/// its line breaks: it stands as one text with the words taken out and put in marked, or, where most of its words
+/// changed or it had none or has none, what it was and what it is each as a block of their own, one under the other.
 export function ChangeLine({ change }: { change: Change }) {
   const { what, before, after } = changeWords(change);
+  const parts = change.kind === 'task' && change.before && change.after ? markedChange(change.before, change.after) : null;
+  if (parts) {
+    return (
+      <span className="change">
+        <span className="change-what">{what}</span>
+        <span className="change-text">
+          {parts.map((part, i) =>
+            part.kind === 'same' ? (
+              part.text
+            ) : part.kind === 'del' ? (
+              <del key={i}>{marked(part.text)}</del>
+            ) : (
+              <ins key={i}>{marked(part.text)}</ins>
+            ),
+          )}
+        </span>
+      </span>
+    );
+  }
   if (change.kind === 'task') {
     return (
       <span className="change">

@@ -88,7 +88,7 @@ export function fakeTree(count: number): FakeItem[] {
 
 /// The made-up tree as the console shows items, for trying the drawing at scale from the browser's console.
 export function fakeShown(count: number): Shown[] {
-  const cells = ['research', 'design', 'implement', 'test', 'review', 'merge'];
+  const cells = ['research', 'deep_research', 'implement', 'test', 'review', 'merge'];
   // A made-up item running, waiting for the owner, or idle, by its made-up state; its work started an hour ago.
   const work = (i: FakeItem): Shown['work'] =>
     i.state === 'done' || i.state === 'new'
