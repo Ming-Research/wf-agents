@@ -21,4 +21,4 @@ pub use records::{
     Abandoned, CallId, Called, Cause, Done, Finished, LetGo, Outcome, Outsider, Pause, RecordFault, Records, Returned,
     Round, RunId, Seq, Started, Tests, Who, Write, Written,
 };
-pub use walk::{Decision, End, Stale, Waited, decide, paused};
+pub use walk::{Decision, End, Stale, Waited, decide, paused, stale};

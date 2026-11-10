@@ -23,7 +23,6 @@ fn a_return_handed_in_during_a_pause_finishes_the_run_and_the_next_cells_round_w
 }
 
 #[test]
-#[ignore = "the walk stops at the writer, which needs to run, and says Paused: the judge's run at rest is never reached, so what it handed in is not taken"]
 fn a_judge_whose_round_ends_during_a_pause_finishes_and_once_let_on_the_writer_runs_for_both_changes() {
     let (mut w, write, r1) = W::requested();
     let judge = round(&w.returns(write, hands_in(&[("text", None)]))).0;

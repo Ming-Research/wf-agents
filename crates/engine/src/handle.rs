@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use decide::run::{self, Requires, Step, Unmet};
 use decide::{
     Abandoned, BlockId, CallId, Called, Decision, Done, Finished, LetGo, Outsider, Pause, Returned, Round, RunId,
-    Started, Tests, Who, Write, Written, decide, paused,
+    Started, Tests, Who, Write, Written, decide, paused, stale,
 };
 use flow::Compiled;
 
@@ -16,7 +16,24 @@ use crate::work::{Ask, Back, Call, Given, Work};
 /// Takes one thing that happened to the work, and gives what is to be done for it outside the engine. Where the
 /// records cannot be those of a work nothing is given: the deciding code says so when asked.
 pub fn handle(flow: &Compiled, tests: &dyn Tests, work: &mut Work, event: Event) -> Result<Vec<Effect>, Refused> {
+    let returned = match &event {
+        Event::Returned { run, .. } => Some(*run),
+        _ => None,
+    };
     take(flow, work, event)?;
+    // What a round handed in is taken as the round ends: where it meets everything the flow requires and the run is
+    // not stale, the run finishes here, before the walk, so that no cell before it comes between.
+    if let Some(run) = returned
+        && open(work, run)
+        && stale(&flow.flow, &work.records, tests, run).is_none()
+    {
+        let choices = choices(flow);
+        if let Some(requires) = requires(flow, &choices, work, run)
+            && let Step::Finish { writes } = run::next(&log(work, run), requires, paused(&work.records))
+        {
+            finish(work, run, writes);
+        }
+    }
     let mut effects = Vec::new();
     advance(flow, tests, work, &mut effects);
     Ok(effects)
@@ -222,13 +239,7 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, effects: &mut Vec<Effect>)
             return true;
         }
         Step::Finish { writes } => {
-            let at = work.tick();
-            if let Some(Back::HandedIn(handed)) = work.back.get(&run).and_then(|b| b.last()) {
-                for h in handed {
-                    work.contents.insert((h.block.clone(), at), h.content.clone());
-                }
-            }
-            work.records.finished.push(Finished { run, at, writes });
+            finish(work, run, writes);
             return true;
         }
         Step::AtLimit(limit) => {
@@ -247,6 +258,17 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, effects: &mut Vec<Effect>)
         given,
     });
     false
+}
+
+/// Records the run as finished: the blocks it wrote, and their content under the place of the finish.
+fn finish(work: &mut Work, run: RunId, writes: Vec<Write>) {
+    let at = work.tick();
+    if let Some(Back::HandedIn(handed)) = work.back.get(&run).and_then(|b| b.last()) {
+        for h in handed {
+            work.contents.insert((h.block.clone(), at), h.content.clone());
+        }
+    }
+    work.records.finished.push(Finished { run, at, writes });
 }
 
 /// Records a call of the run, and gives it to be made.

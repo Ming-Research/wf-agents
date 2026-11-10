@@ -163,6 +163,14 @@ pub fn decide(flow: &Flow, records: &Records, tests: &dyn Tests) -> Decision {
     unreachable!("the last cell has no condition, and with no record it runs, goes on or holds the work")
 }
 
+/// Why the run, if it is at rest, is stale; `None` where it is not, or is not at rest. What a round handed in is taken
+/// as the round ends only of a run that is not stale.
+pub fn stale(flow: &Flow, records: &Records, tests: &dyn Tests, run: RunId) -> Option<Stale> {
+    let walk = Walk::new(flow, records, tests);
+    let run = walk.runs.get(&run).filter(|r| r.at_rest())?;
+    walk.stale(run)
+}
+
 /// Whether the work is paused: the latest of its pauses and lettings on is a pause.
 pub fn paused(records: &Records) -> bool {
     (records.pauses.iter()).max_by_key(|p| p.at).is_some_and(|p| p.paused)
