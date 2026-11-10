@@ -73,6 +73,10 @@ fn what_a_stopped_round_returns_and_a_withdrawn_calls_result_change_nothing_but_
     assert_eq!(after.records.returned.pop().map(|r| r.run), Some(again));
     assert_eq!(after.records.done.pop().map(|d| d.call), Some(call));
     assert!(after.results.remove(&call).is_some());
+    // And when each was taken, and what the stopped round took.
+    assert_eq!(after.moments.len(), before.moments.len() + 2);
+    after.moments.truncate(before.moments.len());
+    assert!(after.spent.remove(&(again, 1)).is_some());
     assert_eq!(after, before);
     assert_eq!(
         decide::decide(&w.flow.flow, &w.work.records, &w.tests),
