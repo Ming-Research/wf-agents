@@ -48,7 +48,7 @@ enum FlowCommand {
         #[arg(long)]
         against: Option<PathBuf>,
         /// The port of the page on the loopback address.
-        #[arg(long, default_value_t = 7481)]
+        #[arg(long, default_value_t = 7490)]
         port: u16,
     },
 }
