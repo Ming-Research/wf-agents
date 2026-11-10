@@ -249,8 +249,8 @@ fn check(records: &Records) -> Result<(), RecordFault> {
 }
 
 /// A run, with what the records say became of it.
-struct RunView<'a> {
-    started: &'a Started,
+pub(crate) struct RunView<'a> {
+    pub(crate) started: &'a Started,
     finished: Option<&'a Finished>,
     abandoned: bool,
     /// How many of its rounds began, and how many ended.
@@ -260,12 +260,12 @@ struct RunView<'a> {
 
 impl RunView<'_> {
     /// Whether the run has neither finished nor been abandoned.
-    fn open(&self) -> bool {
+    pub(crate) fn open(&self) -> bool {
         self.finished.is_none() && !self.abandoned
     }
 
     /// Whether a round of the run is under way.
-    fn under_way(&self) -> bool {
+    pub(crate) fn under_way(&self) -> bool {
         self.open() && self.began > self.ended
     }
 
@@ -276,15 +276,17 @@ impl RunView<'_> {
 }
 
 /// A version of a block: the write that made it.
-struct Version<'a> {
+pub(crate) struct Version<'a> {
     /// The place of the entry that wrote it, which names it.
-    at: Seq,
+    pub(crate) at: Seq,
     /// The run that wrote it; `None` for a person or the outside.
-    by: Option<RunId>,
+    pub(crate) by: Option<RunId>,
+    /// Which of a person and the outside wrote it, where no run did.
+    pub(crate) outsider: Option<Outsider>,
     /// The version at which the meaning it has last changed.
-    meaning: Seq,
+    pub(crate) meaning: Seq,
     /// The block's value, where it has one.
-    value: Option<&'a str>,
+    pub(crate) value: Option<&'a str>,
 }
 
 /// A write of a block, by a run as it finished or by a person or the outside.
@@ -292,22 +294,23 @@ struct Written<'a> {
     block: &'a BlockId,
     at: Seq,
     by: Option<RunId>,
+    outsider: Option<Outsider>,
     matters: bool,
     value: Option<&'a str>,
 }
 
 /// One walk of a work: the flow, the records, and what is worked out of them once.
-struct Walk<'a> {
+pub(crate) struct Walk<'a> {
     flow: &'a Flow,
     records: &'a Records,
     tests: &'a dyn Tests,
-    runs: BTreeMap<RunId, RunView<'a>>,
+    pub(crate) runs: BTreeMap<RunId, RunView<'a>>,
     /// The versions of each block, in the order they were written.
-    versions: BTreeMap<&'a BlockId, Vec<Version<'a>>>,
+    pub(crate) versions: BTreeMap<&'a BlockId, Vec<Version<'a>>>,
 }
 
 impl<'a> Walk<'a> {
-    fn new(flow: &'a Flow, records: &'a Records, tests: &'a dyn Tests) -> Self {
+    pub(crate) fn new(flow: &'a Flow, records: &'a Records, tests: &'a dyn Tests) -> Self {
         let mut runs: BTreeMap<RunId, RunView<'a>> = BTreeMap::new();
         for started in &records.started {
             let view = RunView {
@@ -330,7 +333,7 @@ impl<'a> Walk<'a> {
     }
 
     /// Whether the cell's condition is met: with none it always is.
-    fn applies(&self, cell: &Cell) -> bool {
+    pub(crate) fn applies(&self, cell: &Cell) -> bool {
         match &cell.applies {
             None => true,
             Some(Condition::Test(name)) => self.tests.test(name) == Outcome::Holds,
@@ -339,7 +342,7 @@ impl<'a> Walk<'a> {
     }
 
     /// The cell's record: its latest finished run.
-    fn record(&self, cell: &CellId) -> Option<&RunView<'a>> {
+    pub(crate) fn record(&self, cell: &CellId) -> Option<&RunView<'a>> {
         (self.runs.values())
             .filter(|r| &r.started.cell == cell)
             .filter_map(|r| r.finished.map(|f| (f.at, r)))
@@ -352,24 +355,24 @@ impl<'a> Walk<'a> {
     }
 
     /// The current version of the block: the latest written.
-    fn current(&self, block: &BlockId) -> Option<&Version<'a>> {
+    pub(crate) fn current(&self, block: &BlockId) -> Option<&Version<'a>> {
         self.versions(block).last()
     }
 
     /// The meaning the block has now.
-    fn meaning_now(&self, block: &BlockId) -> Option<Seq> {
+    pub(crate) fn meaning_now(&self, block: &BlockId) -> Option<Seq> {
         self.current(block).map(|v| v.meaning)
     }
 
     /// The meaning of the version of the block written at this place.
-    fn meaning_of(&self, block: &BlockId, version: Option<Seq>) -> Option<Seq> {
+    pub(crate) fn meaning_of(&self, block: &BlockId, version: Option<Seq>) -> Option<Seq> {
         let at = version?;
         self.versions(block).iter().find(|v| v.at == at).map(|v| v.meaning)
     }
 
     /// The version of the block the run knows: the one the run itself wrote, if it did, and otherwise the one it
     /// started from.
-    fn known(&self, run: &RunView<'a>, block: &BlockId) -> Option<Seq> {
+    pub(crate) fn known(&self, run: &RunView<'a>, block: &BlockId) -> Option<Seq> {
         match run.finished {
             Some(f) if f.writes.iter().any(|w| &w.block == block) => Some(f.at),
             _ => run.started.basis.get(block).copied().flatten(),
@@ -420,7 +423,7 @@ impl<'a> Walk<'a> {
     }
 
     /// Why the cell at this place needs to run; empty when its record still holds.
-    fn needs(&self, i: usize) -> Vec<Cause> {
+    pub(crate) fn needs(&self, i: usize) -> Vec<Cause> {
         let cell = &self.flow.cells()[i];
         let Some(record) = self.record(&cell.id) else {
             return vec![Cause::NoRecord];
@@ -485,6 +488,7 @@ fn read_versions<'a>(
         block: &w.block,
         at: w.at,
         by: None,
+        outsider: Some(w.by),
         matters: w.matters || w.by == Outsider::Person,
         value: w.value.as_deref(),
     });
@@ -493,6 +497,7 @@ fn read_versions<'a>(
             block: &w.block,
             at: f.at,
             by: Some(f.run),
+            outsider: None,
             matters: w.matters,
             value: w.value.as_deref(),
         })
@@ -522,6 +527,7 @@ fn read_versions<'a>(
         of_block.push(Version {
             at: w.at,
             by: w.by,
+            outsider: w.outsider,
             meaning,
             value: w.value,
         });
