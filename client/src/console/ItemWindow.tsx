@@ -4,7 +4,7 @@
 // it, cancel it); and two tabs. The first says what the work waits for, and holds the notes: a box to write for a cell,
 // in a block that people write, chosen above it, with the cells that read that block named under it. The second holds
 // what of the work the lines do not say. With no item selected it says how to select one. What the owner sends is sent
-// once: its button waits while it is under way, and a refusal is said under the item it was for, and only there.
+// once: its button cannot be pressed while it is under way, and a refusal is said under the item it was for, and only there.
 //
 // Brought over from the console of the engine on `main` (`client/src/console/ItemWindow.tsx`), its layout as it was, its
 // parts the page's own (parts.tsx) where it used Primer's. What it showed that the interface has nothing for is left
@@ -13,7 +13,7 @@
 
 import { Fragment, type ReactNode, useState } from 'react';
 
-import { Panel, PanelPart } from '../parts';
+import { Button, Panel, PanelPart } from '../parts';
 import type { Act, Item, Summary, Waited, WorkPage } from '../works-api';
 import { type ItemStanding, hereOf, standingOf } from './items';
 import { age, dollars, type Mood, moodOf } from './snap';
@@ -107,32 +107,6 @@ function Line({ tone, children }: { tone: Tone; children: ReactNode }) {
       <span className={`cw-dot dot-${tone}`} aria-hidden="true" />
       {children}
     </div>
-  );
-}
-
-/// A button that waits while what it sent is under way: the look's `Button`, which cannot yet be held. To be replaced
-/// by it once it can.
-function Pressing({ primary, title, waiting, disabled, onClick, children }: {
-  primary?: boolean;
-  title?: string;
-  /// What it sent is under way.
-  waiting: boolean;
-  /// There is nothing to send.
-  disabled?: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className={primary ? 'button button-primary' : 'button'}
-      title={title}
-      disabled={waiting || disabled === true}
-      aria-busy={waiting || undefined}
-      onClick={onClick}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -285,27 +259,27 @@ function Acts({ paused, act }: { paused: boolean; act: (what: Act) => Promise<un
   return (
     <div className="cw-acts">
       {paused ? (
-        <Pressing primary title="Let the work go on" waiting={waiting} onClick={() => void send({ kind: 'resume' })}>
+        <Button primary title="Let the work go on" disabled={waiting} onClick={() => void send({ kind: 'resume' })}>
           Let it on
-        </Pressing>
+        </Button>
       ) : (
-        <Pressing
+        <Button
           title="No round of it begins; a round under way goes on"
-          waiting={waiting}
+          disabled={waiting}
           onClick={() => void send({ kind: 'pause' })}
         >
           Pause
-        </Pressing>
+        </Button>
       )}
-      <Pressing
+      <Button
         title="Cancel the work and its item"
-        waiting={waiting}
+        disabled={waiting}
         onClick={() => {
           if (window.confirm('Cancel this work? It cannot be let on again.')) void send({ kind: 'cancel' });
         }}
       >
         Cancel
-      </Pressing>
+      </Button>
       {refused !== null && <span className="cw-refused">{refused}</span>}
     </div>
   );
@@ -454,9 +428,9 @@ function Compose({ work, block, readers, act }: {
       />
       <div className="cw-compose-foot">
         <span className="cw-muted">{readers.length > 0 ? `Goes to ${readers.join(', ')}` : 'No cell reads it'}</span>
-        <Pressing primary waiting={waiting} disabled={text.trim() === ''} onClick={submit}>
+        <Button primary disabled={waiting || text.trim() === ''} onClick={submit}>
           Send
-        </Pressing>
+        </Button>
       </div>
       {sent && <p className="cw-done">Written in {block}</p>}
       {refused !== null && <p className="cw-refused">{refused}</p>}

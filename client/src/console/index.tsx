@@ -37,6 +37,7 @@ export function ConsolePage({ source: given }: { source?: Source } = {}) {
   const scene = useRef<SnapScene | null>(null);
   const [data, setData] = useState<Items | undefined>(undefined);
   const [failed, setFailed] = useState<string | null>(null);
+  const [undrawn, setUndrawn] = useState<string | null>(null);
   const [selected, setSelected] = useState<Shown | null>(null);
   // The panel: whether it is out, and whether its handle brought it out, which keeps it out once the item is let go.
   const [win, setWin] = useState({ open: false, byHand: false });
@@ -74,25 +75,29 @@ export function ConsolePage({ source: given }: { source?: Source } = {}) {
     if (el === null) return;
     const s = new SnapScene();
     let alive = true;
-    void s.mount(el).then(() => {
-      if (!alive) return;
-      scene.current = s;
-      let was: number | null = null;
-      s.onSelect = (item) => {
-        setSelected(item);
-        // The scene tells the item again each time it draws new data; only another item moves the panel.
-        const id = item?.id ?? null;
-        if (id === was) return;
-        was = id;
-        setWin((w) => {
-          if (id !== null) return w.open ? w : { open: true, byHand: false };
-          return w.byHand ? w : { open: false, byHand: false };
-        });
-      };
-      if (latestData.current !== undefined) s.show(shownTree(latestData.current));
-      // For trying the drawing from the browser's console: `consoleScene.show(consoleFake(2000))` draws a made-up tree.
-      Object.assign(window, { consoleScene: s, consoleFake: fakeShown });
-    });
+    s.mount(el).then(
+      () => {
+        if (!alive) return;
+        scene.current = s;
+        let was: number | null = null;
+        s.onSelect = (item) => {
+          setSelected(item);
+          // The scene tells the item again each time it draws new data; only another item moves the panel.
+          const id = item?.id ?? null;
+          if (id === was) return;
+          was = id;
+          setWin((w) => {
+            if (id !== null) return w.open ? w : { open: true, byHand: false };
+            return w.byHand ? w : { open: false, byHand: false };
+          });
+        };
+        if (latestData.current !== undefined) s.show(shownTree(latestData.current));
+        // To try the drawing from the browser's console: `consoleScene.show(consoleFake(2000))` draws a made-up tree.
+        Object.assign(window, { consoleScene: s, consoleFake: fakeShown });
+      },
+      // A browser that cannot draw the tree (no WebGL) says so in its place.
+      (e: unknown) => alive && setUndrawn(e instanceof Error ? e.message : String(e)),
+    );
     return () => {
       alive = false;
       scene.current = null;
@@ -179,6 +184,7 @@ export function ConsolePage({ source: given }: { source?: Source } = {}) {
         onPointerDown={() => (document.activeElement as HTMLElement | null)?.blur()}
       >
         {failed !== null && <p className="console-message">The page could not read the items: {failed}</p>}
+        {undrawn !== null && <p className="console-message">The browser could not draw the tree: {undrawn}</p>}
       </div>
       {item === undefined ? (
         <Panel label="Nothing selected" folded={!open} onFold={fold} edge={edge}>

@@ -1,52 +1,90 @@
-// The page: the bar, and the flow view under it, the only view there is yet. The flow view is the view's line (the
-// flow's name, its limits, the legend, and when comparing the switch between the flow as it is and as it was), the
-// chart under it, and the panel docked at its right with what the owner chose or what changed. The owner reviews every
-// change to the flow here, so when there is a definition to compare against, what changed is marked on the chart and
-// listed in the panel.
+// The page: the bar with its tabs, and under it the view the address's hash names (route.ts): the console, the works
+// (works/), or the flow. The flow view is the view's line (the flow's name, its limits, the legend, and when comparing
+// the switch between the flow as it is and as it was), the chart under it, and the panel docked at its right with what
+// the owner chose or what changed. The owner reviews every change to the flow here, so when there is a definition to
+// compare against, what changed is marked on the chart and listed in the panel.
 
-import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, type ReactNode, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { type Comparison, type Definition, type Flow, load } from './api';
 import { Chart, type Chosen, Legend } from './Chart';
+import { LazyConsolePage } from './console/lazy';
 import { type Version, changeBlock, changeCell, matrix } from './matrix';
 import { Bar, Edge, Panel, StatusLine, Switch } from './parts';
-import { WIDTH_KEYS, useKeptWidth } from './sizes';
+import { type Route, tabOf, useRoute } from './route';
+import { PANEL, WIDTH_KEYS, useKeptWidth } from './sizes';
 import { BlockPanel, CellPanel, ChangesList, Faults, type Fold } from './Side';
 import { type Theme, useTheme } from './theme';
+import { WorkView } from './works/WorkView';
+import { WorksList } from './works/WorksList';
 import { LIMIT_WORDS } from './words';
 
-/// The panel's width at first, and the least and most it is dragged to.
-const PANEL = { first: 360, min: 280, max: 720 };
-
-type Loaded = { definition: Definition; comparison: Comparison } | { failed: string };
-
 export function App() {
-  const [loaded, setLoaded] = useState<Loaded | null>(null);
-  useEffect(() => {
-    load().then(setLoaded, (e: unknown) => setLoaded({ failed: e instanceof Error ? e.message : String(e) }));
-  }, []);
+  const route = useRoute();
   return (
-    <Shell>
-      {!loaded ? (
-        <p className="message muted">Reading the flow</p>
-      ) : 'failed' in loaded ? (
-        <p className="message">The page could not read the flow: {loaded.failed}</p>
-      ) : (
-        <FlowPage definition={loaded.definition} comparison={loaded.comparison} />
-      )}
+    <Shell route={route}>
+      <Views route={route} />
     </Shell>
   );
 }
 
-/// The page round a view: the bar with the views, of which only the flow exists yet, and the switch of light and dark.
-export function Shell({ children }: { children: ReactNode }) {
+type Loaded = { definition: Definition; comparison: Comparison } | { failed: string };
+
+/// The view a route names. The flow, once shown, stays as the owner left it (what is chosen, the version, the panel)
+/// while another tab is shown, and is not read again on coming back.
+export function Views({ route, loadFlow = load }: { route: Route; loadFlow?: () => Promise<Loaded> }) {
+  const [flowShown, setFlowShown] = useState(route.view === 'flow');
+  if (route.view === 'flow' && !flowShown) setFlowShown(true);
+  return (
+    <>
+      {route.view !== 'flow' && (
+        <div className="view">
+          {route.view === 'console' && (
+            // The console's drawing library is large: it is read only once the console is first shown.
+            <Suspense fallback={<p className="message muted">Reading the console</p>}>
+              <LazyConsolePage />
+            </Suspense>
+          )}
+          {route.view === 'works' && <WorksList />}
+          {route.view === 'work' && <WorkView key={route.work} work={route.work} />}
+        </div>
+      )}
+      {flowShown && (
+        <div className="view" hidden={route.view !== 'flow'}>
+          <FlowView active={route.view === 'flow'} loadFlow={loadFlow} />
+        </div>
+      )}
+    </>
+  );
+}
+
+/// The flow view: the flow read from the interface, then drawn.
+function FlowView({ active, loadFlow }: { active: boolean; loadFlow: () => Promise<Loaded> }) {
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  useEffect(() => {
+    loadFlow().then(setLoaded, (e: unknown) => setLoaded({ failed: e instanceof Error ? e.message : String(e) }));
+  }, [loadFlow]);
+  if (!loaded) return <p className="message muted">Reading the flow</p>;
+  if ('failed' in loaded) return <p className="message">The page could not read the flow: {loaded.failed}</p>;
+  return <FlowPage definition={loaded.definition} comparison={loaded.comparison} active={active} />;
+}
+
+/// The views, as the bar's tabs.
+export const TABS = [
+  { name: 'Console', href: '#/console' },
+  { name: 'Works', href: '#/works' },
+  { name: 'Flow', href: '#/flow' },
+];
+
+/// The page round a view: the bar with the views as tabs, the one shown marked, and the switch of light and dark.
+export function Shell({ route, children }: { route: Route; children: ReactNode }) {
   const [theme, setTheme] = useTheme();
   return (
     <div className="page">
       <Bar
         name="wf-agents"
-        views={[{ name: 'Flow', href: '/' }]}
-        current="/"
+        views={TABS}
+        current={tabOf(route)}
         end={
           <Switch<Theme>
             label="Light or dark"
@@ -76,7 +114,12 @@ function limitsHint(flow: Flow): string {
   return `Each cell, unless it says otherwise: ${each}`;
 }
 
-export function FlowPage({ definition, comparison }: { definition: Definition; comparison: Comparison }) {
+export function FlowPage({ definition, comparison, active = true }: {
+  definition: Definition;
+  comparison: Comparison;
+  /// Whether the flow is the view shown: a flow kept while another tab is shown takes no keys.
+  active?: boolean;
+}) {
   const [version, setVersion] = useState<Version>('after');
   const [chosen, setChosen] = useState<Chosen>(null);
   // The panel is folded away at first, unless there is a list of changes to read in it.
@@ -104,9 +147,10 @@ export function FlowPage({ definition, comparison }: { definition: Definition; c
     if (e.key === 'Escape') setChosen(null);
   }, []);
   useEffect(() => {
+    if (!active) return;
     window.addEventListener('keydown', close);
     return () => window.removeEventListener('keydown', close);
-  }, [close]);
+  }, [close, active]);
 
   if (!after || !drawn) {
     return (

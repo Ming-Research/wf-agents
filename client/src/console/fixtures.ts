@@ -1,7 +1,7 @@
 // Made-up items for looking at the console with no server behind it (`console.html?fixtures`), and for its tests: some
 // twenty items, each with its one work, depending on each other in four layers, their works in every state a work can
-// be in, on one made-up flow of an engineer's work. What the owner does to a work changes it here, and the console is told as the interface's
-// stream of changes would tell it.
+// be in, on one made-up flow of an engineer's work. What the owner does to a work changes it here, and the console is
+// told as the interface's stream of changes would tell it.
 
 import type { Block, Cell, Flow, Limits, Test } from '../api';
 import type {

@@ -78,8 +78,14 @@ export function listen(
   };
 }
 
-/// The interface: `GET /api/v1/changes` says, as server-sent events, each time something happened.
-export const interfaceSource: Source = { loadItems, loadWork, act, changes: (on) => listen(on) };
+/// The interface: `GET /api/v1/changes` says, as server-sent events, each time something happened. Where there are no
+/// server-sent events, as in a test drawn without a browser, nothing is heard.
+export const interfaceSource: Source = {
+  loadItems,
+  loadWork,
+  act,
+  changes: (on) => (typeof EventSource === 'undefined' ? () => undefined : listen(on)),
+};
 
 /// The source the page's address asks for.
 export function pageSource(): Source {

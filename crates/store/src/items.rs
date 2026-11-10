@@ -81,10 +81,8 @@ pub(crate) fn items(db: &Connection) -> Result<Vec<Item>, Fault> {
     Ok(items)
 }
 
+/// Adds the work of an item that was added in the same transaction.
 pub(crate) fn add_work(db: &Connection, item: ItemNumber, flow: &str, at: Time) -> Result<WorkNumber, Fault> {
-    if !exists(db, "SELECT 1 FROM items WHERE number = ?1", item.0)? {
-        return Err(Fault::NoSuchItem(item));
-    }
     db.execute(
         "INSERT INTO works (item, flow, added) VALUES (?1, ?2, ?3)",
         params![item.0, flow, at.0],
