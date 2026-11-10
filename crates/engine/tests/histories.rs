@@ -596,7 +596,8 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
             let called = h.work.records.called.iter().find(|c| c.call == *call).expect("a call");
             assert!(called.on.is_some(), "at rest a call waits for nobody: {effect:?}");
         }
-        if h.cancelled() {
+        // A work cancelled after it merged has merged.
+        if h.cancelled() && decision != Decision::Ended(decide::End::Merged) {
             assert_eq!(
                 decision,
                 Decision::Ended(decide::End::Cancelled),
