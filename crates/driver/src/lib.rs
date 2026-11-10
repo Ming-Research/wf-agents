@@ -350,13 +350,18 @@ impl Driver {
         let Some(held) = self.works.get_mut(&number) else {
             return Err(Failed::NoSuchWork(number));
         };
+        // MUTANT: what the work was is saved before the thing that happened is taken, so that what is given out is
+        // kept only at the next call.
+        if let Err(fault) = self.store.save(number, &held.work) {
+            return Err(self.stop(Fault::Store(fault), false));
+        }
+        let Some(held) = self.works.get_mut(&number) else {
+            return Err(Failed::NoSuchWork(number));
+        };
         let before = held.work.tick();
         let effects = handle(&held.flow, &mut held.work, now, event).map_err(Failed::Refused)?;
         if held.work.tick() == before {
             return Ok(false);
-        }
-        if let Err(fault) = self.store.save(number, &held.work) {
-            return Err(self.stop(Fault::Store(fault), false));
         }
         held.ended = end_of(&held.flow, &held.work);
         todos.extend(effects.into_iter().map(|effect| Todo { work: number, effect }));
