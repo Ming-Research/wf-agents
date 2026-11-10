@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 
 use crate::flow::{BlockId, CellId, Flow};
-use crate::records::{Cause, Outsider, Records, RunId, Seq, Tests};
+use crate::records::{Cause, Outsider, Records, RunId, Seq};
 use crate::walk::{Decision, Version, Walk, decide, read_runs, read_versions};
 
 /// A work as it is now. On records that cannot be those of a work the decision says so, and the rest is what those
@@ -81,8 +81,8 @@ pub enum Writer {
 }
 
 /// The work as it is now.
-pub fn view(flow: &Flow, records: &Records, tests: &dyn Tests) -> View {
-    let walk = Walk::new(flow, records, tests);
+pub fn view(flow: &Flow, records: &Records) -> View {
+    let walk = Walk::new(flow, records);
     let cells = (flow.cells().iter().enumerate())
         .map(|(i, cell)| {
             let record = walk.record(&cell.id);
@@ -105,7 +105,7 @@ pub fn view(flow: &Flow, records: &Records, tests: &dyn Tests) -> View {
                 .collect();
             CellView {
                 cell: cell.id.clone(),
-                applies: walk.applies(cell),
+                applies: walk.applies(i),
                 record: record.map(|r| r.started.run),
                 open,
                 needs: walk.needs(i),
@@ -114,14 +114,14 @@ pub fn view(flow: &Flow, records: &Records, tests: &dyn Tests) -> View {
         })
         .collect();
     View {
-        decision: decide(flow, records, tests),
+        decision: decide(flow, records),
         cells,
         blocks: shown(&walk.versions),
     }
 }
 
-/// Every version of every block that has one, in the order they were written, read from the records alone: no cell
-/// and no named test is asked, so a named test may read them.
+/// Every version of every block that has one, in the order they were written, read from the records alone, with no
+/// flow.
 pub fn versions(records: &Records) -> BTreeMap<BlockId, Vec<VersionView>> {
     shown(&read_versions(records, &read_runs(records)))
 }

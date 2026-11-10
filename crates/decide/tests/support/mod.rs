@@ -4,18 +4,48 @@
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoned, Abandoning, CallId, Called, Cell, CellId, Decision, Done, Finished, Flow, LetGo, Outcome, Outsider,
-    Pause, Records, Returned, Round, RunId, Seq, Started, TestName, Tests, Waited, Who, Write, Written, decide,
+    Abandoned, Abandoning, CallId, Called, Cell, CellId, Condition, Decision, Done, Finished, Flow, LetGo, Outsider,
+    Pause, Records, Returned, Round, RunId, Seq, Started, Test, TestKind, TestName, Waited, Who, Write, Written,
+    decide,
 };
 
-/// The named tests, each holding unless the test of the walk set it otherwise.
-#[derive(Default)]
-pub struct Named(pub BTreeMap<TestName, Outcome>);
-
-impl Tests for Named {
-    fn test(&self, name: &TestName) -> Outcome {
-        self.0.get(name).cloned().unwrap_or(Outcome::Holds)
+/// The owner's word of this name: a named test of the choice of the same name, which people write, that holds unless
+/// the choice is no. A person writing the choice as no or yes makes it fail or hold.
+pub fn word(name: &str) -> Test {
+    Test {
+        kind: TestKind::None,
+        reads: vec![name.into()],
+        is: "no".to_string(),
     }
+}
+
+/// The merge's word, [`GATE`]: a named test of the choice of the same name that holds only once a person wrote it as
+/// yes.
+pub fn gate_word() -> Test {
+    Test {
+        kind: TestKind::All,
+        reads: vec![GATE.into()],
+        is: "yes".to_string(),
+    }
+}
+
+/// The name of the merge's precondition, and of the choice it reads.
+pub const GATE: &str = "the merge may go";
+
+/// The named tests for these cells: those given, and for each other test a cell names, the owner's word of that name
+/// ([`word`]).
+fn tests_for(cells: &[Cell], given: &BTreeMap<TestName, Test>) -> BTreeMap<TestName, Test> {
+    let mut tests = given.clone();
+    for c in cells {
+        let condition = match &c.applies {
+            Some(Condition::Test(t)) => Some(t),
+            _ => None,
+        };
+        for t in condition.into_iter().chain(&c.requires) {
+            tests.entry(t.clone()).or_insert_with(|| word(t.as_str()));
+        }
+    }
+    tests
 }
 
 /// What a run writes of a block: a change that matters to the cells that read it, one that does not, or a value a
@@ -30,22 +60,23 @@ pub enum Says {
 pub struct World {
     pub flow: Flow,
     pub records: Records,
-    pub named: Named,
+    /// The named tests given beside those of the owner's word, which [`World::install`] keeps.
+    tests: BTreeMap<TestName, Test>,
     seq: u64,
     ids: u64,
 }
 
-/// The merge a work rests at when nothing else is to be done: it waits for the owner's word.
+/// The merge a work rests at when nothing else is to be done: it waits for the owner's word, [`gate_word`].
 pub fn gate() -> Cell {
     let mut merge = Cell::new("merge");
-    merge.requires = vec!["the merge may go".into()];
+    merge.requires = vec![GATE.into()];
     merge
 }
 
 /// The owner's word at the merge, as the walk reports waiting for it.
 pub fn merge_word() -> Waited {
     Waited::Precondition {
-        test: "the merge may go".into(),
+        test: GATE.into(),
         who: Who::Owner,
     }
 }
@@ -67,12 +98,21 @@ pub fn cell(id: &str, inputs: &[&str], outputs: &[&str]) -> Cell {
 }
 
 impl World {
+    /// A work on these cells, each test a cell names being the owner's word of that name ([`word`]), and the merge's
+    /// word [`gate_word`].
     pub fn new(cells: Vec<Cell>) -> Self {
-        let flow = Flow::new(cells).expect("the cells make a flow");
+        Self::with_tests(cells, BTreeMap::new())
+    }
+
+    /// A work on these cells with these named tests, and the owner's word for each other test a cell names.
+    pub fn with_tests(cells: Vec<Cell>, tests: BTreeMap<TestName, Test>) -> Self {
+        let mut tests = tests;
+        tests.entry(GATE.into()).or_insert_with(gate_word);
+        let flow = Flow::new(cells.clone(), tests_for(&cells, &tests)).expect("the cells make a flow");
         Self {
             flow,
             records: Records::default(),
-            named: Named::default(),
+            tests,
             seq: 0,
             ids: 0,
         }
@@ -82,14 +122,12 @@ impl World {
     /// there, and the test can go on changing things.
     pub fn with_gate(mut cells: Vec<Cell>) -> Self {
         cells.push(gate());
-        let mut w = Self::new(cells);
-        w.set("the merge may go", Outcome::Waits { who: Who::Owner });
-        w
+        Self::new(cells)
     }
 
-    /// Installs a changed flow over the same records.
+    /// Installs a changed flow over the same records, with the same named tests.
     pub fn install(&mut self, cells: Vec<Cell>) {
-        self.flow = Flow::new(cells).expect("the cells make a flow");
+        self.flow = Flow::new(cells.clone(), tests_for(&cells, &self.tests)).expect("the cells make a flow");
     }
 
     pub fn tick(&mut self) -> Seq {
@@ -103,12 +141,13 @@ impl World {
     }
 
     pub fn decide(&self) -> Decision {
-        decide(&self.flow, &self.records, &self.named)
+        decide(&self.flow, &self.records)
     }
 
-    /// Sets what a named test comes to.
-    pub fn set(&mut self, test: &str, outcome: Outcome) {
-        self.named.0.insert(test.into(), outcome);
+    /// The owner gives the word of this name ([`word`], [`gate_word`]) as yes or, `false`, as no: a person writes its
+    /// choice.
+    pub fn says(&mut self, word: &str, yes: bool) -> Seq {
+        self.person_sets(word, if yes { "yes" } else { "no" })
     }
 
     /// Starts the cell, which the walk must have said to run, with exactly what the decision gives, and begins its

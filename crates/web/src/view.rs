@@ -84,13 +84,15 @@ pub struct Test {
     pub is: String,
 }
 
-/// How the blocks a named test reads make it hold: when every one, at least one, or none has the value it looks for.
+/// How the blocks a named test reads make it hold: when every one, at least one, or none has the value it looks for;
+/// or, `noneStanding`, when none has it as written by a person, the outside or a cell that is not skipped now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TestKind {
     All,
     Any,
     None,
+    NoneStanding,
 }
 
 /// A cell.
@@ -250,6 +252,12 @@ pub enum What {
         test: String,
         block: String,
     },
+    /// The test reads a block that this cell, after the one using the test, writes.
+    TestWrittenAfter {
+        test: String,
+        block: String,
+        cell: String,
+    },
     /// The deciding code refused the cells as a flow, for this reason, at this cell.
     FlowRefused {
         reason: FlowRefusal,
@@ -266,6 +274,7 @@ pub enum FlowRefusal {
     ConditionOnOwnOutput,
     LastHasCondition,
     NoLimit,
+    NoSuchTest,
 }
 
 /// One change from the definition compared against to the one shown.
@@ -464,11 +473,7 @@ impl Flow {
             name: compiled.name.clone(),
             limits,
             lines,
-            tests: compiled
-                .tests
-                .iter()
-                .map(|(name, test)| Test::declared(name, test))
-                .collect(),
+            tests: compiled.tests.keys().map(|name| Test::of(name, compiled)).collect(),
             cells,
             blocks,
         }
@@ -492,18 +497,19 @@ impl Test {
     /// The test of this name as the definition declares it: a compiled definition declares every test its cells use
     /// and every test a comparison of it names.
     fn of(test: &TestName, compiled: &Compiled) -> Self {
-        Test::declared(test, &compiled.tests[test])
+        Test::declared(test, &compiled.tests[test], &compiled.flow.tests()[test])
     }
 
-    /// The test of this name, declared so.
-    fn declared(name: &TestName, test: &flow::Test) -> Self {
+    /// The test of this name, with these words, testing this.
+    fn declared(name: &TestName, words: &str, test: &flow::Test) -> Self {
         Test {
             name: name.to_string(),
-            words: test.says.clone(),
+            words: words.to_string(),
             kind: match test.kind {
                 KindOfTest::All => TestKind::All,
                 KindOfTest::Any => TestKind::Any,
                 KindOfTest::None => TestKind::None,
+                KindOfTest::NoneStanding => TestKind::NoneStanding,
             },
             reads: names(&test.reads),
             is: test.is.clone(),
@@ -574,6 +580,7 @@ impl What {
             F::UnusedTest { test } => What::UnusedTest { test },
             F::TestOnOwnOutput { test, block } => What::TestOnOwnOutput { test, block },
             F::TestNotWrittenBefore { test, block } => What::TestNotWrittenBefore { test, block },
+            F::TestWrittenAfter { test, block, cell } => What::TestWrittenAfter { test, block, cell },
             F::Flow(fault) => {
                 let (reason, cell) = match fault {
                     FlowFault::Empty => (FlowRefusal::Empty, None),
@@ -581,6 +588,7 @@ impl What {
                     FlowFault::ConditionOnOwnOutput(c) => (FlowRefusal::ConditionOnOwnOutput, Some(c)),
                     FlowFault::LastHasCondition(c) => (FlowRefusal::LastHasCondition, Some(c)),
                     FlowFault::NoLimit(c) => (FlowRefusal::NoLimit, Some(c)),
+                    FlowFault::NoSuchTest(c, _) => (FlowRefusal::NoSuchTest, Some(c)),
                 };
                 What::FlowRefused {
                     reason,
@@ -623,8 +631,8 @@ impl Change {
                 after: to,
             } => Change::TestChanged {
                 test: test.to_string(),
-                before: Test::declared(test, from),
-                after: Test::declared(test, to),
+                before: Test::declared(test, &before.tests[test], from),
+                after: Test::declared(test, &after.tests[test], to),
             },
             C::CellAdded { cell, place } => Change::CellAdded {
                 cell: cell.to_string(),

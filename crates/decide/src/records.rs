@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::flow::{BlockId, CellId, TestName};
+use crate::flow::{BlockId, CellId};
 
 /// The place of an entry in the order of what happened to a work.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -188,24 +188,6 @@ impl Cause {
             Cause::Changed { behind, .. } => !behind,
         }
     }
-}
-
-/// What a named test comes to.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Outcome {
-    /// The test holds.
-    Holds,
-    /// It does not: the person who can make it hold.
-    Waits { who: Who },
-}
-
-/// The named tests of a work. A named test is declared in the flow's definition, for a cell's condition or one of its
-/// preconditions: it holds when every one, at least one, or none of the blocks it reads, each a choice, has the value
-/// it looks for now. What people and the outside do reaches it only as blocks they write. It is worked out every time
-/// it is asked and never stored. A test reads no run: whether a cell is running, at rest or finished is the walk's to
-/// know.
-pub trait Tests {
-    fn test(&self, name: &TestName) -> Outcome;
 }
 
 /// What is wrong with records that cannot be those of a work.

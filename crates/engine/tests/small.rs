@@ -139,7 +139,7 @@ fn a_work_goes_from_cell_to_cell_as_each_hands_in_and_rests_at_the_merge_for_the
         at: "merge".into(),
         on: vec![word],
     };
-    assert_eq!(decide(&flow.flow, &work.records, &flow.tests(&work.records)), rests);
+    assert_eq!(decide(&flow.flow, &work.records), rests);
 }
 
 #[test]

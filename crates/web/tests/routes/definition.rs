@@ -183,8 +183,9 @@ async fn the_faults_of_named_tests_and_of_sources_are_given_with_their_blocks() 
     );
     let router = serve(&Shared::new(Ok(source)), None);
     let read = |block: &str| json!({ "test": "may_merge", "block": block });
-    let mut not_before = read("content");
-    not_before["kind"] = json!("testNotWrittenBefore");
+    let mut after = read("content");
+    after["kind"] = json!("testWrittenAfter");
+    after["cell"] = json!("review");
     let mut own = read("content");
     own["kind"] = json!("testOnOwnOutput");
     assert_eq!(
@@ -198,7 +199,7 @@ async fn the_faults_of_named_tests_and_of_sources_are_given_with_their_blocks() 
                     "field": "blocks.request.outside",
                     "what": { "kind": "unknownSource", "block": "request", "source": "mirror" },
                 },
-                { "file": "plan.toml", "field": "requires[0]", "what": not_before },
+                { "file": "plan.toml", "field": "requires[0]", "what": after },
                 { "file": "review.toml", "field": "requires[0]", "what": own },
             ],
         })
@@ -210,6 +211,29 @@ async fn the_faults_of_named_tests_and_of_sources_are_given_with_their_blocks() 
     assert_eq!(
         faults[1],
         json!({ "file": "flow.toml", "field": "tests.may_merge.reads", "what": { "kind": "readsEmpty", "test": "may_merge" } })
+    );
+}
+
+#[tokio::test]
+async fn a_test_of_what_stands_is_given_with_its_kind() {
+    let source = edit(
+        tiny(),
+        None,
+        "kind = \"all\"\nreads = [\"go\"]",
+        "kind = \"none_standing\"\nreads = [\"go\", \"content\"]",
+    );
+    let source = edit(source, None, "is = \"yes\"", "is = \"no\"");
+    let router = serve(&Shared::new(Ok(source)), None);
+    let answer = get_json(&router, "/api/v1/flow").await;
+    assert_eq!(
+        answer["flow"]["tests"][0],
+        json!({
+            "name": "may_merge",
+            "words": "The owner let the work merge",
+            "kind": "noneStanding",
+            "reads": ["go", "content"],
+            "is": "no",
+        })
     );
 }
 

@@ -118,7 +118,7 @@ fn design_runs_when(when: &str, writer: &str) -> Source {
 }
 
 #[test]
-fn a_condition_on_a_block_and_a_condition_by_a_test_of_that_block_alone_are_held_to_the_same_rule() {
+fn a_condition_on_a_block_and_one_by_a_test_of_that_block_alone_agree_on_who_writes_it_before() {
     let by_block = "when = { block = \"go\", is = \"yes\" }";
     let by_test = "when = { test = \"go_on\" }";
     // Written before the cell by people or by the outside: both compile.
@@ -147,9 +147,10 @@ fn a_condition_on_a_block_and_a_condition_by_a_test_of_that_block_alone_are_held
     let not_before = ConditionNotWrittenBefore { block: go() };
     assert_eq!(faults(&source), [at("design.toml", "when.block", not_before)]);
     let source = after(design_runs_when(by_test, ""));
-    let not_before = TestNotWrittenBefore {
+    let not_before = TestWrittenAfter {
         test: "go_on".to_string(),
         block: go(),
+        cell: "check".to_string(),
     };
     assert_eq!(faults(&source), [at("design.toml", "when.test", not_before)]);
 }

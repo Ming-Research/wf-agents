@@ -116,7 +116,7 @@ fn a_cell_s_condition_or_precondition_is_no_test_that_reads_what_the_cell_writes
 }
 
 #[test]
-fn a_cell_s_condition_or_precondition_is_no_test_that_reads_what_only_a_cell_after_it_writes() {
+fn a_cell_s_condition_or_precondition_is_no_test_that_reads_what_a_cell_after_it_writes() {
     let source = edit(
         valid(),
         "plan.toml",
@@ -129,9 +129,10 @@ fn a_cell_s_condition_or_precondition_is_no_test_that_reads_what_only_a_cell_aft
         "line = \"review\"",
         "line = \"review\"\nwhen = { test = \"may_merge\" }",
     );
-    let what = || TestNotWrittenBefore {
+    let what = || TestWrittenAfter {
         test: "may_merge".into(),
         block: "ci".into(),
+        cell: "check".into(),
     };
     assert_eq!(
         faults(&source),
@@ -161,4 +162,54 @@ fn a_test_may_read_choices_people_or_the_outside_write_before_any_cell() {
         ["plan_confirmed".into(), "checked".into()]
     );
     assert_eq!(compiled.blocks[&"checks".into()].readers.tests, ["checked".into()]);
+}
+
+#[test]
+fn a_test_reads_no_block_a_cell_after_its_cell_writes_though_one_before_it_writes_it_too() {
+    // The judge, before the answer, writes needs_design; the check, after it, writes it too.
+    let source = edit(
+        valid(),
+        "check.toml",
+        r#"outputs = ["ci"]"#,
+        r#"outputs = ["ci", "needs_design"]"#,
+    );
+    let reads = r#"reads = ["confirmed", "needs_design"]"#;
+    let source = edit(source, FLOW_FILE, r#"reads = ["confirmed"]"#, reads);
+    let what = TestWrittenAfter {
+        test: "plan_confirmed".into(),
+        block: "needs_design".into(),
+        cell: "check".into(),
+    };
+    // The design's condition on the same block, which the check's write decides again, is no fault: that is a way back.
+    assert_eq!(faults(&source), [at("answer.toml", "requires[0]", what)]);
+}
+
+#[test]
+fn a_test_without_a_writer_before_or_after_its_cell_is_not_written_before_it() {
+    let source = edit(
+        valid(),
+        FLOW_FILE,
+        "[blocks.plan]",
+        "[blocks.never]\nvalues = [\"yes\", \"no\"]\n\n[blocks.plan]",
+    );
+    let source = edit(
+        source,
+        FLOW_FILE,
+        r#"reads = ["confirmed"]"#,
+        r#"reads = ["confirmed", "never"]"#,
+    );
+    let not_written = NoWriter {
+        block: "never".to_string(),
+    };
+    let not_before = TestNotWrittenBefore {
+        test: "plan_confirmed".into(),
+        block: "never".into(),
+    };
+    assert_eq!(
+        faults(&source),
+        [
+            at(FLOW_FILE, "blocks.never", not_written),
+            at("answer.toml", "requires[0]", not_before),
+        ]
+    );
 }

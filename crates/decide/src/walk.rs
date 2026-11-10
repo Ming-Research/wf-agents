@@ -12,10 +12,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::flow::{BlockId, Cell, CellId, Condition, Flow, TestName};
-use crate::records::{
-    CallId, Cause, Finished, Outcome, Outsider, RecordFault, Records, RunId, Seq, Started, Tests, Who,
-};
+use crate::flow::{BlockId, Cell, CellId, Condition, Flow, TestKind, TestName};
+use crate::records::{CallId, Cause, Finished, Outsider, RecordFault, Records, RunId, Seq, Started, Who};
 
 /// What a work does next, with the reason as data (principle decide-purely).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,7 +73,7 @@ pub enum Abandoning {
 pub enum Waited {
     /// The result of a call the cell's run rests at: from this person, or from the engine where `on` is `None`.
     Call { call: CallId, on: Option<Who> },
-    /// A precondition of the cell does not hold: this person can make it hold.
+    /// A precondition of the cell, a named test of the flow, does not hold: this person can make it hold.
     Precondition { test: TestName, who: Who },
     /// The cell's last runs, this many in a row, were each for what a cell after it wrote, and so would the next be:
     /// the owner lets it go on or cancels the work.
@@ -83,11 +81,11 @@ pub enum Waited {
 }
 
 /// What the work does next.
-pub fn decide(flow: &Flow, records: &Records, tests: &dyn Tests) -> Decision {
+pub fn decide(flow: &Flow, records: &Records) -> Decision {
     if let Err(fault) = check(records) {
         return Decision::Fault(fault);
     }
-    let walk = Walk::new(flow, records, tests);
+    let walk = Walk::new(flow, records);
     let cells = flow.cells();
     if walk.record(&cells[cells.len() - 1].id).is_some() {
         return Decision::Ended(End::Merged);
@@ -121,7 +119,7 @@ pub fn decide(flow: &Flow, records: &Records, tests: &dyn Tests) -> Decision {
         }
     }
     for (i, cell) in cells.iter().enumerate() {
-        if !walk.applies(cell) {
+        if !walk.applies(i) {
             continue;
         }
         let rest = walk.runs.values().find(|r| r.at_rest() && r.started.cell == cell.id);
@@ -129,7 +127,7 @@ pub fn decide(flow: &Flow, records: &Records, tests: &dyn Tests) -> Decision {
         if let Some(run) = rest {
             on.extend(walk.open_calls(run));
         }
-        on.extend(walk.unmet(cell));
+        on.extend(walk.unmet(i));
         let wait = |on| Decision::Wait {
             at: cell.id.clone(),
             on,
@@ -170,8 +168,8 @@ pub fn decide(flow: &Flow, records: &Records, tests: &dyn Tests) -> Decision {
 
 /// Why the run, if it is at rest, is stale; `None` where it is not, or is not at rest. What a round handed in is taken
 /// as the round ends only of a run that is not stale.
-pub fn stale(flow: &Flow, records: &Records, tests: &dyn Tests, run: RunId) -> Option<Abandoning> {
-    let walk = Walk::new(flow, records, tests);
+pub fn stale(flow: &Flow, records: &Records, run: RunId) -> Option<Abandoning> {
+    let walk = Walk::new(flow, records);
     let run = walk.runs.get(&run).filter(|r| r.at_rest())?;
     walk.stale(run)
 }
@@ -303,31 +301,59 @@ struct Written<'a> {
 pub(crate) struct Walk<'a> {
     flow: &'a Flow,
     records: &'a Records,
-    tests: &'a dyn Tests,
     pub(crate) runs: BTreeMap<RunId, RunView<'a>>,
     /// The versions of each block, in the order they were written.
     pub(crate) versions: BTreeMap<&'a BlockId, Vec<Version<'a>>>,
 }
 
 impl<'a> Walk<'a> {
-    pub(crate) fn new(flow: &'a Flow, records: &'a Records, tests: &'a dyn Tests) -> Self {
+    pub(crate) fn new(flow: &'a Flow, records: &'a Records) -> Self {
         let runs = read_runs(records);
         let versions = read_versions(records, &runs);
         Self {
             flow,
             records,
-            tests,
             runs,
             versions,
         }
     }
 
-    /// Whether the cell's condition is met: with none it always is.
-    pub(crate) fn applies(&self, cell: &Cell) -> bool {
-        match &cell.applies {
+    /// Whether the condition of the cell at this place is met: with none it always is.
+    pub(crate) fn applies(&self, i: usize) -> bool {
+        match &self.flow.cells()[i].applies {
             None => true,
-            Some(Condition::Test(name)) => self.tests.test(name) == Outcome::Holds,
+            Some(Condition::Test(name)) => self.holds(name, i),
             Some(Condition::Is { block, value }) => self.current(block).and_then(|v| v.value) == Some(value.as_str()),
+        }
+    }
+
+    /// Whether the named test holds, for the cell at this place, by the value each block it reads has now. The flow
+    /// has every test its cells name.
+    fn holds(&self, name: &TestName, i: usize) -> bool {
+        let test = &self.flow.tests()[name];
+        let mut has = (test.reads.iter()).map(|block| {
+            self.current(block).is_some_and(|v| {
+                v.value == Some(test.is.as_str()) && (test.kind != TestKind::NoneStanding || self.stands(v, i))
+            })
+        });
+        match test.kind {
+            TestKind::All => has.all(|h| h),
+            TestKind::Any => has.any(|h| h),
+            TestKind::None | TestKind::NoneStanding => !has.any(|h| h),
+        }
+    }
+
+    /// Whether the version stands, for the cell at this place: unless a run of a cell that is skipped now wrote it.
+    /// What a person or the outside wrote always stands. A cell's test reads only blocks that cells before it write,
+    /// so the writer stands before it, and whether it is skipped is decided first; a version written by a cell that
+    /// does not stand before it (one taken out of the flow, or moved after it, as only a changed flow gives) stands.
+    fn stands(&self, v: &Version<'a>, i: usize) -> bool {
+        let writer = (v.by)
+            .and_then(|run| self.runs.get(&run))
+            .and_then(|r| self.flow.place(&r.started.cell));
+        match writer {
+            Some(j) if j < i => self.applies(j),
+            _ => true,
         }
     }
 
@@ -380,8 +406,8 @@ impl<'a> Walk<'a> {
     /// or may write has changed in meaning since the run started from it. A block the flow has given the cell since
     /// the run started, which the run started from no version of, makes it stale once the block has a version.
     fn stale(&self, run: &RunView<'a>) -> Option<Abandoning> {
-        let cell = (self.flow.place(&run.started.cell)).map(|i| &self.flow.cells()[i]);
-        let Some(cell) = cell.filter(|c| self.applies(c)) else {
+        let place = self.flow.place(&run.started.cell).filter(|&i| self.applies(i));
+        let Some(cell) = place.map(|i| &self.flow.cells()[i]) else {
             return Some(Abandoning::NoLongerApplies);
         };
         let mut blocks: Vec<&BlockId> = cell.inputs.iter().chain(&cell.outputs).collect();
@@ -411,15 +437,13 @@ impl<'a> Walk<'a> {
             .collect()
     }
 
-    /// The preconditions of the cell that do not hold.
-    fn unmet(&self, cell: &Cell) -> Vec<Waited> {
-        (cell.requires.iter())
-            .filter_map(|test| match self.tests.test(test) {
-                Outcome::Holds => None,
-                Outcome::Waits { who } => Some(Waited::Precondition {
-                    test: test.clone(),
-                    who,
-                }),
+    /// The preconditions of the cell at this place that do not hold, each for the owner.
+    fn unmet(&self, i: usize) -> Vec<Waited> {
+        (self.flow.cells()[i].requires.iter())
+            .filter(|test| !self.holds(test, i))
+            .map(|test| Waited::Precondition {
+                test: test.clone(),
+                who: Who::Owner,
             })
             .collect()
     }

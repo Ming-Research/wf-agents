@@ -59,9 +59,9 @@ fn a_condition_on_a_block_that_has_no_version_is_not_met() {
 #[test]
 fn a_condition_that_is_a_named_test_lets_its_cell_run_while_the_test_holds() {
     let mut w = World::with_gate(vec![on_test("there is a remark", cell("remarks", &[], &[]))]);
-    w.set("there is a remark", Outcome::Waits { who: Who::Owner });
+    w.says("there is a remark", false);
     assert_eq!(w.decide(), resting());
-    w.set("there is a remark", Outcome::Holds);
+    w.says("there is a remark", true);
     assert_eq!(w.decide(), runs("remarks", vec![NO_RECORD], &[]));
 }
 

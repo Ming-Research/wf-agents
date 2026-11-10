@@ -1,12 +1,12 @@
 //! The histories' own reading of a work's records, written from the entries of the design and not from the walk: the
 //! versions of each block, the meaning of each, what each cell's record knows and why a run would start. The
 //! properties are judged by this reading, so that a fault in the walk's own reading is not repeated in the judging.
-//! It reads only the records, the flow and the named tests, never what the deciding code works out of them.
+//! It reads only the records and the flow, with its named tests, never what the deciding code works out of them.
 
 use std::collections::BTreeMap;
 
 use decide::{
-    BlockId, Cell, CellId, Condition, Finished, Flow, Outcome, Outsider, Records, RunId, Seq, Started, Tests,
+    BlockId, Cell, CellId, Condition, Finished, Flow, Outsider, Records, RunId, Seq, Started, TestKind, TestName,
 };
 
 /// Who wrote a version of a block.
@@ -226,14 +226,44 @@ impl<'a> Reading<'a> {
             })
     }
 
-    /// Whether the cell's condition is met now: with none it always is.
-    pub fn applies(&self, cell: &Cell, tests: &dyn Tests) -> bool {
-        match &cell.applies {
+    /// Whether the condition of the cell at place `i` of the flow is met now: with none it always is.
+    pub fn applies(&self, flow: &Flow, i: usize) -> bool {
+        match &flow.cells()[i].applies {
             None => true,
-            Some(Condition::Test(name)) => tests.test(name) == Outcome::Holds,
+            Some(Condition::Test(name)) => self.holds(flow, name, i),
             Some(Condition::Is { block, value }) => {
                 self.current(block).and_then(|v| v.value.as_deref()) == Some(value.as_str())
             }
+        }
+    }
+
+    /// Whether the named test holds now for the cell at place `i`, by the current versions of the blocks it reads that
+    /// have the value it tests for: all of them, one, none; or, for `none_standing`, none that stands. A version
+    /// stands unless a cell wrote it that is skipped now; a cell is asked only when it
+    /// stands before place `i`, as every writer of what a test reads does in a flow the compiler takes.
+    pub fn holds(&self, flow: &Flow, name: &TestName, i: usize) -> bool {
+        let test = &flow.tests()[name];
+        let with_value: Vec<&Version> = (test.reads.iter())
+            .filter_map(|b| self.current(b))
+            .filter(|v| v.value.as_deref() == Some(test.is.as_str()))
+            .collect();
+        match test.kind {
+            TestKind::All => with_value.len() == test.reads.len(),
+            TestKind::Any => !with_value.is_empty(),
+            TestKind::None => with_value.is_empty(),
+            TestKind::NoneStanding => !with_value.iter().any(|v| self.stands(flow, v, i)),
+        }
+    }
+
+    /// Whether the version stands for the cell at place `i`: unless it was written by a run of a cell before that place
+    /// whose condition is not met now.
+    pub fn stands(&self, flow: &Flow, v: &Version, i: usize) -> bool {
+        match &v.by {
+            Writer::Cell(cell, _) => match flow.place(cell) {
+                Some(j) if j < i => self.applies(flow, j),
+                _ => true,
+            },
+            Writer::Person | Writer::Outside => true,
         }
     }
 }

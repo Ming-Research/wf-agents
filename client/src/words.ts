@@ -3,14 +3,22 @@
 
 import type { Block, Change, Condition, Fault, Kind, LimitName, Test } from './api';
 
-/// What a named test holds on, from the blocks it reads: "ci is not red", "any of needs_design, changes_tree is yes".
+/// What a named test holds on, from the blocks it reads: "ci is not red", "any of needs_design, changes_tree is yes",
+/// "none of verdict, deep_verdict is no, not counting what a skipped cell wrote".
 export function readsWords(test: Test): string {
+  const standing = test.kind === 'noneStanding' ? ', not counting what a skipped cell wrote' : '';
   if (test.reads.length === 1) {
-    return `${test.reads[0]} is ${test.kind === 'none' ? 'not ' : ''}${test.is}`;
+    const not = test.kind === 'none' || test.kind === 'noneStanding' ? 'not ' : '';
+    return `${test.reads[0]} is ${not}${test.is}${standing}`;
   }
   const list = test.reads.join(', ');
-  const words = { all: `all of ${list} are`, any: `any of ${list} is`, none: `none of ${list} is` };
-  return `${words[test.kind]} ${test.is}`;
+  const words = {
+    all: `all of ${list} are`,
+    any: `any of ${list} is`,
+    none: `none of ${list} is`,
+    noneStanding: `none of ${list} is`,
+  };
+  return `${words[test.kind]} ${test.is}${standing}`;
 }
 
 /// A named test, wherever a cell's condition or precondition is said: its words, and what it reads.
@@ -92,6 +100,8 @@ export function faultWords(fault: Fault): string {
       return `The test ${w.test} reads ${w.block}, which the cell itself writes: the cell would decide by what it writes itself whether it runs, or whether the work waits before it.`;
     case 'testNotWrittenBefore':
       return `The test ${w.test} reads ${w.block}, which neither a cell before this one, people nor the outside write.`;
+    case 'testWrittenAfter':
+      return `The test ${w.test} reads ${w.block}, which ${w.cell}, a cell after this one, writes.`;
     case 'flowRefused': {
       const at = w.cell ? ` (${w.cell})` : '';
       const why = {
@@ -100,6 +110,7 @@ export function faultWords(fault: Fault): string {
         conditionOnOwnOutput: "A cell's condition reads a block the cell itself writes.",
         lastHasCondition: 'The last cell has a condition.',
         noLimit: "A cell's limit is zero.",
+        noSuchTest: "A cell names a test the flow does not have.",
       }[w.reason];
       return `${why}${at}`;
     }

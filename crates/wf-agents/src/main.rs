@@ -324,6 +324,9 @@ fn words(what: &FaultKind) -> String {
         F::TestNotWrittenBefore { test, block } => {
             format!("the test {test} reads {block}, which neither a cell before this one, people nor the outside write")
         }
+        F::TestWrittenAfter { test, block, cell } => {
+            format!("the test {test} reads {block}, which {cell}, a cell after this one, writes")
+        }
         F::Flow(fault) => format!("the deciding code refuses the cells as a flow: {fault:?}"),
     }
 }
