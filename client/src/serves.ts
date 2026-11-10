@@ -4,21 +4,30 @@
 
 import { useEffect, useState } from 'react';
 
+import { namesView } from './route';
+import { INTERFACE, sourceOf } from './works/source';
+
 export type Serves = 'all' | 'flow';
 
 type Ask = (path: string) => Promise<{ status: number }>;
 
-const askInterface: Ask = (path) => fetch(path, { headers: { accept: 'application/json' } });
+/// Asks for the path's head alone: the answer's status is all that is read, and no list is sent.
+const askInterface: Ask = (path) => fetch(path, { method: 'HEAD' });
 
-/// Whether the server has the items and the works. With `?fixtures` the page is answered from the fixtures, which
-/// have them. A server that cannot be asked is taken to have them: the views then say what failed.
+/// Whether the server has the items and the works. A page answered from the fixtures has them and asks nothing. A
+/// server that cannot be asked is taken to have them: the views then say what failed.
 export async function askServes(search: string, ask: Ask = askInterface): Promise<Serves> {
-  if (new URLSearchParams(search).has('fixtures')) return 'all';
+  if (sourceOf(search) !== INTERFACE) return 'all';
   try {
     return (await ask('/api/v1/items')).status === 404 ? 'flow' : 'all';
   } catch {
     return 'all';
   }
+}
+
+/// Whether the page opens on the flow: the server gives the flow alone, and the address names no view.
+export function opensOnFlow(serves: Serves | null, hash: string): boolean {
+  return serves === 'flow' && !namesView(hash);
 }
 
 /// What the server gives; nothing while it is being asked.
