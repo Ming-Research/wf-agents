@@ -78,10 +78,7 @@ fn what_a_stopped_round_returns_and_a_withdrawn_calls_result_change_nothing_but_
     after.moments.truncate(before.moments.len());
     assert!(after.spent.remove(&(again, 1)).is_some());
     assert_eq!(after, before);
-    assert_eq!(
-        decide::decide(&w.flow.flow, &w.work.records, &w.tests),
-        decide::Decision::Ended(decide::End::Cancelled)
-    );
+    assert_eq!(w.decision(), decide::Decision::Ended(decide::End::Cancelled));
 }
 
 #[test]

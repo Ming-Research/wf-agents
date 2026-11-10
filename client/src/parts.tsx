@@ -247,7 +247,7 @@ export type SignName = 'people' | 'outside' | 'shown';
 export const SIGN_WORDS: Record<SignName, string> = {
   people: 'people write it',
   outside: 'the outside writes it',
-  shown: 'shown on the page or read by a test',
+  shown: 'shown on the page',
 };
 
 export function Sign({ name, className }: { name: SignName; className?: string }) {

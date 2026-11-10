@@ -148,7 +148,7 @@ fn a_write_while_a_round_is_under_way_gives_nothing_until_the_round_ends() {
 #[test]
 fn an_engine_cell_goes_through_the_same_mechanism() {
     let (mut w, write, _) = W::requested();
-    w.tests.0.insert("may_merge".into(), Outcome::Holds);
+    w.lets_merge();
     let judge_effects = w.returns(write, hands_in(&[("text", None)]));
     let text = w.last_finished();
     let (judge, ..) = round(&judge_effects);
@@ -167,10 +167,7 @@ fn an_engine_cell_goes_through_the_same_mechanism() {
         w.work.contents.get(&("merged".into(), merged)),
         Some(&"the merged".to_string())
     );
-    assert_eq!(
-        decide::decide(&w.flow.flow, &w.work.records, &w.tests),
-        decide::Decision::Ended(decide::End::Merged)
-    );
+    assert_eq!(w.decision(), decide::Decision::Ended(decide::End::Merged));
 }
 
 #[test]

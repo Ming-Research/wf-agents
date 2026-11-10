@@ -21,7 +21,6 @@ use axum::extract::State;
 use axum::http::{HeaderValue, Method, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{any, get};
-use decide::TestName;
 use flow::{Compiled, Source};
 use serde_json::json;
 
@@ -34,8 +33,8 @@ mod built {
 /// Reads a definition's files, or says why they cannot be read.
 pub type Read = Box<dyn Fn() -> Result<Source, String> + Send + Sync>;
 
-/// The named tests the engine has, for a definition.
-pub type KnownTests = Box<dyn Fn(&Source) -> BTreeSet<TestName> + Send + Sync>;
+/// The sources outside a work that the engine has, by name, for a definition.
+pub type Sources = Box<dyn Fn(&Source) -> BTreeSet<String> + Send + Sync>;
 
 /// Where the page's definitions come from.
 pub struct Flows {
@@ -43,20 +42,20 @@ pub struct Flows {
     pub shown: Read,
     /// The definition compared against, if any.
     pub against: Option<Read>,
-    /// The named tests each definition is compiled against.
-    pub known_tests: KnownTests,
+    /// The sources outside a work each definition is compiled against.
+    pub sources: Sources,
 }
 
 impl Flows {
     /// The definitions in these directories, read with [`flow::read`].
-    pub fn dirs(shown: PathBuf, against: Option<PathBuf>, known_tests: KnownTests) -> Self {
+    pub fn dirs(shown: PathBuf, against: Option<PathBuf>, sources: Sources) -> Self {
         let reader = |dir: PathBuf| -> Read {
             Box::new(move || flow::read(&dir).map_err(|e| format!("{}: {e}", dir.display())))
         };
         Flows {
             shown: reader(shown),
             against: against.map(reader),
-            known_tests,
+            sources,
         }
     }
 
@@ -66,7 +65,7 @@ impl Flows {
             Ok(source) => source,
             Err(reason) => return (Definition::Unreadable { reason }, None),
         };
-        match flow::compile(&source, &(self.known_tests)(&source)) {
+        match flow::compile(&source, &(self.sources)(&source)) {
             Ok(compiled) => (
                 Definition::Compiled {
                     flow: Flow::of(&compiled),

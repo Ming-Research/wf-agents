@@ -17,7 +17,8 @@ use http_body_util::BodyExt;
 use tower::ServiceExt;
 use web::Flows;
 
-/// A small flow: a plan that people ask for and a review can send back, the review, and the merge.
+/// A small flow: a plan that people ask for and a review can send back, the review, and the merge, which waits for the
+/// owner's word.
 pub const FLOW: &str = r#"
 name = "tiny"
 order = ["plan", "review", "merge"]
@@ -40,8 +41,15 @@ people = true
 [blocks.content]
 values = ["yes", "no"]
 
-[tests]
-may_merge = "The owner let the work merge"
+[blocks.go]
+values = ["yes", "no"]
+people = true
+
+[tests.may_merge]
+says = "The owner let the work merge"
+kind = "all"
+reads = ["go"]
+is = "yes"
 "#;
 
 pub const PLAN: &str = r#"
@@ -111,13 +119,13 @@ impl Shared {
     }
 }
 
-/// The interface over a definition shown and, when given, one compared against; the engine is taken to have the tests
-/// the small flow declares.
+/// The interface over a definition shown and, when given, one compared against; the engine is taken to have one
+/// source outside a work, `main`.
 pub fn serve(shown: &Shared, against: Option<&Shared>) -> Router {
     web::router(Flows {
         shown: shown.read(),
         against: against.map(Shared::read),
-        known_tests: Box::new(|_: &Source| BTreeSet::from(["may_merge".into()])),
+        sources: Box::new(|_: &Source| BTreeSet::from(["main".to_string()])),
     })
 }
 

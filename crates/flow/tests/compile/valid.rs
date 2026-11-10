@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use decide::{BlockId, Cell, Condition, TestName};
-use flow::{Block, CellSpec, FLOW_FILE, FaultKind::*, Kind, Limits, Readers, Writers};
+use flow::{Block, CellSpec, FLOW_FILE, FaultKind::*, Kind, Limits, Readers, Test, TestKind, Writers};
 
 use crate::support::{at, compiled, edit, faults, valid};
 
@@ -85,24 +85,35 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
     );
 
     let ids = |cells: &[&str]| cells.iter().map(|&c| c.into()).collect();
-    let block =
-        |values: Option<&[&str]>, writers: &[&str], who: (bool, bool), readers: &[&str], conditions: &[&str]| Block {
+    let block = |values: Option<&[&str]>,
+                 writers: &[&str],
+                 who: (bool, Option<&str>),
+                 readers: &[&str],
+                 conditions: &[&str]| {
+        Block {
             values: values.map(|v| v.iter().map(|s| s.to_string()).collect()),
             writers: Writers {
                 cells: ids(writers),
                 people: who.0,
-                outside: who.1,
+                outside: who.1.map(str::to_string),
             },
             readers: Readers {
                 cells: ids(readers),
                 conditions: ids(conditions),
+                tests: Vec::new(),
                 shown: false,
             },
-        };
-    let none = (false, false);
-    let people = (true, false);
+        }
+    };
+    let none = (false, None);
+    let people = (true, None);
+    let yes_no: Option<&[&str]> = Some(&["yes", "no"]);
     let mut reply = block(None, &["answer"], none, &[], &[]);
     reply.readers.shown = true;
+    let tested = |mut block: Block, test: &str| {
+        block.readers.tests = vec![test.into()];
+        block
+    };
     let expected: BTreeMap<BlockId, Block> = [
         ("request", block(None, &[], people, &["plan"], &[])),
         (
@@ -117,23 +128,46 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
         ("design", block(None, &["design"], none, &["check"], &[])),
         ("comments", block(None, &[], people, &["answer"], &[])),
         ("reply", reply),
-        ("main", block(None, &[], (false, true), &["check"], &[])),
-        ("ci", block(Some(&["green", "red"]), &["check"], none, &["merge"], &[])),
+        ("main", block(None, &[], (false, Some("main")), &["check"], &[])),
+        (
+            "ci",
+            tested(
+                block(Some(&["green", "red"]), &["check"], none, &["merge"], &[]),
+                "may_merge",
+            ),
+        ),
+        ("commented", tested(block(yes_no, &[], people, &[], &[]), "has_comment")),
+        (
+            "confirmed",
+            tested(block(yes_no, &[], people, &[], &[]), "plan_confirmed"),
+        ),
     ]
     .into_iter()
     .map(|(name, b)| (name.into(), b))
     .collect();
     assert_eq!(compiled.blocks, expected);
 
-    let words: Vec<(&str, &str)> = compiled.tests.iter().map(|(t, w)| (t.as_str(), w.as_str())).collect();
-    assert_eq!(
-        words,
-        [
-            ("has_comment", "The item has a comment"),
-            ("may_merge", "The work may merge"),
-            ("plan_confirmed", "The owner confirmed the plan"),
-        ]
-    );
+    let test = |says: &str, kind, reads: &str, is: &str| Test {
+        says: says.to_string(),
+        kind,
+        reads: vec![reads.into()],
+        is: is.to_string(),
+    };
+    let expected: BTreeMap<TestName, Test> = [
+        (
+            "has_comment",
+            test("The item has a comment", TestKind::Any, "commented", "yes"),
+        ),
+        ("may_merge", test("The work may merge", TestKind::None, "ci", "red")),
+        (
+            "plan_confirmed",
+            test("The owner confirmed the plan", TestKind::All, "confirmed", "yes"),
+        ),
+    ]
+    .into_iter()
+    .map(|(name, t)| (name.into(), t))
+    .collect();
+    assert_eq!(compiled.tests, expected);
 }
 
 #[test]

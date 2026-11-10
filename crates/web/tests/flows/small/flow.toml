@@ -32,12 +32,33 @@ people = true
 shown = true
 
 [blocks.main]
-outside = true
+outside = "main"
 
 [blocks.ci]
 values = ["green", "red"]
 
-[tests]
-has_comment = "The item has a comment"
-plan_confirmed = "The owner confirmed the plan"
-may_merge = "The work may merge"
+[blocks.commented]
+values = ["yes", "no"]
+people = true
+
+[blocks.confirmed]
+values = ["yes", "no"]
+people = true
+
+[tests.has_comment]
+says = "The item has a comment"
+kind = "any"
+reads = ["commented"]
+is = "yes"
+
+[tests.plan_confirmed]
+says = "The owner confirmed the plan"
+kind = "all"
+reads = ["confirmed"]
+is = "yes"
+
+[tests.may_merge]
+says = "The work may merge"
+kind = "none"
+reads = ["ci"]
+is = "red"

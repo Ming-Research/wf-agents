@@ -110,9 +110,12 @@ fn an_empty_order_is_a_fault_and_leaves_every_cell_out_of_it_and_every_test_and_
         faults(&source),
         [
             at(FLOW_FILE, "order", OrderEmpty),
+            // A test no cell uses reads nothing: ci and the choices people write for tests are unread too.
             unwritten("ci"),
             unread("ci"),
+            unread("commented"),
             unread("comments"),
+            unread("confirmed"),
             unwritten("design"),
             unread("design"),
             unread("main"),

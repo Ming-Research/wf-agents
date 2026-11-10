@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use decide::{BlockId, Cell, CellId, Condition, TestName};
 
-use crate::compile::{Block, CellSpec, Compiled, Limits};
+use crate::compile::{Block, CellSpec, Compiled, Limits, Test};
 use crate::source::Kind;
 
 /// One difference between two definitions of a flow.
@@ -30,6 +30,9 @@ pub enum Change {
         before: String,
         after: String,
     },
+    /// What a named test holds on: its kind, the blocks it reads or the value it looks for. Each side is the test as
+    /// that definition declares it; a change of its words is said apart, as a rewording.
+    TestChanged { test: TestName, before: Test, after: Test },
     /// A cell was put into the order, at this place (counted from 0).
     CellAdded { cell: CellId, place: usize },
     /// A cell was taken out of the order, from this place (counted from 0).
@@ -43,8 +46,8 @@ pub enum Change {
     BlockAdded { block: BlockId },
     /// A block is no longer declared.
     BlockRemoved { block: BlockId },
-    /// Something of a block that both definitions declare. Who of the cells writes and reads it is not here: that is
-    /// a change of those cells' outputs, inputs or conditions.
+    /// Something of a block that both definitions declare. Who of the cells and the tests writes and reads it is not
+    /// here: that is a change of those cells' outputs, inputs or conditions, or of what those tests read.
     Block { block: BlockId, change: BlockChange },
 }
 
@@ -104,9 +107,12 @@ pub enum BlockChange {
     },
     /// Whether people write it.
     People { before: bool, after: bool },
-    /// Whether the outside writes it.
-    Outside { before: bool, after: bool },
-    /// Whether the owner's page or a named test reads it.
+    /// The source outside the work that writes it; none where the outside does not.
+    Outside {
+        before: Option<String>,
+        after: Option<String>,
+    },
+    /// Whether the owner's page reads it.
     Shown { before: bool, after: bool },
 }
 
@@ -143,26 +149,38 @@ fn limits(before: &Limits, after: &Limits) -> [(Limit, u32, u32); 3] {
     ]
 }
 
-fn tests(before: &BTreeMap<TestName, String>, after: &BTreeMap<TestName, String>, changes: &mut Vec<Change>) {
+/// Each test added, removed or changed, in the order of their names; of a test both definitions declare, its words
+/// first, then what it holds on.
+fn tests(before: &BTreeMap<TestName, Test>, after: &BTreeMap<TestName, Test>, changes: &mut Vec<Change>) {
     let names: BTreeSet<&TestName> = before.keys().chain(after.keys()).collect();
     for test in names {
-        let change = match (before.get(test), after.get(test)) {
-            (None, Some(words)) => Change::TestAdded {
+        match (before.get(test), after.get(test)) {
+            (None, Some(a)) => changes.push(Change::TestAdded {
                 test: test.clone(),
-                words: words.clone(),
-            },
-            (Some(words), None) => Change::TestRemoved {
+                words: a.says.clone(),
+            }),
+            (Some(b), None) => changes.push(Change::TestRemoved {
                 test: test.clone(),
-                words: words.clone(),
-            },
-            (Some(b), Some(a)) if b != a => Change::TestReworded {
-                test: test.clone(),
-                before: b.clone(),
-                after: a.clone(),
-            },
-            _ => continue,
-        };
-        changes.push(change);
+                words: b.says.clone(),
+            }),
+            (Some(b), Some(a)) => {
+                if b.says != a.says {
+                    changes.push(Change::TestReworded {
+                        test: test.clone(),
+                        before: b.says.clone(),
+                        after: a.says.clone(),
+                    });
+                }
+                if (b.kind, &b.reads, &b.is) != (a.kind, &a.reads, &a.is) {
+                    changes.push(Change::TestChanged {
+                        test: test.clone(),
+                        before: b.clone(),
+                        after: a.clone(),
+                    });
+                }
+            }
+            (None, None) => {}
+        }
     }
 }
 
@@ -386,9 +404,12 @@ fn blocks(before: &BTreeMap<BlockId, Block>, after: &BTreeMap<BlockId, Block>, c
         if before != after {
             found.push(BlockChange::People { before, after });
         }
-        let (before, after) = (b.writers.outside, a.writers.outside);
+        let (before, after) = (&b.writers.outside, &a.writers.outside);
         if before != after {
-            found.push(BlockChange::Outside { before, after });
+            found.push(BlockChange::Outside {
+                before: before.clone(),
+                after: after.clone(),
+            });
         }
         let (before, after) = (b.readers.shown, a.readers.shown);
         if before != after {

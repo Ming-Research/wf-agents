@@ -24,9 +24,9 @@ fn design_reads(block: &str, source: Source) -> Source {
     )
 }
 
-/// The small flow with a choice `go` that people or the outside write.
+/// The small flow with a choice `go` that people or the outside write, as this line of its declaration says.
 fn with_go(writer: &str) -> Source {
-    let go = format!("[blocks.go]\nvalues = [\"yes\", \"no\"]\n{writer} = true\n\n[blocks.plan]");
+    let go = format!("[blocks.go]\nvalues = [\"yes\", \"no\"]\n{writer}\n\n[blocks.plan]");
     edit(valid(), FLOW_FILE, "[blocks.plan]", &go)
 }
 
@@ -73,7 +73,7 @@ fn a_condition_reads_no_block_its_own_cell_writes() {
 }
 
 #[test]
-fn a_condition_reads_a_choice_a_cell_before_it_writes_and_not_one_only_a_cell_after_it_or_the_outside_writes() {
+fn a_condition_reads_a_choice_a_cell_before_it_writes_and_not_one_only_a_cell_after_it_writes() {
     let source = edit(
         valid(),
         "plan.toml",
@@ -84,22 +84,74 @@ fn a_condition_reads_a_choice_a_cell_before_it_writes_and_not_one_only_a_cell_af
         block: "needs_design".to_string(),
     };
     assert_eq!(faults(&source), [at("plan.toml", "when.block", what)]);
-
-    let source = design_reads("go", with_go("outside"));
-    let what = ConditionNotWrittenBefore {
-        block: "go".to_string(),
-    };
-    assert_eq!(faults(&source), [at("design.toml", "when.block", what)]);
 }
 
 #[test]
-fn a_condition_may_read_a_choice_people_write() {
-    let compiled = compiled(&design_reads("go", with_go("people")));
-    let condition = Condition::Is {
-        block: "go".into(),
-        value: "yes".to_string(),
+fn a_condition_may_read_a_choice_people_or_the_outside_write() {
+    for writer in ["people = true", "outside = \"main\""] {
+        let compiled = compiled(&design_reads("go", with_go(writer)));
+        let condition = Condition::Is {
+            block: "go".into(),
+            value: "yes".to_string(),
+        };
+        assert_eq!(compiled.flow.cells()[2].applies, Some(condition), "{writer}");
+    }
+}
+
+/// The small flow with the design's condition reading `go` as a block, or through a named test `go_on` that reads it
+/// alone, as this line of the condition says.
+fn design_runs_when(when: &str, writer: &str) -> Source {
+    let test = "[tests.go_on]\nsays = \"Go on\"\nkind = \"all\"\nreads = [\"go\"]\nis = \"yes\"\n\n[tests.has_comment]";
+    let source = edit(with_go(writer), FLOW_FILE, "[tests.has_comment]", test);
+    let source = edit(
+        source,
+        FLOW_FILE,
+        "[blocks.needs_design]",
+        "[blocks.needs_design]\nshown = true",
+    );
+    edit(
+        source,
+        "design.toml",
+        "when = { block = \"needs_design\", is = \"yes\" }",
+        when,
+    )
+}
+
+#[test]
+fn a_condition_on_a_block_and_a_condition_by_a_test_of_that_block_alone_are_held_to_the_same_rule() {
+    let by_block = "when = { block = \"go\", is = \"yes\" }";
+    let by_test = "when = { test = \"go_on\" }";
+    // Written before the cell by people or by the outside: both compile.
+    for writer in ["people = true", "outside = \"main\""] {
+        let source = design_runs_when(by_test, writer);
+        compiled(&source);
+        let source = edit(
+            source,
+            "design.toml",
+            by_test,
+            &format!("{by_block}\nrequires = [\"go_on\"]"),
+        );
+        compiled(&source);
+    }
+    // Written only by a cell after it: both are refused, each with its own fault.
+    let after = |source: Source| edit(source, "check.toml", "outputs = [\"ci\"]", "outputs = [\"ci\", \"go\"]");
+    let go = || "go".to_string();
+    let source = after(design_runs_when(by_block, ""));
+    // The test stays in use, by the merge, after the cell that writes go.
+    let source = edit(
+        source,
+        "merge.toml",
+        "requires = [\"may_merge\"]",
+        "requires = [\"may_merge\", \"go_on\"]",
+    );
+    let not_before = ConditionNotWrittenBefore { block: go() };
+    assert_eq!(faults(&source), [at("design.toml", "when.block", not_before)]);
+    let source = after(design_runs_when(by_test, ""));
+    let not_before = TestNotWrittenBefore {
+        test: "go_on".to_string(),
+        block: go(),
     };
-    assert_eq!(compiled.flow.cells()[2].applies, Some(condition));
+    assert_eq!(faults(&source), [at("design.toml", "when.test", not_before)]);
 }
 
 #[test]
@@ -111,9 +163,14 @@ fn a_condition_on_a_test_names_a_declared_test() {
     let undeclared = UndeclaredTest {
         test: "nothing".to_string(),
     };
+    // The test no cell uses then reads nothing, and the choice only it read has no reader.
+    let unread = NoReader {
+        block: "commented".to_string(),
+    };
     assert_eq!(
         faults(&source),
         [
+            at(FLOW_FILE, "blocks.commented", unread),
             at(FLOW_FILE, "tests.has_comment", unused),
             at("answer.toml", "when.test", undeclared),
         ]

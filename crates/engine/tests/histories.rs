@@ -30,17 +30,18 @@
 //! A person's act is, in about equal shares of a tenth: a write of a block people may write (a choice with one of its
 //! values); a write that must be refused (of a block people may not write, of a choice with a wrong value, of a block
 //! the flow does not have); the outside writing main, mattering or not; letting a random cell go on; pausing or
-//! resuming; the owner's word at the merge coming out the other way; a result of a call that has one already or of no
-//! call, or the return of a run that has no round under way; and, in one act in fifty, cancelling the work. The engine
-//! stops at any step with a chance of one in twelve, and with one in two at a step when the driver holds a stop or a
-//! withdrawal not yet done.
+//! resuming; the owner's word at the merge, a choice the merge's named test reads, written the other way; a result of a
+//! call that has one already or of no call, or the return of a run that has no round under way; and, in one act in
+//! fifty, cancelling the work. The owner's word is yes from the start in two histories of five. The engine stops at
+//! any step with a chance of one in twelve, and with one in two at a step when the driver holds a stop or a withdrawal
+//! not yet done.
 //!
 //! A failing case prints its seed and the steps it took; `one_history(seed, ..)` replays it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{self, AssertUnwindSafe};
 
-use decide::{CallId, Decision, Outcome, Outsider, RunId, TestName, Tests, Who, decide};
+use decide::{CallId, Decision, Outsider, RunId, Who, decide};
 use engine::{Ask, Call, Came, Effect, Event, Handed, Spent, Time, Work, handle, pending};
 use flow::{Compiled, Source, compile};
 
@@ -88,7 +89,7 @@ fn flow_file(order: &[&str], blocks: &BTreeSet<&str>) -> String {
             let who = match *b {
                 "request" | "opinions" => "people = true\n",
                 "choice" => "values = [\"yes\", \"no\"]\npeople = true\n",
-                "main" => "outside = true\n",
+                "main" => "outside = \"main\"\n",
                 _ => "",
             };
             format!("[blocks.{b}]\n{who}shown = true\n")
@@ -96,7 +97,8 @@ fn flow_file(order: &[&str], blocks: &BTreeSet<&str>) -> String {
         .collect();
     format!(
         "name = \"shape\"\norder = [{order}]\n[limits]\nruns = 2\nreturns = 2\ncalls = 3\n[lines.main]\n\
-         [tests]\nmay_merge = \"The work may merge\"\n{declared}"
+         [tests.may_merge]\nsays = \"The owner let the work merge\"\nkind = \"all\"\nreads = [\"go\"]\nis = \"yes\"\n\
+         [blocks.go]\nvalues = [\"yes\", \"no\"]\npeople = true\n{declared}"
     )
 }
 
@@ -161,16 +163,7 @@ fn shape(n: usize) -> Compiled {
         flow: flow_file(&order, &blocks),
         cells: files,
     };
-    let known: BTreeSet<TestName> = ["may_merge".into()].into();
-    compile(&source, &known).expect("the shape compiles")
-}
-
-struct Named(BTreeMap<TestName, Outcome>);
-
-impl Tests for Named {
-    fn test(&self, name: &TestName) -> Outcome {
-        self.0.get(name).cloned().unwrap_or(Outcome::Holds)
-    }
+    compile(&source, &["main".to_string()].into()).expect("the shape compiles")
 }
 
 /// What the histories of all seeds did, so that every class of step is known to occur.
@@ -192,7 +185,10 @@ struct Seen {
 /// A history: the work, what the driver holds to be done, and what it saw.
 struct History {
     flow: Compiled,
-    tests: Named,
+    /// Whether the owner's word at the merge is yes from the start.
+    yes_at_first: bool,
+    /// The owner's word at the merge, as last written: yes, or no where it was never written.
+    go: bool,
     work: Work,
     rng: Rng,
     /// Draws the stops alone, so that a history with stops makes the same choices as one without.
@@ -219,14 +215,11 @@ impl History {
     fn new(seed: u64, stops: bool) -> Self {
         let mut rng = Rng::new(seed);
         let flow = shape(rng.below(4));
-        let holds = if rng.chance(40) {
-            Outcome::Holds
-        } else {
-            Outcome::Waits { who: Who::Owner }
-        };
+        let yes_at_first = rng.chance(40);
         Self {
             flow,
-            tests: Named([("may_merge".into(), holds)].into()),
+            yes_at_first,
+            go: false,
             work: Work::default(),
             rng,
             stops: stops.then(|| Rng::new(seed ^ 0x5DEE_CE66_D1CE_F00D)),
@@ -252,7 +245,7 @@ impl History {
         // times as one without.
         self.clock += 1000;
         let now = Time(self.clock);
-        match handle(&self.flow, &self.tests, &mut self.work, now, event) {
+        match handle(&self.flow, &mut self.work, now, event) {
             Ok(effects) => {
                 self.note(format!("effects: {effects:?}"));
                 for effect in effects {
@@ -324,7 +317,7 @@ impl History {
             "the moments do not follow the records: {places:?}"
         );
         assert!(
-            !matches!(decide(&self.flow.flow, r, &self.tests), Decision::Fault(_)),
+            !matches!(decide(&self.flow.flow, r, &self.flow.tests(r)), Decision::Fault(_)),
             "the records are faulty"
         );
         for effect in &self.held {
@@ -449,14 +442,7 @@ impl History {
                 self.paused = !self.paused;
                 if self.paused { Event::Paused } else { Event::Resumed }
             }
-            62..=73 => {
-                let flipped = match self.tests.0.get(&TestName::from("may_merge")) {
-                    Some(Outcome::Holds) => Outcome::Waits { who: Who::Owner },
-                    _ => Outcome::Holds,
-                };
-                self.tests.0.insert("may_merge".into(), flipped);
-                Event::Look
-            }
+            62..=73 => self.owner_says(!self.go),
             74..=86 => {
                 // A result of a call that has none to be given: one that has one already, or no call at all.
                 let call = if !self.closed.is_empty() && self.rng.chance(70) {
@@ -480,6 +466,17 @@ impl History {
         if cancel {
             assert!(taken, "a cancel was refused");
         }
+    }
+
+    /// The owner's word at the merge, written as the choice the merge's named test reads.
+    fn owner_says(&mut self, go: bool) -> Event {
+        self.go = go;
+        wrote(
+            "go",
+            Outsider::Person,
+            true,
+            Some(if go { "yes" } else { "no" }.to_string()),
+        )
     }
 
     /// What a round of the run took, as its agent reports it: told apart by the run and the clock.
@@ -602,7 +599,12 @@ fn wrote(block: &str, by: Outsider, matters: bool, value: Option<String>) -> Eve
 fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
     let mut h = History::new(seed, stops);
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
-        h.take(Event::Look);
+        let first = if h.yes_at_first {
+            h.owner_says(true)
+        } else {
+            Event::Look
+        };
+        h.take(first);
         h.check();
         let people = h.rng.below(PEOPLE);
         for _ in 0..people {
@@ -617,7 +619,7 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
             steps += 1;
             assert!(steps <= bound, "the work has not come to rest within {bound} steps");
         }
-        let decision = decide(&h.flow.flow, &h.work.records, &h.tests);
+        let decision = decide(&h.flow.flow, &h.work.records, &h.flow.tests(&h.work.records));
         let paused = decide::paused(&h.work.records);
         assert!(
             matches!(decision, Decision::Wait { .. } | Decision::Paused | Decision::Ended(_))

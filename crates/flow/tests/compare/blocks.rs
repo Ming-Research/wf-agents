@@ -13,7 +13,7 @@ fn of(block: &str, change: BlockChange) -> Change {
 }
 
 #[test]
-fn a_block_s_values_who_of_people_and_the_outside_writes_it_and_whether_it_is_shown_are_each_a_change() {
+fn a_block_s_values_who_writes_it_besides_cells_and_whether_it_is_shown_are_each_a_change() {
     let after = edit(
         valid(),
         FLOW_FILE,
@@ -24,7 +24,13 @@ fn a_block_s_values_who_of_people_and_the_outside_writes_it_and_whether_it_is_sh
         after,
         FLOW_FILE,
         "[blocks.comments]\npeople = true",
-        "[blocks.comments]\npeople = true\noutside = true",
+        "[blocks.comments]\npeople = true\noutside = \"main\"",
+    );
+    let after = edit(
+        after,
+        FLOW_FILE,
+        "outside = \"main\"\n\n[blocks.ci]",
+        "outside = \"mirror\"\n\n[blocks.ci]",
     );
     let after = edit(
         after,
@@ -47,8 +53,15 @@ fn a_block_s_values_who_of_people_and_the_outside_writes_it_and_whether_it_is_sh
             of(
                 "comments",
                 BlockChange::Outside {
-                    before: false,
-                    after: true,
+                    before: None,
+                    after: Some("main".to_string()),
+                },
+            ),
+            of(
+                "main",
+                BlockChange::Outside {
+                    before: Some("main".to_string()),
+                    after: Some("mirror".to_string()),
                 },
             ),
             of(
