@@ -10,6 +10,8 @@
 
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::flow::BlockId;
 use crate::records::{CallId, Write};
 
@@ -88,7 +90,7 @@ pub enum Step {
 }
 
 /// A limit a run has reached.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Limit {
     /// This many returns were sent back, and what the last round returned does not meet what the flow requires
     /// either.
@@ -98,7 +100,7 @@ pub enum Limit {
 }
 
 /// Why what came back does not meet what the flow requires.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Unmet {
     /// The round asked for calls, and for none: it neither asks for anything nor hands anything in.
     AsksNothing,

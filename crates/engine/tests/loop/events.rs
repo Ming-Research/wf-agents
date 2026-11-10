@@ -18,7 +18,7 @@ fn a_persons_write_is_kept_with_its_content_and_the_first_cell_is_given_its_task
     let content = BTreeMap::from([(("request".into(), at), "request, as written by Person".to_string())]);
     assert_eq!(w.work.contents, content);
     let run = w.work.records.started[0].run;
-    let given = task(
+    let start = started_with(
         vec![Cause::NoRecord],
         &[
             ("request", Some(at)),
@@ -27,7 +27,8 @@ fn a_persons_write_is_kept_with_its_content_and_the_first_cell_is_given_its_task
             ("text", None),
         ],
     );
-    assert_eq!(effects, vec![round_effect(run, "write", 1, given)]);
+    assert_eq!(effects, vec![round_effect(run, "write", 1, Given::Task)]);
+    assert_eq!(start_of(&w, run), start);
 }
 
 #[test]
@@ -66,11 +67,12 @@ fn a_return_that_meets_everything_finishes_the_run_keeps_each_block_under_the_fi
     assert_eq!(w.work.records.finished, vec![finished]);
     assert_eq!(w.work.contents.get(&("text".into(), at)), Some(&"the text".to_string()));
     let judge = w.work.records.started[1].run;
-    let given = task(
+    let start = started_with(
         vec![Cause::NoRecord],
         &[("text", Some(at)), ("opinions", None), ("verdict", None)],
     );
-    assert_eq!(effects, vec![round_effect(judge, "judge", 1, given)]);
+    assert_eq!(effects, vec![round_effect(judge, "judge", 1, Given::Task)]);
+    assert_eq!(start_of(&w, judge), start);
 }
 
 #[test]
@@ -124,7 +126,7 @@ fn a_paused_work_is_given_nothing_and_when_let_on_is_given_its_next_round() {
     assert_eq!(effects, vec![]);
     let effects = w.on(Event::Resumed);
     let run = w.work.records.started[0].run;
-    let given = task(
+    let start = started_with(
         vec![Cause::NoRecord],
         &[
             ("request", Some(request)),
@@ -133,7 +135,8 @@ fn a_paused_work_is_given_nothing_and_when_let_on_is_given_its_next_round() {
             ("text", None),
         ],
     );
-    assert_eq!(effects, vec![round_effect(run, "write", 1, given)]);
+    assert_eq!(effects, vec![round_effect(run, "write", 1, Given::Task)]);
+    assert_eq!(start_of(&w, run), start);
 }
 
 #[test]
@@ -152,11 +155,12 @@ fn an_engine_cell_goes_through_the_same_mechanism() {
     let effects = w.returns(judge, hands_in(&[("verdict", Some("yes"))]));
     let verdict = w.last_finished();
     let merge = w.work.records.started[2].run;
-    let given = task(
+    let start = started_with(
         vec![Cause::NoRecord],
         &[("text", Some(text)), ("verdict", Some(verdict)), ("merged", None)],
     );
-    assert_eq!(effects, vec![round_effect(merge, "merge", 1, given)]);
+    assert_eq!(effects, vec![round_effect(merge, "merge", 1, Given::Task)]);
+    assert_eq!(start_of(&w, merge), start);
     assert_eq!(w.returns(merge, hands_in(&[("merged", None)])), vec![]);
     let merged = w.last_finished();
     assert_eq!(

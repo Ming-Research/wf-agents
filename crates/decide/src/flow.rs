@@ -5,11 +5,13 @@
 
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 /// Makes the type of a name the flow or the records use: a string that cannot be taken for a name of another kind.
 macro_rules! name {
     ($(#[$doc:meta])* $name:ident) => {
         $(#[$doc])*
-        #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
         pub struct $name(pub String);
 
         impl $name {

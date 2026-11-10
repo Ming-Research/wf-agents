@@ -15,11 +15,12 @@ fn a_return_handed_in_during_a_pause_finishes_the_run_and_the_next_cells_round_w
     );
     let effects = w.on(Event::Resumed);
     let judge = w.work.records.started.last().expect("a run").run;
-    let given = task(
+    let start = started_with(
         vec![Cause::NoRecord],
         &[("text", Some(text)), ("opinions", None), ("verdict", None)],
     );
-    assert_eq!(effects, vec![round_effect(judge, "judge", 1, given)]);
+    assert_eq!(effects, vec![round_effect(judge, "judge", 1, Given::Task)]);
+    assert_eq!(start_of(&w, judge), start);
 }
 
 #[test]
@@ -35,7 +36,7 @@ fn a_judge_whose_round_ends_during_a_pause_finishes_and_once_let_on_the_writer_r
     assert!(w.work.records.finished.iter().any(|f| f.run == judge));
     let effects = w.on(Event::Resumed);
     let again = w.work.records.started.last().expect("a run").run;
-    let given = task(
+    let start = started_with(
         vec![changed("request", Some(r1), false), changed("opinions", None, true)],
         &[
             ("request", Some(r2)),
@@ -44,7 +45,8 @@ fn a_judge_whose_round_ends_during_a_pause_finishes_and_once_let_on_the_writer_r
             ("text", Some(text)),
         ],
     );
-    assert_eq!(effects, vec![round_effect(again, "write", 1, given)]);
+    assert_eq!(effects, vec![round_effect(again, "write", 1, Given::Task)]);
+    assert_eq!(start_of(&w, again), start);
 }
 
 #[test]
@@ -96,7 +98,7 @@ fn a_stale_run_is_abandoned_during_a_pause_and_its_cell_runs_again_once_the_work
     assert_eq!(effects, vec![Effect::Withdraw { call }]);
     let effects = w.on(Event::Resumed);
     let again = w.work.records.started.last().expect("a run").run;
-    let given = task(
+    let start = started_with(
         vec![Cause::NoRecord],
         &[
             ("request", Some(request)),
@@ -105,5 +107,6 @@ fn a_stale_run_is_abandoned_during_a_pause_and_its_cell_runs_again_once_the_work
             ("text", None),
         ],
     );
-    assert_eq!(effects, vec![round_effect(again, "write", 1, given)]);
+    assert_eq!(effects, vec![round_effect(again, "write", 1, Given::Task)]);
+    assert_eq!(start_of(&w, again), start);
 }

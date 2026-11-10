@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 decide = { path = "../decide" }
 flow = { path = "../flow" }
+work = { path = "../work" }
 
 [lints]
 workspace = true
