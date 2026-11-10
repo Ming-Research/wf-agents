@@ -1,0 +1,5 @@
+title = "Implement"
+kind = "agent"
+line = "engineer"
+inputs = ["plan_agent", "questions", "acceptance", "tree_changes", "context", "opinions_implement"]
+outputs = ["code", "evidence", "acceptance", "answers_implement", "opinions_research"]

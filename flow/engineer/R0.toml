@@ -1,0 +1,5 @@
+title = "Understand the problem and the design tree"
+kind = "agent"
+line = "engineer"
+inputs = ["background", "tree", "session", "opinions_context"]
+outputs = ["context", "related", "supplement"]

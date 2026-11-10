@@ -1,0 +1,14 @@
+title = "Research"
+kind = "agent"
+line = "engineer"
+inputs = ["background", "supplement", "context", "opinions_research"]
+outputs = [
+  "needs_design",
+  "found",
+  "plan_owner",
+  "plan_agent",
+  "questions",
+  "acceptance",
+  "tree_changes",
+  "answers_research",
+]

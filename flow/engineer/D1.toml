@@ -1,0 +1,6 @@
+title = "Design"
+kind = "agent"
+line = "designer"
+when = { block = "needs_design", is = "yes" }
+inputs = ["found", "related", "opinions_design"]
+outputs = ["plan_owner", "plan_agent", "questions", "acceptance", "tree_changes", "answers_design"]

@@ -1,0 +1,5 @@
+title = "Check before the merge"
+kind = "engine"
+requires = ["may_merge"]
+inputs = ["code", "tests", "main"]
+outputs = ["checked", "opinions_implement"]

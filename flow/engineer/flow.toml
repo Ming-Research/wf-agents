@@ -1,0 +1,87 @@
+name = "engineer"
+
+# The order of the walk, from the first cell to the merge.
+order = ["S1", "R0", "R1", "D1", "D2", "I1", "T1", "T2", "M1", "M2"]
+
+[limits]
+runs = 3
+returns = 3
+calls = 40
+
+[lines.engineer]
+[lines.designer]
+[lines.plan_review]
+[lines.review]
+[lines.adversarial]
+
+[tests]
+may_start = "The item may start: the items it depends on are merged, and it is not held"
+plan_needs_review = "The plan changes the design tree, or went through the design"
+may_merge = "The work may merge: every question is confirmed as recommended, and every cell that judges is content"
+
+# What people and the outside write.
+[blocks.background]
+people = true
+[blocks.tree]
+outside = true
+[blocks.session]
+outside = true
+[blocks.main]
+outside = true
+
+# What the first cells make of the item.
+[blocks.place]
+shown = true
+[blocks.context]
+[blocks.related]
+[blocks.supplement]
+
+# The plan.
+[blocks.needs_design]
+values = ["yes", "no"]
+[blocks.found]
+[blocks.plan_owner]
+[blocks.plan_agent]
+[blocks.questions]
+[blocks.acceptance]
+[blocks.tree_changes]
+[blocks.plan_settled]
+values = ["yes", "no"]
+shown = true
+
+# The change.
+[blocks.code]
+[blocks.evidence]
+[blocks.more_testing]
+values = ["yes", "no"]
+[blocks.review_settled]
+values = ["yes", "no"]
+shown = true
+[blocks.tests]
+[blocks.testing_settled]
+values = ["yes", "no"]
+shown = true
+[blocks.checked]
+[blocks.merged]
+shown = true
+
+# What is said to each cell: by the owner on the page, and by the cells that judge it.
+[blocks.opinions_context]
+people = true
+[blocks.opinions_research]
+people = true
+[blocks.opinions_design]
+people = true
+[blocks.opinions_plan_review]
+people = true
+[blocks.opinions_implement]
+people = true
+[blocks.opinions_review]
+people = true
+[blocks.opinions_testing]
+people = true
+
+# What a cell answers to what was said to it, for the cell that judges it to read.
+[blocks.answers_research]
+[blocks.answers_design]
+[blocks.answers_implement]

@@ -1,0 +1,6 @@
+title = "Adversarial testing"
+kind = "agent"
+line = "adversarial"
+when = { block = "more_testing", is = "yes" }
+inputs = ["code", "acceptance", "answers_implement", "opinions_testing"]
+outputs = ["tests", "opinions_implement", "testing_settled"]

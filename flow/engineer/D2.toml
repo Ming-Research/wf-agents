@@ -1,0 +1,15 @@
+title = "Review the plan"
+kind = "agent"
+line = "plan_review"
+when = { test = "plan_needs_review" }
+inputs = [
+  "plan_owner",
+  "plan_agent",
+  "questions",
+  "tree_changes",
+  "context",
+  "answers_research",
+  "answers_design",
+  "opinions_plan_review",
+]
+outputs = ["opinions_research", "opinions_design", "plan_settled"]
