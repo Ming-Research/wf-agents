@@ -1,38 +1,32 @@
 // The console: the items as a tree in snapping columns on a canvas drawn by WebGL (`snap.ts`), as they stand, drawn again
 // as they change; with `?fixtures` in the page's address, made-up items that show every state the drawing has
-// (`fixtures.ts`). Beside the tree, the panel shows the item selected (`ItemWindow.tsx`). Selecting an item brings the
-// panel out; letting it go folds the panel away, unless its handle brought it out, in which case it stays until the
-// handle folds it. The handle folds it without letting the item go, and the next item selected brings it out again.
-// The panel coming out over the item selected, or an item selected half under it or half off the screen, moves the tree
-// only until the item is wholly within what the panel leaves. Escape lets the item go while the tree has the keys, and
-// folds the panel while it has them. Each time the interface says something happened, the items are read again and
+// (`fixtures.ts`). Beside the tree, a window shows the item selected (`ItemWindow.tsx`). Selecting an item slides the
+// window out; letting it go slides the window back, unless the tab stuck to its left edge brought it out, in which case
+// it stays until the tab takes it back. The tab takes it back without letting the item go, and the next item selected
+// brings it out again. The window coming out over the item selected, or an item selected half under it or half off the
+// screen, moves the tree only until the item is wholly within what the window leaves. Escape lets the item go while the
+// tree has the keys, and slides the window in while it has them. Each time the interface says something happened, the items are read again and
 // drawn where they stand, the item selected and the panel as they were; when the stream opens again after a cut,
 // everything is. An answer older than the one shown is dropped. The page's shell mounts it lazily (`lazy.tsx`).
 //
-// Brought over from the console of the engine on `main` (`client/src/pages/Console.tsx`). The window there slid over the
-// tree; here it is the page's docked panel (look.md), which the tree gives its width to.
+// Brought over from the console of the engine on `main` (`client/src/pages/Console.tsx`): the window slides over the
+// tree, which keeps its whole width under it (`Drawer.tsx`).
 
 import './console.css';
 
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { Edge, Panel } from '../parts';
-import { useKeptWidth } from '../sizes';
 import type { Items, WorkPage } from '../works-api';
+import { Drawer } from './Drawer';
 import { fakeShown } from './fake';
 import { type Shown, shownTree, standingOf } from './items';
 import { ItemPanel, type PageState } from './ItemWindow';
 import { SnapScene } from './snap';
 import { type Heard, type Source, inOrder, pageSource } from './source';
 
-/// The panel's width at first, as the console's window was, and the least and most it is dragged to, as the page's
-/// panel is (look.md).
-const PANEL = { first: 560, min: 280, max: 720 };
-const WIDTH_KEY = 'wf-agents.console-panel-width';
-
 export function ConsolePage({ source: given }: { source?: Source } = {}) {
   const source = useMemo(() => given ?? pageSource(), [given]);
-  const frame = useRef<HTMLDivElement>(null);
+  const panel = useRef<HTMLElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const scene = useRef<SnapScene | null>(null);
   const [data, setData] = useState<Items | undefined>(undefined);
@@ -42,7 +36,6 @@ export function ConsolePage({ source: given }: { source?: Source } = {}) {
   // The panel: whether it is out, and whether its handle brought it out, which keeps it out once the item is let go.
   const [win, setWin] = useState({ open: false, byHand: false });
   const open = win.open;
-  const [width, setWidth] = useKeptWidth(WIDTH_KEY, PANEL.min, PANEL.max);
 
   // The items, read at first and again each time something happened, an answer older than the one shown dropped.
   const heard = useRef<(h: Heard) => void>(() => undefined);
@@ -112,18 +105,20 @@ export function ConsolePage({ source: given }: { source?: Source } = {}) {
     if (data !== undefined) scene.current?.show(shownTree(data));
   }, [data]);
 
-  /// The width of the tree that the panel leaves to be seen: all of the canvas, which the docked panel narrows.
-  const room = () => host.current?.clientWidth ?? 0;
+  /// The width of the tree that the window leaves to be seen: all of it while the window is in.
+  const room = (out: boolean) => {
+    const tree = host.current?.clientWidth ?? 0;
+    return out ? tree - (panel.current?.offsetWidth ?? 0) : tree;
+  };
   const selectedId = selected?.id ?? null;
   useEffect(() => {
-    if (open && selectedId !== null) scene.current?.reveal(selectedId, room());
+    if (open && selectedId !== null) scene.current?.reveal(selectedId, room(true));
   }, [open, selectedId]);
 
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      const panel = frame.current?.querySelector('.drawer');
-      const inside = panel?.contains(document.activeElement) === true;
+      const inside = panel.current?.contains(document.activeElement) === true;
       if (open && inside) {
         (document.activeElement as HTMLElement | null)?.blur();
         setWin({ open: false, byHand: false });
@@ -158,26 +153,13 @@ export function ConsolePage({ source: given }: { source?: Source } = {}) {
   const shownPage = page !== null && page.work === work ? page.state : null;
 
   const fold = () => setWin((w) => (w.open ? { open: false, byHand: false } : { open: true, byHand: true }));
-  const edge = (
-    <Edge
-      side="left"
-      label="Drag the panel's width"
-      start={() => width ?? PANEL.first}
-      onDrag={setWidth}
-      onReset={() => setWidth(null)}
-    />
-  );
   const byNumber = new Map((data?.items ?? []).map((i) => [i.number, i]));
   const waitsFor =
     item === undefined ? [] : item.dependsOn.filter((d) => byNumber.has(d) && standingOf(byNumber.get(d)) !== 'done');
 
   return (
-    <div
-      ref={frame}
-      className={open ? 'console' : 'console console-folded'}
-      style={{ '--panel-width': `${width ?? PANEL.first}px` } as CSSProperties}
-    >
-      {/* A press on the tree gives it the keys back from the panel. */}
+    <div className="console">
+      {/* A press on the tree gives it the keys back from the window. */}
       <div
         className="console-canvas"
         ref={host}
@@ -186,22 +168,19 @@ export function ConsolePage({ source: given }: { source?: Source } = {}) {
         {failed !== null && <p className="console-message">The page could not read the items: {failed}</p>}
         {undrawn !== null && <p className="console-message">The browser could not draw the tree: {undrawn}</p>}
       </div>
-      {item === undefined ? (
-        <Panel label="Nothing selected" folded={!open} onFold={fold} edge={edge}>
-          <p className="cw-empty">Click an item on the left to see it here</p>
-        </Panel>
-      ) : (
-        <ItemPanel
-          item={item}
-          page={shownPage}
-          act={source.act}
-          waitsFor={waitsFor}
-          folded={!open}
-          onFold={fold}
-          edge={edge}
-          onTitle={() => scene.current?.reveal(item.number, room())}
-        />
-      )}
+      <Drawer open={open} onToggle={fold} panel={panel}>
+        {item === undefined ? (
+          <p className="cw-empty">Click an item on the left to see it here.</p>
+        ) : (
+          <ItemPanel
+            item={item}
+            page={shownPage}
+            act={source.act}
+            waitsFor={waitsFor}
+            onTitle={() => scene.current?.reveal(item.number, room(open))}
+          />
+        )}
+      </Drawer>
     </div>
   );
 }

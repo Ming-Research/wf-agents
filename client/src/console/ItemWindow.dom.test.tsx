@@ -49,8 +49,6 @@ function draw(n: number, send: (work: number, what: Act) => Promise<unknown>, pa
         page={page === undefined ? pageOf(item) : page}
         act={send}
         waitsFor={[11]}
-        folded={false}
-        onFold={() => undefined}
         onTitle={() => undefined}
       />,
     ),

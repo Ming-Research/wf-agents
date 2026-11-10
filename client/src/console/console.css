@@ -1,31 +1,157 @@
-/* The console: the canvas of the tree, and the page's docked panel at its right with the item selected (look.md). Brought
-   over from the console of the engine on `main` (`client/src/styles/console.css`), its Primer values the page's tokens.
-   Every value is a token (styles/tokens.css), but for the console's own colours named below. */
+/* The console: the canvas of the tree, and over its right the window with the item selected. Brought over from the
+   console of the engine on `main` (`client/src/styles/console.css`), its Primer values the page's tokens or, where the
+   page has none, Primer's values as they were. Every value is a token (styles/tokens.css), but for the console's own
+   colours named below. */
 
 .console {
   /* A work waiting for something that is not the owner: the console's pale yellow, which asks nothing of them. It has
      no token: the page marks no other state so. It reads on the dark ground as it is. */
   --console-waiting: #e8cc6a;
+  /* The window's tab and edge, and what is new to the owner: a light blue, deeper under the pointer and as a link, and
+     a wash of it behind a strip; the canvas draws them so too. */
+  --console-accent: #6a82fd;
+  --console-accent-strong: #5a71ec;
+  --console-accent-wash: #f0f2ff;
+  /* The window's edge and the mark of a changed passage: thick enough to be seen at the screen's side. */
+  --console-edge-width: 3px;
+  --console-shadow: 0 0 0 1px #d1d9e040, 0 6px 12px -3px #25292e0a, 0 6px 18px 0 #25292e1f;
+  --console-edge-hover: #ddf4ff;
 
   position: relative;
-  display: grid;
+  display: flex;
   flex: 1;
-  grid-template-columns: minmax(0, 1fr) var(--panel-width, var(--panel));
+  flex-direction: column;
   height: 100%;
   min-height: 0;
   overflow: hidden;
   background: var(--ground);
 }
 
-.console-folded {
-  grid-template-columns: minmax(0, 1fr) 0;
+:root[data-theme='dark'] .console {
+  --console-accent-wash: #1d2238;
+  --console-shadow: 0 0 0 1px #3d444d, 0 6px 12px -3px #01040966, 0 6px 18px 0 #01040966;
+  --console-edge-hover: #388bfd1a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .console {
+    --console-accent-wash: #1d2238;
+    --console-shadow: 0 0 0 1px #3d444d, 0 6px 12px -3px #01040966, 0 6px 18px 0 #01040966;
+    --console-edge-hover: #388bfd1a;
+  }
 }
 
 .console-canvas {
   position: relative;
+  flex: 1;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+/* The window beside the tree, white like paper on the console's light grey, over the right of the tree, kept out at
+   the right of the screen like a binder's page: a narrow tab stuck to its left edge stays on the screen, and slides the
+   window in and out with it; its left edge is dragged to change its width. */
+.cw {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  display: flex;
+  max-width: 85%;
+  background: var(--card);
+  box-shadow: var(--console-shadow);
+  transform: translateX(100%);
+  transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* The window's left edge: a narrow line in the tab's blue from top to bottom, which the tab grows out of. */
+.cw::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(-1 * var(--console-edge-width));
+  width: var(--console-edge-width);
+  background: var(--console-accent);
+  pointer-events: none;
+}
+
+.cw:has(.cw-tab:hover)::before {
+  background: var(--console-accent-strong);
+}
+
+/* The tab: a narrow trapezoid in blue, its long side on the window's edge, so that it is seen at the screen's edge. */
+.cw .cw-tab {
+  position: absolute;
+  top: 72px;
+  left: -24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 88px;
+  padding: 0;
+  border: none;
+  background: var(--console-accent);
+  color: #ffffff;
+  /* The trapezoid, 72 high from 8 down, its two outer corners rounded, and above and below it the edge's line, which
+     its slanted sides leave in a curve. */
+  clip-path: path(
+    'M24 0 L21 0 L21 1.1 Q21 9.1 13.5 11.9 L5 15 Q0 16.6 0 22 L0 66 Q0 71.4 5 73 L13.5 76.1 Q21 78.9 21 86.9 L21 88 L24 88 Z'
+  );
+  cursor: pointer;
+}
+
+.cw .cw-tab:hover {
+  background: var(--console-accent-strong);
+}
+
+.cw-open {
+  transform: none;
+}
+
+.cw-edge {
+  flex: none;
+  width: 6px;
+  margin-left: -3px;
+  cursor: col-resize;
+}
+
+.cw-edge:hover {
+  background: var(--console-edge-hover);
+}
+
+.cw-inner {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+
+.cw-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-8);
+}
+
+.cw-id {
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+.cw-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 16px;
+  font-weight: var(--weight-strong);
+}
+
+.cw-project {
+  flex: none;
+  color: var(--muted);
+  font-size: var(--size-small);
 }
 
 /* Pixi sizes the canvas to its holder; a canvas left inline would add the room under a line of text. */
@@ -42,11 +168,13 @@
 
 /* The panel's own: what it says with nothing selected, and its parts. */
 .cw-empty {
+  margin: 40px 24px;
   color: var(--muted);
 }
 
 .cw-item {
   position: relative;
+  padding: var(--space-16) var(--space-16) 32px;
 }
 
 /* The title, which brings the item into view in the tree. */
@@ -215,7 +343,7 @@ a.cw-mono:hover {
 .cw-tabs {
   display: flex;
   gap: var(--space-16);
-  margin: 0 0 var(--space-12);
+  margin: var(--space-16) 0 var(--space-12);
   border-bottom: var(--hairline) solid var(--line);
 }
 

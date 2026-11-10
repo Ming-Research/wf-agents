@@ -14,7 +14,7 @@
 
 import { Fragment, type ReactNode, useState } from 'react';
 
-import { Button, Panel, PanelPart } from '../parts';
+import { Button, PanelPart } from '../parts';
 import type { Act, Item, Summary, Waited, WorkPage } from '../works-api';
 import { StateLegend, Strip } from '../works/marks';
 import { type ItemStanding, standingOf } from './items';
@@ -144,42 +144,32 @@ export type ItemPanelProps = {
   act: (work: number, what: Act) => Promise<unknown>;
   /// The items it depends on that are not merged yet.
   waitsFor: number[];
-  folded: boolean;
-  onFold: () => void;
-  edge?: ReactNode;
   /// Brings the item into view in the tree.
   onTitle: () => void;
 };
 
 /// The panel of the item selected. Its lines and its body are the item's own: what one item was sending, or was refused,
 /// is not shown under another.
-export function ItemPanel({ item, page, act, waitsFor, folded, onFold, edge, onTitle }: ItemPanelProps) {
+export function ItemPanel({ item, page, act, waitsFor, onTitle }: ItemPanelProps) {
   const work = item.work;
   const read = pageIn(page);
   const send = (what: Act) => act(work.number, what);
   return (
-    <Panel
-      label={`Item ${item.number}`}
-      id={item.number}
-      title={
-        <button type="button" className="cw-title-link" title="Show it in the tree" onClick={onTitle}>
-          {item.title}
-        </button>
-      }
-      belongs={work.flow}
-      lines={
-        <div key={item.number}>
-          <ItemLine item={item} waitsFor={waitsFor} />
-          <WorkLine w={work} page={read} />
-          {!ended(work) && <Acts paused={work.paused || work.now.kind === 'paused'} act={send} />}
-        </div>
-      }
-      folded={folded}
-      onFold={onFold}
-      edge={edge}
-    >
+    <div className="cw-item" key={item.number}>
+      <div className="cw-head">
+        <span className="cw-id">{item.number}</span>
+        <h2 className="cw-title">
+          <button type="button" className="cw-title-link" title="Show it in the tree" onClick={onTitle}>
+            {item.title}
+          </button>
+        </h2>
+        <span className="cw-project">{work.flow}</span>
+      </div>
+      <ItemLine item={item} waitsFor={waitsFor} />
+      <WorkLine w={work} page={read} />
+      {!ended(work) && <Acts paused={work.paused || work.now.kind === 'paused'} act={send} />}
       <WindowBody key={item.number} work={work} page={page} act={send} />
-    </Panel>
+    </div>
   );
 }
 
@@ -253,7 +243,7 @@ function WindowBody({ work, page, act }: { work: Summary; page: PageState; act: 
   const [tab, setTab] = useState<'item' | 'work'>('item');
   const read = pageIn(page);
   return (
-    <div className="cw-item">
+    <>
       <div className="cw-tabs" role="tablist">
         {(['item', 'work'] as const).map((k) => (
           <button
@@ -276,7 +266,7 @@ function WindowBody({ work, page, act }: { work: Summary; page: PageState; act: 
           <Notes work={work.number} page={page} act={act} />
         </>
       )}
-    </div>
+    </>
   );
 }
 
