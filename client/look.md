@@ -121,7 +121,8 @@ What the owner reviews every work by, so that it says plainly why a work is wher
   rest, an orange ring when it has a record and runs again, a hairline ring before its first run, a muted dash when
   it is skipped. A square, so that it is not taken for the flow chart's ring and dot, which mean reads and writes.
 - **Strip** (`Strip`): a work's state marks, one per cell of its flow in the order of the walk, 2px apart; each says
-  the cell, its state and how many runs it finished on the pointer's tip.
+  the cell, its state and how many runs it finished on the pointer's tip. The marks' look is said once
+  (`src/works/state-marks.ts`), and the console's cards draw the same strip from it on their canvas.
 - **Now line** (`NowLine`): what a work does now, a dot and its words cut to one line, whole on the pointer's tip. The
   dot is blue while a round is under way, orange with orange words where it waits for the owner, red with red words for
   a fault, green once merged, muted otherwise; "paused" follows in a label where the owner paused a work and what it
@@ -239,10 +240,12 @@ smoothly, and the panel at its right with the item selected. It is the console o
   `--on-colour` on `--red`, and, while its work has not begun, a lock framed in muted with how many items it depends on
   are not merged. A card whose work goes on, once it has begun or while it is paused, at fault or waits, is tinted with the colour of what the work does (`--blue` running,
   `--orange` waiting for the owner, the console's pale yellow `#e8cc6a` waiting for anything else, muted paused,
-  `--red` halted), and has a second row: a short bar for each cell of the work's flow, done in a faint grey, the one it
-  is at in the colour of what it does, pulsing while a round is under way, the others in `--line`; the first letter of
-  that cell; what the work has taken, in dollars; and how long it has gone on, its colour by its age (muted, amber
-  after half an hour, `--red` after an hour, violet after a day). The edge of a card above a work is a light accent, so
+  `--red` halted), and has a second row: the works page's strip of the work's cells, mark for mark, drawn on the
+  canvas from the same definition and the same tokens as the page's marks (`src/works/state-marks.ts`), the mark of a
+  cell running pulsing while its round is under way; what the work has taken, in dollars; and how long it has gone on,
+  its colour by its age (muted, amber after half an hour, `--red` after an hour, violet after a day). The strip keeps
+  the marks' size: the card's room before what the work has taken holds about twenty, and a flow with more shows the
+  first that fit and after them how many more there are, muted. The edge of a card above a work is a light accent, so
   that the branches with work on show from the roots.
 - **Shadow.** Under an item that depends on an item besides the one it stands under, a card with a dashed edge and
   grey words points with an arrow to where that item stands; a click on it selects that item and brings it to the
@@ -255,19 +258,17 @@ smoothly, and the panel at its right with the item selected. It is the console o
 - **Panel.** The page's panel, 560px until dragged, as the console's window was. Its head: the item's number, its
   title, which brings the item into view, and the flow its work runs on. Two status lines (`.cw-line`): where the item
   stands and what it waits for to merge; what its work does, a link to the work's own page, and at the right the
-  **cell marks** (`.stage-bar`): a 16px square for each cell of the flow with the first letter of its id, done on
-  `--green-tint`, the one the work is at in the tone of its card (`--blue` running, `--orange` only where it waits for
-  the owner, the pale yellow waiting for anything else, muted paused, `--red` halted), the others framed on `--ground`;
-  and what it has taken. These lines are the look's status line (`StatusLine`) in all but two things, which is why
-  the console draws its own (`.cw-line`): the dot takes the five tones of a work, among them the pale yellow of a work
-  waiting for anything but the owner, which the status line has no tone for, and the line holds a link and, at its
-  right end, the cell marks. Under them the buttons of what the
+  works page's **strip** (`Strip`) of the work's cells, and what it has taken. These lines are the look's status line
+  (`StatusLine`) in all but two things, which is why the console draws its own (`.cw-line`): the dot takes the five
+  tones of a work, among them the pale yellow of a work waiting for anything but the owner, which the status line has
+  no tone for, and the line holds a link and, at its right end, the strip. Under them the buttons of what the
   owner does to the work: let it on or pause it, and cancel it, each waiting while what it sent is under way. Then two
   **tabs** (`.cw-tabs`), the one shown in the text colour over a 2px accent line, as the bar's; the look has no part
   for tabs inside a panel, and the drawer's text tabs are kept as they were, with its layout. The first says what the work waits for, the owner's things in
   `--orange-text`, and holds the **notes**: a **select** (`.cw-select`, 24px, monospace, as a button's box) of the
   blocks people write, a box to write in, and under it "Goes to" the cells that read the block chosen, with the button
-  that sends it; the second, what the lines do not say of the work, as label and value pairs (`.pairs`).
+  that sends it; the second, what the lines do not say of the work, as label and value pairs (`.pairs`), and the works
+  page's legend of the strip's marks (`StateLegend`).
 
 The canvas follows light and dark: the colours the tokens came from it takes from the tokens, and those that have no
 token (the faint and pale greys, the ribbons, the map's bars) are worked out from the tokens in dark, keeping their
