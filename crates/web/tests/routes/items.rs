@@ -43,7 +43,21 @@ async fn an_item_is_added_with_its_work_paused_and_what_it_depends_on() {
     let second = &items["items"][1];
     assert_eq!(second["dependsOn"], json!([1]));
     assert_eq!(second["work"]["paused"], true);
-    assert_eq!(second["work"]["now"], json!({ "kind": "paused" }));
+    // A precondition holds the work before its cell whether or not it is paused.
+    assert_eq!(
+        second["work"]["now"],
+        json!({
+            "kind": "waits",
+            "at": "plan",
+            "on": [{
+                "kind": "precondition",
+                "test": "ready",
+                "words": "Every item this one depends on has merged",
+                "who": "owner",
+            }],
+        })
+    );
+    assert_eq!(items["items"][0]["work"]["now"], json!({ "kind": "paused" }));
 }
 
 #[tokio::test(start_paused = true)]

@@ -164,8 +164,8 @@ async fn a_version_a_round_and_a_call_are_given_with_their_content() {
     );
     let answered = json!({ "call": 2, "what": question(), "result": "Yes, by name." });
     assert_eq!(get_json(router, "/api/v1/works/1/calls/2").await, answered);
-    // The plan's second round is given the answer, and hands in the plan.
-    pass(1500).await;
+    // The plan's second round is given the answer, and hands in the plan a second and a half later.
+    pass(1600).await;
     assert_eq!(
         get_json(router, "/api/v1/works/1/runs/1/rounds/2").await,
         json!({
