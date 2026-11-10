@@ -46,6 +46,7 @@ pub const REACHED: &[&str] = &[
     ABANDONS,
     GOING_ON,
     STANDING_NO_HOLDS,
+    PERSON_NO_HOLDS,
     SKIPPED_NO_PASSES,
 ];
 
@@ -74,6 +75,7 @@ const MERGE_ROUNDS: &str = "a round of the merge begins";
 const ABANDONS: &str = "a run is abandoned";
 const GOING_ON: &str = "a run at rest goes on";
 const STANDING_NO_HOLDS: &str = "the merge waits on a judge's no while the judge is not skipped";
+const PERSON_NO_HOLDS: &str = "the merge waits on a person's no";
 const SKIPPED_NO_PASSES: &str = "a round of the merge begins over the no of a judge that is skipped";
 
 /// How often each situation was reached.
@@ -481,14 +483,21 @@ fn held(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, test: &decide
             format!("the work waits at {} on {test}, which holds", flow.cells()[i].id),
         );
     } else if flow.tests()[test].kind == TestKind::NoneStanding {
-        v.count(STANDING_NO_HOLDS);
+        let latest = reading.current(&VERDICT.into());
+        if latest.is_some_and(|x| x.by == Writer::Person) {
+            v.count(PERSON_NO_HOLDS);
+        } else {
+            v.count(STANDING_NO_HOLDS);
+        }
     }
 }
 
 /// A further property, entries merge-only-on-what-is-current and no-merge-on-what-is-not-settled, whose Why is that a
 /// merge cannot be taken back: as a round of the merge begins, any of which may be its last, every precondition of
-/// the merge holds by the histories' own reading, so that no judge that is not skipped stands at no, and the record
-/// of every cell before it that is not skipped knows the current meaning of each of its inputs.
+/// the merge holds by the histories' own reading. For the judges' verdicts that is said from the records
+/// ([`Reading::refused`]): no round of the merge begins while some judge that applies now has, as its own last write
+/// of its verdict, no, with no person's write of the verdict since, nor while a person's no is the latest write. And
+/// the record of every cell before the merge that is not skipped knows the current meaning of each of its inputs.
 fn settled(v: &mut Verdict, flow: &Flow, reading: &Reading) {
     v.count(MERGE_ROUNDS);
     let cells = flow.cells();
@@ -499,8 +508,15 @@ fn settled(v: &mut Verdict, flow: &Flow, reading: &Reading) {
             v.fail(SETTLED, format!("the merge begins a round while {test} does not hold"));
         }
     }
+    // The merge begins over a no that a judge wrote last and that holds nothing, the judge being skipped.
     let verdict = reading.current(&VERDICT.into());
-    if verdict.is_some_and(|x| x.value.as_deref() == Some("no") && !reading.stands(flow, x, m)) {
+    let skipped_no = verdict.is_some_and(|x| match &x.by {
+        Writer::Cell(judge, _) => {
+            x.value.as_deref() == Some("no") && flow.place(judge).is_some_and(|j| !reading.applies(flow, j))
+        }
+        Writer::Person | Writer::Outside => false,
+    });
+    if skipped_no {
         v.count(SKIPPED_NO_PASSES);
     }
     let now = Seq(u64::MAX);

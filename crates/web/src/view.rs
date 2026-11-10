@@ -252,8 +252,14 @@ pub enum What {
         test: String,
         block: String,
     },
-    /// The test reads a block that this cell, after the one using the test, writes.
+    /// The test of what stands reads a block that this cell, after the one using the test, writes.
     TestWrittenAfter {
+        test: String,
+        block: String,
+        cell: String,
+    },
+    /// The test of what stands reads a block that this cell writes as well as one before it.
+    StandingWrittenByTwo {
         test: String,
         block: String,
         cell: String,
@@ -581,6 +587,7 @@ impl What {
             F::TestOnOwnOutput { test, block } => What::TestOnOwnOutput { test, block },
             F::TestNotWrittenBefore { test, block } => What::TestNotWrittenBefore { test, block },
             F::TestWrittenAfter { test, block, cell } => What::TestWrittenAfter { test, block, cell },
+            F::StandingWrittenByTwo { test, block, cell } => What::StandingWrittenByTwo { test, block, cell },
             F::Flow(fault) => {
                 let (reason, cell) = match fault {
                     FlowFault::Empty => (FlowRefusal::Empty, None),

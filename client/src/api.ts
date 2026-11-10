@@ -101,6 +101,7 @@ export type What =
   | { kind: 'testOnOwnOutput'; test: string; block: string }
   | { kind: 'testNotWrittenBefore'; test: string; block: string }
   | { kind: 'testWrittenAfter'; test: string; block: string; cell: string }
+  | { kind: 'standingWrittenByTwo'; test: string; block: string; cell: string }
   | {
       kind: 'flowRefused';
       reason: 'empty' | 'twice' | 'conditionOnOwnOutput' | 'lastHasCondition' | 'noLimit' | 'noSuchTest';

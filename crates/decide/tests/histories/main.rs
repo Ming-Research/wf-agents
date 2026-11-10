@@ -15,15 +15,17 @@
 //!   a choice people write of the same name. In half the histories of the first test, drawn apart from the rest, a
 //!   judge stands before the merge, run only while "flip" holds and writing a verdict, yes or no; the merge then also
 //!   waits while the verdict stands at no (a `none_standing` test), its own word holding from the start. The shapes
-//!   give a block both a person and a cell write (every block cells write, since people write them too), a block two cells write of which the
-//!   later does not read it, a judge writing opinions for a cell before it, and that cell skipped while the judge runs.
+//!   give a block both a person and a cell write (every block cells write, since people write them too), a block two
+//!   cells write of which the later does not read it, a judge writing opinions for a cell before it, and that cell
+//!   skipped while the judge runs.
 //!   The flow does not change during a history: the walk's tests of a changed flow are in `walk/changed_flow.rs`.
 //! - people, in the first 0 to 39 steps, at a step with a chance of one in six and at every rest, in about equal shares
 //!   of a tenth: writing the brief; writing prose into a block cells write (an opinions block in a third of those, the
 //!   choice without a value in a sixth); writing the same marked as not mattering; setting the choice to yes or no;
 //!   confirming the choice; the outside writing main, mattering or not; turning "flip" or "ready"; letting a cell go
 //!   on; pausing or resuming; and, once in a hundred acts, cancelling the work, after which nothing more is decided.
-//!   Where the work waits on the verdict, the owner writes it as yes, in half the acts drawn apart from the rest.
+//!   Where the work waits on the verdict, the owner writes it as yes, in half the acts drawn apart from the rest; and
+//!   in eight acts in a hundred of a history with a judge, the owner writes it as yes or no.
 //!   Half the prose goes where it bears on what is going on: into an input of the cell the work waits at or of a cell
 //!   that is skipped, or into a block the open run's cell may write, so that people write while a round is under way
 //!   and while a run is at rest, and write for a cell while it is skipped.
@@ -592,6 +594,16 @@ impl History {
                 }
                 _ => {}
             }
+        }
+        // In a history with a judge, the owner now and then writes the verdict, as yes or no.
+        if let Some(judged) = &mut self.judged
+            && judged.chance(8)
+        {
+            let value = if judged.chance(50) { "yes" } else { "no" };
+            self.note(format!("the owner writes {VERDICT} as {value}"));
+            self.person_writes_now();
+            self.w.person_sets(VERDICT, value);
+            return;
         }
         let prose = self.prose_block(at);
         match self.rng.below(100) {

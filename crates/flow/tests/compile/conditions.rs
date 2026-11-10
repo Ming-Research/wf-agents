@@ -118,7 +118,7 @@ fn design_runs_when(when: &str, writer: &str) -> Source {
 }
 
 #[test]
-fn a_condition_on_a_block_and_one_by_a_test_of_that_block_alone_agree_on_who_writes_it_before() {
+fn a_condition_on_a_block_and_a_condition_by_a_test_of_that_block_alone_are_held_to_the_same_rule() {
     let by_block = "when = { block = \"go\", is = \"yes\" }";
     let by_test = "when = { test = \"go_on\" }";
     // Written before the cell by people or by the outside: both compile.
@@ -133,6 +133,25 @@ fn a_condition_on_a_block_and_one_by_a_test_of_that_block_alone_agree_on_who_wri
         );
         compiled(&source);
     }
+    // Written by a cell before it and by one after it: both compile, the later write deciding again whether it runs.
+    let before_and_after = |source: Source| {
+        let source = edit(
+            source,
+            "judge.toml",
+            r#"outputs = ["needs_design", "opinions"]"#,
+            r#"outputs = ["needs_design", "opinions", "go"]"#,
+        );
+        edit(source, "check.toml", "outputs = [\"ci\"]", "outputs = [\"ci\", \"go\"]")
+    };
+    compiled(&before_and_after(design_runs_when(by_test, "")));
+    let source = design_runs_when(by_block, "");
+    let source = edit(
+        source,
+        "merge.toml",
+        "requires = [\"may_merge\"]",
+        "requires = [\"may_merge\", \"go_on\"]",
+    );
+    compiled(&before_and_after(source));
     // Written only by a cell after it: both are refused, each with its own fault.
     let after = |source: Source| edit(source, "check.toml", "outputs = [\"ci\"]", "outputs = [\"ci\", \"go\"]");
     let go = || "go".to_string();
@@ -147,10 +166,9 @@ fn a_condition_on_a_block_and_one_by_a_test_of_that_block_alone_agree_on_who_wri
     let not_before = ConditionNotWrittenBefore { block: go() };
     assert_eq!(faults(&source), [at("design.toml", "when.block", not_before)]);
     let source = after(design_runs_when(by_test, ""));
-    let not_before = TestWrittenAfter {
+    let not_before = TestNotWrittenBefore {
         test: "go_on".to_string(),
         block: go(),
-        cell: "check".to_string(),
     };
     assert_eq!(faults(&source), [at("design.toml", "when.test", not_before)]);
 }

@@ -327,6 +327,10 @@ fn words(what: &FaultKind) -> String {
         F::TestWrittenAfter { test, block, cell } => {
             format!("the test {test} reads {block}, which {cell}, a cell after this one, writes")
         }
+        F::StandingWrittenByTwo { test, block, cell } => format!(
+            "the test {test}, of what stands, reads {block}, which {cell} writes as well as a cell before it: a \
+             skipped cell's write would hide the other's word"
+        ),
         F::Flow(fault) => format!("the deciding code refuses the cells as a flow: {fault:?}"),
     }
 }

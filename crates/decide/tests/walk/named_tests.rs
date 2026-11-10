@@ -217,3 +217,35 @@ fn a_judge_that_still_says_no_with_nothing_new_to_say_holds_the_merge_for_the_ow
     w.person_sets("verdict", "yes");
     assert_eq!(w.decide(), runs("merge", vec![NO_RECORD], &[]));
 }
+
+/// Whether a test of this kind over `ask` for yes holds before the cell that waits on it, once the cell that wrote
+/// `ask` as yes is skipped: an asker chooses whether a writer runs, the writer writes `ask`, and the asker, run again
+/// for a new brief, then chooses that it does not.
+fn after_the_writer_is_skipped(kind: TestKind) -> bool {
+    let cells = vec![
+        cell("asker", &["brief"], &["more"]),
+        when("more", "yes", cell("writer", &[], &["ask"])),
+        requiring("t", cell("c", &[], &[])),
+        Cell::new("merge"),
+    ];
+    let mut w = World::with_tests(cells, tests(&[("t", test(kind, &["ask"], "yes"))]));
+    w.person_writes("brief");
+    w.run("asker", &[("more", Value("yes"))]);
+    w.run("writer", &[("ask", Value("yes"))]);
+    w.person_writes("brief");
+    w.run("asker", &[("more", Value("no"))]);
+    match w.decide() {
+        Decision::Run { cell, .. } if cell.as_str() == "c" => true,
+        d if d == wait("c", vec![precondition("t", Who::Owner)]) => false,
+        other => panic!("the walk decides {other:?}"),
+    }
+}
+
+#[test]
+fn for_every_kind_but_what_stands_what_a_cell_skipped_now_wrote_still_counts() {
+    assert!(after_the_writer_is_skipped(TestKind::All));
+    assert!(after_the_writer_is_skipped(TestKind::Any));
+    assert!(!after_the_writer_is_skipped(TestKind::None));
+    // Only a test of what stands leaves out the skipped writer's yes.
+    assert!(after_the_writer_is_skipped(TestKind::NoneStanding));
+}

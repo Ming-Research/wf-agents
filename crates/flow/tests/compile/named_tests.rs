@@ -116,7 +116,7 @@ fn a_cell_s_condition_or_precondition_is_no_test_that_reads_what_the_cell_writes
 }
 
 #[test]
-fn a_cell_s_condition_or_precondition_is_no_test_that_reads_what_a_cell_after_it_writes() {
+fn a_cell_s_condition_or_precondition_is_no_test_that_reads_what_only_a_cell_after_it_writes() {
     let source = edit(
         valid(),
         "plan.toml",
@@ -129,10 +129,9 @@ fn a_cell_s_condition_or_precondition_is_no_test_that_reads_what_a_cell_after_it
         "line = \"review\"",
         "line = \"review\"\nwhen = { test = \"may_merge\" }",
     );
-    let what = || TestWrittenAfter {
+    let what = || TestNotWrittenBefore {
         test: "may_merge".into(),
         block: "ci".into(),
-        cell: "check".into(),
     };
     assert_eq!(
         faults(&source),
@@ -165,7 +164,7 @@ fn a_test_may_read_choices_people_or_the_outside_write_before_any_cell() {
 }
 
 #[test]
-fn a_test_reads_no_block_a_cell_after_its_cell_writes_though_one_before_it_writes_it_too() {
+fn a_test_of_what_stands_reads_no_block_a_cell_after_its_cell_writes_and_another_kind_may() {
     // The judge, before the answer, writes needs_design; the check, after it, writes it too.
     let source = edit(
         valid(),
@@ -175,13 +174,56 @@ fn a_test_reads_no_block_a_cell_after_its_cell_writes_though_one_before_it_write
     );
     let reads = r#"reads = ["confirmed", "needs_design"]"#;
     let source = edit(source, FLOW_FILE, r#"reads = ["confirmed"]"#, reads);
-    let what = TestWrittenAfter {
+    // A test that every block has the value is held to the rule of a condition on a block: written before is enough.
+    compiled(&source);
+    let all = "kind = \"all\"\nreads = [\"confirmed\", \"needs_design\"]";
+    let standing = "kind = \"none_standing\"\nreads = [\"confirmed\", \"needs_design\"]";
+    let source = edit(source, FLOW_FILE, all, standing);
+    let after = TestWrittenAfter {
         test: "plan_confirmed".into(),
         block: "needs_design".into(),
         cell: "check".into(),
     };
-    // The design's condition on the same block, which the check's write decides again, is no fault: that is a way back.
-    assert_eq!(faults(&source), [at("answer.toml", "requires[0]", what)]);
+    let two = StandingWrittenByTwo {
+        test: "plan_confirmed".into(),
+        block: "needs_design".into(),
+        cell: "check".into(),
+    };
+    assert_eq!(
+        faults(&source),
+        [
+            at(FLOW_FILE, "tests.plan_confirmed.reads[1]", two),
+            at("answer.toml", "requires[0]", after),
+        ]
+    );
+}
+
+#[test]
+fn a_test_of_what_stands_reads_only_blocks_one_cell_writes_and_people_or_the_outside_may_write_them_too() {
+    let standing = "kind = \"none_standing\"\nreads = [\"ci\"]";
+    let source = edit(valid(), FLOW_FILE, "kind = \"none\"\nreads = [\"ci\"]", standing);
+    // The check alone writes ci, and people too.
+    compiled(&source);
+    let source = edit(
+        source,
+        FLOW_FILE,
+        "values = [\"green\", \"red\"]",
+        "values = [\"green\", \"red\"]\npeople = true",
+    );
+    compiled(&source);
+    // The judge writes it too: a skipped judge's write could hide the other's word, and is refused.
+    let source = edit(
+        source,
+        "judge.toml",
+        r#"outputs = ["needs_design", "opinions"]"#,
+        r#"outputs = ["needs_design", "opinions", "ci"]"#,
+    );
+    let what = StandingWrittenByTwo {
+        test: "may_merge".into(),
+        block: "ci".into(),
+        cell: "check".into(),
+    };
+    assert_eq!(faults(&source), [at(FLOW_FILE, "tests.may_merge.reads[0]", what)]);
 }
 
 #[test]

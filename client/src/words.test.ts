@@ -21,9 +21,9 @@ describe('the words of the page', () => {
     expect(reads('all', ['needs_design', 'changes_tree'])).toBe('all of needs_design, changes_tree are yes');
     expect(reads('any', ['needs_design', 'changes_tree'])).toBe('any of needs_design, changes_tree is yes');
     expect(reads('none', ['needs_design', 'changes_tree'])).toBe('none of needs_design, changes_tree is yes');
-    expect(reads('noneStanding', ['verdict'])).toBe('verdict is not yes, not counting what a skipped cell wrote');
+    expect(reads('noneStanding', ['verdict'])).toBe('verdict is not yes, not counting what a cell skipped now wrote');
     expect(reads('noneStanding', ['verdict', 'deep_verdict'])).toBe(
-      'none of verdict, deep_verdict is yes, not counting what a skipped cell wrote',
+      'none of verdict, deep_verdict is yes, not counting what a cell skipped now wrote',
     );
   });
 
@@ -110,6 +110,16 @@ describe('the words of the page', () => {
         what: { kind: 'testWrittenAfter', test: 'may_merge', block: 'ci', cell: 'check' },
       }),
     ).toBe('The test may_merge reads ci, which check, a cell after this one, writes.');
+    expect(
+      faultWords({
+        file: 'flow.toml',
+        field: 'tests.approved.reads[0]',
+        what: { kind: 'standingWrittenByTwo', test: 'approved', block: 'verdict', cell: 'deep' },
+      }),
+    ).toBe(
+      "The test approved, of what stands, reads verdict, which deep writes as well as a cell before it: a skipped " +
+        "cell's write would hide the other's word.",
+    );
     expect(
       faultWords({
         file: 'check.toml',

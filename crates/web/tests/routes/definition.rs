@@ -183,9 +183,8 @@ async fn the_faults_of_named_tests_and_of_sources_are_given_with_their_blocks() 
     );
     let router = serve(&Shared::new(Ok(source)), None);
     let read = |block: &str| json!({ "test": "may_merge", "block": block });
-    let mut after = read("content");
-    after["kind"] = json!("testWrittenAfter");
-    after["cell"] = json!("review");
+    let mut not_before = read("content");
+    not_before["kind"] = json!("testNotWrittenBefore");
     let mut own = read("content");
     own["kind"] = json!("testOnOwnOutput");
     assert_eq!(
@@ -199,9 +198,32 @@ async fn the_faults_of_named_tests_and_of_sources_are_given_with_their_blocks() 
                     "field": "blocks.request.outside",
                     "what": { "kind": "unknownSource", "block": "request", "source": "mirror" },
                 },
-                { "file": "plan.toml", "field": "requires[0]", "what": after },
+                { "file": "plan.toml", "field": "requires[0]", "what": not_before },
                 { "file": "review.toml", "field": "requires[0]", "what": own },
             ],
+        })
+    );
+
+    let source = edit(
+        tiny(),
+        None,
+        "kind = \"all\"\nreads = [\"go\"]\nis = \"yes\"",
+        "kind = \"none_standing\"\nreads = [\"content\"]\nis = \"no\"",
+    );
+    let source = edit(
+        source,
+        Some("plan"),
+        "outputs = [\"plan\"]",
+        "outputs = [\"plan\", \"content\"]",
+    );
+    let router = serve(&Shared::new(Ok(source)), None);
+    let faults = &get_json(&router, "/api/v1/flow").await["faults"];
+    assert_eq!(
+        faults[1],
+        json!({
+            "file": "flow.toml",
+            "field": "tests.may_merge.reads[0]",
+            "what": { "kind": "standingWrittenByTwo", "test": "may_merge", "block": "content", "cell": "review" },
         })
     );
 

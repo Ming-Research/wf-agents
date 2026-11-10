@@ -238,9 +238,8 @@ impl<'a> Reading<'a> {
     }
 
     /// Whether the named test holds now for the cell at place `i`, by the current versions of the blocks it reads that
-    /// have the value it tests for: all of them, one, none; or, for `none_standing`, none that stands. A version
-    /// stands unless a cell wrote it that is skipped now; a cell is asked only when it
-    /// stands before place `i`, as every writer of what a test reads does in a flow the compiler takes.
+    /// have the value it tests for: all of them, one, none. A test of what stands holds unless it is refused, as
+    /// [`Reading::refused`] says from the records.
     pub fn holds(&self, flow: &Flow, name: &TestName, i: usize) -> bool {
         let test = &flow.tests()[name];
         let with_value: Vec<&Version> = (test.reads.iter())
@@ -251,19 +250,34 @@ impl<'a> Reading<'a> {
             TestKind::All => with_value.len() == test.reads.len(),
             TestKind::Any => !with_value.is_empty(),
             TestKind::None => with_value.is_empty(),
-            TestKind::NoneStanding => !with_value.iter().any(|v| self.stands(flow, v, i)),
+            TestKind::NoneStanding => !self.refused(flow, name, i),
         }
     }
 
-    /// Whether the version stands for the cell at place `i`: unless it was written by a run of a cell before that place
-    /// whose condition is not met now.
-    pub fn stands(&self, flow: &Flow, v: &Version, i: usize) -> bool {
-        match &v.by {
-            Writer::Cell(cell, _) => match flow.place(cell) {
-                Some(j) if j < i => self.applies(flow, j),
-                _ => true,
-            },
-            Writer::Person | Writer::Outside => true,
-        }
+    /// Whether a test of what stands holds the cell at place `i` back, said from the records and what the rule is for,
+    /// not from how the walk reads it: a judge's word holds the work while the judge applies, and a person's while it
+    /// is the latest. For some block the test reads, a person's or the outside's write is the latest and has the value
+    /// tested for; or a cell before place `i` that applies now has that value as its own last write of the block, and
+    /// no person and nothing outside wrote the block since.
+    pub fn refused(&self, flow: &Flow, name: &TestName, i: usize) -> bool {
+        let test = &flow.tests()[name];
+        let is = Some(test.is.as_str());
+        test.reads.iter().any(|block| {
+            let versions = self.of(block);
+            let outsider = |v: &Version| matches!(v.by, Writer::Person | Writer::Outside);
+            let by_outsider = versions.last().is_some_and(|v| outsider(v) && v.value.as_deref() == is);
+            let by_judge = (flow.cells()[..i].iter().enumerate()).any(|(j, c)| {
+                let own = versions
+                    .iter()
+                    .rev()
+                    .find(|v| matches!(&v.by, Writer::Cell(cell, _) if *cell == c.id));
+                own.is_some_and(|own| {
+                    own.value.as_deref() == is
+                        && !versions.iter().any(|v| v.at > own.at && outsider(v))
+                        && self.applies(flow, j)
+                })
+            });
+            by_outsider || by_judge
+        })
     }
 }

@@ -183,7 +183,7 @@ describe('a test of what stands', () => {
       { verdict: { values: ['yes', 'no'] }, deeper: { values: ['yes', 'no'] }, deep_verdict: { values: ['yes', 'no'] } },
     );
     const page = draw({ state: 'compiled', flow });
-    const words = 'No judge refuses (none of verdict, deep_verdict is no, not counting what a skipped cell wrote)';
+    const words = 'No judge refuses (none of verdict, deep_verdict is no, not counting what a cell skipped now wrote)';
     expect(page.querySelectorAll('thead .cell-head')[2].querySelector('.cell-waits')?.textContent).toBe(
       `waits until ${words}`,
     );

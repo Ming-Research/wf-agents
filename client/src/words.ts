@@ -4,9 +4,9 @@
 import type { Block, Change, Condition, Fault, Kind, LimitName, Test } from './api';
 
 /// What a named test holds on, from the blocks it reads: "ci is not red", "any of needs_design, changes_tree is yes",
-/// "none of verdict, deep_verdict is no, not counting what a skipped cell wrote".
+/// "none of verdict, deep_verdict is no, not counting what a cell skipped now wrote".
 export function readsWords(test: Test): string {
-  const standing = test.kind === 'noneStanding' ? ', not counting what a skipped cell wrote' : '';
+  const standing = test.kind === 'noneStanding' ? ', not counting what a cell skipped now wrote' : '';
   if (test.reads.length === 1) {
     const not = test.kind === 'none' || test.kind === 'noneStanding' ? 'not ' : '';
     return `${test.reads[0]} is ${not}${test.is}${standing}`;
@@ -102,6 +102,8 @@ export function faultWords(fault: Fault): string {
       return `The test ${w.test} reads ${w.block}, which neither a cell before this one, people nor the outside write.`;
     case 'testWrittenAfter':
       return `The test ${w.test} reads ${w.block}, which ${w.cell}, a cell after this one, writes.`;
+    case 'standingWrittenByTwo':
+      return `The test ${w.test}, of what stands, reads ${w.block}, which ${w.cell} writes as well as a cell before it: a skipped cell's write would hide the other's word.`;
     case 'flowRefused': {
       const at = w.cell ? ` (${w.cell})` : '';
       const why = {
