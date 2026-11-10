@@ -312,8 +312,7 @@ impl Driver {
     /// The work as it is now: what it does next, each cell's state, every version of every block.
     pub fn view(&self, number: WorkNumber) -> Option<View> {
         let kept = self.work(number)?;
-        // MUTANT: the view asks the named tests of no records rather than of the work's.
-        let tests = kept.flow.tests(&decide::Records::default());
+        let tests = kept.flow.tests(&kept.work.records);
         Some(decide::view(&kept.flow.flow, &kept.work.records, &tests))
     }
 
@@ -446,7 +445,8 @@ fn end_of(flow: &Compiled, work: &Work) -> Option<End> {
 /// The failure of what follows from a thing that happened, once the thing itself is kept.
 fn kept(failed: Failed) -> Failed {
     match failed {
-        Failed::Stopped { fault, .. } => Failed::Stopped { fault, kept: true },
+        // MUTANT: what was kept before the store failed is said not to have been.
+        Failed::Stopped { fault, .. } => Failed::Stopped { fault, kept: false },
         other => other,
     }
 }
