@@ -6,19 +6,20 @@ use std::collections::BTreeMap;
 use decide::run::{self, Requires, Step, Unmet};
 use decide::{
     Abandoned, BlockId, CallId, Called, Decision, Done, Finished, LetGo, Outsider, Pause, Returned, Round, RunId,
-    Started, Tests, Who, Write, Written, decide, paused, stale,
+    Started, Who, Write, Written, decide, paused, stale,
 };
 use flow::Compiled;
 
 use crate::event::{Came, Effect, Event, Refused};
+use crate::named::{NamedTests, Now};
 use work::{Ask, Back, Call, Given, Moment, Time, Work};
 
 /// Takes one thing that happened to the work, at the time the driver's clock gives, and gives what is to be done for
 /// it outside the engine. Where the records cannot be those of a work nothing is given: the deciding code says so when
-/// asked.
+/// asked. The named tests are asked at every walk with the work as it then is.
 pub fn handle(
     flow: &Compiled,
-    tests: &dyn Tests,
+    tests: &dyn NamedTests,
     work: &mut Work,
     now: Time,
     event: Event,
@@ -33,7 +34,7 @@ pub fn handle(
     // not stale, the run finishes here, before the walk, so that no cell before it comes between.
     if let Some(run) = returned
         && open(work, run)
-        && stale(&flow.flow, &work.records, tests, run).is_none()
+        && stale(&flow.flow, &work.records, &Now { tests, work }, run).is_none()
     {
         let choices = choices(flow);
         if let Some(requires) = requires(flow, &choices, work, run)
@@ -182,9 +183,10 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
 }
 
 /// Asks the deciding code what follows, and does it, until the work has a round under way, waits or has ended.
-fn advance(flow: &Compiled, tests: &dyn Tests, work: &mut Work, effects: &mut Vec<Effect>) {
+fn advance(flow: &Compiled, tests: &dyn NamedTests, work: &mut Work, effects: &mut Vec<Effect>) {
     loop {
-        let run = match decide(&flow.flow, &work.records, tests) {
+        let decision = decide(&flow.flow, &work.records, &Now { tests, work });
+        let run = match decision {
             Decision::Run { cell, because, basis } => {
                 let run = RunId(work.name());
                 let at = work.tick();

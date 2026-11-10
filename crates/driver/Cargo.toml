@@ -1,0 +1,21 @@
+[package]
+name = "driver"
+description = "Drives the engine for every work: takes what happens, keeps it, and gives what is to be done outside"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+decide = { path = "../decide" }
+engine = { path = "../engine" }
+flow = { path = "../flow" }
+store = { path = "../store" }
+work = { path = "../work" }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

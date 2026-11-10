@@ -311,17 +311,7 @@ pub(crate) struct Walk<'a> {
 
 impl<'a> Walk<'a> {
     pub(crate) fn new(flow: &'a Flow, records: &'a Records, tests: &'a dyn Tests) -> Self {
-        let mut runs: BTreeMap<RunId, RunView<'a>> = BTreeMap::new();
-        for started in &records.started {
-            let view = RunView {
-                started,
-                finished: records.finished.iter().find(|f| f.run == started.run),
-                abandoned: records.abandoned.iter().any(|a| a.run == started.run),
-                began: records.rounds.iter().filter(|r| r.run == started.run).count(),
-                ended: records.returned.iter().filter(|r| r.run == started.run).count(),
-            };
-            runs.insert(started.run, view);
-        }
+        let runs = read_runs(records);
         let versions = read_versions(records, &runs);
         Self {
             flow,
@@ -473,6 +463,22 @@ impl<'a> Walk<'a> {
     }
 }
 
+/// The runs of the records, each as the walk reads it.
+pub(crate) fn read_runs(records: &Records) -> BTreeMap<RunId, RunView<'_>> {
+    let mut runs = BTreeMap::new();
+    for started in &records.started {
+        let view = RunView {
+            started,
+            finished: records.finished.iter().find(|f| f.run == started.run),
+            abandoned: records.abandoned.iter().any(|a| a.run == started.run),
+            began: records.rounds.iter().filter(|r| r.run == started.run).count(),
+            ended: records.returned.iter().filter(|r| r.run == started.run).count(),
+        };
+        runs.insert(started.run, view);
+    }
+    runs
+}
+
 /// Every version of every block, each with its meaning. The first version of a block has its own. A block that has
 /// a value in this version or the one before, a choice, keeps the meaning of the version before when the two values
 /// are the same, and has its own when they are not, whatever its writer says. Of any other block, a person's write
@@ -480,7 +486,7 @@ impl<'a> Walk<'a> {
 /// version before it, provided its writer saw that meaning: the outside always did, and a run did when the version
 /// it started from has it. A run that did not, because the block's meaning was changed after it started, has a
 /// meaning of its own for what it wrote.
-fn read_versions<'a>(
+pub(crate) fn read_versions<'a>(
     records: &'a Records,
     runs: &BTreeMap<RunId, RunView<'a>>,
 ) -> BTreeMap<&'a BlockId, Vec<Version<'a>>> {

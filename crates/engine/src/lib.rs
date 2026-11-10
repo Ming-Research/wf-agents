@@ -11,10 +11,13 @@
 //!
 //! - [`event`]: what happens to a work, and what is to be done for it.
 //! - [`handle`](mod@handle): the loop.
+//! - [`named`]: the named tests, asked of the work as it is now.
 
 pub mod event;
 pub mod handle;
+pub mod named;
 
 pub use event::{Came, Effect, Event, Refused};
 pub use handle::{handle, pending};
+pub use named::{NamedTests, Now};
 pub use work::{Ask, Back, Call, Given, Handed, Moment, Spent, Time, Work};

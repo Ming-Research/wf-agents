@@ -188,6 +188,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "driver"
+version = "0.1.0"
+dependencies = [
+ "decide",
+ "engine",
+ "flow",
+ "store",
+ "tempfile",
+ "work",
+]
+
+[[package]]
 name = "engine"
 version = "0.1.0"
 dependencies = [
