@@ -6,13 +6,12 @@
 mod running;
 mod talk;
 
-use std::collections::BTreeSet;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
-use flow::{Fault, FaultKind, Source};
+use flow::{Fault, FaultKind, Has, Source};
 use web::works::Act;
 
 use crate::talk::Asked;
@@ -231,9 +230,17 @@ fn main() -> ExitCode {
 /// which are not built yet.
 const SOURCES: [&str; 4] = ["dependencies", "main", "session", "tree"];
 
-/// The sources outside a work, by name, for any definition.
-fn sources(_: &Source) -> BTreeSet<String> {
-    SOURCES.into_iter().map(str::to_string).collect()
+/// The names of the acts of the engine's own that carry out an engine cell: `start` makes the place a work is done
+/// in, `check` checks the work before its merge, and `merge` merges it.
+const ACTS: [&str; 3] = ["start", "check", "merge"];
+
+/// What the engine has, by name, for any definition.
+fn has(_: &Source) -> Has {
+    let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
+    Has {
+        sources: names(&SOURCES),
+        acts: names(&ACTS),
+    }
 }
 
 fn check(dir: &Path) -> ExitCode {
@@ -244,7 +251,7 @@ fn check(dir: &Path) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match flow::compile(&source, &sources(&source)) {
+    match flow::compile(&source, &has(&source)) {
         Ok(compiled) => {
             let count = |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
             println!(
@@ -290,6 +297,11 @@ fn words(what: &FaultKind) -> String {
         F::NoLine => "an agent's cell names no line to run in".to_string(),
         F::EngineHasLine { line } => format!("an engine's cell runs in no session, but names the line {line}"),
         F::NoSuchLine { line } => format!("the line {line} is not declared in flow.toml"),
+        F::NoTask => "an agent's cell has no task: its agent would be told nothing to do".to_string(),
+        F::EngineHasTask => "an engine's cell has a task, which no agent reads".to_string(),
+        F::NoAct => "an engine's cell names no act to carry it out".to_string(),
+        F::AgentHasAct { act } => format!("an agent carries the cell out, but it names the act {act}"),
+        F::UnknownAct { act } => format!("the engine has no act named {act}"),
         F::ValuesEmpty => "a choice has no values to choose from".to_string(),
         F::NoSuchBlock { block } => format!("the block {block} is not declared in flow.toml"),
         F::NoWriter { block } => format!("nothing writes {block}: no cell of the order, no person and nothing outside"),
@@ -343,7 +355,7 @@ fn the_flow_page_is_printed_at_the_flow_view() {
 fn page(dir: PathBuf, against: Option<PathBuf>, port: u16) -> ExitCode {
     let shown = dir.display().to_string();
     let compared = against.as_ref().map(|a| a.display().to_string());
-    let flows = web::Flows::dirs(dir, against, Box::new(sources));
+    let flows = web::Flows::dirs(dir, against, Box::new(has));
     let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(runtime) => runtime,
         Err(e) => {

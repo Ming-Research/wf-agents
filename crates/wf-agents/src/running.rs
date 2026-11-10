@@ -6,14 +6,13 @@
 //! hands nothing out, and two engines never drive the same works: each would give every round under way to its own
 //! carriers, and both would carry it out.
 
-use std::collections::BTreeSet;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use flow::{Compiled, Source};
+use flow::{Compiled, Has, Source};
 use service::{Script, Scripted, Service, SystemClock};
 use store::Store;
 
@@ -23,12 +22,11 @@ const STORE: &str = "store.sqlite";
 /// The file in the data directory whose lock says that an engine runs on it.
 const HELD: &str = "engine.lock";
 
-/// The sources outside a work that a flow run here may name: those every definition is compiled against. Of these
-/// this process writes the driver's alone, whether the items an item depends on have merged; with the scripted
-/// carriers nothing writes the host's, so a block of `main`, `session` or `tree` stays unwritten, and a cell that
-/// reads one starts from no version of it.
-fn sources(source: &Source) -> BTreeSet<String> {
-    crate::sources(source)
+/// What a flow run here may name: what every definition is compiled against. Of the sources this process writes the
+/// driver's alone, whether the items an item depends on have merged; nothing writes the host's yet, so a block of
+/// `main`, `session` or `tree` stays unwritten, and a cell that reads one starts from no version of it.
+fn has(source: &Source) -> Has {
+    crate::has(source)
 }
 
 /// The address the works page is printed at.
@@ -94,10 +92,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], script: &Path, port: u16) -> ExitCode 
                 return ExitCode::FAILURE;
             }
         };
-        let router = web::with_works(
-            web::Flows::dirs(shown.clone(), None, Box::new(sources)),
-            service.handle(),
-        );
+        let router = web::with_works(web::Flows::dirs(shown.clone(), None, Box::new(has)), service.handle());
         println!("The owner's pages are at {}", works_page(address));
         tokio::select! {
             fault = service.run(inbox) => {
@@ -153,7 +148,7 @@ fn read(data: &Path, dirs: &[PathBuf], script: &Path) -> Option<(Vec<Compiled>, 
                 continue;
             }
         };
-        match flow::compile(&source, &sources(&source)) {
+        match flow::compile(&source, &has(&source)) {
             Ok(compiled) => flows.push(compiled),
             Err(faults) => {
                 for fault in &faults {

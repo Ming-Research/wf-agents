@@ -15,7 +15,6 @@ pub mod interface;
 pub mod view;
 pub mod works;
 
-use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -36,8 +35,8 @@ mod built {
 /// Reads a definition's files, or says why they cannot be read.
 pub type Read = Box<dyn Fn() -> Result<Source, String> + Send + Sync>;
 
-/// The sources outside a work that the engine has, by name, for a definition.
-pub type Sources = Box<dyn Fn(&Source) -> BTreeSet<String> + Send + Sync>;
+/// What the engine has, by name, for a definition: the sources outside a work and the engine's own acts.
+pub type Has = Box<dyn Fn(&Source) -> flow::Has + Send + Sync>;
 
 /// Where the page's definitions come from.
 pub struct Flows {
@@ -45,20 +44,20 @@ pub struct Flows {
     pub shown: Read,
     /// The definition compared against, if any.
     pub against: Option<Read>,
-    /// The sources outside a work each definition is compiled against.
-    pub sources: Sources,
+    /// What each definition is compiled against.
+    pub has: Has,
 }
 
 impl Flows {
     /// The definitions in these directories, read with [`flow::read`].
-    pub fn dirs(shown: PathBuf, against: Option<PathBuf>, sources: Sources) -> Self {
+    pub fn dirs(shown: PathBuf, against: Option<PathBuf>, has: Has) -> Self {
         let reader = |dir: PathBuf| -> Read {
             Box::new(move || flow::read(&dir).map_err(|e| format!("{}: {e}", dir.display())))
         };
         Flows {
             shown: reader(shown),
             against: against.map(reader),
-            sources,
+            has,
         }
     }
 
@@ -68,7 +67,7 @@ impl Flows {
             Ok(source) => source,
             Err(reason) => return (Definition::Unreadable { reason }, None),
         };
-        match flow::compile(&source, &(self.sources)(&source)) {
+        match flow::compile(&source, &(self.has)(&source)) {
             Ok(compiled) => (
                 Definition::Compiled {
                     flow: Flow::of(&compiled),

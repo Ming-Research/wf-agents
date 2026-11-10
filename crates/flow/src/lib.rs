@@ -19,6 +19,6 @@ pub mod named;
 pub mod source;
 
 pub use compare::{BlockChange, CellChange, Change, Limit, compare};
-pub use compile::{Block, CellSpec, Compiled, Fault, FaultKind, Limits, Readers, Test, Writers, compile};
+pub use compile::{Block, CellSpec, Compiled, Fault, FaultKind, Has, Limits, Readers, Test, Writers, compile};
 pub use named::NamedTests;
 pub use source::{FLOW_FILE, Kind, Source, TestKind, read};

@@ -205,6 +205,15 @@ pub enum What {
     NoSuchLine {
         line: String,
     },
+    NoTask,
+    EngineHasTask,
+    NoAct,
+    AgentHasAct {
+        act: String,
+    },
+    UnknownAct {
+        act: String,
+    },
     ValuesEmpty,
     NoSuchBlock {
         block: String,
@@ -559,6 +568,11 @@ impl What {
             F::NoLine => What::NoLine,
             F::EngineHasLine { line } => What::EngineHasLine { line },
             F::NoSuchLine { line } => What::NoSuchLine { line },
+            F::NoTask => What::NoTask,
+            F::EngineHasTask => What::EngineHasTask,
+            F::NoAct => What::NoAct,
+            F::AgentHasAct { act } => What::AgentHasAct { act },
+            F::UnknownAct { act } => What::UnknownAct { act },
             F::ValuesEmpty => What::ValuesEmpty,
             F::NoSuchBlock { block } => What::NoSuchBlock { block },
             F::NoWriter { block } => What::NoWriter { block },
