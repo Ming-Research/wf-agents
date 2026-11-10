@@ -11,6 +11,10 @@ main = "main"
 # A shell command run in a work's worktree, by the check before the merge and by the agents' tool `check`; its exit
 # with 0 means the work passes.
 check = "cargo test"
+# The acts refuse a repository whose own configuration could make git run a program (a filter, a merge driver, a
+# hooks directory, an included file and the like). A key the repository needs is allowed here, whole or as a beginning
+# followed by `*`.
+# allowed_config = ["filter.lfs.*"]
 
 [agents]
 # The command line program that runs an agent's round.

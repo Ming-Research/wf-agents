@@ -73,18 +73,34 @@ struct Said {
     err: String,
 }
 
-/// What every git command of the engine's is given before its own arguments: no file-system monitor and no hook,
-/// so that nothing the repository's configuration names is run. A work's worktree shares that configuration with
-/// the owner's checkout, and an agent may write it.
-pub const SAFE: [&str; 4] = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"];
+/// What every git command of the engine's is given before its own arguments: no file-system monitor, no hook and
+/// no signing, so that nothing the repository's configuration names is run by these settings. A work's worktree
+/// shares that configuration with the owner's checkout, and an agent may write it; what else of it could run a
+/// program is refused before each act ([`configuration`]).
+pub const SAFE: [&str; 8] = [
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "core.hooksPath=/dev/null",
+    "-c",
+    "commit.gpgSign=false",
+    "-c",
+    "merge.verifySignatures=false",
+];
 
-/// Runs git in the directory; says why where it cannot be started.
+/// Runs git in the directory; says why where it cannot be started. Git is given, of the engine's environment, only
+/// what the agents are given of it (`cli::KEPT` and every `LC_*`), so that no `GIT_*` variable of the engine's
+/// reaches it but the one set here.
 async fn said(dir: &Path, args: &[&str]) -> Result<Said, String> {
+    let kept =
+        std::env::vars().filter(|(name, _)| crate::cli::KEPT.contains(&name.as_str()) || name.starts_with("LC_"));
     let output = Command::new("git")
         .arg("-C")
         .arg(dir)
         .args(SAFE)
         .args(args)
+        .env_clear()
+        .envs(kept)
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(std::process::Stdio::null())
         .output()
@@ -116,6 +132,7 @@ fn text(path: &Path) -> String {
 
 /// Makes the work's branch from the main branch's head and its worktree, keeping both where they are made already.
 pub async fn start(project: &Project, place: &Place) -> Result<Started, String> {
+    configuration(project, place).await?;
     let repo = &project.repo;
     let (branch, main) = (place.reference(), format!("refs/heads/{}", project.main));
     if place.dir.exists() {
@@ -176,6 +193,7 @@ pub(crate) async fn check(
     let dir = worktree(place)?;
     let (commit, main, merged) = {
         let _held = repository.lock().await;
+        configuration(project, place).await?;
         let commit = git(&project.repo, &["rev-parse", &place.reference()]).await?;
         let main = git(&project.repo, &["rev-parse", &format!("refs/heads/{}", project.main)]).await?;
         let changes = git(&dir, &["status", "--porcelain"]).await?;
@@ -221,9 +239,8 @@ pub(crate) async fn check(
 /// hold no uncommitted change and no merge under way, and gives the head of the main branch after it: the merge
 /// commit, or, where the branch holds nothing the main branch does not, the head as it was. Where `checked` names the
 /// commit the check passed, the branch's head must be that commit, and it is what is merged. A merge is refused while
-/// the repository's own configuration names a program git would run in it ([`runs_code`]): turned off here, a merge
-/// driver or a filter would merge otherwise than the check saw. Where the merge fails, the merge it began is taken
-/// back.
+/// the repository's own configuration names a program git could run ([`configuration`]), as every act is. Where the
+/// merge fails, the merge it began is taken back.
 pub async fn merge(project: &Project, place: &Place, checked: Option<&str>) -> Result<String, String> {
     let repo = &project.repo;
     let on = git(repo, &["symbolic-ref", "--quiet", "--short", "HEAD"]).await?;
@@ -241,19 +258,7 @@ pub async fn merge(project: &Project, place: &Place, checked: Option<&str>) -> R
             repo.display()
         ));
     }
-    let local = git(repo, &["config", "--local", "--list"]).await?;
-    let unsafe_keys: Vec<&str> = (local.lines())
-        .map(|line| line.split_once('=').map_or(line, |(key, _)| key))
-        .filter(|key| runs_code(key))
-        .collect();
-    if !unsafe_keys.is_empty() {
-        return Err(format!(
-            "the repository's own configuration in {} names what git would run in a merge: {}; take it out before \
-             the work merges",
-            repo.display(),
-            unsafe_keys.join(", ")
-        ));
-    }
+    configuration(project, place).await?;
     let merging = || async {
         said(repo, &["rev-parse", "--quiet", "--verify", "MERGE_HEAD"])
             .await
@@ -299,14 +304,84 @@ pub async fn merge(project: &Project, place: &Place, checked: Option<&str>) -> R
     git(repo, &["rev-parse", "HEAD"]).await
 }
 
-/// Whether a key of a repository's configuration names a program git runs: a file-system monitor, a directory of
-/// hooks, a merge driver or a filter. Git gives each key in lower case but for a subsection's name.
+/// Refuses, saying each key, a repository whose own configuration could make git run a program during the engine's
+/// commands: the keys of [`runs_code`] in its local and worktree scopes, and in what a local `include.path` or
+/// `includeIf` brings in, read in the owner's checkout and in the work's worktree where it is made. A key that matches
+/// one of the project's `allowed_config` (a whole key, or a beginning followed by `*`) is let be, for a repository that
+/// needs Git LFS, git-crypt or git-annex. This narrows the gap and does not close it: an agent that may run `git` can
+/// write the repository's configuration at any moment, between this check and the command it guards. Closing it needs
+/// the agents confined to their worktree by the system, which is not built.
+pub async fn configuration(project: &Project, place: &Place) -> Result<(), String> {
+    let mut dirs = vec![project.repo.clone()];
+    if place.dir.is_dir() {
+        dirs.push(place.dir.clone());
+    }
+    let mut found = std::collections::BTreeSet::new();
+    for dir in &dirs {
+        let listed = git(dir, &["config", "--list", "--show-scope", "--includes"]).await?;
+        for line in listed.lines() {
+            let Some((scope, entry)) = line.split_once('\t') else {
+                continue;
+            };
+            if scope != "local" && scope != "worktree" {
+                continue;
+            }
+            let key = entry.split_once('=').map_or(entry, |(key, _)| key).to_ascii_lowercase();
+            if runs_code(&key) && !allowed(&project.allowed_config, &key) {
+                found.insert(format!("{key} ({scope})"));
+            }
+        }
+    }
+    if found.is_empty() {
+        return Ok(());
+    }
+    let found: Vec<String> = found.into_iter().collect();
+    Err(format!(
+        "the repository's own configuration in {} names what git could run in the engine's commands: {}. Take each \
+         out, or, where the repository needs it, allow it in [project] allowed_config",
+        project.repo.display(),
+        found.join(", ")
+    ))
+}
+
+/// Whether a key, in lower case, of a repository's configuration names a program git may run, or brings in another
+/// file of configuration.
 fn runs_code(key: &str) -> bool {
-    let key = key.to_ascii_lowercase();
-    key == "core.fsmonitor"
-        || key == "core.hookspath"
+    const KEYS: [&str; 13] = [
+        "core.fsmonitor",
+        "core.hookspath",
+        "diff.external",
+        "gpg.program",
+        "include.path",
+        "extensions.worktreeconfig",
+        "core.sshcommand",
+        "core.gitproxy",
+        "credential.helper",
+        "core.editor",
+        "sequence.editor",
+        "core.pager",
+        "core.askpass",
+    ];
+    let within = |section: &str, name: &str| key.starts_with(section) && key.ends_with(name);
+    KEYS.contains(&key)
         || key.starts_with("filter.")
-        || (key.starts_with("merge.") && key.ends_with(".driver"))
+        || key.starts_with("includeif.")
+        || within("merge.", ".driver")
+        || within("diff.", ".textconv")
+        || within("diff.", ".command")
+        || within("gpg.", ".program")
+        || within("credential.", ".helper")
+}
+
+/// Whether the key matches one of the patterns: the whole key, or, for a pattern ending in `*`, its beginning.
+fn allowed(patterns: &[String], key: &str) -> bool {
+    patterns.iter().any(|pattern| {
+        let pattern = pattern.to_ascii_lowercase();
+        match pattern.strip_suffix('*') {
+            Some(beginning) => key.starts_with(beginning),
+            None => key == pattern,
+        }
+    })
 }
 
 #[cfg(test)]

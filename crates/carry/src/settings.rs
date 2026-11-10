@@ -25,6 +25,10 @@ pub struct Project {
     pub main: String,
     /// A shell command run in a work's worktree; its exit with 0 means the work passes.
     pub check: String,
+    /// The keys of the repository's own configuration that could make git run a program and that the acts are to let
+    /// be, each a whole key or a beginning followed by `*`: `filter.lfs.*` for a repository that needs Git LFS.
+    #[serde(default)]
+    pub allowed_config: Vec<String>,
 }
 
 /// How the agents are run.

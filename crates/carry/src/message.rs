@@ -102,6 +102,10 @@ const NO_RESULT: &str = "(It has no result.)";
 fn earlier_results(round: usize) -> String {
     format!("## Round {round} of this run: the results of what you asked for")
 }
+fn read_before(input: &str) -> String {
+    let names: Vec<&str> = input.split_whitespace().collect();
+    format!("### You read {}: read again what you need.", names.join(", "))
+}
 fn earlier_sent_back(round: usize) -> String {
     format!("## Round {round} of this run: what you handed in was sent back")
 }
@@ -130,7 +134,7 @@ pub fn message(
             match work.given.get(&(run, earlier)) {
                 Some(Given::Results(calls)) => {
                     parts.push(earlier_results(earlier));
-                    calls_and_results(work, calls, &mut parts);
+                    calls_and_results(work, calls, true, &mut parts);
                 }
                 Some(Given::SentBack(unmet)) => {
                     parts.push(earlier_sent_back(earlier));
@@ -144,7 +148,7 @@ pub fn message(
         Given::Task => {}
         Given::Results(calls) => {
             parts.push(RESULTS.to_string());
-            calls_and_results(work, calls, &mut parts);
+            calls_and_results(work, calls, false, &mut parts);
             parts.push(GO_ON.to_string());
         }
         Given::SentBack(unmet) => {
@@ -242,9 +246,18 @@ fn task(flow: &Compiled, work: &Work, cell: &CellSpec, run: RunId, parts: &mut V
     });
 }
 
-/// Each call with its result.
-fn calls_and_results(work: &Work, calls: &[CallId], parts: &mut Vec<String>) {
+/// Each call with its result; of an earlier round, a `read` only named.
+fn calls_and_results(work: &Work, calls: &[CallId], earlier: bool, parts: &mut Vec<String>) {
     for call in calls {
+        // What an earlier round read is named, not given again: the blocks may have changed since, and the agent reads
+        // again what it needs.
+        if let Some(Call::Asked(Ask::Tool { name, input })) = work.calls.get(call)
+            && earlier
+            && name == crate::read::READ
+        {
+            parts.push(read_before(input));
+            continue;
+        }
         let head = match work.calls.get(call) {
             Some(Call::Asked(Ask::Tool { name, input })) => tool(name, input),
             Some(Call::Asked(Ask::Person { question: q, .. })) => question(q),

@@ -228,6 +228,7 @@ impl Real {
                 repo: repo.clone(),
                 main: "main".to_string(),
                 check: check.to_string(),
+                allowed_config: Vec::new(),
             },
             agents: Agents {
                 command: command.display().to_string(),

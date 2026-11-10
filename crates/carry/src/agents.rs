@@ -130,8 +130,9 @@ impl Rounds for Agents {
             // Nothing here carries the round out; a program a process of the engine that ended left running for it
             // is stopped before the round ends.
             let group = self.inner.kept(&round).with_extension("pgid");
+            let dir = git::place(&self.inner.data, &git::tag(&self.inner.installation), round.work).dir;
             tokio::spawn(async move {
-                process::stop_left(&group).await;
+                process::stop_left(&group, &dir).await;
                 reply.ended(Came::HandsIn(Vec::new()), Spent::default());
             });
         }
@@ -152,7 +153,7 @@ impl Inner {
                 .map_err(|e| format!("{}: {e}", parent.display()))?;
         }
         let group = base.with_extension("pgid");
-        process::stop_left(&group).await;
+        process::stop_left(&group, &dir).await;
         let session = session::session(self.installation, round.work, line);
         let mut begin = cli::begin(flow, work, line);
         let before = cli::spent_before(flow, work, line);

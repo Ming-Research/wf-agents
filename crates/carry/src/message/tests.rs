@@ -450,6 +450,34 @@ Go on with the task.
 }
 
 #[test]
+fn an_earlier_read_is_named_and_not_given_again() {
+    let mut small = objected();
+    small.back(Came::Asks(vec![Ask::Tool {
+        name: "read".to_string(),
+        input: "plan@5 opinions".to_string(),
+    }]));
+    small.done("### `plan`, version 5\n\nGreet by name.");
+    small.back(Came::Asks(vec![Ask::Tool {
+        name: "read".to_string(),
+        input: "request".to_string(),
+    }]));
+    small.done("### `request`, version 1\n\nGreet the user.");
+    let told = small.told_as(true);
+    assert!(
+        told.contains("\n\n### You read plan@5, opinions: read again what you need.\n\n"),
+        "{told}"
+    );
+    assert!(
+        !told.contains("Greet by name."),
+        "an earlier read is not given again: {told}"
+    );
+    assert!(
+        told.ends_with("Greet the user.\n\nGo on with the task.\n"),
+        "the round's own read is given: {told}"
+    );
+}
+
+#[test]
 fn a_call_the_work_does_not_hold_is_said_so() {
     let small = objected();
     let (run, cell, ..) = small.round();
