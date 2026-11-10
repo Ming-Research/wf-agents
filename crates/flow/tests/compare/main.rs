@@ -13,9 +13,6 @@ mod fields;
 mod flow_itself;
 mod order;
 
-use std::collections::BTreeSet;
-
-use decide::TestName;
 use flow::{Change, Compiled, Source};
 
 /// The small flow's files without the file of this cell.
@@ -25,12 +22,11 @@ fn without(source: Source, cell: &str) -> Source {
     source
 }
 
-/// The definition compiled against the tests the small flow declares and one more, `ci_green`, which a test may put
-/// in.
+/// The definition compiled against the source the small flow names and one more, `mirror`, which a test may name.
 fn compiled(source: &Source) -> Compiled {
-    let mut known: BTreeSet<TestName> = support::known();
-    known.insert("ci_green".into());
-    match flow::compile(source, &known) {
+    let mut sources = support::sources();
+    sources.insert("mirror".to_string());
+    match flow::compile(source, &sources) {
         Ok(compiled) => compiled,
         Err(faults) => panic!("the definition should compile: {faults:#?}"),
     }

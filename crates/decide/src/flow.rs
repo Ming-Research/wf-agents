@@ -44,7 +44,7 @@ name!(
     BlockId
 );
 name!(
-    /// The name of a test of the records: a condition that reads no block's value, or a precondition.
+    /// The name of a named test: a test of the values of blocks of the work, for a cell's condition or precondition.
     TestName
 );
 
@@ -61,7 +61,8 @@ pub enum FlowFault {
     Empty,
     /// Two cells have this name.
     Twice(CellId),
-    /// The cell's condition reads a block the cell itself writes: it could never come to run.
+    /// The cell's condition reads a block the cell itself writes: it would decide by what it writes itself whether it
+    /// runs.
     ConditionOnOwnOutput(CellId),
     /// The last cell has a condition: a work ends when its last cell has a record, so the last cell always runs.
     LastHasCondition(CellId),
@@ -143,6 +144,6 @@ impl Cell {
 pub enum Condition {
     /// The block's current value is this one (principle yes-no-forks).
     Is { block: BlockId, value: String },
-    /// The named test of the records holds.
+    /// The named test holds.
     Test(TestName),
 }

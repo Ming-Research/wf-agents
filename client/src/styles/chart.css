@@ -175,7 +175,8 @@ tr.row.chosen > .block-head {
   overflow-wrap: break-word;
 }
 
-/* A block's name at the left of its row, its signs and the values of a choice after it. */
+/* A block's name at the left of its row, its signs, the source outside that writes it and the values of a choice after
+   it. */
 .block-head {
   scroll-margin-top: var(--chart-head-room);
 }
@@ -196,7 +197,8 @@ tr.row.chosen > .block-head {
   white-space: nowrap;
 }
 
-.block-values {
+.block-values,
+.block-source {
   min-width: 0;
   overflow: hidden;
   color: var(--muted);
@@ -329,7 +331,8 @@ svg.changed-field {
   stroke: none;
 }
 
-.part.condition {
+.part.condition,
+.part.precondition {
   stroke-width: 1.5;
 }
 

@@ -1,6 +1,6 @@
 //! What belongs to the flow as a whole: its name, its limits, its named tests.
 
-use flow::{CellChange, Change, FLOW_FILE, Limit};
+use flow::{CellChange, Change, FLOW_FILE, Limit, Test, TestKind};
 
 use crate::from_valid;
 use crate::support::{edit, valid};
@@ -48,14 +48,14 @@ fn tests_added_removed_and_reworded_come_in_the_order_of_their_names() {
     let after = edit(
         valid(),
         FLOW_FILE,
-        "has_comment = \"The item has a comment\"",
-        "has_comment = \"Someone commented on the item\"",
+        "says = \"The item has a comment\"",
+        "says = \"Someone commented on the item\"",
     );
     let after = edit(
         after,
         FLOW_FILE,
-        "may_merge = \"The work may merge\"",
-        "ci_green = \"The CI is green\"",
+        "[tests.may_merge]\nsays = \"The work may merge\"",
+        "[tests.ci_green]\nsays = \"The CI is green\"",
     );
     let after = edit(after, "merge.toml", "\"may_merge\"", "\"ci_green\"");
     assert_eq!(
@@ -81,6 +81,46 @@ fn tests_added_removed_and_reworded_come_in_the_order_of_their_names() {
             Change::Cell {
                 cell: "merge".into(),
                 change: CellChange::PreconditionAdded("ci_green".into()),
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_test_s_kind_blocks_read_or_value_changed_is_one_change_after_its_rewording() {
+    let may_merge = "says = \"The work may merge\"\nkind = \"none\"\nreads = [\"ci\"]\nis = \"red\"";
+    let changed = "says = \"The CI is green\"\nkind = \"all\"\nreads = [\"ci\"]\nis = \"green\"";
+    let after = edit(valid(), FLOW_FILE, may_merge, changed);
+    let after = edit(
+        after,
+        FLOW_FILE,
+        "reads = [\"confirmed\"]",
+        "reads = [\"confirmed\", \"needs_design\"]",
+    );
+    let test = |says: &str, kind, reads: &[&str], is: &str| Test {
+        says: says.to_string(),
+        kind,
+        reads: reads.iter().map(|&b| b.into()).collect(),
+        is: is.to_string(),
+    };
+    let confirmed = "The owner confirmed the plan";
+    assert_eq!(
+        from_valid(&after),
+        [
+            Change::TestReworded {
+                test: "may_merge".into(),
+                before: "The work may merge".to_string(),
+                after: "The CI is green".to_string(),
+            },
+            Change::TestChanged {
+                test: "may_merge".into(),
+                before: test("The work may merge", TestKind::None, &["ci"], "red"),
+                after: test("The CI is green", TestKind::All, &["ci"], "green"),
+            },
+            Change::TestChanged {
+                test: "plan_confirmed".into(),
+                before: test(confirmed, TestKind::All, &["confirmed"], "yes"),
+                after: test(confirmed, TestKind::All, &["confirmed", "needs_design"], "yes"),
             },
         ]
     );

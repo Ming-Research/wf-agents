@@ -8,38 +8,44 @@
 
 import type { Block, Cell, Change, Flow } from './api';
 
-/// What a cell does with a block: reads it as an input, may write it as an output, or reads its value in its
-/// condition.
+/// What a cell does with a block: reads it as an input, may write it as an output, reads its value in its condition
+/// (directly, or by the named test that is its condition), or reads its value in a named test that is one of its
+/// preconditions.
 export interface Mark {
   read: boolean;
   write: boolean;
   condition: boolean;
+  precondition: boolean;
 }
 
-export const NO_MARK: Mark = { read: false, write: false, condition: false };
+export const NO_MARK: Mark = { read: false, write: false, condition: false, precondition: false };
 
-export const MARK_PARTS = ['read', 'write', 'condition'] as const;
+export const MARK_PARTS = ['read', 'write', 'condition', 'precondition'] as const;
 export type MarkPart = (typeof MARK_PARTS)[number];
 
 /// The mark of a cell on a block.
 export function markOf(cell: Cell | undefined, block: string): Mark {
   if (!cell) return NO_MARK;
+  const condition = cell.condition;
   return {
     read: cell.inputs.includes(block),
     write: cell.outputs.includes(block),
-    condition: cell.condition?.on === 'block' && cell.condition.block === block,
+    condition:
+      condition !== null && (condition.on === 'block' ? condition.block === block : condition.test.reads.includes(block)),
+    precondition: cell.preconditions.some((test) => test.reads.includes(block)),
   };
 }
 
 export function hasMark(mark: Mark): boolean {
-  return mark.read || mark.write || mark.condition;
+  return mark.read || mark.write || mark.condition || mark.precondition;
 }
 
 /// The order of the blocks' rows. A block stands where it is first written in the walk, a cell's outputs together
 /// in the order the cell lists them; a block no cell writes (what people or the outside write) stands just before the
-/// first cell that reads it, its inputs in their order, a condition's block first; a block no cell writes or reads
-/// stands last. Ties go by name. The marks then step down to the right like a staircase, each cell's writes one under
-/// another and next to the reads that follow from them, and a write right of a read stands out as a way back.
+/// first cell that reads it: the blocks its condition reads first, then those its preconditions read, then its inputs
+/// in their order; a block no cell writes or reads stands last. Ties go by name. The marks then step down to the right
+/// like a staircase, each cell's writes one under another and next to the reads that follow from them, and a write
+/// right of a read stands out as a way back.
 export function blockOrder(flow: Flow): string[] {
   const place = new Map(flow.cells.map((c, i) => [c.id, i]));
   const key = (block: Block): [number, number, number] => {
@@ -48,14 +54,11 @@ export function blockOrder(flow: Flow): string[] {
       const cell = flow.cells[place.get(writer) ?? 0];
       return [place.get(writer) ?? 0, 1, cell.outputs.indexOf(block.name)];
     }
-    const readers = [...block.readBy.cells, ...block.readBy.conditions]
-      .map((id) => place.get(id) ?? Infinity)
-      .sort((a, b) => a - b);
-    const first = readers[0];
-    if (first !== undefined && first !== Infinity) {
+    const first = flow.cells.findIndex((cell) => hasMark(markOf(cell, block.name)));
+    if (first !== -1) {
       const cell = flow.cells[first];
-      const isCondition = cell.condition?.on === 'block' && cell.condition.block === block.name;
-      return [first, 0, isCondition ? -1 : cell.inputs.indexOf(block.name)];
+      const mark = markOf(cell, block.name);
+      return [first, 0, mark.condition ? -2 : mark.precondition ? -1 : cell.inputs.indexOf(block.name)];
     }
     return [Infinity, 0, 0];
   };
@@ -225,6 +228,7 @@ export function matrix(versions: Versions, version: Version): Matrix {
     read: x.read && !y.read,
     write: x.write && !y.write,
     condition: x.condition && !y.condition,
+    precondition: x.precondition && !y.precondition,
   });
   const spots: Spot[][] = blocks.map((row) =>
     cells.map((column) => {

@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use crate::flow::{BlockId, CellId, Flow};
 use crate::records::{Cause, Outsider, Records, RunId, Seq, Tests};
-use crate::walk::{Decision, Walk, decide};
+use crate::walk::{Decision, Version, Walk, decide, read_runs, read_versions};
 
 /// A work as it is now. On records that cannot be those of a work the decision says so, and the rest is what those
 /// records give: to be shown for the tracing of the fault, not relied on.
@@ -113,7 +113,22 @@ pub fn view(flow: &Flow, records: &Records, tests: &dyn Tests) -> View {
             }
         })
         .collect();
-    let blocks = (walk.versions.iter())
+    View {
+        decision: decide(flow, records, tests),
+        cells,
+        blocks: shown(&walk.versions),
+    }
+}
+
+/// Every version of every block that has one, in the order they were written, read from the records alone: no cell
+/// and no named test is asked, so a named test may read them.
+pub fn versions(records: &Records) -> BTreeMap<BlockId, Vec<VersionView>> {
+    shown(&read_versions(records, &read_runs(records)))
+}
+
+/// The versions as the walk reads them, for whoever shows them.
+fn shown(versions: &BTreeMap<&BlockId, Vec<Version<'_>>>) -> BTreeMap<BlockId, Vec<VersionView>> {
+    (versions.iter())
         .map(|(block, versions)| {
             let versions = (versions.iter())
                 .map(|v| VersionView {
@@ -129,10 +144,5 @@ pub fn view(flow: &Flow, records: &Records, tests: &dyn Tests) -> View {
                 .collect();
             ((*block).clone(), versions)
         })
-        .collect();
-    View {
-        decision: decide(flow, records, tests),
-        cells,
-        blocks,
-    }
+        .collect()
 }

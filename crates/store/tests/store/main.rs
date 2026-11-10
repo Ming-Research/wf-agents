@@ -13,7 +13,7 @@ mod round_trip;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use decide::{CallId, Outcome, Outsider, RunId, TestName, Tests, Who};
+use decide::{CallId, Outsider, RunId, Who};
 use engine::{Ask, Came, Effect, Event, Handed, Spent, Time, Work, handle, pending};
 use flow::{Compiled, Source, compile};
 use rusqlite::Connection;
@@ -21,23 +21,10 @@ use rusqlite::types::Value;
 use store::{Storage, Store, WorkNumber};
 use tempfile::TempDir;
 
-/// The named tests: the merge waits for the owner's word until a test sets it otherwise.
-struct Named(BTreeMap<TestName, Outcome>);
-
-impl Tests for Named {
-    fn test(&self, name: &TestName) -> Outcome {
-        self.0.get(name).cloned().unwrap_or(Outcome::Holds)
-    }
-}
-
-fn waiting() -> Named {
-    Named([("may_merge".into(), Outcome::Waits { who: Who::Owner })].into())
-}
-
 /// A writer that reads a request, the outside's main and the opinions on what it wrote; a judge that reads what the
 /// writer wrote and the outside's checks, a choice, and writes opinions for the writer and a verdict, a choice; and a
-/// merge, the engine's own cell, that waits for the owner's word. Returns may be sent back twice, a run may make three
-/// calls, and a cell may go round three times.
+/// merge, the engine's own cell, that waits for the owner's word: a choice, `go`, that people write and a named test
+/// reads. Returns may be sent back twice, a run may make three calls, and a cell may go round three times.
 fn judged() -> Compiled {
     let flow = r#"
         name = "judged"
@@ -48,15 +35,21 @@ fn judged() -> Compiled {
         calls = 3
         [lines.main]
         [lines.other]
-        [tests]
-        may_merge = "The work may merge"
+        [tests.may_merge]
+        says = "The owner let the work merge"
+        kind = "all"
+        reads = ["go"]
+        is = "yes"
+        [blocks.go]
+        values = ["yes", "no"]
+        people = true
         [blocks.request]
         people = true
         [blocks.main]
-        outside = true
+        outside = "main"
         [blocks.checks]
         values = ["pass", "fail"]
-        outside = true
+        outside = "main"
         [blocks.opinions]
         people = true
         [blocks.text]
@@ -94,8 +87,7 @@ fn judged() -> Compiled {
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
     };
-    let known: BTreeSet<TestName> = ["may_merge".into()].into();
-    compile(&source, &known).expect("the definition compiles")
+    compile(&source, &["main".to_string()].into()).expect("the definition compiles")
 }
 
 /// The time of the first thing a test does.
@@ -159,7 +151,6 @@ fn dump(path: &Path) -> BTreeMap<String, Vec<Vec<String>>> {
 /// A work driven through the engine's loop.
 struct Driver {
     flow: Compiled,
-    tests: Named,
     work: Work,
     /// The driver's clock: a second for each thing it hands the engine.
     clock: u64,
@@ -181,7 +172,6 @@ impl Driver {
     fn new() -> Self {
         Self {
             flow: judged(),
-            tests: waiting(),
             work: Work::default(),
             clock: START,
             ended: 0,
@@ -205,7 +195,7 @@ impl Driver {
     fn on(&mut self, event: Event) -> Vec<Effect> {
         self.clock += 1000;
         let now = Time(self.clock);
-        let effects = handle(&self.flow, &self.tests, &mut self.work, now, event).expect("the event is taken");
+        let effects = handle(&self.flow, &mut self.work, now, event).expect("the event is taken");
         if let Some(s) = &mut self.saving {
             s.store.save(s.work, &self.work).expect("the work is saved");
             let loaded = s.db.open().load(s.work).expect("the work loads");

@@ -10,7 +10,7 @@
 // cell, a review's opinions sending the implementation round twice, and a write by the outside.
 
 import type { Flow } from '../api';
-import { cell, flowOf } from '../testing';
+import { cell, flowOf, test } from '../testing';
 import type {
   Ask,
   Block,
@@ -71,7 +71,7 @@ export const FLOW: Flow = flowOf(
       title: 'Merge',
       kind: 'engine',
       line: null,
-      preconditions: [{ name: 'approved', words: 'The owner approved the merge' }],
+      preconditions: [test('approved', 'The owner approved the merge', 'all', ['approval'])],
       inputs: ['ci', 'content', 'approval'],
     }),
   ],
@@ -86,7 +86,7 @@ export const FLOW: Flow = flowOf(
     answer_review: {},
     opinions_implement: { people: true },
     content: { values: ['yes', 'no'] },
-    main: { outside: true },
+    main: { outside: 'main' },
     ci: { values: ['green', 'red'] },
     approval: { values: ['yes', 'no'], people: true },
   },
