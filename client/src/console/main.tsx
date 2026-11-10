@@ -6,6 +6,8 @@ import { createRoot } from 'react-dom/client';
 
 import '../styles/tokens.css';
 import '../styles/parts.css';
+import '../styles/chart.css';
+import '../styles/works.css';
 import { useTheme } from '../theme';
 import { ConsolePage } from './index';
 

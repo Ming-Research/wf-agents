@@ -137,64 +137,6 @@ a.cw-mono:hover {
   margin-left: auto;
 }
 
-/* One narrow cell for each cell of the work's flow, as wide as the one letter in it: done in the colour of done, where
-   the work is in the tone of what it does there, the others plain. */
-.stage-bar {
-  display: inline-flex;
-  flex: none;
-  gap: var(--space-2);
-}
-
-.stage-cell {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: var(--tag);
-  height: var(--tag);
-  border-radius: var(--corner);
-  font-size: var(--size-small);
-  font-weight: var(--weight-strong);
-  line-height: 1;
-}
-
-.stage-done {
-  background: var(--green-tint);
-  color: var(--green-text);
-}
-
-.stage-ahead {
-  background: var(--ground);
-  box-shadow: inset 0 0 0 var(--hairline) var(--line);
-  color: var(--muted);
-  font-weight: var(--weight);
-}
-
-/* Where the work is: in the tone its card is tinted with, orange only where it waits for the owner. */
-.stage-running {
-  background: var(--blue);
-  color: var(--on-colour);
-}
-
-.stage-owner {
-  background: var(--orange);
-  color: var(--on-colour);
-}
-
-.stage-waiting {
-  background: var(--console-waiting);
-  color: var(--text);
-}
-
-.stage-paused {
-  background: var(--muted);
-  color: var(--on-colour);
-}
-
-.stage-halted {
-  background: var(--red);
-  color: var(--on-colour);
-}
-
 /* What the owner does to the work. */
 .cw-acts {
   display: flex;
@@ -308,7 +250,9 @@ a.cw-mono:hover {
   cursor: default;
 }
 
-/* What of the work the lines do not say: the page's label and value pairs. */
+/* What of the work the lines do not say: the page's label and value pairs, a section's room over the legend under
+   them. */
 .cw-facts {
+  margin-bottom: var(--space-16);
   padding-top: var(--space-4);
 }

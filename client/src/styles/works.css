@@ -25,52 +25,19 @@
 }
 
 /* A cell's state as a square, in the colour of its state: done green, running blue, at rest a blue ring, runs again
-   an orange ring, not run yet a hairline ring, skipped a dash. */
+   an orange ring, not run yet a hairline ring, skipped a dash. Its size, ring, corners and colours are set on it from
+   works/state-marks.ts, which the console's cards draw from too. */
 .state-mark {
   display: inline-block;
   flex: none;
-  width: var(--space-8);
-  height: var(--space-8);
-  border: var(--focus) solid transparent;
-  border-radius: var(--space-2);
   vertical-align: baseline;
 }
 
-.state-done {
-  border-color: var(--green);
-  background: var(--green);
-}
-
-.state-running {
-  border-color: var(--blue);
-  background: var(--blue);
-}
-
-.state-resting {
-  border-color: var(--blue);
-}
-
-.state-again {
-  border-color: var(--orange);
-}
-
-.state-notYet {
-  border: var(--hairline) solid var(--muted);
-}
-
-.state-skipped {
-  height: var(--focus);
-  margin: calc((var(--space-8) - var(--focus)) / 2) 0;
-  border: 0;
-  border-radius: 0;
-  background: var(--muted);
-}
-
-/* The strip: one square per cell of a work's flow, in the order of the walk. */
+/* The strip: one square per cell of a work's flow, in the order of the walk, the room between them set on it from
+   works/state-marks.ts. */
 .strip {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
 }
 
 /* What a work does now: a dot in its tone and its words, cut to one line, whole on the pointer's tip. */
