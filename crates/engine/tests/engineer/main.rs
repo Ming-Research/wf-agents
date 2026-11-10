@@ -13,7 +13,7 @@
 //! 3. From the state a random history reached, a work everyone is content with merges within `content_bound` steps
 //!    (entry a-work-comes-to-rest).
 //! 4. In that continuation, the runs of each cell beyond its first that changed no block's meaning, runs for nothing,
-//!    are counted, printed with `--nocapture`, and held to the bound `content_bound` rests on.
+//!    are counted, written to the standard error, and held to the bound `content_bound` rests on.
 //! 5. No finished run lacks a write of a block its cell must write (`must_write`), read from the records of the
 //!    finishes and the cells' definitions after every step (entry a-run-is-one-mechanism).
 //!
@@ -71,6 +71,7 @@ mod support;
 mod reading;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 use std::sync::{Mutex, PoisonError};
@@ -1050,19 +1051,28 @@ fn histories() {
         }
     }
     panic::set_hook(hook);
-    println!("{SEEDS} histories, {continued} with a content continuation; the most of its bound one took: {most:?}");
-    println!("reached, in how many histories:");
+    // What the histories reached and counted, said whatever comes of the test: written to the standard error itself,
+    // which the test harness does not hold back as it holds back what a test prints.
+    let mut err = std::io::stderr();
+    let _ = writeln!(
+        err,
+        "{SEEDS} histories, {continued} with a content continuation; the most of its bound one took: {most:?}"
+    );
+    let _ = writeln!(err, "reached, in how many histories:");
     for (what, n) in &reached {
-        println!("  {n:5}  {what}");
+        let _ = writeln!(err, "  {n:5}  {what}");
     }
-    println!("runs beyond a cell's first in the content continuation, and of them runs for nothing:");
+    let _ = writeln!(
+        err,
+        "runs beyond a cell's first in the content continuation, and of them runs for nothing:"
+    );
     for (cell, (all, nothing)) in &runs {
-        println!("  {cell}: {all} runs, {nothing} for nothing");
+        let _ = writeln!(err, "  {cell}: {all} runs, {nothing} for nothing");
     }
     let mut failures = Vec::new();
     for (property, cases) in &broken {
         let seeds: Vec<u64> = cases.iter().map(|(s, _, _)| *s).collect();
-        println!("{property}: broken in {} histories: {seeds:?}", cases.len());
+        let _ = writeln!(err, "{property}: broken in {} histories: {seeds:?}", cases.len());
         // The shortest failing history, to read first.
         let (seed, what, log) = cases.iter().min_by_key(|(_, _, log)| log.len()).expect("a case");
         failures.push(format!(
@@ -1083,5 +1093,4 @@ fn histories() {
 #[test]
 fn random_works_on_the_engineers_flow_keep_what_the_flow_must() {
     histories();
-    panic!("shown once in CI: the counts above");
 }
