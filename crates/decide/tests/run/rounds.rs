@@ -14,8 +14,13 @@ fn while_a_round_is_under_way_nothing_is_decided() {
 }
 
 #[test]
-fn a_run_rests_at_exactly_the_calls_its_last_round_asked_for_that_have_no_result() {
-    let rounds = vec![asked(&[(1, true), (2, false), (3, true), (4, false)])];
+fn the_calls_a_round_asked_for_are_made_when_none_was_made_yet() {
+    assert_eq!(step(vec![asks(2)], &spec()), Step::Make);
+}
+
+#[test]
+fn a_run_rests_at_exactly_the_calls_made_for_its_last_round_that_have_no_result() {
+    let rounds = vec![made(&[(1, true), (2, false), (3, true), (4, false)])];
     let rest = Step::Rest {
         calls: vec![CallId(2), CallId(4)],
     };
@@ -24,17 +29,16 @@ fn a_run_rests_at_exactly_the_calls_its_last_round_asked_for_that_have_no_result
 
 #[test]
 fn a_run_whose_calls_all_have_their_results_has_its_next_round() {
-    assert_eq!(step(vec![asked(&[(1, true), (2, true)])], &spec()), Step::Resume);
+    assert_eq!(step(vec![made(&[(1, true), (2, true)])], &spec()), Step::Resume);
 }
 
 #[test]
 fn only_the_calls_of_the_last_round_are_rested_at() {
-    let rounds = vec![asked(&[(1, false)]), asked(&[(2, true)])];
+    let rounds = vec![made(&[(1, false)]), made(&[(2, true)])];
     assert_eq!(step(rounds, &spec()), Step::Resume);
 }
 
 #[test]
-fn a_round_that_asked_for_no_calls_at_all_leads_to_the_next_round() {
-    // Every call it asked for, of which there are none, has its result.
-    assert_eq!(step(vec![asked(&[])], &spec()), Step::Resume);
+fn a_round_that_asked_for_no_calls_at_all_is_sent_back_as_asking_nothing() {
+    assert_eq!(step(vec![asks_nothing()], &spec()), send_back(vec![Unmet::AsksNothing]));
 }

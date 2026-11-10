@@ -75,7 +75,6 @@ fn every_way_a_return_does_not_meet_what_is_required_is_said_at_once_in_the_orde
 }
 
 #[test]
-#[ignore = "the code says NotAnOutput once for each write of the block and never WrittenTwice"]
 fn a_block_that_is_not_an_output_and_is_written_twice_is_said_to_be_both() {
     let unmet = vec![
         Unmet::NotAnOutput { block: "code".into() },
@@ -107,4 +106,14 @@ fn a_return_handed_in_after_calls_is_judged_on_its_own() {
             writes: vec![prose("plan")]
         }
     );
+}
+
+#[test]
+fn a_block_written_three_times_is_said_to_be_written_twice_at_each_later_write() {
+    let unmet = vec![
+        Unmet::WrittenTwice { block: "plan".into() },
+        Unmet::WrittenTwice { block: "plan".into() },
+    ];
+    let writes = vec![prose("plan"), prose("plan"), prose("plan")];
+    assert_eq!(step(vec![handed_in(writes)], &spec()), send_back(unmet));
 }

@@ -11,7 +11,7 @@ mod rounds;
 
 use std::collections::BTreeMap;
 
-use decide::run::{Call, Limit, Log, Requires, Return, Round, Step, Unmet, may_call, next};
+use decide::run::{Call, Limit, Log, Requires, Return, Round, Step, Unmet, next};
 use decide::{BlockId, CallId, Write};
 
 /// What the flow requires of a cell, owned so that tests can lend it as `Requires`.
@@ -58,6 +58,11 @@ fn step(rounds: Vec<Round>, spec: &Spec) -> Step {
     next(&Log { rounds, let_go: 0 }, spec.requires())
 }
 
+/// What the run does next on these rounds, the owner having last let it go on when this many had ended.
+fn step_let_go(rounds: Vec<Round>, let_go: usize, spec: &Spec) -> Step {
+    next(&Log { rounds, let_go }, spec.requires())
+}
+
 /// A write of prose.
 fn prose(block: &str) -> Write {
     Write {
@@ -98,26 +103,47 @@ fn wanting_unmet() -> Vec<Unmet> {
     vec![Unmet::NotAChoice { block: "plan".into() }]
 }
 
-/// A round that asked for these calls, each with whether it has its result.
-fn asked(calls: &[(u64, bool)]) -> Round {
+/// A round that asked for this many calls, none of them made yet.
+fn asks(asked: usize) -> Round {
     Round {
-        returned: Some(Return::Asked(
-            calls
+        returned: Some(Return::Asked { asked, made: vec![] }),
+    }
+}
+
+/// A round that asked for no calls at all.
+fn asks_nothing() -> Round {
+    asks(0)
+}
+
+/// A round whose calls were made, each with whether it has its result.
+fn made(calls: &[(u64, bool)]) -> Round {
+    Round {
+        returned: Some(Return::Asked {
+            asked: calls.len(),
+            made: calls
                 .iter()
                 .map(|(id, done)| Call {
                     call: CallId(*id),
                     done: *done,
                 })
                 .collect(),
-        )),
+        }),
     }
 }
 
-/// A round that asked for this many calls, each with its result, the ids starting at `from`.
+/// A round that asked for this many calls, each made and with its result, the ids starting at `from`.
 fn asked_done(from: u64, n: u64) -> Round {
-    asked(&(from..from + n).map(|id| (id, true)).collect::<Vec<_>>())
+    made(&(from..from + n).map(|id| (id, true)).collect::<Vec<_>>())
 }
 
 fn send_back(unmet: Vec<Unmet>) -> Step {
     Step::SendBack { unmet }
+}
+
+fn calls_limit(made: u32) -> Step {
+    Step::AtLimit(Limit::Calls { made })
+}
+
+fn returns_limit(sent_back: u32) -> Step {
+    Step::AtLimit(Limit::Returns { sent_back })
 }
