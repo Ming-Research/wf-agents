@@ -345,7 +345,7 @@ mod tests {
         // Cut inside the two bytes of an é, which is left out whole.
         keep(&base, 1, "Greet thé user.", Some(r#"{"result":"Done, and more."}"#));
         keep(&base, 2, "Again.", Some(r#"{"result":"ok"}"#));
-        keep(&base, 3, "And again.", Some(r#"{"result":"ok"}"#));
+        keep(&base, 3, "And more.", Some(r#"{"result":"ok"}"#));
         keep(&base, 4, "Once more.", None);
         let told = told_within(dir.path(), &base, &bounds).unwrap();
         let ok = || {
@@ -364,10 +364,10 @@ mod tests {
                     back: Back::Unreadable(unread),
                 },
                 tried("Again.", ok()),
-                tried("And again.", ok()),
+                tried("And more.", ok()),
             ]
         );
-        // The first three come to 28 bytes, past the round's 20: the fourth is left out.
+        // The first three come to 27 bytes, past the round's 20: the fourth is left out.
         assert_eq!(told.left_out, 1);
     }
 }
