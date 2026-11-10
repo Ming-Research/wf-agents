@@ -296,7 +296,7 @@ impl History {
                     decision,
                     Decision::Busy { .. }
                         | Decision::Abandon {
-                            because: decide::Stale::Cancelled,
+                            because: decide::Abandoning::Cancelled,
                             ..
                         }
                 ),

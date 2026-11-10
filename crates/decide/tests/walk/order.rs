@@ -35,7 +35,7 @@ fn a_cancelled_work_abandons_its_run_at_rest_and_then_has_ended() {
     let a = w.start("a");
     w.returns("a");
     w.cancel();
-    assert_eq!(w.decide(), abandon("a", a, Stale::Cancelled));
+    assert_eq!(w.decide(), abandon("a", a, Abandoning::Cancelled));
     w.abandon();
     assert_eq!(w.decide(), Decision::Ended(End::Cancelled));
 }
@@ -45,7 +45,7 @@ fn a_cancelled_work_abandons_even_a_run_with_a_round_under_way() {
     let mut w = World::with_gate(vec![cell("a", &[], &[])]);
     let a = w.start("a");
     w.cancel();
-    assert_eq!(w.decide(), abandon("a", a, Stale::Cancelled));
+    assert_eq!(w.decide(), abandon("a", a, Abandoning::Cancelled));
 }
 
 #[test]
@@ -58,9 +58,9 @@ fn a_cancelled_work_abandons_each_open_run_in_turn_in_the_order_they_started() {
     w.person_writes("x");
     let a = w.start("a");
     w.cancel();
-    assert_eq!(w.decide(), abandon("b", b, Stale::Cancelled));
+    assert_eq!(w.decide(), abandon("b", b, Abandoning::Cancelled));
     w.abandon();
-    assert_eq!(w.decide(), abandon("a", a, Stale::Cancelled));
+    assert_eq!(w.decide(), abandon("a", a, Abandoning::Cancelled));
     w.abandon();
     assert_eq!(w.decide(), Decision::Ended(End::Cancelled));
 }

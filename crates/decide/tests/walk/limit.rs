@@ -154,7 +154,7 @@ fn an_abandoned_run_is_not_counted_toward_the_limit() {
     let run = w.start("implement");
     w.returns("implement");
     w.set("implementing", Outcome::Waits { who: Who::Owner });
-    assert_eq!(w.decide(), abandon("implement", run, Stale::NoLongerApplies));
+    assert_eq!(w.decide(), abandon("implement", run, Abandoning::NoLongerApplies));
     w.abandon();
     w.set("implementing", Outcome::Holds);
     assert_eq!(

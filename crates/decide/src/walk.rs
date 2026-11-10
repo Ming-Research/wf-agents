@@ -36,11 +36,12 @@ pub enum Decision {
         because: Vec<Cause>,
         basis: BTreeMap<BlockId, Option<Seq>>,
     },
-    /// The run, which is at rest and waits for nothing, has its next round.
+    /// The run, which is at rest and waits for nothing, goes on: what its last round returned is taken up, and it
+    /// has its next round, which it holds while the work is paused.
     GoOn { cell: CellId, run: RunId },
     /// The run is abandoned, and the walk is taken again: it is at rest and stale, or its work was cancelled, when
     /// it may have a round under way, which is stopped.
-    Abandon { cell: CellId, run: RunId, because: Stale },
+    Abandon { cell: CellId, run: RunId, because: Abandoning },
     /// The work waits at this cell, for each of these.
     Wait { at: CellId, on: Vec<Waited> },
 }
@@ -56,7 +57,7 @@ pub enum End {
 
 /// Why a run is abandoned.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Stale {
+pub enum Abandoning {
     /// Its work was cancelled.
     Cancelled,
     /// Its cell is skipped now, or is no longer in the flow.
@@ -93,7 +94,7 @@ pub fn decide(flow: &Flow, records: &Records, tests: &dyn Tests) -> Decision {
             Some(run) => Decision::Abandon {
                 cell: run.started.cell.clone(),
                 run: run.started.run,
-                because: Stale::Cancelled,
+                because: Abandoning::Cancelled,
             },
             None => Decision::Ended(End::Cancelled),
         };
@@ -165,7 +166,7 @@ pub fn decide(flow: &Flow, records: &Records, tests: &dyn Tests) -> Decision {
 
 /// Why the run, if it is at rest, is stale; `None` where it is not, or is not at rest. What a round handed in is taken
 /// as the round ends only of a run that is not stale.
-pub fn stale(flow: &Flow, records: &Records, tests: &dyn Tests, run: RunId) -> Option<Stale> {
+pub fn stale(flow: &Flow, records: &Records, tests: &dyn Tests, run: RunId) -> Option<Abandoning> {
     let walk = Walk::new(flow, records, tests);
     let run = walk.runs.get(&run).filter(|r| r.at_rest())?;
     walk.stale(run)
@@ -379,14 +380,14 @@ impl<'a> Walk<'a> {
     }
 
     /// Why the run at rest is stale, if it is.
-    fn stale(&self, run: &RunView<'a>) -> Option<Stale> {
+    fn stale(&self, run: &RunView<'a>) -> Option<Abandoning> {
         let cell = (self.flow.place(&run.started.cell)).map(|i| &self.flow.cells()[i]);
         if !cell.is_some_and(|c| self.applies(c)) {
-            return Some(Stale::NoLongerApplies);
+            return Some(Abandoning::NoLongerApplies);
         }
         (run.started.basis.iter())
             .find(|(block, version)| self.meaning_of(block, **version) != self.meaning_now(block))
-            .map(|(block, _)| Stale::Outdated { block: block.clone() })
+            .map(|(block, _)| Abandoning::Outdated { block: block.clone() })
     }
 
     /// The calls the run rests at that have no result yet.

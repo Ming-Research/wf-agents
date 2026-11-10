@@ -74,7 +74,7 @@ fn a_run_at_rest_whose_cell_becomes_skipped_is_abandoned_and_the_cell_does_not_r
     let testing = w.start("testing");
     w.returns("testing");
     w.person_sets("more", "no");
-    assert_eq!(w.decide(), abandon("testing", testing, Stale::NoLongerApplies));
+    assert_eq!(w.decide(), abandon("testing", testing, Abandoning::NoLongerApplies));
     w.abandon();
     assert_eq!(
         w.decide(),
