@@ -13,7 +13,9 @@
 //! Every table is only inserted into (entry `tables-only-added-to`): a work is saved by inserting the entries it has
 //! that the store does not hold yet, after checking that what the store holds is where the work begins. A work changed
 //! where it may only be added to is a fault of the engine, and is refused rather than written over what was kept
-//! (principle `nothing-passes-for-normal`). The schema is [`SCHEMA`], kept in SQLite.
+//! (principle `nothing-passes-for-normal`). The schema is [`SCHEMA`], kept in SQLite. A database made with an earlier
+//! version of it is brought to this one as it is opened, by the migrations of `migrations/`, each in its turn and all
+//! of them in one transaction with the opening, so that a database is either opened at this version or left as it was.
 //!
 //! - `items`: the items and the works done for them.
 //! - `tables`: a work's entries, table by table.
@@ -24,7 +26,7 @@ mod tables;
 use std::path::Path;
 
 use decide::{BlockId, CallId, RunId, Seq};
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
+use rusqlite::{Connection, TransactionBehavior};
 use work::{Time, Work};
 
 pub use items::{Item, ItemNumber, WorkHead, WorkNumber};
@@ -32,8 +34,18 @@ pub use items::{Item, ItemNumber, WorkHead, WorkNumber};
 /// The schema of the store, as SQL.
 pub const SCHEMA: &str = include_str!("../schema.sql");
 
-/// The version of [`SCHEMA`]. A database made with another is not opened: there is no migration yet.
-pub const SCHEMA_VERSION: u32 = 1;
+/// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
+/// any other is not opened.
+pub const SCHEMA_VERSION: u32 = 2;
+
+/// The migrations, in order: the first brings a database of version 1 of the schema to version 2, and each after it
+/// one version further. Each file is named by the minute it was written and what it does.
+const MIGRATIONS: &[&str] = &[include_str!(
+    "../migrations/202611101530-say-who-paused-a-work-and-why.sql"
+)];
+
+// The migrations bring a database of every earlier version to this one.
+const _: () = assert!(MIGRATIONS.len() as u32 + 1 == SCHEMA_VERSION);
 
 /// The items and the works, kept in one SQLite database.
 pub struct Store {
@@ -123,8 +135,8 @@ pub trait Storage {
 }
 
 impl Store {
-    /// Opens the database at this path, making it with the schema where it is new or empty; refuses one made with
-    /// another version of the schema.
+    /// Opens the database at this path, making it with the schema where it is new or empty, and migrating it where it
+    /// was made with an earlier version of the schema; refuses one made with any other version.
     pub fn open(path: impl AsRef<Path>) -> Result<Store, Fault> {
         let store = Store::start(Connection::open(path)?)?;
         // A write-ahead log, so that what reads the database is not held up by what writes it. It is set once the
@@ -151,17 +163,28 @@ impl Store {
                 [],
                 |row| row.get(0),
             )?;
+            // The table holds a row for each version the database was made with or brought to: the highest is its
+            // version.
             let found = if has_version {
-                tx.query_row("SELECT version FROM schema_version", [], |row| row.get(0))
-                    .optional()?
+                tx.query_row("SELECT max(version) FROM schema_version", [], |row| row.get(0))?
             } else {
                 None
             };
-            if found != Some(SCHEMA_VERSION) {
-                return Err(Fault::Schema {
-                    found,
-                    expected: SCHEMA_VERSION,
-                });
+            match found {
+                Some(SCHEMA_VERSION) => {}
+                // Made with an earlier version: each migration from it on is run, in this transaction.
+                Some(earlier @ 1..SCHEMA_VERSION) => {
+                    for migration in &MIGRATIONS[earlier as usize - 1..] {
+                        tx.execute_batch(migration)?;
+                    }
+                    tx.execute("INSERT INTO schema_version (version) VALUES (?1)", [SCHEMA_VERSION])?;
+                }
+                _ => {
+                    return Err(Fault::Schema {
+                        found,
+                        expected: SCHEMA_VERSION,
+                    });
+                }
             }
         }
         tx.commit()?;

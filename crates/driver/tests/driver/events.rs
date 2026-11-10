@@ -219,7 +219,16 @@ fn a_round_under_way_is_not_interrupted_and_what_arrived_meanwhile_decides_as_it
 fn a_pause_holds_back_only_what_would_begin_a_round() {
     let (mut h, w) = started();
     let (write, ..) = h.round(w);
-    assert_eq!(h.on(w, Event::Paused), vec![]);
+    assert_eq!(
+        h.on(
+            w,
+            Event::Paused {
+                by: Pauser::Owner,
+                why: None
+            }
+        ),
+        vec![]
+    );
     // What the round asks for while the work is paused is still taken, and the call is made.
     let todos = h.returns(w, Came::Asks(vec![tool("search")]));
     let (call, run) = one_call(&todos);
@@ -232,7 +241,16 @@ fn a_pause_holds_back_only_what_would_begin_a_round() {
         vec![round_todo(w, write, "write", 2, Given::Results(vec![call]))]
     );
     // What the round hands in while the work is paused is taken: the run finishes, and the next cell waits.
-    assert_eq!(h.on(w, Event::Paused), vec![]);
+    assert_eq!(
+        h.on(
+            w,
+            Event::Paused {
+                by: Pauser::Owner,
+                why: None
+            }
+        ),
+        vec![]
+    );
     assert_eq!(h.hands_in(w, &[("text", None)]), vec![]);
     let kept = h.d().work(w).expect("the work is there");
     assert!(

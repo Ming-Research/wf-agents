@@ -39,3 +39,9 @@ hands_in = [{ block = "verdict", value = "yes" }]
 [[flows.trial.rounds]]
 cell = "merge"
 took = { ms = 500 }
+
+# To see a round fail and its work paused with the reason, give a round `fails`, as here the plan's second run:
+# [[flows.trial.rounds]]
+# cell = "plan"
+# run = 2
+# fails = "The agent's program could not start."

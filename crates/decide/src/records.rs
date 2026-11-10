@@ -161,6 +161,23 @@ pub struct LetGo {
 pub struct Pause {
     pub paused: bool,
     pub at: Seq,
+    /// Who paused the work, or let it on. Records kept before the engine paused works itself hold only the owner's
+    /// pauses, and read so.
+    #[serde(default)]
+    pub by: Pauser,
+    /// Why the work was paused, where whoever paused it said: the engine always says, the owner does not. None for a
+    /// letting on.
+    #[serde(default)]
+    pub why: Option<String>,
+}
+
+/// Who pauses a work: the owner, or the engine itself, as when a round failed or the work spent more than it may.
+/// Only the owner lets a work on again.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Pauser {
+    #[default]
+    Owner,
+    Engine,
 }
 
 /// Why a cell runs.

@@ -8,6 +8,7 @@ mod calls;
 mod cancelling;
 mod ending;
 mod events;
+mod failing;
 mod given;
 mod limits;
 mod named_tests;
@@ -20,7 +21,7 @@ mod times;
 use std::collections::BTreeMap;
 
 use decide::run::{Limit, Unmet};
-use decide::{BlockId, CallId, Cause, Outsider, RunId, Seq, Who};
+use decide::{BlockId, CallId, Cause, Outsider, Pauser, RunId, Seq, Who};
 use engine::{Ask, Call, Came, Effect, Event, Given, Handed, Refused, Spent, Time, Work, handle, pending};
 use flow::{Compiled, Has, Source, compile};
 

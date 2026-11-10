@@ -1,5 +1,5 @@
-//! Opening a database: a new one is made with the schema, one made before is opened with what it holds, and one of
-//! another version of the schema is refused.
+//! Opening a database: a new one is made with the schema, one made before is opened with what it holds, one made with
+//! an earlier version of the schema is migrated to this one, and one of any other version is refused.
 
 use store::{Fault, ItemNumber, SCHEMA, SCHEMA_VERSION};
 
@@ -85,4 +85,121 @@ fn a_file_with_tables_and_no_version_is_refused() {
     // Nothing was made in it.
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, ["elsewhere".to_string()].into());
+}
+
+/// Version 1 of the schema, as databases were made with it before a pause said who paused the work and why.
+const SCHEMA_1: &str = include_str!("schema-1.sql");
+
+/// The columns of each table of the database, with their types, whether they may be null, their defaults and their
+/// places in the keys.
+fn columns(path: &Path) -> BTreeMap<String, Vec<Vec<String>>> {
+    let db = Connection::open(path).expect("the database opens");
+    let mut out = BTreeMap::new();
+    for table in dump(path).into_keys() {
+        let mut query = db
+            .prepare(&format!("PRAGMA table_info({table})"))
+            .expect("the table is described");
+        let rows: Vec<Vec<String>> = (query.query_map([], |row| {
+            (1..6)
+                .map(|i| row.get::<_, Value>(i).map(|v| format!("{v:?}")))
+                .collect::<Result<Vec<_>, _>>()
+        }))
+        .expect("the table is described")
+        .collect::<Result<_, _>>()
+        .expect("the table is described");
+        out.insert(table, rows);
+    }
+    out
+}
+
+/// A work as one kept before the engine paused works itself: the owner pauses it as it is added, and lets it on; the
+/// writer hands in its text and the judge asks the owner a question.
+fn kept_before() -> Work {
+    let mut d = Driver::new();
+    d.on(Event::Paused {
+        by: Pauser::Owner,
+        why: None,
+    });
+    d.wrote("request", Outsider::Person, None);
+    d.on(Event::Resumed);
+    d.end(hands_in(&[("text", None)]));
+    d.end(Came::Asks(vec![question(Who::Owner)]));
+    d.work
+}
+
+#[test]
+fn a_file_made_with_the_first_version_of_the_schema_is_migrated_and_its_pauses_read_as_the_owners() {
+    let work = kept_before();
+    // The same work as a store of this version keeps it, whose rows are copied into a file made with version 1.
+    let new = Db::new();
+    {
+        let mut store = new.open();
+        let number = first_work(&mut store);
+        store.save(number, &work).expect("the work is saved");
+    }
+    let old = Db::new();
+    {
+        let file = Connection::open(&old.path).expect("the database opens");
+        file.execute_batch(SCHEMA_1).expect("the first schema is made");
+        file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
+            .expect("its version is written");
+        let path = new.path.to_str().expect("the path is text");
+        file.execute("ATTACH DATABASE ?1 AS new", [path])
+            .expect("the new file is attached");
+        for table in dump(&old.path).into_keys().filter(|t| t != "schema_version") {
+            let mut query = file
+                .prepare(&format!("PRAGMA main.table_info({table})"))
+                .expect("the table is described");
+            let names: Vec<String> = (query.query_map([], |row| row.get(1)).expect("its columns"))
+                .collect::<Result<_, _>>()
+                .expect("its columns");
+            let names = names.join(", ");
+            file.execute(
+                &format!("INSERT INTO main.{table} ({names}) SELECT {names} FROM new.{table}"),
+                [],
+            )
+            .expect("the rows are copied");
+        }
+    }
+    let pauses: u64 = (Connection::open(&old.path).expect("the database opens"))
+        .query_row("SELECT count(*) FROM pauses", [], |row| row.get(0))
+        .expect("the pauses are counted");
+    assert_eq!(pauses, 2, "the old file holds the pause and the letting on");
+
+    let store = old.open();
+    assert_eq!(store.load(WorkNumber(1)), Ok(work));
+    let file = Connection::open(&old.path).expect("the database opens");
+    let versions: Vec<u32> = (file.prepare("SELECT version FROM schema_version ORDER BY version"))
+        .expect("the versions are read")
+        .query_map([], |row| row.get(0))
+        .expect("the versions are read")
+        .collect::<Result<_, _>>()
+        .expect("the versions are read");
+    assert_eq!(versions, [1, SCHEMA_VERSION]);
+    assert_eq!(
+        columns(&old.path),
+        columns(&new.path),
+        "the migrated file has other tables than a new one"
+    );
+    // Opened again, it is opened as it is.
+    drop(store);
+    let before = dump(&old.path);
+    old.open();
+    assert_eq!(dump(&old.path), before, "opening the migrated file again changed it");
+}
+
+#[test]
+fn a_migration_that_fails_leaves_the_file_as_it_was() {
+    let db = Db::new();
+    let file = Connection::open(&db.path).expect("the database opens");
+    // A file of version 1 whose table of pauses is not the one the migration remakes.
+    file.execute_batch(
+        "CREATE TABLE schema_version (version INTEGER PRIMARY KEY); INSERT INTO schema_version VALUES (1); \
+         CREATE TABLE pauses (x INTEGER);",
+    )
+    .expect("the database is made");
+    drop(file);
+    let before = dump(&db.path);
+    assert!(matches!(Store::open(&db.path), Err(Fault::Database(_))));
+    assert_eq!(dump(&db.path), before);
 }

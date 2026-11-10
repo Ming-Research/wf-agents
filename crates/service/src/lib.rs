@@ -13,6 +13,11 @@
 //! a tool answers. A call for a person, and a run at a limit, are carried out by nobody: they wait for the owner's
 //! answer, which comes as an act. A withdrawn call of a person is answered by the loop itself.
 //!
+//! A carrier that cannot carry a round out says the round failed, and one that finds as a round ends that its work is
+//! to wait for the owner, as when it has spent more than it may, says so with the end: either way the engine pauses the
+//! work with the reason, which is in its records and on the page. Nothing of it is held here: after a restart a work so
+//! paused is handed out nothing until the owner lets it on.
+//!
 //! - `carriers`: the interfaces, what each is given, and how it says what came of it.
 //! - `clock`: the clock, read by the loop alone.
 //! - [`script`]: what the test carriers do, as a TOML file says.
@@ -28,7 +33,7 @@ mod words;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
-use decide::{BlockId, CallId, CellId, Outsider};
+use decide::{BlockId, CallId, CellId, Outsider, Pauser};
 use driver::{Driver, Failed, NewItem, Todo};
 use engine::{Effect, Event};
 use flow::{CellSpec, Compiled, Kind};
@@ -286,7 +291,10 @@ impl Service {
                 value,
             },
             Act::LetGo { cell } => Event::LetGo { cell },
-            Act::Pause => Event::Paused,
+            Act::Pause => Event::Paused {
+                by: Pauser::Owner,
+                why: None,
+            },
             Act::Resume => Event::Resumed,
             Act::Cancel => Event::Cancelled,
             Act::Answer { call, result } => {

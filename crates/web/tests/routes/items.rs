@@ -57,7 +57,10 @@ async fn an_item_is_added_with_its_work_paused_and_what_it_depends_on() {
             }],
         })
     );
-    assert_eq!(items["items"][0]["work"]["now"], json!({ "kind": "paused" }));
+    assert_eq!(
+        items["items"][0]["work"]["now"],
+        json!({ "kind": "paused", "by": "owner", "why": null })
+    );
 }
 
 #[tokio::test(start_paused = true)]

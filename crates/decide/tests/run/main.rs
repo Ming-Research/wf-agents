@@ -4,6 +4,7 @@
 //! what it tests.
 
 mod calls;
+mod failing;
 mod handing_in;
 mod limits;
 mod malformed;

@@ -6,7 +6,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use decide::{
-    Abandoning, BlockId, Cause, Decision, End, Flow, Pause, Records, RunId, Seq, Started, TestKind, Waited, decide,
+    Abandoning, BlockId, Cause, Decision, End, Flow, Pause, Pauser, Records, RunId, Seq, Started, TestKind, Waited,
+    decide,
 };
 
 use crate::reading::{Reading, Reason, Writer};
@@ -48,6 +49,9 @@ pub const REACHED: &[&str] = &[
     STANDING_NO_HOLDS,
     PERSON_NO_HOLDS,
     SKIPPED_NO_PASSES,
+    FAILED,
+    FAILED_GOES_ON,
+    FAILED_ABANDONED,
 ];
 
 pub const PERSON_UNDER_WAY: &str = "a person writes while a round is under way";
@@ -77,6 +81,10 @@ const GOING_ON: &str = "a run at rest goes on";
 const STANDING_NO_HOLDS: &str = "the merge waits on a judge's no while the judge is not skipped";
 const PERSON_NO_HOLDS: &str = "the merge waits on a person's no";
 const SKIPPED_NO_PASSES: &str = "a round of the merge begins over the no of a judge that is skipped";
+pub const FAILED: &str = "a round fails and the engine pauses its work";
+pub const FAILED_GOES_ON: &str = "a run whose round failed goes on once the work is let on";
+pub const FAILED_ABANDONED: &str =
+    "a run whose round failed is abandoned because what it started from changed before the work was let on";
 
 /// How often each situation was reached.
 #[derive(Default)]
@@ -593,6 +601,8 @@ pub fn reaches(v: &mut Verdict, flow: &Flow, records: &Records, rest: &Decision,
             let_on.pauses.push(Pause {
                 paused: false,
                 at: Seq(last_place(records).0 + 1),
+                by: Pauser::Owner,
+                why: None,
             });
             match decide(flow, &let_on) {
                 Decision::Run { cell, .. } | Decision::GoOn { cell, .. } | Decision::Wait { at: cell, .. } => {

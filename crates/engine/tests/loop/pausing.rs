@@ -6,7 +6,13 @@ use super::*;
 #[test]
 fn a_return_handed_in_during_a_pause_finishes_the_run_and_the_next_cells_round_waits_for_the_work_to_be_let_on() {
     let (mut w, write, _) = W::requested();
-    assert_eq!(w.on(Event::Paused), vec![]);
+    assert_eq!(
+        w.on(Event::Paused {
+            by: Pauser::Owner,
+            why: None
+        }),
+        vec![]
+    );
     assert_eq!(w.returns(write, hands_in(&[("text", None)])), vec![]);
     let text = w.last_finished();
     assert_eq!(
@@ -28,7 +34,10 @@ fn a_judge_whose_round_ends_during_a_pause_finishes_and_once_let_on_the_writer_r
     let (mut w, write, r1) = W::requested();
     let judge = round(&w.returns(write, hands_in(&[("text", None)]))).0;
     let text = w.last_finished();
-    w.on(Event::Paused);
+    w.on(Event::Paused {
+        by: Pauser::Owner,
+        why: None,
+    });
     let (effects, r2) = w.person_writes("request");
     assert_eq!(effects, vec![]);
     assert_eq!(w.returns(judge, hands_in(&[("opinions", None)])), vec![]);
@@ -52,7 +61,10 @@ fn a_judge_whose_round_ends_during_a_pause_finishes_and_once_let_on_the_writer_r
 #[test]
 fn calls_asked_for_during_a_pause_are_made_and_the_round_given_their_results_waits_for_the_work_to_be_let_on() {
     let (mut w, write, _) = W::requested();
-    w.on(Event::Paused);
+    w.on(Event::Paused {
+        by: Pauser::Owner,
+        why: None,
+    });
     let calls = calls_of(&w.returns(write, Came::Asks(vec![tool("a")])));
     assert_eq!(
         calls.iter().map(|(_, r, what)| (*r, what.clone())).collect::<Vec<_>>(),
@@ -68,7 +80,10 @@ fn calls_asked_for_during_a_pause_are_made_and_the_round_given_their_results_wai
 #[test]
 fn a_return_sent_back_during_a_pause_is_given_back_once_the_work_is_let_on() {
     let (mut w, write, _) = W::requested();
-    w.on(Event::Paused);
+    w.on(Event::Paused {
+        by: Pauser::Owner,
+        why: None,
+    });
     assert_eq!(w.returns(write, wanting()), vec![]);
     assert_eq!(
         w.on(Event::Resumed),
@@ -81,7 +96,10 @@ fn the_owner_is_asked_at_a_limit_during_a_pause() {
     let (mut w, write, _) = W::requested();
     w.returns(write, wanting());
     w.returns(write, wanting());
-    w.on(Event::Paused);
+    w.on(Event::Paused {
+        by: Pauser::Owner,
+        why: None,
+    });
     let calls = calls_of(&w.returns(write, wanting()));
     assert_eq!(
         calls.iter().map(|(_, r, what)| (*r, what.clone())).collect::<Vec<_>>(),
@@ -93,7 +111,10 @@ fn the_owner_is_asked_at_a_limit_during_a_pause() {
 fn a_stale_run_is_abandoned_during_a_pause_and_its_cell_runs_again_once_the_work_is_let_on() {
     let (mut w, write, _) = W::requested();
     let call = calls_of(&w.returns(write, Came::Asks(vec![question(Who::Owner)])))[0].0;
-    w.on(Event::Paused);
+    w.on(Event::Paused {
+        by: Pauser::Owner,
+        why: None,
+    });
     let (effects, request) = w.person_writes("request");
     assert_eq!(effects, vec![Effect::Withdraw { call }]);
     let effects = w.on(Event::Resumed);
@@ -109,4 +130,26 @@ fn a_stale_run_is_abandoned_during_a_pause_and_its_cell_runs_again_once_the_work
     );
     assert_eq!(effects, vec![round_effect(again, "write", 1, Given::Task)]);
     assert_eq!(start_of(&w, again), start);
+}
+
+#[test]
+fn the_engine_pausing_a_work_with_a_reason_as_its_round_ends_lets_the_return_be_taken_and_holds_the_next_round() {
+    let (mut w, write, _) = W::requested();
+    let paused = Event::Paused {
+        by: Pauser::Engine,
+        why: Some("The work spent more than it may.".to_string()),
+    };
+    assert_eq!(w.on(paused), vec![]);
+    assert_eq!(w.returns(write, hands_in(&[("text", None)])), vec![]);
+    assert!(w.work.records.finished.iter().any(|f| f.run == write));
+    assert_eq!(w.decision(), decide::Decision::Paused);
+    let pause = decide::pause(&w.work.records).expect("the work is paused");
+    assert_eq!(
+        (pause.by, pause.why.as_deref()),
+        (Pauser::Engine, Some("The work spent more than it may."))
+    );
+    // The owner lets it on as from any pause.
+    let effects = w.on(Event::Resumed);
+    let judge = w.work.records.started.last().expect("a run").run;
+    assert_eq!(effects, vec![round_effect(judge, "judge", 1, Given::Task)]);
 }

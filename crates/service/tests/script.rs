@@ -6,7 +6,7 @@ use std::path::Path;
 use engine::Came;
 use flow::{CellSpec, Compiled};
 use service::Script;
-use service::script::{INPUT_TOKENS, OUTPUT_TOKENS, ROUND_MS, TOOL_MS, USD_MICROS};
+use service::script::{Ends, INPUT_TOKENS, OUTPUT_TOKENS, ROUND_MS, TOOL_MS, USD_MICROS};
 use work::{Ask, Handed, Spent};
 
 fn trial() -> Compiled {
@@ -103,8 +103,8 @@ fn a_round_the_script_says_nothing_of_hands_in_the_outputs_no_earlier_cell_reads
     // The opinions, which the build before it reads, are a way back, and are not written.
     let verdict = "The verdict as review wrote it in its run 2, round 3.";
     assert_eq!(
-        planned.came,
-        Came::HandsIn(vec![handed("verdict", verdict, Some("yes"))])
+        planned.ends,
+        Ends::Came(Came::HandsIn(vec![handed("verdict", verdict, Some("yes"))]))
     );
     assert_eq!(planned.ms, ROUND_MS);
     assert_eq!(
@@ -122,7 +122,7 @@ fn a_round_the_script_says_nothing_of_hands_in_the_outputs_no_earlier_cell_reads
 fn a_choice_is_handed_in_at_the_value_the_script_names_for_it() {
     let flow = trial();
     let script = Script::read("[flows.trial.values]\nverdict = \"no\"\n").unwrap();
-    let Came::HandsIn(blocks) = script.round(&flow, cell(&flow, "review"), 1, 1).came else {
+    let Ends::Came(Came::HandsIn(blocks)) = script.round(&flow, cell(&flow, "review"), 1, 1).ends else {
         panic!("the round hands in");
     };
     assert_eq!(blocks[0].value.as_deref(), Some("no"));
@@ -152,11 +152,11 @@ fn a_round_takes_what_its_entry_says_and_else_what_the_script_says() {
     assert_eq!(planned.ms, 50);
     assert_eq!(planned.spent.usd_micros, 40);
     assert_eq!(
-        planned.came,
-        Came::HandsIn(vec![Handed {
+        planned.ends,
+        Ends::Came(Came::HandsIn(vec![Handed {
             matters: false,
             ..handed("code", "The code as build wrote it in its run 2, round 1.", None)
-        }])
+        }]))
     );
     // The engine's own act takes no cost, whatever the script says of rounds.
     let merge = script.round(&flow, cell(&flow, "merge"), 1, 1);
@@ -175,8 +175,8 @@ fn a_round_asks_for_what_its_entry_says() {
     )
     .unwrap();
     assert_eq!(
-        script.round(&flow, cell(&flow, "plan"), 1, 1).came,
-        Came::Asks(vec![
+        script.round(&flow, cell(&flow, "plan"), 1, 1).ends,
+        Ends::Came(Came::Asks(vec![
             Ask::Person {
                 who: decide::Who::Owner,
                 question: "Which name?".to_string()
@@ -185,7 +185,55 @@ fn a_round_asks_for_what_its_entry_says() {
                 name: "ci".to_string(),
                 input: "main".to_string()
             },
-        ])
+        ]))
+    );
+}
+
+#[test]
+fn a_round_fails_where_its_entry_says_and_takes_what_it_says() {
+    let flow = trial();
+    let script = Script::read(
+        r#"
+        [[flows.trial.rounds]]
+        cell = "plan"
+        took = { ms = 70, usd_micros = 9 }
+        fails = "The agent could not start."
+        "#,
+    )
+    .unwrap();
+    let planned = script.round(&flow, cell(&flow, "plan"), 1, 1);
+    assert_eq!(planned.ends, Ends::Fails("The agent could not start.".to_string()));
+    assert_eq!((planned.ms, planned.spent.usd_micros), (70, 9));
+    // The round after it, given the same once the work is let on, does what the script says of it: by default it hands
+    // in.
+    assert!(matches!(
+        script.round(&flow, cell(&flow, "plan"), 1, 2).ends,
+        Ends::Came(Came::HandsIn(_))
+    ));
+}
+
+#[test]
+fn a_round_that_fails_is_told_it_neither_hands_in_nor_asks() {
+    let script = Script::read(
+        r#"
+        [[flows.trial.rounds]]
+        cell = "plan"
+        fails = "No."
+        asks = [{ tool = "ci" }]
+
+        [[flows.trial.rounds]]
+        cell = "build"
+        fails = "No."
+        hands_in = []
+        "#,
+    )
+    .unwrap();
+    assert_eq!(
+        script.check(&[trial()]),
+        [
+            "flows.trial.rounds[0]: a round that fails neither hands in nor asks",
+            "flows.trial.rounds[1]: a round that fails neither hands in nor asks",
+        ]
     );
 }
 

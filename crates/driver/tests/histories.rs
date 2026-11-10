@@ -41,7 +41,7 @@ mod support;
 use std::collections::BTreeSet;
 use std::panic::{self, AssertUnwindSafe};
 
-use decide::{CallId, Decision, Outsider, RunId, Waited, Who};
+use decide::{CallId, Decision, Outsider, Pauser, RunId, Waited, Who};
 use driver::{FirstWrite, NewItem, Todo};
 use engine::{Ask, Call, Came, Effect, Event, Handed, Spent, Time, Work};
 use store::{ItemNumber, WorkHead, WorkNumber};
@@ -428,7 +428,10 @@ impl History {
                 if decide::paused(&kept.work.records) {
                     Event::Resumed
                 } else {
-                    Event::Paused
+                    Event::Paused {
+                        by: Pauser::Owner,
+                        why: None,
+                    }
                 }
             }
             30..=32 => {

@@ -170,17 +170,27 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             })
         },
     )?;
-    r.pauses = rows(
+    let pauses = rows(
         db,
-        "SELECT at, paused FROM pauses WHERE work = ?1 ORDER BY at",
+        "SELECT at, paused, pauser, why FROM pauses WHERE work = ?1 ORDER BY at",
         w,
         |row| {
-            Ok(Pause {
-                at: Seq(row.get(0)?),
-                paused: row.get(1)?,
-            })
+            Ok((
+                Seq(row.get(0)?),
+                row.get::<_, bool>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+            ))
         },
     )?;
+    for (at, paused, pauser, why) in pauses {
+        r.pauses.push(Pause {
+            paused,
+            at,
+            by: from_name("pauses", pauser)?,
+            why,
+        });
+    }
     r.cancelled = rows(db, "SELECT at FROM cancelled WHERE work = ?1", w, |row| {
         Ok(Seq(row.get(0)?))
     })?
@@ -356,9 +366,10 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         )?;
     }
     for e in pauses {
+        let pauser = name("pauses", &e.by)?;
         db.execute(
-            "INSERT INTO pauses (work, at, paused) VALUES (?1, ?2, ?3)",
-            params![w, e.at.0, e.paused],
+            "INSERT INTO pauses (work, at, paused, pauser, why) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![w, e.at.0, e.paused, pauser, e.why],
         )?;
     }
     if let Some(at) = cancelled {

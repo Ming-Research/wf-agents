@@ -7,6 +7,7 @@ mod acts;
 mod changes;
 mod definition;
 mod directories;
+mod failing;
 mod items;
 mod page;
 mod stopped;
@@ -208,12 +209,26 @@ pub fn running() -> Running {
 /// Starts the engine's loop on the trial flow with its script over this store, kept in this directory, and serves
 /// the interface over it. A loop that stops shows in the answers of the interface.
 pub fn running_on(store: Box<dyn store::Storage + Send>, dir: tempfile::TempDir) -> Running {
+    running_scripted(store, dir, trial_script())
+}
+
+/// The trial flow's script.
+pub fn trial_script() -> service::Script {
+    service::Script::read(&std::fs::read_to_string(trial_dir().join("script.toml")).unwrap()).unwrap()
+}
+
+/// Starts the engine's loop on the trial flow with this script over this store, kept in this directory, and serves
+/// the interface over it.
+pub fn running_scripted(
+    store: Box<dyn store::Storage + Send>,
+    dir: tempfile::TempDir,
+    script: service::Script,
+) -> Running {
     let flow = flow::compile(
         &flow::read(&trial_dir().join("flow")).unwrap(),
         &trial_has(&Source::default()),
     )
     .unwrap();
-    let script = service::Script::read(&std::fs::read_to_string(trial_dir().join("script.toml")).unwrap()).unwrap();
     let clock = Arc::new(TokioClock::new(work::Time(START)));
     let (service, inbox) = Service::open(store, vec![flow], Scripted::new(script).carriers(), clock).unwrap();
     let handle = service.handle();

@@ -1,7 +1,7 @@
 //! What happens to a work, and what is to be done for it.
 
 use decide::run::Unmet;
-use decide::{BlockId, CallId, CellId, Outsider, RunId};
+use decide::{BlockId, CallId, CellId, Outsider, Pauser, RunId};
 
 use work::{Ask, Call, Given, Handed, Spent};
 
@@ -21,14 +21,19 @@ pub enum Event {
     },
     /// The owner let the cell go on at its limit.
     LetGo { cell: CellId },
-    /// The work was paused.
-    Paused,
+    /// The work was paused: by the owner, who gives no reason, or by the engine itself, for this reason, as when it
+    /// spent more than it may. A round that fails pauses its work by [`Event::Failed`] instead.
+    Paused { by: Pauser, why: Option<String> },
     /// The work was let on again.
     Resumed,
     /// The work's item was cancelled.
     Cancelled,
     /// The round of the run that was under way ended, having taken this.
     Returned { run: RunId, came: Came, spent: Spent },
+    /// The round of the run that was under way failed, for this reason, having taken this: nothing came back. Where
+    /// the run is open, the engine pauses the work with the reason as it takes this, and once the work is let on the
+    /// run's next round is given what the failed one was given.
+    Failed { run: RunId, why: String, spent: Spent },
     /// The call has its result.
     Done { call: CallId, result: String },
 }

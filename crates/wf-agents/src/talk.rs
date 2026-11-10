@@ -13,8 +13,8 @@ use hyper_util::rt::TokioIo;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use web::works::{
-    Act, Added, Call, CellState, Items, Limit, NewItem, NewWrite, Now, Person, Refusal, Spent, Step, Waited, WorkPage,
-    Writer,
+    Act, Added, Back, Call, CellState, Items, Limit, NewItem, NewWrite, Now, Pauser, Person, Refusal, Run, Spent, Step,
+    Waited, WorkPage, Writer,
 };
 
 /// What a command asks of the engine.
@@ -243,11 +243,27 @@ fn show(page: &WorkPage) -> String {
         format!("Spent: {}.", spent(&summary.spent)),
         "Cells:".to_string(),
     ];
+    let runs: Vec<&Run> = (page.steps.iter())
+        .filter_map(|step| match step {
+            Step::Run(run) => Some(run),
+            _ => None,
+        })
+        .collect();
     for cell in &summary.cells {
         let run = |run: Option<u64>| run.map_or_else(String::new, |run| format!(" in run {run}"));
+        let failure = |open: Option<u64>| {
+            let run = open.and_then(|open| runs.iter().find(|run| run.run == open));
+            run.and_then(|run| failure(run))
+                .map_or_else(String::new, |why| format!(": {why}"))
+        };
         let state = match cell.state {
             CellState::Running => format!("a round under way{}", run(cell.open)),
             CellState::Resting => format!("resting{}", run(cell.open)),
+            CellState::Failed => format!(
+                "its last round failed{}{}; the round is given again once the work is let on",
+                run(cell.open),
+                failure(cell.open)
+            ),
             CellState::Skipped => "skipped".to_string(),
             CellState::NotYet => "not yet".to_string(),
             CellState::Again => format!("runs again, its record being run {}", run_or_none(cell.record)),
@@ -277,10 +293,7 @@ fn show(page: &WorkPage) -> String {
         ));
     }
     lines.push("Runs:".to_string());
-    for step in &page.steps {
-        let Step::Run(run) = step else {
-            continue;
-        };
+    for run in runs {
         let rounds = if run.rounds.len() == 1 {
             "1 round".to_string()
         } else {
@@ -292,14 +305,23 @@ fn show(page: &WorkPage) -> String {
         } else {
             format!(", calls {}", calls.join(", "))
         };
-        let end = match &run.end {
-            None => "open",
-            Some(web::works::RunEnd::Finished { .. }) => "finished",
-            Some(web::works::RunEnd::Abandoned { .. }) => "abandoned",
+        let end = match (&run.end, failure(run)) {
+            (None, Some(why)) => format!("open, its last round failed: {why}"),
+            (None, None) => "open".to_string(),
+            (Some(web::works::RunEnd::Finished { .. }), _) => "finished".to_string(),
+            (Some(web::works::RunEnd::Abandoned { .. }), _) => "abandoned".to_string(),
         };
         lines.push(format!("  run {} of {}: {rounds}{calls}, {end}", run.run, run.cell));
     }
     lines.join("\n")
+}
+
+/// Why the run's last round failed, where it did: nothing came back of it.
+fn failure(run: &Run) -> Option<&str> {
+    match &run.rounds.last()?.back {
+        Some(Back::Failed { why }) => Some(why),
+        _ => None,
+    }
 }
 
 fn run_or_none(run: Option<u64>) -> String {
@@ -313,7 +335,15 @@ fn now(now: &Now) -> String {
         Now::Merged => "merged".to_string(),
         Now::Cancelled => "cancelled".to_string(),
         Now::Round { cell, run, round, .. } => format!("a round of {cell} is under way, round {round} of run {run}"),
-        Now::Paused => "paused".to_string(),
+        Now::Paused { by: Pauser::Owner, .. } => "paused".to_string(),
+        Now::Paused {
+            by: Pauser::Engine,
+            why: Some(why),
+        } => format!("paused by the engine: {why}"),
+        Now::Paused {
+            by: Pauser::Engine,
+            why: None,
+        } => "paused by the engine, which gave no reason".to_string(),
         Now::Waits { at, on } => {
             let on: Vec<String> = on.iter().map(waited).collect();
             format!("waits at {at} for {}", on.join("; and for "))
