@@ -1058,5 +1058,4 @@ fn histories() {
 #[test]
 fn random_works_on_the_engineers_flow_keep_what_the_flow_must() {
     histories();
-    panic!("shown once in CI: the counts above");
 }
