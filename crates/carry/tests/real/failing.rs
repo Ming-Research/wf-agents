@@ -126,3 +126,59 @@ async fn a_session_lost_on_a_later_round_is_begun_again_with_every_earlier_call_
         assert!(again.stdin.contains(part), "{part} is missing from:\n{}", again.stdin);
     }
 }
+
+/// The fake whose first call prints an error that cost eighty cents, every later call saying the session has cost
+/// eighty-five.
+fn erring() -> Fake {
+    Fake {
+        error_first: true,
+        cost: "0.85",
+        ..Fake::default()
+    }
+}
+
+#[tokio::test]
+async fn a_failed_round_whose_result_says_what_it_cost_is_charged_it_and_the_next_round_only_its_own() {
+    let mut real = Real::trial(erring());
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| real.failures == 1).await;
+    let kept = real.work(work);
+    let plan_run = kept.records.started[0].run;
+    let why = decide::pause(&kept.records)
+        .and_then(|p| p.why.clone())
+        .expect("a reason");
+    assert!(why.contains("Out of structured output retries."), "{why}");
+    let failed = kept.spent[&(plan_run, 1)];
+    assert_eq!(
+        (failed.usd_micros, failed.input_tokens, failed.output_tokens),
+        (800_000, 1000, 300)
+    );
+
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    let kept = real.work(work);
+    // The next round goes on in the session the failed one began, and is charged only what it cost more.
+    let calls = real.calls();
+    assert_eq!(calls[1].session().0, "--resume");
+    assert_eq!(kept.spent[&(plan_run, 2)].usd_micros, 50_000);
+    let total: u64 = kept.spent.values().map(|s| s.usd_micros).sum();
+    assert!(
+        total >= 850_000,
+        "the work's total, {total}, leaves out the failed round"
+    );
+}
+
+#[tokio::test]
+async fn a_failed_round_that_takes_the_work_over_its_budget_says_both() {
+    let mut real = Real::open(crate::On::Trial, erring(), Some(0.5), "true");
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| real.failures == 1).await;
+    let kept = real.work(work);
+    let why = decide::pause(&kept.records)
+        .and_then(|p| p.why.clone())
+        .expect("a reason");
+    assert!(why.contains("Out of structured output retries."), "{why}");
+    assert!(why.contains("over its budget of $0.50"), "{why}");
+}

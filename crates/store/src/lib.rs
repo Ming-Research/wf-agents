@@ -26,7 +26,7 @@ mod tables;
 use std::path::Path;
 
 use decide::{BlockId, CallId, RunId, Seq};
-use rusqlite::{Connection, TransactionBehavior};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 use work::{Time, Work};
 
 pub use items::{Item, ItemNumber, WorkHead, WorkNumber};
@@ -39,7 +39,8 @@ pub const SCHEMA: &str = include_str!("../schema.sql");
 pub const SCHEMA_VERSION: u32 = 2;
 
 /// The migrations, in order: the first brings a database of version 1 of the schema to version 2, and each after it
-/// one version further. Each file is named by the minute it was written and what it does.
+/// one version further, replacing the version's one row last. Each file is named by the minute it was written and
+/// what it does.
 const MIGRATIONS: &[&str] = &[include_str!(
     "../migrations/202611101530-say-who-paused-a-work-and-why.sql"
 )];
@@ -163,21 +164,20 @@ impl Store {
                 [],
                 |row| row.get(0),
             )?;
-            // The table holds a row for each version the database was made with or brought to: the highest is its
-            // version.
             let found = if has_version {
-                tx.query_row("SELECT max(version) FROM schema_version", [], |row| row.get(0))?
+                tx.query_row("SELECT version FROM schema_version", [], |row| row.get(0))
+                    .optional()?
             } else {
                 None
             };
             match found {
                 Some(SCHEMA_VERSION) => {}
-                // Made with an earlier version: each migration from it on is run, in this transaction.
+                // Made with an earlier version: each migration from it on is run, in this transaction, each replacing
+                // the version's one row with its own.
                 Some(earlier @ 1..SCHEMA_VERSION) => {
                     for migration in &MIGRATIONS[earlier as usize - 1..] {
                         tx.execute_batch(migration)?;
                     }
-                    tx.execute("INSERT INTO schema_version (version) VALUES (?1)", [SCHEMA_VERSION])?;
                 }
                 _ => {
                     return Err(Fault::Schema {

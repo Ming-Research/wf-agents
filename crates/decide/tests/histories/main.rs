@@ -57,6 +57,7 @@ mod properties;
 mod reading;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write;
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::{Mutex, PoisonError};
 
@@ -836,6 +837,22 @@ fn histories(drawn: Drawn, seeds: u64, reached: &[&str]) {
             log.join("\n")
         );
     }
+    // How often the rounds that failed were reached, said whatever comes of the test: written to the standard error
+    // itself, which the test harness does not hold back as it holds back what a test prints.
+    let failing = [
+        properties::FAILED,
+        properties::FAILED_GOES_ON,
+        properties::FAILED_ABANDONED,
+    ];
+    let counts: Vec<String> = failing
+        .iter()
+        .map(|what| format!("{what}: {}", seen.get(what)))
+        .collect();
+    let _ = writeln!(
+        std::io::stderr(),
+        "the deciding code's histories reached: {}",
+        counts.join("; ")
+    );
     let unreached: Vec<_> = reached.iter().filter(|what| seen.get(what) == 0).collect();
     assert!(
         unreached.is_empty(),

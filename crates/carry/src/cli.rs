@@ -148,23 +148,49 @@ pub struct Read {
     pub spent: Spent,
 }
 
+/// Why what the command line printed is no result to take, with what the round took where the result could be read:
+/// an error, or a result with no structured return, still says what the call cost, and the call is paid for all the
+/// same. Where nothing could be read, what the round took is not known.
+#[derive(Debug)]
+pub struct NoResult {
+    pub why: String,
+    pub spent: Option<Spent>,
+}
+
 /// Reads what the command line printed on its standard output, for a round that began its session or went on in it
-/// with the session having cost `before`; or says why it is no result to take. A round that began its session cost
-/// the session's total; one that went on in it, that total less what the line's earlier rounds cost, or the whole
-/// total where that is less (measured: the total is the whole session's, even where two lines take turns in one
-/// worktree).
-pub fn read(stdout: &[u8], begin: Begin, before: u64) -> std::result::Result<Read, String> {
+/// with the session having cost `before`; or says why it is no result to take, with what the round took where the
+/// result could be read. A round that began its session cost the session's total; one that went on in it, that total
+/// less what the line's earlier rounds cost, or the whole total where that is less (measured: the total is the whole
+/// session's, even where two lines take turns in one worktree).
+pub fn read(stdout: &[u8], begin: Begin, before: u64) -> std::result::Result<Read, NoResult> {
     let result: Result = serde_json::from_slice(stdout).map_err(|e| {
         let text = String::from_utf8_lossy(stdout);
-        format!("what the command line printed is not its result ({e}): {}", text.trim())
+        NoResult {
+            why: format!("what the command line printed is not its result ({e}): {}", text.trim()),
+            spent: None,
+        }
     })?;
+    let spent = spent(&result, begin, before);
     if result.is_error {
         let why = result.result.unwrap_or_default();
-        return Err(format!("the command line's result is an error: {why}"));
+        let why = format!("the command line's result is an error: {why}");
+        return Err(NoResult {
+            why,
+            spent: Some(spent),
+        });
     }
     let Some(structured) = result.structured_output else {
-        return Err("the command line's result holds no structured return".to_string());
+        let why = "the command line's result holds no structured return".to_string();
+        return Err(NoResult {
+            why,
+            spent: Some(spent),
+        });
     };
+    Ok(Read { structured, spent })
+}
+
+/// What the call whose result this is took.
+fn spent(result: &Result, begin: Begin, before: u64) -> Spent {
     let total = (result.total_cost_usd.max(0.0) * 1_000_000.0).round() as u64;
     // The cost errs high: where the session's total is less than its earlier rounds cost, it cannot be the same
     // session's, and is taken whole.
@@ -172,14 +198,13 @@ pub fn read(stdout: &[u8], begin: Begin, before: u64) -> std::result::Result<Rea
         Begin::Resume if total >= before => total - before,
         _ => total,
     };
-    let usage = result.usage;
-    let spent = Spent {
+    let usage = &result.usage;
+    Spent {
         usd_micros,
         input_tokens: usage.input_tokens + usage.cache_creation_input_tokens,
         cached_tokens: usage.cache_read_input_tokens,
         output_tokens: usage.output_tokens,
-    };
-    Ok(Read { structured, spent })
+    }
 }
 
 #[cfg(test)]
@@ -237,13 +262,31 @@ mod tests {
     fn an_error_and_what_is_no_result_are_not_taken() {
         let error = r#"{"type":"result","is_error":true,"result":"There's an issue with the selected model."}"#;
         let refused = read(error.as_bytes(), Begin::New, 0).expect_err("an error is not taken");
-        assert!(refused.contains("issue with the selected model"), "{refused}");
-        assert!(read(b"Error: something", Begin::New, 0).is_err());
+        assert!(refused.why.contains("issue with the selected model"), "{}", refused.why);
+        let nothing = read(b"Error: something", Begin::New, 0).expect_err("what is no JSON is not taken");
+        assert_eq!(nothing.spent, None, "what the round took is not known");
         let bare = r#"{"type":"result","is_error":false,"result":"hello","total_cost_usd":0.1}"#;
         assert!(
             read(bare.as_bytes(), Begin::New, 0).is_err(),
             "a result with no structured return"
         );
+    }
+
+    #[test]
+    fn a_result_that_is_no_return_still_says_what_its_call_took() {
+        let error = r#"{"type":"result","is_error":true,"result":"Out of structured output retries.","total_cost_usd":0.8,
+            "usage":{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20}}"#;
+        let spent = Spent {
+            usd_micros: 300_000,
+            input_tokens: 15,
+            cached_tokens: 100,
+            output_tokens: 20,
+        };
+        let refused = read(error.as_bytes(), Begin::Resume, 500_000).expect_err("an error is not taken");
+        assert_eq!(refused.spent, Some(spent));
+        let bare = r#"{"type":"result","is_error":false,"total_cost_usd":0.8}"#;
+        let refused = read(bare.as_bytes(), Begin::New, 0).expect_err("no structured return is not taken");
+        assert_eq!(refused.spent.map(|s| s.usd_micros), Some(800_000));
     }
 
     #[test]

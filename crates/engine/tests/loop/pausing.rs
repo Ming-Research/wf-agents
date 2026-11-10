@@ -153,3 +153,21 @@ fn the_engine_pausing_a_work_with_a_reason_as_its_round_ends_lets_the_return_be_
     let judge = w.work.records.started.last().expect("a run").run;
     assert_eq!(effects, vec![round_effect(judge, "judge", 1, Given::Task)]);
 }
+
+#[test]
+fn the_engines_pause_of_a_work_that_has_ended_adds_nothing() {
+    let (mut w, write, _) = W::requested();
+    assert_eq!(w.on(Event::Cancelled), vec![Effect::Stop { run: write }]);
+    // The carrier ends the stopped round, asking that the work wait for the owner: the pause comes first.
+    let paused = Event::Paused {
+        by: Pauser::Engine,
+        why: Some("The work spent more than it may.".to_string()),
+    };
+    let before = w.work.records.clone();
+    assert_eq!(w.on(paused), vec![]);
+    assert_eq!(w.work.records, before);
+    assert_eq!(w.returns(write, hands_in(&[("text", None)])), vec![]);
+    assert!(w.work.records.pauses.is_empty());
+    assert!(!decide::paused(&w.work.records));
+    assert_eq!(w.decision(), decide::Decision::Ended(decide::End::Cancelled));
+}

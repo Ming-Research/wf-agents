@@ -7,10 +7,10 @@
 -- `Engine`). A boolean
 -- is 0 or 1.
 
--- The versions of this schema, as the code numbers them, that the database was made with or brought to: a row written
--- when the database is made, and one by each migration it is brought to a later version by, the highest being the
--- database's version. A database of an earlier version is brought to this one by the migrations of `migrations/` as it
--- is opened; one of any other version is not opened.
+-- The version of this schema, as the code that made the database numbers it: one row, written when the database is
+-- made and replaced by each migration that brings it to a later version, the one row in the store that is changed. A
+-- database of an earlier version is brought to this one by the migrations of `migrations/` as it is opened; one of any
+-- other version is not opened.
 CREATE TABLE schema_version (
     version INTEGER PRIMARY KEY
 );

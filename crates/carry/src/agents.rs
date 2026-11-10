@@ -5,7 +5,9 @@
 //!
 //! A round fails, handing in nothing, where the worktree is not there, the program cannot be started, it exits with
 //! an error or prints a result that is one, or what it prints is no result with a structured return. It is not tried
-//! again here: the work is paused for the owner to see why. Stopped, the program's process group is sent TERM, and
+//! again here: the work is paused for the owner to see why. A round that fails takes what the result the program
+//! printed says it cost, as any round does, and is held to the budget as any round is; where the program printed
+//! nothing that reads as a result, what the round took is not known, and is recorded as nothing. Stopped, the program's process group is sent TERM, and
 //! KILL after three seconds, and the round ends with nothing handed in; what it spent is not known, and is recorded
 //! as nothing.
 //!
@@ -61,6 +63,8 @@ struct Inner {
 /// What came of running a round's program.
 enum Carried {
     Came(Came, Spent),
+    /// It failed, for this reason, having taken this, as the result it printed says.
+    Failed(String, Spent),
     Stopped,
 }
 
@@ -114,8 +118,22 @@ impl Rounds for Agents {
                         reply.ended(Came::HandsIn(Vec::new()), Spent::default());
                     }
                 }
+                Ok(Carried::Failed(why, spent)) => match inner.held.fail(key) {
+                    // The work is paused for the failure; where the round took it over its budget, the reason says
+                    // that too.
+                    Some(Failing::Fail(reply)) => {
+                        let why = match inner.over_budget(&round, &spent) {
+                            Some(over) => format!("{why}; and {over}"),
+                            None => why,
+                        };
+                        reply.failed(why, spent);
+                    }
+                    Some(Failing::End(reply)) => reply.ended(Came::HandsIn(Vec::new()), spent),
+                    None => {}
+                },
+                // What a round that failed before its program printed a result took is not known: it is kept as
+                // nothing.
                 Err(why) => match inner.held.fail(key) {
-                    // What a round that failed took is not known here, and is kept as nothing.
                     Some(Failing::Fail(reply)) => reply.failed(why, Spent::default()),
                     Some(Failing::End(reply)) => reply.ended(Came::HandsIn(Vec::new()), Spent::default()),
                     None => {}
@@ -141,7 +159,8 @@ impl Rounds for Agents {
 }
 
 impl Inner {
-    /// Runs the round's program, and gives what came back and what it took; or why the round failed.
+    /// Runs the round's program, and gives what came back and what it took; or that the round failed, why and what it
+    /// took, where the program printed a result; or, where it printed none, only why.
     async fn carry(&self, round: &Round, stop: &mut Stop) -> Result<Carried, String> {
         let (flow, work) = (&*round.flow, &*round.kept);
         let line = (round.cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", round.cell.id))?;
@@ -181,16 +200,31 @@ impl Inner {
             break (status, stdout, stderr);
         };
         let read = cli::read(&stdout, begin, before);
+        // A failure whose result was read took what the result says; one with none, what is not known.
+        let failed = |why: String, spent: Option<Spent>| match spent {
+            Some(spent) => Ok(Carried::Failed(why, spent)),
+            None => Err(why),
+        };
         if !status.success() {
-            let why = match read {
-                Err(why) if !stdout.is_empty() => why,
-                _ => process::tail(stderr.trim().as_bytes()),
+            let tail = || process::tail(stderr.trim().as_bytes());
+            let (why, spent) = match read {
+                Err(no) if !stdout.is_empty() => (no.why, no.spent),
+                Err(no) => (tail(), no.spent),
+                Ok(read) => (tail(), Some(read.spent)),
             };
-            return Err(format!("{} exited with {status}: {why}", self.settings.agents.command));
+            return failed(
+                format!("{} exited with {status}: {why}", self.settings.agents.command),
+                spent,
+            );
         }
-        let read = read?;
-        let came = returns::came(&read.structured)?;
-        Ok(Carried::Came(came, read.spent))
+        let read = match read {
+            Ok(read) => read,
+            Err(no) => return failed(no.why, no.spent),
+        };
+        match returns::came(&read.structured) {
+            Ok(came) => Ok(Carried::Came(came, read.spent)),
+            Err(why) => Ok(Carried::Failed(why, read.spent)),
+        }
     }
 
     /// The program's command line for a round in the session, begun or gone on in, in the worktree.

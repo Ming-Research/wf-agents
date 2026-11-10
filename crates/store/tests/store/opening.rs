@@ -112,6 +112,16 @@ fn columns(path: &Path) -> BTreeMap<String, Vec<Vec<String>>> {
     out
 }
 
+/// Every row of the table of the schema's version.
+fn versions(path: &Path) -> Vec<u32> {
+    let file = Connection::open(path).expect("the database opens");
+    let mut query = file
+        .prepare("SELECT version FROM schema_version")
+        .expect("the versions are read");
+    let rows = query.query_map([], |row| row.get(0)).expect("the versions are read");
+    rows.collect::<Result<_, _>>().expect("the versions are read")
+}
+
 /// A work as one kept before the engine paused works itself: the owner pauses it as it is added, and lets it on; the
 /// writer hands in its text and the judge asks the owner a question.
 fn kept_before() -> Work {
@@ -171,14 +181,9 @@ fn a_file_made_with_the_first_version_of_the_schema_is_migrated_and_its_pauses_r
 
     let store = old.open();
     assert_eq!(store.load(WorkNumber(1)), Ok(work));
-    let file = Connection::open(&old.path).expect("the database opens");
-    let versions: Vec<u32> = (file.prepare("SELECT version FROM schema_version ORDER BY version"))
-        .expect("the versions are read")
-        .query_map([], |row| row.get(0))
-        .expect("the versions are read")
-        .collect::<Result<_, _>>()
-        .expect("the versions are read");
-    assert_eq!(versions, [1, SCHEMA_VERSION]);
+    // The version's one row reads this version, as it does in a new file: code that reads the row finds no older one.
+    assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
+    assert_eq!(versions(&new.path), [SCHEMA_VERSION]);
     assert_eq!(
         columns(&old.path),
         columns(&new.path),

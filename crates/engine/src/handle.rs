@@ -130,6 +130,11 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
             work.records.let_go.push(LetGo { cell, at });
         }
         Event::Paused { by, why } => {
+            // The engine's pause of a work that has ended, as one a carrier asks for as a round of a cancelled work
+            // ends, would hold back nothing and say what is not so: it adds nothing.
+            if by == Pauser::Engine && matches!(decide(&flow.flow, &work.records), Decision::Ended(_)) {
+                return Ok(());
+            }
             let at = work.tick();
             work.records.pauses.push(Pause {
                 paused: true,
