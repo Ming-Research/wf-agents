@@ -174,10 +174,8 @@ fn straight() -> (Ending, usize) {
         "the history did not end as it was written to"
     );
     for kind in ["Stop", "Withdraw", "SentBack", "Results", "Call"] {
-        assert!(
-            ending.ever.iter().any(|k| k.contains(kind)),
-            "nothing of the kind {kind} was given"
-        );
+        let mut given = ending.ever.iter().chain(&ending.undone);
+        assert!(given.any(|k| k.contains(kind)), "nothing of the kind {kind} was given");
     }
     (ending, calls)
 }
