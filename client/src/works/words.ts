@@ -188,15 +188,18 @@ export function nowTone(now: Now): Tone {
   }
 }
 
-/// Why a cell ran, after the block's name where the cause has one.
-export function causeRest(cause: Cause): string {
-  if (cause.kind === 'noRecord') return 'it had no record';
+/// Why a cell ran or would run, after the block's name where the cause has one. A change a cell after it made is said
+/// to be one; the run is a way round only when every one of its causes is (`wayRound`).
+export function causeRest(cause: Cause, wayRound = false): string {
+  if (cause.kind === 'noRecord') return 'the cell had no record';
   const since = cause.was === null ? ', which its record knew no version of' : ` since @${cause.was}`;
-  return `changed in meaning${since}${cause.behind ? ', by a cell after it: a way round' : ''}`;
+  const behind = cause.behind ? `, by a cell after it${wayRound ? ': a way round' : ''}` : '';
+  return `changed in meaning${since}${behind}`;
 }
 
-export function causeWords(cause: Cause): string {
-  return cause.kind === 'noRecord' ? causeRest(cause) : `${cause.block} ${causeRest(cause)}`;
+export function causeWords(cause: Cause, wayRound = false): string {
+  const rest = causeRest(cause, wayRound);
+  return cause.kind === 'noRecord' ? rest : `${cause.block} ${rest}`;
 }
 
 /// A run is a way round when each of its reasons is a block whose meaning a cell after it last changed.
@@ -276,9 +279,12 @@ export function runTook(run: Pick<Run, 'time' | 'end'>, now: number): number {
   return (run.end?.time ?? now) - run.time;
 }
 
-/// A call's state in words: when it was made and, once it has one, when its result came.
-export function callState(row: CallRow): string {
-  return row.done === null ? `made ${clock(row.made)}, no result yet` : `made ${clock(row.made)}, done in ${duration(row.done - row.made)}`;
+/// A call's state in words: when it was made and, once it has one, when its result came; a call with no result of a
+/// run that was abandoned was withdrawn with it.
+export function callState(row: CallRow, abandoned = false): string {
+  const made = `made ${clock(row.made)}`;
+  if (row.done !== null) return `${made}, done in ${duration(row.done - row.made)}`;
+  return abandoned ? `${made}, withdrawn with its run` : `${made}, no result yet`;
 }
 
 /// Whether a work has ended: merged, or its item cancelled.

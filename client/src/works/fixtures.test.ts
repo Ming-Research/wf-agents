@@ -7,8 +7,9 @@ import { isWayRound } from './words';
 const runs = (steps: Step[]) => steps.filter((s): s is Step & Run & { kind: 'run' } => s.kind === 'run');
 
 describe('the fixtures', () => {
-  it('hold a work of each kind the page must show', () => {
-    const works = fixtureItems().items.flatMap((i) => i.works);
+  it('hold one work for each item, and a work of each kind the page must show', () => {
+    const works = fixtureItems().items.map((i) => i.work);
+    expect(fixtureItems().items.map((i) => i.work.item)).toEqual(fixtureItems().items.map((i) => i.number));
     const nows = works.map((w) => w.now);
     expect(nows.some((n) => n.kind === 'round')).toBe(true);
     expect(nows.some((n) => n.kind === 'waits' && n.on.some((w) => w.kind === 'call' && w.what.kind === 'question'))).toBe(true);
@@ -32,7 +33,8 @@ describe('the fixtures', () => {
 
   it('agree with themselves: each version and each round handed in can be read', () => {
     for (const item of fixtureItems().items) {
-      for (const work of item.works) {
+      {
+        const work = item.work;
         const page = fixtureWork(work.number);
         for (const block of page.blocks) {
           for (const v of block.versions) {

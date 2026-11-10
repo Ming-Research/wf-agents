@@ -1,10 +1,28 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Item, Now, Step, Summary } from '../works-api';
+import type { Block, Cause, Item, Now, Run, Step, Summary, Version, Writer } from '../works-api';
 import { FLOW, fixtureWork } from './fixtures';
+import { stepWords } from './History';
 import { cellAt, defaultBlock, orderWorks, placeSteps } from './placing';
 
 const DAY = 86_400_000;
+
+/// A finished run of one round, for these reasons, from these versions.
+function run(n: number, cell: string, because: Cause[], basis: Run['basis']): Step {
+  return {
+    kind: 'run',
+    run: n,
+    cell,
+    at: n * 10,
+    time: n * 1000,
+    because,
+    basis,
+    rounds: [],
+    calls: [],
+    end: { kind: 'finished', at: n * 10 + 1, time: n * 1000 + 1, writes: [] },
+    spent: { usdMicros: 0, inputTokens: 0, cachedTokens: 0, outputTokens: 0, workingMs: 0, rounds: 0 },
+  };
+}
 
 describe('the rows and columns of a history', () => {
   it('puts a run in its cell’s column, and marks where each cell that reads what was written stands', () => {
@@ -35,12 +53,35 @@ describe('the rows and columns of a history', () => {
   it('draws a way round from the cell whose write it ran for back to the run', () => {
     const page = fixtureWork(41);
     const rows = placeSteps(page.steps, page.flow, page.blocks);
-    const ways = rows.filter((r) => r.backFrom !== null).map((r) => [r.column, r.backFrom]);
+    const ways = rows.filter((r) => r.backFrom.length > 0).map((r) => [r.column, r.backFrom]);
     // Twice the review's opinion sent the implementation round.
     expect(ways).toEqual([
-      [2, 3],
-      [2, 3],
+      [2, [3]],
+      [2, [3]],
     ]);
+  });
+
+  it('marks each cell whose write a way round ran for, draws none where no writer is found, and keeps a run of a cell gone', () => {
+    const version = (at: number, by: Writer): Version => ({ at, time: 0, by, meaning: at, value: null, chars: 0 });
+    const blocks: Block[] = [
+      { name: 'x', versions: [version(5, { kind: 'run', run: 1, cell: 'review' })] },
+      { name: 'y', versions: [version(6, { kind: 'run', run: 2, cell: 'check' })] },
+      { name: 'z', versions: [version(7, { kind: 'person' })] },
+    ];
+    const behind = (block: string): Cause => ({ kind: 'changed', block, was: null, behind: true });
+    const steps: Step[] = [
+      run(3, 'implement', [behind('x'), behind('y')], [{ block: 'x', version: 5 }, { block: 'y', version: 6 }]),
+      run(4, 'implement', [behind('z')], [{ block: 'z', version: 7 }]),
+      run(5, 'gone', [{ kind: 'noRecord' }], []),
+    ];
+    const rows = placeSteps(steps, FLOW, blocks);
+    expect(rows.map((r) => [r.column, r.backFrom])).toEqual([
+      [2, [3, 4]],
+      [2, []],
+      [null, []],
+    ]);
+    expect(stepWords(steps[2], FLOW)).toBe('gone, which the flow no longer has: gone had no record');
+    expect(stepWords(steps[0], FLOW)).toBe('way round for x, y');
   });
 
   it('marks a condition that reads what was written and the cell let go, and shows the day where it changes', () => {
@@ -85,27 +126,18 @@ describe('the list of works', () => {
       summary(8, { kind: 'cancelled' }, 990),
       summary(9, { kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }, 600, true),
     ];
-    const items: Item[] = works.map((w) => ({ number: w.number, title: `${w.number}`, added: 0, dependsOn: [], works: [w] }));
+    const items: Item[] = works.map((w) => ({ number: w.number, title: `${w.number}`, added: 0, dependsOn: [], work: w }));
     expect(orderWorks(items).map((w) => w.work.number)).toEqual([7, 4, 6, 3, 2, 5, 9, 8, 1]);
-  });
-
-  it('lists every work of an item, not only its last', () => {
-    const item: Item = {
-      number: 1,
-      title: 'one',
-      added: 0,
-      dependsOn: [],
-      works: [summary(10, { kind: 'cancelled' }, 5), summary(11, { kind: 'next', cell: 'plan' }, 6)],
-    };
-    expect(orderWorks([item]).map((w) => w.work.number)).toEqual([11, 10]);
   });
 });
 
 describe('the box to write for a cell', () => {
-  it('starts at the opinions of the cell the work is at, or the block people write that it reads', () => {
+  it('starts at the opinions of the cell the work is at, or the block people write that it reads, and else at none', () => {
     expect(defaultBlock(FLOW, 'implement')).toBe('opinions_implement');
     expect(defaultBlock(FLOW, 'plan')).toBe('opinions_plan');
     expect(defaultBlock(FLOW, 'merge')).toBe('approval');
+    expect(defaultBlock(FLOW, 'review')).toBeNull();
+    expect(defaultBlock(FLOW, null)).toBeNull();
     expect(cellAt(fixtureWork(41).summary)).toBe('merge');
     expect(cellAt(fixtureWork(46).summary)).toBeNull();
   });

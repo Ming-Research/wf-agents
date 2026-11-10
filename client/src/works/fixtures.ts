@@ -3,9 +3,9 @@
 // summary, its cells, its blocks with their versions, the contents) is worked out from that, so that the fixtures
 // agree with themselves as the interface's would. Times are counted back from when the page loads them.
 //
-// The works: one with a round under way; one waiting for the owner's answer to a question; one with a run at its
-// limit of returns sent back; one with a cell at its limit of ways round; one paused; one merged; one cancelled after a
-// let-go; one with a fault; one about to go on; and one long history, waiting at the merge for the owner, with a
+// The works, one for each item: one with a round under way; one waiting for the owner's answer to a question; one
+// with a run at its limit of returns sent back; one with a cell at its limit of ways round; one paused; one merged; one
+// cancelled after a let-go; one with a fault; and one long history, waiting at the merge for the owner, with a
 // return sent back, tool calls and their results, a run abandoned because the owner wrote an opinion for an earlier
 // cell, a review's opinions sending the implementation round twice, and a write by the outside.
 
@@ -555,12 +555,10 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
   const hours = (n: number) => now - n * 60 * MINUTE;
   const works = new Map<number, Built>();
   const items: Item[] = [];
-  const keep = (built: Built, itemTitle?: string) => {
+  const keep = (built: Built) => {
     works.set(built.page.summary.number, built);
     const s = built.page.summary;
-    const item = items.find((i) => i.number === s.item);
-    if (item) item.works.push(s);
-    else items.push({ number: s.item, title: itemTitle ?? built.page.title, added: s.added, dependsOn: [], works: [s] });
+    items.push({ number: s.item, title: built.page.title, added: s.added, dependsOn: [], work: s });
   };
 
   keep(long(hours(30)));
@@ -679,13 +677,6 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
       { block: 'needs_design', content: '', value: 'no' },
     ]);
     keep({ page: h.page(49, 149, 'Read the flow again', { kind: 'fault', words: 'Two entries of the work at place 3' }), history: h });
-  }
-
-  {
-    // A second work of the cancelled item, about to go on.
-    const h = new History(hours(2));
-    h.wrote('request', 'person', REQUEST_TEXT('Draw the chart in SVG instead.'));
-    keep({ page: h.page(50, 148, 'Draw the chart in a canvas', { kind: 'next', cell: 'plan' }), history: h });
   }
 
   return { works, items };

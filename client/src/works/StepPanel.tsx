@@ -38,7 +38,8 @@ import {
 /// What the panels read the contents through, each read once.
 export interface Reader {
   version(block: string, at: number): Promise<string>;
-  round(run: number, number: number): Promise<RoundPage>;
+  /// A round in full; kept once read only where the round had ended, since one under way has more to come.
+  round(run: number, number: number, ended: boolean): Promise<RoundPage>;
   call(call: number): Promise<string | null>;
 }
 
@@ -51,7 +52,8 @@ export interface PanelProps {
   onChoose: (chosen: Chosen) => void;
 }
 
-const RUN_TONES: Record<RunState, Tone> = { finished: 'added', abandoned: 'removed', running: 'running', resting: 'quiet' };
+/// A run's dot: green finished, red abandoned, blue open, as the chart draws it.
+const RUN_TONES: Record<RunState, Tone> = { finished: 'added', abandoned: 'removed', running: 'running', resting: 'running' };
 
 const chars = (n: number) => `${n.toLocaleString('en')} chars`;
 
@@ -65,13 +67,20 @@ function VersionName({ block, at }: { block: string; at: number | null }) {
   );
 }
 
-/// A block handed in: its name, its value, whether the run said the change matters, its length, and its content.
-function HandedRow({ handed, load }: { handed: Handed; load: () => Promise<string> }) {
+/// What a run said of a change it handed in: it is its word, which the engine takes for prose and not for a choice.
+export function saidWords(handed: Handed): string {
+  return handed.matters ? 'said to matter' : 'said not to matter';
+}
+
+/// A block handed in: its name, its value, whether the run said the change matters, its length, and its content; and,
+/// for a block a finished run wrote, whether that version changed the block's meaning.
+function HandedRow({ handed, load, meaning }: { handed: Handed; load: () => Promise<string>; meaning?: ReactNode }) {
   return (
     <ListRow>
       <span className="mono">{handed.block}</span>
       {handed.value !== null && <span className="mono">= {handed.value}</span>}
-      <span className="muted">{handed.matters ? 'the change matters' : 'the change does not matter'}</span>
+      <span className="muted">{saidWords(handed)}</span>
+      {meaning}
       <span className="muted">{chars(handed.chars)}</span>
       <Opener label="content" load={load} />
     </ListRow>
@@ -79,7 +88,7 @@ function HandedRow({ handed, load }: { handed: Handed; load: () => Promise<strin
 }
 
 /// A call: what it is, its input for a tool, when it was made and done, and its result.
-function CallLine({ row, reader }: { row: CallRow; reader: Reader }) {
+function CallLine({ row, reader, abandoned }: { row: CallRow; reader: Reader; abandoned: boolean }) {
   const what = row.what;
   return (
     <ListRow>
@@ -88,7 +97,7 @@ function CallLine({ row, reader }: { row: CallRow; reader: Reader }) {
       {what.kind === 'tool' && <span className="mono call-input">{what.input}</span>}
       {what.kind === 'question' && <span className="question">{what.question}</span>}
       <span className="muted small">
-        {callState(row)}
+        {callState(row, abandoned)}
         {row.chars !== null ? `, ${chars(row.chars)}` : ''}
       </span>
       {row.done !== null && <Opener label="result" load={async () => (await reader.call(row.call)) ?? ''} />}
@@ -137,7 +146,7 @@ function RoundPart({ run, round, reader }: { run: Run; round: Round; reader: Rea
                   <Opener
                     label="result"
                     load={async () =>
-                      (await reader.round(run.run, round.number)).results.find((r) => r.call === c.call)?.result ?? ''
+                      (await reader.round(run.run, round.number, round.ended !== null)).results.find((r) => r.call === c.call)?.result ?? ''
                     }
                   />
                 </ListRow>
@@ -173,7 +182,7 @@ function RoundPart({ run, round, reader }: { run: Run; round: Round; reader: Rea
                   <HandedRow
                     key={i}
                     handed={h}
-                    load={async () => (await reader.round(run.run, round.number)).handed[i]?.content ?? ''}
+                    load={async () => (await reader.round(run.run, round.number, round.ended !== null)).handed[i]?.content ?? ''}
                   />
                 ))}
               </ul>
@@ -193,12 +202,25 @@ function RoundPart({ run, round, reader }: { run: Run; round: Round; reader: Rea
   );
 }
 
+/// What the engine made of a version a run wrote: whether it changed the block's meaning. A choice changes it when its
+/// value does, whatever the run said; prose, when the run said the change matters.
+function MeaningWord({ page, block, at }: { page: WorkPage; block: string; at: number }) {
+  const version = page.blocks.find((b) => b.name === block)?.versions.find((v) => v.at === at);
+  if (!version) return null;
+  return version.meaning === version.at ? (
+    <span className="changed-word">changed its meaning</span>
+  ) : (
+    <span className="muted">kept the meaning of @{version.meaning}</span>
+  );
+}
+
 /// Everything about a run.
 export function RunPanel({ run, page, reader, fold, foot }: PanelProps & { run: Run }) {
   const state = runState(run);
   const cell = page.flow.cells.find((c) => c.id === run.cell);
   const now = Date.now();
   const end = run.end;
+  const wayRound = isWayRound(run);
   return (
     <Panel
       label={`Run ${run.run} of ${run.cell}`}
@@ -212,7 +234,7 @@ export function RunPanel({ run, page, reader, fold, foot }: PanelProps & { run: 
             {duration(runTook(run, now))}
           </StatusLine>
           <StatusLine word="Took">{spentWords(run.spent)}</StatusLine>
-          {isWayRound(run) && (
+          {wayRound && (
             <StatusLine tone="back" word="Way round">
               each of its reasons is a block a cell after it changed
             </StatusLine>
@@ -227,7 +249,9 @@ export function RunPanel({ run, page, reader, fold, foot }: PanelProps & { run: 
           {run.because.map((c, i) => (
             <ListRow key={i}>
               {c.kind === 'changed' && <span className="mono">{c.block}</span>}
-              <span className={c.kind === 'changed' && c.behind ? 'way-back' : 'muted'}>{causeRest(c)}</span>
+              <span className={c.kind === 'changed' && c.behind && wayRound ? 'way-back' : 'muted'}>
+                {causeRest(c, wayRound)}
+              </span>
             </ListRow>
           ))}
         </ul>
@@ -255,7 +279,7 @@ export function RunPanel({ run, page, reader, fold, foot }: PanelProps & { run: 
         ) : (
           <ul>
             {run.calls.map((c) => (
-              <CallLine key={c.call} row={c} reader={reader} />
+              <CallLine key={c.call} row={c} reader={reader} abandoned={state === 'abandoned'} />
             ))}
           </ul>
         )}
@@ -281,7 +305,12 @@ export function RunPanel({ run, page, reader, fold, foot }: PanelProps & { run: 
             </p>
             <ul>
               {end.writes.map((w) => (
-                <HandedRow key={w.block} handed={w} load={() => reader.version(w.block, end.at)} />
+                <HandedRow
+                  key={w.block}
+                  handed={w}
+                  load={() => reader.version(w.block, end.at)}
+                  meaning={<MeaningWord page={page} block={w.block} at={end.at} />}
+                />
               ))}
             </ul>
           </>
@@ -378,6 +407,7 @@ export function WorkCellPanel({ cell, page, fold, foot, onChoose }: PanelProps &
   const flowCell = page.flow.cells.find((c) => c.id === cell);
   const now = page.summary.cells.find((c) => c.cell === cell);
   const detail = page.cells.find((c) => c.cell === cell);
+  const wayRound = detail !== undefined && isWayRound({ because: detail.needs });
   const runStep = (run: number | null) => (run === null ? -1 : page.steps.findIndex((s) => s.kind === 'run' && s.run === run));
   const openRun = (run: number | null, words: string) => {
     const index = runStep(run);
@@ -411,14 +441,21 @@ export function WorkCellPanel({ cell, page, fold, foot, onChoose }: PanelProps &
       {...fold}
     >
       <PanelPart label="Why it would run" count={detail?.needs.length ?? 0} last>
-        {!detail || detail.needs.length === 0 ? (
+        {now?.state === 'skipped' && <p className="muted">It does not run: its condition is not met, so it is skipped</p>}
+        {now?.state !== 'skipped' && now?.open !== null && now?.open !== undefined && (
+          <p className="muted">It starts no other run: run {now.open} of it is open</p>
+        )}
+        {(!detail || detail.needs.length === 0) && now?.state !== 'skipped' && (now?.open ?? null) === null && (
           <p className="muted">It would not: its record knows the current meaning of every block it reads</p>
-        ) : (
+        )}
+        {detail && detail.needs.length > 0 && (
           <ul>
             {detail.needs.map((c, i) => (
               <ListRow key={i}>
                 {c.kind === 'changed' && <span className="mono">{c.block}</span>}
-                <span className={c.kind === 'changed' && c.behind ? 'way-back' : 'muted'}>{causeRest(c)}</span>
+                <span className={c.kind === 'changed' && c.behind && wayRound ? 'way-back' : 'muted'}>
+                  {causeRest(c, wayRound)}
+                </span>
               </ListRow>
             ))}
           </ul>

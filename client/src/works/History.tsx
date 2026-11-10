@@ -48,16 +48,19 @@ function spotOf(mark: RowMark): Spot {
   };
 }
 
-/// The words of a row at its left: why a run ran, or what was done.
-export function stepWords(step: Step): string {
+/// The words of a row at its left: why a run ran, or what was done. A run of a cell the flow no longer has, which
+/// stands in no column, says which cell it was.
+export function stepWords(step: Step, flow?: Flow): string {
   switch (step.kind) {
     case 'run': {
-      if (isWayRound(step)) {
-        return `way round for ${step.because.flatMap((c) => (c.kind === 'changed' ? [c.block] : [])).join(', ')}`;
-      }
       const changed = step.because.flatMap((c) => (c.kind === 'changed' ? [c.block] : []));
-      if (changed.length > 0) return `for ${changed.join(', ')}`;
-      return 'first run';
+      const why = isWayRound(step)
+        ? `way round for ${changed.join(', ')}`
+        : changed.length > 0
+          ? `for ${changed.join(', ')}`
+          : `${step.cell} had no record`;
+      const gone = flow && !flow.cells.some((c) => c.id === step.cell);
+      return gone ? `${step.cell}, which the flow no longer has: ${why}` : why;
     }
     case 'wrote': {
       const who = step.by.kind === 'person' ? 'a person' : step.by.kind === 'outside' ? 'the outside' : `run ${step.by.run}`;
@@ -225,7 +228,7 @@ function StepRow(props: {
 }) {
   const { row, flow, now, chosen, chosenCell, pointed, onChoose, onPoint } = props;
   const { step } = row;
-  const words = stepWords(step);
+  const words = stepWords(step, flow);
   const wayRound = step.kind === 'run' && isWayRound(step);
   const sign = step.kind === 'wrote' && step.by.kind !== 'run' ? (step.by.kind === 'person' ? 'people' : 'outside') : null;
   return (
@@ -252,10 +255,13 @@ function StepRow(props: {
         </button>
       </th>
       {flow.cells.map((c, i) => {
+        const furthest = row.backFrom.at(-1);
         const back =
-          row.backFrom !== null && row.column !== null && i > row.column && i <= row.backFrom
-            ? i === row.backFrom
-              ? 'back-from'
+          furthest !== undefined && row.column !== null && i > row.column && i <= furthest
+            ? row.backFrom.includes(i)
+              ? i === furthest
+                ? 'back-from'
+                : 'back-from back-through'
               : 'back-through'
             : '';
         const mark = row.marks.get(i);
@@ -267,7 +273,7 @@ function StepRow(props: {
             }`}
             onMouseEnter={() => onPoint(i)}
           >
-            {row.column === i && step.kind === 'run' && <RunBox run={step} now={now} back={row.backFrom !== null} />}
+            {row.column === i && step.kind === 'run' && <RunBox run={step} now={now} back={row.backFrom.length > 0} />}
             {mark && mark !== 'letGo' && (
               <>
                 <MarkGlyph spot={spotOf(mark)} />

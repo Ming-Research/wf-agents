@@ -1,7 +1,8 @@
 // One work: the view's line with its item's title, what it does now, what it has taken and the owner's buttons; what
 // it waits for, in full, with what the owner can do about it; its history as a chart; and the panel docked at the
 // chart's right with what the owner chose, and at the panel's foot the box to write a block. The work is read again
-// each time the interface says it changed, keeping what the owner has chosen, opened and typed.
+// each time the interface says it changed and whenever the stream of changes opens again, keeping what the owner has
+// chosen, opened and typed; a read that fails keeps what is shown and says so.
 
 import { type CSSProperties, useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -11,53 +12,62 @@ import { PANEL, WIDTH_KEYS, useKeptWidth } from '../sizes';
 import type { Act, RoundPage, WorkPage } from '../works-api';
 import { ActButtons, type Draft, EMPTY_DRAFT, type Send, WaitsBand, WriteBox } from './Boxes';
 import { type Chosen, HistoryChart } from './History';
-import { cellAt, defaultBlock } from './placing';
 import { NowLine } from './marks';
-import { type Source, useChanges, useSource } from './source';
+import { cellAt, defaultBlock } from './placing';
+import { type Source, useChanges, useReading, useSource } from './source';
 import { ChosenPanel, type Reader } from './StepPanel';
 import { spentWords, tokensWords } from './words';
 
 export function WorkView({ work }: { work: number }) {
   const source = useSource();
-  const [page, setPage] = useState<WorkPage | { failed: string } | null>(null);
-  const read = useCallback(() => {
-    source.loadWork(work).then(setPage, (e: unknown) => setPage({ failed: e instanceof Error ? e.message : String(e) }));
-  }, [source, work]);
-  useEffect(read, [read]);
+  const load = useCallback(() => source.loadWork(work), [source, work]);
+  const { value: page, failed, read } = useReading(load);
   useChanges((c) => {
     if (c.works.includes(work)) read();
-  });
-  if (!page) return <p className="message muted">Reading work {work}</p>;
-  if ('failed' in page) return <p className="message">The page could not read work {work}: {page.failed}</p>;
-  return <WorkScreen page={page} onActed={read} />;
+  }, read);
+  if (!page) {
+    return failed ? (
+      <p className="message">The page could not read work {work}: {failed}</p>
+    ) : (
+      <p className="message muted">Reading work {work}</p>
+    );
+  }
+  return <WorkScreen page={page} failed={failed} onActed={read} />;
 }
 
-/// The reads of a work's contents, each made once: a version, a round and a call do not change once there.
-function useReader(source: Source, work: number): Reader {
-  return useMemo(() => {
-    const once = new Map<string, Promise<unknown>>();
-    const cached = <T,>(key: string, load: () => Promise<T>): Promise<T> => {
-      let p = once.get(key) as Promise<T> | undefined;
-      if (!p) {
-        p = load();
-        once.set(key, p);
-        p.catch(() => once.delete(key));
-      }
-      return p;
-    };
-    return {
-      version: (block, at) => cached(`v:${block}@${at}`, async () => (await source.loadVersion(work, block, at)).content),
-      round: (run, number) => cached<RoundPage>(`r:${run}/${number}`, () => source.loadRound(work, run, number)),
-      call: (call) => cached(`c:${call}`, async () => (await source.loadCall(work, call)).result),
-    };
-  }, [source, work]);
+/// The reads of a work's contents, each made once: a version, an ended round and a call's result do not change once
+/// there. A round under way is read again each time, since it has more to come.
+export function readerOf(source: Source, work: number): Reader {
+  const once = new Map<string, Promise<unknown>>();
+  const cached = <T,>(key: string, load: () => Promise<T>): Promise<T> => {
+    let p = once.get(key) as Promise<T> | undefined;
+    if (!p) {
+      p = load();
+      once.set(key, p);
+      p.catch(() => once.delete(key));
+    }
+    return p;
+  };
+  return {
+    version: (block, at) => cached(`v:${block}@${at}`, async () => (await source.loadVersion(work, block, at)).content),
+    round: (run, number, ended) =>
+      ended
+        ? cached<RoundPage>(`r:${run}/${number}`, () => source.loadRound(work, run, number))
+        : source.loadRound(work, run, number),
+    call: (call) => cached(`c:${call}`, async () => (await source.loadCall(work, call)).result),
+  };
 }
 
-export function WorkScreen({ page, onActed }: { page: WorkPage; onActed: () => void }) {
+export function WorkScreen({ page, failed = null, onActed }: {
+  page: WorkPage;
+  /// Why the last read of the work failed, where it did: what is shown is from before.
+  failed?: string | null;
+  onActed: () => void;
+}) {
   const source = useSource();
   const { summary } = page;
   const work = summary.number;
-  const reader = useReader(source, work);
+  const reader = useMemo(() => readerOf(source, work), [source, work]);
   const [chosen, setChosen] = useState<Chosen>(null);
   // The panel is open at first, unless the window is too narrow to show the history beside it.
   const [folded, setFolded] = useState(() => window.innerWidth < 2 * PANEL.first);
@@ -133,6 +143,11 @@ export function WorkScreen({ page, onActed }: { page: WorkPage; onActed: () => v
           <ActButtons summary={summary} send={send} />
         </span>
       </div>
+      {failed !== null && (
+        <p className="read-failed" role="alert">
+          The work could not be read again: {failed}. What is shown is from before.
+        </p>
+      )}
       <WaitsBand summary={summary} send={send} />
       <main
         className={`view-body with-panel ${folded ? 'panel-folded' : ''}`}

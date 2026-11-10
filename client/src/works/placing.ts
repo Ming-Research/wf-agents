@@ -6,7 +6,8 @@
 // the outside, a let-go, a pause, a let-on, a cancel) is a row of its own: its words at the row's left, and, for a
 // write, a ring in the column of each cell that reads the block, as the flow's chart marks a read; for a let-go, a mark
 // in the column of the cell let go. A run that is a way round is drawn as the flow's chart draws a way back: a line in
-// the way back's purple from the column of the cell after it whose write it ran for, to the run, with an arrow there.
+// the way back's purple from the columns of the cells after it whose writes it ran for, each marked, to the run, with an
+// arrow there. A run of a cell the flow no longer has keeps its row, in no column.
 
 import type { Flow } from '../api';
 import type { Block, Item, Run, Step, Summary } from '../works-api';
@@ -28,8 +29,9 @@ export interface HistoryRow {
   marks: Map<number, RowMark>;
   /// Whether the row's day differs from the row's before, so that the day is shown again.
   newDay: boolean;
-  /// For a run that is a way round, the column of the furthest cell after it whose write it ran for.
-  backFrom: number | null;
+  /// For a run that is a way round, the columns of the cells after it whose writes it ran for, in order; empty where
+  /// none of them can be found.
+  backFrom: number[];
 }
 
 const dayKey = (ms: number) => {
@@ -52,7 +54,7 @@ export function placeSteps(steps: Step[], flow: Flow, versions: Block[] = []): H
   return steps.map((step, index) => {
     const marks = new Map<number, RowMark>();
     let col: number | null = null;
-    let backFrom: number | null = null;
+    let backFrom: number[] = [];
     if (step.kind === 'run') {
       col = column.get(step.cell) ?? null;
       if (col !== null && isWayRound(step)) {
@@ -63,8 +65,8 @@ export function placeSteps(steps: Step[], flow: Flow, versions: Block[] = []): H
           const c = writer === null ? undefined : column.get(writer);
           return c === undefined ? [] : [c];
         });
-        const furthest = Math.max(-1, ...from);
-        backFrom = furthest > col ? furthest : null;
+        const run = col;
+        backFrom = [...new Set(from)].filter((c) => c > run).sort((a, b) => a - b);
       }
     } else if (step.kind === 'wrote') {
       const block = blocks.get(step.block);
@@ -119,10 +121,10 @@ export interface ListedWork {
   work: Summary;
 }
 
-/// Every work of every item, in the list's order: by rank, and within a rank what happened last first.
+/// The work of every item, in the list's order: by rank, and within a rank what happened last first.
 export function orderWorks(items: Item[]): ListedWork[] {
   return items
-    .flatMap((item) => item.works.map((work) => ({ item, work })))
+    .map((item) => ({ item, work: item.work }))
     .sort((a, b) => rank(a.work) - rank(b.work) || (b.work.last ?? 0) - (a.work.last ?? 0) || a.work.number - b.work.number);
 }
 
@@ -141,17 +143,11 @@ export function peopleBlocks(flow: Flow): string[] {
 }
 
 /// The block the box to write for a cell starts at: of the blocks people write that this cell reads, one named an
-/// opinion first, then one that is not a choice, then any; the first block people write where the cell reads none.
+/// opinion first, then one that is not a choice, then any; none where the cell reads no block people write, and the
+/// owner picks.
 export function defaultBlock(flow: Flow, cell: string | null): string | null {
-  const people = peopleBlocks(flow);
   const reads = flow.cells.find((c) => c.id === cell)?.inputs ?? [];
-  const candidates = people.filter((b) => reads.includes(b));
+  const candidates = peopleBlocks(flow).filter((b) => reads.includes(b));
   const choice = (name: string) => flow.blocks.find((b) => b.name === name)?.values !== null;
-  return (
-    candidates.find((b) => b.includes('opinion')) ??
-    candidates.find((b) => !choice(b)) ??
-    candidates[0] ??
-    people[0] ??
-    null
-  );
+  return candidates.find((b) => b.includes('opinion')) ?? candidates.find((b) => !choice(b)) ?? candidates[0] ?? null;
 }

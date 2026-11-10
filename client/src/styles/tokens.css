@@ -78,6 +78,7 @@
   /* The way back: the purple the flow chart has drawn it in, Primer's done colour. */
   --violet: #8250df;
   --green-text: #23795a;
+  --blue-text: #0969da;
   --orange-text: #b45309;
   --red-text: #c53030;
   --on-colour: #ffffff;
@@ -104,6 +105,7 @@
     --red: #ff6b70;
     --violet: #ab7df8;
     --green-text: #45c08a;
+    --blue-text: #4fb4ff;
     --orange-text: #ff9a3c;
     --red-text: #ff6b70;
     --on-colour: #0f1012;
@@ -127,6 +129,7 @@
   --red: #ff6b70;
   --violet: #ab7df8;
   --green-text: #45c08a;
+  --blue-text: #4fb4ff;
   --orange-text: #ff9a3c;
   --red-text: #ff6b70;
   --on-colour: #0f1012;

@@ -23,36 +23,45 @@ export function App() {
   const route = useRoute();
   return (
     <Shell route={route}>
-      <View route={route} />
+      <Views route={route} />
     </Shell>
   );
 }
 
-/// The view a route names.
-export function View({ route }: { route: Route }) {
-  switch (route.view) {
-    case 'console':
-      return <ConsolePage />;
-    case 'works':
-      return <WorksList />;
-    case 'work':
-      return <WorkView key={route.work} work={route.work} />;
-    case 'flow':
-      return <FlowView />;
-  }
-}
-
 type Loaded = { definition: Definition; comparison: Comparison } | { failed: string };
 
+/// The view a route names. The flow, once shown, stays as the owner left it (what is chosen, the version, the panel)
+/// while another tab is shown, and is not read again on coming back.
+export function Views({ route, loadFlow = load }: { route: Route; loadFlow?: () => Promise<Loaded> }) {
+  const [flowShown, setFlowShown] = useState(route.view === 'flow');
+  if (route.view === 'flow' && !flowShown) setFlowShown(true);
+  return (
+    <>
+      {route.view !== 'flow' && (
+        <div className="view">
+          {route.view === 'console' && <ConsolePage />}
+          {route.view === 'works' && <WorksList />}
+          {route.view === 'work' && <WorkView key={route.work} work={route.work} />}
+        </div>
+      )}
+      {flowShown && (
+        <div className="view" hidden={route.view !== 'flow'}>
+          <FlowView active={route.view === 'flow'} loadFlow={loadFlow} />
+        </div>
+      )}
+    </>
+  );
+}
+
 /// The flow view: the flow read from the interface, then drawn.
-function FlowView() {
+function FlowView({ active, loadFlow }: { active: boolean; loadFlow: () => Promise<Loaded> }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   useEffect(() => {
-    load().then(setLoaded, (e: unknown) => setLoaded({ failed: e instanceof Error ? e.message : String(e) }));
-  }, []);
+    loadFlow().then(setLoaded, (e: unknown) => setLoaded({ failed: e instanceof Error ? e.message : String(e) }));
+  }, [loadFlow]);
   if (!loaded) return <p className="message muted">Reading the flow</p>;
   if ('failed' in loaded) return <p className="message">The page could not read the flow: {loaded.failed}</p>;
-  return <FlowPage definition={loaded.definition} comparison={loaded.comparison} />;
+  return <FlowPage definition={loaded.definition} comparison={loaded.comparison} active={active} />;
 }
 
 /// The views, as the bar's tabs.
@@ -100,7 +109,12 @@ function limitsHint(flow: Flow): string {
   return `Each cell, unless it says otherwise: ${each}`;
 }
 
-export function FlowPage({ definition, comparison }: { definition: Definition; comparison: Comparison }) {
+export function FlowPage({ definition, comparison, active = true }: {
+  definition: Definition;
+  comparison: Comparison;
+  /// Whether the flow is the view shown: a flow kept while another tab is shown takes no keys.
+  active?: boolean;
+}) {
   const [version, setVersion] = useState<Version>('after');
   const [chosen, setChosen] = useState<Chosen>(null);
   // The panel is folded away at first, unless there is a list of changes to read in it.
@@ -128,9 +142,10 @@ export function FlowPage({ definition, comparison }: { definition: Definition; c
     if (e.key === 'Escape') setChosen(null);
   }, []);
   useEffect(() => {
+    if (!active) return;
     window.addEventListener('keydown', close);
     return () => window.removeEventListener('keydown', close);
-  }, [close]);
+  }, [close, active]);
 
   if (!after || !drawn) {
     return (

@@ -43,14 +43,20 @@ export function StateLegend() {
   );
 }
 
+/// Whether the owner's pause is to be said beside what a work does now: only where that says something else, a round
+/// still under way or something it waits for, since a work that has ended or says it is paused needs no more.
+export function pauseDiffers(now: Now, paused: boolean): boolean {
+  return paused && now.kind !== 'paused' && now.kind !== 'merged' && now.kind !== 'cancelled';
+}
+
 /// What a work does now: a dot in its tone, and its words.
-export function NowLine({ now, paused }: { now: Now; paused?: boolean }) {
+export function NowLine({ now, paused = false }: { now: Now; paused?: boolean }) {
   const words = nowWords(now);
   return (
     <span className={`now now-${nowTone(now)}`} title={words}>
       <span className="now-dot" aria-hidden="true" />
       <span className="now-words">{words}</span>
-      {paused && now.kind !== 'paused' && <span className="now-paused">paused</span>}
+      {pauseDiffers(now, paused) && <span className="now-paused">paused</span>}
     </span>
   );
 }

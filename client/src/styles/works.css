@@ -14,6 +14,16 @@
   color: var(--red-text);
 }
 
+/* A read again that failed: said in one line over what is still shown from before. */
+.read-failed {
+  flex: none;
+  padding: var(--space-4) var(--space-12);
+  border-bottom: var(--hairline) solid var(--line);
+  background: var(--red-tint);
+  color: var(--red-text);
+  font-size: var(--size-small);
+}
+
 /* A cell's state as a square, in the colour of its state: done green, running blue, at rest a blue ring, runs again
    an orange ring, not run yet a hairline ring, skipped a dash. */
 .state-mark {
@@ -283,37 +293,6 @@
   white-space: pre-wrap;
 }
 
-/* Inputs: a hairline box on the card, as a button. */
-textarea,
-.select {
-  border: var(--hairline) solid var(--line);
-  border-radius: var(--corner);
-  background: var(--card);
-  color: var(--text);
-  font: inherit;
-}
-
-textarea {
-  width: 100%;
-  min-height: var(--control);
-  padding: var(--space-4) var(--space-8);
-  resize: vertical;
-}
-
-.select {
-  height: var(--control);
-  min-width: 0;
-  max-width: 100%;
-  padding: 0 var(--space-4);
-}
-
-.button:disabled {
-  border-color: var(--line);
-  background: var(--ground);
-  color: var(--muted);
-  cursor: default;
-}
-
 /* The history: the flow chart's grid, a row for each step. Its column of times and words stays at the left. */
 .history .step-lead .head-button {
   align-items: baseline;
@@ -364,7 +343,7 @@ textarea {
 
 .state-text-running,
 .state-text-resting {
-  color: var(--blue);
+  color: var(--blue-text);
 }
 
 .state-text-again {
@@ -431,7 +410,7 @@ textarea {
 
 .run-running .run-word,
 .run-resting .run-word {
-  color: var(--blue);
+  color: var(--blue-text);
 }
 
 .run-resting {
@@ -443,8 +422,8 @@ textarea {
   color: var(--muted);
 }
 
-/* A way round, as the flow chart draws a way back: a line in its purple along the row from the cell whose write it ran
-   for, with an arrow at the run. */
+/* A way round, as the flow chart draws a way back: a line in its purple along the row from the furthest cell whose
+   write it ran for, a dot at each such cell, and an arrow at the run. */
 .seg-back {
   position: absolute;
   top: calc(var(--row) / 2);
@@ -454,7 +433,7 @@ textarea {
   background: var(--violet);
 }
 
-.back-from .seg-back {
+.back-from:not(.back-through) .seg-back {
   right: 50%;
 }
 

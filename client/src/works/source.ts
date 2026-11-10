@@ -3,7 +3,7 @@
 // looked at before the interface serves the works. The page reaches it through a context, which a test sets to its
 // own source.
 
-import { createContext, useContext, useEffect, useRef } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import * as api from '../works-api';
 import type { Act, CallPage, Changed, Items, RoundPage, VersionPage, WorkPage } from '../works-api';
@@ -15,8 +15,9 @@ export interface Source {
   loadRound(work: number, run: number, round: number): Promise<RoundPage>;
   loadCall(work: number, call: number): Promise<CallPage>;
   act(work: number, what: Act): Promise<null>;
-  /// Tells `onChanged` each time something happened; gives the way to stop.
-  changes(onChanged: (changed: Changed) => void): () => void;
+  /// Tells `onChanged` each time something happened, and `onOpened` each time the stream of changes opens, the first
+  /// time and again after it was lost, when changes may have been missed; gives the way to stop.
+  changes(onChanged: (changed: Changed) => void, onOpened: () => void): () => void;
 }
 
 /// The interface: its routes, and its stream of changes.
@@ -27,9 +28,10 @@ export const INTERFACE: Source = {
   loadRound: api.loadRound,
   loadCall: api.loadCall,
   act: api.act,
-  changes(onChanged) {
+  changes(onChanged, onOpened) {
     if (typeof EventSource === 'undefined') return () => undefined;
     const events = new EventSource('/api/v1/changes');
+    events.onopen = () => onOpened();
     events.onmessage = (e: MessageEvent<string>) => {
       try {
         onChanged(JSON.parse(e.data) as Changed);
@@ -42,7 +44,7 @@ export const INTERFACE: Source = {
 };
 
 /// The fixtures, loaded only when asked for, so that the page as built for the interface does not carry them. What the
-/// owner does to a fixture is only logged.
+/// owner does to a fixture is only logged, and no stream of changes is opened.
 export const FIXTURES: Source = {
   loadItems: async () => (await import('./fixtures')).fixtureItems(),
   loadWork: async (work) => (await import('./fixtures')).fixtureWork(work),
@@ -69,12 +71,48 @@ export function useSource(): Source {
   return useContext(SourceContext);
 }
 
-/// Calls `onChanged` each time the source says something happened, for as long as the part that asks is shown.
-export function useChanges(onChanged: (changed: Changed) => void) {
+/// Calls `onChanged` each time the source says something happened, and `onOpened` each time its stream opens, for as
+/// long as the part that asks is shown.
+export function useChanges(onChanged: (changed: Changed) => void, onOpened: () => void) {
   const source = useSource();
-  const latest = useRef(onChanged);
+  const latest = useRef({ onChanged, onOpened });
   useEffect(() => {
-    latest.current = onChanged;
+    latest.current = { onChanged, onOpened };
   });
-  useEffect(() => source.changes((c) => latest.current(c)), [source]);
+  useEffect(
+    () =>
+      source.changes(
+        (c) => latest.current.onChanged(c),
+        () => latest.current.onOpened(),
+      ),
+    [source],
+  );
+}
+
+const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/// What a view shows, read at once and again on `read`. A read that fails keeps what was shown and says why; an answer
+/// that comes after a newer one is dropped, so that the view never goes back to an older state.
+export function useReading<T>(load: () => Promise<T>): { value: T | null; failed: string | null; read: () => void } {
+  const [state, setState] = useState<{ value: T | null; failed: string | null }>({ value: null, failed: null });
+  const asked = useRef(0);
+  const shown = useRef(0);
+  const read = useCallback(() => {
+    asked.current += 1;
+    const n = asked.current;
+    load().then(
+      (value) => {
+        if (n < shown.current) return;
+        shown.current = n;
+        setState({ value, failed: null });
+      },
+      (e: unknown) => {
+        if (n < shown.current) return;
+        shown.current = n;
+        setState((s) => ({ value: s.value, failed: message(e) }));
+      },
+    );
+  }, [load]);
+  useEffect(read, [read]);
+  return { ...state, read };
 }
