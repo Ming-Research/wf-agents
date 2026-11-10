@@ -267,7 +267,8 @@ fn a_dependencies_block_people_or_a_cell_may_write_or_that_lacks_a_value_is_refu
         ),
         (
             "a cell writes it",
-            with_blocks(plain, READY, "\"ready\"", "\"text\", \"deps\""),
+            // A cell's precondition may not read what the cell writes: here the cell reads the block as an input.
+            with_blocks(plain, "", "", "\"text\", \"deps\""),
         ),
         (
             "it lacks the value merged",
