@@ -11,6 +11,7 @@ import type {
   Given,
   Limit,
   Now,
+  Pauser,
   Person,
   Run,
   Spent,
@@ -160,7 +161,9 @@ export function nowWords(now: Now): string {
     case 'round':
       return `Running ${now.cell}, round ${now.round} of run ${now.run}, since ${clock(now.since)}`;
     case 'paused':
-      return 'Paused: no round begins until it is let on';
+      return now.by === 'engine'
+        ? `Paused by the engine: ${now.why ?? 'it gave no reason'}`
+        : 'Paused: no round begins until it is let on';
     case 'waits':
       return `Waits at ${now.at} for ${now.on.map(waitedWords).join('; ')}`;
     case 'next':
@@ -171,10 +174,14 @@ export function nowWords(now: Now): string {
 /// The word of what a work does now, for its tag, and the tone the tag takes.
 export type Tone = 'running' | 'owner' | 'quiet' | 'done' | 'failed';
 
+/// A work the engine paused, as for a round that failed, is in the tone of what failed, as a fault is: the owner looks
+/// before it goes on.
 export function nowTone(now: Now): Tone {
   switch (now.kind) {
     case 'fault':
       return 'failed';
+    case 'paused':
+      return now.by === 'engine' ? 'failed' : 'quiet';
     case 'merged':
       return 'done';
     case 'round':
@@ -182,7 +189,6 @@ export function nowTone(now: Now): Tone {
     case 'waits':
       return now.on.some(waitsForOwner) ? 'owner' : 'quiet';
     case 'cancelled':
-    case 'paused':
     case 'next':
       return 'quiet';
   }
@@ -252,27 +258,39 @@ export function writerWords(writer: Writer): string {
 export const STATE_WORDS: Record<CellState, string> = {
   running: 'running',
   resting: 'at rest',
+  failed: 'failed',
   skipped: 'skipped',
   notYet: 'not run yet',
   again: 'runs again',
   done: 'done',
 };
 
-/// How a run stands: it finished, it was abandoned, a round of it is under way, or it is at rest between rounds.
-export type RunState = 'finished' | 'abandoned' | 'running' | 'resting';
+/// How a run stands: it finished, it was abandoned, a round of it is under way, its last round failed, or it is at
+/// rest between rounds.
+export type RunState = 'finished' | 'abandoned' | 'running' | 'failed' | 'resting';
 
 export function runState(run: Pick<Run, 'end' | 'rounds'>): RunState {
   if (run.end) return run.end.kind;
   const last = run.rounds[run.rounds.length - 1];
-  return last && last.ended === null ? 'running' : 'resting';
+  if (last && last.ended === null) return 'running';
+  return last?.back?.kind === 'failed' ? 'failed' : 'resting';
 }
 
 export const RUN_WORDS: Record<RunState, string> = {
   finished: 'finished',
   abandoned: 'abandoned',
   running: 'under way',
+  failed: 'round failed',
   resting: 'at rest',
 };
+
+/// Whether a run is open: neither finished nor abandoned.
+export const isOpen = (state: RunState): boolean => state !== 'finished' && state !== 'abandoned';
+
+/// Who paused a work, and why, in a line.
+export function pauseWords(by: Pauser, why: string | null): string {
+  return by === 'engine' ? `the engine paused the work: ${why ?? 'it gave no reason'}` : 'the owner paused the work';
+}
 
 /// How long a run took from its start: to its end, or until now while it is open.
 export function runTook(run: Pick<Run, 'time' | 'end'>, now: number): number {

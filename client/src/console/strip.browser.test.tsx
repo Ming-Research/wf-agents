@@ -16,7 +16,7 @@ import type { CellNow, CellState } from '../works-api';
 import type { Shown } from './items';
 import { type DrawnStrip, SnapScene } from './snap';
 
-const STATES: CellState[] = ['done', 'running', 'resting', 'again', 'notYet', 'skipped'];
+const STATES: CellState[] = ['done', 'running', 'resting', 'failed', 'again', 'notYet', 'skipped'];
 
 const cellsOf = (states: CellState[]): CellNow[] =>
   states.map((state, i) => ({
@@ -24,7 +24,7 @@ const cellsOf = (states: CellState[]): CellNow[] =>
     state,
     finished: state === 'done' ? 1 : 0,
     record: null,
-    open: state === 'running' || state === 'resting' ? 1 : null,
+    open: state === 'running' || state === 'resting' || state === 'failed' ? 1 : null,
   }));
 
 /// An item whose work, a round under way, stands as `cells` say.
@@ -124,7 +124,7 @@ describe("a card's strip", () => {
     expect(light.more).toBe(0);
     expect(drawn(light)).toEqual(laidOut(cells));
     // Only the mark of the cell running pulses.
-    expect(light.marks.map((m) => m.pulses)).toEqual([false, true, false, false, false, false]);
+    expect(light.marks.map((m) => m.pulses)).toEqual([false, true, false, false, false, false, false]);
     // Where the old element stood, at the start of the card's second row, and short of what the work has taken.
     expect(light.marks[0].x).toBe(14);
     const last = light.marks[light.marks.length - 1];

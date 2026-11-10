@@ -260,7 +260,7 @@ fn show(page: &WorkPage) -> String {
             CellState::Running => format!("a round under way{}", run(cell.open)),
             CellState::Resting => format!("resting{}", run(cell.open)),
             CellState::Failed => format!(
-                "its last round failed{}{}; the round is given again once the work is let on",
+                "its last round failed{}, and is given again once the work is let on{}",
                 run(cell.open),
                 failure(cell.open)
             ),

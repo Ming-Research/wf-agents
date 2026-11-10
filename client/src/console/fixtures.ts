@@ -188,7 +188,7 @@ function cellsAt(at: string | null, state: CellState, design = true): CellNow[] 
     if (skipped) return { cell, state: 'skipped', finished: 0, record: null, open: null };
     if (i < here) return { cell, state: 'done', finished: 1, record: 10 + i, open: null };
     if (i === here) {
-      const open = state === 'running' || state === 'resting' ? 40 + i : null;
+      const open = state === 'running' || state === 'resting' || state === 'failed' ? 40 + i : null;
       return { cell, state, finished: state === 'again' ? 1 : 0, record: state === 'again' ? 10 + i : null, open };
     }
     return { cell, state: 'notYet', finished: 0, record: null, open: null };
@@ -263,12 +263,17 @@ export function fixtureItems(start = Date.now()): Items {
     3: {
       title: 'Keep what each run costs',
       dependsOn: [11, 12],
-      work: work({ kind: 'paused' }, notStarted, { hours: 1, dollars: 0, rounds: 0, paused: true }),
+      work: work({ kind: 'paused', by: 'owner', why: null }, notStarted, { hours: 1, dollars: 0, rounds: 0, paused: true }),
     },
     4: {
       title: 'Let the owner write to any cell',
       dependsOn: [13, 9],
-      work: work({ kind: 'paused' }, cellsAt('implement', 'again'), { hours: 50, dollars: 3.02, rounds: 22, paused: true }),
+      // Paused by the engine: the implementation's last round failed.
+      work: work(
+        { kind: 'paused', by: 'engine', why: "The agent's program exited with an error: the session could not be resumed." },
+        cellsAt('implement', 'failed'),
+        { hours: 50, dollars: 3.02, rounds: 22, paused: true },
+      ),
     },
     5: {
       title: 'Restart a lost session',
@@ -487,11 +492,13 @@ export function fixtureSource(start = Date.now()): Source {
       case 'pause':
         if (ended) throw new Error('The work has ended');
         s.paused = true;
-        if (s.now.kind !== 'round') s.now = { kind: 'paused' };
+        if (s.now.kind !== 'round') s.now = { kind: 'paused', by: 'owner', why: null };
         return;
       case 'resume': {
         if (ended) throw new Error('The work has ended');
         s.paused = false;
+        // A cell whose last round failed has that round again: its run is at rest until it begins.
+        s.cells = s.cells.map((c) => (c.state === 'failed' ? { ...c, state: 'resting' } : c));
         const at = s.cells.find((c) => c.state !== 'done' && c.state !== 'skipped')?.cell ?? ORDER[0];
         if (s.now.kind === 'paused') s.now = { kind: 'next', cell: at };
         return;

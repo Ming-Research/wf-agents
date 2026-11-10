@@ -8,8 +8,8 @@ import type { CellNow, CellState, Now } from '../works-api';
 import { markStyle, stripStyle } from './state-marks';
 import { STATE_WORDS, nowTone, nowWords } from './words';
 
-/// A cell's state as a square: filled green when done, filled blue while running, a blue ring at rest, an orange ring
-/// when it runs again, a hairline ring before its first run, a dash when skipped. Its look is `state-marks.ts`'s, which
+/// A cell's state as a square: filled green when done, filled blue while running, a blue ring at rest, a red ring when
+/// its last round failed, an orange ring when it runs again, a hairline ring before its first run, a dash when skipped. Its look is `state-marks.ts`'s, which
 /// the console's cards draw too.
 export function StateMark({ state, title }: { state: CellState; title?: string }) {
   return (
@@ -40,7 +40,7 @@ export function Strip({ cells }: { cells: CellNow[] }) {
 
 /// The legend of the states' marks.
 export function StateLegend() {
-  const states: CellState[] = ['done', 'running', 'resting', 'again', 'notYet', 'skipped'];
+  const states: CellState[] = ['done', 'running', 'resting', 'failed', 'again', 'notYet', 'skipped'];
   return (
     <ul className="legend" aria-label="What the marks of a cell's state mean">
       {states.map((s) => (

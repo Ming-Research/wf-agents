@@ -4,8 +4,8 @@
 // agree with themselves as the interface's would. Times are counted back from when the page loads them.
 //
 // The works, one for each item: one with a round under way; one waiting for the owner's answer to a question; one
-// with a run at its limit of returns sent back; one with a cell at its limit of ways round; one paused; one merged; one
-// cancelled after a let-go; one with a fault; and one long history, waiting at the merge for the owner, with a
+// with a run at its limit of returns sent back; one with a cell at its limit of ways round; one paused; one paused by
+// the engine because a round failed; one merged; one cancelled after a let-go; one with a fault; and one long history, waiting at the merge for the owner, with a
 // return sent back, tool calls and their results, a run abandoned because the owner wrote an opinion for an earlier
 // cell, a review's opinions sending the implementation round twice, and a write by the outside.
 
@@ -126,6 +126,8 @@ interface RoundSpec {
   sentBack?: Unmet[];
   /// The round is under way.
   underWay?: boolean;
+  /// Why the round failed, where it did: nothing came back.
+  fails?: string;
 }
 
 const nothing = (): Spent => ({ usdMicros: 0, inputTokens: 0, cachedTokens: 0, outputTokens: 0, workingMs: 0, rounds: 0 });
@@ -190,7 +192,13 @@ class History {
 
   did(kind: 'paused' | 'resumed' | 'cancelled', minutes = 5) {
     const at = this.next(minutes);
-    this.steps.push({ kind, at, time: this.time });
+    this.steps.push(kind === 'paused' ? { kind, at, time: this.time, by: 'owner', why: null } : { kind, at, time: this.time });
+  }
+
+  /// The engine pauses the work for this reason, as it does in the moment a round fails.
+  enginePaused(why: string) {
+    const at = this.next(0);
+    this.steps.push({ kind: 'paused', at, time: this.time, by: 'engine', why });
   }
 
   letGo(cellId: string, minutes = 5) {
@@ -231,7 +239,9 @@ class History {
     const refused = before ? this.refused.get(before) : undefined;
     const given: Round['given'] = !before
       ? { kind: 'task' }
-      : refused
+      : before.back?.kind === 'failed'
+        ? before.given
+        : refused
         ? { kind: 'sentBack', unmet: refused }
         : before.back?.kind === 'asked'
           ? { kind: 'results', calls: run.calls.slice(-before.back.asks.length).map((c) => c.call) }
@@ -256,7 +266,10 @@ class History {
       rounds: 1,
     };
     run.spent = add(run.spent, round.spent);
-    if (spec.asks) {
+    if (spec.fails) {
+      round.back = { kind: 'failed', why: spec.fails };
+      this.enginePaused(spec.fails);
+    } else if (spec.asks) {
       round.back = {
         kind: 'asked',
         asks: spec.asks.map((a): Ask =>
@@ -397,7 +410,9 @@ class History {
       const skipped = condition?.on === 'block' && this.current(condition.block)?.value !== condition.value;
       const lastRound = open?.rounds[open.rounds.length - 1];
       let state: CellState = record ? (details[i].needs.length > 0 ? 'again' : 'done') : 'notYet';
-      if (open) state = lastRound && lastRound.ended === null ? 'running' : 'resting';
+      if (open) {
+        state = lastRound && lastRound.ended === null ? 'running' : lastRound?.back?.kind === 'failed' ? 'failed' : 'resting';
+      }
       if (skipped) state = 'skipped';
       return { cell: c.id, state, finished: finished.length, record: record?.run ?? null, open: open?.run ?? null };
     });
@@ -651,7 +666,23 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
     h.did('paused', 30);
     h.did('resumed', 60);
     h.did('paused', 10);
-    keep({ page: h.page(46, 146, 'Fold the panel away', { kind: 'paused' }, true), history: h });
+    keep({ page: h.page(46, 146, 'Fold the panel away', { kind: 'paused', by: 'owner', why: null }, true), history: h });
+  }
+
+  {
+    // Paused by the engine: the implementation's round given the result of its tool failed, and is given again once
+    // the owner lets the work on.
+    const h = new History(hours(3));
+    h.wrote('request', 'person', REQUEST_TEXT('Say why a work is paused.'));
+    h.ran('plan', [
+      { block: 'plan', content: prose('Plan', ['The reason beside the pause']) },
+      { block: 'needs_design', content: '', value: 'no' },
+    ]);
+    const run = h.start('implement');
+    h.round(run, { minutes: 5, asks: [{ kind: 'tool', name: 'shell', input: 'npm test', result: '212 passed' }] });
+    const why = "The agent's program exited with status 1: the session could not be resumed.";
+    h.round(run, { minutes: 0.5, usd: 0.01, fails: why });
+    keep({ page: h.page(50, 150, 'Say why a work is paused', { kind: 'paused', by: 'engine', why }, true), history: h });
   }
 
   {

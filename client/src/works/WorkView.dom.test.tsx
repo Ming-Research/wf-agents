@@ -101,6 +101,9 @@ function drawWork(work: number, source = fixtureSource()) {
   return { page, source };
 }
 
+/// Why the round of the fixtures' work 50 failed.
+const FAILED = "The agent's program exited with status 1: the session could not be resumed.";
+
 const texts = (root: ParentNode, selector: string) => [...root.querySelectorAll(selector)].map((e) => e.textContent?.trim() ?? '');
 
 async function click(element: Element | null | undefined) {
@@ -157,16 +160,26 @@ describe('the list of works', () => {
   it('lists the work of every item, those waiting for the owner first and edged, and a row opens its work', async () => {
     const page = draw(<WorksTable items={fixtureItems()} />, fixtureSource());
     const rows = [...page.querySelectorAll('tbody tr.work-row')] as HTMLElement[];
-    expect(rows.map((r) => Number(r.dataset.work))).toEqual([43, 44, 45, 41, 49, 42, 46, 47, 48]);
-    expect(rows.map((r) => r.classList.contains('for-owner'))).toEqual([true, true, true, true, false, false, false, false, false]);
+    expect(rows.map((r) => Number(r.dataset.work))).toEqual([43, 44, 45, 41, 50, 49, 42, 46, 47, 48]);
+    expect(rows.map((r) => r.classList.contains('for-owner'))).toEqual([true, true, true, true, false, false, false, false, false, false]);
     expect(rows[0].querySelector('.now-words')?.textContent).toBe("Waits at plan for the owner's answer to a question");
     expect(rows[0].querySelectorAll('.strip .state-mark')).toHaveLength(6);
     await click(rows[3]);
     expect(window.location.hash).toBe('#/works/41');
   });
 
+  it('says why the engine paused a work, in the tone of what failed', () => {
+    const page = draw(<WorksTable items={fixtureItems()} />, fixtureSource());
+    const row = page.querySelector('[data-work="50"]') as HTMLElement;
+    expect(row.querySelector('.now-words')?.textContent).toBe(`Paused by the engine: ${FAILED}`);
+    expect(row.querySelector('.now')?.className).toContain('now-failed');
+    expect(row.querySelector('.now-paused')).toBeNull();
+    expect(row.querySelectorAll('.strip .state-failed')).toHaveLength(1);
+  });
+
   it('says a work is paused only where what it does now says something else', () => {
-    expect(pauseDiffers({ kind: 'paused' }, true)).toBe(false);
+    expect(pauseDiffers({ kind: 'paused', by: 'owner', why: null }, true)).toBe(false);
+    expect(pauseDiffers({ kind: 'paused', by: 'engine', why: 'A round failed.' }, true)).toBe(false);
     expect(pauseDiffers({ kind: 'waits', at: 'plan', on: [] }, true)).toBe(true);
     expect(pauseDiffers({ kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }, true)).toBe(true);
     expect(pauseDiffers({ kind: 'merged' }, true)).toBe(false);
@@ -284,6 +297,33 @@ describe('the history of a work', () => {
     expect(page.querySelectorAll('.run-arrow')).toHaveLength(2);
     expect(texts(page, '.step-words.way-back')).toEqual(['8 way round for opinions_implement', '10 way round for opinions_implement']);
     expect(texts(page, '.step-lead .step-words')[13]).toBe('the outside wrote main');
+  });
+});
+
+describe('a work whose round failed', () => {
+  it("draws the run as failed in its cell's column, its cell's head as failed, and the engine's pause with the reason", () => {
+    const { page } = drawWork(50);
+    expect(texts(page, 'thead .cell-state')[2]).toBe('failed');
+    const rows = [...page.querySelectorAll('tbody tr.step-row')];
+    const run = rows[2].querySelectorAll('td')[2].querySelector('.run');
+    expect(run?.className).toContain('run-failed');
+    expect(run?.querySelector('.run-word')?.textContent).toBe('round failed');
+    expect(texts(page, '.step-lead .step-words')[3]).toBe(`the engine paused the work: ${FAILED}`);
+  });
+
+  it('shows in the panel of the run the round that failed, why, and that it is given again once the work is let on', async () => {
+    const { page } = drawWork(50);
+    await chooseStep(page, 2);
+    const panel = page.querySelector('aside[aria-label="Run 2 of implement"]') as HTMLElement;
+    expect(panel.querySelector('.status-line')?.textContent).toContain('Round failed');
+    expect(panel.querySelector('.round .failed')?.textContent).toBe(`nothing; the round failed: ${FAILED}`);
+    expect(panel.textContent).toContain('the results of 1 call');
+    expect(panel.textContent).toContain('its last round failed, and the round is given again once the work is let on');
+    await chooseStep(page, 3);
+    const pause = page.querySelector('aside[aria-label="Paused"]') as HTMLElement;
+    expect(pause.textContent).toContain(
+      `The engine paused the work: no round of it begins until the owner lets it on. Why: ${FAILED}`,
+    );
   });
 });
 

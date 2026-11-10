@@ -88,7 +88,7 @@ export function nowWords(s: Summary, page: WorkPage | null): { word: string; fac
       return { word: `Waiting for ${who.join(' and ')}`, facts: `at ${titleOf(page, now.at)}` };
     }
     case 'paused':
-      return { word: MOOD_WORDS.paused, facts: null };
+      return now.by === 'engine' ? { word: MOOD_WORDS.halted, facts: now.why } : { word: MOOD_WORDS.paused, facts: null };
     case 'fault':
       return { word: MOOD_WORDS.halted, facts: now.words };
     case 'merged':

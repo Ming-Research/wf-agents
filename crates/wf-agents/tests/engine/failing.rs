@@ -30,7 +30,7 @@ fn a_failed_round_and_the_engines_pause_are_said_with_the_reason() {
     );
     assert!(
         shown.contains(&format!(
-            "\n  plan: its last round failed in run 1: {WHY}; the round is given again once the work is let on\n"
+            "\n  plan: its last round failed in run 1, and is given again once the work is let on: {WHY}\n"
         )),
         "{shown}"
     );
