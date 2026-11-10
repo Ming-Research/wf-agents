@@ -1,7 +1,7 @@
 //! A work from its adding to its merge.
 
 use decide::{CallId, Cause, Decision, End, Waited, Who};
-use service::Act;
+use service::{Act, Script};
 use work::Given;
 
 use crate::Trial;
@@ -100,4 +100,36 @@ async fn each_round_takes_the_time_the_script_gives_it() {
     // The engine's own act takes no cost.
     let merge = kept.records.started.last().unwrap().run;
     assert_eq!(kept.spent[&(merge, 1)], work::Spent::default());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_work_whose_script_says_nothing_comes_to_its_merge() {
+    let mut trial = Trial::with(Script::default());
+    let (_, work) = trial.add("Greet the user", &[]);
+    trial.act(work, Act::Resume).unwrap();
+    assert_eq!(trial.drive(work).await, Decision::Ended(End::Merged));
+    assert_eq!(trial.finished(work), ["plan", "build", "review", "merge"]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_work_whose_script_says_nothing_comes_to_its_merge_with_the_owners_opinion_midway() {
+    let mut trial = Trial::with(Script::default());
+    let (_, work) = trial.add("Greet the user", &[]);
+    trial.act(work, Act::Resume).unwrap();
+    trial
+        .until(
+            work,
+            |d| matches!(d, Decision::Busy { cell, .. } if cell.as_str() == "review"),
+        )
+        .await;
+    let opinion = Act::Write {
+        block: "opinions".into(),
+        content: "Keep it short.".to_string(),
+        value: None,
+    };
+    trial.act(work, opinion).unwrap();
+    assert_eq!(trial.drive(work).await, Decision::Ended(End::Merged));
+    // The review, which started from the opinions, is abandoned as its round ends; the build runs again for the
+    // owner's opinion, and the review for what it built.
+    assert_eq!(trial.finished(work), ["plan", "build", "build", "review", "merge"]);
 }

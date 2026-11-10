@@ -479,9 +479,15 @@ pub struct CallPage {
     pub result: Option<String>,
 }
 
-/// What the owner does to a work on the pages.
+/// What the owner does to a work on the pages. Each kind is a struct, those with no field too, so that a field it
+/// does not know is refused: a kind with no field at all would take any.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum Act {
     /// Writes a block people write: what the item is about, an opinion for a cell, a choice.
     Write {
@@ -493,11 +499,11 @@ pub enum Act {
     /// Lets the cell go on at its limit.
     LetGo { cell: String },
     /// Pauses the work.
-    Pause,
+    Pause {},
     /// Lets the work on again.
-    Resume,
+    Resume {},
     /// Cancels the work's item.
-    Cancel,
+    Cancel {},
     /// Gives a call that waits for a person its result: the answer to a question, or that a run at its limit goes on.
     Answer { call: u64, result: String },
 }
@@ -544,6 +550,10 @@ pub struct Changed {
 #[serde(rename_all = "camelCase")]
 pub struct Refusal {
     pub error: String,
+    /// Where the engine stopped as it was asked: whether what was asked was kept before it stopped, and so is not to
+    /// be asked again. Left out of every other refusal, where nothing was kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kept: Option<bool>,
 }
 
 /// What a work's records name and the work does not hold, in words.
@@ -891,9 +901,9 @@ impl Act {
                 value,
             },
             Act::LetGo { cell } => service::Act::LetGo { cell: CellId(cell) },
-            Act::Pause => service::Act::Pause,
-            Act::Resume => service::Act::Resume,
-            Act::Cancel => service::Act::Cancel,
+            Act::Pause {} => service::Act::Pause,
+            Act::Resume {} => service::Act::Resume,
+            Act::Cancel {} => service::Act::Cancel,
             Act::Answer { call, result } => service::Act::Answer {
                 call: CallId(call),
                 result,

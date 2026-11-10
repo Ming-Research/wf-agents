@@ -483,7 +483,10 @@ fn cell_spec<'a>(flow: &'a Compiled, cell: &CellId) -> Option<&'a CellSpec> {
     flow.cells.iter().find(|spec| spec.id == *cell)
 }
 
-/// The fault of an answer the driver did not take.
+/// The fault of an answer the driver did not take. This ends the process, and is meant to: an answer that cannot have
+/// happened to the work comes from a carrier that answered twice or for nothing, which has broken its contract
+/// (`Rounds`, `Tools`), and the process stops rather than go on beside it. Started again, it hands out anew what is to
+/// be done.
 fn answer(work: WorkNumber, failed: Failed) -> Fault {
     match failed {
         Failed::Stopped { fault, .. } => Fault::Driver(fault),

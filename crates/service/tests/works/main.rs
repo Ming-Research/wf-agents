@@ -9,9 +9,11 @@
 
 mod acts;
 mod cancelling;
+mod contract;
 mod dependencies;
 mod going;
 mod pausing;
+mod stopped;
 mod stopping;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -30,6 +32,37 @@ use service::{
 use store::{ItemNumber, Storage, Store, WorkNumber};
 use tokio::sync::oneshot;
 use work::{Ask, Call, Time, Work};
+
+/// An item of the trial flow with a request, depending on these items.
+pub fn new_item(title: &str, depends_on: &[u64]) -> NewItem {
+    NewItem {
+        title: title.to_string(),
+        depends_on: depends_on.iter().copied().map(ItemNumber).collect(),
+        flow: "trial".to_string(),
+        writes: vec![FirstWrite {
+            block: "request".into(),
+            content: format!("{title}, please."),
+            value: None,
+        }],
+    }
+}
+
+/// Gives the loop what the owner does, and gives what the loop answered and what came of its taking it.
+pub fn act_on(service: &mut Service, work: WorkNumber, act: Act) -> (Result<(), Refusal>, Result<(), service::Fault>) {
+    let (reply, mut answer) = oneshot::channel();
+    let taken = service.take(Message::Act { work, act, reply });
+    (answer.try_recv().expect("the loop answers at once"), taken)
+}
+
+/// Adds the item through the loop, which must take it.
+pub fn add_to(service: &mut Service, item: NewItem) -> (ItemNumber, WorkNumber) {
+    let (reply, mut answer) = oneshot::channel();
+    service.take(Message::Add { item, reply }).expect("the loop takes it");
+    answer
+        .try_recv()
+        .expect("the loop answers at once")
+        .expect("the item is added")
+}
 
 /// When the tests' clock starts: 2026-11-10, at midnight.
 pub const START: Time = Time(1_794_268_800_000);
@@ -164,18 +197,11 @@ impl Trial {
 
     /// Adds an item with a request, depending on these items.
     pub fn add(&mut self, title: &str, depends_on: &[u64]) -> (ItemNumber, WorkNumber) {
-        let item = NewItem {
-            title: title.to_string(),
-            depends_on: depends_on.iter().copied().map(ItemNumber).collect(),
-            flow: "trial".to_string(),
-            writes: vec![FirstWrite {
-                block: "request".into(),
-                content: format!("{title}, please."),
-                value: None,
-            }],
-        };
         let (reply, mut answer) = oneshot::channel();
-        self.take(Message::Add { item, reply });
+        self.take(Message::Add {
+            item: new_item(title, depends_on),
+            reply,
+        });
         answer
             .try_recv()
             .expect("the loop answers at once")

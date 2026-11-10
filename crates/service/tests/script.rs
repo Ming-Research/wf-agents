@@ -93,23 +93,14 @@ fn a_script_with_a_field_it_does_not_know_is_not_read() {
 }
 
 #[test]
-fn a_round_the_script_says_nothing_of_hands_in_every_output_of_its_cell() {
+fn a_round_the_script_says_nothing_of_hands_in_the_outputs_no_earlier_cell_reads() {
     let flow = trial();
     let planned = Script::default().round(&flow, cell(&flow, "review"), 2, 3);
+    // The opinions, which the build before it reads, are a way back, and are not written.
+    let verdict = "The verdict as review wrote it in its run 2, round 3.";
     assert_eq!(
         planned.came,
-        Came::HandsIn(vec![
-            handed(
-                "opinions",
-                "The opinions as review wrote it in its run 2, round 3.",
-                None
-            ),
-            handed(
-                "verdict",
-                "The verdict as review wrote it in its run 2, round 3.",
-                Some("yes")
-            ),
-        ])
+        Came::HandsIn(vec![handed("verdict", verdict, Some("yes"))])
     );
     assert_eq!(planned.ms, ROUND_MS);
     assert_eq!(
@@ -130,7 +121,7 @@ fn a_choice_is_handed_in_at_the_value_the_script_names_for_it() {
     let Came::HandsIn(blocks) = script.round(&flow, cell(&flow, "review"), 1, 1).came else {
         panic!("the round hands in");
     };
-    assert_eq!(blocks[1].value.as_deref(), Some("no"));
+    assert_eq!(blocks[0].value.as_deref(), Some("no"));
 }
 
 #[test]

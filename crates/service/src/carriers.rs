@@ -26,6 +26,9 @@ use crate::Message;
 pub const WITHDRAWN: &str = "Withdrawn: its run was abandoned before it had its result.";
 
 /// What carries out the rounds of cells of one kind: an agent's rounds, or the engine's own acts.
+///
+/// Both methods are called inside the loop, between two things it takes: each returns at once, and does its work
+/// elsewhere, on a task or a thread of its own, so that the loop is held up by no round.
 pub trait Rounds: Send + Sync {
     /// Gives the round: an agent is given it in the session of the cell's line, or the act is done. The round ends
     /// when the reply says what came back and what it took. Given again after the process started again, it is the
@@ -39,13 +42,17 @@ pub trait Rounds: Send + Sync {
 }
 
 /// What runs the tools that agents ask for.
+///
+/// Both methods are called inside the loop, between two things it takes: each returns at once, and does its work
+/// elsewhere, on a task or a thread of its own, so that the loop is held up by no tool.
 pub trait Tools: Send + Sync {
     /// Runs the tool. The call has its result when the reply gives it.
     fn call(&self, call: ToolCall, reply: CallReply);
 
     /// Withdraws the call, whose run was abandoned: the tool is stopped where it runs, and the call has
     /// [`WITHDRAWN`] for its result, or the result that came before it could be stopped. A call has one result:
-    /// where the reply it was made with is still held, that one is used and this one dropped.
+    /// where the reply it was made with is still held, that one is used and this one dropped, and where the call's
+    /// result was sent already this one is dropped and nothing more is sent.
     fn withdraw(&self, call: ToolCall, reply: CallReply);
 }
 

@@ -191,9 +191,9 @@ fn main() -> ExitCode {
         },
         Command::List { at } => talk::ask(at.port, Asked::List),
         Command::Show { work, at } => talk::ask(at.port, Asked::Show(work)),
-        Command::Resume { work, at } => talk::ask(at.port, Asked::Act(work, Act::Resume)),
-        Command::Pause { work, at } => talk::ask(at.port, Asked::Act(work, Act::Pause)),
-        Command::Cancel { work, at } => talk::ask(at.port, Asked::Act(work, Act::Cancel)),
+        Command::Resume { work, at } => talk::ask(at.port, Asked::Act(work, Act::Resume {})),
+        Command::Pause { work, at } => talk::ask(at.port, Asked::Act(work, Act::Pause {})),
+        Command::Cancel { work, at } => talk::ask(at.port, Asked::Cancel(work)),
         Command::Write {
             work,
             block,
@@ -211,7 +211,11 @@ fn main() -> ExitCode {
                         return ExitCode::FAILURE;
                     }
                 },
-                (None, None) => String::new(),
+                (None, None) if value.is_some() => String::new(),
+                (None, None) => {
+                    eprintln!("Nothing is given to write: write takes --text, --file or --value.");
+                    return ExitCode::FAILURE;
+                }
             };
             talk::ask(at.port, Asked::Act(work, Act::Write { block, content, value }))
         }

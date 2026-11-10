@@ -293,9 +293,11 @@ export interface Added {
   work: number;
 }
 
-/// Why something asked of the interface was refused, in words.
+/// Why something asked of the interface was refused, in words. `kept` is there where the engine stopped as it was
+/// asked: whether what was asked was kept before it stopped, and so is not to be asked again.
 export interface Refusal {
   error: string;
+  kept?: boolean;
 }
 
 /// Something happened: these works grew, and the items changed where `items`.

@@ -52,6 +52,11 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
         engine.refuses(&["answer", "1", "2", "No."]),
         "Call 2 has its result already.\n"
     );
+    // A work that merged is not cancelled, and is not said to be.
+    assert_eq!(
+        engine.refuses(&["cancel", "1"]),
+        "Work 1 is not cancelled: it has merged.\n"
+    );
 }
 
 #[test]
@@ -108,6 +113,10 @@ fn a_work_is_paused_written_let_go_and_cancelled_from_the_command_line() {
         line == "Item 2 \"Say goodbye\", work 2 on trial, after 1: cancelled"
     });
 
+    assert_eq!(
+        engine.refuses(&["write", "2", "opinions"]),
+        "Nothing is given to write: write takes --text, --file or --value.\n"
+    );
     assert_eq!(engine.refuses(&["show", "9"]), "There is no work 9.\n");
     assert_eq!(
         engine.refuses(&["write", "2", "plan", "--text", "Mine."]),

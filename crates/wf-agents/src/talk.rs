@@ -23,6 +23,8 @@ pub enum Asked {
     List,
     Show(u64),
     Act(u64, Act),
+    /// A cancel, which says afterwards what the work is: cancelled, or ended otherwise before it could be.
+    Cancel(u64),
 }
 
 /// Asks the engine on the loopback address at this port, and prints what came of it.
@@ -57,6 +59,20 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 let path = format!("/api/v1/works/{work}/acts");
                 send::<(), _>(address, Method::POST, &path, Some(&act)).await?;
                 Ok(done)
+            }
+            Asked::Cancel(work) => {
+                let page = format!("/api/v1/works/{work}");
+                let before: WorkPage = send(address, Method::GET, &page, None::<&()>).await?;
+                if !matches!(before.summary.now, Now::Merged | Now::Cancelled) {
+                    let path = format!("/api/v1/works/{work}/acts");
+                    send::<(), _>(address, Method::POST, &path, Some(&Act::Cancel {})).await?;
+                }
+                let after: WorkPage = send(address, Method::GET, &page, None::<&()>).await?;
+                match after.summary.now {
+                    Now::Cancelled => Ok(format!("Work {work} is cancelled.")),
+                    Now::Merged => Err(format!("Work {work} is not cancelled: it has merged.")),
+                    now => Err(format!("Work {work} is not cancelled: it {}.", self::now(&now))),
+                }
             }
         }
     });
@@ -133,6 +149,13 @@ async fn send<T: DeserializeOwned, B: Serialize>(
 ) -> Result<T, String> {
     let unreachable =
         |e: &dyn std::fmt::Display| format!("No engine answers at {address}: {e}. One starts with `wf-agents run`.");
+    // Once the request is sent, the engine may have taken it before the answer was lost.
+    let lost = |e: &dyn std::fmt::Display| {
+        format!(
+            "The engine at {address} stopped answering after it was asked: {e}. What was asked may have been taken: \
+             look with `wf-agents list` or `wf-agents show` before asking it again."
+        )
+    };
     let stream = tokio::net::TcpStream::connect(address)
         .await
         .map_err(|e| unreachable(&e))?;
@@ -150,11 +173,9 @@ async fn send<T: DeserializeOwned, B: Serialize>(
         .header(header::CONTENT_TYPE, "application/json")
         .body(Full::new(Bytes::from(body)))
         .map_err(|e| format!("the request cannot be made: {e}"))?;
-    let response = sender.send_request(request).await.map_err(|e| unreachable(&e))?;
+    let response = sender.send_request(request).await.map_err(|e| lost(&e))?;
     let status = response.status();
-    let body = (response.into_body().collect().await)
-        .map_err(|e| unreachable(&e))?
-        .to_bytes();
+    let body = (response.into_body().collect().await).map_err(|e| lost(&e))?.to_bytes();
     if !status.is_success() {
         return Err(match serde_json::from_slice::<Refusal>(&body) {
             Ok(refusal) => refusal.error,
@@ -175,9 +196,9 @@ fn done(work: u64, act: &Act) -> String {
     match act {
         Act::Write { block, .. } => format!("Wrote {block} for work {work}."),
         Act::LetGo { cell } => format!("Cell {cell} of work {work} goes on."),
-        Act::Pause => format!("Work {work} is paused."),
-        Act::Resume => format!("Work {work} goes on."),
-        Act::Cancel => format!("Work {work} is cancelled."),
+        Act::Pause {} => format!("Work {work} is paused."),
+        Act::Resume {} => format!("Work {work} goes on."),
+        Act::Cancel {} => format!("Work {work} is cancelled."),
         Act::Answer { call, .. } => format!("Call {call} of work {work} has its result."),
     }
 }

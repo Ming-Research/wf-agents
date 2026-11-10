@@ -45,6 +45,15 @@ impl fmt::Display for Fault {
 impl fmt::Display for Refusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Refusal::Failed(Failed::Stopped { fault, kept }) => {
+                let stopped = sentence(&format!("the engine stopped: {}", driver_fault(fault)));
+                let kept = if *kept {
+                    "What you asked was kept: do not give it again."
+                } else {
+                    "What you asked was not kept: give it again once the engine runs."
+                };
+                write!(f, "{stopped} {kept}")
+            }
             Refusal::Failed(failed) => f.write_str(&sentence(&failed_words(failed))),
             Refusal::NotAPersonsCall(call) => {
                 write!(

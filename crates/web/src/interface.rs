@@ -183,16 +183,19 @@ fn unreadable(rejection: &PathRejection) -> Response {
     )
 }
 
-/// The answer to what the loop refused.
+/// The answer to what the loop refused. Where the engine stopped as it was asked, the answer says whether what was
+/// asked was kept.
 fn refused(refusal: &service::Refusal) -> Response {
-    let status = match refusal {
-        service::Refusal::Failed(Failed::NoSuchWork(_)) => StatusCode::NOT_FOUND,
-        service::Refusal::Failed(Failed::Stopped { .. }) | service::Refusal::Gone => StatusCode::SERVICE_UNAVAILABLE,
-        _ => StatusCode::UNPROCESSABLE_ENTITY,
+    let (status, kept) = match refusal {
+        service::Refusal::Failed(Failed::NoSuchWork(_)) => (StatusCode::NOT_FOUND, None),
+        service::Refusal::Failed(Failed::Stopped { kept, .. }) => (StatusCode::SERVICE_UNAVAILABLE, Some(*kept)),
+        service::Refusal::Gone => (StatusCode::SERVICE_UNAVAILABLE, None),
+        _ => (StatusCode::UNPROCESSABLE_ENTITY, None),
     };
-    fail(status, refusal.to_string())
+    let error = refusal.to_string();
+    (status, Json(Refusal { error, kept })).into_response()
 }
 
 fn fail(status: StatusCode, error: String) -> Response {
-    (status, Json(Refusal { error })).into_response()
+    (status, Json(Refusal { error, kept: None })).into_response()
 }

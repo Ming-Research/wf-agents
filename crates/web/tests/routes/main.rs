@@ -9,6 +9,7 @@ mod definition;
 mod directories;
 mod items;
 mod page;
+mod stopped;
 mod stream;
 mod works;
 
@@ -185,6 +186,12 @@ pub struct Running {
 pub fn running() -> Running {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    running_on(Box::new(store), dir)
+}
+
+/// Starts the engine's loop on the trial flow with its script over this store, kept in this directory, and serves
+/// the interface over it. A loop that stops shows in the answers of the interface.
+pub fn running_on(store: Box<dyn store::Storage + Send>, dir: tempfile::TempDir) -> Running {
     let flow = flow::compile(
         &flow::read(&trial_dir().join("flow")).unwrap(),
         &trial_sources(&Source::default()),
@@ -192,12 +199,9 @@ pub fn running() -> Running {
     .unwrap();
     let script = service::Script::read(&std::fs::read_to_string(trial_dir().join("script.toml")).unwrap()).unwrap();
     let clock = Arc::new(TokioClock::new(work::Time(START)));
-    let (service, inbox) = Service::open(Box::new(store), vec![flow], Scripted::new(script).carriers(), clock).unwrap();
+    let (service, inbox) = Service::open(store, vec![flow], Scripted::new(script).carriers(), clock).unwrap();
     let handle = service.handle();
-    tokio::spawn(async move {
-        let fault = service.run(inbox).await;
-        panic!("the loop stopped: {fault}");
-    });
+    tokio::spawn(service.run(inbox));
     let flows = Flows::dirs(trial_dir().join("flow"), None, Box::new(trial_sources));
     Running {
         router: web::with_works(flows, handle),

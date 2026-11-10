@@ -60,18 +60,23 @@ impl Place {
     }
 }
 
-/// `wf-agents run` on the trial flow, as it is started.
+/// `wf-agents run` on the trial flow, on any free port.
 pub fn run(data: &Path, script: &Path) -> Command {
+    run_on(data, &trial(), script, 0)
+}
+
+/// `wf-agents run` on this flow and port.
+pub fn run_on(data: &Path, flow: &Path, script: &Path, port: u16) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_wf-agents"));
     command
         .arg("run")
         .arg("--data")
         .arg(data)
         .arg("--flow")
-        .arg(trial())
+        .arg(flow)
         .arg("--script")
         .arg(script);
-    command.args(["--port", "0"]);
+    command.args(["--port", &port.to_string()]);
     command
 }
 

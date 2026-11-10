@@ -72,6 +72,18 @@ async fn an_act_that_cannot_be_taken_is_refused_with_why() {
         post(router, ACTS, &json!({ "kind": "letGo", "cell": "deploy" })).await,
         (unprocessable, error("The flow has no cell deploy."))
     );
+    for act in [
+        r#"{ "kind": "jump" }"#,
+        r#"{ "kind": "pause", "at": 3 }"#,
+        r#"{ "kind": "write", "block": "opinions", "content": "Short.", "value": null, "for": "build" }"#,
+    ] {
+        let (status, json) = post_text(router, ACTS, act).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{act}");
+        assert!(
+            json["error"].as_str().unwrap().starts_with("The act cannot be read: "),
+            "{json}"
+        );
+    }
     let (status, json) = post_text(router, ACTS, r#"{ "kind": "jump" }"#).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(
