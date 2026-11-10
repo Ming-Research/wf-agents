@@ -27,12 +27,14 @@ pub enum Decision {
     Busy { cell: CellId, run: RunId },
     /// The work is paused: nothing starts until it is let on.
     Paused,
-    /// The cell runs: why, the version of each thing the run starts from, and the refusals it is given. The engine
-    /// records the run as started with exactly these.
+    /// The cell runs: why, the version of each thing it depends on that the run starts from, the version of each
+    /// product it may write that the run writes over, and the refusals it is given. The engine records the run as
+    /// started with exactly these.
     Run {
         cell: CellId,
         because: Vec<Cause>,
         basis: BTreeMap<ProductId, Option<Seq>>,
+        over: BTreeMap<ProductId, Option<Seq>>,
         given: Vec<RefusalId>,
     },
     /// The run, which is at rest and waits for nothing, has its next round.
@@ -154,7 +156,8 @@ pub fn decide(flow: &Flow, records: &Records, tests: &dyn Tests) -> Decision {
         return Decision::Run {
             cell: cell.id.clone(),
             because,
-            basis: walk.basis(cell),
+            basis: walk.basis(i),
+            over: walk.over(i),
             given: walk.given(cell),
         };
     }
@@ -263,6 +266,18 @@ impl RunView<'_> {
     }
 }
 
+/// How far along the flow a reading of a product goes. A cell depends only on what was written before it: a write by a
+/// cell after it changes nothing for it, and the way back is a refusal.
+#[derive(Clone, Copy)]
+enum Reach {
+    /// The whole path: the product's current version.
+    All,
+    /// A person, the outside and the cells before this place: what the cell at this place depends on.
+    Before(usize),
+    /// The same and the cell at this place itself: what the cell at this place writes over.
+    Through(usize),
+}
+
 /// A version of a product: the write that made it.
 struct Version {
     /// The place of the entry that wrote it, which names it.
@@ -330,7 +345,7 @@ impl<'a> Walk<'a> {
     }
 
     /// Every version of every product, each with its meaning: its own where a person or the outside wrote it or its
-    /// writer said the change matters, and otherwise that of the version its run started from.
+    /// writer said the change matters, and otherwise that of the version its run wrote over.
     fn read_versions(&self) -> BTreeMap<&'a ProductId, Vec<Version>> {
         let records = self.records;
         let mut writes: Vec<(&'a ProductId, Seq, Option<RunId>, bool)> = Vec::new();
@@ -349,7 +364,7 @@ impl<'a> Walk<'a> {
             let from = by
                 .filter(|_| !matters)
                 .and_then(|run| self.runs.get(&run))
-                .and_then(|r| r.started.basis.get(product).copied().flatten());
+                .and_then(|r| r.started.over.get(product).copied().flatten());
             let meaning = from
                 .and_then(|v| of_product.iter().find(|x| x.at == v))
                 .map_or(at, |v| v.meaning);
@@ -385,15 +400,20 @@ impl<'a> Walk<'a> {
             .is_some_and(|p| p.paused)
     }
 
-    /// Whether the version counts: a person or the outside wrote it, or a run of a cell on the path.
-    fn counts(&self, version: &Version) -> bool {
-        match version.by {
-            None => true,
-            Some(run) => self
-                .runs
-                .get(&run)
-                .and_then(|r| self.flow.place(&r.started.cell))
-                .is_some_and(|i| self.on_path[i]),
+    /// Whether the version counts within the reach: a person or the outside wrote it, or a run of a cell on the path
+    /// that the reach takes in.
+    fn counts(&self, version: &Version, reach: Reach) -> bool {
+        let Some(run) = version.by else {
+            return true;
+        };
+        let place = (self.runs.get(&run))
+            .and_then(|r| self.flow.place(&r.started.cell))
+            .filter(|&j| self.on_path[j]);
+        match (place, reach) {
+            (None, _) => false,
+            (Some(_), Reach::All) => true,
+            (Some(j), Reach::Before(i)) => j < i,
+            (Some(j), Reach::Through(i)) => j <= i,
         }
     }
 
@@ -401,14 +421,19 @@ impl<'a> Walk<'a> {
         self.versions.get(product).map_or(&[], Vec::as_slice)
     }
 
-    /// The current version of the product: the latest that counts.
-    fn current(&self, product: &ProductId) -> Option<&Version> {
-        self.versions(product).iter().rev().find(|v| self.counts(v))
+    /// The latest version of the product that counts within the reach.
+    fn seen(&self, product: &ProductId, reach: Reach) -> Option<&Version> {
+        self.versions(product).iter().rev().find(|v| self.counts(v, reach))
     }
 
-    /// The meaning the product has now.
-    fn meaning_now(&self, product: &ProductId) -> Option<Seq> {
-        self.current(product).map(|v| v.meaning)
+    /// The current version of the product: the latest that counts on the whole path.
+    fn current(&self, product: &ProductId) -> Option<&Version> {
+        self.seen(product, Reach::All)
+    }
+
+    /// The meaning the product has within the reach.
+    fn meaning_seen(&self, product: &ProductId, reach: Reach) -> Option<Seq> {
+        self.seen(product, reach).map(|v| v.meaning)
     }
 
     /// The meaning of the version of the product written at this place.
@@ -417,32 +442,16 @@ impl<'a> Walk<'a> {
         self.versions(product).iter().find(|v| v.at == at).map(|v| v.meaning)
     }
 
-    /// The meaning of the product the run was built on: as the run itself wrote it, if it did, and otherwise as the
-    /// run started from it.
+    /// The meaning of the product the run was built on: that of the version it started from.
     fn built(&self, run: &RunView<'a>, product: &ProductId) -> Option<Seq> {
-        match run.finished {
-            Some(f) if run.wrote(product) => self.meaning_of(product, Some(f.at)),
-            _ => self.meaning_of(product, run.started.basis.get(product).copied().flatten()),
-        }
+        self.meaning_of(product, run.started.basis.get(product).copied().flatten())
     }
 
-    /// Whether the product was lost after its current version was written.
-    fn gone(&self, product: &ProductId) -> bool {
-        self.current(product)
-            .is_some_and(|v| self.records.lost.iter().any(|l| &l.product == product && l.at > v.at))
-    }
-
-    /// Whether the current version of the product came from before the cell at this place: from a person, from
-    /// outside, from a cell before it, or, where there is none now, from the path having changed.
-    fn came_from_before(&self, product: &ProductId, i: usize) -> bool {
-        match self.current(product).and_then(|v| v.by) {
-            None => true,
-            Some(run) => self
-                .runs
-                .get(&run)
-                .and_then(|r| self.flow.place(&r.started.cell))
-                .is_some_and(|j| j < i),
-        }
+    /// Whether the product, which the record wrote, was lost after the record finished.
+    fn gone(&self, record: &RunView<'a>, product: &ProductId) -> bool {
+        record.finished.is_some_and(|f| {
+            record.wrote(product) && self.records.lost.iter().any(|l| &l.product == product && l.at > f.at)
+        })
     }
 
     /// Whether the refusal still stands: the product has not been written since by a person or from outside, nor by
@@ -450,7 +459,7 @@ impl<'a> Walk<'a> {
     fn stands(&self, refusal: &Refusal) -> bool {
         !self.versions(&refusal.product).iter().any(|v| {
             v.at > refusal.at
-                && self.counts(v)
+                && self.counts(v, Reach::All)
                 && v.by.is_none_or(|run| {
                     self.runs
                         .get(&run)
@@ -474,7 +483,7 @@ impl<'a> Walk<'a> {
         by && self
             .versions(&refusal.product)
             .iter()
-            .any(|v| v.at == refusal.version && self.counts(v))
+            .any(|v| v.at == refusal.version && self.counts(v, Reach::All))
     }
 
     /// The refusals in force: those that stand and have force.
@@ -495,10 +504,21 @@ impl<'a> Walk<'a> {
             .collect()
     }
 
-    /// The version the cell's run starts from, of each product the cell depends on or may write.
-    fn basis(&self, cell: &Cell) -> BTreeMap<ProductId, Option<Seq>> {
-        (cell.follows.iter().chain(&cell.writes))
-            .map(|p| (p.clone(), self.current(p).map(|v| v.at)))
+    /// The version the run of the cell at this place starts from, of each product the cell depends on: the latest
+    /// written by a person, from outside or by a cell before it.
+    fn basis(&self, i: usize) -> BTreeMap<ProductId, Option<Seq>> {
+        let follows = self.flow.cells()[i].follows.iter();
+        follows
+            .map(|p| (p.clone(), self.seen(p, Reach::Before(i)).map(|v| v.at)))
+            .collect()
+    }
+
+    /// The version the run of the cell at this place writes over, of each product the cell may write: the latest
+    /// written by a person, from outside, by a cell before it or by the cell itself.
+    fn over(&self, i: usize) -> BTreeMap<ProductId, Option<Seq>> {
+        let writes = self.flow.cells()[i].writes.iter();
+        writes
+            .map(|p| (p.clone(), self.seen(p, Reach::Through(i)).map(|v| v.at)))
             .collect()
     }
 
@@ -515,8 +535,10 @@ impl<'a> Walk<'a> {
         let Some(i) = self.flow.place(&run.started.cell).filter(|&i| self.on_path[i]) else {
             return Some(Stale::NoLongerApplies);
         };
-        for (product, version) in &run.started.basis {
-            if self.meaning_of(product, *version) != self.meaning_now(product) {
+        let from = (run.started.basis.iter()).map(|(p, v)| (p, v, Reach::Before(i)));
+        let over = (run.started.over.iter()).map(|(p, v)| (p, v, Reach::Through(i)));
+        for (product, version, reach) in from.chain(over) {
+            if self.meaning_of(product, *version) != self.meaning_seen(product, reach) {
                 return Some(Stale::Outdated {
                     product: product.clone(),
                 });
@@ -576,17 +598,16 @@ impl<'a> Walk<'a> {
         };
         let mut because = Vec::new();
         for product in &cell.writes {
-            if record.wrote(product) && self.gone(product) {
+            if self.gone(record, product) {
                 because.push(Cause::Gone {
                     product: product.clone(),
                 });
             }
         }
         for product in &cell.follows {
-            if self.built(record, product) != self.meaning_now(product) {
+            if self.built(record, product) != self.meaning_seen(product, Reach::Before(i)) {
                 because.push(Cause::Changed {
                     product: product.clone(),
-                    before: self.came_from_before(product, i),
                 });
             }
         }

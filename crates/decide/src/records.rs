@@ -63,9 +63,12 @@ pub struct Started {
     pub at: Seq,
     /// Why the run was started, as the decision gave it.
     pub because: Vec<Cause>,
-    /// The version the run started from, of each product its cell depends on or may write; `None` where there was
-    /// none.
+    /// The version the run started from, of each product its cell depends on: the latest written by a person, from
+    /// outside or by a cell before it; `None` where there was none.
     pub basis: BTreeMap<ProductId, Option<Seq>>,
+    /// The version the run writes over, of each product its cell may write: the latest written by a person, from
+    /// outside, by a cell before it or by the cell itself; `None` where there was none.
+    pub over: BTreeMap<ProductId, Option<Seq>>,
     /// The refusals the run was given: those that stood, with force, against a product its cell may write.
     pub given: Vec<RefusalId>,
 }
@@ -117,8 +120,8 @@ pub struct Finished {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Write {
     pub product: ProductId,
-    /// Whether the change matters to the cells that depend on the product, compared with the version the run started
-    /// from. Where it does not, the version keeps that version's meaning.
+    /// Whether the change matters to the cells that depend on the product, compared with the version the run wrote
+    /// over. Where it does not, the version keeps that version's meaning.
     pub matters: bool,
 }
 
@@ -198,10 +201,9 @@ pub enum Cause {
     NoRecord,
     /// A product its record wrote was lost.
     Gone { product: ProductId },
-    /// Something it depends on changed in meaning since its record was built. `before` says whether the version that
-    /// now stands came from before the cell: from a person, from outside, from a cell before it, or from the path
-    /// having changed.
-    Changed { product: ProductId, before: bool },
+    /// Something it depends on has another meaning than the one its record was built on. A cell depends only on what
+    /// was written before it, so this reason always comes from before the cell.
+    Changed { product: ProductId },
     /// A refusal its record made no longer stands: what it refused was written anew.
     Answered { refusal: RefusalId, product: ProductId },
     /// A refusal stands, with force, against a product the cell answers for.
@@ -213,12 +215,11 @@ pub enum Cause {
 }
 
 impl Cause {
-    /// Whether the cause came from before the cell or from a person, and not from what cells after it did. A run
-    /// none of whose causes did is a way round.
+    /// Whether the cause came from before the cell or from a person, and not from what cells after it did or from a
+    /// loss. A run none of whose causes did is a way round.
     pub fn forward(&self) -> bool {
         match self {
-            Cause::NoRecord => true,
-            Cause::Changed { before, .. } => *before,
+            Cause::NoRecord | Cause::Changed { .. } => true,
             Cause::Refused { by, .. } => matches!(by, Refuser::Person(_)),
             Cause::Gone { .. } | Cause::Answered { .. } => false,
         }
