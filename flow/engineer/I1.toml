@@ -1,0 +1,55 @@
+title = "Implement"
+kind = "agent"
+line = "engineer"
+task = '''
+Implement `plan_agent`, changing only what this work needs. Follow the option each of `questions` recommends, and
+write into `design/` what `tree_changes` holds: an entry may follow main's tree in wording and place, not in meaning.
+For wrong behaviour, start from a test that reproduces it, the research's where it left one. Run each test you add or
+extend on the change and on the code before it; a test removed, skipped or weakened needs a technical reason. Where
+cost per operation or request can change, measure what it can make slower as well as what it is for.
+
+Where the plan does not hold (its direction is wrong, or it needs a tree decision changed or a choice the owner has
+not made, such as accepting a slowdown), do not work around it: say where and why to the cell that wrote it, in
+`implement_on_research` or `implement_on_deep_research`, and judge its answer.
+
+Commit everything in the worktree, and hand in once the project's check passes on your last commit:
+- `code`: what changed, by module and behaviour, and the commit on the work's branch that holds it all.
+- `decisions`, read by the owner on the page and judged by the review, in the language the installation sets for its
+  owner: each decision the code makes that the plan does not record, with why; leave it out when there is none.
+- `evidence`: for each acceptance condition, what shows it on that commit (tests with results after and before the
+  change, a measurement, a CI job, or where to read in the diff); each test added, extended or weakened, with what it
+  catches or why.
+- `acceptance`, only when a condition must change: the whole list as it now stands, with why.
+
+Answer each point of `review_on_implement`, `testing_on_implement` and `check_on_implement` in `answers_review`,
+`answers_testing` and `answers_check`: fixed, with its commit, or why not, a dispute over a fact settled by a run.
+Before fixing a defect, look for others of its kind. A red check is fixed, or shown not to be this change's. A point
+its judge insists on, fix or have the owner rule. Do what the owner says in `opinions_implement`, and answer it in
+`reply_implement`, in the language the installation sets for its owner: what you changed for it, or why not. If the
+problem needs no change, ask the owner.
+'''
+inputs = [
+  "plan_agent",
+  "questions",
+  "acceptance",
+  "tree_changes",
+  "context",
+  "answers_research_to_implement",
+  "answers_deep_research_to_implement",
+  "opinions_implement",
+  "review_on_implement",
+  "testing_on_implement",
+  "check_on_implement",
+]
+outputs = [
+  "code",
+  "decisions",
+  "evidence",
+  "acceptance",
+  "answers_review",
+  "answers_testing",
+  "answers_check",
+  "implement_on_research",
+  "implement_on_deep_research",
+  "reply_implement",
+]
