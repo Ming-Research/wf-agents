@@ -191,8 +191,8 @@ impl Driver {
         let mut todos = driver.pending();
         let numbers: Vec<WorkNumber> = driver.works.keys().copied().collect();
         for number in numbers {
-            // MUTANT: a dependencies block that has come apart from what it stands for is left as it is.
-            let look = driver.turn(now, number, Event::Look, &mut todos).map(drop);
+            let look = (driver.agree(now, number, &mut todos))
+                .and_then(|()| driver.turn(now, number, Event::Look, &mut todos));
             match look {
                 Ok(_) => {}
                 Err(Failed::Stopped { fault, .. }) => return Err(fault),
@@ -312,7 +312,8 @@ impl Driver {
     /// The work as it is now: what it does next, each cell's state, every version of every block.
     pub fn view(&self, number: WorkNumber) -> Option<View> {
         let kept = self.work(number)?;
-        let tests = kept.flow.tests(&kept.work.records);
+        // MUTANT: the view asks the named tests of no records rather than of the work's.
+        let tests = kept.flow.tests(&decide::Records::default());
         Some(decide::view(&kept.flow.flow, &kept.work.records, &tests))
     }
 
