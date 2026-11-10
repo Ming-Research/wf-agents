@@ -20,8 +20,9 @@ use std::time::{Duration, Instant};
 use carry::git::{self, Place};
 use carry::settings::{Agents, Project};
 use carry::{Settings, session};
-use decide::{CallId, Decision, RunId, Who};
+use decide::{CallId, Decision, Pauser, RunId, Who};
 use driver::{FirstWrite, NewItem};
+use engine::Event;
 use flow::{Compiled, Has};
 use service::{Act, Inbox, Message, Round, RoundReply, Rounds, Service, SystemClock};
 use store::{Store, WorkNumber};
@@ -34,6 +35,9 @@ pub struct Fake {
     pub cost: &'static str,
     /// Whether its first call fails.
     pub fail_first: bool,
+    /// Whether its first call prints a result that is an error, as when it ran out of retries of its structured
+    /// return, the session having cost eighty cents by then, and exits with 1.
+    pub error_first: bool,
     /// Whether the build asks for the check in its first round, and its second round, going on in the session, is
     /// told the first time that the session is not found.
     pub lose_session: bool,
@@ -49,6 +53,7 @@ impl Default for Fake {
         Fake {
             cost: "0.01",
             fail_first: false,
+            error_first: false,
             lose_session: false,
             question_first: false,
             plan_sleeps: 0,
@@ -136,6 +141,10 @@ echo $$ > "$log/$n.pid"
 printf '%s\n' "$@" > "$log/$n.args"
 cat > "$log/$n.stdin"
 pwd > "$log/$n.pwd"
+if [ '{error}' = yes ] && [ "$n" = 1 ]; then
+    printf '%s\n' '{{"type":"result","subtype":"error_max_structured_output_retries","is_error":true,"result":"Out of structured output retries.","total_cost_usd":0.8,"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":300}}}}'
+    exit 1
+fi
 if [ '{fail}' = yes ] && [ "$n" = 1 ]; then
     echo 'The fake fails its first call.' >&2
     exit 1
@@ -171,6 +180,7 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
 "#,
         calls = calls.display(),
         fail = yes(fake.fail_first),
+        error = yes(fake.error_first),
         lose = yes(fake.lose_session),
         question = yes(fake.question_first),
         sleeps = fake.plan_sleeps,
@@ -336,8 +346,14 @@ impl Real {
                 .expect("something comes within a minute")
                 .expect("the loop's channel is open");
             match &message {
-                Message::Failed { .. } => self.failures += 1,
-                Message::Hold { .. } => self.holds += 1,
+                Message::Happened {
+                    event: Event::Failed { .. },
+                    ..
+                } => self.failures += 1,
+                Message::Happened {
+                    event: Event::Paused { by: Pauser::Engine, .. },
+                    ..
+                } => self.holds += 1,
                 _ => {}
             }
             self.service.take(message).expect("the loop takes it");

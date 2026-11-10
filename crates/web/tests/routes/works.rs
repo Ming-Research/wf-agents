@@ -92,7 +92,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 },
             ],
             "steps": [
-                { "kind": "paused", "at": 1, "time": START },
+                { "kind": "paused", "at": 1, "time": START, "by": "owner", "why": null },
                 {
                     "kind": "wrote",
                     "at": 2,

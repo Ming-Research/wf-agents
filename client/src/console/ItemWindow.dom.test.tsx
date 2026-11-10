@@ -112,6 +112,14 @@ describe('the panel of the item selected', () => {
     expect(el.querySelector('a.cw-mono')?.getAttribute('href')).toBe('#/works/12');
   });
 
+  it('says a work the engine paused as halted, with the reason, and offers to let it on', () => {
+    const el = draw(4, answered([]));
+    const [, workLine] = lines(el);
+    expect(workLine).toContain("Halted by the engine The agent's program exited with an error: the session could not be resumed.");
+    expect(el.querySelectorAll('.cw-line .strip .state-failed')).toHaveLength(1);
+    expect(button(el, 'Let it on')).toBeDefined();
+  });
+
   it("shows the work's cells in the works page's strip, one mark per cell in the flow's order, each by its state", () => {
     for (const n of [12, 6, 4, 9, 2]) {
       const el = draw(n, answered([]));
@@ -132,7 +140,7 @@ describe('the panel of the item selected', () => {
     act(() => button(el, 'Work').click());
     const legend = el.querySelector('.panel-part .legend');
     expect(legend?.getAttribute('aria-label')).toBe("What the marks of a cell's state mean");
-    expect(text(el, '.legend li')).toEqual(['done', 'running', 'at rest', 'runs again', 'not run yet', 'skipped']);
+    expect(text(el, '.legend li')).toEqual(['done', 'running', 'at rest', 'failed', 'runs again', 'not run yet', 'skipped']);
   });
 
   it('says each thing the work waits for, and who gives it', () => {

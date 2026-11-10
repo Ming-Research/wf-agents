@@ -7,9 +7,9 @@
 //! of the same work, whose records then show the answer taken. What is held is so bounded by the rounds and calls of
 //! each work that were answered since the work was last given something.
 //!
-//! A round that failed is held as failed: the loop answers it from then on. Given again, once its work is let on, it
-//! is carried out anew; stopped, its stop is dropped, since the loop ends it itself. A round that fails after it was
-//! told to stop has been stopped, and ends as a stop does.
+//! A round that failed is answered by saying so: its end is in the work's records, and the loop neither gives it again
+//! nor stops it. Once its work is let on, the run's next round, a round of its own, is carried out anew. A round that
+//! fails after it was told to stop has been stopped, and ends as a stop does.
 
 use std::collections::BTreeMap;
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -27,8 +27,6 @@ struct Slot<R> {
     reply: Option<R>,
     /// The way to tell what carries it out to stop, until it is told.
     stop: Option<oneshot::Sender<()>>,
-    /// It failed, and the loop answers it.
-    failed: bool,
 }
 
 /// What a carrier does with a round that could not be carried out.
@@ -70,18 +68,16 @@ impl<K: Ord + Copy, R> Held<K, R> {
     }
 
     /// Holds what was given, with its reply, and gives the way it is told to stop; gives nothing where it is held
-    /// already, as when it is given again while it is carried out: it is the same round or call, carried out once. A
-    /// round that failed is held anew.
+    /// already, as when it is given again while it is carried out: it is the same round or call, carried out once.
     pub(crate) fn hold(&self, key: K, reply: R) -> Option<Stop> {
         let mut slots = self.slots();
-        if slots.get(&key).is_some_and(|slot| !slot.failed) {
+        if slots.contains_key(&key) {
             return None;
         }
         let (stop, told) = oneshot::channel();
         let slot = Slot {
             reply: Some(reply),
             stop: Some(stop),
-            failed: false,
         };
         slots.insert(key, slot);
         Some(Stop(told))
@@ -99,24 +95,21 @@ impl<K: Ord + Copy, R> Held<K, R> {
         self.slots().get_mut(&key).and_then(|slot| slot.reply.take())
     }
 
-    /// What to do with what could not be carried out: say it failed, and hold it as failed; or, where it was told to
-    /// stop, end it as a stop does. None where its reply was used already.
+    /// What to do with what could not be carried out: say it failed; or, where it was told to stop, end it as a stop
+    /// does. None where its reply was used already. Either way it is answered, and held as any answered round is.
     pub(crate) fn fail(&self, key: K) -> Option<Failing<R>> {
         let mut slots = self.slots();
         let slot = slots.get_mut(&key)?;
         let reply = slot.reply.take()?;
-        if slot.stop.is_none() {
+        if slot.stop.take().is_none() {
             return Some(Failing::End(reply));
         }
-        slot.stop = None;
-        slot.failed = true;
         Some(Failing::Fail(reply))
     }
 
     /// Stops what was given: what carries it out is told to stop, and answers with the reply it holds. Gives the reply
     /// to answer with now where nothing carries it out: where it was not given in this process, the reply given with
-    /// the stop; where it is no longer carried out and its reply is still held, that one. A round that failed is
-    /// answered by the loop: none.
+    /// the stop; where it is no longer carried out and its reply is still held, that one; none where it was answered.
     pub(crate) fn stop(&self, key: K, reply: R) -> Option<R> {
         let mut slots = self.slots();
         let Some(slot) = slots.get_mut(&key) else {
@@ -125,14 +118,10 @@ impl<K: Ord + Copy, R> Held<K, R> {
                 Slot {
                     reply: None,
                     stop: None,
-                    failed: false,
                 },
             );
             return Some(reply);
         };
-        if slot.failed {
-            return None;
-        }
         match slot.stop.take().map(|stop| stop.send(())) {
             Some(Ok(())) => None,
             _ => slot.reply.take(),
@@ -161,12 +150,18 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_round_is_given_again_anew_and_its_stop_is_the_loops() {
+    fn a_failed_round_is_answered_once_and_forgotten_once_its_answer_was_taken() {
         let held: Held<u8, &str> = Held::new();
         held.hold(1, "first").expect("held");
         assert!(matches!(held.fail(1), Some(Failing::Fail("first"))));
-        assert_eq!(held.stop(1, "stop"), None, "the loop ends a failed round");
-        assert!(held.hold(1, "again").is_some(), "given again, it is carried out anew");
+        assert!(held.fail(1).is_none(), "it is answered once");
+        assert_eq!(held.stop(1, "stop"), None, "a stop after its end is dropped");
+        assert!(
+            held.hold(1, "again").is_none(),
+            "given again before its answer was taken, it is not carried out"
+        );
+        held.prune(|_| true);
+        assert!(held.hold(1, "again").is_some(), "its answer taken, it is forgotten");
     }
 
     #[test]

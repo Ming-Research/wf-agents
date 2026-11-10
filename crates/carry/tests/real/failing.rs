@@ -1,12 +1,15 @@
-//! A round that fails pauses its work, and is given again, the same round, once the owner lets the work on; a session
+//! A round that fails pauses its work with the reason, its end kept in the records; once the owner lets the work on,
+//! the run's next round is given what the failed one was, and begins the session the failed one could not. A session
 //! the command line no longer has is begun again, and its round told everything a run's first round is.
 
+use decide::Pauser;
 use service::Act;
+use work::{Back, Given};
 
 use crate::{Fake, Real, ended};
 
 #[tokio::test]
-async fn a_failed_round_pauses_the_work_and_runs_again_on_resume() {
+async fn a_failed_round_pauses_the_work_with_the_reason_and_the_next_round_runs_on_resume() {
     let fake = Fake {
         fail_first: true,
         ..Fake::default()
@@ -15,26 +18,34 @@ async fn a_failed_round_pauses_the_work_and_runs_again_on_resume() {
     let work = real.add().await;
     real.act(work, Act::Resume);
     real.until(|real| real.failures == 1).await;
-    assert!(real.paused(work), "the work is paused");
     let kept = real.work(work);
-    assert_eq!(kept.records.rounds.len(), 1, "the plan's round is under way");
-    assert!(kept.records.returned.is_empty(), "and has not ended");
-    assert!(kept.spent.is_empty());
+    let pause = decide::pause(&kept.records).expect("the work is paused");
+    assert_eq!(pause.by, Pauser::Engine);
+    let why = pause.why.clone().expect("a reason");
+    assert!(why.contains("The fake fails its first call."), "{why}");
+    let plan_run = kept.records.started[0].run;
+    assert_eq!(kept.records.rounds.len(), 1);
+    assert_eq!(kept.records.returned.len(), 1, "the plan's round has ended");
+    assert_eq!(kept.back.get(&(plan_run, 1)), Some(&Back::Failed { why }));
 
     real.act(work, Act::Resume);
     real.until(|real| ended(&real.decision(work))).await;
     assert_eq!(real.finished(work), ["plan", "build", "review", "merge"]);
     let calls = real.calls();
-    assert_eq!(calls.len(), 4, "the plan's round was run twice");
-    assert_eq!(calls[0].stdin, calls[1].stdin, "the same round, told the same");
+    assert_eq!(calls.len(), 4, "the plan's program was run twice");
+    // The round after the failed one is given the same, and begins the session, as the failed one was to.
     let kept = real.work(work);
-    let plan_run = kept.records.started[0].run;
-    let plan_rounds = kept.records.rounds.iter().filter(|r| r.run == plan_run).count();
-    assert_eq!(plan_rounds, 1, "the round given again is the same round");
-    // Each try is kept.
-    let base = real.data.join(format!("rounds/1/{}-1", plan_run.0));
-    assert!(base.with_extension("message.2.md").is_file());
-    assert!(base.with_extension("result.2.json").is_file());
+    assert_eq!(kept.given.get(&(plan_run, 2)), Some(&Given::Task));
+    assert_eq!(kept.given.get(&(plan_run, 1)), Some(&Given::Task));
+    assert_eq!(calls[0].session(), calls[1].session());
+    assert_eq!(calls[1].session().0, "--session-id");
+    assert!(calls[1].stdin.contains("## Your task"), "{}", calls[1].stdin);
+    // Each round is kept.
+    for n in [1, 2] {
+        let base = real.data.join(format!("rounds/1/{}-{n}", plan_run.0));
+        assert!(base.with_extension("message.md").is_file(), "{}", base.display());
+        assert!(base.with_extension("result.json").is_file(), "{}", base.display());
+    }
 }
 
 #[tokio::test]
@@ -114,4 +125,60 @@ async fn a_session_lost_on_a_later_round_is_begun_again_with_every_earlier_call_
     ] {
         assert!(again.stdin.contains(part), "{part} is missing from:\n{}", again.stdin);
     }
+}
+
+/// The fake whose first call prints an error that cost eighty cents, every later call saying the session has cost
+/// eighty-five.
+fn erring() -> Fake {
+    Fake {
+        error_first: true,
+        cost: "0.85",
+        ..Fake::default()
+    }
+}
+
+#[tokio::test]
+async fn a_failed_round_whose_result_says_what_it_cost_is_charged_it_and_the_next_round_only_its_own() {
+    let mut real = Real::trial(erring());
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| real.failures == 1).await;
+    let kept = real.work(work);
+    let plan_run = kept.records.started[0].run;
+    let why = decide::pause(&kept.records)
+        .and_then(|p| p.why.clone())
+        .expect("a reason");
+    assert!(why.contains("Out of structured output retries."), "{why}");
+    let failed = kept.spent[&(plan_run, 1)];
+    assert_eq!(
+        (failed.usd_micros, failed.input_tokens, failed.output_tokens),
+        (800_000, 1000, 300)
+    );
+
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    let kept = real.work(work);
+    // The next round goes on in the session the failed one began, and is charged only what it cost more.
+    let calls = real.calls();
+    assert_eq!(calls[1].session().0, "--resume");
+    assert_eq!(kept.spent[&(plan_run, 2)].usd_micros, 50_000);
+    let total: u64 = kept.spent.values().map(|s| s.usd_micros).sum();
+    assert!(
+        total >= 850_000,
+        "the work's total, {total}, leaves out the failed round"
+    );
+}
+
+#[tokio::test]
+async fn a_failed_round_that_takes_the_work_over_its_budget_says_both() {
+    let mut real = Real::open(crate::On::Trial, erring(), Some(0.5), "true");
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| real.failures == 1).await;
+    let kept = real.work(work);
+    let why = decide::pause(&kept.records)
+        .and_then(|p| p.why.clone())
+        .expect("a reason");
+    assert!(why.contains("Out of structured output retries."), "{why}");
+    assert!(why.contains("over its budget of $0.50"), "{why}");
 }

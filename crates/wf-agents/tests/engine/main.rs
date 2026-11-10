@@ -2,6 +2,7 @@
 //! service crate's `tests/trial/flow`) with a script whose rounds are short, over a data directory of its own. The
 //! tests are kept in modules by subject, so that a new test goes into the module of what it tests.
 
+mod failing;
 mod items;
 mod starting;
 

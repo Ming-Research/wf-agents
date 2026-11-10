@@ -89,7 +89,7 @@ describe('the rows and columns of a history', () => {
     const steps: Step[] = [
       { kind: 'wrote', at: 1, time: t, block: 'needs_deep_research', by: { kind: 'person' }, changed: true, value: 'yes', chars: 0 },
       { kind: 'letGo', at: 2, time: t + 1000, cell: 'implement' },
-      { kind: 'paused', at: 3, time: t + DAY },
+      { kind: 'paused', at: 3, time: t + DAY, by: 'owner', why: null },
     ];
     const rows = placeSteps(steps, FLOW);
     expect(rows.map((r) => [...r.marks])).toEqual([[[1, 'condition']], [[2, 'letGo']], []]);
@@ -114,20 +114,21 @@ function summary(number: number, now: Now, last: number | null, paused = false):
 }
 
 describe('the list of works', () => {
-  it('puts what waits for the owner first, then a fault, then what goes on, then what is paused, then what ended', () => {
+  it("puts what waits for the owner first, then a fault or the engine's pause, then what goes on, then what the owner paused, then what ended", () => {
     const works = [
       summary(1, { kind: 'merged' }, 900),
       summary(2, { kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }, 500),
       summary(3, { kind: 'waits', at: 'plan', on: [{ kind: 'call', call: 1, who: null, what: { kind: 'tool', name: 'x', input: '' } }] }, 800),
       summary(4, { kind: 'waits', at: 'merge', on: [{ kind: 'limit', runs: 3 }] }, 100),
-      summary(5, { kind: 'paused' }, 950, true),
+      summary(5, { kind: 'paused', by: 'owner', why: null }, 950, true),
       summary(6, { kind: 'fault', words: 'x' }, 10),
       summary(7, { kind: 'waits', at: 'plan', on: [{ kind: 'precondition', test: 't', words: 'w', who: 'owner' }] }, 200),
       summary(8, { kind: 'cancelled' }, 990),
       summary(9, { kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }, 600, true),
+      summary(10, { kind: 'paused', by: 'engine', why: 'A round failed.' }, 20, true),
     ];
     const items: Item[] = works.map((w) => ({ number: w.number, title: `${w.number}`, added: 0, dependsOn: [], work: w }));
-    expect(orderWorks(items).map((w) => w.work.number)).toEqual([7, 4, 6, 3, 2, 5, 9, 8, 1]);
+    expect(orderWorks(items).map((w) => w.work.number)).toEqual([7, 4, 10, 6, 3, 2, 5, 9, 8, 1]);
   });
 });
 

@@ -26,6 +26,7 @@ import {
   duration,
   fullTime,
   givenWords,
+  isOpen,
   isWayRound,
   runState,
   runTook,
@@ -52,8 +53,14 @@ export interface PanelProps {
   onChoose: (chosen: Chosen) => void;
 }
 
-/// A run's dot: green finished, red abandoned, blue open, as the chart draws it.
-const RUN_TONES: Record<RunState, Tone> = { finished: 'added', abandoned: 'removed', running: 'running', resting: 'running' };
+/// A run's dot: green finished, red abandoned or with its last round failed, blue open, as the chart draws it.
+const RUN_TONES: Record<RunState, Tone> = {
+  finished: 'added',
+  abandoned: 'removed',
+  running: 'running',
+  failed: 'removed',
+  resting: 'running',
+};
 
 const chars = (n: number) => `${n.toLocaleString('en')} chars`;
 
@@ -157,6 +164,7 @@ function RoundPart({ run, round, reader }: { run: Run; round: Round; reader: Rea
         <dt>Back</dt>
         <dd>
           {back === null && <span className="muted">{round.ended === null ? 'nothing yet' : 'nothing: the run was abandoned'}</span>}
+          {back?.kind === 'failed' && <span className="failed">nothing; the round failed: {back.why}</span>}
           {back?.kind === 'asked' && (
             <>
               asked for {back.asks.length === 0 ? 'nothing' : ''}
@@ -230,7 +238,7 @@ export function RunPanel({ run, page, reader, fold, foot }: PanelProps & { run: 
       lines={
         <>
           <StatusLine tone={RUN_TONES[state]} word={RUN_WORDS[state].replace(/^./, (c) => c.toUpperCase())}>
-            began {clock(run.time)}, {state === 'running' || state === 'resting' ? 'open for' : 'took'}{' '}
+            began {clock(run.time)}, {isOpen(state) ? 'open for' : 'took'}{' '}
             {duration(runTook(run, now))}
           </StatusLine>
           <StatusLine word="Took">{spentWords(run.spent)}</StatusLine>
@@ -289,7 +297,9 @@ export function RunPanel({ run, page, reader, fold, foot }: PanelProps & { run: 
           <p className="muted">
             {state === 'running'
               ? 'It has not: a round of it is under way'
-              : `It has not: it is at rest${run.calls.some((c) => c.done === null) ? ', at a call with no result yet' : ''}`}
+              : state === 'failed'
+                ? 'It has not: its last round failed, and the round is given again once the work is let on'
+                : `It has not: it is at rest${run.calls.some((c) => c.done === null) ? ', at a call with no result yet' : ''}`}
           </p>
         )}
         {end?.kind === 'abandoned' && (
@@ -379,11 +389,14 @@ const ACT_WORDS = {
   cancelled: 'Cancelled',
 } as const;
 
-/// An act of the owner's on the work: a let-go, a pause, a let-on or a cancel.
+/// An act on the work: a let-go, a pause, a let-on or a cancel of the owner's, or a pause of the engine's.
 export function ActPanel({ step, fold, foot }: PanelProps & { step: Step & { kind: keyof typeof ACT_WORDS } }) {
   const what = {
     letGo: step.kind === 'letGo' ? `The owner let ${step.cell} go on past its limit of ways round, and its count started anew` : '',
-    paused: 'The owner paused the work: no round of it begins, and a round under way goes on',
+    paused:
+      step.kind === 'paused' && step.by === 'engine'
+        ? `The engine paused the work: no round of it begins until the owner lets it on. Why: ${step.why ?? 'it gave no reason'}`
+        : 'The owner paused the work: no round of it begins, and a round under way goes on',
     resumed: 'The owner let the work on: its rounds begin again',
     cancelled: 'The owner cancelled the work: its round under way was stopped, its calls withdrawn, and its runs abandoned',
   }[step.kind];
@@ -392,7 +405,15 @@ export function ActPanel({ step, fold, foot }: PanelProps & { step: Step & { kin
       label={ACT_WORDS[step.kind]}
       id={`@${step.at}`}
       title={ACT_WORDS[step.kind]}
-      belongs={step.kind === 'letGo' ? <span className="mono">{step.cell}</span> : 'the work'}
+      belongs={
+        step.kind === 'letGo' ? (
+          <span className="mono">{step.cell}</span>
+        ) : step.kind === 'paused' && step.by === 'engine' ? (
+          'the work, by the engine'
+        ) : (
+          'the work'
+        )
+      }
       lines={<StatusLine word="When">{fullTime(step.time)}</StatusLine>}
       foot={foot}
       {...fold}

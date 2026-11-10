@@ -3,11 +3,14 @@
 -- Every table is only inserted into. An entry of a work's records is keyed by the work and by its place in the order
 -- of what happened to the work (`at`); every other entry by the work and by what makes it unique within the work.
 -- Times are milliseconds since the start of 1970, as the driver's clock gives them. A value that is an enum with data
--- is JSON text in one column; a name of a person or a writer is the name of its variant (`Owner`, `Person`). A boolean
+-- is JSON text in one column; a name of a person, a writer or who paused is the name of its variant (`Owner`, `Person`,
+-- `Engine`). A boolean
 -- is 0 or 1.
 
 -- The version of this schema, as the code that made the database numbers it: one row, written when the database is
--- made. A database of another version is not opened.
+-- made and replaced by each migration that brings it to a later version, the one row in the store that is changed. A
+-- database of an earlier version is brought to this one by the migrations of `migrations/` as it is opened; one of any
+-- other version is not opened.
 CREATE TABLE schema_version (
     version INTEGER PRIMARY KEY
 );
@@ -150,11 +153,14 @@ CREATE TABLE let_go (
     PRIMARY KEY (work, at)
 );
 
--- The work was paused (1) or let on again (0).
+-- The work was paused (1) or let on again (0), by `pauser` (`Owner` or `Engine`), and why where it was paused with a
+-- reason: the engine gives one, the owner none.
 CREATE TABLE pauses (
     work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
     paused INTEGER NOT NULL CHECK (paused IN (0, 1)),
+    pauser TEXT NOT NULL,
+    why TEXT,
     PRIMARY KEY (work, at)
 );
 

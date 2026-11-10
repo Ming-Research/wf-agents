@@ -16,7 +16,9 @@ describe('the fixtures', () => {
     expect(nows.some((n) => n.kind === 'waits' && n.on.some((w) => w.kind === 'call' && w.what.kind === 'atLimit'))).toBe(true);
     expect(nows.some((n) => n.kind === 'waits' && n.on.some((w) => w.kind === 'limit'))).toBe(true);
     expect(nows.some((n) => n.kind === 'waits' && n.on.some((w) => w.kind === 'precondition'))).toBe(true);
-    expect(works.some((w) => w.paused && w.now.kind === 'paused')).toBe(true);
+    expect(works.some((w) => w.paused && w.now.kind === 'paused' && w.now.by === 'owner')).toBe(true);
+    expect(works.some((w) => w.paused && w.now.kind === 'paused' && w.now.by === 'engine' && w.now.why !== null)).toBe(true);
+    expect(works.some((w) => w.cells.some((c) => c.state === 'failed'))).toBe(true);
     expect(nows.some((n) => n.kind === 'merged')).toBe(true);
     expect(nows.some((n) => n.kind === 'cancelled')).toBe(true);
   });
@@ -29,6 +31,15 @@ describe('the fixtures', () => {
     expect(all.some((r) => r.end?.kind === 'abandoned')).toBe(true);
     expect(all.filter((r) => r.cell === 'implement' && isWayRound(r))).toHaveLength(2);
     expect(page.steps.some((s) => s.kind === 'wrote' && s.by.kind === 'outside')).toBe(true);
+  });
+
+  it('hold a work paused by the engine as its round failed: the round failed with the reason, the pause after it', () => {
+    const page = fixtureWork(50);
+    const implement = runs(page.steps).find((r) => r.cell === 'implement');
+    const last = implement?.rounds.at(-1);
+    expect(last?.back).toEqual({ kind: 'failed', why: page.summary.now.kind === 'paused' ? page.summary.now.why : null });
+    expect(last?.given.kind).toBe('results');
+    expect(page.steps.at(-1)).toMatchObject({ kind: 'paused', by: 'engine', time: last?.ended });
   });
 
   it('agree with themselves: each version and each round handed in can be read', () => {

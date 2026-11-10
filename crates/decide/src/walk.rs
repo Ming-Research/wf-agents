@@ -13,7 +13,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::flow::{BlockId, Cell, CellId, Condition, Flow, TestKind, TestName};
-use crate::records::{CallId, Cause, Finished, Outsider, RecordFault, Records, RunId, Seq, Started, Who};
+use crate::records::{CallId, Cause, Finished, Outsider, Pause, RecordFault, Records, RunId, Seq, Started, Who};
 
 /// What a work does next, with the reason as data (principle decide-purely).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -35,7 +35,8 @@ pub enum Decision {
         basis: BTreeMap<BlockId, Option<Seq>>,
     },
     /// The run, which is at rest and waits for nothing, goes on: what its last round returned is taken up, and it
-    /// has its next round, which it holds while the work is paused.
+    /// has its next round, which it holds while the work is paused. A run whose last round failed is at rest too, and
+    /// its next round is that round again.
     GoOn { cell: CellId, run: RunId },
     /// The run is abandoned, and the walk is taken again: it is at rest and stale, or its work was cancelled, when
     /// it may have a round under way, which is stopped.
@@ -176,7 +177,13 @@ pub fn stale(flow: &Flow, records: &Records, run: RunId) -> Option<Abandoning> {
 
 /// Whether the work is paused: the latest of its pauses and lettings on is a pause.
 pub fn paused(records: &Records) -> bool {
-    (records.pauses.iter()).max_by_key(|p| p.at).is_some_and(|p| p.paused)
+    pause(records).is_some()
+}
+
+/// The pause that holds the work, with who paused it and why: the latest of its pauses and lettings on, where it is a
+/// pause.
+pub fn pause(records: &Records) -> Option<&Pause> {
+    (records.pauses.iter()).max_by_key(|p| p.at).filter(|p| p.paused)
 }
 
 /// Whether the records can be those of a work.

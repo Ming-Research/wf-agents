@@ -215,7 +215,10 @@ impl History {
                 if decide::paused(&self.work.records) {
                     Event::Resumed
                 } else {
-                    Event::Paused
+                    Event::Paused {
+                        by: Pauser::Owner,
+                        why: None,
+                    }
                 }
             }
             _ => {

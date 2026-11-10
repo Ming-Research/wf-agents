@@ -1,15 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Waited } from '../works-api';
+import type { Round, Waited } from '../works-api';
 import {
+  RUN_WORDS,
   callState,
   causeWords,
   clock,
   dollars,
   duration,
+  isOpen,
   isWayRound,
   nowTone,
   nowWords,
+  pauseWords,
+  runState,
   tokens,
   unmetWords,
   waitedWords,
@@ -33,7 +37,10 @@ describe('what a work does now, in words', () => {
     expect(nowWords({ kind: 'round', cell: 'implement', run: 5, round: 2, since })).toBe(
       `Running implement, round 2 of run 5, since ${clock(since)}`,
     );
-    expect(nowWords({ kind: 'paused' })).toBe('Paused: no round begins until it is let on');
+    expect(nowWords({ kind: 'paused', by: 'owner', why: null })).toBe('Paused: no round begins until it is let on');
+    expect(nowWords({ kind: 'paused', by: 'engine', why: 'The agent could not start.' })).toBe(
+      'Paused by the engine: The agent could not start.',
+    );
     expect(nowWords({ kind: 'waits', at: 'merge', on: [precondition, { kind: 'limit', runs: 3 }] })).toBe(
       'Waits at merge for The owner approved the merge, which the owner can make hold; ' +
         'the owner to let the cell go on: its last 3 runs in a row were each a way round',
@@ -66,6 +73,34 @@ describe('what a work does now, in words', () => {
     ]);
     expect(nowTone({ kind: 'waits', at: 'plan', on: [tool] })).toBe('quiet');
     expect(nowTone({ kind: 'waits', at: 'plan', on: [tool, question] })).toBe('owner');
+  });
+
+  it("gives the engine's pause the tone of what failed, and the owner's a quiet one", () => {
+    expect(nowTone({ kind: 'paused', by: 'engine', why: 'The agent could not start.' })).toBe('failed');
+    expect(nowTone({ kind: 'paused', by: 'owner', why: null })).toBe('quiet');
+    expect(pauseWords('engine', 'The agent could not start.')).toBe('the engine paused the work: The agent could not start.');
+    expect(pauseWords('owner', null)).toBe('the owner paused the work');
+  });
+});
+
+describe('how a run stands', () => {
+  const round = (ended: number | null, back: Round['back']): Round => ({
+    number: 1,
+    began: 0,
+    ended,
+    given: { kind: 'task' },
+    back,
+    spent: null,
+  });
+
+  it('says a run whose last round failed failed, neither under way nor at rest, and open', () => {
+    const failed = round(10, { kind: 'failed', why: 'The agent could not start.' });
+    expect(runState({ end: null, rounds: [failed] })).toBe('failed');
+    expect(RUN_WORDS.failed).toBe('round failed');
+    expect(isOpen('failed')).toBe(true);
+    // Given again once the work is let on, the round is under way.
+    expect(runState({ end: null, rounds: [failed, round(null, null)] })).toBe('running');
+    expect(runState({ end: null, rounds: [round(10, { kind: 'asked', asks: [] })] })).toBe('resting');
   });
 });
 

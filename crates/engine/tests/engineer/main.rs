@@ -76,7 +76,9 @@ use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 
-use decide::{BlockId, CellId, Decision, End, Outsider, Records, RunId, Seq, TestKind, TestName, Waited, Who, decide};
+use decide::{
+    BlockId, CellId, Decision, End, Outsider, Pauser, Records, RunId, Seq, TestKind, TestName, Waited, Who, decide,
+};
 use engine::{Ask, Came, Effect, Event, Handed};
 use flow::{Compiled, Has, Kind, compile, read};
 use reading::{Reading, Writer};
@@ -373,6 +375,12 @@ impl Random {
 }
 
 impl Part for Random {
+    /// The engineer's histories fail no round: what a failed round does is the engine's, checked by the histories of
+    /// the small flows.
+    fn fails(&mut self, _: &mut Driver, _: bool, _: bool) -> bool {
+        false
+    }
+
     fn returns(&mut self, d: &mut Driver, _: RunId, cell: &str) -> Came {
         let i = place(&d.flow, cell);
         if d.flow.cells[i].kind == Kind::Engine {
@@ -441,7 +449,10 @@ impl Part for Random {
         let check = &d.flow.flow.cells()[self.roles.check].id;
         let checking = (d.held.iter()).any(|e| matches!(e, Effect::Round { cell, .. } if cell == check));
         if checking && !paused {
-            return Event::Paused;
+            return Event::Paused {
+                by: Pauser::Owner,
+                why: None,
+            };
         }
         if paused && passed_before_merge(d, &self.roles) {
             let for_judges: Vec<&BlockId> = (self.roles.judges.iter())
@@ -494,7 +505,14 @@ impl Part for Random {
                 };
                 Some(Event::LetGo { cell })
             }
-            67..=76 => Some(if paused { Event::Resumed } else { Event::Paused }),
+            67..=76 => Some(if paused {
+                Event::Resumed
+            } else {
+                Event::Paused {
+                    by: Pauser::Owner,
+                    why: None,
+                }
+            }),
             _ => None,
         };
         event.unwrap_or(Event::Look)
@@ -535,6 +553,10 @@ impl Content {
 }
 
 impl Part for Content {
+    fn fails(&mut self, _: &mut Driver, _: bool, _: bool) -> bool {
+        false
+    }
+
     fn returns(&mut self, d: &mut Driver, _: RunId, cell: &str) -> Came {
         let i = place(&d.flow, cell);
         let must = &d.flow.cells[i].must_write;
@@ -910,7 +932,7 @@ impl History {
                 assert!(self.d.take(event), "the continuation's act was refused");
             } else {
                 let effect = doable[self.d.rng.below(doable.len())].clone();
-                self.d.carry_out(effect, &mut part);
+                self.d.carry_out(effect, &mut part, true);
             }
             steps += 1;
             self.observe();

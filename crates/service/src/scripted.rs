@@ -3,7 +3,9 @@
 //!
 //! What they return depends on nothing but the round or the call, so that what was under way when the process stopped
 //! is answered again as it would have been. They answer each round and each call once: a round they hold is ended by
-//! whichever of its end and its stop comes first, and a call by whichever of its result and its withdrawing.
+//! whichever of its end and its stop comes first, and a call by whichever of its result and its withdrawing. A round
+//! the script makes fail they say failed, keeping nothing of it: the round the engine gives again once the work is let
+//! on is a new round, which they carry out as the script says of it.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -13,7 +15,7 @@ use decide::{CallId, RunId};
 use store::WorkNumber;
 
 use crate::carriers::{CallReply, Carriers, Round, RoundReply, Rounds, ToolCall, Tools, WITHDRAWN};
-use crate::script::{Planned, Script};
+use crate::script::{Ends, Planned, Script};
 
 /// Agents, engine acts and tools that follow a script.
 #[derive(Clone)]
@@ -91,7 +93,7 @@ impl Rounds for Scripted {
             tokio::time::sleep(Duration::from_millis(planned.ms)).await;
             let reply = inner.held().rounds.get_mut(&key).and_then(Option::take);
             if let Some(reply) = reply {
-                reply.ended(planned.came, planned.spent);
+                end(reply, planned);
             }
         });
     }
@@ -111,8 +113,16 @@ impl Rounds for Scripted {
             }
         };
         if let Some(reply) = reply {
-            reply.ended(planned.came, planned.spent);
+            end(reply, planned);
         }
+    }
+}
+
+/// Ends the round as the script plans it: what comes back, or its failure.
+fn end(reply: RoundReply, planned: Planned) {
+    match planned.ends {
+        Ends::Came(came) => reply.ended(came, planned.spent),
+        Ends::Fails(why) => reply.failed(why, planned.spent),
     }
 }
 

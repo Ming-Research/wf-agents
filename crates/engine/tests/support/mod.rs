@@ -6,8 +6,8 @@
 
 use std::collections::BTreeSet;
 
-use decide::{CallId, Decision, Records, RunId, decide};
-use engine::{Ask, Call, Came, Effect, Event, Spent, Time, Work, handle, pending};
+use decide::{CallId, Decision, Pauser, Records, RunId, decide};
+use engine::{Ask, Back, Call, Came, Effect, Event, Spent, Time, Work, handle, pending};
 use flow::Compiled;
 
 /// A small deterministic generator (xorshift), so that a seed gives the same history every time.
@@ -54,6 +54,14 @@ pub struct Seen {
     pub stopped: usize,
     /// Histories that ended cancelled.
     pub cancels: usize,
+    /// Rounds that failed, of a run that went on.
+    pub failed: usize,
+    /// Rounds given again once the work was let on, the round before them having failed.
+    pub retried: usize,
+    /// Runs abandoned, while the work was not cancelled, after their last round failed.
+    pub failed_abandoned: usize,
+    /// Histories whose work came to rest, once people stopped, not paused.
+    pub rested_unpaused: usize,
     /// Hand-ins that lacked a block their cell must write, by a run still open after them: sent back, or resting at
     /// the limit of returns.
     pub lacking: usize,
@@ -83,8 +91,13 @@ pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String
     None
 }
 
-/// What a test makes of the steps that are its own: what an agent returns, and what a person or the outside does.
+/// What a test makes of the steps that are its own: whether a round fails, what an agent returns, and what a person or
+/// the outside does.
 pub trait Part {
+    /// Whether the round under way, or one given to be stopped where `stopped` says so, fails as it ends instead of
+    /// returning, `people` saying whether people still act.
+    fn fails(&mut self, d: &mut Driver, stopped: bool, people: bool) -> bool;
+
     /// What the round under way of this run of this cell returns as it ends.
     fn returns(&mut self, d: &mut Driver, run: RunId, cell: &str) -> Came;
 
@@ -112,6 +125,8 @@ pub struct Driver {
     pub closed: Vec<CallId>,
     /// The driver's clock, in milliseconds; it never goes back.
     pub clock: u64,
+    /// Whether the work is paused, by whoever, as the records said after the last event.
+    pub paused: bool,
     pub log: Vec<String>,
     pub seen: Seen,
 }
@@ -129,6 +144,7 @@ impl Driver {
             rounds: BTreeSet::new(),
             closed: Vec::new(),
             clock: 1_800_000_000_000,
+            paused: false,
             log: Vec::new(),
             seen: Seen::default(),
         }
@@ -142,6 +158,7 @@ impl Driver {
     pub fn take(&mut self, event: Event) -> bool {
         self.note(format!("event: {event:?}"));
         let before = self.work.clone();
+        let failed = matches!(event, Event::Failed { .. });
         // The driver's clock: a second for each thing it hands the engine, so that a history with stops keeps the same
         // times as one without.
         self.clock += 1000;
@@ -149,6 +166,18 @@ impl Driver {
         match handle(&self.flow, &mut self.work, now, event) {
             Ok(effects) => {
                 self.note(format!("effects: {effects:?}"));
+                if failed && decide::pause(&self.work.records).is_some_and(|p| p.by == Pauser::Engine) {
+                    self.seen.failed += 1;
+                }
+                let r = &self.work.records;
+                for a in &r.abandoned[before.records.abandoned.len()..] {
+                    let ended = r.returned.iter().filter(|e| e.run == a.run).count();
+                    let last = self.work.back.get(&(a.run, ended));
+                    if r.cancelled.is_none() && matches!(last, Some(Back::Failed { .. })) {
+                        self.seen.failed_abandoned += 1;
+                    }
+                }
+                self.paused = decide::paused(&self.work.records);
                 for effect in effects {
                     match &effect {
                         Effect::Round { run, number, .. } => {
@@ -156,6 +185,9 @@ impl Driver {
                                 self.rounds.insert((*run, *number)),
                                 "round {number} of {run:?} given twice"
                             );
+                            if matches!(self.work.back.get(&(*run, number - 1)), Some(Back::Failed { .. })) {
+                                self.seen.retried += 1;
+                            }
                         }
                         // What is withdrawn or stopped is no longer to be done as it was: it is to be undone.
                         Effect::Withdraw { call } => {
@@ -199,6 +231,31 @@ impl Driver {
         let mut pending = pending(&self.work);
         pending.sort_by_key(key);
         assert_eq!(pending, self.held, "what is pending is not what the driver holds");
+        // A round that ended, as a failed one has, is not under way: none is to be done again.
+        for effect in &pending {
+            if let Effect::Round { run, number, .. } = effect {
+                assert!(
+                    !self.work.spent.contains_key(&(*run, *number)),
+                    "round {number} of {run:?} is pending though it ended"
+                );
+            }
+        }
+        // A round after one that failed is given what the failed one was given.
+        for (&(run, number), given) in &self.work.given {
+            if number > 1 && matches!(self.work.back.get(&(run, number - 1)), Some(Back::Failed { .. })) {
+                assert_eq!(
+                    Some(given),
+                    self.work.given.get(&(run, number - 1)),
+                    "round {number} of {run:?}, after a round that failed, is given otherwise than that round was"
+                );
+            }
+        }
+        if decide::pause(r).is_some_and(|p| p.by == Pauser::Engine) {
+            assert!(
+                !pending.iter().any(|e| matches!(e, Effect::Round { .. })),
+                "a round is pending while the engine's pause for a failed round holds the work"
+            );
+        }
         let under_way = (r.started.iter())
             .filter(|s| {
                 let began = r.rounds.iter().filter(|x| x.run == s.run).count();
@@ -313,13 +370,21 @@ impl Driver {
             .collect()
     }
 
-    /// Does this, which the driver holds: a round ends as the part says, a call has its result, a call withdrawn is
-    /// said to have its result, a round stopped ends with what it returns dropped.
-    pub fn carry_out(&mut self, effect: Effect, part: &mut impl Part) {
+    /// Does this, which the driver holds: a round fails or ends as the part says, a call has its result, a call
+    /// withdrawn is said to have its result, a round stopped fails as the part says or ends with what it returns
+    /// dropped. `people` says whether people still act.
+    pub fn carry_out(&mut self, effect: Effect, part: &mut impl Part, people: bool) {
         let at = self.held.iter().position(|e| *e == effect).expect("held");
         self.held.remove(at);
         match effect {
             Effect::Round { run, cell, .. } => {
+                if part.fails(self, false, people) {
+                    let spent = self.spent(run);
+                    let why = format!("the agent of {cell} could not start");
+                    let taken = self.take(Event::Failed { run, why, spent });
+                    assert!(taken, "the failure of a round under way was refused");
+                    return;
+                }
                 let came = part.returns(self, run, cell.as_str());
                 let place = self.flow.flow.place(&cell).expect("the cell is in the flow");
                 let must = &self.flow.cells[place].must_write;
@@ -344,15 +409,21 @@ impl Driver {
                 self.closed.push(call);
             }
             Effect::Stop { run } => {
-                let came = Came::Asks(vec![]);
-                assert!(
-                    self.take(Event::Returned {
+                let spent = self.spent(run);
+                let end = if part.fails(self, true, people) {
+                    Event::Failed {
                         run,
-                        came,
-                        spent: self.spent(run)
-                    }),
-                    "the end of a stopped round was refused"
-                );
+                        why: "stopped".to_string(),
+                        spent,
+                    }
+                } else {
+                    Event::Returned {
+                        run,
+                        came: Came::Asks(vec![]),
+                        spent,
+                    }
+                };
+                assert!(self.take(end), "the end of a stopped round was refused");
             }
         }
     }
@@ -375,7 +446,7 @@ impl Driver {
             return false;
         }
         let effect = doable[self.rng.below(doable.len())].clone();
-        self.carry_out(effect, part);
+        self.carry_out(effect, part, people);
         true
     }
 }

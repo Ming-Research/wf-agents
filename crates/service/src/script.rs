@@ -34,7 +34,17 @@
 //! [[flows.trial.rounds]]
 //! cell = "plan"
 //! asks = [{ question = "Which name?", who = "owner" }, { tool = "ci", input = "the branch" }]
+//!
+//! # The first round of the second run of plan fails: nothing comes back, and the work is paused with this reason.
+//! [[flows.trial.rounds]]
+//! cell = "plan"
+//! run = 2
+//! fails = "The command line program could not start."
 //! ```
+//!
+//! A round that fails takes what its entry says, as any round does. Once the owner lets its work on, the run's next
+//! round is given the same, and does what the script says of that round: a script makes a round fail again by saying
+//! so of the next round too.
 //!
 //! A run is the cell's nth run in its work, and a round the nth of its run, each counted from one; `run` and `round`
 //! are one where they are left out. Where the script says nothing of a round, the round hands in each output of its
@@ -136,6 +146,8 @@ pub struct RoundScript {
     pub hands_in: Option<Vec<HandIn>>,
     /// The calls it asks for.
     pub asks: Option<Vec<AskScript>>,
+    /// Why it fails, where it fails: nothing comes back.
+    pub fails: Option<String>,
 }
 
 fn first() -> usize {
@@ -197,10 +209,19 @@ pub enum Person {
 /// What a round returns, and what it takes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Planned {
-    pub came: Came,
+    pub ends: Ends,
     pub spent: Spent,
     /// How long it is under way, in milliseconds.
     pub ms: u64,
+}
+
+/// How a round ends.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Ends {
+    /// This comes back.
+    Came(Came),
+    /// It fails, for this reason: nothing comes back.
+    Fails(String),
 }
 
 impl Script {
@@ -210,8 +231,8 @@ impl Script {
     }
 
     /// Everything wrong with the script for these flows, each in words with where it is: a flow, a cell or a block
-    /// it names that is not there, a default value that is not one of its choice's, a round that both hands in and
-    /// asks, a round said twice, and an act of the engine that asks or costs. A script that names a block a cell may
+    /// it names that is not there, a default value that is not one of its choice's, a round that does more than one of
+    /// handing in, asking and failing, a round said twice, and an act of the engine that asks or costs. A script that names a block a cell may
     /// not write, or a value a choice does not have, is not wrong: what it hands in is sent back.
     pub fn check(&self, flows: &[Compiled]) -> Vec<String> {
         let mut faults = Vec::new();
@@ -243,6 +264,9 @@ impl Script {
                 }
                 if round.hands_in.is_some() && round.asks.is_some() {
                     faults.push(format!("{at}: a round either hands in or asks, not both"));
+                }
+                if round.fails.is_some() && (round.hands_in.is_some() || round.asks.is_some()) {
+                    faults.push(format!("{at}: a round that fails neither hands in nor asks"));
                 }
                 for (j, handed) in round.hands_in.iter().flatten().enumerate() {
                     if !flow.blocks.contains_key(&BlockId::from(handed.block.as_str())) {
@@ -306,6 +330,13 @@ impl Script {
             choice.and_then(|values| named.or_else(|| values.first().cloned()))
         };
         let came = match entry {
+            Some(RoundScript { fails: Some(why), .. }) => {
+                return Planned {
+                    ends: Ends::Fails(why.clone()),
+                    spent,
+                    ms: or(took.ms, self.took.ms, ROUND_MS),
+                };
+            }
             Some(RoundScript { asks: Some(asks), .. }) => Came::Asks(asks.iter().map(AskScript::ask).collect()),
             Some(RoundScript {
                 hands_in: Some(handed), ..
@@ -347,7 +378,7 @@ impl Script {
             }
         };
         Planned {
-            came,
+            ends: Ends::Came(came),
             spent,
             ms: or(took.ms, self.took.ms, ROUND_MS),
         }

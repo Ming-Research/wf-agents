@@ -102,7 +102,7 @@ fn changes() -> Vec<Change> {
             let (&(run, round), back) = w.back.iter_mut().next().expect("a round come back");
             *back = match back {
                 Back::Asked(_) => Back::HandedIn(vec![]),
-                Back::HandedIn(_) => Back::Asked(vec![]),
+                Back::HandedIn(_) | Back::Failed { .. } => Back::Asked(vec![]),
             };
             ("back", Entry::Round { run, round })
         },

@@ -16,7 +16,7 @@ mod opening;
 mod stopped;
 mod stops;
 
-use decide::{CallId, Decision, End, Outsider, RunId, Waited, Who};
+use decide::{CallId, Decision, End, Outsider, Pauser, RunId, Waited, Who};
 use driver::{Driver, Failed, Fault, Todo};
 use engine::{Call, Came, Effect, Event, Given, Spent, Time};
 use store::{ItemNumber, WorkNumber};

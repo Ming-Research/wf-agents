@@ -118,18 +118,19 @@ What the owner reviews every work by, so that it says plainly why a work is wher
 
 - **State mark** (`StateMark`): how a cell stands for a work, as an 8px square with 2px corners: filled green when its
   record knows everything (done), filled blue while a round of its run is under way, a blue ring while its run is at
-  rest, an orange ring when it has a record and runs again, a hairline ring before its first run, a muted dash when
+  rest, a red ring when its run's last round failed, an orange ring when it has a record and runs again, a hairline ring before its first run, a muted dash when
   it is skipped. A square, so that it is not taken for the flow chart's ring and dot, which mean reads and writes.
 - **Strip** (`Strip`): a work's state marks, one per cell of its flow in the order of the walk, 2px apart; each says
   the cell, its state and how many runs it finished on the pointer's tip. The marks' look is said once
   (`src/works/state-marks.ts`), and the console's cards draw the same strip from it on their canvas.
 - **Now line** (`NowLine`): what a work does now, a dot and its words cut to one line, whole on the pointer's tip. The
   dot is blue while a round is under way, orange with orange words where it waits for the owner, red with red words for
-  a fault, green once merged, muted otherwise; "paused" follows in a label where the owner paused a work and what it
+  a fault or for a pause of the engine's, with its reason, green once merged, muted otherwise; "paused" follows in a label where the owner paused a work and what it
   does now says something else (a round still under way, or what it waits for), and nowhere else.
 - **List of works** (`WorksTable`): the one work of every item, one row of at least 26px each under a sticky head of
   labels: the item's number (monospace, muted), its title in semibold, the now line, the strip, what it has taken, and when something last happened. Works that wait for the owner
-  come first, edged in orange at their left; then a fault, what goes on by itself, what is paused, and what has ended,
+  come first, edged in orange at their left; then a fault or a pause of the engine's, what goes on by itself, what the
+  owner paused, and what has ended,
   each by what happened last. The whole row opens the work. Below 760px the strip and what was taken give way and the
   now line wraps to two lines; below 480px the time gives way too.
 - **A work's line**: the view's line holds the way back to the works, the item's number and title, the now line, what
@@ -169,10 +170,11 @@ what is chosen and under the pointer, and marks where they mean the same.
 - The column at the left: the step's time in monospace, muted (with the day where it changes), then its words: the
   run's number and why it ran ("plan had no record", "for plan", or, in the way back's purple, "way round for
   opinions"), and for a run of a cell the flow no longer has, which stands in no column, that cell's name and so; for
-  any other step, who did what ("a person wrote opinions_plan", "the outside wrote main", "the owner paused the work"),
+  any other step, who did what ("a person wrote opinions_plan", "the outside wrote main", "the owner paused the work",
+  "the engine paused the work:" and its reason),
   a write by a person or the outside with its sign. A cancel is in red, a pause and a let-on muted.
 - A run, in its cell's column: an edge at its left in its state's colour (green finished, red and dashed abandoned,
-  blue under way on the blue tint, blue and dotted at rest), its state word and how many rounds, how long and what it
+  blue under way on the blue tint, blue and dotted at rest, red and dotted when its last round failed), its state word and how many rounds, how long and what it
   cost, and the blocks it wrote in monospace, each line cut to the column, all of it on the pointer's tip.
 - A write: the flow chart's ring in the column of each cell that reads the block, a diamond where a cell's condition
   reads it. A let-go: "let go" in the accent in the column of the cell let go.
@@ -240,7 +242,7 @@ smoothly, and the panel at its right with the item selected. It is the console o
   `--on-colour` on `--red`, and, while its work has not begun, a lock framed in muted with how many items it depends on
   are not merged. A card whose work goes on, once it has begun or while it is paused, at fault or waits, is tinted with the colour of what the work does (`--blue` running,
   `--orange` waiting for the owner, the console's pale yellow `#e8cc6a` waiting for anything else, muted paused,
-  `--red` halted), and has a second row: the works page's strip of the work's cells, mark for mark, drawn on the
+  `--red` halted, by a fault or by the engine's pause), and has a second row: the works page's strip of the work's cells, mark for mark, drawn on the
   canvas from the same definition and the same tokens as the page's marks (`src/works/state-marks.ts`), the mark of a
   cell running pulsing while its round is under way; what the work has taken, in dollars; and how long it has gone on,
   its colour by its age (muted, amber after half an hour, `--red` after an hour, violet after a day). The strip keeps

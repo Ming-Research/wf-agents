@@ -1,5 +1,6 @@
 //! A work saved after each thing that happens loads back, in a store opened anew on the same file, as it was.
 
+use decide::Pauser;
 use decide::run::Limit;
 use engine::{Back, Call, Given};
 
@@ -23,6 +24,15 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
     let back: Vec<&Back> = w.back.values().collect();
     assert!(back.iter().any(|b| matches!(b, Back::Asked(_))), "nothing asked");
     assert!(back.iter().any(|b| matches!(b, Back::HandedIn(_))), "nothing handed in");
+    assert!(back.iter().any(|b| matches!(b, Back::Failed { .. })), "nothing failed");
+    assert!(
+        (r.pauses.iter()).any(|p| p.by == Pauser::Engine && p.why.is_some()),
+        "no pause of the engine's with its reason"
+    );
+    assert!(
+        (r.pauses.iter()).any(|p| p.paused && p.by == Pauser::Owner && p.why.is_none()),
+        "no pause of the owner's"
+    );
 
     let calls: Vec<&Call> = w.calls.values().collect();
     let kinds = [
@@ -60,7 +70,10 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
     );
     assert!(r.abandoned.len() >= 3, "too few runs abandoned: {:?}", r.abandoned);
     assert_eq!(r.let_go.len(), 1);
-    assert_eq!(r.pauses.iter().map(|p| p.paused).collect::<Vec<_>>(), [true, false]);
+    assert_eq!(
+        r.pauses.iter().map(|p| p.paused).collect::<Vec<_>>(),
+        [true, false, true, false]
+    );
     assert!(r.cancelled.is_some());
     assert_eq!(w.spent.len(), d.ended as usize, "a round's cost was not kept");
     assert_eq!(r.returned.len(), d.ended as usize);
