@@ -8,10 +8,12 @@
 //!
 //! - [`flow`]: the cells in their order, and the blocks each reads and writes.
 //! - [`records`]: what ran and what was written, each list only added to.
-//! - [`walk`]: the decision.
+//! - [`walk`]: the decision: which cell runs, which run goes on.
+//! - [`run`]: what a run that goes on does next.
 
 pub mod flow;
 pub mod records;
+pub mod run;
 pub mod walk;
 
 pub use flow::{BlockId, Cell, CellId, Condition, Flow, FlowFault, TestName};
