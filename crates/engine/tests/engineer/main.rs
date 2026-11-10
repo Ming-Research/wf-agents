@@ -31,7 +31,7 @@
 //! - an act of the engine's own hands in every block its cell may write: each choice with the value a precondition of
 //!   kind `all` looks for in three of five (the check passing), another otherwise; an opinion for a cell before it only
 //!   when a choice did not have that value (the check failing says why);
-//! - a person pauses the work in half the acts while the check's round is under way, and while the pause then holds
+//! - a person who acts while the check's round is under way pauses the work, and while the pause then holds
 //!   the merge back after the check passed, writes an input of a judge that people write in half the acts and lets
 //!   the work on in three of ten, so that a judge looks again after the check passed. Otherwise a person writes a
 //!   choice people write (a verdict), yes or no, in about a fifth of the acts; prose people write (the background, an
@@ -432,7 +432,7 @@ impl Part for Random {
         let paused = decide::paused(&d.work.records);
         let check = &d.flow.flow.cells()[self.roles.check].id;
         let checking = (d.held.iter()).any(|e| matches!(e, Effect::Round { cell, .. } if cell == check));
-        if checking && !paused && d.rng.chance(50) {
+        if checking && !paused {
             return Event::Paused;
         }
         if paused && passed_before_merge(d, &self.roles) {
