@@ -1,0 +1,3 @@
+/target/
+# Backup copies, such as the one git mergetool keeps beside a merged file.
+*.orig
