@@ -219,8 +219,7 @@ impl Driver {
         // What is kept of the work from its start: the pause, what the driver says of the item's dependencies, and
         // what people wrote, in that order. Being paused from its first entry, the work is given nothing to do.
         let mut work = Work::default();
-        // MUTANT: the pause is kept by a second save after the item, its work and the first writes are added.
-        let mut first = Vec::new();
+        let mut first = vec![Event::Paused];
         first.extend(self.dependencies(&flow, &new.depends_on, &work));
         first.extend(new.writes.into_iter().map(|write| Event::Wrote {
             block: write.block,
@@ -232,10 +231,12 @@ impl Driver {
         for event in first {
             handle(&flow, &mut work, now, event).map_err(Failed::Refused)?;
         }
+        // MUTANT: the item and its work are added without the pause, which a second save keeps.
+        let mut unpaused = work.clone();
+        unpaused.records.pauses.clear();
         let (item, number) = (self.store)
-            .add(&new.title, &new.depends_on, &new.flow, now, &work)
+            .add(&new.title, &new.depends_on, &new.flow, now, &unpaused)
             .map_err(|fault| self.stop(Fault::Store(fault), false))?;
-        handle(&flow, &mut work, now, Event::Paused).map_err(Failed::Refused)?;
         (self.store)
             .save(number, &work)
             .map_err(|fault| self.stop(Fault::Store(fault), false))?;
