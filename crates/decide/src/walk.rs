@@ -449,9 +449,9 @@ impl<'a> Walk<'a> {
 /// a value in this version or the one before, a choice, keeps the meaning of the version before when the two values
 /// are the same, and has its own when they are not, whatever its writer says. Of any other block, a person's write
 /// has its own meaning, and so does a write that matters; a write that does not matter keeps the meaning of the
-/// version before it, provided its writer saw that version: the outside always did, and a run did when it is the
-/// version the run started from. A run that did not, because the block was written after it started, has a meaning
-/// of its own for what it wrote.
+/// version before it, provided its writer saw that meaning: the outside always did, and a run did when the version
+/// it started from has it. A run that did not, because the block's meaning was changed after it started, has a
+/// meaning of its own for what it wrote.
 fn read_versions<'a>(
     records: &'a Records,
     runs: &BTreeMap<RunId, RunView<'a>>,
@@ -479,7 +479,9 @@ fn read_versions<'a>(
         let of_block = versions.entry(w.block).or_default();
         let over = of_block.last();
         let from = (w.by.and_then(|run| runs.get(&run))).and_then(|r| r.started.basis.get(w.block).copied().flatten());
-        let saw = w.by.is_none() || over.map(|v| v.at) == from;
+        // A run saw what it writes over when the version it started from has the meaning of the version before.
+        let started = of_block.iter().find(|v| Some(v.at) == from).map(|v| v.meaning);
+        let saw = w.by.is_none() || (over.is_some() && started == over.map(|v| v.meaning));
         let meaning = match over {
             // A choice changes its meaning when its value does, whatever its writer says.
             Some(v) if w.value.is_some() || v.value.is_some() => {

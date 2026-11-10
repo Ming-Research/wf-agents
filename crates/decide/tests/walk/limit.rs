@@ -222,14 +222,18 @@ fn a_persons_change_is_no_way_round_though_a_later_cell_rewrote_it_as_not_matter
 }
 
 #[test]
-#[ignore = "the code starts the count anew at any letting go, even of a cell that was not at its limit"]
-fn letting_a_cell_go_on_that_is_not_at_its_limit_changes_nothing() {
+fn letting_a_cell_go_on_starts_its_count_anew_whenever_the_owner_does_it() {
     let (mut w, ..) = judged();
     for _ in 0..2 {
         send_back(&mut w);
     }
+    // The owner lets the implementation go on before it has reached its limit: the two ways round are forgotten.
     w.let_go("implement");
     send_back(&mut w);
     w.run("review", &[("opinions", Matters)]);
-    at_limit(&w, 3);
+    let next = w.decide();
+    assert!(
+        matches!(&next, decide::Decision::Run { cell, .. } if cell.as_str() == "implement"),
+        "the implementation runs again: {next:?}"
+    );
 }

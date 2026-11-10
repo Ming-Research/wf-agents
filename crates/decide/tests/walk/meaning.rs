@@ -140,8 +140,7 @@ fn a_choice_rewritten_without_a_value_has_changed_its_meaning_whatever_its_write
 }
 
 #[test]
-fn a_run_at_rest_whose_output_a_cell_before_it_rewrote_as_not_mattering_goes_on_and_its_own_such_write_has_its_own_meaning()
- {
+fn a_run_at_rest_whose_output_a_cell_before_it_rewrote_as_not_mattering_goes_on_and_is_taken_at_its_word() {
     // Both cells may write the plan; the reader comes after both.
     let cells = vec![
         cell("draft", &["brief"], &["plan"]),
@@ -152,7 +151,7 @@ fn a_run_at_rest_whose_output_a_cell_before_it_rewrote_as_not_mattering_goes_on_
     w.person_writes("brief");
     w.person_writes("notes");
     w.run("draft", &[("plan", Matters)]);
-    let refined = w.run("refine", &[("plan", Matters)]);
+    w.run("refine", &[("plan", Matters)]);
     w.run("reader", &[]);
     w.person_writes("notes");
     let refine = w.start("refine");
@@ -162,15 +161,8 @@ fn a_run_at_rest_whose_output_a_cell_before_it_rewrote_as_not_mattering_goes_on_
     w.run("draft", &[("plan", DoesNotMatter)]);
     assert_eq!(w.decide(), go_on("refine", refine));
     w.go_on("refine");
-    // The refinement says its plan does not matter, but the plan was written after its run started: it did not see
-    // the version it wrote over, and is not taken at its word.
-    let plan = w.finish("refine", &[("plan", DoesNotMatter)]);
-    assert_eq!(
-        w.decide(),
-        runs(
-            "reader",
-            vec![changed("plan", Some(refined), false)],
-            &[("plan", Some(plan))]
-        )
-    );
+    // The refinement says its plan does not matter. The version it writes over was written after its run started,
+    // but has the meaning of the one it started from: it saw that meaning, and the reader is not run.
+    w.finish("refine", &[("plan", DoesNotMatter)]);
+    assert_eq!(w.decide(), resting());
 }
