@@ -16,6 +16,12 @@ export function routeOf(hash: string): Route {
   return { view: 'works' };
 }
 
+/// Whether an address's hash names a view; an empty one, or one the page does not know, names none.
+export function namesView(hash: string): boolean {
+  const path = hash.replace(/^#/, '').replace(/\/+$/, '');
+  return path === '/works' || routeOf(hash).view !== 'works';
+}
+
 /// The hash of a view.
 export function hashOf(route: Route): string {
   return route.view === 'work' ? `#/works/${route.work}` : `#/${route.view}`;

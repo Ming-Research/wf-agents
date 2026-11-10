@@ -11,7 +11,8 @@ import { Chart, type Chosen, Legend } from './Chart';
 import { LazyConsolePage } from './console/lazy';
 import { type Version, changeBlock, changeCell, matrix } from './matrix';
 import { Bar, Edge, Panel, StatusLine, Switch } from './parts';
-import { type Route, tabOf, useRoute } from './route';
+import { type Route, hashOf, tabOf, useRoute } from './route';
+import { type Serves, opensOnFlow, useServes } from './serves';
 import { PANEL, WIDTH_KEYS, useKeptWidth } from './sizes';
 import { BlockPanel, CellPanel, ChangesList, Faults, type Fold } from './Side';
 import { type Theme, useTheme } from './theme';
@@ -20,10 +21,18 @@ import { WorksList } from './works/WorksList';
 import { LIMIT_WORDS } from './words';
 
 export function App() {
-  const route = useRoute();
+  const named = useRoute();
+  const serves = useServes();
+  // A server that gives the flow alone opens on the flow where the address names no view: the flow is shown at once,
+  // and the address is brought to say so.
+  const onFlow = opensOnFlow(serves, window.location.hash);
+  useEffect(() => {
+    if (onFlow) window.location.replace('#/flow');
+  }, [onFlow]);
+  const route: Route = onFlow ? { view: 'flow' } : named;
   return (
     <Shell route={route}>
-      <Views route={route} />
+      <Views route={route} serves={serves} />
     </Shell>
   );
 }
@@ -32,12 +41,26 @@ type Loaded = { definition: Definition; comparison: Comparison } | { failed: str
 
 /// The view a route names. The flow, once shown, stays as the owner left it (what is chosen, the version, the panel)
 /// while another tab is shown, and is not read again on coming back.
-export function Views({ route, loadFlow = load }: { route: Route; loadFlow?: () => Promise<Loaded> }) {
+export function Views({
+  route,
+  loadFlow = load,
+  serves = 'all',
+}: {
+  route: Route;
+  loadFlow?: () => Promise<Loaded>;
+  /// What the server gives (serves.ts); nothing while it is being asked.
+  serves?: Serves | null;
+}) {
   const [flowShown, setFlowShown] = useState(route.view === 'flow');
   if (route.view === 'flow' && !flowShown) setFlowShown(true);
   return (
     <>
-      {route.view !== 'flow' && (
+      {route.view !== 'flow' && serves !== 'all' && (
+        <div className="view">
+          {serves === null ? <p className="message muted">Reading</p> : <FlowAlone route={route} />}
+        </div>
+      )}
+      {route.view !== 'flow' && serves === 'all' && (
         <div className="view">
           {route.view === 'console' && (
             // The console's drawing library is large: it is read only once the console is first shown.
@@ -55,6 +78,16 @@ export function Views({ route, loadFlow = load }: { route: Route; loadFlow?: () 
         </div>
       )}
     </>
+  );
+}
+
+/// Said in place of the console and the works on a server that gives the flow alone.
+function FlowAlone({ route }: { route: Route }) {
+  return (
+    <p className="message">
+      This server gives the flow alone: it has no items and no works to show. <a href="#/flow">Open the flow</a>, or{' '}
+      <a href={`?fixtures${hashOf(route)}`}>look at this view with sample data</a>.
+    </p>
   );
 }
 
