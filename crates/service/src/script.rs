@@ -43,9 +43,11 @@
 //! choice. An output a cell before it reads is a way back, an opinion on what that cell did, which an agent writes only
 //! when it has one: by default it has none, so that a script that says nothing of a judging cell has it content and
 //! does not send the work round until its limit; one the cell must write each time it writes all the same, so that the
-//! round is not sent back. A block handed in with no content or no value is given them the same way. The engine's own
-//! acts take no cost and no tokens. What a round returns depends on nothing but its flow, cell, run and round, so that
-//! a round given again after the process started again returns what it would have.
+//! round is not sent back, and, where the block had a version as the run started, says the change does not matter, so
+//! that the work is not sent round for it either. A block handed in with no content or no value is given them the same
+//! way. The engine's own acts take no cost and no tokens. What a round returns depends on nothing but its flow, cell,
+//! run and round, and the versions its run started from, which its start recorded, so that a round given again after
+//! the process started again returns what it would have.
 
 use std::collections::BTreeMap;
 
@@ -53,7 +55,7 @@ use flow::{CellSpec, Compiled, Kind};
 use serde::Deserialize;
 use work::{Ask, Handed, Spent};
 
-use decide::{BlockId, Who};
+use decide::{BlockId, Seq, Who};
 use engine::Came;
 
 /// How long a round takes where the script says nothing, in milliseconds.
@@ -272,8 +274,16 @@ impl Script {
         faults
     }
 
-    /// What the round of this number of the cell's nth run returns in the flow, and what it takes.
-    pub fn round(&self, flow: &Compiled, cell: &CellSpec, run: usize, number: usize) -> Planned {
+    /// What the round of this number of the cell's nth run returns in the flow, and what it takes; `basis` is the
+    /// version of each block the run started from, as its start was recorded.
+    pub fn round(
+        &self,
+        flow: &Compiled,
+        cell: &CellSpec,
+        run: usize,
+        number: usize,
+        basis: &BTreeMap<BlockId, Option<Seq>>,
+    ) -> Planned {
         let script = self.flows.get(&flow.name);
         let entry = (script.into_iter())
             .flat_map(|script| &script.rounds)
@@ -313,7 +323,8 @@ impl Script {
                 let place = flow.flow.place(&cell.id);
                 let outputs = place.map_or(&[][..], |place| &flow.flow.cells()[place].outputs);
                 // An output an earlier cell reads is a way back, an opinion on what that cell did: an agent writes one
-                // only when it has one, and by default it has none, unless the cell must write it each time.
+                // only when it has one, and by default it has none, unless the cell must write it each time; then,
+                // once the block has a version, it is written as a change that does not matter.
                 let back = |block: &BlockId| {
                     let readers = flow
                         .blocks
@@ -328,7 +339,7 @@ impl Script {
                         .map(|block| Handed {
                             block: block.clone(),
                             content: content(block.as_str()),
-                            matters: true,
+                            matters: !back(block) || !basis.get(block).is_some_and(Option::is_some),
                             value: value(block.as_str()),
                         })
                         .collect(),

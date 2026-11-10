@@ -32,6 +32,9 @@ and are given its result in your next round.
   - `check`, which runs the project's check in the worktree and says whether it passed, with the end of what it said.
     Leave its `input` empty.
 
+A block the list marks "hand it in every time" you always hand in, as it stands, and a choice with its value: handing
+it in again with its value unchanged, or saying your change to it does not matter, runs no cell again.
+
 ## Languages
 
 Write the blocks the owner reads in {owner_language}. Write everything in the repository in English.

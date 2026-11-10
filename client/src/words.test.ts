@@ -48,12 +48,12 @@ describe('the words of the page', () => {
     ).toEqual({ what: 'Runs when', before: 'always', after: 'x is no' });
     expect(changeWords({ kind: 'inputRemoved', cell: 'a', block: 'x' })).toEqual({ what: 'Reads', before: 'x', after: '' });
     expect(changeWords({ kind: 'mustWriteAdded', cell: 'a', block: 'x' })).toEqual({
-      what: 'Writes each time',
+      what: 'Writes every time',
       before: '',
       after: 'x',
     });
     expect(changeWords({ kind: 'mustWriteRemoved', cell: 'a', block: 'x' })).toEqual({
-      what: 'Writes each time',
+      what: 'Writes every time',
       before: 'x',
       after: '',
     });
@@ -117,7 +117,7 @@ describe('the words of the page', () => {
       'The test t reads no block.',
     );
     expect(faultWords({ file: 'judge.toml', field: 'must_write[1]', what: { kind: 'notAnOutput', block: 'plan' } })).toBe(
-      'The cell must write plan each time, but plan is not among the blocks it may write.',
+      'The cell must write plan every time, but plan is not among the blocks it may write.',
     );
     expect(
       faultWords({

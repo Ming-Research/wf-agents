@@ -74,6 +74,7 @@ line = "reviewer"
 task = "Review the code."
 inputs = ["code"]
 outputs = ["opinions", "verdict"]
+must_write = ["verdict"]
 "#,
     ),
     (
@@ -328,7 +329,7 @@ Review the code.
 ## What it may write
 
 - `opinions`: version {opinions}; its meaning last changed at this version.
-- `verdict`, a choice, one of `yes`, `no`: version {opinions}, with the value `no`; its meaning last changed at this version.
+- `verdict`, a choice, one of `yes`, `no` (hand it in every time): version {opinions}, with the value `no`; its meaning last changed at this version.
 
 To read all of it at once, ask for the tool `read` with the input `code code@{code}..{later} opinions verdict`.
 "
@@ -428,6 +429,21 @@ fn a_round_after_a_return_sent_back_is_told_why() {
 ## What you handed in was sent back
 
 - the block verdict is not one the cell may write
+
+Hand in again: everything the cell hands in, in one return.
+";
+    assert_eq!(small.told(), expected);
+}
+
+#[test]
+fn a_review_that_leaves_out_the_block_it_must_hand_in_is_told_so() {
+    let (mut small, ..) = objected_twice();
+    small.hands_in(&[("opinions", "Name the error, and say it.", None)]);
+    let expected = "# Review (cell `review`), round 2
+
+## What you handed in was sent back
+
+- the block verdict is not handed in, and the cell must hand it in every time
 
 Hand in again: everything the cell hands in, in one return.
 ";

@@ -188,7 +188,7 @@ describe('the chart', () => {
     expect(change.querySelector('ins.change-text')?.textContent).toBe(is);
   });
 
-  it('marks among what a cell may write the blocks it writes each time, and says a change of them', () => {
+  it('marks among what a cell may write the blocks it writes every time, and says a change of them', () => {
     const judge = (mustWrite: string[]) =>
       flowOf([cell('plan', { inputs: ['opinions'] }), cell('judge', { outputs: ['opinions', 'verdict'], mustWrite })], {
         opinions: {},
@@ -210,8 +210,8 @@ describe('the chart', () => {
     const rows = [...mayWrite.querySelectorAll('.uses li')].map((li) =>
       [...li.children].map((c) => c.textContent?.trim()).join(' '),
     );
-    expect(rows).toEqual(['opinions read by plan way back to plan', 'verdict written each time shown']);
-    expect(texts(panel, '.changes-here li')).toEqual(['Writes each timeverdict']);
+    expect(rows).toEqual(['opinions read by plan way back to plan', 'verdict written every time shown']);
+    expect(texts(panel, '.changes-here li')).toEqual(['Writes every timeverdict']);
   });
 
   it('shows everything about a block chosen by its row’s name', () => {

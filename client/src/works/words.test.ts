@@ -108,7 +108,7 @@ describe('why a run ran, in words', () => {
     );
     expect(unmetWords({ kind: 'notAChoice', block: 'plan' })).toBe('it handed in plan with a value, but it is not a choice');
     expect(unmetWords({ kind: 'notHandedIn', block: 'verdict' })).toBe(
-      'it did not hand in verdict, which the cell must hand in each time',
+      'it did not hand in verdict, which the cell must hand in every time',
     );
   });
 });

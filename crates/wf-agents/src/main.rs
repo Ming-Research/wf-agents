@@ -318,7 +318,7 @@ fn words(what: &FaultKind) -> String {
         F::ValuesEmpty => "a choice has no values to choose from".to_string(),
         F::NoSuchBlock { block } => format!("the block {block} is not declared in flow.toml"),
         F::NotAnOutput { block } => {
-            format!("the cell must write {block} each time, but {block} is not among the blocks it may write")
+            format!("the cell must write {block} every time, but {block} is not among the blocks it may write")
         }
         F::NoWriter { block } => format!("nothing writes {block}: no cell of the order, no person and nothing outside"),
         F::NoReader { block } => {

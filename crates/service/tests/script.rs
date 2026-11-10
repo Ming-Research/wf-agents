@@ -1,13 +1,14 @@
 //! The script the test carriers follow: how it is read, checked against the flows, and what a round returns by it.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use engine::Came;
+use decide::{BlockId, Decision, End, Outsider, Seq};
+use engine::{Came, Effect, Event, handle};
 use flow::{CellSpec, Compiled};
 use service::Script;
 use service::script::{INPUT_TOKENS, OUTPUT_TOKENS, ROUND_MS, TOOL_MS, USD_MICROS};
-use work::{Ask, Handed, Spent};
+use work::{Ask, Handed, Spent, Time, Work};
 
 fn trial() -> Compiled {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/trial/flow");
@@ -99,7 +100,7 @@ fn a_script_with_a_field_it_does_not_know_is_not_read() {
 #[test]
 fn a_round_the_script_says_nothing_of_hands_in_the_outputs_no_earlier_cell_reads() {
     let flow = trial();
-    let planned = Script::default().round(&flow, cell(&flow, "review"), 2, 3);
+    let planned = Script::default().round(&flow, cell(&flow, "review"), 2, 3, &BTreeMap::new());
     // The opinions, which the build before it reads, are a way back, and are not written.
     let verdict = "The verdict as review wrote it in its run 2, round 3.";
     assert_eq!(
@@ -118,8 +119,8 @@ fn a_round_the_script_says_nothing_of_hands_in_the_outputs_no_earlier_cell_reads
     );
 }
 
-#[test]
-fn a_round_the_script_says_nothing_of_hands_in_too_every_block_its_cell_must_write() {
+/// The trial flow with its review bound to write its opinions every time.
+fn trial_reviewing_every_time() -> Compiled {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/trial/flow");
     let mut source = flow::read(&dir).unwrap();
     let review = source.cells.get_mut("review").unwrap();
@@ -132,23 +133,89 @@ fn a_round_the_script_says_nothing_of_hands_in_too_every_block_its_cell_must_wri
         sources: BTreeSet::from([driver::DEPENDENCIES.to_string()]),
         acts: BTreeSet::from(["merge".to_string()]),
     };
-    let flow = flow::compile(&source, &has).unwrap();
-    // The opinions are a way back, and are written all the same: the review must write them each time.
-    let words = |block: &str| format!("The {block} as review wrote it in its run 1, round 1.");
+    flow::compile(&source, &has).unwrap()
+}
+
+#[test]
+fn a_round_the_script_says_nothing_of_hands_in_too_every_block_its_cell_must_write() {
+    let flow = trial_reviewing_every_time();
+    // The opinions are a way back, and are written all the same: the review must write them every time.
+    let words = |block: &str, run| format!("The {block} as review wrote it in its run {run}, round 1.");
     assert_eq!(
-        Script::default().round(&flow, cell(&flow, "review"), 1, 1).came,
+        Script::default()
+            .round(&flow, cell(&flow, "review"), 1, 1, &BTreeMap::new())
+            .came,
         Came::HandsIn(vec![
-            handed("opinions", &words("opinions"), None),
-            handed("verdict", &words("verdict"), Some("yes")),
+            handed("opinions", &words("opinions", 1), None),
+            handed("verdict", &words("verdict", 1), Some("yes")),
         ])
     );
+    // Once they have a version as the run starts, they are written as a change that does not matter.
+    let basis = BTreeMap::from([
+        (BlockId::from("opinions"), Some(Seq(7))),
+        ("verdict".into(), Some(Seq(7))),
+    ]);
+    assert_eq!(
+        Script::default().round(&flow, cell(&flow, "review"), 2, 1, &basis).came,
+        Came::HandsIn(vec![
+            Handed {
+                matters: false,
+                ..handed("opinions", &words("opinions", 2), None)
+            },
+            handed("verdict", &words("verdict", 2), Some("yes")),
+        ])
+    );
+}
+
+#[test]
+fn an_unscripted_trial_whose_review_must_write_its_opinions_reaches_the_merge() {
+    let flow = trial_reviewing_every_time();
+    let mut work = Work::default();
+    let mut clock = 0;
+    let mut take = |work: &mut Work, event: Event| {
+        clock += 1000;
+        handle(&flow, work, Time(clock), event).expect("the loop takes it")
+    };
+    let wrote = |block: &str, by, value: Option<&str>| Event::Wrote {
+        block: block.into(),
+        by,
+        content: format!("The {block}."),
+        matters: true,
+        value: value.map(str::to_string),
+    };
+    take(&mut work, wrote("dependencies", Outsider::Outside, Some("merged")));
+    let mut effects = take(&mut work, wrote("request", Outsider::Person, None));
+    for _ in 0..20 {
+        let Some((run, cell, number)) = effects.iter().find_map(|effect| match effect {
+            Effect::Round { run, cell, number, .. } => Some((*run, cell.clone(), *number)),
+            _ => None,
+        }) else {
+            break;
+        };
+        let started = work.records.started.iter();
+        let nth = started.clone().filter(|s| s.cell == cell && s.run <= run).count();
+        let basis = started
+            .clone()
+            .find(|s| s.run == run)
+            .expect("the run started")
+            .basis
+            .clone();
+        let planned = Script::default().round(&flow, crate::cell(&flow, cell.as_str()), nth, number, &basis);
+        let returned = Event::Returned {
+            run,
+            came: planned.came,
+            spent: planned.spent,
+        };
+        effects = take(&mut work, returned);
+    }
+    assert_eq!(decide::decide(&flow.flow, &work.records), Decision::Ended(End::Merged));
 }
 
 #[test]
 fn a_choice_is_handed_in_at_the_value_the_script_names_for_it() {
     let flow = trial();
     let script = Script::read("[flows.trial.values]\nverdict = \"no\"\n").unwrap();
-    let Came::HandsIn(blocks) = script.round(&flow, cell(&flow, "review"), 1, 1).came else {
+    let Came::HandsIn(blocks) = script.round(&flow, cell(&flow, "review"), 1, 1, &BTreeMap::new()).came else {
         panic!("the round hands in");
     };
     assert_eq!(blocks[0].value.as_deref(), Some("no"));
@@ -174,7 +241,7 @@ fn a_round_takes_what_its_entry_says_and_else_what_the_script_says() {
         "#,
     )
     .unwrap();
-    let planned = script.round(&flow, cell(&flow, "build"), 2, 1);
+    let planned = script.round(&flow, cell(&flow, "build"), 2, 1, &BTreeMap::new());
     assert_eq!(planned.ms, 50);
     assert_eq!(planned.spent.usd_micros, 40);
     assert_eq!(
@@ -185,7 +252,7 @@ fn a_round_takes_what_its_entry_says_and_else_what_the_script_says() {
         }])
     );
     // The engine's own act takes no cost, whatever the script says of rounds.
-    let merge = script.round(&flow, cell(&flow, "merge"), 1, 1);
+    let merge = script.round(&flow, cell(&flow, "merge"), 1, 1, &BTreeMap::new());
     assert_eq!((merge.ms, merge.spent), (900, Spent::default()));
 }
 
@@ -201,7 +268,7 @@ fn a_round_asks_for_what_its_entry_says() {
     )
     .unwrap();
     assert_eq!(
-        script.round(&flow, cell(&flow, "plan"), 1, 1).came,
+        script.round(&flow, cell(&flow, "plan"), 1, 1, &BTreeMap::new()).came,
         Came::Asks(vec![
             Ask::Person {
                 who: decide::Who::Owner,

@@ -58,7 +58,7 @@ fn a_block_a_cell_must_write_that_is_not_among_its_outputs_is_a_fault() {
     assert!(!out.status.success());
     assert_eq!(
         String::from_utf8_lossy(&out.stderr),
-        "judge.toml must_write[0]: the cell must write plan each time, but plan is not among the blocks it may write\n"
+        "judge.toml must_write[0]: the cell must write plan every time, but plan is not among the blocks it may write\n"
     );
 }
 

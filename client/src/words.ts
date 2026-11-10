@@ -85,7 +85,7 @@ export function faultWords(fault: Fault): string {
     case 'noSuchBlock':
       return `The block ${w.block} is not declared in flow.toml.`;
     case 'notAnOutput':
-      return `The cell must write ${w.block} each time, but ${w.block} is not among the blocks it may write.`;
+      return `The cell must write ${w.block} every time, but ${w.block} is not among the blocks it may write.`;
     case 'noWriter':
       return `Nothing writes ${w.block}: no cell of the order, no person and nothing outside.`;
     case 'noReader':
@@ -215,9 +215,9 @@ export function changeWords(change: Change): ChangeWords {
     case 'outputRemoved':
       return { what: 'May write', before: c.block, after: '' };
     case 'mustWriteAdded':
-      return { what: 'Writes each time', before: '', after: c.block };
+      return { what: 'Writes every time', before: '', after: c.block };
     case 'mustWriteRemoved':
-      return { what: 'Writes each time', before: c.block, after: '' };
+      return { what: 'Writes every time', before: c.block, after: '' };
     case 'cellLimit':
       return { what: `Limit of ${LIMIT_WORDS[c.limit]}`, before: `${c.before}`, after: `${c.after}` };
     case 'blockAdded':

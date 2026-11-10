@@ -127,36 +127,48 @@ fn block_name(b: &str) -> &'static str {
         .expect("a block of the histories")
 }
 
-/// The merge, the engine's own cell, after the cell that last writes the plan: it must write what it merged each time.
-fn merge() -> String {
-    "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nrequires = [\"may_merge\"]\n\
-     inputs = [\"plan\"]\noutputs = [\"merged\"]\nmust_write = [\"merged\"]\n"
-        .to_string()
+/// The merge, the engine's own cell, after the cell that last writes the plan; where `bound`, it must write what it
+/// merged each time.
+fn merge(bound: bool) -> String {
+    let must = if bound { "\"merged\"" } else { "" };
+    format!(
+        "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nrequires = [\"may_merge\"]\n\
+         inputs = [\"plan\"]\noutputs = [\"merged\"]\nmust_write = [{must}]\n"
+    )
 }
 
-/// One of the shapes of flow, each ending in the merge.
-fn shape(n: usize) -> Compiled {
+/// One of the shapes of flow, each ending in the merge. Each cell that may be bound to write a block each time is,
+/// where `binds` draws it so, about one time in two.
+fn shape(n: usize, binds: &mut Rng) -> Compiled {
     let choice = Some(r#"{ block = "choice", is = "yes" }"#);
+    let mut bound =
+        |blocks: &'static [&'static str]| -> &'static [&'static str] { if binds.chance(50) { blocks } else { &[] } };
     let cells: Vec<(&str, (String, Vec<&'static str>))> = match n {
-        // A chain, whose second cell must write the plan each time.
+        // A chain, whose second cell may be bound to write the plan each time.
         0 => vec![
             ("draft", agent(&["request", "main"], &["notes"], &[], None)),
-            ("plan", agent(&["notes"], &["plan"], &["plan"], None)),
+            ("plan", agent(&["notes"], &["plan"], bound(&["plan"]), None)),
         ],
         // A writer with a judge that writes opinions for it.
         1 => vec![
             ("write", agent(&["request", "opinions"], &["plan"], &[], None)),
             ("judge", agent(&["plan"], &["opinions"], &[], None)),
         ],
-        // A cell with a condition on a choice an earlier cell makes, which that cell must make each time.
+        // A cell with a condition on a choice an earlier cell makes, which that cell may be bound to make each time.
         2 => vec![
-            ("ask", agent(&["request"], &["choice", "plan"], &["choice"], None)),
+            (
+                "ask",
+                agent(&["request"], &["choice", "plan"], bound(&["choice"]), None),
+            ),
             ("extra", agent(&["plan", "main"], &["notes"], &[], choice)),
         ],
-        // A cell reading and writing one block.
+        // A cell reading and writing one block, which it may be bound to write each time.
         _ => vec![
             ("draft", agent(&["request"], &["plan"], &[], None)),
-            ("refine", agent(&["plan", "opinions"], &["plan"], &["plan"], None)),
+            (
+                "refine",
+                agent(&["plan", "opinions"], &["plan"], bound(&["plan"]), None),
+            ),
         ],
     };
     let mut order: Vec<&str> = cells.iter().map(|(id, _)| *id).collect();
@@ -164,7 +176,7 @@ fn shape(n: usize) -> Compiled {
     let mut blocks: BTreeSet<&str> = cells.iter().flat_map(|(_, (_, used))| used.iter().copied()).collect();
     blocks.extend(["plan", "merged"]);
     let mut files: BTreeMap<String, String> = cells.iter().map(|(id, (f, _))| (id.to_string(), f.clone())).collect();
-    files.insert("merge".to_string(), merge());
+    files.insert("merge".to_string(), merge(binds.chance(50)));
     let source = Source {
         flow: flow_file(&order, &blocks),
         cells: files,
@@ -193,6 +205,8 @@ struct Seen {
     /// Hand-ins that lacked a block their cell must write, by a run still open after them: sent back, or resting at
     /// the limit of returns.
     lacking: usize,
+    /// Finished runs of cells that must write a block each time.
+    bound_finished: usize,
 }
 
 /// A history: the work, what the driver holds to be done, and what it saw.
@@ -227,7 +241,8 @@ fn key(effect: &Effect) -> String {
 impl History {
     fn new(seed: u64, stops: bool) -> Self {
         let mut rng = Rng::new(seed);
-        let flow = shape(rng.below(4));
+        // Which cells are bound to write a block each time is drawn apart, so that the other draws stay as they were.
+        let flow = shape(rng.below(4), &mut Rng::new(seed ^ 0xB10C_5EED_0FC3_1150));
         let yes_at_first = rng.chance(40);
         Self {
             flow,
@@ -689,6 +704,10 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
         }
     }));
     h.seen.abandons = h.work.records.abandoned.len();
+    let bound = |cell: &decide::CellId| (h.flow.cells.iter()).any(|c| c.id == *cell && !c.must_write.is_empty());
+    h.seen.bound_finished = (h.work.records.finished.iter())
+        .filter(|f| (h.work.records.started.iter()).any(|s| s.run == f.run && bound(&s.cell)))
+        .count();
     *log = std::mem::take(&mut h.log);
     if let Err(e) = result {
         panic::resume_unwind(e);
@@ -725,6 +744,7 @@ fn whole_works_keep_the_engines_properties_with_and_without_stops() {
                 seen.stopped += s.stopped;
                 seen.cancels += s.cancels;
                 seen.lacking += s.lacking;
+                seen.bound_finished += s.bound_finished;
             }
             Err(e) => {
                 let message = (e.downcast_ref::<String>().cloned())
@@ -752,6 +772,7 @@ fn whole_works_keep_the_engines_properties_with_and_without_stops() {
         && seen.stops_undoing > 0
         && seen.stopped > 0
         && seen.cancels > 0
-        && seen.lacking > 0;
+        && seen.lacking > 0
+        && seen.bound_finished > 0;
     assert!(every, "a class of step never occurred: {seen:?}");
 }
