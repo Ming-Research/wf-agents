@@ -1,10 +1,10 @@
 //! What a run does next, from what it has done so far.
 //!
-//! A run is made of rounds. At the end of a round its agent, or the engine's own act, either asks for calls, whose
-//! results the next round is given, or hands in the blocks it wrote. A return that does not meet what the flow
-//! requires of it is sent back: the next round is given why. A run finishes when a return meets everything, and
-//! writes its blocks then. How often a return is sent back and how many calls are made each has a limit, at which the
-//! owner lets the run go on or cancels the work.
+//! A run is made of rounds. At the end of a round its agent, or the engine's own act, either asks for calls, which
+//! the engine then makes and whose results the next round is given, or hands in the blocks it wrote. What came back
+//! and does not meet what the flow requires is sent back: the next round is given why. A run finishes when what was
+//! handed in meets everything, and writes its blocks then. How often something is sent back and how many calls are
+//! made each has a limit, at which the owner lets the run go on or cancels the work.
 //!
 //! The walk says which cell runs and which run goes on; this says what going on is.
 
@@ -33,12 +33,17 @@ pub struct Round {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Return {
     /// Calls were asked for: a tool the engine runs, something of the item to read, a question for a person.
-    Asked(Vec<Call>),
+    Asked {
+        /// How many calls the round asked for.
+        asked: usize,
+        /// The calls made for it: none until the engine makes them, then all of them.
+        made: Vec<Call>,
+    },
     /// The blocks the run wrote were handed in.
     HandedIn(Vec<Write>),
 }
 
-/// A call a round asked for.
+/// A call made for a round.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Call {
     pub call: CallId,
@@ -46,14 +51,14 @@ pub struct Call {
     pub done: bool,
 }
 
-/// What the flow requires of what a cell hands in.
+/// What the flow requires of what a cell's run returns.
 #[derive(Clone, Copy, Debug)]
 pub struct Requires<'a> {
     /// The blocks the cell may write.
     pub outputs: &'a [BlockId],
     /// The values of each block that is a choice.
     pub choices: &'a BTreeMap<BlockId, Vec<String>>,
-    /// How often a return of the run may be sent back.
+    /// How often what the run returns may be sent back.
     pub returns: u32,
     /// How many calls the run may make.
     pub calls: u32,
@@ -66,11 +71,13 @@ pub enum Step {
     Begin,
     /// A round of the run is under way: nothing is decided until it ends.
     UnderWay,
+    /// The calls the last round asked for are made.
+    Make,
     /// The run rests at these calls, which have no result yet.
     Rest { calls: Vec<CallId> },
     /// Every call the last round asked for has its result: the run has its next round, which is given the results.
     Resume,
-    /// What was handed in does not meet what the flow requires: it is sent back, the next round being given why.
+    /// What came back does not meet what the flow requires: it is sent back, the next round being given why.
     SendBack { unmet: Vec<Unmet> },
     /// What was handed in meets everything the flow requires: the run finishes, writing these blocks.
     Finish { writes: Vec<Write> },
@@ -81,18 +88,21 @@ pub enum Step {
 /// A limit a run has reached.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Limit {
-    /// This many returns were sent back, and the last one handed in does not meet what the flow requires either.
+    /// This many returns were sent back, and what the last round returned does not meet what the flow requires
+    /// either.
     Returns { sent_back: u32 },
-    /// This many calls were made, and the last round asks for more.
+    /// This many calls were made, and with those the last round asks for the run would have made more than it may.
     Calls { made: u32 },
 }
 
-/// Why what was handed in does not meet what the flow requires.
+/// Why what came back does not meet what the flow requires.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Unmet {
+    /// The round asked for calls, and for none: it neither asks for anything nor hands anything in.
+    AsksNothing,
     /// The block is not one the cell may write.
     NotAnOutput { block: BlockId },
-    /// The block was written twice in one return.
+    /// The block was written before in the same return.
     WrittenTwice { block: BlockId },
     /// The block is a choice, and was written with no value.
     NoValue { block: BlockId },
@@ -113,57 +123,70 @@ pub fn next(log: &Log, requires: Requires) -> Step {
     // The rounds before the last, from where the owner last let the run go on: what has a limit is counted there.
     let before = log.rounds.len() - 1;
     let earlier = &log.rounds[log.let_go.min(before)..before];
-    match returned {
-        Return::Asked(calls) => {
-            let open: Vec<CallId> = calls.iter().filter(|c| !c.done).map(|c| c.call).collect();
-            if !open.is_empty() {
-                return Step::Rest { calls: open };
+    // Whether the owner let the run go on after the last round ended: what that round returned is then taken up
+    // whatever the counts were.
+    let let_on = log.let_go > before;
+    let unmet = match returned {
+        Return::Asked { asked: 0, .. } => vec![Unmet::AsksNothing],
+        Return::Asked { asked, made } if made.is_empty() => {
+            let before: usize = earlier.iter().map(calls).sum();
+            if !let_on && before + asked > requires.calls as usize {
+                return Step::AtLimit(Limit::Calls { made: before as u32 });
             }
-            Step::Resume
+            return Step::Make;
+        }
+        Return::Asked { made, .. } => {
+            let open: Vec<CallId> = made.iter().filter(|c| !c.done).map(|c| c.call).collect();
+            if open.is_empty() {
+                return Step::Resume;
+            }
+            return Step::Rest { calls: open };
         }
         Return::HandedIn(writes) => {
             let unmet = unmet(writes, requires);
             if unmet.is_empty() {
                 return Step::Finish { writes: writes.clone() };
             }
-            // Every return handed in before this one was sent back: the run would have finished otherwise.
-            let handed_in = (earlier.iter()).filter(|r| matches!(r.returned, Some(Return::HandedIn(_))));
-            let sent_back = handed_in.count() as u32;
-            if sent_back >= requires.returns {
-                return Step::AtLimit(Limit::Returns { sent_back });
-            }
-            Step::SendBack { unmet }
+            unmet
         }
+    };
+    // Every return before this one that handed in, or asked for nothing, was sent back: the run would have finished
+    // or made calls otherwise.
+    let sent_back = earlier.iter().filter(|r| sent_back(r)).count() as u32;
+    if !let_on && sent_back >= requires.returns {
+        return Step::AtLimit(Limit::Returns { sent_back });
+    }
+    Step::SendBack { unmet }
+}
+
+/// How many calls were made for the round.
+fn calls(round: &Round) -> usize {
+    match &round.returned {
+        Some(Return::Asked { made, .. }) => made.len(),
+        _ => 0,
     }
 }
 
-/// Whether the calls a round asks for may be made: not when, with them, the run would have made more than its limit
-/// since the owner last let it go on.
-pub fn may_call(log: &Log, asked: usize, requires: Requires) -> Result<(), Limit> {
-    let counted = log.rounds.get(log.let_go..).unwrap_or_default();
-    let made: usize = (counted.iter())
-        .map(|r| match &r.returned {
-            Some(Return::Asked(calls)) => calls.len(),
-            _ => 0,
-        })
-        .sum();
-    if made + asked > requires.calls as usize {
-        return Err(Limit::Calls { made: made as u32 });
-    }
-    Ok(())
+/// Whether what the round returned was sent back: it is not the last round, and it handed in or asked for nothing.
+fn sent_back(round: &Round) -> bool {
+    matches!(
+        round.returned,
+        Some(Return::HandedIn(_) | Return::Asked { asked: 0, .. })
+    )
 }
 
-/// Each way in which what was handed in does not meet what the flow requires, in the order of the writes.
+/// Each way in which what was handed in does not meet what the flow requires, in the order of the writes: one for
+/// each write.
 fn unmet(writes: &[Write], requires: Requires) -> Vec<Unmet> {
     let mut unmet = Vec::new();
     for (i, write) in writes.iter().enumerate() {
         let block = || write.block.clone();
-        if !requires.outputs.contains(&write.block) {
-            unmet.push(Unmet::NotAnOutput { block: block() });
-            continue;
-        }
         if writes[..i].iter().any(|w| w.block == write.block) {
             unmet.push(Unmet::WrittenTwice { block: block() });
+            continue;
+        }
+        if !requires.outputs.contains(&write.block) {
+            unmet.push(Unmet::NotAnOutput { block: block() });
             continue;
         }
         match (requires.choices.get(&write.block), &write.value) {
