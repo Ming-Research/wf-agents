@@ -332,9 +332,8 @@ impl<'a> Walk<'a> {
     fn holds(&self, name: &TestName, i: usize) -> bool {
         let test = &self.flow.tests()[name];
         let mut has = (test.reads.iter()).map(|block| {
-            self.current(block).is_some_and(|v| {
-                v.value == Some(test.is.as_str()) && (test.kind != TestKind::NoneStanding || self.stands(v, i))
-            })
+            self.current(block)
+                .is_some_and(|v| v.value == Some(test.is.as_str()) && self.stands(v, i))
         });
         match test.kind {
             TestKind::All => has.all(|h| h),
