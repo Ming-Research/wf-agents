@@ -5,7 +5,7 @@
 
 use decide::{BlockId, CellId, Condition as Applies, FlowFault, TestName};
 use flow::{BlockChange, CellChange, Compiled, FaultKind, Kind as CellKind, Limit as LimitOf, TestKind as KindOfTest};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// A definition as the page shows it: compiled, or why it is not.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -34,7 +34,7 @@ pub enum Comparison {
 }
 
 /// A compiled flow.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Flow {
     pub name: String,
@@ -51,7 +51,7 @@ pub struct Flow {
 }
 
 /// The limits of what repeats.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Limits {
     /// How many runs of a cell in a row may be ways round before the work waits for the owner.
@@ -63,7 +63,7 @@ pub struct Limits {
 }
 
 /// A line: the cells that share one session.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Line {
     pub name: String,
@@ -71,7 +71,7 @@ pub struct Line {
 }
 
 /// A named test: the words shown for it, and what it holds on.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Test {
     pub name: String,
@@ -85,7 +85,7 @@ pub struct Test {
 }
 
 /// How the blocks a named test reads make it hold: when every one, at least one, or none has the value it looks for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TestKind {
     All,
@@ -94,7 +94,7 @@ pub enum TestKind {
 }
 
 /// A cell.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Cell {
     pub id: String,
@@ -114,7 +114,7 @@ pub struct Cell {
 }
 
 /// Who carries a cell out.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Kind {
     Agent,
@@ -122,7 +122,7 @@ pub enum Kind {
 }
 
 /// When a cell runs.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "on", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Condition {
     /// When the block has this value.
@@ -132,7 +132,7 @@ pub enum Condition {
 }
 
 /// A block of a work's state.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Block {
     pub name: String,
@@ -143,7 +143,7 @@ pub struct Block {
 }
 
 /// Who writes a block.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WrittenBy {
     /// The cells that may write it, in the order of the walk.
@@ -154,7 +154,7 @@ pub struct WrittenBy {
 }
 
 /// Who reads a block.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReadBy {
     /// The cells that read it, in the order of the walk.

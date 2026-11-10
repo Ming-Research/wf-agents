@@ -1,0 +1,5 @@
+title = "Review"
+kind = "agent"
+line = "reviewer"
+inputs = ["code"]
+outputs = ["opinions", "verdict"]

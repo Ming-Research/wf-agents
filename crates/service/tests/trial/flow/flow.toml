@@ -1,0 +1,45 @@
+# A small flow for trying the engine by hand and for the tests: a plan that waits for the items its item depends on,
+# a build, a review that judges it and may object, and the merge. Its script, ../script.toml, has the review object once,
+# the plan ask the owner a question and the build ask for a tool.
+name = "trial"
+order = ["plan", "build", "review", "merge"]
+
+[limits]
+runs = 3
+returns = 2
+calls = 4
+
+[lines.engineer]
+[lines.reviewer]
+
+[blocks.request]
+people = true
+
+[blocks.dependencies]
+values = ["waiting", "merged"]
+outside = "dependencies"
+
+[blocks.plan]
+
+[blocks.opinions]
+people = true
+
+[blocks.code]
+
+[blocks.verdict]
+values = ["yes", "no"]
+
+[blocks.merged]
+shown = true
+
+[tests.ready]
+says = "Every item this one depends on has merged"
+kind = "all"
+reads = ["dependencies"]
+is = "merged"
+
+[tests.content]
+says = "The review is content"
+kind = "all"
+reads = ["verdict"]
+is = "yes"

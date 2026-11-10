@@ -1,0 +1,5 @@
+title = "Build"
+kind = "agent"
+line = "engineer"
+inputs = ["plan", "opinions"]
+outputs = ["code"]

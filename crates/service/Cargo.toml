@@ -1,0 +1,27 @@
+[package]
+name = "service"
+description = "Runs the engine as a process: one loop that drives the works, and what carries out what is to be done"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+decide = { path = "../decide" }
+driver = { path = "../driver" }
+engine = { path = "../engine" }
+flow = { path = "../flow" }
+serde.workspace = true
+store = { path = "../store" }
+tokio = { version = "1.53.1", features = ["rt", "sync", "time"] }
+toml.workspace = true
+work = { path = "../work" }
+
+[dev-dependencies]
+tempfile.workspace = true
+# Time paused in the tests, so that the rounds the script times end in a known order at known times.
+tokio = { version = "1.53.1", features = ["macros", "rt", "sync", "test-util", "time"] }
+
+[lints]
+workspace = true
