@@ -351,10 +351,7 @@ impl<'a> Walk<'a> {
         let writer = (v.by)
             .and_then(|run| self.runs.get(&run))
             .and_then(|r| self.flow.place(&r.started.cell));
-        match writer {
-            Some(j) if j < i => false,
-            _ => true,
-        }
+        !matches!(writer, Some(j) if j < i)
     }
 
     /// The cell's record: its latest finished run.
