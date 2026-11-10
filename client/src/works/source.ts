@@ -1,0 +1,80 @@
+// Where the works page reads the items and the works from, and sends what the owner does: the interface
+// (works-api.ts), or, when the page's address has `?fixtures`, the fixtures (fixtures.ts), so that the page can be
+// looked at before the interface serves the works. The page reaches it through a context, which a test sets to its
+// own source.
+
+import { createContext, useContext, useEffect, useRef } from 'react';
+
+import * as api from '../works-api';
+import type { Act, CallPage, Changed, Items, RoundPage, VersionPage, WorkPage } from '../works-api';
+
+export interface Source {
+  loadItems(): Promise<Items>;
+  loadWork(work: number): Promise<WorkPage>;
+  loadVersion(work: number, block: string, at: number): Promise<VersionPage>;
+  loadRound(work: number, run: number, round: number): Promise<RoundPage>;
+  loadCall(work: number, call: number): Promise<CallPage>;
+  act(work: number, what: Act): Promise<null>;
+  /// Tells `onChanged` each time something happened; gives the way to stop.
+  changes(onChanged: (changed: Changed) => void): () => void;
+}
+
+/// The interface: its routes, and its stream of changes.
+export const INTERFACE: Source = {
+  loadItems: api.loadItems,
+  loadWork: api.loadWork,
+  loadVersion: api.loadVersion,
+  loadRound: api.loadRound,
+  loadCall: api.loadCall,
+  act: api.act,
+  changes(onChanged) {
+    if (typeof EventSource === 'undefined') return () => undefined;
+    const events = new EventSource('/api/v1/changes');
+    events.onmessage = (e: MessageEvent<string>) => {
+      try {
+        onChanged(JSON.parse(e.data) as Changed);
+      } catch {
+        // What cannot be read says nothing happened.
+      }
+    };
+    return () => events.close();
+  },
+};
+
+/// The fixtures, loaded only when asked for, so that the page as built for the interface does not carry them. What the
+/// owner does to a fixture is only logged.
+export const FIXTURES: Source = {
+  loadItems: async () => (await import('./fixtures')).fixtureItems(),
+  loadWork: async (work) => (await import('./fixtures')).fixtureWork(work),
+  loadVersion: async (work, block, at) => (await import('./fixtures')).fixtureVersion(work, block, at),
+  loadRound: async (work, run, round) => (await import('./fixtures')).fixtureRound(work, run, round),
+  loadCall: async (work, call) => (await import('./fixtures')).fixtureCall(work, call),
+  act: async (work, what) => {
+    console.info(`works/${work}/acts`, what);
+    return null;
+  },
+  changes: () => () => undefined,
+};
+
+/// The source the page's address names.
+export function sourceOf(search: string): Source {
+  return new URLSearchParams(search).has('fixtures') ? FIXTURES : INTERFACE;
+}
+
+export const SourceContext = createContext<Source>(
+  typeof window === 'undefined' ? INTERFACE : sourceOf(window.location.search),
+);
+
+export function useSource(): Source {
+  return useContext(SourceContext);
+}
+
+/// Calls `onChanged` each time the source says something happened, for as long as the part that asks is shown.
+export function useChanges(onChanged: (changed: Changed) => void) {
+  const source = useSource();
+  const latest = useRef(onChanged);
+  useEffect(() => {
+    latest.current = onChanged;
+  });
+  useEffect(() => source.changes((c) => latest.current(c)), [source]);
+}

@@ -193,9 +193,13 @@ export function Panel({ label, id, title, belongs, lines, folded, onFold, foot, 
   );
 }
 
+/// The colours a status line's dot takes: none; green for put in or done; red for taken out or failed; orange for
+/// changed or waiting for the owner; blue for running; the way back's purple.
+export type Tone = 'quiet' | 'added' | 'removed' | 'changed' | 'running' | 'back';
+
 /// A status line of a panel: a dot in the colour of what it says, a word in semibold, and the facts after it.
 export function StatusLine({ tone = 'quiet', word, children }: {
-  tone?: 'quiet' | 'added' | 'removed' | 'changed';
+  tone?: Tone;
   word: ReactNode;
   children?: ReactNode;
 }) {

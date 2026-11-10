@@ -390,6 +390,14 @@ button {
   background: var(--orange);
 }
 
+.dot-running {
+  background: var(--blue);
+}
+
+.dot-back {
+  background: var(--violet);
+}
+
 .drawer-body {
   flex: 1;
   min-height: 0;

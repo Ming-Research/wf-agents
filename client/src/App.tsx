@@ -1,52 +1,76 @@
-// The page: the bar, and the flow view under it, the only view there is yet. The flow view is the view's line (the
-// flow's name, its limits, the legend, and when comparing the switch between the flow as it is and as it was), the
-// chart under it, and the panel docked at its right with what the owner chose or what changed. The owner reviews every
-// change to the flow here, so when there is a definition to compare against, what changed is marked on the chart and
-// listed in the panel.
+// The page: the bar with its tabs, and under it the view the address's hash names (route.ts): the console, the works
+// (works/), or the flow. The flow view is the view's line (the flow's name, its limits, the legend, and when comparing
+// the switch between the flow as it is and as it was), the chart under it, and the panel docked at its right with what
+// the owner chose or what changed. The owner reviews every change to the flow here, so when there is a definition to
+// compare against, what changed is marked on the chart and listed in the panel.
 
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { type Comparison, type Definition, type Flow, load } from './api';
 import { Chart, type Chosen, Legend } from './Chart';
+import { ConsolePage } from './console';
 import { type Version, changeBlock, changeCell, matrix } from './matrix';
 import { Bar, Edge, Panel, StatusLine, Switch } from './parts';
-import { WIDTH_KEYS, useKeptWidth } from './sizes';
+import { type Route, tabOf, useRoute } from './route';
+import { PANEL, WIDTH_KEYS, useKeptWidth } from './sizes';
 import { BlockPanel, CellPanel, ChangesList, Faults, type Fold } from './Side';
 import { type Theme, useTheme } from './theme';
+import { WorkView } from './works/WorkView';
+import { WorksList } from './works/WorksList';
 import { LIMIT_WORDS } from './words';
 
-/// The panel's width at first, and the least and most it is dragged to.
-const PANEL = { first: 360, min: 280, max: 720 };
-
-type Loaded = { definition: Definition; comparison: Comparison } | { failed: string };
-
 export function App() {
-  const [loaded, setLoaded] = useState<Loaded | null>(null);
-  useEffect(() => {
-    load().then(setLoaded, (e: unknown) => setLoaded({ failed: e instanceof Error ? e.message : String(e) }));
-  }, []);
+  const route = useRoute();
   return (
-    <Shell>
-      {!loaded ? (
-        <p className="message muted">Reading the flow</p>
-      ) : 'failed' in loaded ? (
-        <p className="message">The page could not read the flow: {loaded.failed}</p>
-      ) : (
-        <FlowPage definition={loaded.definition} comparison={loaded.comparison} />
-      )}
+    <Shell route={route}>
+      <View route={route} />
     </Shell>
   );
 }
 
-/// The page round a view: the bar with the views, of which only the flow exists yet, and the switch of light and dark.
-export function Shell({ children }: { children: ReactNode }) {
+/// The view a route names.
+export function View({ route }: { route: Route }) {
+  switch (route.view) {
+    case 'console':
+      return <ConsolePage />;
+    case 'works':
+      return <WorksList />;
+    case 'work':
+      return <WorkView key={route.work} work={route.work} />;
+    case 'flow':
+      return <FlowView />;
+  }
+}
+
+type Loaded = { definition: Definition; comparison: Comparison } | { failed: string };
+
+/// The flow view: the flow read from the interface, then drawn.
+function FlowView() {
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  useEffect(() => {
+    load().then(setLoaded, (e: unknown) => setLoaded({ failed: e instanceof Error ? e.message : String(e) }));
+  }, []);
+  if (!loaded) return <p className="message muted">Reading the flow</p>;
+  if ('failed' in loaded) return <p className="message">The page could not read the flow: {loaded.failed}</p>;
+  return <FlowPage definition={loaded.definition} comparison={loaded.comparison} />;
+}
+
+/// The views, as the bar's tabs.
+export const TABS = [
+  { name: 'Console', href: '#/console' },
+  { name: 'Works', href: '#/works' },
+  { name: 'Flow', href: '#/flow' },
+];
+
+/// The page round a view: the bar with the views as tabs, the one shown marked, and the switch of light and dark.
+export function Shell({ route, children }: { route: Route; children: ReactNode }) {
   const [theme, setTheme] = useTheme();
   return (
     <div className="page">
       <Bar
         name="wf-agents"
-        views={[{ name: 'Flow', href: '/' }]}
-        current="/"
+        views={TABS}
+        current={tabOf(route)}
         end={
           <Switch<Theme>
             label="Light or dark"
