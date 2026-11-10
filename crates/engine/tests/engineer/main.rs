@@ -34,8 +34,9 @@
 //!   kind `all` looks for in three of five (the check passing), another otherwise; an opinion for a cell before it only
 //!   when a choice did not have that value (the check failing says why);
 //! - a person who acts while the check's round is under way pauses the work, and while the pause then holds
-//!   the merge back after the check passed, writes an input of a judge that people write in half the acts and lets
-//!   the work on in three of ten, so that a judge looks again after the check passed. Otherwise a person writes a
+//!   the merge back after the check passed, writes an input of a judge that people write in two of five acts, writes
+//!   a verdict as its refusal in one of ten and lets the work on in three of ten, so that a judge looks again, or a
+//!   person refuses, after the check passed. Otherwise a person writes a
 //!   choice people write (a verdict), yes or no, in about a fifth of the acts; prose people write (the background, an
 //!   opinion for a cell) in three of twenty; the outside writes one of its blocks, a choice with the value a
 //!   precondition looks for in four of five, prose mattering in half, in three of twenty; the owner lets the cell at
@@ -446,10 +447,17 @@ impl Part for Random {
                 .flat_map(|(j, _)| &d.flow.flow.cells()[*j].inputs)
                 .filter(|b| blocks[*b].writers.people)
                 .collect();
+            let verdicts: Vec<&BlockId> = self.roles.refusals.keys().collect();
             match d.rng.below(10) {
-                0..=4 => {
+                0..=3 => {
                     if let Some(b) = pick(&mut d.rng, for_judges) {
                         return wrote(&b, Outsider::Person, true, None);
+                    }
+                }
+                4 => {
+                    if let Some(b) = pick(&mut d.rng, verdicts) {
+                        let refusal = self.roles.refusals[&b].clone();
+                        return wrote(&b, Outsider::Person, true, Some(refusal));
                     }
                 }
                 5..=7 => return Event::Resumed,
