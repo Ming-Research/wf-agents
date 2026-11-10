@@ -18,7 +18,7 @@ use engine::{Ask, Came, Effect, Event, Handed, Spent, Time, Work, handle, pendin
 use flow::{Compiled, Source, compile};
 use rusqlite::Connection;
 use rusqlite::types::Value;
-use store::{Store, WorkNumber};
+use store::{Storage, Store, WorkNumber};
 use tempfile::TempDir;
 
 /// A writer that reads a request, the outside's main and the opinions on what it wrote; a judge that reads what the
@@ -114,8 +114,10 @@ impl Db {
 
 /// The item and the work a store of the tests holds first, added at fixed times so that two stores can be compared.
 fn first_work(store: &mut Store) -> WorkNumber {
-    let item = store.add_item("the item", &[], Time(START)).expect("the item is added");
-    store.add_work(item, "judged", Time(START)).expect("the work is added")
+    let (_, work) = store
+        .add("the item", &[], "judged", Time(START), &Work::default())
+        .expect("the item is added");
+    work
 }
 
 /// Every row of every table of the database, each table's rows in a fixed order: what the file holds, however the

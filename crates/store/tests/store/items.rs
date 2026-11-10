@@ -1,6 +1,7 @@
-//! The items, numbered by the store in the order they are added, each depending only on items added before it; and
-//! the works done for them.
+//! The items, numbered by the store in the order they are added, each depending only on items added before it, and
+//! each added together with the work done for it and what is kept of that work from its start.
 
+use decide::{Pause, Seq};
 use store::{Fault, Item, ItemNumber, WorkHead};
 
 use super::*;
@@ -14,15 +15,35 @@ fn item(number: u64, title: &str, added: u64, depends_on: &[u64]) -> Item {
     }
 }
 
+fn head(number: u64, item: u64, flow: &str, added: u64) -> WorkHead {
+    WorkHead {
+        number: WorkNumber(number),
+        item: ItemNumber(item),
+        flow: flow.to_string(),
+        added: Time(added),
+    }
+}
+
 #[test]
-fn items_are_numbered_from_one_in_the_order_they_are_added_with_what_they_depend_on() {
+fn items_and_their_works_are_numbered_from_one_in_the_order_they_are_added_with_what_they_depend_on() {
     let mut store = Store::in_memory().expect("the store opens");
+    let nothing = Work::default();
     assert_eq!(store.items(), Ok(vec![]));
-    assert_eq!(store.add_item("first", &[], Time(10)), Ok(ItemNumber(1)));
-    assert_eq!(store.add_item("second", &[ItemNumber(1)], Time(20)), Ok(ItemNumber(2)));
+    assert_eq!(store.works(), Ok(vec![]));
+    assert_eq!(
+        store.add("first", &[], "judged", Time(10), &nothing),
+        Ok((ItemNumber(1), WorkNumber(1)))
+    );
+    assert_eq!(
+        store.add("second", &[ItemNumber(1)], "other", Time(20), &nothing),
+        Ok((ItemNumber(2), WorkNumber(2)))
+    );
     // What it depends on is kept in the order of the numbers, each once.
     let on = [ItemNumber(2), ItemNumber(1), ItemNumber(2)];
-    assert_eq!(store.add_item("third", &on, Time(30)), Ok(ItemNumber(3)));
+    assert_eq!(
+        store.add("third", &on, "judged", Time(30), &nothing),
+        Ok((ItemNumber(3), WorkNumber(3)))
+    );
     assert_eq!(
         store.items(),
         Ok(vec![
@@ -31,58 +52,91 @@ fn items_are_numbered_from_one_in_the_order_they_are_added_with_what_they_depend
             item(3, "third", 30, &[1, 2]),
         ])
     );
-}
-
-#[test]
-fn an_item_depending_on_one_the_store_does_not_have_is_refused_and_nothing_is_added() {
-    let mut store = Store::in_memory().expect("the store opens");
-    store.add_item("first", &[], Time(10)).expect("the item is added");
-    // Its own number: the item would depend on itself.
-    assert_eq!(
-        store.add_item("second", &[ItemNumber(1), ItemNumber(2)], Time(20)),
-        Err(Fault::NoSuchDependency(ItemNumber(2)))
-    );
-    // A number no item has yet: one added later.
-    assert_eq!(
-        store.add_item("second", &[ItemNumber(3)], Time(20)),
-        Err(Fault::NoSuchDependency(ItemNumber(3)))
-    );
-    assert_eq!(store.items(), Ok(vec![item(1, "first", 10, &[])]));
-    // The number of the next item is not taken by those refused.
-    assert_eq!(store.add_item("second", &[], Time(30)), Ok(ItemNumber(2)));
-}
-
-#[test]
-fn works_are_numbered_from_one_in_the_order_they_are_added_and_an_item_may_have_several() {
-    let mut store = Store::in_memory().expect("the store opens");
-    let first = store.add_item("first", &[], Time(10)).expect("the item is added");
-    let second = store.add_item("second", &[], Time(20)).expect("the item is added");
-    assert_eq!(store.works(), Ok(vec![]));
-    assert_eq!(store.add_work(first, "judged", Time(30)), Ok(WorkNumber(1)));
-    assert_eq!(store.add_work(second, "judged", Time(40)), Ok(WorkNumber(2)));
-    assert_eq!(store.add_work(first, "other", Time(50)), Ok(WorkNumber(3)));
-    let head = |number, item, flow: &str, added| WorkHead {
-        number: WorkNumber(number),
-        item: ItemNumber(item),
-        flow: flow.to_string(),
-        added: Time(added),
-    };
     assert_eq!(
         store.works(),
         Ok(vec![
-            head(1, 1, "judged", 30),
-            head(2, 2, "judged", 40),
-            head(3, 1, "other", 50),
+            head(1, 1, "judged", 10),
+            head(2, 2, "other", 20),
+            head(3, 3, "judged", 30),
         ])
     );
 }
 
 #[test]
-fn a_work_for_an_item_the_store_does_not_have_is_refused() {
+fn an_item_depending_on_one_the_store_does_not_have_is_refused_and_nothing_is_added() {
     let mut store = Store::in_memory().expect("the store opens");
+    let nothing = Work::default();
+    store
+        .add("first", &[], "judged", Time(10), &nothing)
+        .expect("the item is added");
+    // Its own number: the item would depend on itself.
     assert_eq!(
-        store.add_work(ItemNumber(1), "judged", Time(10)),
-        Err(Fault::NoSuchItem(ItemNumber(1)))
+        store.add("second", &[ItemNumber(1), ItemNumber(2)], "judged", Time(20), &nothing),
+        Err(Fault::NoSuchDependency(ItemNumber(2)))
     );
+    // A number no item has yet: one added later.
+    assert_eq!(
+        store.add("second", &[ItemNumber(3)], "judged", Time(20), &nothing),
+        Err(Fault::NoSuchDependency(ItemNumber(3)))
+    );
+    assert_eq!(store.items(), Ok(vec![item(1, "first", 10, &[])]));
+    assert_eq!(store.works(), Ok(vec![head(1, 1, "judged", 10)]));
+    // The numbers of the next item and its work are not taken by those refused.
+    assert_eq!(
+        store.add("second", &[], "judged", Time(30), &nothing),
+        Ok((ItemNumber(2), WorkNumber(2)))
+    );
+}
+
+#[test]
+fn what_is_kept_of_a_work_from_its_start_is_added_with_its_item() {
+    let mut first = Driver::new();
+    first.wrote("request", Outsider::Person, None);
+    let db = Db::new();
+    let work = {
+        let mut store = db.open();
+        let (_, work) = store
+            .add("the item", &[], "judged", Time(START), &first.work)
+            .expect("the item is added");
+        work
+    };
+    // A store opened anew on the file holds the work as it was given.
+    let mut store = db.open();
+    assert_eq!(store.load(work), Ok(first.work.clone()));
+    // What was added with the item is where the work begins: saving it again keeps nothing.
+    let before = dump(&db.path);
+    store.save(work, &first.work).expect("the work is saved");
+    assert_eq!(dump(&db.path), before);
+}
+
+#[test]
+fn an_item_whose_work_cannot_be_kept_is_not_added() {
+    let db = Db::new();
+    let mut store = db.open();
+    let before = dump(&db.path);
+    // Two entries at one place, which no table holds.
+    let mut wrong = Work::default();
+    wrong.records.pauses = vec![
+        Pause {
+            paused: true,
+            at: Seq(1),
+        },
+        Pause {
+            paused: false,
+            at: Seq(1),
+        },
+    ];
+    assert!(matches!(
+        store.add("the item", &[], "judged", Time(START), &wrong),
+        Err(Fault::Database(_))
+    ));
+    // Neither the item nor its work was kept.
+    assert_eq!(dump(&db.path), before);
+    assert_eq!(store.items(), Ok(vec![]));
     assert_eq!(store.works(), Ok(vec![]));
+    // The numbers they would have had are given to the next.
+    assert_eq!(
+        store.add("the item", &[], "judged", Time(START), &Work::default()),
+        Ok((ItemNumber(1), WorkNumber(1)))
+    );
 }
