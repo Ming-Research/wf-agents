@@ -183,8 +183,9 @@ fn an_unscripted_trial_whose_review_must_write_its_opinions_reaches_the_merge() 
         matters: true,
         value: value.map(str::to_string),
     };
-    take(&mut work, wrote("dependencies", Outsider::Outside, Some("merged")));
-    let mut effects = take(&mut work, wrote("request", Outsider::Person, None));
+    // The plan waits for the items its item depends on, and runs once they have merged.
+    take(&mut work, wrote("request", Outsider::Person, None));
+    let mut effects = take(&mut work, wrote("dependencies", Outsider::Outside, Some("merged")));
     for _ in 0..20 {
         let Some((run, cell, number)) = effects.iter().find_map(|effect| match effect {
             Effect::Round { run, cell, number, .. } => Some((*run, cell.clone(), *number)),
