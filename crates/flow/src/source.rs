@@ -1,0 +1,160 @@
+//! The definition of a flow as it is written: the text of its files, and the shape each file must have.
+//!
+//! A flow is a directory holding `flow.toml` and one `<cell id>.toml` for each cell. A field a file does not know is
+//! refused, so that every new kind of field is added on purpose.
+
+use std::collections::BTreeMap;
+use std::path::Path;
+use std::{fs, io};
+
+use serde::Deserialize;
+
+/// The name of the file that holds what belongs to the flow as a whole.
+pub const FLOW_FILE: &str = "flow.toml";
+
+/// The text of a flow's files.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Source {
+    /// The text of `flow.toml`.
+    pub flow: String,
+    /// The text of each cell's file, by the cell's id: the file's name without `.toml`.
+    pub cells: BTreeMap<String, String>,
+}
+
+/// Reads the flow in this directory: `flow.toml`, and every other `.toml` file directly in it as the file of the cell
+/// its name gives. Other files and directories are not read.
+pub fn read(dir: &Path) -> io::Result<Source> {
+    let flow = fs::read_to_string(dir.join(FLOW_FILE))?;
+    let mut cells = BTreeMap::new();
+    for entry in fs::read_dir(dir)? {
+        let path = entry?.path();
+        if !path.is_file() || path.extension().is_none_or(|e| e != "toml") {
+            continue;
+        }
+        if path.file_name().is_some_and(|n| n == FLOW_FILE) {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "a file's name in the flow's directory is not UTF-8",
+            ));
+        };
+        cells.insert(stem.to_string(), fs::read_to_string(&path)?);
+    }
+    Ok(Source { flow, cells })
+}
+
+/// `flow.toml`: what belongs to the flow as a whole.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FlowFile {
+    /// The flow's name.
+    pub name: String,
+    /// The ids of the cells, in the order the walk takes them.
+    pub order: Vec<String>,
+    /// The limits of everything that repeats, for each cell that sets none of its own.
+    pub limits: LimitsFile,
+    /// The lines: the cells of a work that share one session.
+    #[serde(default)]
+    pub lines: BTreeMap<String, LineFile>,
+    /// Every block of a work's state.
+    #[serde(default)]
+    pub blocks: BTreeMap<String, BlockFile>,
+    /// The named tests the cells use, each with the words shown for it.
+    #[serde(default)]
+    pub tests: BTreeMap<String, String>,
+}
+
+/// The limits as written. They are read as any whole number so that one that is not positive is a fault of the
+/// definition, not of its shape.
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LimitsFile {
+    /// How many runs of a cell in a row may be ways round.
+    pub runs: i64,
+    /// How often a return may be sent back within one run.
+    pub returns: i64,
+    /// How many calls one run may make.
+    pub calls: i64,
+}
+
+/// A line as written: nothing yet but its name.
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LineFile {}
+
+/// A block as written.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BlockFile {
+    /// The values of a block that is a choice; a block with none is not one.
+    pub values: Option<Vec<String>>,
+    /// People write the block.
+    #[serde(default)]
+    pub people: bool,
+    /// The outside writes the block.
+    #[serde(default)]
+    pub outside: bool,
+    /// The owner's page or a named test reads the block, so it needs no cell to read it.
+    #[serde(default)]
+    pub shown: bool,
+}
+
+/// The file of one cell.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CellFile {
+    /// What the cell is called on the chart.
+    pub title: String,
+    /// Who carries the cell out.
+    pub kind: Kind,
+    /// The line whose session an agent cell runs in.
+    pub line: Option<String>,
+    /// When the cell runs at all; with none it always may.
+    pub when: Option<When>,
+    /// The named tests that must hold before the cell.
+    #[serde(default)]
+    pub requires: Vec<String>,
+    /// The blocks the cell reads.
+    #[serde(default)]
+    pub inputs: Vec<String>,
+    /// The blocks the cell may write.
+    #[serde(default)]
+    pub outputs: Vec<String>,
+    /// How many runs of the cell in a row may be ways round, if not the flow's limit.
+    pub limit: Option<i64>,
+}
+
+/// Who carries a cell out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Kind {
+    /// An agent, in the session of the cell's line.
+    Agent,
+    /// The engine itself.
+    Engine,
+}
+
+/// A cell's condition as written: on the value of a block, or on a named test.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(untagged)]
+pub enum When {
+    Is(WhenIs),
+    Test(WhenTest),
+}
+
+/// The cell runs when the block `block` has the value `is`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WhenIs {
+    pub block: String,
+    pub is: String,
+}
+
+/// The cell runs when the named test holds.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WhenTest {
+    pub test: String,
+}
