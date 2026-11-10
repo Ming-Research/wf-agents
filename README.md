@@ -7,3 +7,7 @@ engine on `main`; [AGENTS.md](AGENTS.md) says how the two stand to each other.
   holds what wf-agents is for and the values its decisions come from; `principles/` holds the principles each kind of
   decision follows.
 - `pending-design.md`: designs not yet true of the code, each entering the tree with the change that makes it true.
+- `crates/`: the engine's Rust crates. `crates/wf-agents` is the `wf-agents` command; `wf-agents flow page <dir>` serves
+  the owner's flow page for the definition in a directory.
+- `client/`: the owner's page, which the `wf-agents` binary carries: build it with `npm ci` and `npm run build` in
+  `client/` before building the Rust.

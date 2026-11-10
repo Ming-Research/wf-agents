@@ -1,0 +1,5 @@
+title = "Judge the plan"
+kind = "agent"
+line = "review"
+inputs = ["plan"]
+outputs = ["needs_design", "opinions"]
