@@ -12,7 +12,11 @@ use work::{Ask, Handed, Spent};
 fn trial() -> Compiled {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/trial/flow");
     let source = flow::read(&dir).unwrap();
-    flow::compile(&source, &BTreeSet::from([driver::DEPENDENCIES.to_string()])).unwrap()
+    let has = flow::Has {
+        sources: BTreeSet::from([driver::DEPENDENCIES.to_string()]),
+        acts: BTreeSet::from(["merge".to_string()]),
+    };
+    flow::compile(&source, &has).unwrap()
 }
 
 fn cell<'a>(flow: &'a Compiled, id: &str) -> &'a CellSpec {

@@ -42,21 +42,29 @@ const MINUTE = 60_000;
 /// with the latest main, and the merge, which waits for the owner's approval.
 export const FLOW: Flow = flowOf(
   [
-    cell('plan', { title: 'Plan', inputs: ['request', 'opinions_plan'], outputs: ['plan', 'needs_design'] }),
+    cell('plan', {
+      title: 'Plan',
+      task: 'Write the plan from the request, and say whether it needs a design.',
+      inputs: ['request', 'opinions_plan'],
+      outputs: ['plan', 'needs_design'],
+    }),
     cell('design', {
       title: 'Design',
+      task: 'Design what the plan asks for.',
       condition: { on: 'block', block: 'needs_design', value: 'yes' },
       inputs: ['plan', 'opinions_design'],
       outputs: ['design'],
     }),
     cell('implement', {
       title: 'Implement',
+      task: 'Implement the plan and the design.\nAnswer what the review asked.',
       inputs: ['plan', 'design', 'opinions_implement'],
       outputs: ['code', 'answer_review'],
     }),
     cell('review', {
       title: 'Review the code',
       line: 'review',
+      task: 'Review the code, and say whether you are content with it.',
       inputs: ['code', 'answer_review'],
       outputs: ['opinions_implement', 'content'],
     }),
@@ -64,6 +72,8 @@ export const FLOW: Flow = flowOf(
       title: 'Check with the latest main',
       kind: 'engine',
       line: null,
+      task: null,
+      act: 'check',
       inputs: ['code', 'main'],
       outputs: ['ci', 'opinions_implement'],
     }),
@@ -71,6 +81,8 @@ export const FLOW: Flow = flowOf(
       title: 'Merge',
       kind: 'engine',
       line: null,
+      task: null,
+      act: 'merge',
       preconditions: [test('approved', 'The owner approved the merge', 'all', ['approval'])],
       inputs: ['ci', 'content', 'approval'],
     }),

@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use flow::{Compiled, FLOW_FILE, Fault, FaultKind, Source};
+use flow::{Compiled, FLOW_FILE, Fault, FaultKind, Has, Source};
 
 const FLOW: &str = r#"
 name = "small"
@@ -73,6 +73,7 @@ const PLAN: &str = r#"
 title = "Plan"
 kind = "agent"
 line = "engineer"
+task = "Write the plan from the request."
 inputs = ["request", "opinions"]
 outputs = ["plan"]
 "#;
@@ -82,6 +83,7 @@ const JUDGE: &str = r#"
 title = "Judge the plan"
 kind = "agent"
 line = "review"
+task = "Judge the plan, and say whether it needs a design."
 inputs = ["plan"]
 outputs = ["needs_design", "opinions"]
 "#;
@@ -91,16 +93,21 @@ const DESIGN: &str = r#"
 title = "Design"
 kind = "agent"
 line = "engineer"
+task = "Design what the plan asks for."
 when = { block = "needs_design", is = "yes" }
 inputs = ["plan"]
 outputs = ["design"]
 "#;
 
-/// A cell that runs when a test holds, waits on another and sets a limit of its own.
+/// A cell that runs when a test holds, waits on another and sets a limit of its own; its task has more than one line.
 const ANSWER: &str = r#"
 title = "Answer comments"
 kind = "agent"
 line = "engineer"
+task = """
+Answer the comments on the plan.
+Say what you changed for each.
+"""
 when = { test = "has_comment" }
 requires = ["plan_confirmed"]
 inputs = ["comments", "plan"]
@@ -108,18 +115,20 @@ outputs = ["reply"]
 limit = 5
 "#;
 
-/// An engine cell that reads what the outside writes.
+/// An engine cell that reads what the outside writes, carried out by the engine's act `check`.
 const CHECK: &str = r#"
 title = "Check with the latest main"
 kind = "engine"
+act = "check"
 inputs = ["main", "design"]
 outputs = ["ci"]
 "#;
 
-/// The last cell, which the engine carries out.
+/// The last cell, which the engine carries out by its act `merge`.
 const MERGE: &str = r#"
 title = "Merge"
 kind = "engine"
+act = "merge"
 requires = ["may_merge"]
 inputs = ["ci"]
 "#;
@@ -143,9 +152,17 @@ pub fn valid() -> Source {
     source
 }
 
-/// The sources outside a work that the engine has: the one the small flow names.
-pub fn sources() -> BTreeSet<String> {
-    ["main".to_string()].into()
+/// What the engine has: the source outside a work and the acts the small flow names.
+pub fn has() -> Has {
+    Has {
+        sources: names(&["main"]),
+        acts: names(&["check", "merge"]),
+    }
+}
+
+/// A set of names.
+pub fn names(names: &[&str]) -> BTreeSet<String> {
+    names.iter().map(|n| n.to_string()).collect()
 }
 
 /// The text of a file of the source, by the file's name.
@@ -173,22 +190,22 @@ pub fn set(source: Source, file: &str, to: &str) -> Source {
     source
 }
 
-/// The faults of a definition against the source the small flow names.
+/// The faults of a definition against what the small flow names.
 pub fn faults(source: &Source) -> Vec<Fault> {
-    faults_with(source, &sources())
+    faults_with(source, &has())
 }
 
-/// The faults of a definition against these sources.
-pub fn faults_with(source: &Source, sources: &BTreeSet<String>) -> Vec<Fault> {
-    match flow::compile(source, sources) {
+/// The faults of a definition against what this engine has.
+pub fn faults_with(source: &Source, has: &Has) -> Vec<Fault> {
+    match flow::compile(source, has) {
         Ok(_) => panic!("the definition should not compile"),
         Err(faults) => faults,
     }
 }
 
-/// The definition compiled against the source the small flow names.
+/// The definition compiled against what the small flow names.
 pub fn compiled(source: &Source) -> Compiled {
-    match flow::compile(source, &sources()) {
+    match flow::compile(source, &has()) {
         Ok(compiled) => compiled,
         Err(faults) => panic!("the definition should compile: {faults:#?}"),
     }

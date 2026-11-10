@@ -130,6 +130,20 @@ describe('the chart', () => {
     expect(block.textContent).toContain('judge → plan');
   });
 
+  it('shows an agent’s cell’s task with its line breaks, and the act that carries out an engine’s cell', () => {
+    const page = draw({ state: 'compiled', flow: small() });
+    const heads = page.querySelectorAll('thead .cell-head .head-button');
+    click(heads[0]);
+    const plan = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
+    expect(texts(plan, '.panel-part-label')).toEqual(['Task', 'Session', 'Reads 2', 'May write 1']);
+    expect(plan.querySelector('.panel-task')?.textContent).toBe('Write the plan from the request.\nSay what it leaves out.');
+    click(heads[4]);
+    const check = page.querySelector('aside[aria-label="Cell check"]') as HTMLElement;
+    expect(texts(check, '.panel-part-label')).toEqual(['Act', 'Reads 2', 'May write 1']);
+    const act = [...check.querySelectorAll('.panel-part')].find((p) => p.querySelector('.panel-part-label')?.textContent === 'Act');
+    expect(act?.querySelector('.mono')?.textContent).toBe('check');
+  });
+
   it('shows everything about a block chosen by its row’s name', () => {
     const page = draw({ state: 'compiled', flow: small() });
     click(rowOf(page, 'ci').querySelector('.head-button'));

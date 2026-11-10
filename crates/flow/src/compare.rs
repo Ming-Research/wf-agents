@@ -77,6 +77,16 @@ pub enum CellChange {
         before: Option<String>,
         after: Option<String>,
     },
+    /// What an agent cell's agent is told to do; none for an engine cell.
+    Task {
+        before: Option<String>,
+        after: Option<String>,
+    },
+    /// The act of the engine's own that carries out an engine cell; none for an agent cell.
+    Act {
+        before: Option<String>,
+        after: Option<String>,
+    },
     /// When the cell runs at all; none is always.
     Condition {
         before: Option<Condition>,
@@ -322,6 +332,18 @@ fn cell_changes(before: &Placed, after: &Placed, flow_limits: &[(Limit, u32, u32
         changes.push(CellChange::Line {
             before: b.line.clone(),
             after: a.line.clone(),
+        });
+    }
+    if b.task != a.task {
+        changes.push(CellChange::Task {
+            before: b.task.clone(),
+            after: a.task.clone(),
+        });
+    }
+    if b.act != a.act {
+        changes.push(CellChange::Act {
+            before: b.act.clone(),
+            after: a.act.clone(),
         });
     }
     let (b_cell, a_cell) = (before.cell, after.cell);

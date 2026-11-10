@@ -1,4 +1,5 @@
 title = "Merge"
 kind = "engine"
+act = "merge"
 requires = ["may_merge"]
 inputs = ["ci"]

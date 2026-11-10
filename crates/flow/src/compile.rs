@@ -196,9 +196,9 @@ pub enum FaultKind {
     Flow(FlowFault),
 }
 
-/// Checks a flow's definition against what the engine has, by name, and compiles it; or gives every fault it has, in the order of the files (`flow.toml`, then the cells in the order of the walk, then any
-/// other) and, within a file, in the order they were found. When a file cannot be read, only the files that cannot be
-/// read are reported.
+/// Checks a flow's definition against what the engine has, by name, and compiles it; or gives every fault it has, in
+/// the order of the files (`flow.toml`, then the cells in the order of the walk, then any other) and, within a file, in
+/// the order they were found. When a file cannot be read, only the files that cannot be read are reported.
 pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
     let (flow_file, cell_files) = parse(source)?;
     let def = Definition::new(&flow_file, &cell_files);

@@ -1,6 +1,7 @@
 title = "Answer comments"
 kind = "agent"
 line = "engineer"
+task = "Answer the comments on the plan."
 when = { test = "has_comment" }
 requires = ["plan_confirmed"]
 inputs = ["comments", "plan"]

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use serde_json::json;
 
-use crate::{Shared, edit, get_json, serve, tiny};
+use crate::{Shared, edit, get_json, has, serve, tiny};
 
 #[tokio::test]
 async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
@@ -32,6 +32,8 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "title": "Plan",
                         "kind": "agent",
                         "line": "engineer",
+                        "task": "Write the plan from the request.",
+                        "act": null,
                         "condition": null,
                         "preconditions": [],
                         "inputs": ["request", "opinions"],
@@ -43,6 +45,8 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "title": "Review",
                         "kind": "agent",
                         "line": "engineer",
+                        "task": "Review the plan.\nSay whether it is content.",
+                        "act": null,
                         "condition": null,
                         "preconditions": [],
                         "inputs": ["plan"],
@@ -54,6 +58,8 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "title": "Merge",
                         "kind": "engine",
                         "line": null,
+                        "task": null,
+                        "act": "merge",
                         "condition": null,
                         "preconditions": [may_merge],
                         "inputs": ["content"],
@@ -113,7 +119,7 @@ async fn a_condition_is_given_with_its_block_and_value_or_with_its_test_as_decla
         r#"order = ["plan", "review", "merge"]"#,
         r#"order = ["plan", "review", "redo", "merge"]"#,
     );
-    let redo = "title = \"Redo\"\nkind = \"engine\"\nwhen = { block = \"content\", is = \"no\" }\n";
+    let redo = "title = \"Redo\"\nkind = \"engine\"\nact = \"check\"\nwhen = { block = \"content\", is = \"no\" }\n";
     source.cells.insert("redo".to_string(), redo.to_string());
     let router = serve(&Shared::new(Ok(source)), None);
     let answer = get_json(&router, "/api/v1/flow").await;
@@ -214,6 +220,48 @@ async fn the_faults_of_named_tests_and_of_sources_are_given_with_their_blocks() 
 }
 
 #[tokio::test]
+async fn the_faults_of_a_cell_s_task_and_act_are_given_with_the_act_it_names() {
+    let source = edit(
+        tiny(),
+        Some("plan"),
+        "task = \"Write the plan from the request.\"\n",
+        "",
+    );
+    let source = edit(
+        source,
+        Some("review"),
+        "kind = \"agent\"",
+        "kind = \"agent\"\nact = \"merge\"",
+    );
+    let source = edit(
+        source,
+        Some("merge"),
+        "act = \"merge\"",
+        "act = \"deploy\"\ntask = \"Merge it.\"",
+    );
+    let router = serve(&Shared::new(Ok(source)), None);
+    assert_eq!(
+        get_json(&router, "/api/v1/flow").await,
+        json!({
+            "state": "faults",
+            "faults": [
+                { "file": "plan.toml", "field": "task", "what": { "kind": "noTask" } },
+                { "file": "review.toml", "field": "act", "what": { "kind": "agentHasAct", "act": "merge" } },
+                { "file": "merge.toml", "field": "task", "what": { "kind": "engineHasTask" } },
+                { "file": "merge.toml", "field": "act", "what": { "kind": "unknownAct", "act": "deploy" } },
+            ],
+        })
+    );
+
+    let source = edit(tiny(), Some("merge"), "act = \"merge\"\n", "");
+    let router = serve(&Shared::new(Ok(source)), None);
+    assert_eq!(
+        get_json(&router, "/api/v1/flow").await["faults"],
+        json!([{ "file": "merge.toml", "field": "act", "what": { "kind": "noAct" } }])
+    );
+}
+
+#[tokio::test]
 async fn a_definition_that_does_not_compile_is_given_as_its_faults_each_with_its_file_and_field() {
     let source = edit(
         tiny(),
@@ -261,11 +309,7 @@ async fn a_file_that_cannot_be_read_is_a_fault_of_the_whole_file_with_the_parser
 #[tokio::test]
 async fn a_directory_that_cannot_be_read_is_said_so_with_its_path() {
     let missing = std::env::temp_dir().join(format!("web-no-flow-{}", std::process::id()));
-    let router = web::router(web::Flows::dirs(
-        missing.clone(),
-        None,
-        Box::new(|_: &flow::Source| Default::default()),
-    ));
+    let router = web::router(web::Flows::dirs(missing.clone(), None, Box::new(has)));
     let answer = get_json(&router, "/api/v1/flow").await;
     assert_eq!(answer["state"], "unreadable");
     let reason = answer["reason"].as_str().unwrap();
@@ -283,11 +327,7 @@ async fn a_directory_is_read_again_for_each_request_so_that_an_edit_shows() {
         }
     };
     write(&tiny());
-    let router = web::router(web::Flows::dirs(
-        PathBuf::from(&dir),
-        None,
-        Box::new(|_: &flow::Source| Default::default()),
-    ));
+    let router = web::router(web::Flows::dirs(PathBuf::from(&dir), None, Box::new(has)));
     assert_eq!(get_json(&router, "/api/v1/flow").await["flow"]["name"], "tiny");
     write(&edit(tiny(), None, "name = \"tiny\"", "name = \"small\""));
     let answer = get_json(&router, "/api/v1/flow").await;

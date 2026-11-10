@@ -1,9 +1,9 @@
 //! The blocks: each is declared, each a cell reads has a writer, each a cell writes has a reader, and a choice has
 //! values.
 
-use flow::{FLOW_FILE, FaultKind::*};
+use flow::{FLOW_FILE, FaultKind::*, Has};
 
-use crate::support::{at, compiled, edit, faults, faults_with, unreadable, valid};
+use crate::support::{at, compiled, edit, faults, faults_with, has, unreadable, valid};
 
 const PLAN_INPUTS: &str = r#"inputs = ["request", "opinions"]"#;
 
@@ -136,8 +136,12 @@ fn a_block_the_outside_writes_names_a_source_the_engine_has() {
         block: "main".to_string(),
         source: "main".to_string(),
     };
+    let no_sources = Has {
+        sources: Default::default(),
+        ..has()
+    };
     assert_eq!(
-        faults_with(&valid(), &Default::default()),
+        faults_with(&valid(), &no_sources),
         [at(FLOW_FILE, "blocks.main.outside", what)]
     );
 

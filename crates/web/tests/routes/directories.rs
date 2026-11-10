@@ -3,10 +3,9 @@
 
 use std::path::PathBuf;
 
-use flow::Source;
 use serde_json::json;
 
-use crate::get_json;
+use crate::{get_json, has};
 
 fn dir(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/flows").join(name)
@@ -17,7 +16,7 @@ async fn the_small_flow_compiles_and_what_changed_from_its_earlier_version_is_li
     let router = web::router(web::Flows::dirs(
         dir("small"),
         Some(dir("small-earlier")),
-        Box::new(|_: &Source| ["main".to_string()].into()),
+        Box::new(has),
     ));
     let flow = get_json(&router, "/api/v1/flow").await;
     assert_eq!(flow["state"], "compiled", "{flow}");
@@ -44,6 +43,12 @@ async fn the_small_flow_compiles_and_what_changed_from_its_earlier_version_is_li
                 "test": test("plan_confirmed", "The owner confirmed the plan", "all", "confirmed", "yes"),
             },
             { "kind": "title", "cell": "judge", "before": "Review the plan", "after": "Judge the plan" },
+            {
+                "kind": "task",
+                "cell": "judge",
+                "before": "Review the plan, and say whether it needs a design.",
+                "after": "Judge the plan, and say whether it needs a design.",
+            },
             { "kind": "outputAdded", "cell": "judge", "block": "opinions" },
             { "kind": "cellAdded", "cell": "answer", "place": 3 },
             { "kind": "inputAdded", "cell": "check", "block": "design" },

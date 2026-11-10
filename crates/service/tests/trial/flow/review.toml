@@ -1,5 +1,6 @@
 title = "Review"
 kind = "agent"
 line = "reviewer"
+task = "Review the code, and give a verdict."
 inputs = ["code"]
 outputs = ["opinions", "verdict"]

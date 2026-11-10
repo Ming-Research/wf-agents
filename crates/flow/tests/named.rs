@@ -50,10 +50,11 @@ fn compiled() -> Compiled {
         title = "Choose"
         kind = "agent"
         line = "main"
+        task = "Choose yes or no."
         requires = ["both", "either", "neither"]
         outputs = ["c"]
     "#;
-    let merge = "title = \"Merge\"\nkind = \"engine\"\nrequires = [\"chosen\"]\n";
+    let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nrequires = [\"chosen\"]\n";
     let source = Source {
         flow: flow.to_string(),
         cells: [("choose", choose), ("merge", merge)]
@@ -61,7 +62,11 @@ fn compiled() -> Compiled {
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
     };
-    flow::compile(&source, &Default::default()).expect("the definition compiles")
+    let has = flow::Has {
+        acts: ["merge".to_string()].into(),
+        ..Default::default()
+    };
+    flow::compile(&source, &has).expect("the definition compiles")
 }
 
 /// Records in which people wrote these values, in this order.

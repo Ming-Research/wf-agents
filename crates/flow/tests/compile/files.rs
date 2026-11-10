@@ -69,7 +69,11 @@ fn every_cell_of_the_order_has_a_file() {
 
 #[test]
 fn every_cell_file_is_in_the_order() {
-    let source = set(valid(), "extra.toml", "title = \"Extra\"\nkind = \"engine\"\n");
+    let source = set(
+        valid(),
+        "extra.toml",
+        "title = \"Extra\"\nkind = \"engine\"\nact = \"check\"\n",
+    );
     let what = NotInOrder {
         cell: "extra".to_string(),
     };

@@ -43,7 +43,7 @@ use std::panic::{self, AssertUnwindSafe};
 
 use decide::{CallId, Decision, Outsider, RunId, Who, decide};
 use engine::{Ask, Call, Came, Effect, Event, Handed, Spent, Time, Work, handle, pending};
-use flow::{Compiled, Source, compile};
+use flow::{Compiled, Has, Source, compile};
 
 /// How many histories are run.
 const SEEDS: u64 = 200;
@@ -106,7 +106,8 @@ fn agent(inputs: &[&str], outputs: &[&str], when: Option<&str>) -> (String, Vec<
     let list = |l: &[&str]| l.iter().map(|b| format!("\"{b}\"")).collect::<Vec<_>>().join(", ");
     let when = when.map_or(String::new(), |w| format!("when = {w}\n"));
     let file = format!(
-        "title = \"A cell\"\nkind = \"agent\"\nline = \"main\"\n{when}inputs = [{}]\noutputs = [{}]\n",
+        "title = \"A cell\"\nkind = \"agent\"\nline = \"main\"\ntask = \"Do the cell's part.\"\n{when}\
+         inputs = [{}]\noutputs = [{}]\n",
         list(inputs),
         list(outputs)
     );
@@ -124,7 +125,8 @@ fn block_name(b: &str) -> &'static str {
 
 /// The merge, the engine's own cell, after the cell that last writes the plan.
 fn merge() -> String {
-    "title = \"Merge\"\nkind = \"engine\"\nrequires = [\"may_merge\"]\ninputs = [\"plan\"]\noutputs = [\"merged\"]\n"
+    "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nrequires = [\"may_merge\"]\n\
+     inputs = [\"plan\"]\noutputs = [\"merged\"]\n"
         .to_string()
 }
 
@@ -163,7 +165,11 @@ fn shape(n: usize) -> Compiled {
         flow: flow_file(&order, &blocks),
         cells: files,
     };
-    compile(&source, &["main".to_string()].into()).expect("the shape compiles")
+    let has = Has {
+        sources: ["main".to_string()].into(),
+        acts: ["merge".to_string()].into(),
+    };
+    compile(&source, &has).expect("the shape compiles")
 }
 
 /// What the histories of all seeds did, so that every class of step is known to occur.

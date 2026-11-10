@@ -483,6 +483,12 @@ textarea:disabled {
   font-weight: var(--weight-strong);
 }
 
+/* A cell's task as the definition writes it: its line breaks kept, a long word wrapped. */
+.panel-task {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* Label and value pairs. */
 .pairs {
   display: grid;

@@ -69,18 +69,39 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
         title: title.to_string(),
         kind,
         line: line.map(str::to_string),
+        task: None,
+        act: None,
         returns: 2,
         calls: 40,
+    };
+    let agent = |id: &str, title: &str, line: &str, task: &str| CellSpec {
+        task: Some(task.to_string()),
+        ..spec(id, title, Kind::Agent, Some(line))
+    };
+    let engine = |id: &str, title: &str, act: &str| CellSpec {
+        act: Some(act.to_string()),
+        ..spec(id, title, Kind::Engine, None)
     };
     assert_eq!(
         compiled.cells,
         [
-            spec("plan", "Plan", Kind::Agent, Some("engineer")),
-            spec("judge", "Judge the plan", Kind::Agent, Some("review")),
-            spec("design", "Design", Kind::Agent, Some("engineer")),
-            spec("answer", "Answer comments", Kind::Agent, Some("engineer")),
-            spec("check", "Check with the latest main", Kind::Engine, None),
-            spec("merge", "Merge", Kind::Engine, None),
+            agent("plan", "Plan", "engineer", "Write the plan from the request."),
+            agent(
+                "judge",
+                "Judge the plan",
+                "review",
+                "Judge the plan, and say whether it needs a design.",
+            ),
+            agent("design", "Design", "engineer", "Design what the plan asks for."),
+            // A task of several lines keeps its line breaks.
+            agent(
+                "answer",
+                "Answer comments",
+                "engineer",
+                "Answer the comments on the plan.\nSay what you changed for each.\n",
+            ),
+            engine("check", "Check with the latest main", "check"),
+            engine("merge", "Merge", "merge"),
         ]
     );
 

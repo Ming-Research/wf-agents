@@ -193,8 +193,9 @@ function ChangesHere({ changes }: { changes: Change[] }) {
   );
 }
 
-/// Everything about a cell: what it reads and who writes each, what it may write and who reads each, when it runs,
-/// what it waits for, its limits and the cells it shares a session with.
+/// Everything about a cell: what its agent is told to do or the engine's act that carries it out, what it reads and
+/// who writes each, what it may write and who reads each, when it runs, what it waits for, its limits and the cells it
+/// shares a session with.
 export function CellPanel(props: {
   column: CellColumn;
   matrix: Matrix;
@@ -246,6 +247,16 @@ export function CellPanel(props: {
       {...fold}
     >
       {!column.cell && <p className="muted">Not in the version shown: this is the cell as the other version has it</p>}
+      {cell.task !== null && (
+        <PanelPart label="Task">
+          <p className="panel-task">{cell.task}</p>
+        </PanelPart>
+      )}
+      {cell.act !== null && (
+        <PanelPart label="Act" last>
+          <p className="mono">{cell.act}</p>
+        </PanelPart>
+      )}
       {cell.kind === 'agent' && (
         <PanelPart label="Session" last>
           <p>

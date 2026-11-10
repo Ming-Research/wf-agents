@@ -1,8 +1,8 @@
-//! What a cell is run with: its line and its limits.
+//! What a cell is run with: its line, its task or its act, and its limits.
 
-use flow::{FLOW_FILE, FaultKind::*};
+use flow::{FLOW_FILE, FaultKind::*, Has};
 
-use crate::support::{at, edit, faults, valid};
+use crate::support::{at, edit, faults, faults_with, has, valid};
 
 #[test]
 fn an_agent_cell_runs_in_a_declared_line() {
@@ -28,6 +28,81 @@ fn an_engine_cell_runs_in_no_line() {
         line: "engineer".to_string(),
     };
     assert_eq!(faults(&source), [at("check.toml", "line", what)]);
+}
+
+#[test]
+fn an_agent_cell_has_a_task() {
+    let source = edit(
+        valid(),
+        "plan.toml",
+        "task = \"Write the plan from the request.\"\n",
+        "",
+    );
+    assert_eq!(faults(&source), [at("plan.toml", "task", NoTask)]);
+}
+
+#[test]
+fn a_task_of_white_space_alone_is_no_task() {
+    let source = edit(
+        valid(),
+        "plan.toml",
+        "task = \"Write the plan from the request.\"",
+        "task = \" \\n\\t \"",
+    );
+    assert_eq!(faults(&source), [at("plan.toml", "task", NoTask)]);
+}
+
+#[test]
+fn an_engine_cell_has_no_task() {
+    let source = edit(
+        valid(),
+        "check.toml",
+        "act = \"check\"",
+        "act = \"check\"\ntask = \"Check the work.\"",
+    );
+    assert_eq!(faults(&source), [at("check.toml", "task", EngineHasTask)]);
+}
+
+#[test]
+fn an_engine_cell_names_an_act() {
+    let source = edit(valid(), "check.toml", "act = \"check\"\n", "");
+    assert_eq!(faults(&source), [at("check.toml", "act", NoAct)]);
+}
+
+#[test]
+fn an_agent_cell_names_no_act() {
+    let source = edit(
+        valid(),
+        "plan.toml",
+        "line = \"engineer\"",
+        "line = \"engineer\"\nact = \"check\"",
+    );
+    let what = AgentHasAct {
+        act: "check".to_string(),
+    };
+    assert_eq!(faults(&source), [at("plan.toml", "act", what)]);
+}
+
+#[test]
+fn an_engine_cell_names_an_act_the_engine_has() {
+    let source = edit(valid(), "check.toml", "act = \"check\"", "act = \"deploy\"");
+    let what = UnknownAct {
+        act: "deploy".to_string(),
+    };
+    assert_eq!(faults(&source), [at("check.toml", "act", what)]);
+
+    let no_acts = Has {
+        acts: Default::default(),
+        ..has()
+    };
+    let unknown = |act: &str| UnknownAct { act: act.to_string() };
+    assert_eq!(
+        faults_with(&valid(), &no_acts),
+        [
+            at("check.toml", "act", unknown("check")),
+            at("merge.toml", "act", unknown("merge")),
+        ]
+    );
 }
 
 #[test]
