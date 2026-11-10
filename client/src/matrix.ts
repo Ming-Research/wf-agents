@@ -133,7 +133,9 @@ export interface Spot {
   added: Mark;
   /// Those only the version compared against has: taken out by the change.
   removed: Mark;
-  /// The row's line, from its first mark to its last, which the eye follows along the cells.
+  /// The row's line, which the eye follows along the cells: from the first cell that writes the block to the last
+  /// mark right of it, the way the block goes on from the cell that wrote it; from the first mark where no cell
+  /// writes the block. A mark left of the first write is reached by the way back alone.
   line: Segment;
   /// The way back: from a later cell's write leftwards to the reads of the same block by cells before it.
   back: Segment;
@@ -245,7 +247,7 @@ export function matrix(versions: Versions, version: Version): Matrix {
     const marked = marks.flatMap((m, c) => (hasMark(m) ? [c] : []));
     const reads = marks.flatMap((m, c) => (m.read || m.condition ? [c] : []));
     const writes = marks.flatMap((m, c) => (m.write ? [c] : []));
-    paint(row, 'line', marked[0], marked[marked.length - 1]);
+    paint(row, 'line', writes.length > 0 ? writes[0] : marked[0], marked[marked.length - 1]);
     const lastWrite = writes[writes.length - 1];
     const reached = reads.filter((c) => lastWrite !== undefined && c < lastWrite);
     for (const c of reached) row[c].backTo = true;

@@ -121,6 +121,26 @@ describe('the ways back', () => {
     expect(row(m, 'plan').every((spot) => spot.back === 'none' && !spot.backTo)).toBe(true);
   });
 
+  it('leave the row\'s line out left of the first write, where the way back runs alone', () => {
+    // The opinions are read by the first cell and written by the second: nothing of them goes forward.
+    const m = matrix({ after: small() }, 'after');
+    expect(row(m, 'opinions').every((spot) => spot.line === 'none')).toBe(true);
+    // Read by a and b, written by c, read by d, written by e: the line runs from c on.
+    const flow = flowOf(
+      [
+        cell('a', { inputs: ['x'] }),
+        cell('b', { inputs: ['x'] }),
+        cell('c', { outputs: ['x'] }),
+        cell('d', { inputs: ['x'] }),
+        cell('e', { outputs: ['x'] }),
+      ],
+      { x: {} },
+    );
+    const spots = matrix({ after: flow }, 'after').spots[0];
+    expect(spots.map((spot) => spot.line)).toEqual(['none', 'none', 'right', 'through', 'left']);
+    expect(spots.map((spot) => spot.back)).toEqual(['right', 'through', 'through', 'through', 'left']);
+  });
+
   it('count a read by a condition, and every pair of a read and a later write', () => {
     const flow = flowOf(
       [
