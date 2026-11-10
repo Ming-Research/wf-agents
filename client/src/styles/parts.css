@@ -500,6 +500,14 @@ textarea:disabled {
   color: var(--muted);
 }
 
+/* A text a change took out or put in, such as a task: on a line of its own, its line breaks kept. */
+.change-text {
+  display: block;
+  margin-top: var(--space-4);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* What a change took out and put in. */
 del {
   color: var(--red-text);

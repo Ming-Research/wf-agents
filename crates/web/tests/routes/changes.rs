@@ -172,7 +172,7 @@ async fn cells_put_in_taken_out_and_moved_and_limits_are_given_with_their_places
     after.cells.remove("review");
     after.cells.insert(
         "check".to_string(),
-        "title = \"Check\"\nkind = \"engine\"\noutputs = [\"content\", \"opinions\"]\n".to_string(),
+        "title = \"Check\"\nkind = \"engine\"\nact = \"check\"\noutputs = [\"content\", \"opinions\"]\n".to_string(),
     );
     let after = edit(after, None, "[blocks.plan]", "[blocks.plan]\nshown = true");
     let router = serve(&Shared::new(Ok(after)), Some(&Shared::new(Ok(tiny()))));
@@ -183,6 +183,31 @@ async fn cells_put_in_taken_out_and_moved_and_limits_are_given_with_their_places
             { "kind": "cellAdded", "cell": "check", "place": 0 },
             { "kind": "cellRemoved", "cell": "review", "place": 1 },
             { "kind": "shown", "block": "plan", "before": false, "after": true },
+        ])
+    );
+}
+
+#[tokio::test]
+async fn a_changed_task_and_a_changed_act_are_given_with_both_values() {
+    let after = edit(
+        tiny(),
+        Some("plan"),
+        "task = \"Write the plan from the request.\"",
+        "task = \"Write the plan.\"",
+    );
+    let after = edit(after, Some("merge"), "act = \"merge\"", "act = \"check\"");
+    let router = serve(&Shared::new(Ok(after)), Some(&Shared::new(Ok(tiny()))));
+    let answer = get_json(&router, "/api/v1/flow/changes").await;
+    assert_eq!(
+        answer["changes"],
+        json!([
+            {
+                "kind": "task",
+                "cell": "plan",
+                "before": "Write the plan from the request.",
+                "after": "Write the plan.",
+            },
+            { "kind": "act", "cell": "merge", "before": "merge", "after": "check" },
         ])
     );
 }

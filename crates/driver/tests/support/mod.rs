@@ -26,7 +26,7 @@ use std::sync::{Arc, Mutex};
 use decide::{BlockId, CallId, Decision, End, Outsider, RunId, Seq, Waited, Who};
 use driver::{DEPENDENCIES, Driver, Failed, Fault, FirstWrite, MERGED, NewItem, Todo, WAITING};
 use engine::{Ask, Came, Effect, Event, Given, Handed, Spent, Time, Work};
-use flow::{Compiled, Kind, Source, compile};
+use flow::{Compiled, Has, Kind, Source, compile};
 use rusqlite::Connection;
 use rusqlite::types::Value;
 use store::{Item, ItemNumber, Storage, Store, WorkHead, WorkNumber};
@@ -35,9 +35,12 @@ use tempfile::TempDir;
 /// The time of the first thing a test does.
 pub const START: u64 = 1_800_000_000_000;
 
-/// The sources outside a work the engine has: the driver's own.
-pub fn sources() -> BTreeSet<String> {
-    [DEPENDENCIES.to_string()].into()
+/// What the engine has: the driver's own source outside a work, and the act `merge`.
+pub fn has() -> Has {
+    Has {
+        sources: [DEPENDENCIES.to_string()].into(),
+        acts: ["merge".to_string()].into(),
+    }
 }
 
 /// A flow compiled from the text of its files.
@@ -48,7 +51,7 @@ pub fn compiled(flow: &str, cells: &[(&str, &str)]) -> Compiled {
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
     };
-    compile(&source, &sources()).expect("the definition compiles")
+    compile(&source, &has()).expect("the definition compiles")
 }
 
 /// The dependencies block, which the driver writes, and the named test the first cell of a flow waits on: that every
@@ -94,6 +97,7 @@ pub fn judged() -> Compiled {
         title = "Write"
         kind = "agent"
         line = "main"
+        task = "Write the text the request asks for."
         requires = ["ready"]
         inputs = ["request", "opinions"]
         outputs = ["text"]
@@ -102,12 +106,14 @@ pub fn judged() -> Compiled {
         title = "Judge"
         kind = "agent"
         line = "other"
+        task = "Judge the text, and give a verdict."
         inputs = ["text"]
         outputs = ["opinions", "verdict"]
     "#;
     let merge = r#"
         title = "Merge"
         kind = "engine"
+        act = "merge"
         inputs = ["text", "verdict"]
         outputs = ["merged"]
     "#;
@@ -136,6 +142,7 @@ pub fn short() -> Compiled {
         title = "Draft"
         kind = "agent"
         line = "main"
+        task = "Draft the plan from the request."
         requires = ["ready"]
         inputs = ["request"]
         outputs = ["plan"]
@@ -143,6 +150,7 @@ pub fn short() -> Compiled {
     let merge = r#"
         title = "Merge"
         kind = "engine"
+        act = "merge"
         inputs = ["plan"]
         outputs = ["merged"]
     "#;
@@ -169,12 +177,14 @@ pub fn plain() -> Compiled {
         title = "Write"
         kind = "agent"
         line = "main"
+        task = "Write the text the request asks for."
         inputs = ["request"]
         outputs = ["text"]
     "#;
     let merge = r#"
         title = "Merge"
         kind = "engine"
+        act = "merge"
         inputs = ["text"]
         outputs = ["merged"]
     "#;

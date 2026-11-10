@@ -2,7 +2,7 @@
 
 use decide::{Cause, Decision, Outsider, Waited, Who, decide};
 use engine::{Came, Effect, Event, Given, Handed, Spent, Time, Work, handle, pending};
-use flow::{Compiled, Source, compile};
+use flow::{Compiled, Has, Source, compile};
 
 /// A writer, a judge that may write an opinion for the writer, and a merge that waits for the owner's word: a choice
 /// people write, which a named test reads.
@@ -39,6 +39,7 @@ fn small() -> Compiled {
         title = "Write"
         kind = "agent"
         line = "main"
+        task = "Write the text the request asks for."
         inputs = ["request", "opinions"]
         outputs = ["text"]
     "#;
@@ -46,12 +47,14 @@ fn small() -> Compiled {
         title = "Judge"
         kind = "agent"
         line = "other"
+        task = "Judge the text."
         inputs = ["text"]
         outputs = ["opinions", "content"]
     "#;
     let merge = r#"
         title = "Merge"
         kind = "engine"
+        act = "merge"
         requires = ["may_merge"]
         inputs = ["text"]
         outputs = ["merged"]
@@ -64,7 +67,11 @@ fn small() -> Compiled {
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
     };
-    compile(&source, &Default::default()).expect("the definition compiles")
+    let has = Has {
+        acts: ["merge".to_string()].into(),
+        ..Has::default()
+    };
+    compile(&source, &has).expect("the definition compiles")
 }
 
 fn hands_in(block: &str, value: Option<&str>) -> Came {

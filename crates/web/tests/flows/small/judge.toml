@@ -1,5 +1,6 @@
 title = "Judge the plan"
 kind = "agent"
 line = "review"
+task = "Judge the plan, and say whether it needs a design."
 inputs = ["plan"]
 outputs = ["needs_design", "opinions"]

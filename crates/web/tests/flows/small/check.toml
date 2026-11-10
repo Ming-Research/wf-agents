@@ -1,4 +1,5 @@
 title = "Check with the latest main"
 kind = "engine"
+act = "check"
 inputs = ["main", "design"]
 outputs = ["ci"]

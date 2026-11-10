@@ -22,7 +22,7 @@ use std::collections::BTreeMap;
 use decide::run::{Limit, Unmet};
 use decide::{BlockId, CallId, Cause, Outsider, RunId, Seq, Who};
 use engine::{Ask, Call, Came, Effect, Event, Given, Handed, Refused, Spent, Time, Work, handle, pending};
-use flow::{Compiled, Source, compile};
+use flow::{Compiled, Has, Source, compile};
 
 /// A writer that reads a request, the outside's main and the opinions on what it wrote; a judge that writes opinions
 /// for it and a verdict, a choice; and a merge, the engine's own cell, that waits for the owner's word: a choice, `go`,
@@ -63,6 +63,7 @@ fn judged() -> Compiled {
         title = "Write"
         kind = "agent"
         line = "main"
+        task = "Write the text the request asks for."
         inputs = ["request", "opinions", "main"]
         outputs = ["text"]
     "#;
@@ -70,12 +71,14 @@ fn judged() -> Compiled {
         title = "Judge"
         kind = "agent"
         line = "other"
+        task = "Judge the text, and give a verdict."
         inputs = ["text"]
         outputs = ["opinions", "verdict"]
     "#;
     let merge = r#"
         title = "Merge"
         kind = "engine"
+        act = "merge"
         requires = ["may_merge"]
         inputs = ["text", "verdict"]
         outputs = ["merged"]
@@ -87,7 +90,15 @@ fn judged() -> Compiled {
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
     };
-    compile(&source, &["main".to_string()].into()).expect("the definition compiles")
+    compile(&source, &has(&["main"])).expect("the definition compiles")
+}
+
+/// What the engine has for the flows of these tests: these sources outside a work, and its act `merge`.
+fn has(sources: &[&str]) -> Has {
+    Has {
+        sources: sources.iter().map(|s| s.to_string()).collect(),
+        acts: ["merge".to_string()].into(),
+    }
 }
 
 /// A work on the judged flow.

@@ -40,9 +40,20 @@ function Choose({ chosen, onChoose, children }: { chosen: Chosen; onChoose: (c: 
   );
 }
 
-/// One change: what changed, what it was, and what it is.
+/// One change: what changed, what it was, and what it is. A task is what its agent is told, so a change of one keeps
+/// its line breaks: what it was and what it is each stand as a block of their own, one under the other, and a change
+/// of a line break alone shows.
 export function ChangeLine({ change }: { change: Change }) {
   const { what, before, after } = changeWords(change);
+  if (change.kind === 'task') {
+    return (
+      <span className="change">
+        <span className="change-what">{what}</span>
+        {before && <del className="change-text">{before}</del>}
+        {after && <ins className="change-text">{after}</ins>}
+      </span>
+    );
+  }
   return (
     <span className="change">
       <span className="change-what">{what}</span>
@@ -193,8 +204,9 @@ function ChangesHere({ changes }: { changes: Change[] }) {
   );
 }
 
-/// Everything about a cell: what it reads and who writes each, what it may write and who reads each, when it runs,
-/// what it waits for, its limits and the cells it shares a session with.
+/// Everything about a cell: what its agent is told to do or the engine's act that carries it out, what it reads and
+/// who writes each, what it may write and who reads each, when it runs, what it waits for, its limits and the cells it
+/// shares a session with.
 export function CellPanel(props: {
   column: CellColumn;
   matrix: Matrix;
@@ -246,6 +258,16 @@ export function CellPanel(props: {
       {...fold}
     >
       {!column.cell && <p className="muted">Not in the version shown: this is the cell as the other version has it</p>}
+      {cell.task !== null && (
+        <PanelPart label="Task">
+          <p className="content">{cell.task}</p>
+        </PanelPart>
+      )}
+      {cell.act !== null && (
+        <PanelPart label="Act" last>
+          <p className="mono">{cell.act}</p>
+        </PanelPart>
+      )}
       {cell.kind === 'agent' && (
         <PanelPart label="Session" last>
           <p>

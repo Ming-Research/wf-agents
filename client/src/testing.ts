@@ -5,13 +5,16 @@ import type { Block, Cell, Flow, Limits, Test, TestKind } from './api';
 
 const LIMITS: Limits = { runs: 3, returns: 2, calls: 40 };
 
-/// A cell of an agent in the line `engineer` that reads and writes nothing, with these fields over it.
+/// A cell of an agent in the line `engineer`, told to do its part, that reads and writes nothing, with these fields over
+/// it.
 export function cell(id: string, fields: Partial<Cell> = {}): Cell {
   return {
     id,
     title: id,
     kind: 'agent',
     line: 'engineer',
+    task: `Do the part of ${id}.`,
+    act: null,
     condition: null,
     preconditions: [],
     inputs: [],
@@ -63,27 +66,50 @@ export function flowOf(cells: Cell[], blocks: Record<string, Declared>, name = '
 export function small(): Flow {
   return flowOf(
     [
-      cell('plan', { title: 'Plan', inputs: ['request', 'opinions'], outputs: ['plan'] }),
-      cell('judge', { title: 'Judge the plan', line: 'review', inputs: ['plan'], outputs: ['needs_design', 'opinions'] }),
+      cell('plan', {
+        title: 'Plan',
+        task: 'Write the plan from the request.\nSay what it leaves out.',
+        inputs: ['request', 'opinions'],
+        outputs: ['plan'],
+      }),
+      cell('judge', {
+        title: 'Judge the plan',
+        line: 'review',
+        task: 'Judge the plan, and say whether it needs a design.',
+        inputs: ['plan'],
+        outputs: ['needs_design', 'opinions'],
+      }),
       cell('design', {
         title: 'Design',
+        task: 'Design what the plan asks for.',
         condition: { on: 'block', block: 'needs_design', value: 'yes' },
         inputs: ['plan'],
         outputs: ['design'],
       }),
       cell('answer', {
         title: 'Answer comments',
+        task: 'Answer the comments on the plan.',
         condition: { on: 'test', test: test('has_comment', 'The item has a comment', 'any', ['commented']) },
         preconditions: [test('plan_confirmed', 'The owner confirmed the plan', 'all', ['confirmed'])],
         inputs: ['comments', 'plan'],
         outputs: ['reply'],
         limits: { ...LIMITS, runs: 5 },
       }),
-      cell('check', { title: 'Check with the latest main', kind: 'engine', line: null, inputs: ['main', 'design'], outputs: ['ci'] }),
+      cell('check', {
+        title: 'Check with the latest main',
+        kind: 'engine',
+        line: null,
+        task: null,
+        act: 'check',
+        inputs: ['main', 'design'],
+        outputs: ['ci'],
+      }),
       cell('merge', {
         title: 'Merge',
         kind: 'engine',
         line: null,
+        task: null,
+        act: 'merge',
         preconditions: [test('may_merge', 'The work may merge', 'none', ['ci'], 'red')],
         inputs: ['ci'],
       }),
