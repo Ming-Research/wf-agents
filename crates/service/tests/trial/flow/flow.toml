@@ -1,5 +1,5 @@
 # A small flow for trying the engine by hand and for the tests: a plan that waits for the items its item depends on,
-# a build, a review that judges it and may object, and the merge. Its script, script.toml, has the review object once,
+# a build, a review that judges it and may object, and the merge. Its script, ../script.toml, has the review object once,
 # the plan ask the owner a question and the build ask for a tool.
 name = "trial"
 order = ["plan", "build", "review", "merge"]

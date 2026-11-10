@@ -34,14 +34,14 @@ use work::{Ask, Call, Time, Work};
 /// When the tests' clock starts: 2026-11-10, at midnight.
 pub const START: Time = Time(1_794_268_800_000);
 
-/// The directory of the trial flow and its script.
+/// The directory of the trial flow, `flow`, and its script, `script.toml`.
 pub fn trial_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/trial")
 }
 
 /// The trial flow, compiled.
 pub fn trial_flow() -> Compiled {
-    let source = flow::read(&trial_dir()).expect("the trial flow is read");
+    let source = flow::read(&trial_dir().join("flow")).expect("the trial flow is read");
     let sources = BTreeSet::from([driver::DEPENDENCIES.to_string()]);
     flow::compile(&source, &sources).expect("the trial flow compiles")
 }

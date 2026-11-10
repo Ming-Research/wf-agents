@@ -9,9 +9,9 @@ engine on `main`; [AGENTS.md](AGENTS.md) says how the two stand to each other.
 - `pending-design.md`: designs not yet true of the code, each entering the tree with the change that makes it true.
 - `crates/`: the engine's Rust crates. `crates/wf-agents` is the `wf-agents` command; `wf-agents flow page <dir>` serves
   the owner's flow page for the definition in a directory, and `wf-agents run` runs the engine with the owner's pages,
-  its agents, acts and tools following a script for now. To try it on the trial flow:
-  `wf-agents run --data <an empty directory> --flow crates/service/tests/trial --script crates/service/tests/trial/script.toml`,
-  then `wf-agents add --title "Greet the user" --flow trial --write "request=Greet the user."`, `wf-agents resume 1`,
+  its agents, acts and tools following a script for now. To try it on the trial flow, in `crates/service/tests/trial`:
+  `wf-agents run --data <an empty directory> --flow flow --script script.toml`; then
+  `wf-agents add --title "Greet the user" --flow trial --write "request=Greet the user."` and `wf-agents resume 1`,
   and `wf-agents list` or the pages to follow it.
 - `client/`: the owner's page, which the `wf-agents` binary carries: build it with `npm ci` and `npm run build` in
   `client/` before building the Rust.

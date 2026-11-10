@@ -165,7 +165,7 @@ pub async fn get_json(router: &Router, path: &str) -> serde_json::Value {
 /// When the clock of the engine's loop starts: 2026-11-10, at midnight.
 pub const START: u64 = 1_794_268_800_000;
 
-/// The directory of the trial flow and its script.
+/// The directory of the trial flow, `flow`, and its script, `script.toml`.
 pub fn trial_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial")
 }
@@ -185,7 +185,11 @@ pub struct Running {
 pub fn running() -> Running {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
-    let flow = flow::compile(&flow::read(&trial_dir()).unwrap(), &trial_sources(&Source::default())).unwrap();
+    let flow = flow::compile(
+        &flow::read(&trial_dir().join("flow")).unwrap(),
+        &trial_sources(&Source::default()),
+    )
+    .unwrap();
     let script = service::Script::read(&std::fs::read_to_string(trial_dir().join("script.toml")).unwrap()).unwrap();
     let clock = Arc::new(TokioClock::new(work::Time(START)));
     let (service, inbox) = Service::open(Box::new(store), vec![flow], Scripted::new(script).carriers(), clock).unwrap();
@@ -194,7 +198,7 @@ pub fn running() -> Running {
         let fault = service.run(inbox).await;
         panic!("the loop stopped: {fault}");
     });
-    let flows = Flows::dirs(trial_dir(), None, Box::new(trial_sources));
+    let flows = Flows::dirs(trial_dir().join("flow"), None, Box::new(trial_sources));
     Running {
         router: web::with_works(flows, handle),
         _dir: dir,

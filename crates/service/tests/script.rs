@@ -10,7 +10,7 @@ use service::script::{INPUT_TOKENS, OUTPUT_TOKENS, ROUND_MS, TOOL_MS, USD_MICROS
 use work::{Ask, Handed, Spent};
 
 fn trial() -> Compiled {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/trial");
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/trial/flow");
     let source = flow::read(&dir).unwrap();
     flow::compile(&source, &BTreeSet::from([driver::DEPENDENCIES.to_string()])).unwrap()
 }
