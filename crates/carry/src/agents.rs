@@ -158,7 +158,7 @@ impl Rounds for Agents {
     }
 
     fn told(&self, work: WorkNumber, run: RunId, round: usize) -> Result<Told, String> {
-        kept::told(&kept::base(&self.inner.data, work, run, round))
+        kept::told(&self.inner.data, work, run, round)
     }
 }
 

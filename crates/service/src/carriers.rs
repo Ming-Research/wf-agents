@@ -55,27 +55,43 @@ pub trait Rounds: Send + Sync {
 }
 
 /// What a round was told and what came back of it, as its carrier kept them: each try of it, in order. A round is
-/// tried more than once where its carrier ran its program again for it.
+/// tried more than once where its carrier ran its program again for it. What is read of a round is bounded, and each
+/// cut is said: a long message is cut, and tries past what is read of a round are left out and counted.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Told {
     pub tries: Vec<Try>,
+    /// How many later tries were left out, those before them being as much as is read of a round.
+    pub left_out: usize,
 }
 
 /// One try of a round.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Try {
-    /// The message it was told, as it was written.
+    /// The message it was told, as it was written, up to where it was cut.
     pub message: String,
-    /// What came back, or why what was kept of it could not be read; none where nothing of it was kept: while the try
-    /// is under way, or where it was stopped or never got as far as its program.
-    pub returned: Option<Result<Returned, String>>,
+    /// The message's whole length in bytes, where it was cut before its end.
+    pub cut: Option<u64>,
+    pub back: Back,
+}
+
+/// What came back of a try.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Back {
+    /// Nothing that was kept: the try is under way, or it was stopped, never got as far as its program, or its program
+    /// printed no result.
+    Nothing,
+    Returned(Returned),
+    /// The program said the try failed, for this reason.
+    Failed(String),
+    /// What was kept of it could not be read, for this reason.
+    Unreadable(String),
 }
 
 /// What came back of a try, as far as the page is given it: never the whole of what the program printed, which holds
 /// what is not for the page, such as ids of sessions and of credentials.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Returned {
-    /// The agent's closing words.
+    /// The agent's closing words; none where they are the structured return itself.
     pub text: Option<String>,
     /// The structured return, as pretty-printed JSON.
     pub structured: Option<String>,
@@ -117,6 +133,23 @@ impl Carriers {
             Kind::Agent => &self.agents,
             Kind::Engine => &self.acts,
         }
+    }
+
+    /// What the round was told and returned, as the carrier of its cell's kind kept them; for a cell of no kind
+    /// known, one the flow no longer has, as the first carrier that kept anything of it. It waits on the disk.
+    pub fn told(&self, kind: Option<Kind>, work: WorkNumber, run: RunId, round: usize) -> Result<Told, String> {
+        let carriers = match kind {
+            Some(kind) => vec![self.rounds(kind)],
+            None => vec![&self.agents, &self.acts],
+        };
+        let mut told = Told::default();
+        for rounds in carriers {
+            told = rounds.told(work, run, round)?;
+            if !told.tries.is_empty() {
+                break;
+            }
+        }
+        Ok(told)
     }
 }
 
@@ -226,5 +259,66 @@ impl CallReply {
         };
         // Where the loop has ended, the process is stopping: the call is handed out again when it starts again.
         let _ = self.to.send(Message::Happened { work: self.work, event });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Rounds that keep, of every round, one try with this message, or nothing.
+    struct Keeps(Option<&'static str>);
+
+    impl Rounds for Keeps {
+        fn give(&self, _: Round, _: RoundReply) {}
+
+        fn stop(&self, _: Round, _: RoundReply) {}
+
+        fn told(&self, _: WorkNumber, _: RunId, _: usize) -> Result<Told, String> {
+            let tries = (self.0.iter())
+                .map(|message| Try {
+                    message: message.to_string(),
+                    cut: None,
+                    back: Back::Nothing,
+                })
+                .collect();
+            Ok(Told { tries, left_out: 0 })
+        }
+    }
+
+    struct NoTools;
+
+    impl Tools for NoTools {
+        fn call(&self, _: ToolCall, _: CallReply) {}
+
+        fn withdraw(&self, _: ToolCall, _: CallReply) {}
+    }
+
+    fn carriers(agents: Option<&'static str>, acts: Option<&'static str>) -> Carriers {
+        Carriers {
+            agents: Arc::new(Keeps(agents)),
+            acts: Arc::new(Keeps(acts)),
+            tools: Arc::new(NoTools),
+        }
+    }
+
+    fn messages(told: Told) -> Vec<String> {
+        told.tries.into_iter().map(|t| t.message).collect()
+    }
+
+    #[test]
+    fn a_round_is_told_by_the_carrier_of_its_cells_kind() {
+        let carriers = carriers(Some("an agent's"), Some("an act's"));
+        let told = |kind| messages(carriers.told(Some(kind), WorkNumber(1), RunId(1), 1).unwrap());
+        assert_eq!(told(Kind::Agent), ["an agent's"]);
+        assert_eq!(told(Kind::Engine), ["an act's"]);
+    }
+
+    #[test]
+    fn a_round_of_a_cell_the_flow_no_longer_has_is_told_by_the_first_carrier_that_kept_it() {
+        let told = |carriers: Carriers| messages(carriers.told(None, WorkNumber(1), RunId(1), 1).unwrap());
+        assert_eq!(told(carriers(Some("an agent's"), None)), ["an agent's"]);
+        assert_eq!(told(carriers(None, Some("an act's"))), ["an act's"]);
+        assert!(told(carriers(None, None)).is_empty());
     }
 }

@@ -41,7 +41,9 @@ use store::{ItemNumber, Storage, WorkNumber};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use work::{Ask, Call, Time};
 
-pub use carriers::{CallReply, Carriers, Returned, Round, RoundReply, Rounds, Told, ToolCall, Tools, Try, WITHDRAWN};
+pub use carriers::{
+    Back, CallReply, Carriers, Returned, Round, RoundReply, Rounds, Told, ToolCall, Tools, Try, WITHDRAWN,
+};
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use script::Script;
 pub use scripted::Scripted;
@@ -486,9 +488,10 @@ impl Handle {
     }
 
     /// What the round of this number of the run was told and what came back of it, as the carrier of its cell's kind
-    /// kept them: none where there is no such work, and inside, none where the work has no such round, or why it could
-    /// not be read. Which carrier it is is read between two things the loop takes, and what it kept on a thread of its
-    /// own, so that the loop goes on taking what happens while the disk is read.
+    /// kept them, or, for a cell the flow no longer has, as the first carrier that kept anything of it: none where
+    /// there is no such work, and inside, none where the work has no such round, or why it could not be read. Which
+    /// carrier it is is read between two things the loop takes, and what it kept on a thread of its own, so that the
+    /// loop goes on taking what happens while the disk is read.
     pub async fn told(
         &self,
         work: WorkNumber,
@@ -499,24 +502,23 @@ impl Handle {
             .read(move |driver| {
                 let kept = driver.work(work)?;
                 if !kept.work.given.contains_key(&(run, round)) {
-                    return Some(Ok(None));
+                    return Some(None);
                 }
                 let started = kept.work.records.started.iter().find(|s| s.run == run);
-                let spec = started.and_then(|s| cell_spec(kept.flow, &s.cell));
-                Some(match spec {
-                    Some(spec) => Ok(Some(spec.kind)),
-                    None => Err(format!("its run {} is of no cell of the flow it runs on", run.0)),
-                })
+                Some(Some(
+                    started
+                        .and_then(|s| cell_spec(kept.flow, &s.cell))
+                        .map(|spec| spec.kind),
+                ))
             })
             .await?;
         let kind = match kind {
-            Some(Ok(Some(kind))) => kind,
-            Some(Ok(None)) => return Ok(Some(Ok(None))),
-            Some(Err(why)) => return Ok(Some(Err(why))),
             None => return Ok(None),
+            Some(None) => return Ok(Some(Ok(None))),
+            Some(Some(kind)) => kind,
         };
-        let rounds = self.carriers.rounds(kind).clone();
-        let told = tokio::task::spawn_blocking(move || rounds.told(work, run, round)).await;
+        let carriers = self.carriers.clone();
+        let told = tokio::task::spawn_blocking(move || carriers.told(kind, work, run, round)).await;
         Ok(Some(match told {
             Ok(told) => told.map(Some),
             Err(e) => Err(format!("what was kept of it could not be read: {e}")),

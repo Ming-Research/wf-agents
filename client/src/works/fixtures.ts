@@ -487,7 +487,8 @@ interface Built {
   history: History;
 }
 
-/// What the plan's second round of the long history was told, and what came back of it.
+/// What the plan's second round of the long history was told, and what came back of it: as a real round's, its closing
+/// words are its structured return, which the interface gives once.
 const PLAN_TOLD: ToldPage = {
   tries: [
     {
@@ -499,16 +500,17 @@ const PLAN_TOLD: ToldPage = {
         '- call 1, `read` `{"block":"request"}`: Show what each round of a work cost…',
         "- call 2, `read` `{\"path\":\"client/look.md\"}`: # The page's look…",
       ].join('\n'),
-      returned: {
-        kind: 'read',
-        text: 'The plan puts each round\'s cost in the step panel and the totals in the work\'s head. It needs deep research: how to round a cost below a cent.',
+      cut: null,
+      back: {
+        kind: 'returned',
+        text: null,
         structured: JSON.stringify(
           {
-            hands_in: [
-              { block: 'plan', content: '# Plan\n\n- A column of cost in the list\n- …', matters: true },
-              { block: 'needs_deep_research', content: '', value: 'yes' },
-            ],
             asks: [],
+            hands_in: [
+              { block: 'needs_deep_research', content: '', value: 'yes' },
+              { block: 'plan', content: '# Plan\n\n- A column of cost in the list\n- …', matters: true },
+            ],
           },
           null,
           2,
@@ -519,6 +521,7 @@ const PLAN_TOLD: ToldPage = {
       },
     },
   ],
+  leftOut: 0,
 };
 
 function long(start: number): Built {
@@ -801,7 +804,7 @@ export function fixtureRound(n: number, run: number, round: number): RoundPage {
 export function fixtureTold(n: number, run: number, round: number): ToldPage {
   const history = work(n).history;
   if (!history.rounds.has(`${run}/${round}`)) throw new Error(`no round ${round} of run ${run}`);
-  return history.told.get(`${run}/${round}`) ?? { tries: [] };
+  return history.told.get(`${run}/${round}`) ?? { tries: [], leftOut: 0 };
 }
 
 export function fixtureCall(n: number, call: number): CallPage {

@@ -29,7 +29,7 @@ describe('the fixtures', () => {
     // One round with what it was told and what it returned.
     const told = all.flatMap((r) => r.rounds.map((d) => fixtureTold(41, r.run, d.number))).filter((t) => t.tries.length > 0);
     expect(told).toHaveLength(1);
-    expect(told[0].tries[0].returned?.kind).toBe('read');
+    expect(told[0].tries[0].back.kind).toBe('returned');
     expect(all.some((r) => r.rounds.some((d) => d.given.kind === 'sentBack'))).toBe(true);
     expect(all.some((r) => r.calls.some((c) => c.what.kind === 'tool' && c.done !== null))).toBe(true);
     expect(all.some((r) => r.end?.kind === 'abandoned')).toBe(true);

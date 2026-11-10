@@ -497,25 +497,30 @@ pub struct HandedContent {
 #[serde(rename_all = "camelCase")]
 pub struct ToldPage {
     pub tries: Vec<TryPage>,
+    /// How many later tries were left out, those before them being as much as is read of a round.
+    pub left_out: usize,
 }
 
 /// One try of a round.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TryPage {
-    /// The message it was told, as it was written.
+    /// The message it was told, as it was written, up to where it was cut.
     pub message: String,
-    /// What came back; none where nothing of it was kept: while it is under way, or where it was stopped or never got
-    /// as far as its program.
-    pub returned: Option<Returned>,
+    /// The message's whole length in bytes, where it was cut before its end.
+    pub cut: Option<u64>,
+    pub back: TryBack,
 }
 
 /// What came back of a try: only what the page shows of what the program printed, never the whole of it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum Returned {
-    Read {
-        /// The agent's closing words.
+pub enum TryBack {
+    /// Nothing that was kept: the try is under way, or it was stopped, never got as far as its program, or its program
+    /// printed no result.
+    Nothing,
+    Returned {
+        /// The agent's closing words; none where they are the structured return itself.
         text: Option<String>,
         /// The structured return, as pretty-printed JSON.
         structured: Option<String>,
@@ -524,7 +529,9 @@ pub enum Returned {
         /// The models it was answered by, by name.
         models: Vec<String>,
     },
-    /// What was kept could not be read, for this reason.
+    /// The program said the try failed, for this reason.
+    Failed { why: String },
+    /// What was kept of it could not be read, for this reason.
     Unreadable { why: String },
 }
 
@@ -961,19 +968,25 @@ impl ToldPage {
         let tries = (told.tries.into_iter())
             .map(|t| TryPage {
                 message: t.message,
-                returned: t.returned.map(|returned| match returned {
-                    Ok(r) => Returned::Read {
+                cut: t.cut,
+                back: match t.back {
+                    service::Back::Nothing => TryBack::Nothing,
+                    service::Back::Returned(r) => TryBack::Returned {
                         text: r.text,
                         structured: r.structured,
                         turns: r.turns,
                         duration_ms: r.duration_ms,
                         models: r.models,
                     },
-                    Err(why) => Returned::Unreadable { why },
-                }),
+                    service::Back::Failed(why) => TryBack::Failed { why },
+                    service::Back::Unreadable(why) => TryBack::Unreadable { why },
+                },
             })
             .collect();
-        ToldPage { tries }
+        ToldPage {
+            tries,
+            left_out: told.left_out,
+        }
     }
 }
 

@@ -189,11 +189,14 @@ The panel of a step, docked at the right as the flow page's, and like it with th
   from, each block's version (`plan@12`) opening its content; each round, its times in its label, as pairs: what it
   was given (its task, the results of its calls, each opening its result, or each reason its return was sent back),
   what came back (what it asked for, or each block handed in with its value, whether the run said it matters,
-  its length and its content), and what it took; under them, each opened by itself and read when first
-  opened, what it was told, the message as it was written, and what it returned, the agent's closing words, its
-  structured return opened by itself and one muted line of its turns, time and models, each try in order and labelled
-  "try 1", "try 2" where the round was tried more than once, or one muted line where nothing was kept of the round, as
-  of a script's or the engine's; then its calls, each with what it was, when it was made and done, and
+  its length and its content), and what it took; under them, each opened by itself, read when first
+  opened and again once the round under way when it was read has ended, what it was told, the message as it was
+  written, a cut one saying so and how long it is whole, and what it returned: the agent's closing words with its
+  structured return opened by itself under them, or the structured return alone where the closing words are that
+  return, and one muted line of its turns, time and models; or, in red, that the try failed and why, or that its result
+  could not be read. Each try is in order and labelled "try 1", "try 2" where the round was tried more than once, the
+  tries past what is read of a round counted as left out; one muted line says where nothing was kept of the round, as of
+  a script's or the engine's, or nothing yet while it is under way; then its calls, each with what it was, when it was made and done, and
   its result, a call of an abandoned run with none said to be withdrawn with it; and how it ended, with each block it
   wrote and what the engine made of it: whether that version changed the block's meaning (a choice changes it when its
   value does, whatever the run said). A cause from a cell after it is said to be so, and "a way round" only when every

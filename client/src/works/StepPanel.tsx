@@ -212,7 +212,7 @@ function RoundPart({ run, round, reader }: { run: Run; round: Round; reader: Rea
       </dl>
       <RoundTold
         load={() => reader.told(run.run, round.number, round.ended !== null)}
-        underWay={round.ended === null}
+        ended={round.ended}
       />
     </PanelPart>
   );
