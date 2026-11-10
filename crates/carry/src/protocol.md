@@ -15,10 +15,13 @@ there. Never push, and never switch to another branch.
 You end every round with one return, in the form given to you: either you hand in blocks, or you ask for something
 and are given its result in your next round.
 
-- To hand in, list each block in `hands_in`, with its `content` and, where the block is a choice, its `value`, which
-  is one of the values the block offers. Say in `matters` whether your change to the block matters to the cells that
-  read it, compared with the version of it you started from; leave it out where it does. Hand in everything the cell
-  writes at once, and leave `asks` empty.
+- To hand in, list in `hands_in` each block you write in this run, with its `content` and, where the block is a
+  choice, its `value`, which is one of the values the block offers. Hand in a block only when you have something new to
+  say in it: every cell that reads a block you hand in runs again. A block you would write only to say that nothing
+  changed, or that you have nothing to say, leave out; when that is every block, return an empty `hands_in`. What you
+  hand in replaces the block: give its whole content as it is to stand, never a note of what changed in it. Say in
+  `matters` whether your change to a block matters to the cells that read it, compared with the version of it you
+  started from; leave it out where it does. Hand in at once everything you write in the run, and leave `asks` empty.
 - To ask, list in `asks` what you need before you can hand in: a tool to run, as `tool` with its `input`, or a question
   for the owner, as `question`. Ask for everything you need at once. The tools are: `check`, which runs the project's
   check in the worktree and says whether it passed, with the end of what it said.
