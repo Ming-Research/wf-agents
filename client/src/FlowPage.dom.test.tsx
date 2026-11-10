@@ -188,6 +188,32 @@ describe('the chart', () => {
     expect(change.querySelector('ins.change-text')?.textContent).toBe(is);
   });
 
+  it('marks among what a cell may write the blocks it writes every time, and says a change of them', () => {
+    const judge = (mustWrite: string[]) =>
+      flowOf([cell('plan', { inputs: ['opinions'] }), cell('judge', { outputs: ['opinions', 'verdict'], mustWrite })], {
+        opinions: {},
+        verdict: { values: ['yes', 'no'], shown: true },
+      });
+    const page = draw(
+      { state: 'compiled', flow: judge(['verdict']) },
+      {
+        state: 'compared',
+        against: { state: 'compiled', flow: judge([]) },
+        changes: [{ kind: 'mustWriteAdded', cell: 'judge', block: 'verdict' }],
+      },
+    );
+    click(page.querySelectorAll('thead .cell-head .head-button')[1]);
+    const panel = page.querySelector('aside[aria-label="Cell judge"]') as HTMLElement;
+    const mayWrite = [...panel.querySelectorAll('.panel-part')].find((p) =>
+      p.querySelector('.panel-part-label')?.textContent?.startsWith('May write'),
+    ) as HTMLElement;
+    const rows = [...mayWrite.querySelectorAll('.uses li')].map((li) =>
+      [...li.children].map((c) => c.textContent?.trim()).join(' '),
+    );
+    expect(rows).toEqual(['opinions read by plan way back to plan', 'verdict written every time shown']);
+    expect(texts(panel, '.changes-here li')).toEqual(['Writes every timeverdict']);
+  });
+
   it('shows everything about a block chosen by its row’s name', () => {
     const page = draw({ state: 'compiled', flow: small() });
     click(rowOf(page, 'ci').querySelector('.head-button'));

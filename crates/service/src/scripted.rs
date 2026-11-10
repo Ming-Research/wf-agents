@@ -58,10 +58,15 @@ impl Scripted {
     /// What the round returns: the script's entry for it, as the cell's nth run in its work.
     fn planned(&self, round: &Round) -> Planned {
         // Runs are named in the order they started.
-        let nth = (round.kept.records.started.iter())
+        let started = round.kept.records.started.iter();
+        let nth = (started.clone())
             .filter(|s| s.cell == round.cell.id && s.run <= round.run)
             .count();
-        self.inner.script.round(&round.flow, &round.cell, nth, round.number)
+        let basis = (started.clone().find(|s| s.run == round.run)).map(|s| s.basis.clone());
+        let basis = basis.unwrap_or_default();
+        self.inner
+            .script
+            .round(&round.flow, &round.cell, nth, round.number, &basis)
     }
 }
 

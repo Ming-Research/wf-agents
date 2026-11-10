@@ -11,6 +11,7 @@ mod events;
 mod failing;
 mod given;
 mod limits;
+mod must_write;
 mod named_tests;
 mod pausing;
 mod pending;
@@ -30,6 +31,11 @@ use flow::{Compiled, Has, Source, compile};
 /// that people write and a named test reads. Returns may be sent back twice, a run may make three calls, and a cell may
 /// go round three times.
 fn judged() -> Compiled {
+    compile(&judged_source(), &has(&["main"])).expect("the definition compiles")
+}
+
+/// The files of the judged flow.
+fn judged_source() -> Source {
     let flow = r#"
         name = "judged"
         order = ["write", "judge", "merge"]
@@ -84,14 +90,13 @@ fn judged() -> Compiled {
         inputs = ["text", "verdict"]
         outputs = ["merged"]
     "#;
-    let source = Source {
+    Source {
         flow: flow.to_string(),
         cells: [("write", write), ("judge", judge), ("merge", merge)]
             .iter()
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
-    };
-    compile(&source, &has(&["main"])).expect("the definition compiles")
+    }
 }
 
 /// What the engine has for the flows of these tests: these sources outside a work, and its act `merge`.

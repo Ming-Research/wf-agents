@@ -30,8 +30,8 @@ use store::Store;
 use tower::ServiceExt;
 use web::Flows;
 
-/// A small flow: a plan that people ask for and a review can send back, the review, and the merge, which waits for the
-/// owner's word.
+/// A small flow: a plan that people ask for and a review can send back, the review, which must say each time whether it
+/// is content, and the merge, which waits for the owner's word.
 pub const FLOW: &str = r#"
 name = "tiny"
 order = ["plan", "review", "merge"]
@@ -84,6 +84,7 @@ Say whether it is content."""
 limit = 5
 inputs = ["plan"]
 outputs = ["opinions", "content"]
+must_write = ["content"]
 "#;
 
 pub const MERGE: &str = r#"

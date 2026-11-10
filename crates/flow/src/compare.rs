@@ -98,6 +98,10 @@ pub enum CellChange {
     InputRemoved(BlockId),
     OutputAdded(BlockId),
     OutputRemoved(BlockId),
+    /// A block every hand-in of the cell must now include.
+    MustWriteAdded(BlockId),
+    /// A block every hand-in of the cell no longer needs to include.
+    MustWriteRemoved(BlockId),
     /// A limit of the cell, other than by following the same change of the flow's limit, which is said once, as the
     /// flow's.
     Limit {
@@ -373,6 +377,13 @@ fn cell_changes(before: &Placed, after: &Placed, flow_limits: &[(Limit, u32, u32
         &a_cell.outputs,
         CellChange::OutputRemoved,
         CellChange::OutputAdded,
+        &mut changes,
+    );
+    list(
+        &b.must_write,
+        &a.must_write,
+        CellChange::MustWriteRemoved,
+        CellChange::MustWriteAdded,
         &mut changes,
     );
     let own = [

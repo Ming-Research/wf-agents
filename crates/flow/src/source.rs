@@ -140,6 +140,9 @@ pub struct CellFile {
     /// The blocks the cell may write.
     #[serde(default)]
     pub outputs: Vec<String>,
+    /// The blocks among its outputs that every hand-in of the cell includes.
+    #[serde(default)]
+    pub must_write: Vec<String>,
     /// How many runs of the cell in a row may be ways round, if not the flow's limit.
     pub limit: Option<i64>,
 }

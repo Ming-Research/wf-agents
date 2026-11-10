@@ -344,6 +344,7 @@ export function CellPanel(props: {
                 <Choose chosen={{ block: name }} onChoose={onChoose}>
                   <span className="mono">{name}</span>
                 </Choose>
+                {cell.mustWrite.includes(name) && <span className="muted">written every time</span>}
                 <span>
                   <Readers flow={flow} from={cell.id} block={block} onChoose={onChoose} />
                 </span>

@@ -158,7 +158,8 @@ export type Unmet =
   | { kind: 'writtenTwice'; block: string }
   | { kind: 'noValue'; block: string }
   | { kind: 'notAValue'; block: string; value: string }
-  | { kind: 'notAChoice'; block: string };
+  | { kind: 'notAChoice'; block: string }
+  | { kind: 'notHandedIn'; block: string };
 
 /// What a round is given: the cell's task, the results of the calls the round before asked for, or why what the
 /// round before handed in was sent back.

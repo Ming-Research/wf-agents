@@ -402,6 +402,8 @@ pub enum Unmet {
     NotAValue { block: String, value: String },
     /// The block is no choice, and was written with a value.
     NotAChoice { block: String },
+    /// The block is one the cell must hand in each time, and was not handed in.
+    NotHandedIn { block: String },
 }
 
 /// What came back at the end of a round.
@@ -1068,6 +1070,9 @@ impl Unmet {
                 value: value.clone(),
             },
             UnmetOf::NotAChoice { block } => Unmet::NotAChoice {
+                block: block.to_string(),
+            },
+            UnmetOf::NotHandedIn { block } => Unmet::NotHandedIn {
                 block: block.to_string(),
             },
         }

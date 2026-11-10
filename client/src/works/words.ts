@@ -228,6 +228,8 @@ export function unmetWords(unmet: Unmet): string {
       return `it handed in ${unmet.block} as ${unmet.value}, which is not one of its values`;
     case 'notAChoice':
       return `it handed in ${unmet.block} with a value, but it is not a choice`;
+    case 'notHandedIn':
+      return `it did not hand in ${unmet.block}, which the cell must hand in every time`;
   }
 }
 

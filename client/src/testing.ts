@@ -19,6 +19,7 @@ export function cell(id: string, fields: Partial<Cell> = {}): Cell {
     preconditions: [],
     inputs: [],
     outputs: [],
+    mustWrite: [],
     limits: LIMITS,
     ...fields,
   };

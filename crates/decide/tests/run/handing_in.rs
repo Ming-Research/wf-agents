@@ -15,6 +15,68 @@ fn a_return_that_writes_nothing_meets_everything() {
 }
 
 #[test]
+fn a_return_that_lacks_a_block_the_cell_must_hand_in_is_sent_back_naming_each_block_it_lacks() {
+    let s = must_write(&["verdict", "plan"]);
+    let unmet = vec![Unmet::NotHandedIn {
+        block: "verdict".into(),
+    }];
+    assert_eq!(step(vec![handed_in(vec![prose("plan")])], &s), send_back(unmet));
+    let unmet = vec![
+        Unmet::NotHandedIn {
+            block: "verdict".into(),
+        },
+        Unmet::NotHandedIn { block: "plan".into() },
+    ];
+    assert_eq!(step(vec![handed_in(vec![])], &s), send_back(unmet));
+}
+
+#[test]
+fn a_return_with_every_block_the_cell_must_hand_in_finishes_the_run() {
+    let writes = vec![valued("verdict", "yes"), prose("plan")];
+    let finish = Step::Finish { writes: writes.clone() };
+    assert_eq!(step(vec![handed_in(writes)], &must_write(&["plan", "verdict"])), finish);
+}
+
+#[test]
+fn a_block_the_cell_must_hand_in_handed_in_wrongly_is_said_only_to_be_wrong() {
+    let unmet = vec![Unmet::NoValue {
+        block: "verdict".into(),
+    }];
+    assert_eq!(
+        step(vec![handed_in(vec![prose("verdict")])], &must_write(&["verdict"])),
+        send_back(unmet)
+    );
+}
+
+#[test]
+fn what_a_return_lacks_is_said_after_what_its_writes_do_not_meet() {
+    let unmet = vec![
+        Unmet::NotAnOutput { block: "code".into() },
+        Unmet::NotHandedIn {
+            block: "verdict".into(),
+        },
+    ];
+    assert_eq!(
+        step(vec![handed_in(vec![prose("code")])], &must_write(&["verdict"])),
+        send_back(unmet)
+    );
+}
+
+#[test]
+fn a_return_that_asks_for_calls_hands_in_nothing_and_is_not_held_to_what_the_cell_must_hand_in() {
+    assert_eq!(step(vec![asks(2)], &must_write(&["verdict"])), Step::Make);
+}
+
+#[test]
+fn a_return_sent_back_for_what_it_lacks_counts_against_the_limit_of_returns() {
+    let lacking = || handed_in(vec![prose("plan")]);
+    assert_eq!(
+        step(vec![lacking(), lacking(), lacking()], &must_write(&["verdict"])),
+        returns_limit(2)
+    );
+}
+
+#[test]
 fn a_block_that_is_not_an_output_is_sent_back() {
     let unmet = vec![Unmet::NotAnOutput { block: "code".into() }];
     assert_eq!(step(vec![handed_in(vec![prose("code")])], &spec()), send_back(unmet));

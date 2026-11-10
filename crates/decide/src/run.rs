@@ -65,6 +65,8 @@ pub struct Call {
 pub struct Requires<'a> {
     /// The blocks the cell may write.
     pub outputs: &'a [BlockId],
+    /// The blocks among those that every hand-in of the cell includes.
+    pub must_write: &'a [BlockId],
     /// The values of each block that is a choice.
     pub choices: &'a BTreeMap<BlockId, Vec<String>>,
     /// How often what the run returns may be sent back.
@@ -123,6 +125,8 @@ pub enum Unmet {
     NotAValue { block: BlockId, value: String },
     /// The block is no choice, and was written with a value.
     NotAChoice { block: BlockId },
+    /// The block is one the cell must hand in each time, and was not handed in.
+    NotHandedIn { block: BlockId },
 }
 
 /// What the run does next. A pause of its work lets no round begin: where the run would have one, it is held.
@@ -196,8 +200,8 @@ fn sent_back(round: &Round) -> bool {
     )
 }
 
-/// Each way in which what was handed in does not meet what the flow requires, in the order of the writes: one for
-/// each write.
+/// Each way in which what was handed in does not meet what the flow requires: one for each write, in the order of the
+/// writes, then one for each block the cell must hand in and did not, in the order the cell lists them.
 fn unmet(writes: &[Write], requires: Requires) -> Vec<Unmet> {
     let mut unmet = Vec::new();
     for (i, write) in writes.iter().enumerate() {
@@ -218,6 +222,11 @@ fn unmet(writes: &[Write], requires: Requires) -> Vec<Unmet> {
             }),
             (None, Some(_)) => unmet.push(Unmet::NotAChoice { block: block() }),
             _ => {}
+        }
+    }
+    for block in requires.must_write {
+        if !writes.iter().any(|w| w.block == *block) {
+            unmet.push(Unmet::NotHandedIn { block: block.clone() });
         }
     }
     unmet

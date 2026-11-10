@@ -63,6 +63,7 @@ fn values(values: &[String]) -> String {
     format!(", a choice, one of {}", values.join(", "))
 }
 const OWNER_READS: &str = " (the owner reads it)";
+const EVERY_TIME: &str = " (hand it in every time)";
 /// An output's current version, its value where it has one, and the version at which its meaning last changed.
 fn output_version(version: Seq, value: Option<&str>, meaning: Seq) -> String {
     let value = value.map(with_value).unwrap_or_default();
@@ -220,6 +221,9 @@ fn task(flow: &Compiled, work: &Work, cell: &CellSpec, run: RunId, parts: &mut V
         }
         if declared.is_some_and(|b| b.readers.shown) {
             line.push_str(OWNER_READS);
+        }
+        if cell.must_write.contains(block) {
+            line.push_str(EVERY_TIME);
         }
         line.push_str(": ");
         match current(block) {
