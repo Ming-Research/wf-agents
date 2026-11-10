@@ -8,11 +8,14 @@
 //! - no round and no call is given twice, and nothing answered is given again;
 //! - what was given and not yet answered is exactly what the driver says is pending;
 //! - no work has two rounds under way (entry `one-round-of-a-work-at-a-time`);
-//! - walking the records that store holds, with the flow's named tests as they come out for them, gives the decision
-//!   the driver's view shows (entry `records-give-the-same-walk`);
+//! - what each work does next, as the driver shows it, agrees with what is to be done for it: after a call no run is
+//!   left to start or to abandon, a run goes on with its round held only while the work is paused, a work is busy
+//!   with a run exactly when a round of that run is given to be done, and a work paused began no round after the
+//!   pause;
 //! - the dependencies block of every work that has not ended says whether the items its item depends on have merged,
-//!   no work whose dependencies have not all merged has started a run where its flow holds it for them, and a work
-//!   never let on has started no run.
+//!   and its text names those still waited for, saying which were cancelled; the block of a work that has ended was
+//!   not written after it ended; no work whose dependencies have not all merged has started a run where its flow
+//!   holds it for them; and a work never let on has started no run.
 //!
 //! When the driver says it stopped, the harness checks that what it says was kept is what the store holds.
 
@@ -20,7 +23,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use decide::{BlockId, CallId, Decision, End, Outsider, RunId, Seq, Waited, Who, decide};
+use decide::{BlockId, CallId, Decision, End, Outsider, RunId, Seq, Waited, Who};
 use driver::{DEPENDENCIES, Driver, Failed, Fault, FirstWrite, MERGED, NewItem, Todo, WAITING};
 use engine::{Ask, Came, Effect, Event, Given, Handed, Spent, Time, Work};
 use flow::{Compiled, Kind, Source, compile};
@@ -360,7 +363,13 @@ pub type Opened = Result<(Driver, Vec<Todo>), Fault>;
 
 /// Opens a driver on the file, through the store of the tests, with every flow.
 pub fn open_on(db: &Db, now: Time) -> (Opened, Arc<Mutex<Calls>>) {
+    open_with_plan(db, Plan::Never, now)
+}
+
+/// Opens a driver on the file, through the store of the tests failing as the plan says from its first call.
+pub fn open_with_plan(db: &Db, plan: Plan, now: Time) -> (Opened, Arc<Mutex<Calls>>) {
     let (store, calls) = Failing::new(db.open());
+    calls.lock().expect("the calls are noted").plan = plan;
     (Driver::open(Box::new(store), flows(), now), calls)
 }
 
@@ -430,6 +439,8 @@ pub struct H {
     pub let_on: BTreeSet<WorkNumber>,
     /// Whether every call is followed by the checks; a long run of histories checks only where it says.
     pub checking: bool,
+    /// The works a test made faulty behind the driver's back, whose decisions are not checked.
+    pub faulty: BTreeSet<WorkNumber>,
 }
 
 /// What the driver answered to a call that the store of the tests may have stopped.
@@ -461,6 +472,7 @@ impl H {
             undone: BTreeSet::new(),
             let_on: BTreeSet::new(),
             checking: true,
+            faulty: BTreeSet::new(),
         }
     }
 
@@ -513,11 +525,12 @@ impl H {
     pub fn try_add(&mut self, now: Time, new: NewItem) -> Outcome<(ItemNumber, WorkNumber)> {
         let before = self.reader.items().expect("the items are read").len();
         match self.dm().add(now, new) {
-            Ok(numbers) => {
+            Ok((item, work, todos)) => {
+                self.given(&todos);
                 if self.checking {
                     self.check();
                 }
-                Outcome::Done(numbers)
+                Outcome::Done((item, work))
             }
             Err(Failed::Stopped { fault, kept }) => {
                 self.stopped(&fault);
@@ -725,9 +738,15 @@ impl H {
             items,
             "the store holds other items"
         );
-        let merged: BTreeSet<ItemNumber> = (d.works())
-            .filter(|k| self.decision(k.head.number) == Decision::Ended(End::Merged))
-            .map(|k| k.head.item)
+        // How the work of each item ended, if it has.
+        let ends: BTreeMap<ItemNumber, Option<End>> = (d.works())
+            .map(|k| {
+                let end = match self.decision(k.head.number) {
+                    Decision::Ended(end) => Some(end),
+                    _ => None,
+                };
+                (k.head.item, end)
+            })
             .collect();
         for kept in d.works() {
             let number = kept.head.number;
@@ -738,14 +757,10 @@ impl H {
                 number.0
             );
             assert!(under_way(kept.work) <= 1, "work {} has two rounds under way", number.0);
-            let tests = kept.flow.tests(&stored.records);
-            let walked = decide(&kept.flow.flow, &stored.records, &tests);
             let shown = d.view(number).expect("the work is shown").decision;
-            assert_eq!(
-                walked, shown,
-                "the records of work {} walk to another decision than shown",
-                number.0
-            );
+            if !self.faulty.contains(&number) {
+                self.agrees_with_what_is_pending(number, kept.work, &shown);
+            }
             if !kept.work.records.started.is_empty() {
                 assert!(
                     self.let_on.contains(&number),
@@ -754,16 +769,39 @@ impl H {
                 );
             }
             if let Some(value) = dependencies_value(kept.flow, kept.work) {
-                let all = kept.item.depends_on.iter().all(|on| merged.contains(on));
-                if !matches!(shown, Decision::Ended(_)) {
-                    let says = if all { MERGED } else { WAITING };
+                let waited: BTreeSet<String> = (kept.item.depends_on.iter())
+                    .filter_map(|on| match ends.get(on) {
+                        Some(Some(End::Merged)) => None,
+                        Some(Some(End::Cancelled)) => Some(format!("{}c", on.0)),
+                        _ => Some(on.0.to_string()),
+                    })
+                    .collect();
+                // The driver writes no block of a work that has ended: what it says is what it said then.
+                if !matches!(shown, Decision::Ended(_)) && !self.faulty.contains(&number) {
+                    let says = if waited.is_empty() { MERGED } else { WAITING };
                     assert_eq!(
                         value, says,
                         "the dependencies block of work {} does not agree",
                         number.0
                     );
+                    let text = dependencies_text(kept.flow, kept.work).unwrap_or_default();
+                    assert_eq!(
+                        named(&text),
+                        waited,
+                        "the dependencies block of work {} does not say which items it waits for: {text}",
+                        number.0
+                    );
                 }
-                if !all {
+                if let Some(end) = end_at(kept.flow, kept.work) {
+                    let late = (kept.work.records.written.iter())
+                        .any(|w| w.by == Outsider::Outside && w.block == block("deps") && w.at > end);
+                    assert!(
+                        !late,
+                        "the dependencies block of work {} was written after it ended",
+                        number.0
+                    );
+                }
+                if !waited.is_empty() {
                     assert!(
                         kept.work.records.started.is_empty(),
                         "work {} ran before its dependencies merged",
@@ -777,6 +815,57 @@ impl H {
             sorted(&self.outstanding),
             "what is pending is not what was given and not yet answered"
         );
+    }
+
+    /// What the work does next agrees with what is to be done for it: after a call, no run is left to start and none
+    /// left to be abandoned; a run goes on with its round held only while the work is paused; a work is busy with a
+    /// run exactly when a round of that run is given to be done; and a work paused began no round after the pause.
+    fn agrees_with_what_is_pending(&self, number: WorkNumber, work: &Work, shown: &Decision) {
+        let paused = decide::paused(&work.records);
+        let rounds: Vec<RunId> = (self.d().pending().into_iter())
+            .filter(|t| t.work == number)
+            .filter_map(|t| match t.effect {
+                Effect::Round { run, .. } => Some(run),
+                _ => None,
+            })
+            .collect();
+        match shown {
+            Decision::Run { .. } | Decision::Abandon { .. } | Decision::Fault(_) => {
+                panic!("after a call work {} is left deciding {shown:?}", number.0)
+            }
+            Decision::GoOn { .. } => assert!(paused, "work {} goes on with no round given: {shown:?}", number.0),
+            Decision::Paused => assert!(paused, "work {} shows paused and is not", number.0),
+            Decision::Busy { run, .. } => {
+                assert_eq!(
+                    rounds,
+                    [*run],
+                    "work {} is busy with no round of its run given",
+                    number.0
+                );
+            }
+            Decision::Wait { .. } | Decision::Ended(_) => {}
+        }
+        if !matches!(shown, Decision::Busy { .. }) {
+            assert_eq!(
+                rounds,
+                [],
+                "work {} has a round given and is not busy: {shown:?}",
+                number.0
+            );
+        }
+        if paused {
+            let since = (work.records.pauses.iter()).filter(|p| p.paused).map(|p| p.at).max();
+            let resumed = (work.records.pauses.iter()).filter(|p| !p.paused).map(|p| p.at).max();
+            if let Some(since) = since
+                && resumed.is_none_or(|r| r < since)
+            {
+                assert!(
+                    work.records.rounds.iter().all(|r| r.at < since),
+                    "work {} began a round after it was paused",
+                    number.0
+                );
+            }
+        }
     }
 
     /// The round of the work that is under way: its run, cell, number and what it was given.
@@ -919,6 +1008,38 @@ pub fn dependencies_value(flow: &Compiled, work: &Work) -> Option<String> {
     let versions = decide::versions(&work.records);
     let value = versions.get(block).and_then(|v| v.last()).and_then(|v| v.value.clone());
     Some(value.unwrap_or_default())
+}
+
+/// The text of the flow's dependencies block now in the work, where it has one.
+pub fn dependencies_text(flow: &Compiled, work: &Work) -> Option<String> {
+    let (block, _) = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(DEPENDENCIES))?;
+    let versions = decide::versions(&work.records);
+    let at = versions.get(block)?.last()?.at;
+    work.contents.get(&(block.clone(), at)).cloned()
+}
+
+/// The items a dependencies block's text names: each number, followed by `c` where the text says it was cancelled.
+pub fn named(text: &str) -> BTreeSet<String> {
+    let text = text.replace(" (cancelled)", "c");
+    (text.split(|c: char| !c.is_ascii_alphanumeric()))
+        .filter(|word| word.starts_with(|c: char| c.is_ascii_digit()))
+        .map(str::to_string)
+        .collect()
+}
+
+/// Where the work ended in the order of its records: as it was cancelled, or as its last cell finished.
+pub fn end_at(flow: &Compiled, work: &Work) -> Option<Seq> {
+    let r = &work.records;
+    let last = flow.flow.cells().last().map(|c| c.id.clone());
+    let merged = (r.finished.iter())
+        .filter(|f| {
+            r.started
+                .iter()
+                .any(|s| s.run == f.run && Some(&s.cell) == last.as_ref())
+        })
+        .map(|f| f.at)
+        .min();
+    [merged, r.cancelled].into_iter().flatten().min()
 }
 
 /// Whether the cell is the engine's own.

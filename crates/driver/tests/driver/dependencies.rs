@@ -3,6 +3,7 @@
 //! which the last of them merges, and, on opening, wherever the block and what it stands for have come apart.
 
 use driver::{MERGED, WAITING};
+use store::Storage;
 
 use super::*;
 
@@ -205,4 +206,197 @@ fn a_failure_of_the_merge_itself_keeps_nothing_and_it_is_told_again() {
     assert_eq!(h.dependencies(wb).as_deref(), Some(WAITING));
     let todos = h.hands_in(wa, &[("merged", None)]);
     assert_eq!(rounds(&todos), [(wb, "write".to_string(), 1)]);
+}
+
+/// Every version of the work's dependencies block: its value and its text.
+fn versions_of(h: &H, work: WorkNumber) -> Vec<(Option<String>, String)> {
+    let kept = h.d().work(work).expect("the work is there");
+    let versions = decide::versions(&kept.work.records);
+    (versions.get(&block("deps")).into_iter().flatten())
+        .map(|v| {
+            let text = kept
+                .work
+                .contents
+                .get(&(block("deps"), v.at))
+                .cloned()
+                .unwrap_or_default();
+            (v.value.clone(), text)
+        })
+        .collect()
+}
+
+fn version(value: &str, text: &str) -> (Option<String>, String) {
+    (Some(value.to_string()), text.to_string())
+}
+
+#[test]
+fn the_blocks_text_says_which_items_are_still_waited_for_and_which_were_cancelled() {
+    let mut h = H::new();
+    let (a, wa) = h.add(new_item("a", &[], "plain"));
+    let (b, wb) = h.add(new_item("b", &[], "short"));
+    let (_, wc) = h.add(new_item("c", &[a, b], "judged"));
+    h.let_on(wc);
+    h.let_on(wa);
+    h.let_on(wb);
+    // One of the two merges: the block still says waiting, now for the other alone, and the work does not start.
+    let todos = h.through(wa);
+    assert_eq!(todos, vec![]);
+    assert_eq!(h.decision(wc), waits_for_dependencies("write"));
+    // The other is cancelled: the block says waiting still, and which was cancelled; the work waits for good.
+    let (run, ..) = h.round(wb);
+    let todos = h.on(wb, Event::Cancelled);
+    assert_eq!(
+        todos,
+        vec![Todo {
+            work: wb,
+            effect: Effect::Stop { run },
+        }]
+    );
+    assert_eq!(h.decision(wc), waits_for_dependencies("write"));
+    assert_eq!(
+        versions_of(&h, wc),
+        [
+            version(WAITING, "Waits for the items 1, 2 to merge."),
+            version(WAITING, "Waits for the items 2 to merge."),
+            version(WAITING, "Waits for the items 2 (cancelled) to merge."),
+        ]
+    );
+    let kept = h.d().work(wc).expect("the work is there");
+    assert!(kept.work.records.started.is_empty(), "the work started");
+    // Opening again writes nothing more: the block says what it stands for.
+    h.reopen();
+    assert_eq!(versions_of(&h, wc).len(), 3);
+}
+
+#[test]
+fn a_cancelled_dependency_is_named_beside_one_still_going() {
+    let mut h = H::new();
+    let (a, wa) = h.add(new_item("a", &[], "plain"));
+    let (b, _) = h.add(new_item("b", &[], "short"));
+    let (_, wc) = h.add(new_item("c", &[b, a], "short"));
+    h.on(wa, Event::Cancelled);
+    assert_eq!(
+        versions_of(&h, wc),
+        [
+            version(WAITING, "Waits for the items 1, 2 to merge."),
+            version(WAITING, "Waits for the items 1 (cancelled), 2 to merge."),
+        ]
+    );
+    assert_eq!(h.let_on(wc), vec![]);
+    assert_eq!(h.decision(wc), waits_for_dependencies("draft"));
+}
+
+#[test]
+fn a_work_whose_flow_has_no_dependencies_block_waits_for_no_item() {
+    let mut h = H::new();
+    let (a, _) = h.add(new_item("a", &[], "judged"));
+    let (_, wb) = h.add(new_item("b", &[a], "plain"));
+    let todos = h.let_on(wb);
+    assert_eq!(rounds(&todos), [(wb, "write".to_string(), 1)]);
+}
+
+#[test]
+fn a_block_left_to_bring_to_agree_on_a_store_that_fails_as_it_is_written_stops_the_opening() {
+    let plan = Plan::Fail {
+        op: Some(Op::Save),
+        n: 2,
+        on: false,
+    };
+    let (mut h, _, wb, outcome) = merging(plan);
+    assert!(matches!(outcome, Outcome::Stopped { kept: true }));
+    // The first save as the driver opens is the write of the block, and it fails.
+    let now = Time(h.clock);
+    let failing = Plan::Fail {
+        op: Some(Op::Save),
+        n: 1,
+        on: false,
+    };
+    let (opened, calls) = open_with_plan(&h.db, failing, now);
+    assert!(
+        calls.lock().expect("the calls are noted").failed,
+        "the opening made no save"
+    );
+    assert_eq!(opened.err(), Some(Fault::Store(failure())));
+    assert_eq!(
+        h.reader.load(wb).expect("the work loads").records.written.len(),
+        1,
+        "a failed write was kept"
+    );
+    // Opened on a store that works, it ends as the same history with no failure.
+    h.reopen();
+    let (straight, _, _, outcome) = merging(Plan::Never);
+    assert!(matches!(outcome, Outcome::Done(_)));
+    h.check();
+    straight.check();
+    assert_eq!(
+        h.state(),
+        straight.state(),
+        "opened after the failure, the driver holds otherwise"
+    );
+}
+
+#[test]
+fn a_store_that_fails_at_the_second_dependents_write_keeps_the_merge_and_opening_brings_both_to_agree() {
+    let mut h = H::new();
+    let (a, wa) = h.add(new_item("a", &[], "short"));
+    let (_, wb) = h.add(new_item("b", &[a], "judged"));
+    let (_, wc) = h.add(new_item("c", &[a], "short"));
+    h.let_on(wb);
+    h.let_on(wc);
+    h.let_on(wa);
+    to_merge(&mut h, wa);
+    let (run, ..) = h.round(wa);
+    // The first save keeps the merge, the second the first dependent's block, the third fails.
+    h.arm(Plan::Fail {
+        op: Some(Op::Save),
+        n: 3,
+        on: false,
+    });
+    let now = h.now();
+    let spent = h.spent();
+    let came = hands_in(&[("merged", None)]);
+    let outcome = h.try_on(now, wa, Event::Returned { run, came, spent });
+    assert!(h.failed(), "the third save never came");
+    assert!(
+        matches!(outcome, Outcome::Stopped { kept: true }),
+        "the merge was not said to be kept"
+    );
+    assert_eq!(h.reader.load(wb).expect("the work loads").records.started.len(), 1);
+    assert_eq!(h.reader.load(wc).expect("the work loads").records.started.len(), 0);
+    let todos = h.reopen();
+    assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
+    assert_eq!(h.dependencies(wc).as_deref(), Some(MERGED));
+    // The first dependent's round, kept before the failure and never given, is given; the second's follows the
+    // write the opening made.
+    assert_eq!(
+        rounds(&todos),
+        [(wb, "write".to_string(), 1), (wc, "draft".to_string(), 1)]
+    );
+}
+
+#[test]
+fn a_person_may_not_write_the_dependencies_block_and_the_outside_may_as_things_stand() {
+    let mut h = H::new();
+    let (a, _) = h.add(new_item("a", &[], "short"));
+    let (_, wb) = h.add(new_item("b", &[a], "judged"));
+    h.let_on(wb);
+    let why = h.refused(|d, now| {
+        d.happened(now, wb, wrote("deps", Outsider::Person, Some(MERGED)))
+            .map(drop)
+    });
+    assert_eq!(
+        why,
+        Failed::Refused(engine::Refused::NotTheirs {
+            block: block("deps"),
+            by: Outsider::Person,
+        })
+    );
+    // A hole, stated as it is: a write by the outside does not say which source it is from, so the engine's loop
+    // takes the outside's write of the block the driver alone is to write, and the work starts though the item it
+    // depends on has not merged. This test is to change when the loop refuses that write.
+    let now = h.now();
+    let written = h.dm().happened(now, wb, wrote("deps", Outsider::Outside, Some(MERGED)));
+    let todos = written.expect("the outside's write is taken");
+    assert_eq!(rounds(&todos), [(wb, "write".to_string(), 1)]);
+    assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
 }
