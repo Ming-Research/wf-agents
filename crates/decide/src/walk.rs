@@ -352,7 +352,7 @@ impl<'a> Walk<'a> {
             .and_then(|run| self.runs.get(&run))
             .and_then(|r| self.flow.place(&r.started.cell));
         match writer {
-            Some(j) if j < i => self.applies(j),
+            Some(j) if j < i => true,
             _ => true,
         }
     }
