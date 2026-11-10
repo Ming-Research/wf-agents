@@ -22,7 +22,8 @@ better. Where the cell answered an earlier point in `answers_research` or `answe
 or say why not; never raise a point again without saying so.
 
 `plan_settled`: yes when nothing must change, and then write no opinion; no otherwise; a line of why in the owner's
-language, for the page.
+language, for the page. Answer each thing the owner says in `opinions_plan_review` in `reply_plan_review`, in the
+language the installation sets for its owner: what you changed for it, or why not.
 '''
 when = { test = "plan_needs_review" }
 inputs = [
@@ -35,4 +36,4 @@ inputs = [
   "answers_deep_research",
   "opinions_plan_review",
 ]
-outputs = ["plan_review_on_research", "plan_review_on_deep_research", "plan_settled"]
+outputs = ["plan_review_on_research", "plan_review_on_deep_research", "plan_settled", "reply_plan_review"]

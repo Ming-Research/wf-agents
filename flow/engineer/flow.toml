@@ -86,6 +86,8 @@ values = ["yes", "no"]
 values = ["yes", "no"]
 people = true
 shown = true
+[blocks.decisions]
+shown = true
 [blocks.tests]
 [blocks.testing_settled]
 values = ["yes", "no"]
@@ -112,6 +114,25 @@ people = true
 people = true
 [blocks.opinions_testing]
 people = true
+[blocks.opinions_check]
+people = true
+
+# What each cell answers to what the owner said to it, for the owner to read on the page: only that cell writes it, and
+# no cell reads it.
+[blocks.reply_context]
+shown = true
+[blocks.reply_research]
+shown = true
+[blocks.reply_deep_research]
+shown = true
+[blocks.reply_plan_review]
+shown = true
+[blocks.reply_implement]
+shown = true
+[blocks.reply_review]
+shown = true
+[blocks.reply_testing]
+shown = true
 
 # What each cell that judges says to the cell it judges: a block for each pair, which only the judging cell writes, so
 # that no one writes over what another said.

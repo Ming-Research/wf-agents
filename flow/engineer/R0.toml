@@ -21,7 +21,8 @@ When you run again because the session was lost, and the background and the tree
 same files again and hand in the three blocks saying the change does not matter.
 
 Take what the owner says in `opinions_context`, such as a decision you missed, and change `related` or `supplement` by
-it.
+it. Answer each thing the owner says in `opinions_context` in `reply_context`, in the language the installation sets
+for its owner: what you changed for it, or why not.
 '''
 inputs = ["background", "tree", "session", "opinions_context"]
-outputs = ["context", "related", "supplement"]
+outputs = ["context", "related", "supplement", "reply_context"]

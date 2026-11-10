@@ -8,11 +8,12 @@ to do (`plan_owner`, `acceptance`), the repository's rules, and what the owner s
 
 Does the code solve the problem as the plan says, to the standard the tree sets? The work is done once it does; old
 code that lagged behind a decision before this work is no point. A short cut, another method, more than the work needs
-or a change of direction is a point; so is code that breaks a decision of the tree, or a decision neither the plan,
-the tree nor `code` records with a reason that holds. Is it sound in structure and lines? A defect: are the like cases
-covered, and what keeps the kind from coming back? Does `evidence` show each condition on that commit, each new test
-red before the change where its kind needs it and worth its time? Where cost per operation can change, is what it can
-slow measured? Do the entries written into `design/` say what `tree_changes` says, and no more?
+or a change of direction is a point; so is code that breaks a decision of the tree, or a decision that neither the
+plan nor the tree records and `decisions` does not give a reason that holds for. Is it sound in structure and lines? A
+defect: are the like cases covered, and what keeps the kind from coming back? Does `evidence` show each condition on
+that commit, each new test red before the change where its kind needs it and worth its time? Where cost per operation
+can change, is what it can slow measured? Do the entries written into `design/` say what `tree_changes` says, and no
+more?
 
 List every point at once in `review_on_implement`, in English: where, what must change and why, what it rests on.
 Leave out preferences: the engineer fixes nearly all a review raises, so a wrong point makes good code worse. Run
@@ -22,7 +23,9 @@ fix did not bring.
 `review_settled`: yes when nothing must change, and then write no opinion; no otherwise; a line of why in the owner's
 language. `more_testing`: yes when the change is of a kind that goes wrong silently, which only an adversary's tests
 find (a compiler, a checker, a runtime, a data format, concurrency, security, parsing), or as the project's standard
-for adversarial testing says where it gives one.
+for adversarial testing says where it gives one. Having said yes, keep it while the part of the change that made you
+say so is still there. Answer each thing the owner says in `opinions_review` in `reply_review`, in the language the
+installation sets for its owner: what you changed for it, or why not.
 '''
-inputs = ["code", "evidence", "plan_owner", "acceptance", "answers_review", "opinions_review"]
-outputs = ["review_on_implement", "review_settled", "more_testing"]
+inputs = ["code", "decisions", "evidence", "plan_owner", "acceptance", "answers_review", "opinions_review"]
+outputs = ["review_on_implement", "review_settled", "more_testing", "reply_review"]

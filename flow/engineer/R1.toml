@@ -14,8 +14,8 @@ settle. With no, write the plan:
   English: what will be done, how and why, no longer than that, each question marked where it belongs, as [q1].
 - `plan_agent`, in English, for the implementation: what changes where, the test red before and green after, the like
   cases a defect has.
-- `acceptance`: numbered conditions, each one sentence plainly true or false, saying how it is verified: a test, a
-  measurement and its criterion, a fast-CI job, or reading the diff.
+- `acceptance`, in English: numbered conditions, each one sentence plainly true or false, saying how it is verified: a
+  test, a measurement and its criterion, a fast-CI job, or reading the diff.
 - `questions`, in the owner's language, only where two ways you checked both work, no fact decides, and choosing wrong
   costs much: the options with cost and risk, and your recommendation, which the plan follows. Most items need none.
 - `tree_changes`: each entry the plan adds, changes or deletes in `design/`, as it will read, each under a question;
@@ -23,7 +23,8 @@ settle. With no, write the plan:
   solution; a principle or the constitution, ask the owner in your return.
 
 Take each point of `plan_review_on_research`, `implement_on_research` and `opinions_research`: change the plan where
-it touches, only there, or say why not; answer each in `answers_research`.
+it touches, only there, or say why not. Answer the cells' points in `answers_research`, and the owner's in
+`reply_research`, in the language the installation sets for its owner.
 '''
 inputs = [
   "background",
@@ -43,4 +44,5 @@ outputs = [
   "tree_changes",
   "changes_tree",
   "answers_research",
+  "reply_research",
 ]

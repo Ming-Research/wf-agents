@@ -22,8 +22,9 @@ Run again after a fix, run your tests on the new commit: accept each answer in `
 called wrong against its reference, or say why not.
 
 `testing_settled`: yes when none of your tests is red on the commit `code` names and no suspicion stands; no
-otherwise; a line of why in the owner's language.
+otherwise; a line of why in the owner's language. Answer each thing the owner says in `opinions_testing` in
+`reply_testing`, in the language the installation sets for its owner: what you did for it, or why not.
 '''
 when = { block = "more_testing", is = "yes" }
 inputs = ["code", "acceptance", "answers_testing", "opinions_testing"]
-outputs = ["tests", "testing_on_implement", "testing_settled"]
+outputs = ["tests", "testing_on_implement", "testing_settled", "reply_testing"]

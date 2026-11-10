@@ -13,8 +13,9 @@ not made, such as accepting a slowdown), do not work around it: say where and wh
 `implement_on_research` or `implement_on_deep_research`, and judge its answer.
 
 Commit everything in the worktree, and hand in once the project's check passes on your last commit:
-- `code`: what changed, by module and behaviour; each decision the code makes that the plan does not record, with why;
-  and the commit on the work's branch that holds it all.
+- `code`: what changed, by module and behaviour, and the commit on the work's branch that holds it all.
+- `decisions`, read by the owner on the page and judged by the review, in the language the installation sets for its
+  owner: each decision the code makes that the plan does not record, with why; leave it out when there is none.
 - `evidence`: for each acceptance condition, what shows it on that commit (tests with results after and before the
   change, a measurement, a CI job, or where to read in the diff); each test added, extended or weakened, with what it
   catches or why.
@@ -23,8 +24,9 @@ Commit everything in the worktree, and hand in once the project's check passes o
 Answer each point of `review_on_implement`, `testing_on_implement` and `check_on_implement` in `answers_review`,
 `answers_testing` and `answers_check`: fixed, with its commit, or why not, a dispute over a fact settled by a run.
 Before fixing a defect, look for others of its kind. A red check is fixed, or shown not to be this change's. A point
-its judge insists on, fix or have the owner rule. Do what the owner says in `opinions_implement`. If the problem needs
-no change, ask the owner.
+its judge insists on, fix or have the owner rule. Do what the owner says in `opinions_implement`, and answer it in
+`reply_implement`, in the language the installation sets for its owner: what you changed for it, or why not. If the
+problem needs no change, ask the owner.
 '''
 inputs = [
   "plan_agent",
@@ -41,6 +43,7 @@ inputs = [
 ]
 outputs = [
   "code",
+  "decisions",
   "evidence",
   "acceptance",
   "answers_review",
@@ -48,4 +51,5 @@ outputs = [
   "answers_check",
   "implement_on_research",
   "implement_on_deep_research",
+  "reply_implement",
 ]
