@@ -5,6 +5,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
+import { usesFixtures } from '../mock-data';
 import * as api from '../works-api';
 import type { Act, CallPage, Changed, Items, RoundPage, ToldPage, VersionPage, WorkPage } from '../works-api';
 
@@ -63,7 +64,7 @@ export const FIXTURES: Source = {
 
 /// The source the page's address names.
 export function sourceOf(search: string): Source {
-  return new URLSearchParams(search).has('fixtures') ? FIXTURES : INTERFACE;
+  return usesFixtures(search) ? FIXTURES : INTERFACE;
 }
 
 export const SourceContext = createContext<Source>(

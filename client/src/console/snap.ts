@@ -135,10 +135,13 @@ const LIGHT = {
   /// What is new to the owner: the line inside a card's left edge, and its mark on the map.
   unseen: '#6a82fd',
   accent: '#3b5bfd',
-  /// Where a work's time went: a model's, the tools', idle.
-  model: '#4b5563',
-  tools: '#9ca3af',
-  idle: '#e5e7eb',
+  /// Where a work's time went, in the colours of the track in the item's window (console.css): a model's, the
+  /// tools', idle, and the ground they lie on with how far it lets the card through.
+  model: '#006edb',
+  tools: '#eb670f',
+  idle: '#e8ecf2',
+  track: '#818b98',
+  trackAlpha: 0x1f / 255,
   /// What joins an item to those under it: Primer's neutral muted, `#818b981f` in light and `#656c7633` in dark, as
   /// the console on `main` read it, a little lighter.
   other: '#818b98',
@@ -192,10 +195,12 @@ export function themed(): typeof LIGHT {
     violet: t.chosen,
     other: '#656c76',
     otherAlpha: 0.85 * (0x33 / 255),
-    // Where a work's time went, its greys turned over for the dark card: a model's the strongest, idle the faintest.
-    model: between(t.ink, t.card, 0.3),
-    tools: between(t.muted, t.card, 0.3),
-    idle: between(t.hair, t.card, 0.2),
+    // Where a work's time went, as the track in the item's window has it in dark.
+    model: '#0576ff',
+    tools: '#984b10',
+    idle: '#2a2d33',
+    track: '#656c76',
+    trackAlpha: 0x33 / 255,
   };
 }
 
@@ -776,7 +781,22 @@ export class SnapScene {
     const kind = { m: PALETTE.model, t: PALETTE.tools, '.': PALETTE.idle };
     const cw = barW / Math.max(1, cells.length);
     const track = new Graphics();
-    cells.forEach((c, i) => track.rect(barX + i * cw, row2 - 1, cw, 2).fill(kind[c as 'm' | 't' | '.'] ?? kind['.']));
+    // Drawn as the track in the item's window is, a little lower: a rounded ground, and on it a rounded block for
+    // each stretch of one kind.
+    const trackH = 6;
+    if (cells.length > 0) {
+      track
+        .roundRect(barX, row2 - trackH / 2, barW, trackH, trackH / 2)
+        .fill({ color: PALETTE.track, alpha: PALETTE.trackAlpha });
+      for (let i = 0; i < cells.length; ) {
+        let j = i;
+        while (j < cells.length && cells[j] === cells[i]) j += 1;
+        track
+          .roundRect(barX + i * cw, row2 - trackH / 2, Math.max(2, (j - i) * cw), trackH, 2)
+          .fill(kind[cells[i] as 'm' | 't' | '.'] ?? kind['.']);
+        i = j;
+      }
+    }
     // The second row: the work's strip, as the works page draws it, ending short of where its time went.
     this.strip(view, item.id, k, w.cells, x, row2, barX - 8, here(w, mood));
     // How long it has gone on, at the right, its colour by its age; the label is kept up as time passes.

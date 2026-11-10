@@ -1,5 +1,5 @@
 // The page: the bar with its tabs, and under it the view the address's hash names (route.ts): the console, the works
-// (works/), or the flow. The flow view is the view's line (the flow's name, its limits, the legend, and when comparing
+// (works/), the flow, the observations, the system or the settings. The flow view is the view's line (the flow's name, its limits, the legend, and when comparing
 // the switch between the flow as it is and as it was), the chart under it, and the panel docked at its right with what
 // the owner chose or what changed. The owner reviews every change to the flow here, so when there is a definition to
 // compare against, what changed is marked on the chart and listed in the panel.
@@ -9,6 +9,7 @@ import { type CSSProperties, type ReactNode, Suspense, useCallback, useEffect, u
 import { type Comparison, type Definition, type Flow, load } from './api';
 import { Chart, type Chosen, Legend } from './Chart';
 import { LazyConsolePage } from './console/lazy';
+import { Engine, useBarItems, waitsForOwner } from './Engine';
 import { type Version, changeBlock, changeCell, matrix } from './matrix';
 import { Bar, Edge, Panel, StatusLine, Switch } from './parts';
 import { type Route, hashOf, tabOf, useRoute } from './route';
@@ -70,6 +71,9 @@ export function Views({
           )}
           {route.view === 'works' && <WorksList />}
           {route.view === 'work' && <WorkView key={route.work} work={route.work} />}
+          {(route.view === 'observations' || route.view === 'system' || route.view === 'settings') && (
+            <p className="message muted">Nothing is shown here yet.</p>
+          )}
         </div>
       )}
       {flowShown && (
@@ -102,24 +106,35 @@ function FlowView({ active, loadFlow }: { active: boolean; loadFlow: () => Promi
   return <FlowPage definition={loaded.definition} comparison={loaded.comparison} active={active} />;
 }
 
-/// The views, as the bar's tabs.
+/// The views, as the bar's tabs: the console first, which the page is centred on.
 export const TABS = [
   { name: 'Console', href: '#/console' },
   { name: 'Works', href: '#/works' },
   { name: 'Flow', href: '#/flow' },
+  { name: 'Observations', href: '#/observations' },
+  { name: 'System', href: '#/system' },
+  { name: 'Settings', href: '#/settings' },
 ];
 
-/// The page round a view: the bar with the views as tabs, the one shown marked, and the switch of light and dark.
+/// The page round a view: the bar with the views as tabs, the one shown marked and the console saying how many items
+/// wait for the owner; at its right the engine's part and the switch of light and dark.
 export function Shell({ route, children }: { route: Route; children: ReactNode }) {
   const [theme, setTheme] = useTheme();
+  const bar = useBarItems();
+  const waiting = bar.items?.items.filter((i) => waitsForOwner(i.work.now)).length ?? 0;
+  const views = TABS.map((t) =>
+    t.href === '#/console' ? { ...t, count: waiting, countTitle: `${waiting} waiting for you` } : t,
+  );
   return (
     <div className="page">
       <Bar
         name="wf-agents"
-        views={TABS}
+        views={views}
         current={tabOf(route)}
         end={
-          <Switch<Theme>
+          <>
+            <Engine items={bar.items} failed={bar.failed} />
+            <Switch<Theme>
             label="Light or dark"
             value={theme}
             onChange={setTheme}
@@ -128,7 +143,8 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
               { value: 'light', name: 'Light' },
               { value: 'dark', name: 'Dark' },
             ]}
-          />
+            />
+          </>
         }
       />
       {children}

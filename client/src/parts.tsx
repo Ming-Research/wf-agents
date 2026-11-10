@@ -2,13 +2,14 @@
 // tag, a label, a list row, the docked panel, and the few signs the chart's heads use. Each is drawn by its class in
 // styles/parts.css from the tokens in styles/tokens.css.
 
-import type { PointerEvent as Press, ReactNode } from 'react';
+import { type PointerEvent as Press, type ReactNode, useEffect, useRef } from 'react';
 
 /// The bar: the page's name, the views as text tabs (the one shown marked), and at its right what belongs to the page
 /// as a whole.
 export function Bar({ name, views, current, end }: {
   name: string;
-  views: { name: string; href: string }[];
+  /// A view's `count` is how many things wait for the owner there; it is drawn beside the name while there are any.
+  views: { name: string; href: string; count?: number; countTitle?: string }[];
   current: string;
   end?: ReactNode;
 }) {
@@ -19,6 +20,11 @@ export function Bar({ name, views, current, end }: {
         {views.map((v) => (
           <a key={v.href} className="bar-tab" href={v.href} aria-current={v.href === current ? 'page' : undefined}>
             {v.name}
+            {v.count !== undefined && v.count > 0 && (
+              <span className="bar-count" title={v.countTitle}>
+                {v.count}
+              </span>
+            )}
           </a>
         ))}
       </nav>
@@ -47,6 +53,49 @@ export function Button({ primary, submit, disabled, title, onClick, children }: 
     >
       {children}
     </button>
+  );
+}
+
+/// The page's own question before a command whose effect reaches past what it names: the question as its title,
+/// what follows as its body, and two buttons, the one that goes on named by the command's verb. It is laid over the
+/// page and nothing under it can be reached until it is answered; Escape answers no.
+export function Confirm({ title, children, verb, onAnswer }: {
+  title: string;
+  children: ReactNode;
+  verb: string;
+  onAnswer: (yes: boolean) => void;
+}) {
+  const box = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = box.current;
+    if (dialog && !dialog.open) dialog.showModal();
+  }, []);
+  return (
+    <dialog
+      ref={box}
+      className="confirm"
+      aria-labelledby="confirm-title"
+      onCancel={(e) => {
+        e.preventDefault();
+        onAnswer(false);
+      }}
+      onClick={(e) => {
+        if (e.target === box.current) onAnswer(false);
+      }}
+    >
+      <div className="confirm-box">
+        <h2 id="confirm-title" className="confirm-title">
+          {title}
+        </h2>
+        <div className="confirm-body">{children}</div>
+        <div className="confirm-buttons">
+          <Button onClick={() => onAnswer(false)}>Cancel</Button>
+          <Button primary onClick={() => onAnswer(true)}>
+            {verb}
+          </Button>
+        </div>
+      </div>
+    </dialog>
   );
 }
 

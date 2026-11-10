@@ -2,6 +2,7 @@
 // when the page's address has `?fixtures`, the made-up items of `fixtures.ts`, so that the console can be looked at
 // with no server behind it.
 
+import { usesFixtures } from '../mock-data';
 import { type Act, type Changed, type Items, type WorkPage, act, loadItems, loadWork } from '../works-api';
 import { fixtureSource } from './fixtures';
 
@@ -89,7 +90,7 @@ export const interfaceSource: Source = {
 
 /// The source the page's address asks for.
 export function pageSource(): Source {
-  return new URLSearchParams(window.location.search).has('fixtures') ? fixtureSource() : interfaceSource;
+  return usesFixtures(window.location.search) ? fixtureSource() : interfaceSource;
 }
 
 /// Reads of one kind of thing, of which an answer is taken only when it is newer than the one shown: an answer to a read

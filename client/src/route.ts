@@ -1,25 +1,35 @@
-// Where the page is, by its address's hash: the console, the list of works, one work, or the flow. The hash keeps the
-// view in the address, so that the browser's back and forward, a reload and a link all show the same view, and the
-// one binary that serves the page needs no route of its own for each view.
+// Where the page is, by its address's hash: the console, the list of works, one work, the flow, the observations, the
+// system or the settings. The hash keeps the view in the address, so that the browser's back and forward, a reload and
+// a link all show the same view, and the one binary that serves the page needs no route of its own for each view.
 
 import { useEffect, useState } from 'react';
 
-export type Route = { view: 'console' } | { view: 'works' } | { view: 'work'; work: number } | { view: 'flow' };
+/// The views that are one page each, in the order of the bar's tabs.
+export const PLAIN = ['console', 'works', 'flow', 'observations', 'system', 'settings'] as const;
+export type Plain = (typeof PLAIN)[number];
 
-/// The view an address's hash names; nothing, or a hash the page does not know, is the list of works.
-export function routeOf(hash: string): Route {
-  const path = hash.replace(/^#/, '').replace(/\/+$/, '');
-  if (path === '/console') return { view: 'console' };
-  if (path === '/flow') return { view: 'flow' };
+export type Route = { view: Plain } | { view: 'work'; work: number };
+
+const pathOf = (hash: string): string => hash.replace(/^#/, '').replace(/\/+$/, '');
+
+/// The view an address's hash names, if it names one.
+function named(hash: string): Route | null {
+  const path = pathOf(hash);
+  const plain = PLAIN.find((v) => path === `/${v}`);
+  if (plain) return { view: plain };
   const work = /^\/works\/(\d+)$/.exec(path);
-  if (work) return { view: 'work', work: Number(work[1]) };
-  return { view: 'works' };
+  return work ? { view: 'work', work: Number(work[1]) } : null;
+}
+
+/// The view an address's hash names; nothing, or a hash the page does not know, is the console, which the page is
+/// centred on.
+export function routeOf(hash: string): Route {
+  return named(hash) ?? { view: 'console' };
 }
 
 /// Whether an address's hash names a view; an empty one, or one the page does not know, names none.
 export function namesView(hash: string): boolean {
-  const path = hash.replace(/^#/, '').replace(/\/+$/, '');
-  return path === '/works' || routeOf(hash).view !== 'works';
+  return named(hash) !== null;
 }
 
 /// The hash of a view.
