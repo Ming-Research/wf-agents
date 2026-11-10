@@ -148,12 +148,13 @@ fn draw_cells(rng: &mut Rng) -> Vec<Cell> {
             cell("c1", &["b0"], &["b0", "b1"]),
             cell("c2", &["b1"], &[]),
         ],
-        // A judge writing opinions for a cell that runs only while "flip" holds, the judge also reading the brief: it
-        // may run, and write over what a person wrote for that cell, while that cell is skipped.
+        // A cell run only when the one before it chose so, and a judge after it writing opinions for it and reading
+        // the brief: each write of the brief chooses again, and the judge may run, and write over what a person wrote
+        // for the cell, while the cell is skipped.
         _ => vec![
-            when_flipped(cell("c0", &[BRIEF, "op0"], &["b0"])),
-            cell("c1", &[BRIEF, "b0"], &["op0"]),
-            cell("c2", &["b0"], &["b1"]),
+            cell("c0", &[BRIEF], &[CHOICE]),
+            when_chosen(cell("c1", &[BRIEF, "op0"], &["b0"])),
+            cell("c2", &[BRIEF, "b0"], &["op0"]),
         ],
     };
     let n = 2 + rng.below(5);
