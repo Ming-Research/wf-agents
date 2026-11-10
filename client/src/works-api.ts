@@ -4,7 +4,7 @@
 // it.
 //
 // The routes:
-// - `GET  /api/v1/items`: every item with its works in brief (`Items`).
+// - `GET  /api/v1/items`: every item with its work in brief (`Items`).
 // - `POST /api/v1/items`: adds an item with its work (`NewItem`), and gives their numbers (`Added`).
 // - `GET  /api/v1/works/{work}`: one work, as it is now and step by step from its start (`WorkPage`).
 // - `GET  /api/v1/works/{work}/versions/{block}/{at}`: the content of a version of a block (`VersionPage`).
@@ -101,8 +101,8 @@ export interface Item {
   title: string;
   added: number;
   dependsOn: number[];
-  /// In the order they were added: the last is the one that goes on, or went on last.
-  works: Summary[];
+  /// The one work done for it, which was added with it.
+  work: Summary;
 }
 
 export interface Items {
@@ -282,9 +282,9 @@ export type Act =
 export interface NewItem {
   title: string;
   dependsOn: number[];
+  /// The flow its work runs on. The work is added paused, and begins no round until it is let on.
   flow: string;
-  /// Whether its work is added paused, to be let on once what was written for it has been read.
-  paused: boolean;
+  /// What is written for it as it is added, each a block people write.
   writes: { block: string; content: string; value: string | null }[];
 }
 
