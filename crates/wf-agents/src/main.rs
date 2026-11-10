@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use decide::TestName;
 use flow::{Fault, FaultKind, Source};
 
 /// Runs coding agents through a defined flow.
@@ -25,22 +24,17 @@ enum Command {
     Flow(FlowCommand),
 }
 
-// The engine has no named tests yet, so each command here takes the tests a definition declares in `flow.toml` as the
-// tests the engine has, and says so in its help: a test the definition uses is still checked to be declared, and one
-// declared to be used. When the engine has its tests, the commands take those instead.
 #[derive(Subcommand)]
 enum FlowCommand {
     /// Compiles the definition in a directory: prints each fault with its file and field and fails, or prints a line
-    /// saying what it compiled to. The engine has no named tests yet, so the tests the definition declares are taken as
-    /// the tests the engine has.
+    /// saying what it compiled to.
     Check {
         /// The definition's directory.
         dir: PathBuf,
     },
     /// Serves the owner's flow page for the definition in a directory, on the loopback address: the flow as a chart,
     /// or its faults when it does not compile, and what changed from another definition when one is given. Both
-    /// directories are read again for every request, so an edit shows when the page is loaded again. The engine has no
-    /// named tests yet, so the tests each definition declares are taken as the tests the engine has.
+    /// directories are read again for every request, so an edit shows when the page is loaded again.
     Page {
         /// The definition's directory.
         dir: PathBuf,
@@ -60,16 +54,14 @@ fn main() -> ExitCode {
     }
 }
 
-/// The named tests a definition declares, standing for the tests the engine has until it has its own. A `flow.toml`
-/// that cannot be read declares none; compiling it then says why it cannot be read.
-fn declared_tests(source: &Source) -> BTreeSet<TestName> {
-    let Ok(flow) = source.flow.parse::<toml::Table>() else {
-        return BTreeSet::new();
-    };
-    match flow.get("tests") {
-        Some(toml::Value::Table(tests)) => tests.keys().map(|t| TestName(t.clone())).collect(),
-        _ => BTreeSet::new(),
-    }
+/// The names of the sources outside a work that write its blocks, which every definition is compiled against:
+/// `dependencies`, written by the engine's driver; and `main`, `session` and `tree`, written by the host's adapters,
+/// which are not built yet.
+const SOURCES: [&str; 4] = ["dependencies", "main", "session", "tree"];
+
+/// The sources outside a work, by name, for any definition.
+fn sources(_: &Source) -> BTreeSet<String> {
+    SOURCES.into_iter().map(str::to_string).collect()
 }
 
 fn check(dir: &Path) -> ExitCode {
@@ -80,7 +72,7 @@ fn check(dir: &Path) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match flow::compile(&source, &declared_tests(&source)) {
+    match flow::compile(&source, &sources(&source)) {
         Ok(compiled) => {
             let count = |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
             println!(
@@ -130,33 +122,56 @@ fn words(what: &FaultKind) -> String {
         F::NoSuchBlock { block } => format!("the block {block} is not declared in flow.toml"),
         F::NoWriter { block } => format!("nothing writes {block}: no cell of the order, no person and nothing outside"),
         F::NoReader { block } => {
-            format!("nothing reads {block}: no cell, no condition, and neither the page nor a test shows it")
+            format!("nothing reads {block}: no cell, no condition, no test, and the page does not show it")
         }
-        F::NotAChoice { block } => format!("a condition reads {block}, which is not a choice"),
+        F::UnknownSource { block, source } => {
+            format!("{block} is written by the source {source}, which the engine does not have")
+        }
+        F::NotAChoice { block } => format!("a condition or a test reads {block}, which is not a choice"),
         F::NotAValue { block, is } => {
-            format!("a condition waits for {block} to be {is}, which is not one of its values")
+            format!("a condition or a test waits for {block} to be {is}, which is not one of its values")
         }
-        F::ConditionOnOwnOutput { block } => {
-            format!("the condition reads {block}, which the cell itself writes: the cell could never come to run")
-        }
+        F::ConditionOnOwnOutput { block } => format!(
+            "the condition reads {block}, which the cell itself writes: the cell would decide by what it writes itself \
+             whether it runs"
+        ),
         F::ConditionNotWrittenBefore { block } => {
-            format!("the condition reads {block}, which neither a cell before this one nor people write")
+            format!("the condition reads {block}, which neither a cell before this one, people nor the outside write")
         }
         F::LastHasCondition => {
             "the last cell has a condition, but a work ends when its last cell has a record, so it always runs"
                 .to_string()
         }
         F::UndeclaredTest { test } => format!("the test {test} is not declared in flow.toml"),
-        F::UnknownTest { test } => format!("the engine has no test {test}"),
+        F::ReadsEmpty { test } => format!("the test {test} reads no block"),
         F::UnusedTest { test } => format!("no cell uses the test {test}"),
+        F::TestOnOwnOutput { test, block } => format!(
+            "the test {test} reads {block}, which the cell itself writes: the cell would decide by what it writes itself \
+             whether it runs, or whether the work waits before it"
+        ),
+        F::TestNotWrittenBefore { test, block } => {
+            format!("the test {test} reads {block}, which neither a cell before this one, people nor the outside write")
+        }
         F::Flow(fault) => format!("the deciding code refuses the cells as a flow: {fault:?}"),
     }
+}
+
+/// The address the flow page is printed at: the page shows the view its address's hash names, and this server serves
+/// the flow alone.
+fn flow_page(address: SocketAddr) -> String {
+    format!("http://{address}/#/flow")
+}
+
+#[test]
+fn the_flow_page_is_printed_at_the_flow_view() {
+    let address = SocketAddr::from((Ipv4Addr::LOCALHOST, 7490));
+    assert_eq!(flow_page(address), "http://127.0.0.1:7490/#/flow");
 }
 
 fn page(dir: PathBuf, against: Option<PathBuf>, port: u16) -> ExitCode {
     let shown = dir.display().to_string();
     let compared = against.as_ref().map(|a| a.display().to_string());
-    let flows = web::Flows::dirs(dir, against, Box::new(declared_tests));
+    let flows = web::Flows::dirs(dir, against, Box::new(sources));
     let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(runtime) => runtime,
         Err(e) => {
@@ -174,7 +189,7 @@ fn page(dir: PathBuf, against: Option<PathBuf>, port: u16) -> ExitCode {
             }
         };
         let against = compared.map(|c| format!(", compared against {c}")).unwrap_or_default();
-        println!("The flow page of {shown}{against} is at http://{address}/");
+        println!("The flow page of {shown}{against} is at {}", flow_page(address));
         match web::serve(listener, flows).await {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {

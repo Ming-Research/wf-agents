@@ -27,8 +27,9 @@ CREATE TABLE depends (
     CHECK (on_item < item)
 );
 
--- A work done for an item, on a flow. Its number is given by the store, counting from one. `flow` is the flow's name
--- only: which version of the flow the work ran on is not kept yet.
+-- The work done for an item, on a flow: an item is added together with its one work. Its number is given by the
+-- store, counting from one. `flow` is the flow's name only: which version of the flow the work ran on is not kept
+-- yet.
 CREATE TABLE works (
     number INTEGER PRIMARY KEY,
     item INTEGER NOT NULL REFERENCES items (number),

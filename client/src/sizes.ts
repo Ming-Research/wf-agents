@@ -4,11 +4,17 @@
 
 import { useCallback, useState } from 'react';
 
+/// The docked panel's width at first, and the least and most it is dragged to; one width for the panel of every view.
+export const PANEL = { first: 360, min: 280, max: 720 };
+
 /// The key under which the page keeps a width.
 export const WIDTH_KEYS = {
   panel: 'wf-agents.panel-width',
   names: 'wf-agents.names-width',
   cells: 'wf-agents.cell-widths',
+  /// The history of a work: its column of times and words, and each cell's column.
+  steps: 'wf-agents.steps-width',
+  historyCells: 'wf-agents.history-cell-widths',
 } as const;
 
 function read(key: string): string | null {

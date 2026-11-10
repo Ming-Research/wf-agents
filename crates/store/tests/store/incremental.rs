@@ -39,8 +39,9 @@ fn two_works_are_kept_apart() {
     history(&mut d);
     let mut store = Store::in_memory().expect("the store opens");
     let first = first_work(&mut store);
-    let item = store.add_item("another", &[], Time(START)).expect("the item is added");
-    let second = store.add_work(item, "judged", Time(START)).expect("the work is added");
+    let (_, second) = store
+        .add("another", &[], "judged", Time(START), &Work::default())
+        .expect("the item is added");
     store.save(first, &d.work).expect("the work is saved");
     assert_eq!(store.load(second), Ok(Work::default()));
     let mut short = Driver::new();

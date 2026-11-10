@@ -1,7 +1,7 @@
-// What the page's tests build definitions from: cells written in short, and the flow they make as the interface would
+// What the page's tests and the works page's fixtures build definitions from: cells written in short, and the flow they make as the interface would
 // give it, with who writes and reads each block worked out as the compiler does.
 
-import type { Block, Cell, Flow, Limits } from './api';
+import type { Block, Cell, Flow, Limits, Test, TestKind } from './api';
 
 const LIMITS: Limits = { runs: 3, returns: 2, calls: 40 };
 
@@ -21,11 +21,19 @@ export function cell(id: string, fields: Partial<Cell> = {}): Cell {
   };
 }
 
-/// What a block is besides who of the cells writes and reads it.
-export type Declared = Partial<{ values: string[]; people: boolean; outside: boolean; shown: boolean }>;
+/// A named test of these blocks.
+export function test(name: string, words: string, kind: TestKind, reads: string[], is = 'yes'): Test {
+  return { name, words, kind, reads, is };
+}
 
-/// The flow of these cells in this order, with these blocks.
+/// What a block is besides who of the cells and the tests writes and reads it; `outside` names the source outside
+/// the work that writes it.
+export type Declared = Partial<{ values: string[]; people: boolean; outside: string; shown: boolean }>;
+
+/// The flow of these cells in this order, with these blocks, and the named tests the cells use.
 export function flowOf(cells: Cell[], blocks: Record<string, Declared>, name = 'small'): Flow {
+  const used = cells.flatMap((c) => [...(c.condition?.on === 'test' ? [c.condition.test] : []), ...c.preconditions]);
+  const tests = [...new Map(used.map((t) => [t.name, t])).values()].sort((a, b) => (a.name < b.name ? -1 : 1));
   const all: Block[] = Object.keys(blocks)
     .sort()
     .map((b) => ({
@@ -34,11 +42,12 @@ export function flowOf(cells: Cell[], blocks: Record<string, Declared>, name = '
       writtenBy: {
         cells: cells.filter((c) => c.outputs.includes(b)).map((c) => c.id),
         people: blocks[b].people ?? false,
-        outside: blocks[b].outside ?? false,
+        outside: blocks[b].outside ?? null,
       },
       readBy: {
         cells: cells.filter((c) => c.inputs.includes(b)).map((c) => c.id),
         conditions: cells.filter((c) => c.condition?.on === 'block' && c.condition.block === b).map((c) => c.id),
+        tests: tests.filter((t) => t.reads.includes(b)).map((t) => t.name),
         shown: blocks[b].shown ?? false,
       },
     }));
@@ -46,7 +55,7 @@ export function flowOf(cells: Cell[], blocks: Record<string, Declared>, name = '
     name: l,
     cells: cells.filter((c) => c.line === l).map((c) => c.id),
   }));
-  return { name, limits: LIMITS, lines, tests: [], cells, blocks: all };
+  return { name, limits: LIMITS, lines, tests, cells, blocks: all };
 }
 
 /// The small flow of `crates/web/tests/flows/small`: a plan a review can send back, a design when the review asks for
@@ -64,8 +73,8 @@ export function small(): Flow {
       }),
       cell('answer', {
         title: 'Answer comments',
-        condition: { on: 'test', test: 'has_comment', words: 'The item has a comment' },
-        preconditions: [{ name: 'plan_confirmed', words: 'The owner confirmed the plan' }],
+        condition: { on: 'test', test: test('has_comment', 'The item has a comment', 'any', ['commented']) },
+        preconditions: [test('plan_confirmed', 'The owner confirmed the plan', 'all', ['confirmed'])],
         inputs: ['comments', 'plan'],
         outputs: ['reply'],
         limits: { ...LIMITS, runs: 5 },
@@ -75,7 +84,7 @@ export function small(): Flow {
         title: 'Merge',
         kind: 'engine',
         line: null,
-        preconditions: [{ name: 'may_merge', words: 'The work may merge' }],
+        preconditions: [test('may_merge', 'The work may merge', 'none', ['ci'], 'red')],
         inputs: ['ci'],
       }),
     ],
@@ -87,8 +96,10 @@ export function small(): Flow {
       design: {},
       comments: { people: true },
       reply: { shown: true },
-      main: { outside: true },
+      main: { outside: 'main' },
       ci: { values: ['green', 'red'] },
+      commented: { values: ['yes', 'no'], people: true },
+      confirmed: { values: ['yes', 'no'], people: true },
     },
   );
 }

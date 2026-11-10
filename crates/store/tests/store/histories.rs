@@ -7,7 +7,7 @@
 //! three calls or asking for nothing; a call has its result (one for a person only while people act); a call to be
 //! withdrawn is said to be; a round to be stopped ends. A person's act is a write by a person or the outside, with a
 //! value or without, one the loop refuses among them; letting a cell go on; a pause or a resume; the owner's word at
-//! the merge coming out the other way; or, in one act in fifty, a cancel. After every step the work is saved, and with
+//! the merge, a choice the merge's named test reads, written the other way; or, in one act in fifty, a cancel. After every step the work is saved, and with
 //! a chance of three in ten it is dropped and loaded back.
 //!
 //! A failing case prints its seed and the steps it took; `one_history(seed, ..)` replays it.
@@ -68,7 +68,8 @@ struct Kept {
 
 struct History {
     flow: Compiled,
-    tests: Named,
+    /// The owner's word at the merge, as last written: yes, or no where it was never written.
+    go: bool,
     work: Work,
     rng: Rng,
     clock: u64,
@@ -89,7 +90,7 @@ impl History {
         });
         Self {
             flow: judged(),
-            tests: waiting(),
+            go: false,
             work: Work::default(),
             rng: Rng::new(seed),
             clock: START,
@@ -104,7 +105,7 @@ impl History {
         self.log.push(format!("event: {event:?}"));
         self.clock += 1000;
         let now = Time(self.clock);
-        match handle(&self.flow, &self.tests, &mut self.work, now, event) {
+        match handle(&self.flow, &mut self.work, now, event) {
             Ok(effects) => self.log.push(format!("effects: {effects:?}")),
             Err(why) => self.log.push(format!("refused: {why:?}")),
         }
@@ -218,12 +219,9 @@ impl History {
                 }
             }
             _ => {
-                let flipped = match self.tests.0.get(&TestName::from("may_merge")) {
-                    Some(Outcome::Holds) => Outcome::Waits { who: Who::Owner },
-                    _ => Outcome::Holds,
-                };
-                self.tests.0.insert("may_merge".into(), flipped);
-                Event::Look
+                self.go = !self.go;
+                let word = if self.go { "yes" } else { "no" };
+                wrote("go", Outsider::Person, true, Some(word.to_string()))
             }
         };
         self.take(event);

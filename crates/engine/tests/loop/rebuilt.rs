@@ -24,7 +24,6 @@ fn a_work_rebuilt_from_its_parts_goes_on_exactly_as_the_original() {
     w.done(calls[0].0);
     let mut copy = W {
         flow: judged(),
-        tests: Named(w.tests.0.clone()),
         work: rebuilt(&w.work),
         clock: w.clock,
     };

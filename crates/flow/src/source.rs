@@ -61,9 +61,9 @@ pub struct FlowFile {
     /// Every block of a work's state.
     #[serde(default)]
     pub blocks: BTreeMap<String, BlockFile>,
-    /// The named tests the cells use, each with the words shown for it.
+    /// The named tests the cells use, by name.
     #[serde(default)]
-    pub tests: BTreeMap<String, String>,
+    pub tests: BTreeMap<String, TestFile>,
 }
 
 /// The limits as written. They are read as any whole number so that one that is not positive is a fault of the
@@ -93,12 +93,51 @@ pub struct BlockFile {
     /// People write the block.
     #[serde(default)]
     pub people: bool,
-    /// The outside writes the block.
-    #[serde(default)]
-    pub outside: bool,
-    /// The owner's page or a named test reads the block, so it needs no cell to read it.
+    /// The source outside the work that writes the block, where one does: a name of a source the engine has.
+    pub outside: Option<String>,
+    /// The owner's page reads the block, so it needs no other reader.
     #[serde(default)]
     pub shown: bool,
+}
+
+/// A named test as written: a test of the values of blocks of the work itself.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TestFile {
+    /// The words shown for the test.
+    pub says: String,
+    /// How the blocks it reads make it hold.
+    pub kind: TestKind,
+    /// The blocks it reads, each a choice.
+    pub reads: Vec<String>,
+    /// The value it looks for in each block it reads.
+    pub is: String,
+}
+
+/// How the blocks a named test reads make it hold. Each kind is a function of whether each block read has the value
+/// the test looks for now (see [`TestKind::holds`]); a block never written has no value. A new kind is a new function.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TestKind {
+    /// Every block read has the value.
+    All,
+    /// At least one block read has the value.
+    Any,
+    /// No block read has the value.
+    None,
+}
+
+impl TestKind {
+    /// Whether a test of this kind holds, given, for each block it reads, whether the block has the value the test
+    /// looks for now.
+    pub fn holds(self, has: impl IntoIterator<Item = bool>) -> bool {
+        let mut has = has.into_iter();
+        match self {
+            Self::All => has.all(|h| h),
+            Self::Any => has.any(|h| h),
+            Self::None => !has.any(|h| h),
+        }
+    }
 }
 
 /// The file of one cell.
