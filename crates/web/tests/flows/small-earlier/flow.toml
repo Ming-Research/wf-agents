@@ -1,0 +1,34 @@
+# The earlier version of ../small, which the page compares that one against.
+name = "small"
+order = ["plan", "judge", "design", "check", "merge"]
+
+[limits]
+runs = 2
+returns = 2
+calls = 40
+
+[lines.engineer]
+[lines.review]
+
+[blocks.request]
+people = true
+
+[blocks.plan]
+
+[blocks.opinions]
+people = true
+
+[blocks.needs_design]
+values = ["yes", "no"]
+
+[blocks.design]
+shown = true
+
+[blocks.main]
+outside = true
+
+[blocks.ci]
+values = ["green", "red"]
+
+[tests]
+may_merge = "The CI is green"

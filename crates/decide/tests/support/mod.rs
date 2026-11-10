@@ -4,8 +4,8 @@
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoned, CallId, Called, Cell, CellId, Decision, Done, Finished, Flow, LetGo, Outcome, Outsider, Pause, Records,
-    Returned, Round, RunId, Seq, Stale, Started, TestName, Tests, Waited, Who, Write, Written, decide,
+    Abandoned, Abandoning, CallId, Called, Cell, CellId, Decision, Done, Finished, Flow, LetGo, Outcome, Outsider,
+    Pause, Records, Returned, Round, RunId, Seq, Started, TestName, Tests, Waited, Who, Write, Written, decide,
 };
 
 /// The named tests, each holding unless the test of the walk set it otherwise.
@@ -222,7 +222,7 @@ impl World {
     }
 
     /// Abandons the run the walk says to abandon, and says why; any other decision is a fault of the test.
-    pub fn abandon(&mut self) -> Stale {
+    pub fn abandon(&mut self) -> Abandoning {
         let Decision::Abandon { run, because, .. } = self.decide() else {
             panic!("nothing to abandon: {:?}", self.decide())
         };

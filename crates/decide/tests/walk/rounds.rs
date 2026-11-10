@@ -94,17 +94,13 @@ fn an_answered_call_does_not_make_its_run_go_on_while_a_round_of_another_run_is_
 }
 
 #[test]
-fn a_paused_work_begins_no_round_while_a_round_under_way_is_still_busy_and_resuming_lets_it_on() {
+fn a_paused_work_whose_next_step_is_to_run_a_cell_is_paused_and_resuming_runs_it() {
     let mut w = World::with_gate(vec![cell("a", &[], &[]), cell("b", &[], &[])]);
-    let run = w.start("a");
     w.pause();
-    assert_eq!(w.decide(), busy("a", run));
-    w.returns("a");
     assert_eq!(w.decide(), Decision::Paused);
     w.resume();
-    assert_eq!(w.decide(), go_on("a", run));
-    w.go_on("a");
-    w.finish("a", &[]);
+    assert_eq!(w.decide(), runs("a", vec![NO_RECORD], &[]));
+    w.run("a", &[]);
     w.pause();
     assert_eq!(w.decide(), Decision::Paused);
     w.resume();
@@ -112,12 +108,40 @@ fn a_paused_work_begins_no_round_while_a_round_under_way_is_still_busy_and_resum
 }
 
 #[test]
-fn a_paused_work_with_a_stale_run_at_rest_is_paused() {
+fn a_pause_holds_back_no_decision_about_a_run_that_has_started() {
+    let mut w = World::with_gate(vec![cell("a", &[], &[]), cell("b", &[], &[])]);
+    let run = w.start("a");
+    w.pause();
+    assert_eq!(w.decide(), busy("a", run));
+    w.returns("a");
+    // Whether the run's next round may begin is the run's to say: the walk says it goes on.
+    assert_eq!(w.decide(), go_on("a", run));
+}
+
+#[test]
+fn a_paused_work_with_a_stale_run_at_rest_abandons_it() {
     let (mut w, ..) = planned();
     w.person_writes("background");
-    w.start("research");
+    let research = w.start("research");
     w.returns("research");
     w.person_writes("background");
     w.pause();
+    assert_eq!(w.decide(), abandon("research", research, outdated("background")));
+    w.abandon();
+    // The research would run again, and the pause holds it back.
     assert_eq!(w.decide(), Decision::Paused);
+}
+
+#[test]
+fn a_paused_work_that_waits_says_what_it_waits_for() {
+    let (mut w, ..) = planned();
+    w.pause();
+    assert_eq!(w.decide(), resting());
+    w.resume();
+    w.person_writes("background");
+    w.start("research");
+    let call = w.calls("research", Some(Who::Architect));
+    w.pause();
+    let on = Some(Who::Architect);
+    assert_eq!(w.decide(), wait("research", vec![Waited::Call { call, on }]));
 }

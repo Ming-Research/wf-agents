@@ -1,0 +1,137 @@
+/* The page's tokens: every colour, size and font the page uses, named once here with what it is for. The rest of the
+   page's styles use these names and write no raw value of their own. The values follow the console's graph of items
+   (look.md names which of its values each comes from), so that the views sit together as one page. */
+
+:root {
+  /* Type: one family for words, one for names and values; four sizes, two weights. */
+  --font: -apple-system, 'SF Pro Text', 'Inter', system-ui, sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  --size-label: 11px;
+  --size-small: 12px;
+  --size-body: 13px;
+  --size-title: 15px;
+  --line-height: 1.4;
+  --weight: 400;
+  --weight-strong: 600;
+  --label-spacing: 0.04em;
+
+  /* Space: a 4px grid. */
+  --space-2: 2px;
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+
+  /* Heights: the bar, the view's line under it, a row, a control, a tag. */
+  --bar: 36px;
+  --view-line: 28px;
+  --row: 26px;
+  --control: 24px;
+  --tag: 16px;
+
+  /* Corners on tags, buttons and inputs; panels and frames have none. Lines are hairlines. */
+  --corner: 3px;
+  --hairline: 1px;
+  --focus: 2px;
+  --hover-time: 100ms;
+
+  /* The docked panel's width until the owner drags it, and the height of the handle on its edge. */
+  --panel: 360px;
+  --chart-tab: 72px;
+
+  /* The chart's own sizes: the mark and the room its row line stops short of, the way back's line and arrow. The
+     columns' widths are worked out in Chart.tsx (WIDTHS), where the owner's drags are kept. */
+  --chart-mark: 16px;
+  --chart-mark-half: 8px;
+  --chart-line: 1px;
+  --chart-back: 2px;
+  --chart-arrow: 4px;
+  --chart-arrow-length: 6px;
+  /* How far a block's row stays under the frame's top when it is brought into view: the cells' heads are over it. */
+  --chart-head-room: 140px;
+
+  /* Colour, light. The ground the page is laid on, and the white of what is read on it, as the console's paper. */
+  --ground: #f6f7f9;
+  --card: #ffffff;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --line: #e3e6ea;
+  /* What is chosen, a link and the focus: the console's purple. Its tint fills a row or a column chosen. */
+  --accent: #8b5cf6;
+  --accent-text: #7c4ddb;
+  --accent-tint: #f1ecfe;
+  /* What a hover adds to the background under it: one step. */
+  --step: rgb(0 0 0 / 4%);
+
+  /* The meanings, and only these: put in or done; waits for the owner or changed; running; taken out or failed; the way
+     back. A mark or a tag takes the colour itself; small text takes its text step, a darker step where the colour does
+     not read on white; a fill takes its tint. */
+  --green: #2f9e6e;
+  --orange: #f5840c;
+  --blue: #1a9fff;
+  --red: #e5484d;
+  /* The way back: the purple the flow chart has drawn it in, Primer's done colour. */
+  --violet: #8250df;
+  --green-text: #23795a;
+  --orange-text: #b45309;
+  --red-text: #c53030;
+  --on-colour: #ffffff;
+
+  color-scheme: light;
+}
+
+/* Colour, dark: the system's unless the bar's switch says light, or the switch's. The console has no dark ground of its
+   own; these keep its relations (a card a step lighter than the ground, the colours lifted to read on it). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --ground: #0f1012;
+    --card: #17181b;
+    --text: #e6e7ea;
+    --muted: #8b8f98;
+    --line: #26272b;
+    --accent: #a78bfa;
+    --accent-text: #a78bfa;
+    --accent-tint: #241d38;
+    --step: rgb(255 255 255 / 5%);
+    --green: #45c08a;
+    --orange: #ff9a3c;
+    --blue: #4fb4ff;
+    --red: #ff6b70;
+    --violet: #ab7df8;
+    --green-text: #45c08a;
+    --orange-text: #ff9a3c;
+    --red-text: #ff6b70;
+    --on-colour: #0f1012;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --ground: #0f1012;
+  --card: #17181b;
+  --text: #e6e7ea;
+  --muted: #8b8f98;
+  --line: #26272b;
+  --accent: #a78bfa;
+  --accent-text: #a78bfa;
+  --accent-tint: #241d38;
+  --step: rgb(255 255 255 / 5%);
+  --green: #45c08a;
+  --orange: #ff9a3c;
+  --blue: #4fb4ff;
+  --red: #ff6b70;
+  --violet: #ab7df8;
+  --green-text: #45c08a;
+  --orange-text: #ff9a3c;
+  --red-text: #ff6b70;
+  --on-colour: #0f1012;
+  color-scheme: dark;
+}
+
+/* Tints: a colour at about a tenth over the card, for a fill that says the colour's meaning. Worked out from the
+   colours above, so that they follow the theme. */
+:root {
+  --green-tint: color-mix(in srgb, var(--green) 10%, var(--card));
+  --orange-tint: color-mix(in srgb, var(--orange) 10%, var(--card));
+  --red-tint: color-mix(in srgb, var(--red) 10%, var(--card));
+}

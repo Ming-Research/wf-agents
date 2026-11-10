@@ -10,6 +10,8 @@
 
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::flow::BlockId;
 use crate::records::{CallId, Write};
 
@@ -71,6 +73,8 @@ pub enum Step {
     Begin,
     /// A round of the run is under way: nothing is decided until it ends.
     UnderWay,
+    /// The run would have its next round, and its work is paused: no round begins until the work is let on.
+    Held,
     /// The calls the last round asked for are made.
     Make,
     /// The run rests at these calls, which have no result yet.
@@ -86,7 +90,7 @@ pub enum Step {
 }
 
 /// A limit a run has reached.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Limit {
     /// This many returns were sent back, and what the last round returned does not meet what the flow requires
     /// either.
@@ -96,7 +100,7 @@ pub enum Limit {
 }
 
 /// Why what came back does not meet what the flow requires.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Unmet {
     /// The round asked for calls, and for none: it neither asks for anything nor hands anything in.
     AsksNothing,
@@ -112,10 +116,10 @@ pub enum Unmet {
     NotAChoice { block: BlockId },
 }
 
-/// What the run does next.
-pub fn next(log: &Log, requires: Requires) -> Step {
+/// What the run does next. A pause of its work lets no round begin: where the run would have one, it is held.
+pub fn next(log: &Log, requires: Requires, paused: bool) -> Step {
     let Some(last) = log.rounds.last() else {
-        return Step::Begin;
+        return held(Step::Begin, paused);
     };
     let Some(returned) = &last.returned else {
         return Step::UnderWay;
@@ -138,7 +142,7 @@ pub fn next(log: &Log, requires: Requires) -> Step {
         Return::Asked { made, .. } => {
             let open: Vec<CallId> = made.iter().filter(|c| !c.done).map(|c| c.call).collect();
             if open.is_empty() {
-                return Step::Resume;
+                return held(Step::Resume, paused);
             }
             return Step::Rest { calls: open };
         }
@@ -156,7 +160,12 @@ pub fn next(log: &Log, requires: Requires) -> Step {
     if !let_on && sent_back >= requires.returns {
         return Step::AtLimit(Limit::Returns { sent_back });
     }
-    Step::SendBack { unmet }
+    held(Step::SendBack { unmet }, paused)
+}
+
+/// The step, or its being held where the work is paused: the step begins a round.
+fn held(step: Step, paused: bool) -> Step {
+    if paused { Step::Held } else { step }
 }
 
 /// How many calls were made for the round.

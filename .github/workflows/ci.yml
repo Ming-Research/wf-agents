@@ -1,7 +1,8 @@
 name: ci
 
-# Every check of the code: the format, clippy with warnings as errors, and the tests. It runs on each pull request
-# into `next` and on each push to `next`, on GitHub's machines from a clean start.
+# Every check of the code: the page's types, lint, tests and build, then the Rust format, clippy with warnings as
+# errors, and the tests. It runs on each pull request into `next` and on each push to `next`, on GitHub's machines from
+# a clean start.
 on:
   pull_request:
     branches:
@@ -19,6 +20,34 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/next' }}
 
 jobs:
+  # The owner's page (client/): checked and tested on its own, so that what is wrong with it shows without waiting for
+  # the Rust build.
+  page:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No later step pushes, so the token is not left in the checkout.
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.21.0
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci
+      - name: Type-check the page
+        run: npm run typecheck
+      - name: Lint the page
+        run: npm run lint
+      - name: Test the page
+        run: npm test
+      - name: Build the page
+        run: npm run build
+
   check:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -35,6 +64,17 @@ jobs:
       # Formatting first: it needs no build, so a misformatted push fails in seconds.
       - name: Format
         run: cargo fmt --all --check
+      # The page is built into the binary (crates/web/build.rs), so it is built before anything compiles that crate.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.21.0
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: Build the page
+        working-directory: client
+        run: |
+          npm ci
+          npm run build
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test

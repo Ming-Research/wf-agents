@@ -1,0 +1,4 @@
+title = "Merge"
+kind = "engine"
+requires = ["may_merge"]
+inputs = ["ci"]

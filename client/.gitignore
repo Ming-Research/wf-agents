@@ -1,0 +1,3 @@
+# What npm installs and what the build writes, which crates/web builds into the binary.
+node_modules/
+dist/

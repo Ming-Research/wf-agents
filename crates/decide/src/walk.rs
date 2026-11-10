@@ -24,9 +24,10 @@ pub enum Decision {
     Fault(RecordFault),
     /// The work has ended.
     Ended(End),
-    /// A round of this run is under way: nothing is decided until it ends.
+    /// A round of this run is under way: nothing is decided until it ends, unless the work is cancelled.
     Busy { cell: CellId, run: RunId },
-    /// The work is paused: nothing starts until it is let on.
+    /// The work is paused, and what it would do next is run a cell: no run starts until it is let on. What does not
+    /// begin a round is decided as if the work were not paused: a run at rest finishes, rests or is abandoned.
     Paused,
     /// The cell runs: why, and the version of each block it reads or may write that the run starts from. The engine
     /// records the run as started with exactly these.
@@ -35,10 +36,16 @@ pub enum Decision {
         because: Vec<Cause>,
         basis: BTreeMap<BlockId, Option<Seq>>,
     },
-    /// The run, which is at rest and waits for nothing, has its next round.
+    /// The run, which is at rest and waits for nothing, goes on: what its last round returned is taken up, and it
+    /// has its next round, which it holds while the work is paused.
     GoOn { cell: CellId, run: RunId },
-    /// The run, which is at rest, is stale: it is abandoned, and the walk is taken again.
-    Abandon { cell: CellId, run: RunId, because: Stale },
+    /// The run is abandoned, and the walk is taken again: it is at rest and stale, or its work was cancelled, when
+    /// it may have a round under way, which is stopped.
+    Abandon {
+        cell: CellId,
+        run: RunId,
+        because: Abandoning,
+    },
     /// The work waits at this cell, for each of these.
     Wait { at: CellId, on: Vec<Waited> },
 }
@@ -52,9 +59,11 @@ pub enum End {
     Cancelled,
 }
 
-/// Why a run at rest is stale.
+/// Why a run is abandoned.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Stale {
+pub enum Abandoning {
+    /// Its work was cancelled.
+    Cancelled,
     /// Its cell is skipped now, or is no longer in the flow.
     NoLongerApplies,
     /// This block has changed in meaning since the run started from it.
@@ -84,7 +93,15 @@ pub fn decide(flow: &Flow, records: &Records, tests: &dyn Tests) -> Decision {
         return Decision::Ended(End::Merged);
     }
     if records.cancelled.is_some() {
-        return Decision::Ended(End::Cancelled);
+        // Nothing of a cancelled work goes on: each run that is still open is abandoned, whatever it is doing.
+        return match walk.runs.values().find(|r| r.open()) {
+            Some(run) => Decision::Abandon {
+                cell: run.started.cell.clone(),
+                run: run.started.run,
+                because: Abandoning::Cancelled,
+            },
+            None => Decision::Ended(End::Cancelled),
+        };
     }
     // One round of a work at a time.
     if let Some(run) = walk.runs.values().find(|r| r.under_way()) {
@@ -92,9 +109,6 @@ pub fn decide(flow: &Flow, records: &Records, tests: &dyn Tests) -> Decision {
             cell: run.started.cell.clone(),
             run: run.started.run,
         };
-    }
-    if walk.paused() {
-        return Decision::Paused;
     }
     // A stale run is abandoned before anything else: its next round, or the answer to its call, would be for nothing.
     for run in walk.runs.values().filter(|r| r.at_rest()) {
@@ -140,6 +154,11 @@ pub fn decide(flow: &Flow, records: &Records, tests: &dyn Tests) -> Decision {
         if !on.is_empty() {
             return wait(on);
         }
+        // A pause lets no round begin, and so no run: everything before this is decided whether or not the work is
+        // paused.
+        if paused(records) {
+            return Decision::Paused;
+        }
         return Decision::Run {
             cell: cell.id.clone(),
             because,
@@ -147,6 +166,19 @@ pub fn decide(flow: &Flow, records: &Records, tests: &dyn Tests) -> Decision {
         };
     }
     unreachable!("the last cell has no condition, and with no record it runs, goes on or holds the work")
+}
+
+/// Why the run, if it is at rest, is stale; `None` where it is not, or is not at rest. What a round handed in is taken
+/// as the round ends only of a run that is not stale.
+pub fn stale(flow: &Flow, records: &Records, tests: &dyn Tests, run: RunId) -> Option<Abandoning> {
+    let walk = Walk::new(flow, records, tests);
+    let run = walk.runs.get(&run).filter(|r| r.at_rest())?;
+    walk.stale(run)
+}
+
+/// Whether the work is paused: the latest of its pauses and lettings on is a pause.
+pub fn paused(records: &Records) -> bool {
+    (records.pauses.iter()).max_by_key(|p| p.at).is_some_and(|p| p.paused)
 }
 
 /// Whether the records can be those of a work.
@@ -217,8 +249,8 @@ fn check(records: &Records) -> Result<(), RecordFault> {
 }
 
 /// A run, with what the records say became of it.
-struct RunView<'a> {
-    started: &'a Started,
+pub(crate) struct RunView<'a> {
+    pub(crate) started: &'a Started,
     finished: Option<&'a Finished>,
     abandoned: bool,
     /// How many of its rounds began, and how many ended.
@@ -228,12 +260,12 @@ struct RunView<'a> {
 
 impl RunView<'_> {
     /// Whether the run has neither finished nor been abandoned.
-    fn open(&self) -> bool {
+    pub(crate) fn open(&self) -> bool {
         self.finished.is_none() && !self.abandoned
     }
 
     /// Whether a round of the run is under way.
-    fn under_way(&self) -> bool {
+    pub(crate) fn under_way(&self) -> bool {
         self.open() && self.began > self.ended
     }
 
@@ -244,15 +276,17 @@ impl RunView<'_> {
 }
 
 /// A version of a block: the write that made it.
-struct Version<'a> {
+pub(crate) struct Version<'a> {
     /// The place of the entry that wrote it, which names it.
-    at: Seq,
+    pub(crate) at: Seq,
     /// The run that wrote it; `None` for a person or the outside.
-    by: Option<RunId>,
+    pub(crate) by: Option<RunId>,
+    /// Which of a person and the outside wrote it, where no run did.
+    pub(crate) outsider: Option<Outsider>,
     /// The version at which the meaning it has last changed.
-    meaning: Seq,
+    pub(crate) meaning: Seq,
     /// The block's value, where it has one.
-    value: Option<&'a str>,
+    pub(crate) value: Option<&'a str>,
 }
 
 /// A write of a block, by a run as it finished or by a person or the outside.
@@ -260,22 +294,23 @@ struct Written<'a> {
     block: &'a BlockId,
     at: Seq,
     by: Option<RunId>,
+    outsider: Option<Outsider>,
     matters: bool,
     value: Option<&'a str>,
 }
 
 /// One walk of a work: the flow, the records, and what is worked out of them once.
-struct Walk<'a> {
+pub(crate) struct Walk<'a> {
     flow: &'a Flow,
     records: &'a Records,
     tests: &'a dyn Tests,
-    runs: BTreeMap<RunId, RunView<'a>>,
+    pub(crate) runs: BTreeMap<RunId, RunView<'a>>,
     /// The versions of each block, in the order they were written.
-    versions: BTreeMap<&'a BlockId, Vec<Version<'a>>>,
+    pub(crate) versions: BTreeMap<&'a BlockId, Vec<Version<'a>>>,
 }
 
 impl<'a> Walk<'a> {
-    fn new(flow: &'a Flow, records: &'a Records, tests: &'a dyn Tests) -> Self {
+    pub(crate) fn new(flow: &'a Flow, records: &'a Records, tests: &'a dyn Tests) -> Self {
         let mut runs: BTreeMap<RunId, RunView<'a>> = BTreeMap::new();
         for started in &records.started {
             let view = RunView {
@@ -298,7 +333,7 @@ impl<'a> Walk<'a> {
     }
 
     /// Whether the cell's condition is met: with none it always is.
-    fn applies(&self, cell: &Cell) -> bool {
+    pub(crate) fn applies(&self, cell: &Cell) -> bool {
         match &cell.applies {
             None => true,
             Some(Condition::Test(name)) => self.tests.test(name) == Outcome::Holds,
@@ -307,7 +342,7 @@ impl<'a> Walk<'a> {
     }
 
     /// The cell's record: its latest finished run.
-    fn record(&self, cell: &CellId) -> Option<&RunView<'a>> {
+    pub(crate) fn record(&self, cell: &CellId) -> Option<&RunView<'a>> {
         (self.runs.values())
             .filter(|r| &r.started.cell == cell)
             .filter_map(|r| r.finished.map(|f| (f.at, r)))
@@ -315,36 +350,29 @@ impl<'a> Walk<'a> {
             .map(|(_, r)| r)
     }
 
-    /// Whether the work is paused.
-    fn paused(&self) -> bool {
-        (self.records.pauses.iter())
-            .max_by_key(|p| p.at)
-            .is_some_and(|p| p.paused)
-    }
-
     fn versions(&self, block: &BlockId) -> &[Version<'a>] {
         self.versions.get(block).map_or(&[], Vec::as_slice)
     }
 
     /// The current version of the block: the latest written.
-    fn current(&self, block: &BlockId) -> Option<&Version<'a>> {
+    pub(crate) fn current(&self, block: &BlockId) -> Option<&Version<'a>> {
         self.versions(block).last()
     }
 
     /// The meaning the block has now.
-    fn meaning_now(&self, block: &BlockId) -> Option<Seq> {
+    pub(crate) fn meaning_now(&self, block: &BlockId) -> Option<Seq> {
         self.current(block).map(|v| v.meaning)
     }
 
     /// The meaning of the version of the block written at this place.
-    fn meaning_of(&self, block: &BlockId, version: Option<Seq>) -> Option<Seq> {
+    pub(crate) fn meaning_of(&self, block: &BlockId, version: Option<Seq>) -> Option<Seq> {
         let at = version?;
         self.versions(block).iter().find(|v| v.at == at).map(|v| v.meaning)
     }
 
     /// The version of the block the run knows: the one the run itself wrote, if it did, and otherwise the one it
     /// started from.
-    fn known(&self, run: &RunView<'a>, block: &BlockId) -> Option<Seq> {
+    pub(crate) fn known(&self, run: &RunView<'a>, block: &BlockId) -> Option<Seq> {
         match run.finished {
             Some(f) if f.writes.iter().any(|w| &w.block == block) => Some(f.at),
             _ => run.started.basis.get(block).copied().flatten(),
@@ -359,14 +387,14 @@ impl<'a> Walk<'a> {
     }
 
     /// Why the run at rest is stale, if it is.
-    fn stale(&self, run: &RunView<'a>) -> Option<Stale> {
+    fn stale(&self, run: &RunView<'a>) -> Option<Abandoning> {
         let cell = (self.flow.place(&run.started.cell)).map(|i| &self.flow.cells()[i]);
         if !cell.is_some_and(|c| self.applies(c)) {
-            return Some(Stale::NoLongerApplies);
+            return Some(Abandoning::NoLongerApplies);
         }
         (run.started.basis.iter())
             .find(|(block, version)| self.meaning_of(block, **version) != self.meaning_now(block))
-            .map(|(block, _)| Stale::Outdated { block: block.clone() })
+            .map(|(block, _)| Abandoning::Outdated { block: block.clone() })
     }
 
     /// The calls the run rests at that have no result yet.
@@ -395,7 +423,7 @@ impl<'a> Walk<'a> {
     }
 
     /// Why the cell at this place needs to run; empty when its record still holds.
-    fn needs(&self, i: usize) -> Vec<Cause> {
+    pub(crate) fn needs(&self, i: usize) -> Vec<Cause> {
         let cell = &self.flow.cells()[i];
         let Some(record) = self.record(&cell.id) else {
             return vec![Cause::NoRecord];
@@ -460,6 +488,7 @@ fn read_versions<'a>(
         block: &w.block,
         at: w.at,
         by: None,
+        outsider: Some(w.by),
         matters: w.matters || w.by == Outsider::Person,
         value: w.value.as_deref(),
     });
@@ -468,6 +497,7 @@ fn read_versions<'a>(
             block: &w.block,
             at: f.at,
             by: Some(f.run),
+            outsider: None,
             matters: w.matters,
             value: w.value.as_deref(),
         })
@@ -497,6 +527,7 @@ fn read_versions<'a>(
         of_block.push(Version {
             at: w.at,
             by: w.by,
+            outsider: w.outsider,
             meaning,
             value: w.value,
         });
