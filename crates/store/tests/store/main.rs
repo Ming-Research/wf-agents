@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use decide::{CallId, Outsider, RunId, Who};
 use engine::{Ask, Came, Effect, Event, Handed, Spent, Time, Work, handle, pending};
-use flow::{Compiled, Source, compile};
+use flow::{Compiled, Has, Source, compile};
 use rusqlite::Connection;
 use rusqlite::types::Value;
 use store::{Storage, Store, WorkNumber};
@@ -63,6 +63,7 @@ fn judged() -> Compiled {
         title = "Write"
         kind = "agent"
         line = "main"
+        task = "Write the text the request asks for."
         inputs = ["request", "opinions", "main"]
         outputs = ["text"]
     "#;
@@ -70,12 +71,14 @@ fn judged() -> Compiled {
         title = "Judge"
         kind = "agent"
         line = "other"
+        task = "Judge the text, and give a verdict."
         inputs = ["text", "checks"]
         outputs = ["opinions", "verdict"]
     "#;
     let merge = r#"
         title = "Merge"
         kind = "engine"
+        act = "merge"
         requires = ["may_merge"]
         inputs = ["text", "verdict"]
         outputs = ["merged"]
@@ -87,7 +90,11 @@ fn judged() -> Compiled {
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
     };
-    compile(&source, &["main".to_string()].into()).expect("the definition compiles")
+    let has = Has {
+        sources: ["main".to_string()].into(),
+        acts: ["merge".to_string()].into(),
+    };
+    compile(&source, &has).expect("the definition compiles")
 }
 
 /// The time of the first thing a test does.

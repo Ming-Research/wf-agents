@@ -1,5 +1,8 @@
 title = "Plan"
 kind = "agent"
 line = "engineer"
+task = """
+Write the plan from the request.
+Say what it leaves out."""
 inputs = ["request", "opinions"]
 outputs = ["plan"]

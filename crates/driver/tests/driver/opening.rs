@@ -55,9 +55,9 @@ fn a_block_the_driver_writes_that_is_no_choice_of_waiting_and_merged_is_refused(
             is = "{is}"
             "#
         );
-        let write =
-            "title = \"Write\"\nkind = \"agent\"\nline = \"main\"\nrequires = [\"ready\"]\noutputs = [\"text\"]\n";
-        let merge = "title = \"Merge\"\nkind = \"engine\"\ninputs = [\"text\"]\n";
+        let write = "title = \"Write\"\nkind = \"agent\"\nline = \"main\"\ntask = \"Write the text.\"\n\
+                     requires = [\"ready\"]\noutputs = [\"text\"]\n";
+        let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"text\"]\n";
         let odd = compiled(&flow, &[("write", write), ("merge", merge)]);
         let db = Db::new();
         let opened = open_with(&db, vec![judged(), odd]);
@@ -205,10 +205,10 @@ fn with_blocks(blocks: &str, tests: &str, requires: &str, outputs: &str) -> flow
         "#
     );
     let write = format!(
-        "title = \"Write\"\nkind = \"agent\"\nline = \"main\"\nrequires = [{requires}]\ninputs = [\"deps\"]\n\
-         outputs = [{outputs}]\n"
+        "title = \"Write\"\nkind = \"agent\"\nline = \"main\"\ntask = \"Write the text.\"\n\
+         requires = [{requires}]\ninputs = [\"deps\"]\noutputs = [{outputs}]\n"
     );
-    let merge = "title = \"Merge\"\nkind = \"engine\"\ninputs = [\"text\"]\n";
+    let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"text\"]\n";
     compiled(&flow, &[("write", write.as_str()), ("merge", merge)])
 }
 

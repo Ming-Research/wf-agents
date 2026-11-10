@@ -21,14 +21,14 @@ fn is(block: &str, value: &str) -> Option<Condition> {
 }
 
 #[test]
-fn a_cell_s_title_kind_and_line_are_each_a_change_with_both_values() {
+fn a_cell_s_title_kind_line_task_and_act_are_each_a_change_with_both_values() {
     let after = edit(valid(), "judge.toml", "title = \"Judge the plan\"", "title = \"Judge\"");
     let after = edit(after, "judge.toml", "line = \"review\"", "line = \"engineer\"");
     let after = edit(
         after,
         "check.toml",
-        "kind = \"engine\"",
-        "kind = \"agent\"\nline = \"engineer\"",
+        "kind = \"engine\"\nact = \"check\"",
+        "kind = \"agent\"\nline = \"engineer\"\ntask = \"Check the work with the latest main.\"",
     );
     assert_eq!(
         from_valid(&after),
@@ -59,6 +59,50 @@ fn a_cell_s_title_kind_and_line_are_each_a_change_with_both_values() {
                 CellChange::Line {
                     before: None,
                     after: Some("engineer".to_string()),
+                },
+            ),
+            of(
+                "check",
+                CellChange::Task {
+                    before: None,
+                    after: Some("Check the work with the latest main.".to_string()),
+                },
+            ),
+            of(
+                "check",
+                CellChange::Act {
+                    before: Some("check".to_string()),
+                    after: None,
+                },
+            ),
+        ]
+    );
+}
+
+#[test]
+fn a_task_reworded_and_an_act_renamed_are_each_a_change_of_their_cell() {
+    let after = edit(
+        valid(),
+        "plan.toml",
+        "task = \"Write the plan from the request.\"",
+        "task = \"Write the plan from the request.\\nName what it leaves out.\"",
+    );
+    let after = edit(after, "check.toml", "act = \"check\"", "act = \"test\"");
+    assert_eq!(
+        from_valid(&after),
+        [
+            of(
+                "plan",
+                CellChange::Task {
+                    before: Some("Write the plan from the request.".to_string()),
+                    after: Some("Write the plan from the request.\nName what it leaves out.".to_string()),
+                },
+            ),
+            of(
+                "check",
+                CellChange::Act {
+                    before: Some("check".to_string()),
+                    after: Some("test".to_string()),
                 },
             ),
         ]

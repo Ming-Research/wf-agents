@@ -125,6 +125,10 @@ pub struct CellFile {
     pub kind: Kind,
     /// The line whose session an agent cell runs in.
     pub line: Option<String>,
+    /// What an agent cell's agent is told to do: the cell's task.
+    pub task: Option<String>,
+    /// The act of the engine's own that carries out an engine cell: a name of an act the engine has.
+    pub act: Option<String>,
     /// When the cell runs at all; with none it always may.
     pub when: Option<When>,
     /// The named tests that must hold before the cell.

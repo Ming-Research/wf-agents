@@ -38,6 +38,15 @@ pub struct Limits {
     pub calls: u32,
 }
 
+/// What the engine that runs a flow has, by name. A definition that names another source or another act is refused.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Has {
+    /// The sources outside a work that write blocks.
+    pub sources: BTreeSet<String>,
+    /// The acts of the engine's own that carry out an engine cell.
+    pub acts: BTreeSet<String>,
+}
+
 /// What the engine needs to know of a cell beyond what the walk reads.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CellSpec {
@@ -48,6 +57,10 @@ pub struct CellSpec {
     pub kind: Kind,
     /// The line whose session an agent cell runs in; an engine cell has none.
     pub line: Option<String>,
+    /// What an agent cell's agent is told to do; an engine cell has none.
+    pub task: Option<String>,
+    /// The act of the engine's own that carries out an engine cell; an agent cell has none.
+    pub act: Option<String>,
     /// How often a return of the cell may be sent back within one run.
     pub returns: u32,
     /// How many calls one run of the cell may make.
@@ -122,6 +135,16 @@ pub enum FaultKind {
     EngineHasLine { line: String },
     /// The line is not declared in `flow.toml`.
     NoSuchLine { line: String },
+    /// An agent cell has no task, or one of no words: its agent would be told nothing to do.
+    NoTask,
+    /// An engine cell has a task: no agent reads it.
+    EngineHasTask,
+    /// An engine cell names no act to carry it out.
+    NoAct,
+    /// An agent cell names an act: an agent carries the cell out.
+    AgentHasAct { act: String },
+    /// The cell names an act the engine does not have.
+    UnknownAct { act: String },
     /// A choice has no values to choose from.
     ValuesEmpty,
     /// The block is not declared in `flow.toml`.
@@ -167,11 +190,10 @@ pub enum FaultKind {
     Flow(FlowFault),
 }
 
-/// Checks a flow's definition against the sources outside a work that the engine has, by name, and compiles it; or
-/// gives every fault it has, in the order of the files (`flow.toml`, then the cells in the order of the walk, then any
-/// other) and, within a file, in the order they were found. When a file cannot be read, only the files that cannot be
-/// read are reported.
-pub fn compile(source: &Source, sources: &BTreeSet<String>) -> Result<Compiled, Vec<Fault>> {
+/// Checks a flow's definition against what the engine has, by name, and compiles it; or gives every fault it has, in
+/// the order of the files (`flow.toml`, then the cells in the order of the walk, then any other) and, within a file, in
+/// the order they were found. When a file cannot be read, only the files that cannot be read are reported.
+pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
     let (flow_file, cell_files) = parse(source)?;
     let def = Definition::new(&flow_file, &cell_files);
     let mut faults = Vec::new();
@@ -188,13 +210,13 @@ pub fn compile(source: &Source, sources: &BTreeSet<String>) -> Result<Compiled, 
         returns: limit("limits.returns", flow_file.limits.returns),
         calls: limit("limits.calls", flow_file.limits.calls),
     };
-    def.check_blocks(sources, &mut faults);
+    def.check_blocks(&has.sources, &mut faults);
     def.check_tests(&mut faults);
 
     let mut cells = Vec::new();
     let mut specs = Vec::new();
     for (place, id, file) in def.ordered() {
-        let (cell, spec) = def.cell(place, id, file, &limits, &mut faults);
+        let (cell, spec) = def.cell(place, id, file, &limits, &has.acts, &mut faults);
         cells.push(cell);
         specs.push(spec);
     }
@@ -540,6 +562,7 @@ impl<'a> Definition<'a> {
         id: &str,
         file: &CellFile,
         limits: &Limits,
+        acts: &BTreeSet<String>,
         faults: &mut Vec<Fault>,
     ) -> (Cell, CellSpec) {
         let name = cell_file(id);
@@ -552,6 +575,24 @@ impl<'a> Definition<'a> {
             }
             (Kind::Engine, Some(line)) => {
                 found.push(("line".to_string(), FaultKind::EngineHasLine { line: line.clone() }));
+            }
+            _ => {}
+        }
+        match (file.kind, &file.task) {
+            (Kind::Agent, None) => found.push(("task".to_string(), FaultKind::NoTask)),
+            (Kind::Agent, Some(task)) if task.trim().is_empty() => {
+                found.push(("task".to_string(), FaultKind::NoTask));
+            }
+            (Kind::Engine, Some(_)) => found.push(("task".to_string(), FaultKind::EngineHasTask)),
+            _ => {}
+        }
+        match (file.kind, &file.act) {
+            (Kind::Engine, None) => found.push(("act".to_string(), FaultKind::NoAct)),
+            (Kind::Engine, Some(act)) if !acts.contains(act) => {
+                found.push(("act".to_string(), FaultKind::UnknownAct { act: act.clone() }));
+            }
+            (Kind::Agent, Some(act)) => {
+                found.push(("act".to_string(), FaultKind::AgentHasAct { act: act.clone() }));
             }
             _ => {}
         }
@@ -620,6 +661,8 @@ impl<'a> Definition<'a> {
             title: file.title.clone(),
             kind: file.kind,
             line: file.line.clone(),
+            task: file.task.clone(),
+            act: file.act.clone(),
             returns: limits.returns,
             calls: limits.calls,
         };
