@@ -15,10 +15,12 @@ use store::Store;
 /// The store's file in the data directory.
 const STORE: &str = "store.sqlite";
 
-/// The sources outside a work that this process writes blocks of: the driver's, whether the items an item depends on
-/// have merged. A flow that names another has works that would wait for it without end, and does not compile here.
-fn sources(_: &Source) -> BTreeSet<String> {
-    BTreeSet::from([driver::DEPENDENCIES.to_string()])
+/// The sources outside a work that a flow run here may name: those every definition is compiled against. Of these
+/// this process writes the driver's alone, whether the items an item depends on have merged; with the scripted
+/// carriers nothing writes the host's, so a block of `main`, `session` or `tree` stays unwritten, and a cell that
+/// reads one starts from no version of it.
+fn sources(source: &Source) -> BTreeSet<String> {
+    crate::sources(source)
 }
 
 /// The address the works page is printed at.
