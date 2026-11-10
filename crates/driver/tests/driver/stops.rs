@@ -21,13 +21,6 @@ use store::WorkHead;
 
 use super::*;
 
-/// Something done to the driver at a step of the history.
-#[derive(Clone, Debug)]
-enum Act {
-    Add(NewItem),
-    On(WorkNumber, Event),
-}
-
 /// The time of a step: a second after the one before, the same however often the step is told.
 fn time(s: usize) -> Time {
     Time(START + 1_000_000 + s as u64 * 1000)
@@ -124,78 +117,25 @@ fn answer(h: &H, s: usize) -> Option<Act> {
     Some(Act::On(todo.work, event))
 }
 
-/// What the stops of a history came to.
-#[derive(Default, Debug)]
-struct Seen {
-    /// Calls the driver said were kept as it stopped.
-    kept: usize,
-    /// Calls the driver said were not kept as it stopped.
-    not_kept: usize,
-    /// Stops of the process right after a call of the store.
-    deaths: usize,
-}
-
-/// Does the act at its step's time. Where the driver stops, it is opened anew; what it said was not kept is told
-/// again.
-fn perform(h: &mut H, s: usize, act: &Act, seen: &mut Seen) {
-    let now = time(s);
-    h.clock = now.0;
-    loop {
-        let stopped = match act {
-            Act::Add(new) => match h.try_add(now, new.clone()) {
-                Outcome::Done(_) => None,
-                Outcome::Stopped { kept } => Some(kept),
-            },
-            Act::On(work, event) => match h.try_on(now, *work, event.clone()) {
-                Outcome::Done(_) => None,
-                Outcome::Stopped { kept } => Some(kept),
-            },
-        };
-        if h.dead() {
-            seen.deaths += 1;
-        }
-        match stopped {
-            None => {
-                if h.dead() {
-                    h.reopen();
-                    h.check();
-                }
-                return;
-            }
-            Some(kept) => {
-                if kept {
-                    seen.kept += 1;
-                } else {
-                    seen.not_kept += 1;
-                }
-                h.reopen();
-                h.check();
-                if kept {
-                    return;
-                }
-            }
-        }
-    }
-}
-
 /// How a history ended: every work with its head and all that is kept of it, what each does next, and every round and
 /// call given and answered.
 #[derive(Debug, PartialEq)]
 struct Ending {
     works: Vec<(WorkHead, Work, Decision)>,
     ever: BTreeSet<String>,
+    undone: BTreeSet<String>,
     answered: BTreeSet<String>,
 }
 
 /// Plays the history, the store failing as the plan says.
-fn play(plan: Plan, checking: bool) -> (Ending, Seen, usize, bool) {
+fn play(plan: Plan, checking: bool) -> (Ending, Stops, usize, bool) {
     let mut h = H::new();
     h.checking = checking;
     h.arm(plan);
-    let mut seen = Seen::default();
+    let mut seen = Stops::default();
     let mut s = 0;
     while let Some(act) = act(&h, s) {
-        perform(&mut h, s, &act, &mut seen);
+        perform(&mut h, time(s), &act, &mut seen);
         s += 1;
         assert!(s < 500, "the history does not end");
     }
@@ -209,6 +149,7 @@ fn play(plan: Plan, checking: bool) -> (Ending, Seen, usize, bool) {
     let ending = Ending {
         works,
         ever: h.ever.clone(),
+        undone: h.undone.clone(),
         answered: h.answered.clone(),
     };
     (ending, seen, calls, cut)
@@ -245,7 +186,7 @@ fn straight() -> (Ending, usize) {
 fn a_history_stopped_at_any_call_of_the_store_ends_as_it_does_with_no_stop() {
     let (expected, calls) = straight();
     assert!(calls > 20, "the history made only {calls} calls of the store");
-    let mut seen = Seen::default();
+    let mut seen = Stops::default();
     for n in 1..=calls {
         for die in [false, true] {
             let plan = if die {

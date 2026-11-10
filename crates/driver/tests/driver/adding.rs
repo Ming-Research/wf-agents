@@ -146,7 +146,13 @@ fn the_work_is_paused_from_its_first_entry_and_holds_its_dependencies_block_and_
         assert_eq!(deps_write.by, Outsider::Outside);
         assert_eq!(deps_write.value.as_deref(), Some(deps));
         assert_eq!(h.dependencies(work).as_deref(), Some(deps));
-        assert_eq!(h.decision(work), Decision::Paused);
+        // Paused, it would run its first cell, or waits before it for its dependencies.
+        let decision = if deps == MERGED {
+            Decision::Paused
+        } else {
+            waits_for_dependencies("write")
+        };
+        assert_eq!(h.decision(work), decision);
     }
     // What people wrote first follows, in order.
     let kept = h.d().work(wb).expect("the work is there");
@@ -259,8 +265,9 @@ fn an_add_cut_short_at_any_call_of_the_store_leaves_all_of_it_or_none_and_the_wo
                 "the item is there without its work, or the reverse: {after:?}"
             );
             let w = WorkNumber(2);
-            assert_eq!(h.decision(w), Decision::Paused);
+            assert_eq!(h.decision(w), waits_for_dependencies("write"));
             assert_eq!(h.dependencies(w).as_deref(), Some(WAITING));
+            assert!(decide::paused(&h.d().work(w).expect("the work is there").work.records));
             let kept = h.d().work(w).expect("the work is there");
             let people = (kept.work.records.written.iter())
                 .filter(|x| x.by == Outsider::Person)

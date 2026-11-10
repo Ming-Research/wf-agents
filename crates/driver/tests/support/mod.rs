@@ -424,6 +424,8 @@ pub struct H {
     pub ever: BTreeSet<String>,
     /// Every round and call answered.
     pub answered: BTreeSet<String>,
+    /// Every stop of a round and withdrawal of a call the driver ever gave.
+    pub undone: BTreeSet<String>,
     /// The works that were ever let on.
     pub let_on: BTreeSet<WorkNumber>,
     /// Whether every call is followed by the checks; a long run of histories checks only where it says.
@@ -456,6 +458,7 @@ impl H {
             outstanding: Vec::new(),
             ever: BTreeSet::new(),
             answered: BTreeSet::new(),
+            undone: BTreeSet::new(),
             let_on: BTreeSet::new(),
             checking: true,
         }
@@ -639,7 +642,10 @@ impl H {
                 !self.answered.contains(&key(todo)),
                 "opened again, the driver gives what was answered: {todo:?}"
             );
-            self.ever.insert(key(todo));
+            match todo.effect {
+                Effect::Round { .. } | Effect::Call { .. } => self.ever.insert(key(todo)),
+                Effect::Stop { .. } | Effect::Withdraw { .. } => self.undone.insert(key(todo)),
+            };
             let kept = self.reader.load(todo.work).expect("the work loads");
             assert!(
                 engine::pending(&kept).contains(&todo.effect),
@@ -679,6 +685,7 @@ impl H {
                     assert!(self.ever.insert(key(todo)), "given twice: {todo:?}");
                 }
                 Effect::Stop { run } => {
+                    self.undone.insert(key(todo));
                     let at = (self.outstanding.iter()).position(|t| {
                         t.work == todo.work && matches!(t.effect, Effect::Round { run: r, .. } if r == *run)
                     });
@@ -686,6 +693,7 @@ impl H {
                         .remove(at.expect("a round stopped was given and not yet answered"));
                 }
                 Effect::Withdraw { call } => {
+                    self.undone.insert(key(todo));
                     let at = (self.outstanding.iter()).position(|t| {
                         t.work == todo.work && matches!(t.effect, Effect::Call { call: c, .. } if c == *call)
                     });
@@ -839,6 +847,69 @@ impl H {
             }
         }
         panic!("the work did not merge");
+    }
+}
+
+/// Something done to the driver at a step of a history.
+#[derive(Clone, Debug)]
+pub enum Act {
+    Add(NewItem),
+    On(WorkNumber, Event),
+}
+
+/// What the stops of a history came to.
+#[derive(Default, Debug)]
+pub struct Stops {
+    /// Calls the driver said were kept as it stopped.
+    pub kept: usize,
+    /// Calls the driver said were not kept as it stopped.
+    pub not_kept: usize,
+    /// Stops of the process right after a call of the store.
+    pub deaths: usize,
+}
+
+/// Does the act at this time, which the driver must take unless its store stops it. Where the driver stops, or the
+/// process stops, it is opened anew, and what it said was not kept is told again; gives what the driver gave where it
+/// did what it was asked and the process went on.
+pub fn perform(h: &mut H, now: Time, act: &Act, stops: &mut Stops) -> Option<Vec<Todo>> {
+    h.clock = now.0;
+    loop {
+        let (stopped, todos) = match act {
+            Act::Add(new) => match h.try_add(now, new.clone()) {
+                Outcome::Done(_) => (None, Some(Vec::new())),
+                Outcome::Stopped { kept } => (Some(kept), None),
+            },
+            Act::On(work, event) => match h.try_on(now, *work, event.clone()) {
+                Outcome::Done(todos) => (None, Some(todos)),
+                Outcome::Stopped { kept } => (Some(kept), None),
+            },
+        };
+        let dead = h.dead();
+        if dead {
+            stops.deaths += 1;
+        }
+        match stopped {
+            None => {
+                if dead {
+                    h.reopen();
+                    h.check();
+                    return None;
+                }
+                return todos;
+            }
+            Some(kept) => {
+                if kept {
+                    stops.kept += 1;
+                } else {
+                    stops.not_kept += 1;
+                }
+                h.reopen();
+                h.check();
+                if kept {
+                    return None;
+                }
+            }
+        }
     }
 }
 
