@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::flow::{CellId, OutputName, ProductId, TestName};
+use crate::flow::{BlockId, CellId, TestName};
 
 /// The place of an entry in the order of what happened to a work.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -15,10 +15,6 @@ pub struct Seq(pub u64);
 /// The name of a run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RunId(pub u64);
-
-/// The name of a refusal.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct RefusalId(pub u64);
 
 /// The name of a call.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -37,16 +33,12 @@ pub struct Records {
     pub called: Vec<Called>,
     /// Each call that has its result.
     pub done: Vec<Done>,
-    /// Each run that handed in its return and passed everything the flow requires of it, with what it wrote.
+    /// Each run that handed in its return and passed everything the flow requires of it, with the blocks it wrote.
     pub finished: Vec<Finished>,
     /// Each run that was abandoned, leaving no record.
     pub abandoned: Vec<Abandoned>,
-    /// Every write of a product by a person or from outside the work.
+    /// Every write of a block by a person or from outside the work.
     pub written: Vec<Written>,
-    /// Every loss of a product: a session that no longer exists, for one.
-    pub lost: Vec<Lost>,
-    /// Every refusal.
-    pub refusals: Vec<Refusal>,
     /// Each time the owner let a cell go on after it reached its limit.
     pub let_go: Vec<LetGo>,
     /// Each time the work was paused or let on again; the latest says which it is.
@@ -63,14 +55,8 @@ pub struct Started {
     pub at: Seq,
     /// Why the run was started, as the decision gave it.
     pub because: Vec<Cause>,
-    /// The version the run started from, of each product its cell depends on: the latest written by a person, from
-    /// outside or by a cell before it; `None` where there was none.
-    pub basis: BTreeMap<ProductId, Option<Seq>>,
-    /// The version the run writes over, of each product its cell may write: the latest written by a person, from
-    /// outside, by a cell before it or by the cell itself; `None` where there was none.
-    pub over: BTreeMap<ProductId, Option<Seq>>,
-    /// The refusals the run was given: those that stood, with force, against a product its cell may write.
-    pub given: Vec<RefusalId>,
+    /// The version the run started from, of each block its cell reads or may write; `None` where there was none.
+    pub basis: BTreeMap<BlockId, Option<Seq>>,
 }
 
 /// A round of a run began.
@@ -104,25 +90,25 @@ pub struct Done {
     pub at: Seq,
 }
 
-/// A run handed in its return, which passed everything the flow requires. A run writes its products here and nowhere
+/// A run handed in its return, which passed everything the flow requires. A run writes its blocks here and nowhere
 /// else: nothing of a run that has not finished is a version of anything.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Finished {
     pub run: RunId,
     pub at: Seq,
-    /// The answers a condition may read.
-    pub answers: BTreeMap<OutputName, String>,
-    /// The products the run wrote. Each is a version of its product, named by this entry's place.
+    /// The blocks the run wrote. Each is a version of its block, named by this entry's place.
     pub writes: Vec<Write>,
 }
 
-/// A product a run wrote as it finished.
+/// A block a run wrote as it finished.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Write {
-    pub product: ProductId,
-    /// Whether the change matters to the cells that depend on the product, compared with the version the run wrote
-    /// over. Where it does not, the version keeps that version's meaning.
+    pub block: BlockId,
+    /// Whether the change matters to the cells that read the block, compared with the version the run started from.
+    /// Where it does not, the version keeps that version's meaning.
     pub matters: bool,
+    /// The block's value, where a condition reads it: a choice such as yes or no.
+    pub value: Option<String>,
 }
 
 /// A run was abandoned.
@@ -132,45 +118,24 @@ pub struct Abandoned {
     pub at: Seq,
 }
 
-/// A person, or something outside the work, wrote a product. Such a write always changes the product's meaning.
+/// A person, or something outside the work, wrote a block.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Written {
-    pub product: ProductId,
+    pub block: BlockId,
     pub by: Outsider,
+    /// Whether the write changes the block's meaning. It does, except where the block is a choice and the write
+    /// leaves its value as it was: a person confirming what was recommended, for one.
+    pub matters: bool,
+    /// The block's value, where a condition reads it.
+    pub value: Option<String>,
     pub at: Seq,
 }
 
-/// Who writes a product without running a cell.
+/// Who writes a block without running a cell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outsider {
     Person,
     Outside,
-}
-
-/// A product was lost. A loss changes no meaning: the cell that wrote the product builds it again.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Lost {
-    pub product: ProductId,
-    pub at: Seq,
-}
-
-/// A "no" to a version of a product.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Refusal {
-    pub id: RefusalId,
-    pub by: Refuser,
-    pub product: ProductId,
-    /// The version refused, named by the place of the entry that wrote it.
-    pub version: Seq,
-    pub at: Seq,
-}
-
-/// Who refused.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Refuser {
-    /// A cell, by this run of it.
-    Run(RunId),
-    Person(Who),
 }
 
 /// A person who can give what a work waits for.
@@ -199,29 +164,23 @@ pub struct Pause {
 pub enum Cause {
     /// It has no record.
     NoRecord,
-    /// A product its record wrote was lost.
-    Gone { product: ProductId },
-    /// Something it depends on has another meaning than the one its record was built on. A cell depends only on what
-    /// was written before it, so this reason always comes from before the cell.
-    Changed { product: ProductId },
-    /// A refusal its record made no longer stands: what it refused was written anew.
-    Answered { refusal: RefusalId, product: ProductId },
-    /// A refusal stands, with force, against a product the cell answers for.
-    Refused {
-        refusal: RefusalId,
-        product: ProductId,
-        by: Refuser,
+    /// A block it reads has another meaning than the one its record knows. `was` is the version the record knows:
+    /// the one its run started from, or the one it wrote itself; the run now starts from the current one. `behind`
+    /// says the current version was written by a cell after this one: an opinion on what it wrote, for one.
+    Changed {
+        block: BlockId,
+        was: Option<Seq>,
+        behind: bool,
     },
 }
 
 impl Cause {
-    /// Whether the cause came from before the cell or from a person, and not from what cells after it did or from a
-    /// loss. A run none of whose causes did is a way round.
+    /// Whether the cause is no way round: a first run, or a change that a person, the outside or a cell before this
+    /// one made.
     pub fn forward(&self) -> bool {
         match self {
-            Cause::NoRecord | Cause::Changed { .. } => true,
-            Cause::Refused { by, .. } => matches!(by, Refuser::Person(_)),
-            Cause::Gone { .. } | Cause::Answered { .. } => false,
+            Cause::NoRecord => true,
+            Cause::Changed { behind, .. } => !behind,
         }
     }
 }
@@ -235,10 +194,11 @@ pub enum Outcome {
     Waits { who: Who },
 }
 
-/// The named tests of a work's records: the conditions that are no agent's answer, and the preconditions. Each is
-/// worked out from the records as they are, every time it is asked.
+/// The named tests of a work: the conditions that read no block's value, and the preconditions. Each is a test of the
+/// work's state as it is, the blocks and what people and the outside did, worked out every time it is asked and never
+/// stored. A test reads no run: whether a cell is running, at rest or finished is the walk's to know.
 pub trait Tests {
-    fn test(&self, name: &TestName, records: &Records) -> Outcome;
+    fn test(&self, name: &TestName) -> Outcome;
 }
 
 /// What is wrong with records that cannot be those of a work.
@@ -252,6 +212,10 @@ pub enum RecordFault {
     UnknownCall(CallId),
     /// The run finished twice.
     FinishedTwice(RunId),
+    /// The run wrote one block twice as it finished.
+    WroteTwice(RunId),
+    /// The call has two results.
+    DoneTwice(CallId),
     /// The run both finished and was abandoned.
     FinishedAndAbandoned(RunId),
     /// More rounds of the run ended than began.
