@@ -715,8 +715,8 @@ export class SnapScene {
     title.position.set(x + Math.max(26, number.width + 8), row1 - title.height / 2);
     view.addChild(number, title);
     // At the right of the first row: how many things its work waits for from the owner, white on red, the strongest
-    // mark a card has, as what the owner looks for first; and, while it is open and its work has not started, a lock
-    // framed in grey with how many items it depends on are not merged, which stand under it.
+    // mark a card has, as what the owner looks for first; and, while its work is not drawn, a lock framed in grey with
+    // how many items it waits for to merge, which stand under it.
     let right = NODE_W - 8;
     const tag = (text: string, fill: string, sign: 'lock' | null, solid: boolean) => {
       const t = new BitmapText({ text, style: s.mono(solid ? PALETTE.onTag : fill) });
@@ -743,8 +743,7 @@ export class SnapScene {
       right -= 6;
     };
     if (item.asks > 0) tag(String(item.asks), PALETTE.red, null, true);
-    if (!item.begun && item.standing === 'open' && item.blocked > 0)
-      tag(String(item.blocked), PALETTE.muted, 'lock', false);
+    if (item.work === null && item.blocked > 0) tag(String(item.blocked), PALETTE.muted, 'lock', false);
     // The title ends where the badges begin.
     fit(title, right - title.x);
     if (item.work === null || mood === null) return view;
