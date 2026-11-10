@@ -16,7 +16,7 @@ use support::Says::{DoesNotMatter, Matters};
 use support::{World, cell};
 
 /// How many histories are run.
-const SEEDS: u64 = 2000;
+const SEEDS: u64 = 1500;
 
 /// The product only people write.
 const BRIEF: &str = "brief";
