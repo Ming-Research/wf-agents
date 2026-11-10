@@ -82,6 +82,18 @@ button {
   overflow: hidden;
 }
 
+/* A view under the bar: what is left of the window. A view kept while another is shown is hidden. */
+.view {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.view[hidden] {
+  display: none;
+}
+
 /* The bar: the page's name, the views as text tabs, and at the right what belongs to the page as a whole. */
 .bar {
   display: flex;
@@ -188,6 +200,47 @@ button {
   border-color: var(--accent);
   background: var(--accent);
   color: var(--on-colour);
+}
+
+/* A button that cannot be pressed yet, or whose act is on its way: on the ground, muted, and no hover. */
+.button:disabled {
+  border-color: var(--line);
+  background: var(--ground);
+  color: var(--muted);
+  cursor: default;
+}
+
+.button:disabled:hover {
+  background-image: none;
+}
+
+/* A box to type in and a choice: a hairline box on the card, as a button. */
+textarea,
+.select {
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--corner);
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+}
+
+textarea {
+  width: 100%;
+  min-height: var(--control);
+  padding: var(--space-4) var(--space-8);
+  resize: vertical;
+}
+
+textarea:disabled {
+  background: var(--ground);
+  color: var(--muted);
+}
+
+.select {
+  height: var(--control);
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 var(--space-4);
 }
 
 /* A segmented switch: two or three choices side by side, the one chosen on the card, the rest on the ground. */
@@ -388,6 +441,14 @@ button {
 
 .dot-changed {
   background: var(--orange);
+}
+
+.dot-running {
+  background: var(--blue);
+}
+
+.dot-back {
+  background: var(--violet);
 }
 
 .drawer-body {

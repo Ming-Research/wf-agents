@@ -143,7 +143,7 @@ export type Comparison =
     };
 
 /// Reads a path of the interface.
-async function read<T>(path: string): Promise<T> {
+export async function read<T>(path: string): Promise<T> {
   const response = await fetch(path, { headers: { accept: 'application/json' } });
   if (!response.ok) {
     throw new Error(`${path} answered ${response.status}: ${await response.text()}`);

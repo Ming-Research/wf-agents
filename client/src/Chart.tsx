@@ -151,7 +151,7 @@ export function tableWidth(names: number, cells: string[], dragged: Record<strin
 
 /// Scrolls the frame by a wheel or a trackpad wherever the pointer is over it, the fixed row of heads and the fixed
 /// column of names too, which a browser may leave unscrolled.
-function useWheel(frame: RefObject<HTMLDivElement | null>) {
+export function useWheel(frame: RefObject<HTMLDivElement | null>) {
   useEffect(() => {
     const el = frame.current;
     if (!el) return;
