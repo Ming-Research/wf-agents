@@ -45,11 +45,11 @@
 //!   its limit go on, or any cell where none is, in three of twenty; pauses or resumes in a tenth; cancels in one in a
 //!   hundred; looks otherwise.
 //!
-//! Two shares of the histories are steered, drawn by a generator of their own so that the other draws keep their order,
-//! each taking every random step it may. In a fifth, the work is paused while the check's round is under way; once the
-//! check passed, a person writes, while the pause holds the merge back, for a judge that applies, who then refuses, or
-//! writes a verdict as its refusal, a coin of its own deciding; then the work is let on. In another fifth the check
-//! fails the first time it runs and the random steps end there; in a tenth more, they end only once the cell told of
+//! Seven histories of ten are steered, drawn by a generator of their own so that the other draws keep their order, each
+//! taking every random step it may. In three of ten, the work is paused while the check's round is under way; once
+//! the check passed, a person writes, while the pause holds the merge back, for a judge that applies, who then refuses,
+//! or writes a verdict as its refusal, a coin of its own deciding; then the work is let on. In one of ten the check
+//! fails the first time it runs and the random steps end there; in three of ten, they end only once the cell told of
 //! the failure has answered it with nothing that matters, so that the check has no reason to run again and the owner
 //! asks it to. Of the histories not steered, in a third the random steps end early: in a sixth at the first step after
 //! which the check's record failed, in a sixth at the first after which it failed or a judge's own refusal stands. The
@@ -1164,9 +1164,9 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
     let early = rng.below(6);
     let mut steering = Rng::new(seed ^ 0x57EE_4ED0_C4EC_0001);
     let steer = match steering.below(10) {
-        0..=1 => Steer::Refuse,
-        2..=3 => Steer::FailCheck,
-        4 => Steer::FailCheckAnswered,
+        0..=2 => Steer::Refuse,
+        3 => Steer::FailCheck,
+        4..=6 => Steer::FailCheckAnswered,
         _ => Steer::Not,
     };
     let random = if steer == Steer::Not { random } else { RANDOM };
