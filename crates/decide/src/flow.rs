@@ -69,6 +69,8 @@ pub enum FlowFault {
     /// The last cell has a condition: a work ends when its last cell has a record, so the last cell is always on the
     /// path.
     LastHasCondition(CellId),
+    /// The cell's limit is zero: it could never run again for a reason that came from after it, nor be let go on.
+    NoLimit(CellId),
 }
 
 impl Flow {
@@ -83,6 +85,9 @@ impl Flow {
         for (i, cell) in cells.iter().enumerate() {
             if cells[..i].iter().any(|c| c.id == cell.id) {
                 return Err(FlowFault::Twice(cell.id.clone()));
+            }
+            if cell.limit == 0 {
+                return Err(FlowFault::NoLimit(cell.id.clone()));
             }
             if let Some(Condition::Answered { by, .. }) = &cell.applies
                 && !cells[..i].iter().any(|c| &c.id == by)
@@ -122,16 +127,16 @@ pub struct Cell {
     pub requires: Vec<TestName>,
     /// What the cell depends on: a change of its meaning makes the cell need to run.
     pub follows: Vec<ProductId>,
-    /// What the cell writes.
+    /// What the cell may write.
     pub writes: Vec<ProductId>,
-    /// How often the cell may run again without anything before it having changed, before the work waits for the
-    /// owner.
+    /// How many times in a row the cell may run only for reasons that came from after it, before the work waits for
+    /// the owner. At least one.
     pub limit: u32,
 }
 
 impl Cell {
-    /// A cell of this name that is always on the path, depends on nothing, writes nothing and may run again three
-    /// times without anything before it having changed: what a definition starts from.
+    /// A cell of this name that is always on the path, depends on nothing, writes nothing and has a limit of three:
+    /// what a definition starts from.
     pub fn new(id: &str) -> Self {
         Self {
             id: id.into(),
