@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::cache;
+
 /// The settings as their file is written.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -59,10 +61,41 @@ pub struct Agents {
     pub owner_language: String,
     /// What a work's rounds may spend in all, in dollars, before the work waits for the owner; with none, no limit.
     pub work_budget_usd: Option<f64>,
+    /// Whether a round that read less from the prompt cache than its session's previous round left there makes the
+    /// work wait for the owner; true where it is not given.
+    #[serde(default = "yes")]
+    pub cache_check: bool,
+    /// How long, in minutes, what a round left in the cache is taken to be there still; 55 where it is not given.
+    #[serde(default = "cache_life")]
+    pub cache_life_minutes: u64,
+    /// The share, in hundredths, of what a round should have read from the cache that it may read less and still hit;
+    /// 2 where it is not given.
+    #[serde(default = "cache_shortfall_percent")]
+    pub cache_shortfall_percent: f64,
+    /// The tokens a round may read less than it should have and still hit, where that is more than the share; 512
+    /// where it is not given.
+    #[serde(default = "cache_shortfall_tokens")]
+    pub cache_shortfall_tokens: u64,
 }
 
 fn user() -> String {
     "user".to_string()
+}
+
+fn yes() -> bool {
+    true
+}
+
+fn cache_life() -> u64 {
+    55
+}
+
+fn cache_shortfall_percent() -> f64 {
+    2.0
+}
+
+fn cache_shortfall_tokens() -> u64 {
+    512
 }
 
 /// The settings file's name in the data directory.
@@ -82,6 +115,10 @@ impl Settings {
             .is_some_and(|usd| !(usd.is_finite() && usd >= 0.0))
         {
             wrong.push("agents.work_budget_usd: a budget is a number of dollars, none below nothing".to_string());
+        }
+        let percent = settings.agents.cache_shortfall_percent;
+        if !(percent.is_finite() && (0.0..=100.0).contains(&percent)) {
+            wrong.push("agents.cache_shortfall_percent: a share is from 0 to 100 hundredths".to_string());
         }
         if settings.project.main.is_empty() {
             wrong.push("project.main: the main branch has a name".to_string());
@@ -112,6 +149,15 @@ impl Settings {
         }
     }
 
+    /// How a round's read from the prompt cache is judged.
+    pub fn cache(&self) -> cache::Check {
+        cache::Check {
+            life_minutes: self.agents.cache_life_minutes,
+            shortfall_percent: self.agents.cache_shortfall_percent,
+            shortfall_tokens: self.agents.cache_shortfall_tokens,
+        }
+    }
+
     /// The budget of a work in millionths of a dollar, where there is one.
     pub fn budget_micros(&self) -> Option<u64> {
         // The budget was checked to be a finite number of no less than nothing; a larger one than a u64 holds is none.
@@ -139,6 +185,24 @@ mod tests {
         );
         assert_eq!(settings.agents.setting_sources, "user");
         assert!(settings.agents.env.is_empty());
+        assert!(settings.agents.cache_check);
+        assert_eq!(
+            settings.cache(),
+            cache::Check {
+                life_minutes: 55,
+                shortfall_percent: 2.0,
+                shortfall_tokens: 512,
+            }
+        );
+    }
+
+    #[test]
+    fn the_cache_check_is_on_unless_turned_off_and_a_share_beyond_the_whole_is_refused() {
+        let off = SAMPLE.replace("[agents]\n", "[agents]\ncache_check = false\n");
+        assert!(!Settings::read(&off).expect("it reads").agents.cache_check);
+        let beyond = SAMPLE.replace("[agents]\n", "[agents]\ncache_shortfall_percent = 101.0\n");
+        let refused = Settings::read(&beyond).expect_err("it is refused");
+        assert!(refused.contains("cache_shortfall_percent"), "{refused}");
     }
 
     #[test]

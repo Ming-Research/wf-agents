@@ -39,3 +39,14 @@ owner_language = "Chinese"
 # What a work's rounds may spend in all, in dollars: once a round ends with the work over it, the work is paused for
 # the owner, who may let it on. Left out, there is no budget.
 work_budget_usd = 5.0
+# Whether a round that read less from the prompt cache than its session's previous round left there pauses the work for
+# the owner, with the numbers: what is sent to the session changed, or the cache was lost. A round is not judged where
+# it begins its session, the model changed, the previous round's numbers are not known, or that round ended longer
+# ago than the cache's life. Each miss is said on the engine's standard error whether or not it pauses the work.
+# cache_check = true
+# How long, in minutes, what a round left in the cache is taken to be there still; the cache keeps it an hour.
+# cache_life_minutes = 55
+# How much less than expected a round may read and still hit: this share, in hundredths, or this many tokens,
+# whichever is more.
+# cache_shortfall_percent = 2.0
+# cache_shortfall_tokens = 512

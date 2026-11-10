@@ -1,11 +1,13 @@
 //! The loop with the real carriers, in a git repository made for each test, with a fake of the `claude` command line:
-//! a shell script that keeps what it was given and prints a result that hands in the outputs of the cell its message
-//! names. The flows are the trial flow (`crates/service/tests/trial/flow`), whose agents ask and judge, and `flow` here,
-//! which has every act of the engine's.
+//! a shell script that keeps what it was given and prints a stream, as the command line does, whose requests read the
+//! cache as it is told and whose result hands in the outputs of the cell its message names. The flows are the trial
+//! flow (`crates/service/tests/trial/flow`), whose agents ask and judge, and `flow` here, which has every act of the
+//! engine's.
 //!
 //! The tests are kept in modules by subject, so that a new test goes into the module of what it tests.
 
 mod budget;
+mod cache;
 mod failing;
 mod going;
 mod left;
@@ -46,6 +48,10 @@ pub struct Fake {
     pub question_first: bool,
     /// How many seconds the plan's first call sleeps before it answers.
     pub plan_sleeps: u32,
+    /// Whether a call that goes on in its session reads nothing from the cache in its first request. Every call's
+    /// stream has two requests, the first in two lines; the last reads 1,000 tokens and writes 100, and the first of a
+    /// call that goes on reads those 1,100 unless this is set.
+    pub cache_miss: bool,
 }
 
 impl Default for Fake {
@@ -57,6 +63,7 @@ impl Default for Fake {
             lose_session: false,
             question_first: false,
             plan_sleeps: 0,
+            cache_miss: false,
         }
     }
 }
@@ -169,6 +176,7 @@ case "$first" in
             if [ '{lose}' = yes ] && [ ! -f "$log/lost" ] && grep -qx -- --resume "$log/$n.args"; then
                 touch "$log/lost"
                 echo 'No conversation found with session ID: 00000000-0000-5000-8000-000000000001' >&2
+                printf '%s\n' '{{"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"total_cost_usd":0,"errors":["No conversation found with session ID: 00000000-0000-5000-8000-000000000001"]}}'
                 exit 1
             fi
             git -c user.name=Fake -c user.email=fake@example.com commit -q --allow-empty -m 'Build the greeting'
@@ -176,6 +184,12 @@ case "$first" in
         fi ;;
     *'cell `review`'*) out='{{"block":"verdict","content":"Fine.","value":"yes","matters":true}}' ;;
 esac
+if grep -qx -- --resume "$log/$n.args" && [ '{miss}' = no ]; then cached=1100; else cached=0; fi
+printf '%s\n' '{{"type":"system","subtype":"init","model":"claude-haiku-5-5"}}'
+for part in thinking text; do
+    printf '{{"type":"assistant","message":{{"id":"msg_%s_1","model":"claude-haiku-5-5","content":[{{"type":"%s"}}],"usage":{{"input_tokens":3,"cache_creation_input_tokens":50,"cache_read_input_tokens":%s,"output_tokens":1}}}},"parent_tool_use_id":null}}\n' "$n" "$part" "$cached"
+done
+printf '{{"type":"assistant","message":{{"id":"msg_%s_2","model":"claude-haiku-5-5","content":[{{"type":"tool_use"}}],"usage":{{"input_tokens":4,"cache_creation_input_tokens":100,"cache_read_input_tokens":1000,"output_tokens":20}}}},"parent_tool_use_id":null}}\n' "$n"
 printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":{cost},"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20}},"structured_output":{{"hands_in":[%s],"asks":%s}}}}\n' "$out" "$asks"
 "#,
         calls = calls.display(),
@@ -184,6 +198,7 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         lose = yes(fake.lose_session),
         question = yes(fake.question_first),
         sleeps = fake.plan_sleeps,
+        miss = yes(fake.cache_miss),
         cost = fake.cost,
     );
     let path = dir.join("fake-claude");
@@ -219,6 +234,17 @@ impl Real {
     /// The loop on an empty store of the flow, with the fake answering as given and the budget given, the project's
     /// check being `check`.
     pub fn open(on: On, answers: Fake, budget: Option<f64>, check: &str) -> Real {
+        Real::open_with(on, answers, budget, check, |_| {})
+    }
+
+    /// The loop as [`Real::open`] makes it, its settings then changed by `edit`.
+    pub fn open_with(
+        on: On,
+        answers: Fake,
+        budget: Option<f64>,
+        check: &str,
+        edit: impl FnOnce(&mut Settings),
+    ) -> Real {
         let dir = tempfile::tempdir().expect("a directory");
         let root = std::fs::canonicalize(dir.path()).expect("the directory is there");
         let (repo, data, calls) = (root.join("repo"), root.join("data"), root.join("calls"));
@@ -233,7 +259,7 @@ impl Real {
         git_in(&repo, &["add", "greeting.txt"]);
         git_in(&repo, &["commit", "-q", "-m", "Greet"]);
         let command = fake(&root, &calls, &answers);
-        let settings = Settings {
+        let mut settings = Settings {
             project: Project {
                 repo: repo.clone(),
                 main: "main".to_string(),
@@ -250,8 +276,13 @@ impl Real {
                 config_dir: None,
                 owner_language: "Chinese".to_string(),
                 work_budget_usd: budget,
+                cache_check: true,
+                cache_life_minutes: 55,
+                cache_shortfall_percent: 2.0,
+                cache_shortfall_tokens: 512,
             },
         };
+        edit(&mut settings);
         let flow = compiled(on);
         let (service, inbox) = open(&settings, &data, &flow, false);
         Real {

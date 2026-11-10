@@ -15,23 +15,30 @@
 //! on whether it begins its line's session, and is built again where the program is tried the other way.
 //!
 //! What each round was told and what the program printed are kept for reading, in `rounds/<work>/<run>-<round>` in
-//! the data directory: `.message.md` and `.result.json` for its first try, `.message.2.md` and `.result.2.json` for
-//! the next, and so on. While the program runs, its process group is written in `.pgid` there; a group left named
-//! there by a process of the engine that ended is stopped before the round is run again, or before the round's stop
-//! ends it, so that a session has one program at a time and a stopped round's program does not run on.
+//! the data directory: `.message.md`, `.result.jsonl` (the whole stream) and `.result.json` (its result line alone,
+//! empty where it has none) for its first try, `.message.2.md`, `.result.2.jsonl` and `.result.2.json` for the next,
+//! and so on. While the program runs, its process group is written in `.pgid` there; a group left named there by a
+//! process of the engine that ended is stopped before the round is run again, or before the round's stop ends it, so
+//! that a session has one program at a time and a stopped round's program does not run on.
+//!
+//! A round that made a request has its first request judged against what its session's previous round left in the
+//! prompt cache, and the numbers and the judgement are kept in `.cache.json` there ([`cache`]). Where it missed, the
+//! engine's standard error says so, and, unless the settings turn the check off, the work waits for the owner with
+//! the reason, as it does over its budget, what the round handed in being taken.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use decide::RunId;
 use engine::Came;
-use service::{Round, RoundReply, Rounds};
+use service::{Clock, Round, RoundReply, Rounds, SystemClock};
 use store::WorkNumber;
 use tokio::process::Command;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
-use work::Spent;
+use work::{Spent, Time};
 
+use crate::cache::{self, Before, Judged, Kept};
 use crate::cli::{self, Begin};
 use crate::held::{Failing, Held, Stop};
 use crate::process::{self, Ran};
@@ -62,7 +69,9 @@ struct Inner {
 
 /// What came of running a round's program.
 enum Carried {
-    Came(Came, Spent),
+    /// This came back, having taken this; and the work is to wait for the owner for this reason, where the round
+    /// missed the cache.
+    Came(Came, Spent, Option<String>),
     /// It failed, for this reason, having taken this, as the result it printed says.
     Failed(String, Spent),
     Stopped,
@@ -104,11 +113,13 @@ impl Rounds for Agents {
                 None => Ok(Carried::Stopped),
             };
             match carried {
-                Ok(Carried::Came(came, spent)) => {
+                Ok(Carried::Came(came, spent, missed)) => {
                     let Some(reply) = inner.held.take(key) else {
                         return;
                     };
-                    match inner.over_budget(&round, &spent) {
+                    // Where the round both missed the cache and took the work over its budget, one reason says both.
+                    let why = [missed, inner.over_budget(&round, &spent)].into_iter().flatten();
+                    match why.reduce(|missed, over| format!("{missed}; and {over}")) {
                         Some(why) => reply.ended_and_paused(came, spent, why),
                         None => reply.ended(came, spent),
                     }
@@ -178,32 +189,41 @@ impl Inner {
         let mut begin = cli::begin(flow, work, line);
         let before = cli::spent_before(flow, work, line);
         let mut tried = false;
-        let (status, stdout, stderr) = loop {
+        let (status, stdout, stderr, began, requests) = loop {
             let begins = begin == Begin::New;
             let told = message::message(flow, work, &round.cell, round.run, round.number, &round.given, begins);
-            let (told_at, result_at) = attempt(&base).await;
-            write(&told_at, told.as_bytes()).await?;
+            let at = attempt(&base).await;
+            write(&at.told, told.as_bytes()).await?;
             let command = self.command(&dir, session, begin);
+            let began = SystemClock.now();
             let ran = process::run(command, Some(told.into_bytes()), Some(&group), stop).await?;
             let Ran::Ended { status, stdout, stderr } = ran else {
                 return Ok(Carried::Stopped);
             };
-            write(&result_at, &stdout).await?;
+            write(&at.stream, &stdout).await?;
+            write(&at.result, cli::result(&stdout).unwrap_or_default()).await?;
             let stderr = String::from_utf8_lossy(&stderr).into_owned();
+            let requests = cli::requests(&stdout);
             // A session begun before its first round was cut off, or one the program no longer has, is tried the
-            // other way, once.
-            if !status.success() && stdout.is_empty() && !tried && begin.refused(&stderr) {
+            // other way, once: the program then made no request.
+            if !status.success() && requests.is_empty() && !tried && begin.refused(&stderr) {
                 begin = begin.other();
                 tried = true;
                 continue;
             }
-            break (status, stdout, stderr);
+            break (status, stdout, stderr, began, requests);
+        };
+        let missed = self.judge(round, line, begin, began, &requests, &base).await;
+        // Where the round failed, the reason says that it missed the cache too.
+        let and_missed = |why: String| match &missed {
+            Some(missed) => format!("{why}; and {missed}"),
+            None => why,
         };
         let read = cli::read(&stdout, begin, before);
         // A failure whose result was read took what the result says; one with none, what is not known.
         let failed = |why: String, spent: Option<Spent>| match spent {
-            Some(spent) => Ok(Carried::Failed(why, spent)),
-            None => Err(why),
+            Some(spent) => Ok(Carried::Failed(and_missed(why), spent)),
+            None => Err(and_missed(why)),
         };
         if !status.success() {
             let tail = || process::tail(stderr.trim().as_bytes());
@@ -222,9 +242,77 @@ impl Inner {
             Err(no) => return failed(no.why, no.spent),
         };
         match returns::came(&read.structured) {
-            Ok(came) => Ok(Carried::Came(came, read.spent)),
-            Err(why) => Ok(Carried::Failed(why, read.spent)),
+            Ok(came) => Ok(Carried::Came(came, read.spent, missed)),
+            Err(why) => failed(why, Some(read.spent)),
         }
+    }
+
+    /// Judges the round's first request against what the session's previous round left in the prompt cache, the
+    /// round's program having been started at `began`, and keeps the numbers and the judgement beside the round's
+    /// files; and gives why the work is to wait for the owner, where the round missed and the check is on. A round
+    /// that made no request is not judged, and keeps nothing.
+    async fn judge(
+        &self,
+        round: &Round,
+        line: &str,
+        begin: Begin,
+        began: Result<Time, String>,
+        requests: &[cache::Request],
+        base: &Path,
+    ) -> Option<String> {
+        let (first, last) = (requests.first()?, requests.last()?);
+        let at = base.with_extension(cache::EXTENSION);
+        let times = began.and_then(|began| Ok((began, SystemClock.now()?)));
+        let (began, ended) = match times {
+            Ok(times) => times,
+            Err(why) => {
+                eprintln!("{}: not kept: {why}", at.display());
+                return None;
+            }
+        };
+        let before = match begin {
+            Begin::New => Before::Nothing,
+            Begin::Resume => self.before(round, line).await,
+        };
+        let judged = cache::judge(&before, began, first, &self.settings.cache());
+        let kept = Kept {
+            began,
+            ended,
+            first: first.clone(),
+            last: last.clone(),
+            judged: judged.clone(),
+        };
+        // A file not kept leaves the session's next round not judged, which is said; the round is not failed for it.
+        let text = serde_json::to_vec_pretty(&kept).unwrap_or_default();
+        if let Err(why) = write(&at, &text).await {
+            eprintln!("{why}");
+        }
+        let (Judged::Miss { expected, read }, Before::Round(previous)) = (judged, before) else {
+            return None;
+        };
+        let minutes = began.0.saturating_sub(previous.ended.0) / 60_000;
+        let why = cache::missed(round.run.0, round.number, expected, read, minutes);
+        eprintln!("Work {}: {why}.", round.work.0);
+        self.settings.agents.cache_check.then_some(why)
+    }
+
+    /// What came before the round in its line's session, which it goes on in: the latest round of the line that
+    /// ended having made a request, as its kept numbers say, or as what it took says where it kept none. A round
+    /// that took nothing and kept nothing made no request, and is passed over.
+    async fn before(&self, round: &Round, line: &str) -> Before {
+        for (run, number, spent) in cli::line_ended(&round.flow, &round.kept, line).into_iter().rev() {
+            let at = self.kept_at(round.work, run, number).with_extension(cache::EXTENSION);
+            match tokio::fs::read(&at).await {
+                Ok(text) => {
+                    return serde_json::from_slice(&text).map_or(Before::Unknown, Before::Round);
+                }
+                Err(_) if spent.input_tokens + spent.cached_tokens + spent.output_tokens > 0 => {
+                    return Before::Unknown;
+                }
+                Err(_) => {}
+            }
+        }
+        Before::Unknown
     }
 
     /// The program's command line for a round in the session, begun or gone on in, in the worktree.
@@ -241,8 +329,14 @@ impl Inner {
 
     /// Where what the round was told and returned are kept, without the extension.
     fn kept(&self, round: &Round) -> PathBuf {
-        let dir = self.data.join(ROUNDS).join(round.work.0.to_string());
-        dir.join(format!("{}-{}", round.run.0, round.number))
+        self.kept_at(round.work, round.run, round.number)
+    }
+
+    /// Where what the round of this number of the run of the work was told and returned are kept, without the
+    /// extension.
+    fn kept_at(&self, work: WorkNumber, run: RunId, number: usize) -> PathBuf {
+        let dir = self.data.join(ROUNDS).join(work.0.to_string());
+        dir.join(format!("{run}-{number}", run = run.0))
     }
 
     /// Why the work is to wait for the owner, where the round took it over its budget: everything its rounds have
@@ -263,17 +357,28 @@ impl Inner {
     }
 }
 
+/// Where a try of a round keeps what it is told and what the program printed.
+struct Attempt {
+    /// What it is told.
+    told: PathBuf,
+    /// The whole stream the program printed.
+    stream: PathBuf,
+    /// The stream's result line alone.
+    result: PathBuf,
+}
+
 /// Where the next try of the round keeps what it is told and what it returns: the first that has kept nothing yet.
-async fn attempt(base: &Path) -> (PathBuf, PathBuf) {
-    let at = |n: usize| match n {
-        1 => (base.with_extension("message.md"), base.with_extension("result.json")),
-        n => (
-            base.with_extension(format!("message.{n}.md")),
-            base.with_extension(format!("result.{n}.json")),
-        ),
+async fn attempt(base: &Path) -> Attempt {
+    let at = |n: usize| {
+        let n = if n == 1 { String::new() } else { format!(".{n}") };
+        Attempt {
+            told: base.with_extension(format!("message{n}.md")),
+            stream: base.with_extension(format!("result{n}.jsonl")),
+            result: base.with_extension(format!("result{n}.json")),
+        }
     };
     let mut n = 1;
-    while tokio::fs::try_exists(&at(n).0).await.unwrap_or(false) {
+    while tokio::fs::try_exists(&at(n).told).await.unwrap_or(false) {
         n += 1;
     }
     at(n)

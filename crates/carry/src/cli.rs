@@ -1,19 +1,33 @@
 //! The `claude` command line, as a round is run with it: the arguments, which session it begins or goes on in, and
-//! what it printed, read into what came back and what it took. Each is a function of what it is given, with no I/O.
+//! what it printed, read into what came back, what it took and the requests it made. Each is a function of what it is
+//! given, with no I/O.
 //!
-//! Learnt from the command line (version 2.1.321): `-p --output-format json` prints one JSON object, the result, on
-//! the standard output, with the structured return in `structured_output`, the tokens of this call in `usage`, and in
-//! `total_cost_usd` the cost of the whole session so far, every earlier call of it included: a round's own cost is
-//! that less what the session's earlier rounds cost. The message is read whole from the standard input. A failed call
-//! exits with 1 and, where it got as far, prints a result with `is_error` set and its reason in `result`. Beginning a
-//! session whose id is taken says on the standard error `Session ID <id> is already in use.`, and going on in one
-//! there is none of says `No conversation found with session ID: <id>`; both print nothing on the standard output.
+//! Learnt from the command line (version 2.1.321): `-p --output-format stream-json --verbose` prints one JSON object a
+//! line on the standard output, as the round goes. Each request to the model, one for each turn, prints its message
+//! as one `assistant` line for each part of it (a thought, a text, a tool's use), every part with the message's id and
+//! the request's `usage`, whose tokens sent, read from the cache and written to it are known as the request begins
+//! (its `output_tokens` there are not all of them). A message whose `parent_tool_use_id` is set is taken for one of
+//! an agent the round started, in a context of its own (not measured: the field names the tool use that started it);
+//! one whose model is `<synthetic>` was made by the command line, no request having been made. The last line is the
+//! result, as `--output-format json` prints it: the structured return in `structured_output`, the tokens of the whole
+//! round in `usage` (its `iterations` holding only the last request's), and in `total_cost_usd` the cost of the whole
+//! session so far, every earlier call of it included: a round's own cost is that less what the session's earlier
+//! rounds cost. The message is read whole from the standard input. A failed call exits with 1 and, where it got as
+//! far, prints a result with `is_error` set and its reason in `result`.
+//! Beginning a session whose id is taken says on the standard error `Session ID <id> is already in use.` and prints
+//! nothing on the standard output; going on in one there is none of says `No conversation found with session ID:
+//! <id>` there, and prints a result that is an error, having made no request. Going on in a session, the command line
+//! sends the system prompt the session began with: a round given another `--append-system-prompt` was not told it,
+//! and read the cache whole.
 
+use decide::RunId;
 use flow::Compiled;
 use serde::Deserialize;
 use uuid::Uuid;
 use work::{Spent, Work};
 
+use crate::cache::Request;
+use crate::process;
 use crate::settings::Agents;
 
 /// What the command line says on its standard error when a session is begun under an id that has one already.
@@ -52,10 +66,17 @@ impl Begin {
 /// session. The system prompt and the schema are the same for every round, so that they open every request alike and
 /// the prompt cache keeps them.
 pub fn arguments(agents: &Agents, protocol: &str, schema: &str, session: Uuid, begin: Begin) -> Vec<String> {
-    let mut args: Vec<String> = ["-p", "--output-format", "json", "--model", &agents.model]
-        .iter()
-        .map(|a| a.to_string())
-        .collect();
+    let mut args: Vec<String> = [
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--model",
+        &agents.model,
+    ]
+    .iter()
+    .map(|a| a.to_string())
+    .collect();
     args.extend(["--append-system-prompt".to_string(), protocol.to_string()]);
     args.extend(["--json-schema".to_string(), schema.to_string()]);
     args.extend(["--setting-sources".to_string(), agents.setting_sources.clone()]);
@@ -107,12 +128,94 @@ pub fn spent_before(flow: &Compiled, work: &Work, line: &str) -> u64 {
 /// What each round of the line in this work that ended took.
 fn line_rounds<'a>(flow: &'a Compiled, work: &'a Work, line: &'a str) -> impl Iterator<Item = &'a Spent> {
     (work.spent.iter())
-        .filter(move |((run, _), _)| {
-            let cell = work.records.started.iter().find(|s| s.run == *run).map(|s| &s.cell);
-            let spec = cell.and_then(|cell| flow.cells.iter().find(|spec| spec.id == *cell));
-            spec.and_then(|spec| spec.line.as_deref()) == Some(line)
-        })
+        .filter(move |((run, _), _)| of_line(flow, work, *run, line))
         .map(|(_, spent)| spent)
+}
+
+/// Whether the run is of a cell of the line.
+fn of_line(flow: &Compiled, work: &Work, run: RunId, line: &str) -> bool {
+    let cell = work.records.started.iter().find(|s| s.run == run).map(|s| &s.cell);
+    let spec = cell.and_then(|cell| flow.cells.iter().find(|spec| spec.id == *cell));
+    spec.and_then(|spec| spec.line.as_deref()) == Some(line)
+}
+
+/// Each round of the line in this work that ended, in the order they ended: its run, its number in the run and what
+/// it took. The runs of a line may take turns, one resting while a cell before it runs.
+pub fn line_ended(flow: &Compiled, work: &Work, line: &str) -> Vec<(RunId, usize, Spent)> {
+    let mut ended: Vec<(RunId, usize)> = Vec::new();
+    for returned in &work.records.returned {
+        // A run's rounds end in their order: this is the next of its run.
+        let number = ended.iter().filter(|(run, _)| *run == returned.run).count() + 1;
+        ended.push((returned.run, number));
+    }
+    (ended.into_iter())
+        .filter(|(run, _)| of_line(flow, work, *run, line))
+        .map(|(run, number)| (run, number, work.spent.get(&(run, number)).copied().unwrap_or_default()))
+        .collect()
+}
+
+/// The model a message is said to be of where the command line made it itself, no request having been made.
+pub const SYNTHETIC: &str = "<synthetic>";
+
+/// A line of the stream, as much of it as is read.
+#[derive(Debug, Deserialize)]
+struct Line {
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(default)]
+    message: Option<Message>,
+    #[serde(default)]
+    parent_tool_use_id: Option<serde_json::Value>,
+}
+
+/// The message of an `assistant` line, as much of it as is read.
+#[derive(Debug, Deserialize)]
+struct Message {
+    id: Option<String>,
+    model: Option<String>,
+    usage: Option<Usage>,
+}
+
+/// The lines of the stream that read as what a line is, each with its text: a line cut short, as the last of a
+/// program that died can be, or one that is no JSON, is passed over.
+fn lines(stdout: &[u8]) -> impl Iterator<Item = (&[u8], Line)> {
+    (stdout.split(|b| *b == b'\n')).filter_map(|text| Some((text, serde_json::from_slice::<Line>(text).ok()?)))
+}
+
+/// The requests the round made to the model, in the order it made them, one for each message: those of its own
+/// context, not of an agent it started, and none the command line made up itself.
+pub fn requests(stdout: &[u8]) -> Vec<Request> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut requests = Vec::new();
+    for (_, line) in lines(stdout) {
+        let own = line.parent_tool_use_id.as_ref().is_none_or(|parent| parent.is_null());
+        let Some(Message {
+            id: Some(id),
+            model: Some(model),
+            usage: Some(usage),
+        }) = line.message
+        else {
+            continue;
+        };
+        if line.kind != "assistant" || !own || model == SYNTHETIC || !seen.insert(id) {
+            continue;
+        }
+        requests.push(Request {
+            model,
+            input: usage.input_tokens,
+            read: usage.cache_read_input_tokens,
+            written: usage.cache_creation_input_tokens,
+        });
+    }
+    requests
+}
+
+/// The round's result, as it was printed: the stream's last line that is one.
+pub fn result(stdout: &[u8]) -> Option<&[u8]> {
+    (lines(stdout)
+        .filter(|(_, line)| line.kind == "result")
+        .map(|(text, _)| text))
+    .last()
 }
 
 /// The command line's result, as much of it as is read.
@@ -163,12 +266,22 @@ pub struct NoResult {
 /// less what the line's earlier rounds cost, or the whole total where that is less (measured: the total is the whole
 /// session's, even where two lines take turns in one worktree).
 pub fn read(stdout: &[u8], begin: Begin, before: u64) -> std::result::Result<Read, NoResult> {
-    let result: Result = serde_json::from_slice(stdout).map_err(|e| {
+    let Some(line) = result(stdout) else {
         let text = String::from_utf8_lossy(stdout);
-        NoResult {
-            why: format!("what the command line printed is not its result ({e}): {}", text.trim()),
+        return Err(NoResult {
+            why: format!(
+                "what the command line printed holds no result: {}",
+                process::tail(text.trim().as_bytes())
+            ),
             spent: None,
-        }
+        });
+    };
+    let result: Result = serde_json::from_slice(line).map_err(|e| NoResult {
+        why: format!(
+            "the command line's result cannot be read ({e}): {}",
+            String::from_utf8_lossy(line)
+        ),
+        spent: None,
     })?;
     let spent = spent(&result, begin, before);
     if result.is_error {
@@ -211,11 +324,34 @@ fn spent(result: &Result, begin: Begin, before: u64) -> Spent {
 mod tests {
     use std::path::PathBuf;
 
+    use engine::Came;
+    use work::Ask;
+
     use super::*;
+    use crate::message::tests::Small;
 
     /// A result the command line printed for a session's first round, with what named the machine and the account
     /// replaced.
     const RESULT: &str = include_str!("../tests/fixtures/result.json");
+
+    /// The stream the command line printed for a round that went on in its session, its first request in two lines,
+    /// with what named the machine, the account and the session replaced.
+    const STREAM: &str = include_str!("../tests/fixtures/stream.jsonl");
+
+    /// The result of the fixture, on one line, as the stream prints it.
+    fn result_line() -> Vec<u8> {
+        let value: serde_json::Value = serde_json::from_str(RESULT).expect("the fixture is JSON");
+        serde_json::to_vec(&value).unwrap()
+    }
+
+    fn haiku(input: u64, read: u64, written: u64) -> Request {
+        Request {
+            model: "claude-haiku-5-5".to_string(),
+            input,
+            read,
+            written,
+        }
+    }
 
     fn agents() -> Agents {
         Agents {
@@ -228,12 +364,16 @@ mod tests {
             config_dir: None,
             owner_language: "Chinese".to_string(),
             work_budget_usd: None,
+            cache_check: true,
+            cache_life_minutes: 55,
+            cache_shortfall_percent: 2.0,
+            cache_shortfall_tokens: 512,
         }
     }
 
     #[test]
     fn the_fixture_reads_to_what_it_took() {
-        let read = read(RESULT.as_bytes(), Begin::New, 0).expect("the fixture reads");
+        let read = read(&result_line(), Begin::New, 0).expect("the fixture reads");
         assert_eq!(
             read.spent,
             Spent {
@@ -248,13 +388,13 @@ mod tests {
 
     #[test]
     fn a_resumed_round_costs_what_the_session_cost_more() {
-        let read = read(RESULT.as_bytes(), Begin::Resume, 1000).expect("the fixture reads");
+        let read = read(&result_line(), Begin::Resume, 1000).expect("the fixture reads");
         assert_eq!(read.spent.usd_micros, 15);
     }
 
     #[test]
     fn a_resumed_round_whose_session_cost_less_than_before_costs_the_whole_total() {
-        let read = read(RESULT.as_bytes(), Begin::Resume, 5000).expect("the fixture reads");
+        let read = read(&result_line(), Begin::Resume, 5000).expect("the fixture reads");
         assert_eq!(read.spent.usd_micros, 1015);
     }
 
@@ -274,8 +414,7 @@ mod tests {
 
     #[test]
     fn a_result_that_is_no_return_still_says_what_its_call_took() {
-        let error = r#"{"type":"result","is_error":true,"result":"Out of structured output retries.","total_cost_usd":0.8,
-            "usage":{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20}}"#;
+        let error = r#"{"type":"result","is_error":true,"result":"Out of structured output retries.","total_cost_usd":0.8,"usage":{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20}}"#;
         let spent = Spent {
             usd_micros: 300_000,
             input_tokens: 15,
@@ -290,13 +429,90 @@ mod tests {
     }
 
     #[test]
+    fn the_stream_reads_to_one_request_for_each_message_and_its_result() {
+        let stdout = STREAM.as_bytes();
+        assert_eq!(
+            requests(stdout),
+            [haiku(2, 4932, 127), haiku(4, 5059, 131)],
+            "the first request's two lines are one request"
+        );
+        let read = read(stdout, Begin::Resume, 1500).expect("the stream holds a result");
+        assert_eq!(
+            read.spent,
+            Spent {
+                usd_micros: 183,
+                input_tokens: 264,
+                cached_tokens: 9991,
+                output_tokens: 154,
+            }
+        );
+        assert_eq!(read.structured["answer"], "\"You are terse. Protocol A.\"");
+        let line = result(stdout).expect("a result");
+        assert!(STREAM.trim_end().ends_with(std::str::from_utf8(line).unwrap()));
+    }
+
+    #[test]
+    fn a_stream_cut_short_or_with_no_result_holds_the_requests_it_made_and_no_result() {
+        let lines: Vec<&str> = STREAM.lines().collect();
+        // The program died as it printed its second request's line.
+        let second = lines.iter().position(|l| l.contains(r#""id":"msg_02""#)).unwrap();
+        let cut = format!("{}\n{}", lines[..second].join("\n"), &lines[second][..80]);
+        assert_eq!(requests(cut.as_bytes()), [haiku(2, 4932, 127)]);
+        let refused = read(cut.as_bytes(), Begin::Resume, 0).expect_err("no result");
+        assert_eq!(refused.spent, None, "what the round took is not known");
+        assert!(refused.why.contains("holds no result"), "{}", refused.why);
+        // It printed every request, and died before its result.
+        let whole = lines[..lines.len() - 1].join("\n");
+        assert_eq!(requests(whole.as_bytes()).len(), 2);
+        assert_eq!(result(whole.as_bytes()), None);
+        assert!(read(whole.as_bytes(), Begin::Resume, 0).is_err());
+    }
+
+    #[test]
+    fn a_message_the_command_line_made_or_of_an_agent_the_round_started_is_no_request_of_the_round() {
+        let line = |id: &str, model: &str, parent: &str| {
+            format!(
+                r#"{{"type":"assistant","message":{{"id":"{id}","model":"{model}","usage":{{"input_tokens":1,"cache_creation_input_tokens":2,"cache_read_input_tokens":3,"output_tokens":4}}}},"parent_tool_use_id":{parent}}}"#
+            )
+        };
+        let stream = [
+            line("a", SYNTHETIC, "null"),
+            line("b", "claude-haiku-5-5", r#""toolu_01""#),
+            line("c", "claude-haiku-5-5", "null"),
+        ]
+        .join("\n");
+        assert_eq!(requests(stream.as_bytes()), [haiku(1, 3, 2)]);
+    }
+
+    #[test]
+    fn the_rounds_of_a_line_are_in_the_order_they_ended() {
+        let mut small = Small::new();
+        small.hands_in(&[("plan", "Greet by name.", None)]);
+        small.back(Came::Asks(vec![Ask::Tool {
+            name: "check".to_string(),
+            input: String::new(),
+        }]));
+        small.done("The check passed.");
+        small.hands_in(&[("code", "A greeting.", None)]);
+        let runs: Vec<RunId> = small.work.records.started.iter().map(|s| s.run).collect();
+        let rounds = |line| {
+            (line_ended(&small.flow, &small.work, line).into_iter())
+                .map(|(run, number, _)| (run, number))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(rounds("engineer"), [(runs[0], 1), (runs[1], 1), (runs[1], 2)]);
+        assert_eq!(rounds("reviewer"), [], "the review's round has not ended");
+    }
+
+    #[test]
     fn the_command_line_begins_a_session_and_goes_on_in_it() {
         let session = Uuid::parse_str("6a1f3c2e-8d4b-4e7a-9c5f-2b8e1d0a7f43").unwrap();
         let head = |begin| arguments(&agents(), "PROTOCOL", "SCHEMA", session, begin);
         let common = [
             "-p",
             "--output-format",
-            "json",
+            "stream-json",
+            "--verbose",
             "--model",
             "claude-haiku-5-5",
             "--append-system-prompt",

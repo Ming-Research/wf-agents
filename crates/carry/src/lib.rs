@@ -9,7 +9,9 @@
 //! - [`message`]: what an agent is told at the start of a round, a function of the records alone.
 //! - [`read`]: the tool `read`, the blocks of a work as an agent reads them.
 //! - [`returns`]: the one form of every agent's return, and what came back read from it.
-//! - [`cli`]: the command line of a round, and what it printed read into what came back and what it took.
+//! - [`cli`]: the command line of a round, and what it printed read into what came back, what it took and the
+//!   requests it made.
+//! - [`cache`]: whether a round read from the prompt cache what its session's previous round left there.
 //! - `agents`: the agents' rounds, run with the command line, a few at a time.
 //! - `tools`: the tools, `read` and `check`.
 //! - [`session`]: the session of each line of each work, worked out from the installation's id.
@@ -17,6 +19,7 @@
 
 mod acts;
 mod agents;
+pub mod cache;
 pub mod cli;
 pub mod git;
 mod held;
