@@ -107,6 +107,9 @@ pub fn unmet_words(unmet: &Unmet) -> String {
         Unmet::NoValue { block } => format!("the block {block} is a choice, and is written with no value"),
         Unmet::NotAValue { block, value } => format!("{value} is not one of the values of the block {block}"),
         Unmet::NotAChoice { block } => format!("the block {block} is no choice, and is written with a value"),
+        Unmet::NotHandedIn { block } => {
+            format!("the block {block} is not handed in, and the cell must hand it in every time")
+        }
     }
 }
 

@@ -20,10 +20,10 @@ use std::time::{Duration, Instant};
 use carry::git::{self, Place};
 use carry::settings::{Agents, Project};
 use carry::{Settings, session};
-use decide::{Decision, RunId};
+use decide::{CallId, Decision, RunId, Who};
 use driver::{FirstWrite, NewItem};
 use flow::{Compiled, Has};
-use service::{Act, Inbox, Message, Service, SystemClock};
+use service::{Act, Inbox, Message, Round, RoundReply, Rounds, Service, SystemClock};
 use store::{Store, WorkNumber};
 use tokio::sync::oneshot;
 use work::Work;
@@ -37,6 +37,9 @@ pub struct Fake {
     /// Whether the build asks for the check in its first round, and its second round, going on in the session, is
     /// told the first time that the session is not found.
     pub lose_session: bool,
+    /// Whether the build asks the owner a question in its first round, and for the check in its second, before it
+    /// hands in; with `lose_session`, its last round is the one told the session is not found.
+    pub question_first: bool,
     /// How many seconds the plan's first call sleeps before it answers.
     pub plan_sleeps: u32,
 }
@@ -47,6 +50,7 @@ impl Default for Fake {
             cost: "0.01",
             fail_first: false,
             lose_session: false,
+            question_first: false,
             plan_sleeps: 0,
         }
     }
@@ -146,21 +150,21 @@ case "$first" in
             sleep '{sleeps}'
         fi
         out='{{"block":"plan","content":"Greet by name.","matters":true}}' ;;
-    *'cell `build`'*', round 1')
-        if [ '{lose}' = yes ]; then
+    *'cell `build`'*)
+        round=${{first##*, round }}
+        if [ "$round" = 1 ] && [ '{question}' = yes ]; then
+            asks='[{{"question":"Which name?"}}]'
+        elif {{ [ "$round" = 1 ] && [ '{lose}' = yes ]; }} || {{ [ "$round" = 2 ] && [ '{question}' = yes ]; }}; then
             asks='[{{"tool":"check","input":""}}]'
         else
+            if [ '{lose}' = yes ] && [ ! -f "$log/lost" ] && grep -qx -- --resume "$log/$n.args"; then
+                touch "$log/lost"
+                echo 'No conversation found with session ID: 00000000-0000-5000-8000-000000000001' >&2
+                exit 1
+            fi
             git -c user.name=Fake -c user.email=fake@example.com commit -q --allow-empty -m 'Build the greeting'
             out='{{"block":"code","content":"A greeting.","matters":true}}'
         fi ;;
-    *'cell `build`'*)
-        if [ '{lose}' = yes ] && [ ! -f "$log/lost" ] && grep -qx -- --resume "$log/$n.args"; then
-            touch "$log/lost"
-            echo 'No conversation found with session ID: 00000000-0000-5000-8000-000000000001' >&2
-            exit 1
-        fi
-        git -c user.name=Fake -c user.email=fake@example.com commit -q --allow-empty -m 'Build the greeting'
-        out='{{"block":"code","content":"A greeting.","matters":true}}' ;;
     *'cell `review`'*) out='{{"block":"verdict","content":"Fine.","value":"yes","matters":true}}' ;;
 esac
 printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":{cost},"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20}},"structured_output":{{"hands_in":[%s],"asks":%s}}}}\n' "$out" "$asks"
@@ -168,6 +172,7 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         calls = calls.display(),
         fail = yes(fake.fail_first),
         lose = yes(fake.lose_session),
+        question = yes(fake.question_first),
         sleeps = fake.plan_sleeps,
         cost = fake.cost,
     );
@@ -177,9 +182,25 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
     path
 }
 
-/// The loop with the real carriers of the settings, on an empty store or the one in the data directory.
-fn open(settings: &Settings, data: &Path, flow: &Compiled) -> (Service, Inbox) {
-    let carriers = carry::carriers(settings.clone(), data).expect("the carriers are made");
+/// The agents of the real carriers, but for their stops, which are dropped: a process of the engine that ends before
+/// it stops a round.
+struct Deaf(Arc<dyn Rounds>);
+
+impl Rounds for Deaf {
+    fn give(&self, round: Round, reply: RoundReply) {
+        self.0.give(round, reply);
+    }
+
+    fn stop(&self, _: Round, _: RoundReply) {}
+}
+
+/// The loop with the real carriers of the settings, on an empty store or the one in the data directory; with agents
+/// whose stops are dropped where `deaf`.
+fn open(settings: &Settings, data: &Path, flow: &Compiled, deaf: bool) -> (Service, Inbox) {
+    let mut carriers = carry::carriers(settings.clone(), data).expect("the carriers are made");
+    if deaf {
+        carriers.agents = Arc::new(Deaf(carriers.agents));
+    }
     let store = Store::open(data.join("store.sqlite")).expect("the store opens");
     Service::open(Box::new(store), vec![flow.clone()], carriers, Arc::new(SystemClock)).expect("the loop opens")
 }
@@ -207,6 +228,7 @@ impl Real {
                 repo: repo.clone(),
                 main: "main".to_string(),
                 check: check.to_string(),
+                allowed_config: Vec::new(),
             },
             agents: Agents {
                 command: command.display().to_string(),
@@ -214,13 +236,14 @@ impl Real {
                 slots: 2,
                 args: Vec::new(),
                 env: Vec::new(),
+                setting_sources: "user".to_string(),
                 config_dir: None,
                 owner_language: "Chinese".to_string(),
                 work_budget_usd: budget,
             },
         };
         let flow = compiled(on);
-        let (service, inbox) = open(&settings, &data, &flow);
+        let (service, inbox) = open(&settings, &data, &flow, false);
         Real {
             _dir: dir,
             data,
@@ -243,9 +266,24 @@ impl Real {
     /// Stops the loop and its carriers and starts them again on the same store, as a new process of the engine
     /// would. What the old carriers run goes on running.
     pub fn restart(&mut self) {
-        let (service, inbox) = open(&self.settings, &self.data, &self.flow);
+        let (service, inbox) = open(&self.settings, &self.data, &self.flow, false);
         self.service = service;
         self.inbox = inbox;
+    }
+
+    /// Starts the loop again on the same store with agents that drop every stop they are given.
+    pub fn deafen(&mut self) {
+        let (service, inbox) = open(&self.settings, &self.data, &self.flow, true);
+        self.service = service;
+        self.inbox = inbox;
+    }
+
+    /// The owner's call the work's run waits for, where there is one.
+    pub fn owners_call(&self, work: WorkNumber) -> Option<CallId> {
+        let records = self.work(work).records;
+        (records.called.iter())
+            .find(|c| c.on == Some(Who::Owner) && !records.done.iter().any(|d| d.call == c.call))
+            .map(|c| c.call)
     }
 
     /// The work's place, as the installation names it.
@@ -375,6 +413,14 @@ impl Real {
                 })
             })
             .collect()
+    }
+}
+
+impl Real {
+    /// The number of the process of the fake's call of this number.
+    pub fn call_process(&self, n: usize) -> u32 {
+        let text = std::fs::read_to_string(self.calls.join(format!("{n}.pid"))).expect("its number is kept");
+        text.trim().parse().expect("a number")
     }
 }
 

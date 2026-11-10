@@ -61,6 +61,9 @@ pub struct CellSpec {
     pub task: Option<String>,
     /// The act of the engine's own that carries out an engine cell; an agent cell has none.
     pub act: Option<String>,
+    /// The blocks among its outputs that every hand-in of the cell includes, in the order written: a hand-in that lacks
+    /// one is sent back.
+    pub must_write: Vec<BlockId>,
     /// How often a return of the cell may be sent back within one run.
     pub returns: u32,
     /// How many calls one run of the cell may make.
@@ -149,6 +152,8 @@ pub enum FaultKind {
     ValuesEmpty,
     /// The block is not declared in `flow.toml`.
     NoSuchBlock { block: String },
+    /// The cell must write the block each time, and it is not among its outputs.
+    NotAnOutput { block: String },
     /// The block has no writer: no cell of the order, no person and nothing outside writes it.
     NoWriter { block: String },
     /// The block has no reader: no cell of the order reads it, no condition and no named test reads its value, and
@@ -646,6 +651,13 @@ impl<'a> Definition<'a> {
         };
         found.extend(check_list(&file.inputs, "inputs", declared));
         found.extend(check_list(&file.outputs, "outputs", declared));
+        // Whether a block is declared is said once, where the outputs name it.
+        found.extend(check_list(&file.must_write, "must_write", |block| {
+            let what = FaultKind::NotAnOutput {
+                block: block.to_string(),
+            };
+            (!file.outputs.iter().any(|o| o == block)).then_some(what)
+        }));
         faults.extend(found.into_iter().map(|(field, what)| fault(&name, field, what)));
 
         let cell = Cell {
@@ -663,6 +675,7 @@ impl<'a> Definition<'a> {
             line: file.line.clone(),
             task: file.task.clone(),
             act: file.act.clone(),
+            must_write: file.must_write.iter().map(|b| BlockId(b.clone())).collect(),
             returns: limits.returns,
             calls: limits.calls,
         };

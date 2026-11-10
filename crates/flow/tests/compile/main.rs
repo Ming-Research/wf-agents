@@ -8,5 +8,6 @@ mod blocks;
 mod cells;
 mod conditions;
 mod files;
+mod must_write;
 mod named_tests;
 mod valid;

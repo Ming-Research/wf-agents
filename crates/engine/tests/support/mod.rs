@@ -6,7 +6,7 @@
 
 use std::collections::BTreeSet;
 
-use decide::{CallId, Decision, RunId, decide};
+use decide::{CallId, Decision, Records, RunId, decide};
 use engine::{Ask, Call, Came, Effect, Event, Spent, Time, Work, handle, pending};
 use flow::Compiled;
 
@@ -54,6 +54,33 @@ pub struct Seen {
     pub stopped: usize,
     /// Histories that ended cancelled.
     pub cancels: usize,
+    /// Hand-ins that lacked a block their cell must write, by a run still open after them: sent back, or resting at
+    /// the limit of returns.
+    pub lacking: usize,
+    /// Finished runs of cells that must write a block each time.
+    pub bound_finished: usize,
+}
+
+/// The first finished run of the records that lacks a write of a block its cell must write, read from the records of
+/// the finishes and the cells' definitions (entry a-run-is-one-mechanism), said in words; none where there is none.
+pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String> {
+    for finished in &records.finished {
+        let started = (records.started.iter())
+            .find(|s| s.run == finished.run)
+            .expect("a finished run started");
+        let spec = (flow.cells.iter())
+            .find(|c| c.id == started.cell)
+            .expect("the cell is in the flow");
+        for block in &spec.must_write {
+            if !finished.writes.iter().any(|w| w.block == *block) {
+                return Some(format!(
+                    "run {:?} of {} finished without writing {block}, which its cell must write",
+                    finished.run, started.cell
+                ));
+            }
+        }
+    }
+    None
 }
 
 /// What a test makes of the steps that are its own: what an agent returns, and what a person or the outside does.
@@ -194,6 +221,9 @@ impl Driver {
             !matches!(decide(&self.flow.flow, r), Decision::Fault(_)),
             "the records are faulty"
         );
+        if let Some(why) = lacking_a_must_write(&self.flow, r) {
+            panic!("{why}");
+        }
         for effect in &self.held {
             match effect {
                 Effect::Round { run, .. } => assert!(r.started.iter().any(|s| s.run == *run), "an unknown run"),
@@ -291,7 +321,18 @@ impl Driver {
         match effect {
             Effect::Round { run, cell, .. } => {
                 let came = part.returns(self, run, cell.as_str());
+                let place = self.flow.flow.place(&cell).expect("the cell is in the flow");
+                let must = &self.flow.cells[place].must_write;
+                let lacks = match &came {
+                    Came::HandsIn(handed) => must.iter().any(|b| !handed.iter().any(|h| h.block == *b)),
+                    Came::Asks(_) => false,
+                };
                 self.returned(run, came);
+                let r = &self.work.records;
+                let open = !r.finished.iter().any(|f| f.run == run) && !r.abandoned.iter().any(|a| a.run == run);
+                if lacks && open {
+                    self.seen.lacking += 1;
+                }
             }
             Effect::Call { call, .. } => self.give_result(call),
             Effect::Withdraw { call } => {

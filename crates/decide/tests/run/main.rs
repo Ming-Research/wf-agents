@@ -18,6 +18,7 @@ use decide::{BlockId, CallId, Write};
 /// What the flow requires of a cell, owned so that tests can lend it as `Requires`.
 struct Spec {
     outputs: Vec<BlockId>,
+    must_write: Vec<BlockId>,
     choices: BTreeMap<BlockId, Vec<String>>,
     returns: u32,
     calls: u32,
@@ -27,6 +28,7 @@ impl Spec {
     fn requires(&self) -> Requires<'_> {
         Requires {
             outputs: &self.outputs,
+            must_write: &self.must_write,
             choices: &self.choices,
             returns: self.returns,
             calls: self.calls,
@@ -34,14 +36,23 @@ impl Spec {
     }
 }
 
-/// A cell that may write the plan and the verdict, a choice of yes or no; its returns may be sent back twice, and it
-/// may make three calls.
+/// A cell that may write the plan and the verdict, a choice of yes or no, and need hand in neither; its returns may be
+/// sent back twice, and it may make three calls.
 fn spec() -> Spec {
     Spec {
         outputs: vec!["plan".into(), "verdict".into()],
+        must_write: vec![],
         choices: BTreeMap::from([("verdict".into(), vec!["yes".to_string(), "no".to_string()])]),
         returns: 2,
         calls: 3,
+    }
+}
+
+/// The same cell, which must hand in these blocks each time.
+fn must_write(blocks: &[&str]) -> Spec {
+    Spec {
+        must_write: blocks.iter().map(|&b| b.into()).collect(),
+        ..spec()
     }
 }
 

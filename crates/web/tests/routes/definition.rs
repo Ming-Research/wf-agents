@@ -38,6 +38,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "preconditions": [],
                         "inputs": ["request", "opinions"],
                         "outputs": ["plan"],
+                        "mustWrite": [],
                         "limits": limits(3),
                     },
                     {
@@ -51,6 +52,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "preconditions": [],
                         "inputs": ["plan"],
                         "outputs": ["opinions", "content"],
+                        "mustWrite": ["content"],
                         "limits": limits(5),
                     },
                     {
@@ -64,6 +66,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "preconditions": [may_merge],
                         "inputs": ["content"],
                         "outputs": [],
+                        "mustWrite": [],
                         "limits": limits(3),
                     },
                 ],
@@ -239,6 +242,26 @@ async fn the_faults_of_named_tests_and_of_sources_are_given_with_their_blocks() 
     assert_eq!(
         faults[1],
         json!({ "file": "flow.toml", "field": "tests.may_merge.reads", "what": { "kind": "readsEmpty", "test": "may_merge" } })
+    );
+}
+
+#[tokio::test]
+async fn a_block_a_cell_must_write_that_is_not_among_its_outputs_is_a_fault_given_with_the_block() {
+    let source = edit(
+        tiny(),
+        Some("review"),
+        "must_write = [\"content\"]",
+        "must_write = [\"content\", \"plan\"]",
+    );
+    let router = serve(&Shared::new(Ok(source)), None);
+    assert_eq!(
+        get_json(&router, "/api/v1/flow").await,
+        json!({
+            "state": "faults",
+            "faults": [
+                { "file": "review.toml", "field": "must_write[1]", "what": { "kind": "notAnOutput", "block": "plan" } },
+            ],
+        })
     );
 }
 

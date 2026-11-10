@@ -8,8 +8,8 @@
 //! at which its meaning last changed. No content of any block is in the message: the agent reads what it needs with
 //! the tool `read`, and the list ends with the input that reads all of it at once. Nothing is left out for what a
 //! session is thought to hold (decision `session-is-a-cache`). A later round is given the results of the calls it
-//! asked for, or why what it handed in was sent back; one that begins a session is given those after the task and
-//! the list.
+//! asked for, or why what it handed in was sent back; one that begins a session is given, after the task and the
+//! list, what each earlier round of the run was given, in their order, and then its own.
 //!
 //! Every fixed word an agent is told is in the constants below, in the order they come in a message, so that each
 //! sentence is found and changed in one place; how to return is in `protocol.md`, which every round is given as its
@@ -63,6 +63,7 @@ fn values(values: &[String]) -> String {
     format!(", a choice, one of {}", values.join(", "))
 }
 const OWNER_READS: &str = " (the owner reads it)";
+const EVERY_TIME: &str = " (hand it in every time)";
 /// An output's current version, its value where it has one, and the version at which its meaning last changed.
 fn output_version(version: Seq, value: Option<&str>, meaning: Seq) -> String {
     let value = value.map(with_value).unwrap_or_default();
@@ -85,7 +86,11 @@ fn read_all(input: &str) -> String {
 const NOTHING_TO_READ: &str = "Nothing it reads or may write is written yet.";
 const RESULTS: &str = "## The results of what you asked for";
 fn tool(name: &str, input: &str) -> String {
-    format!("### The tool `{name}`, on: {input}")
+    if input.is_empty() {
+        format!("### The tool `{name}`")
+    } else {
+        format!("### The tool `{name}`, on: {input}")
+    }
 }
 fn question(question: &str) -> String {
     format!("### Your question: {question}")
@@ -95,6 +100,16 @@ fn unknown_call(call: CallId) -> String {
     format!("### Call {}, which the work does not hold", call.0)
 }
 const NO_RESULT: &str = "(It has no result.)";
+fn earlier_results(round: usize) -> String {
+    format!("## Round {round} of this run: the results of what you asked for")
+}
+fn read_before(input: &str) -> String {
+    let names: Vec<&str> = input.split_whitespace().collect();
+    format!("### You read {}: read again what you need.", names.join(", "))
+}
+fn earlier_sent_back(round: usize) -> String {
+    format!("## Round {round} of this run: what you handed in was sent back")
+}
 const GO_ON: &str = "Go on with the task.";
 const SENT_BACK: &str = "## What you handed in was sent back";
 const HAND_IN_AGAIN: &str = "Hand in again: everything the cell hands in, in one return.";
@@ -114,13 +129,32 @@ pub fn message(
     if begins || *given == Given::Task {
         task(flow, work, cell, run, &mut parts);
     }
+    // A new session holds nothing of the run: it is given what the run's earlier rounds were, in their order.
+    if begins {
+        for earlier in 2..number {
+            match work.given.get(&(run, earlier)) {
+                Some(Given::Results(calls)) => {
+                    parts.push(earlier_results(earlier));
+                    calls_and_results(work, calls, true, &mut parts);
+                }
+                Some(Given::SentBack(unmet)) => {
+                    parts.push(earlier_sent_back(earlier));
+                    parts.push(sent_back(unmet));
+                }
+                Some(Given::Task) | None => {}
+            }
+        }
+    }
     match given {
         Given::Task => {}
-        Given::Results(calls) => results(work, calls, &mut parts),
+        Given::Results(calls) => {
+            parts.push(RESULTS.to_string());
+            calls_and_results(work, calls, false, &mut parts);
+            parts.push(GO_ON.to_string());
+        }
         Given::SentBack(unmet) => {
             parts.push(SENT_BACK.to_string());
-            let why: Vec<String> = unmet.iter().map(|u| format!("- {}", service::unmet_words(u))).collect();
-            parts.push(why.join("\n"));
+            parts.push(sent_back(unmet));
             parts.push(HAND_IN_AGAIN.to_string());
         }
     }
@@ -155,7 +189,7 @@ fn task(flow: &Compiled, work: &Work, cell: &CellSpec, run: RunId, parts: &mut V
             lines.push(not_written(block));
             continue;
         };
-        reads.push(block.to_string());
+        reads.push(format!("{block}@{}", at.0));
         let written = version(&versions, block, at);
         let mut line = input(block, at, &writer(flow, work, block, written));
         if let Some(value) = written.and_then(|v| v.value.as_deref()) {
@@ -188,6 +222,9 @@ fn task(flow: &Compiled, work: &Work, cell: &CellSpec, run: RunId, parts: &mut V
         if declared.is_some_and(|b| b.readers.shown) {
             line.push_str(OWNER_READS);
         }
+        if cell.must_write.contains(block) {
+            line.push_str(EVERY_TIME);
+        }
         line.push_str(": ");
         match current(block) {
             Some(at) => {
@@ -195,7 +232,7 @@ fn task(flow: &Compiled, work: &Work, cell: &CellSpec, run: RunId, parts: &mut V
                 let meaning = written.map_or(at, |v| v.meaning);
                 line.push_str(&output_version(at, written.and_then(|v| v.value.as_deref()), meaning));
                 if !inputs.contains(block) {
-                    reads.push(block.to_string());
+                    reads.push(format!("{block}@{}", at.0));
                 }
                 if meaning != at {
                     reads.push(format!("{block}@{}..{}", meaning.0, at.0));
@@ -213,10 +250,18 @@ fn task(flow: &Compiled, work: &Work, cell: &CellSpec, run: RunId, parts: &mut V
     });
 }
 
-/// A later round given the results of the calls the round before asked for.
-fn results(work: &Work, calls: &[CallId], parts: &mut Vec<String>) {
-    parts.push(RESULTS.to_string());
+/// Each call with its result; of an earlier round, a `read` only named.
+fn calls_and_results(work: &Work, calls: &[CallId], earlier: bool, parts: &mut Vec<String>) {
     for call in calls {
+        // What an earlier round read is named, not given again: the blocks may have changed since, and the agent reads
+        // again what it needs.
+        if let Some(Call::Asked(Ask::Tool { name, input })) = work.calls.get(call)
+            && earlier
+            && name == crate::read::READ
+        {
+            parts.push(read_before(input));
+            continue;
+        }
         let head = match work.calls.get(call) {
             Some(Call::Asked(Ask::Tool { name, input })) => tool(name, input),
             Some(Call::Asked(Ask::Person { question: q, .. })) => question(q),
@@ -227,7 +272,12 @@ fn results(work: &Work, calls: &[CallId], parts: &mut Vec<String>) {
         let result = work.results.get(call).map(|r| r.trim_end().to_string());
         parts.push(result.unwrap_or_else(|| NO_RESULT.to_string()));
     }
-    parts.push(GO_ON.to_string());
+}
+
+/// Why what was handed in was sent back, a line for each reason.
+fn sent_back(unmet: &[decide::run::Unmet]) -> String {
+    let why: Vec<String> = unmet.iter().map(|u| format!("- {}", service::unmet_words(u))).collect();
+    why.join("\n")
 }
 
 /// The version of the block written at this place.

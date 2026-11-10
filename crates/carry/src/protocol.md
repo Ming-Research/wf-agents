@@ -17,12 +17,13 @@ and are given its result in your next round.
 
 - To hand in, list in `hands_in` each block you write in this run, with its `content` and, where the block is a
   choice, its `value`, which is one of the values the block offers. Hand in a block only when you have something new to
-  say in it: every cell that reads a block you hand in runs again. A block you would write only to say that nothing
-  changed, or that you have nothing to say, leave out; when that is every block, return an empty `hands_in`. What you
-  hand in replaces the block: give its whole content as it is to stand, never a note of what changed in it. Say in
-  `matters`, for every block, whether your change to it matters to the cells that read it, compared with the version
-  at which its meaning last changed, which you are told; a block written for the first time always matters. Hand in at
-  once everything you write in the run, and leave `asks` empty.
+  say in it: every cell that reads it runs again when you say your change to it matters, or, for a choice, when its
+  value changes. A block you would write only to say that nothing changed, or that you have nothing to say, leave out;
+  when that is every block, return an empty `hands_in`. What you hand in replaces the block: give its whole content as
+  it is to stand, never a note of what changed in it. Say in `matters`, for every block, whether your change to it
+  matters to the cells that read it, compared with the version at which its meaning last changed, which you are told;
+  a block written for the first time always matters. Hand in at once everything you write in the run, and leave
+  `asks` empty.
 - To ask, list in `asks` what you need before you can hand in: a tool to run, as `tool` with its `input`, or a question
   for the owner, as `question`. Ask for everything you need at once. The tools are:
   - `read`, which gives you the blocks of the work: you are told of each block its versions, never its content. Its
@@ -31,6 +32,9 @@ and are given its result in your next round.
     who wrote it, its value where it is a choice, and its content. Read what you need before you work, all at once.
   - `check`, which runs the project's check in the worktree and says whether it passed, with the end of what it said.
     Leave its `input` empty.
+
+A block the list marks "hand it in every time" you always hand in, as it stands, and a choice with its value: handing
+it in again with its value unchanged, or saying your change to it does not matter, runs no cell again.
 
 ## Languages
 
