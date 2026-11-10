@@ -90,43 +90,44 @@ const MAY_MERGE = test('may_merge', 'The reviews are content and the owner lets 
 /// A precondition not met that the owner makes hold.
 const owners = (t: Test): Waited => ({ kind: 'precondition', test: t.name, words: t.words, who: 'owner' });
 
-/// A made-up flow of an engineer's work: research, a design when the research asks for one, its review, the
-/// implementation once the owner confirmed the plan, the tests, the review of the code, a check with the latest main,
-/// and the merge.
+/// A made-up flow of an engineer's work: the initial research, deep research when it asks for it, the review of its
+/// plan, the implementation once the owner confirmed the plan, the tests, the review of the code, a check with the
+/// latest main, and the merge.
 export const FLOW: Flow = flowOf(
   'engineer',
   [
     {
       id: 'research',
-      title: 'Research the item',
-      task: 'Research what the item asks for, and write the plan.\nSay whether it needs a design.',
+      title: 'Initial research',
+      task: 'Research what the item asks for, and write the plan.\nSay whether it needs deep research.',
       preconditions: [REQUEST_READ],
       inputs: ['request', 'plan_opinions'],
-      outputs: ['plan', 'needs_design'],
+      outputs: ['plan', 'needs_deep_research'],
     },
     {
-      id: 'design',
-      title: 'Design',
-      task: 'Design what the plan asks for.',
-      condition: { on: 'block', block: 'needs_design', value: 'yes' },
-      inputs: ['plan', 'design_opinions'],
-      outputs: ['design'],
+      id: 'deep_research',
+      title: 'Deep research',
+      line: 'deep_research',
+      task: 'Research what the plan leaves open, and write the solution.',
+      condition: { on: 'block', block: 'needs_deep_research', value: 'yes' },
+      inputs: ['plan', 'plan_review_on_deep_research'],
+      outputs: ['solution'],
     },
     {
-      id: 'review_design',
-      title: 'Review the design',
-      task: 'Review the design against the plan.',
+      id: 'review_plan',
+      title: 'Review the plan',
+      task: 'Review the solution and the plan against what the item asks for.',
       line: 'review',
-      condition: { on: 'block', block: 'needs_design', value: 'yes' },
-      inputs: ['plan', 'design'],
-      outputs: ['design_opinions'],
+      condition: { on: 'block', block: 'needs_deep_research', value: 'yes' },
+      inputs: ['plan', 'solution'],
+      outputs: ['plan_review_on_deep_research'],
     },
     {
       id: 'implement',
       title: 'Implement',
-      task: 'Implement the plan and the design.',
+      task: 'Implement the plan and the solution.',
       preconditions: [PLAN_CONFIRMED],
-      inputs: ['plan', 'design', 'code_opinions'],
+      inputs: ['plan', 'solution', 'code_opinions'],
       outputs: ['code'],
     },
     {
@@ -159,9 +160,9 @@ export const FLOW: Flow = flowOf(
     request: { people: true, shown: true },
     plan_opinions: { people: true },
     plan: { shown: true },
-    needs_design: { values: ['yes', 'no'] },
-    design: { shown: true },
-    design_opinions: { people: true },
+    needs_deep_research: { values: ['yes', 'no'] },
+    solution: { shown: true },
+    plan_review_on_deep_research: { people: true },
     code: {},
     code_opinions: { people: true },
     tests: {},
@@ -179,12 +180,12 @@ const ORDER = FLOW.cells.map((c) => c.id);
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 
-/// How each cell of the flow stands for a work at `at` in state `state`: the cells before it done, the design and its
-/// review skipped unless `design`, those after it not yet run.
-function cellsAt(at: string | null, state: CellState, design = true): CellNow[] {
+/// How each cell of the flow stands for a work at `at` in state `state`: the cells before it done, the deep research and
+/// the review of its plan skipped unless `deep`, those after it not yet run.
+function cellsAt(at: string | null, state: CellState, deep = true): CellNow[] {
   const here = at === null ? ORDER.length : ORDER.indexOf(at);
   return ORDER.map((cell, i): CellNow => {
-    const skipped = !design && (cell === 'design' || cell === 'review_design') && here > ORDER.indexOf('research');
+    const skipped = !deep && (cell === 'deep_research' || cell === 'review_plan') && here > ORDER.indexOf('research');
     if (skipped) return { cell, state: 'skipped', finished: 0, record: null, open: null };
     if (i < here) return { cell, state: 'done', finished: 1, record: 10 + i, open: null };
     if (i === here) {
@@ -305,7 +306,7 @@ export function fixtureItems(start = Date.now()): Items {
     8: {
       title: 'Draw the items as a tree',
       dependsOn: [17, 22],
-      work: work(round('design', 2), cellsAt('design', 'running'), { hours: 0.4, dollars: 0.62, rounds: 5 }),
+      work: work(round('deep_research', 2), cellsAt('deep_research', 'running'), { hours: 0.4, dollars: 0.62, rounds: 5 }),
     },
     9: {
       title: 'Read changes as they happen',
@@ -344,7 +345,7 @@ export function fixtureItems(start = Date.now()): Items {
     12: {
       title: 'Show the cost of a work',
       dependsOn: [11],
-      work: work({ kind: 'waits', at: 'review_design', on: [{ kind: 'limit', runs: 3 }] }, cellsAt('review_design', 'again'), {
+      work: work({ kind: 'waits', at: 'review_plan', on: [{ kind: 'limit', runs: 3 }] }, cellsAt('review_plan', 'again'), {
           hours: 26,
           dollars: 9.8,
           rounds: 70,
@@ -419,7 +420,7 @@ export function fixtureItems(start = Date.now()): Items {
     22: {
       title: 'Try a second layout of the tree',
       dependsOn: [23],
-      work: work({ kind: 'cancelled' }, cellsAt('design', 'notYet'), { hours: 60, dollars: 1.4, rounds: 11 }),
+      work: work({ kind: 'cancelled' }, cellsAt('deep_research', 'notYet'), { hours: 60, dollars: 1.4, rounds: 11 }),
     },
     23: {
       title: 'Measure how long a frame of the tree takes',

@@ -1,0 +1,5 @@
+title = "Check"
+kind = "engine"
+act = "check"
+inputs = ["code"]
+outputs = ["passed", "failures"]

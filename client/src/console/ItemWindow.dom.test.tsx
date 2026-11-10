@@ -108,7 +108,7 @@ describe('the panel of the item selected', () => {
     expect(text(el, '.drawer-belongs')).toEqual(['engineer']);
     const [itemLine, workLine] = lines(el);
     expect(itemLine).toBe('Open Added 1.1d ago Waits for 11 to merge');
-    expect(workLine).toContain('Waiting for you at Review the design W12');
+    expect(workLine).toContain('Waiting for you at Review the plan W12');
     expect(el.querySelector('a.cw-mono')?.getAttribute('href')).toBe('#/works/12');
   });
 
@@ -150,8 +150,8 @@ describe('the panel of the item selected', () => {
     const select = el.querySelector('select') as HTMLSelectElement;
     expect([...select.options].map((o) => o.value)).toEqual([
       'code_opinions',
-      'design_opinions',
       'plan_opinions',
+      'plan_review_on_deep_research',
       'request',
       'test_opinions',
     ]);
@@ -160,7 +160,7 @@ describe('the panel of the item selected', () => {
       select.value = 'request';
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
-    expect(text(el, '.cw-compose-foot .cw-muted')).toEqual(['Goes to Research the item']);
+    expect(text(el, '.cw-compose-foot .cw-muted')).toEqual(['Goes to Initial research']);
     expect(button(el, 'Send').disabled).toBe(true);
     type(el.querySelector('textarea') as HTMLTextAreaElement, '  Keep it to one table  ');
     expect(button(el, 'Send').disabled).toBe(false);

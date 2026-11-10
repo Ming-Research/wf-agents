@@ -500,7 +500,8 @@ textarea:disabled {
   color: var(--muted);
 }
 
-/* A text a change took out or put in, such as a task: on a line of its own, its line breaks kept. */
+/* A text a change took out or put in, such as a task, or a task with its changed words marked: on a line of its own,
+   its line breaks kept. */
 .change-text {
   display: block;
   margin-top: var(--space-4);

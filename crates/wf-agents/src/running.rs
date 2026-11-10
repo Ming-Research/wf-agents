@@ -1,6 +1,7 @@
 //! `wf-agents run`: the engine as a process. It drives every work the store in the data directory holds, on the flows
-//! it is given, with agents, engine acts and tools that follow a script, and serves the owner's pages over it. It stops
-//! when the engine's loop stops, saying why; started again, it goes on from the store.
+//! it is given, and serves the owner's pages over it. What carries the works out is the real carriers, as the
+//! installation's settings say (the crate `carry`), or, given a script, agents, engine acts and tools that follow it.
+//! It stops when the engine's loop stops, saying why; started again, it goes on from the store.
 //!
 //! Before it touches the store it holds the data directory and has its port, so that an engine that cannot serve
 //! hands nothing out, and two engines never drive the same works: each would give every round under way to its own
@@ -13,7 +14,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use flow::{Compiled, Has, Source};
-use service::{Script, Scripted, Service, SystemClock};
+use service::{Carriers, Script, Scripted, Service, SystemClock};
 use store::Store;
 
 /// The store's file in the data directory.
@@ -29,18 +30,32 @@ fn has(source: &Source) -> Has {
     crate::has(source)
 }
 
+/// What carries the works out.
+pub enum With {
+    /// Agents, engine acts and tools that follow the script in this file.
+    Script(PathBuf),
+    /// The real carriers, as the settings in this file say.
+    Settings(PathBuf),
+}
+
+/// What carries the works out, read and checked: a script, or the settings.
+enum Read {
+    Script(Script),
+    Settings(carry::Settings),
+}
+
 /// The address the works page is printed at.
 pub fn works_page(address: SocketAddr) -> String {
     format!("http://{address}/#/works")
 }
 
-pub fn run(data: &Path, dirs: &[PathBuf], script: &Path, port: u16) -> ExitCode {
+pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
     // The flow page shows the first flow given.
     let Some(shown) = dirs.first() else {
         eprintln!("no flow is given: the engine runs on at least one");
         return ExitCode::FAILURE;
     };
-    let Some((flows, script)) = read(data, dirs, script) else {
+    let Some((flows, with)) = read(data, dirs, &with) else {
         return ExitCode::FAILURE;
     };
     // Held until the process ends.
@@ -84,7 +99,16 @@ pub fn run(data: &Path, dirs: &[PathBuf], script: &Path, port: u16) -> ExitCode 
                 return ExitCode::FAILURE;
             }
         };
-        let carriers = Scripted::new(script).carriers();
+        let carriers: Carriers = match with {
+            Read::Script(script) => Scripted::new(script).carriers(),
+            Read::Settings(settings) => match carry::carriers(settings, data) {
+                Ok(carriers) => carriers,
+                Err(why) => {
+                    eprintln!("The carriers cannot be made: {why}");
+                    return ExitCode::FAILURE;
+                }
+            },
+        };
         let (service, inbox) = match Service::open(Box::new(store), flows, carriers, Arc::new(SystemClock)) {
             Ok(opened) => opened,
             Err(fault) => {
@@ -126,9 +150,10 @@ fn hold(data: &Path) -> Result<File, String> {
     }
 }
 
-/// The flows compiled and the script, checked against them; or none, having said everything wrong with them. The
-/// script is checked only against flows that all compiled, so that it is not told of a flow missing for that.
-fn read(data: &Path, dirs: &[PathBuf], script: &Path) -> Option<(Vec<Compiled>, Script)> {
+/// The flows compiled and what carries the works out, checked against them; or none, having said everything wrong
+/// with them. A script is checked only against flows that all compiled, so that it is not told of a flow missing for
+/// that.
+fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Read)> {
     let mut wrong = false;
     if !data.is_dir() {
         eprintln!(
@@ -158,15 +183,33 @@ fn read(data: &Path, dirs: &[PathBuf], script: &Path) -> Option<(Vec<Compiled>, 
             }
         }
     }
-    let script = match std::fs::read_to_string(script)
+    let read = match with {
+        With::Script(script) => read_script(script, &flows, compiled_all, &mut wrong).map(Read::Script),
+        With::Settings(settings) => match carry::Settings::load(settings) {
+            Ok(settings) => Some(Read::Settings(settings)),
+            Err(why) => {
+                eprintln!("{why}");
+                None
+            }
+        },
+    };
+    match read {
+        Some(read) if !wrong && compiled_all => Some((flows, read)),
+        _ => None,
+    }
+}
+
+/// The script, checked against the flows where they all compiled; or none, having said why it cannot be read.
+fn read_script(script: &Path, flows: &[Compiled], compiled_all: bool, wrong: &mut bool) -> Option<Script> {
+    match std::fs::read_to_string(script)
         .map_err(|e| e.to_string())
         .and_then(|t| Script::read(&t))
     {
         Ok(read) if !compiled_all => Some(read),
         Ok(read) => {
-            for fault in read.check(&flows) {
+            for fault in read.check(flows) {
                 eprintln!("{}: {fault}", script.display());
-                wrong = true;
+                *wrong = true;
             }
             Some(read)
         }
@@ -174,9 +217,5 @@ fn read(data: &Path, dirs: &[PathBuf], script: &Path) -> Option<(Vec<Compiled>, 
             eprintln!("{}: {e}", script.display());
             None
         }
-    };
-    match script {
-        Some(script) if !wrong && compiled_all => Some((flows, script)),
-        _ => None,
     }
 }
