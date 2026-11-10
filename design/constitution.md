@@ -62,8 +62,13 @@ that will be thrown away whole, without saying when.
 
 Whether a design is good depends only on whether it is right, elegant, maintainable and robust. How much code it
 changes, how hard it is or how much it costs is no reason to choose it or not; it only decides what is done first.
+Building a design also tests it: when building it needs code the design does not account for (a case handled apart
+from it, one part going around another, a rule that holds only with exceptions), the design is at fault, not the code,
+and it is changed until the case fits it before that part is built. Hard is not forced: what the design accounts for is
+built however long it takes, and a changed design is chosen on its merit, not for being easier to build.
 
-Violations: giving up a better design because the change is too big or would take too long.
+Violations: giving up a better design because the change is too big or would take too long; code built around a design
+it does not fit, the design left unchanged; stopping over work that is only hard.
 
 ## Article 7 (flow-does). What the flow can do, the flow does
 
