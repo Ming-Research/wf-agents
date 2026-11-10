@@ -140,6 +140,9 @@ fn a_file_made_with_the_first_version_of_the_schema_is_migrated_and_its_pauses_r
     let old = Db::new();
     {
         let file = Connection::open(&old.path).expect("the database opens");
+        // The rows are copied table by table, in no order of what they name.
+        file.pragma_update(None, "foreign_keys", "OFF")
+            .expect("the foreign keys are let be");
         file.execute_batch(SCHEMA_1).expect("the first schema is made");
         file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
             .expect("its version is written");
