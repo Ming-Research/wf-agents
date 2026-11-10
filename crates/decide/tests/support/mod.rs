@@ -4,9 +4,9 @@
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoned, CallId, Called, Cause, Cell, CellId, Decision, Done, Finished, Flow, LetGo, Lost, Outcome, Outsider,
-    Pause, ProductId, Records, Refusal, RefusalId, Refuser, Returned, Round, RunId, Seq, Stale, Started, TestName,
-    Tests, Who, Write, Written, current, decide,
+    Abandoned, CallId, Called, Cell, CellId, Decision, Done, Finished, Flow, LetGo, Lost, Outcome, Outsider, Pause,
+    ProductId, Records, Refusal, RefusalId, Refuser, Returned, Round, RunId, Seq, Stale, Started, TestName, Tests,
+    Waited, Who, Write, Written, current, decide,
 };
 
 /// The named tests, each holding unless the test of the walk set it otherwise.
@@ -41,6 +41,22 @@ pub fn gate() -> Cell {
     merge
 }
 
+/// What a work whose last cell is [`gate`] decides when nothing else is to be done: it waits for the owner's word.
+pub fn resting() -> Decision {
+    Decision::Wait {
+        at: "merge".into(),
+        on: vec![merge_word()],
+    }
+}
+
+/// What the merge of [`gate`] waits for while the owner has not given the word.
+pub fn merge_word() -> Waited {
+    Waited::Precondition {
+        test: "the merge may go".into(),
+        who: Who::Owner,
+    }
+}
+
 /// A cell that depends on these products and may write those.
 pub fn cell(id: &str, follows: &[&str], writes: &[&str]) -> Cell {
     let mut c = Cell::new(id);
@@ -70,20 +86,13 @@ impl World {
         w
     }
 
-    /// Whether nothing is to be done but wait for the owner's word at the merge.
-    pub fn rests(&self) -> bool {
-        let word = decide::Waited::Precondition {
-            test: "the merge may go".into(),
-            who: Who::Owner,
-        };
-        self.decide()
-            == Decision::Wait {
-                at: "merge".into(),
-                on: vec![word],
-            }
+    /// Installs a changed flow over the same records.
+    pub fn install(&mut self, cells: Vec<Cell>) {
+        self.flow = Flow::new(cells).expect("the cells make a flow");
     }
 
-    fn tick(&mut self) -> Seq {
+    /// The next place in the order of what happened, for an entry a test pushes itself.
+    pub fn tick(&mut self) -> Seq {
         self.seq += 1;
         Seq(self.seq)
     }
@@ -95,30 +104,6 @@ impl World {
 
     pub fn decide(&self) -> Decision {
         decide(&self.flow, &self.records, &self.named)
-    }
-
-    /// The cell the walk says to run, when it says to run one.
-    pub fn runs_next(&self) -> Option<String> {
-        match self.decide() {
-            Decision::Run { cell, .. } => Some(cell.0),
-            _ => None,
-        }
-    }
-
-    /// Why the walk says to run a cell; any other decision is a fault of the test.
-    pub fn because(&self) -> Vec<Cause> {
-        match self.decide() {
-            Decision::Run { because, .. } => because,
-            other => panic!("the walk runs nothing: {other:?}"),
-        }
-    }
-
-    /// What the walk waits for; any other decision is a fault of the test.
-    pub fn waits(&self) -> (String, Vec<decide::Waited>) {
-        match self.decide() {
-            Decision::Wait { at, on } => (at.0, on),
-            other => panic!("the walk does not wait: {other:?}"),
-        }
     }
 
     /// Sets what a named test comes to.
@@ -170,12 +155,36 @@ impl World {
 
     /// A cell's record: its latest finished run.
     pub fn record(&self, cell: &str) -> RunId {
+        self.try_record(cell).expect("the cell has a record")
+    }
+
+    /// The cell's latest finished run, if it has one.
+    pub fn try_record(&self, cell: &str) -> Option<RunId> {
         let id: CellId = cell.into();
         let r = &self.records;
         (r.finished.iter().rev())
             .find(|f| r.started.iter().any(|s| s.run == f.run && s.cell == id))
-            .expect("the cell has a record")
-            .run
+            .map(|f| f.run)
+    }
+
+    /// The version a finished run wrote of each product it wrote: the place of the entry by which it finished.
+    pub fn version(&self, run: RunId) -> Seq {
+        (self.records.finished.iter())
+            .find(|f| f.run == run)
+            .expect("the run finished")
+            .at
+    }
+
+    /// What the run was started from, of the product, as the decision gave it.
+    pub fn basis_of(&self, run: RunId, product: &str) -> Option<Seq> {
+        let id: ProductId = product.into();
+        (self.records.started.iter())
+            .find(|s| s.run == run)
+            .expect("the run started")
+            .basis
+            .get(&id)
+            .copied()
+            .flatten()
     }
 
     fn under_way(&self, run: RunId) -> bool {
@@ -262,15 +271,16 @@ impl World {
     /// The cell's record refuses the version of the product it started from.
     pub fn refuse(&mut self, cell: &str, product: &str) -> RefusalId {
         let run = self.record(cell);
-        let id: ProductId = product.into();
-        let started = self
-            .records
-            .started
-            .iter()
-            .find(|s| s.run == run)
-            .expect("the run started");
-        let version = (started.basis.get(&id).copied().flatten()).expect("the run started from a version of it");
-        self.refusal(Refuser::Run(run), id, version)
+        let version = self
+            .basis_of(run, product)
+            .expect("the run started from a version of it");
+        self.refusal(Refuser::Run(run), product.into(), version)
+    }
+
+    /// The cell's record refuses this version of the product, one it did not start from.
+    pub fn refuse_version(&mut self, cell: &str, product: &str, version: Seq) -> RefusalId {
+        let run = self.record(cell);
+        self.refusal(Refuser::Run(run), product.into(), version)
     }
 
     /// The owner refuses the current version of the product.
@@ -293,23 +303,24 @@ impl World {
         id
     }
 
-    /// A person writes the product.
-    pub fn person_writes(&mut self, product: &str) {
-        self.outsider_writes(product, Outsider::Person);
+    /// A person writes the product; the version is named by the place returned.
+    pub fn person_writes(&mut self, product: &str) -> Seq {
+        self.outsider_writes(product, Outsider::Person)
     }
 
-    /// Something outside the work writes the product.
-    pub fn outside_writes(&mut self, product: &str) {
-        self.outsider_writes(product, Outsider::Outside);
+    /// Something outside the work writes the product; the version is named by the place returned.
+    pub fn outside_writes(&mut self, product: &str) -> Seq {
+        self.outsider_writes(product, Outsider::Outside)
     }
 
-    fn outsider_writes(&mut self, product: &str, by: Outsider) {
+    fn outsider_writes(&mut self, product: &str, by: Outsider) -> Seq {
         let at = self.tick();
         self.records.written.push(Written {
             product: product.into(),
             by,
             at,
         });
+        at
     }
 
     /// The product is lost.
