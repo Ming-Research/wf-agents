@@ -1,6 +1,6 @@
 [package]
 name = "decide"
-description = "What a work does next, as a function of the flow, the configuration and the work's records alone"
+description = "What a work does next, as a function of the flow, the work's records and the named tests of its state"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

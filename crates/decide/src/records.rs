@@ -124,9 +124,9 @@ pub struct Abandoned {
 pub struct Written {
     pub block: BlockId,
     pub by: Outsider,
-    /// Whether the write changes the block's meaning: a person's prose always does, and a changed specification of
-    /// a cell does when the owner says so. Not read for a block with a value: a choice changes its meaning when its
-    /// value does, so a person confirming what was recommended changes none.
+    /// Whether what the outside wrote changes the block's meaning: a changed specification of a cell does when the
+    /// owner says so. Not read for a person's prose, which always changes the meaning, nor for a block with a value:
+    /// a choice changes its meaning when its value does, so a person confirming what was recommended changes none.
     pub matters: bool,
     /// The block's value, where a condition reads it.
     pub value: Option<String>,
@@ -168,7 +168,7 @@ pub enum Cause {
     NoRecord,
     /// A block it reads has another meaning than the one its record knows. `was` is the version the record knows:
     /// the one its run started from, or the one it wrote itself; the run now starts from the current one. `behind`
-    /// says the current version was written by a cell after this one: an opinion on what it wrote, for one.
+    /// says a cell after this one gave the block the meaning it has now: an opinion on what it wrote, for one.
     Changed {
         block: BlockId,
         was: Option<Seq>,
@@ -177,8 +177,8 @@ pub enum Cause {
 }
 
 impl Cause {
-    /// Whether the cause is no way round: a first run, or a change that a person, the outside or a cell before this
-    /// one made.
+    /// Whether the cause is no way round: a first run, or a change of meaning that a person, the outside or a cell
+    /// before this one made.
     pub fn forward(&self) -> bool {
         match self {
             Cause::NoRecord => true,
