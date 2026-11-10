@@ -19,4 +19,4 @@ pub mod work;
 
 pub use event::{Came, Effect, Event, Refused};
 pub use handle::{handle, pending};
-pub use work::{Ask, Back, Call, Given, Handed, Work};
+pub use work::{Ask, Back, Call, Given, Handed, Moment, Spent, Time, Work};

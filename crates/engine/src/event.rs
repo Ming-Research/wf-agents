@@ -3,7 +3,7 @@
 use decide::run::Unmet;
 use decide::{BlockId, CallId, CellId, Outsider, RunId};
 
-use crate::work::{Ask, Call, Given, Handed};
+use crate::work::{Ask, Call, Given, Handed, Spent};
 
 /// One thing that happened to a work.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,8 +28,8 @@ pub enum Event {
     Resumed,
     /// The work's item was cancelled.
     Cancelled,
-    /// The round of the run that was under way ended.
-    Returned { run: RunId, came: Came },
+    /// The round of the run that was under way ended, having taken this.
+    Returned { run: RunId, came: Came, spent: Spent },
     /// The call has its result.
     Done { call: CallId, result: String },
 }

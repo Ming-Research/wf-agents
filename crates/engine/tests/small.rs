@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use decide::{Cause, Decision, Outcome, Outsider, TestName, Tests, Waited, Who, decide};
-use engine::{Came, Effect, Event, Given, Handed, Work, handle, pending};
+use engine::{Came, Effect, Event, Given, Handed, Spent, Time, Work, handle, pending};
 use flow::{Compiled, Source, compile};
 
 /// A writer, a judge that may write an opinion for the writer, and a merge that waits for the owner's word.
@@ -103,18 +103,42 @@ fn a_work_goes_from_cell_to_cell_as_each_hands_in_and_rests_at_the_merge_for_the
         matters: true,
         value: None,
     };
-    let (write, cell, given) = round(&handle(&flow, &tests, &mut work, request).unwrap());
+    let (write, cell, given) = round(&handle(&flow, &tests, &mut work, Time(1), request).unwrap());
     assert_eq!(cell, "write");
     assert!(matches!(&given, Given::Task { because, .. } if because == &[Cause::NoRecord]));
     // While the round is under way it is what a driver that starts anew is given again.
     assert_eq!(round(&pending(&work)), (write, cell, given));
 
     let came = hands_in("text", None);
-    let (judge, cell, _) = round(&handle(&flow, &tests, &mut work, Event::Returned { run: write, came }).unwrap());
+    let (judge, cell, _) = round(
+        &handle(
+            &flow,
+            &tests,
+            &mut work,
+            Time(2),
+            Event::Returned {
+                run: write,
+                came,
+                spent: Spent::default(),
+            },
+        )
+        .unwrap(),
+    );
     assert_eq!(cell, "judge");
 
     let came = hands_in("content", Some("yes"));
-    let effects = handle(&flow, &tests, &mut work, Event::Returned { run: judge, came }).unwrap();
+    let effects = handle(
+        &flow,
+        &tests,
+        &mut work,
+        Time(3),
+        Event::Returned {
+            run: judge,
+            came,
+            spent: Spent::default(),
+        },
+    )
+    .unwrap();
     assert_eq!(effects, vec![]);
     assert_eq!(pending(&work), vec![]);
     let word = Waited::Precondition {
@@ -131,10 +155,23 @@ fn a_work_goes_from_cell_to_cell_as_each_hands_in_and_rests_at_the_merge_for_the
 #[test]
 fn what_is_handed_in_that_the_flow_does_not_allow_is_sent_back_with_why() {
     let (flow, tests, mut work) = (small(), waiting(), Work::default());
-    let (write, ..) = round(&handle(&flow, &tests, &mut work, Event::Look).unwrap());
+    let (write, ..) = round(&handle(&flow, &tests, &mut work, Time(4), Event::Look).unwrap());
     // The writer hands in the judge's block.
     let came = hands_in("content", Some("yes"));
-    let (again, cell, given) = round(&handle(&flow, &tests, &mut work, Event::Returned { run: write, came }).unwrap());
+    let (again, cell, given) = round(
+        &handle(
+            &flow,
+            &tests,
+            &mut work,
+            Time(5),
+            Event::Returned {
+                run: write,
+                came,
+                spent: Spent::default(),
+            },
+        )
+        .unwrap(),
+    );
     assert_eq!((again, cell.as_str()), (write, "write"));
     let unmet = decide::run::Unmet::NotAnOutput {
         block: "content".into(),
