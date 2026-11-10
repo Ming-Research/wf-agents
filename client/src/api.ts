@@ -54,6 +54,8 @@ export interface Cell {
   preconditions: Test[];
   inputs: string[];
   outputs: string[];
+  /// The blocks among its outputs that every hand-in of it includes.
+  mustWrite: string[];
   limits: Limits;
 }
 
@@ -96,6 +98,8 @@ export type What =
   | { kind: 'unknownAct'; act: string }
   | { kind: 'valuesEmpty' }
   | { kind: 'noSuchBlock'; block: string }
+  /// The cell must write the block each time, and it is not among its outputs.
+  | { kind: 'notAnOutput'; block: string }
   | { kind: 'noWriter'; block: string }
   | { kind: 'noReader'; block: string }
   | { kind: 'unknownSource'; block: string; source: string }
@@ -152,6 +156,8 @@ export type Change =
   | { kind: 'inputRemoved'; cell: string; block: string }
   | { kind: 'outputAdded'; cell: string; block: string }
   | { kind: 'outputRemoved'; cell: string; block: string }
+  | { kind: 'mustWriteAdded'; cell: string; block: string }
+  | { kind: 'mustWriteRemoved'; cell: string; block: string }
   | { kind: 'cellLimit'; cell: string; limit: LimitName; before: number; after: number }
   | { kind: 'blockAdded'; block: string }
   | { kind: 'blockRemoved'; block: string }

@@ -9,7 +9,9 @@
 //! - every effect held names a run and a call the records hold, and no round is given twice;
 //! - the times of the moments never go back, the driver's clock never going back, and each moment's entries begin
 //!   after the last's;
-//! - an event the loop refuses leaves the work equal to what it was.
+//! - an event the loop refuses leaves the work equal to what it was;
+//! - no finished run of a cell lacks a write of a block the cell must write, read from the records of the finishes and
+//!   the cells' definitions (entry a-run-is-one-mechanism).
 //!
 //! And once people stop: the work rests within the bound stated on `History::bound` (entry a-work-comes-to-rest), at
 //! rest the walk waits, is paused or has ended, and `pending` holds only calls for a person; a cancelled work ends with
@@ -19,10 +21,10 @@
 //! What a step is, roughly. In the first 0 to 59 steps people act at a step with a chance of one in four; otherwise,
 //! and always once they stop, the driver does one of the things it holds, each with an equal chance:
 //! - a round under way ends: in half of them the agent hands in each block its cell may write with a chance of seven
-//!   in ten and, in one in ten, a block it may not; a choice with one of its values in four of five, a wrong value or
-//!   none otherwise; prose with a value in one in twenty; each mattering or not as a coin says. In three in ten it asks
-//!   for one to three calls, a tool in seven of ten and a question for the owner or the architect otherwise; in two in
-//!   ten it asks for nothing.
+//!   in ten, those its cell must write each time too, so that it leaves one out at times, and, in one in ten, a block
+//!   it may not; a choice with one of its values in four of five, a wrong value or none otherwise; prose with a value
+//!   in one in twenty; each mattering or not as a coin says. In three in ten it asks for one to three calls, a tool in
+//!   seven of ten and a question for the owner or the architect otherwise; in two in ten it asks for nothing.
 //! - a call has its result: always for a tool; for a person or the owner's call at a limit only while people act.
 //! - a round given to be stopped ends, what it returns being dropped; a call given to be withdrawn is said to have its
 //!   result, that it was withdrawn.
@@ -102,14 +104,16 @@ fn flow_file(order: &[&str], blocks: &BTreeSet<&str>) -> String {
     )
 }
 
-fn agent(inputs: &[&str], outputs: &[&str], when: Option<&str>) -> (String, Vec<&'static str>) {
+/// An agent's cell that reads the blocks `inputs`, may write `outputs` and must write `must` each time.
+fn agent(inputs: &[&str], outputs: &[&str], must: &[&str], when: Option<&str>) -> (String, Vec<&'static str>) {
     let list = |l: &[&str]| l.iter().map(|b| format!("\"{b}\"")).collect::<Vec<_>>().join(", ");
     let when = when.map_or(String::new(), |w| format!("when = {w}\n"));
     let file = format!(
         "title = \"A cell\"\nkind = \"agent\"\nline = \"main\"\ntask = \"Do the cell's part.\"\n{when}\
-         inputs = [{}]\noutputs = [{}]\n",
+         inputs = [{}]\noutputs = [{}]\nmust_write = [{}]\n",
         list(inputs),
-        list(outputs)
+        list(outputs),
+        list(must)
     );
     let used = inputs.iter().chain(outputs).map(|b| block_name(b)).collect();
     (file, used)
@@ -123,36 +127,48 @@ fn block_name(b: &str) -> &'static str {
         .expect("a block of the histories")
 }
 
-/// The merge, the engine's own cell, after the cell that last writes the plan.
-fn merge() -> String {
-    "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nrequires = [\"may_merge\"]\n\
-     inputs = [\"plan\"]\noutputs = [\"merged\"]\n"
-        .to_string()
+/// The merge, the engine's own cell, after the cell that last writes the plan; where `bound`, it must write what it
+/// merged each time.
+fn merge(bound: bool) -> String {
+    let must = if bound { "\"merged\"" } else { "" };
+    format!(
+        "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nrequires = [\"may_merge\"]\n\
+         inputs = [\"plan\"]\noutputs = [\"merged\"]\nmust_write = [{must}]\n"
+    )
 }
 
-/// One of the shapes of flow, each ending in the merge.
-fn shape(n: usize) -> Compiled {
+/// One of the shapes of flow, each ending in the merge. Each cell that may be bound to write a block each time is,
+/// where `binds` draws it so, about one time in two.
+fn shape(n: usize, binds: &mut Rng) -> Compiled {
     let choice = Some(r#"{ block = "choice", is = "yes" }"#);
+    let mut bound =
+        |blocks: &'static [&'static str]| -> &'static [&'static str] { if binds.chance(50) { blocks } else { &[] } };
     let cells: Vec<(&str, (String, Vec<&'static str>))> = match n {
-        // A chain.
+        // A chain, whose second cell may be bound to write the plan each time.
         0 => vec![
-            ("draft", agent(&["request", "main"], &["notes"], None)),
-            ("plan", agent(&["notes"], &["plan"], None)),
+            ("draft", agent(&["request", "main"], &["notes"], &[], None)),
+            ("plan", agent(&["notes"], &["plan"], bound(&["plan"]), None)),
         ],
         // A writer with a judge that writes opinions for it.
         1 => vec![
-            ("write", agent(&["request", "opinions"], &["plan"], None)),
-            ("judge", agent(&["plan"], &["opinions"], None)),
+            ("write", agent(&["request", "opinions"], &["plan"], &[], None)),
+            ("judge", agent(&["plan"], &["opinions"], &[], None)),
         ],
-        // A cell with a condition on a choice an earlier cell makes.
+        // A cell with a condition on a choice an earlier cell makes, which that cell may be bound to make each time.
         2 => vec![
-            ("ask", agent(&["request"], &["choice", "plan"], None)),
-            ("extra", agent(&["plan", "main"], &["notes"], choice)),
+            (
+                "ask",
+                agent(&["request"], &["choice", "plan"], bound(&["choice"]), None),
+            ),
+            ("extra", agent(&["plan", "main"], &["notes"], &[], choice)),
         ],
-        // A cell reading and writing one block.
+        // A cell reading and writing one block, which it may be bound to write each time.
         _ => vec![
-            ("draft", agent(&["request"], &["plan"], None)),
-            ("refine", agent(&["plan", "opinions"], &["plan"], None)),
+            ("draft", agent(&["request"], &["plan"], &[], None)),
+            (
+                "refine",
+                agent(&["plan", "opinions"], &["plan"], bound(&["plan"]), None),
+            ),
         ],
     };
     let mut order: Vec<&str> = cells.iter().map(|(id, _)| *id).collect();
@@ -160,7 +176,7 @@ fn shape(n: usize) -> Compiled {
     let mut blocks: BTreeSet<&str> = cells.iter().flat_map(|(_, (_, used))| used.iter().copied()).collect();
     blocks.extend(["plan", "merged"]);
     let mut files: BTreeMap<String, String> = cells.iter().map(|(id, (f, _))| (id.to_string(), f.clone())).collect();
-    files.insert("merge".to_string(), merge());
+    files.insert("merge".to_string(), merge(binds.chance(50)));
     let source = Source {
         flow: flow_file(&order, &blocks),
         cells: files,
@@ -186,6 +202,11 @@ struct Seen {
     stopped: usize,
     /// Histories that ended cancelled.
     cancels: usize,
+    /// Hand-ins that lacked a block their cell must write, by a run still open after them: sent back, or resting at
+    /// the limit of returns.
+    lacking: usize,
+    /// Finished runs of cells that must write a block each time.
+    bound_finished: usize,
 }
 
 /// A history: the work, what the driver holds to be done, and what it saw.
@@ -220,7 +241,8 @@ fn key(effect: &Effect) -> String {
 impl History {
     fn new(seed: u64, stops: bool) -> Self {
         let mut rng = Rng::new(seed);
-        let flow = shape(rng.below(4));
+        // Which cells are bound to write a block each time is drawn apart, so that the other draws stay as they were.
+        let flow = shape(rng.below(4), &mut Rng::new(seed ^ 0xB10C_5EED_0FC3_1150));
         let yes_at_first = rng.chance(40);
         Self {
             flow,
@@ -326,6 +348,24 @@ impl History {
             !matches!(decide(&self.flow.flow, r), Decision::Fault(_)),
             "the records are faulty"
         );
+        for finished in &r.finished {
+            let started = r
+                .started
+                .iter()
+                .find(|s| s.run == finished.run)
+                .expect("a finished run started");
+            let spec = (self.flow.cells.iter())
+                .find(|c| c.id == started.cell)
+                .expect("the cell is in the flow");
+            for block in &spec.must_write {
+                assert!(
+                    finished.writes.iter().any(|w| w.block == *block),
+                    "run {:?} of {} finished without writing {block}, which its cell must write",
+                    finished.run,
+                    started.cell
+                );
+            }
+        }
         for effect in &self.held {
             match effect {
                 Effect::Round { run, .. } => assert!(r.started.iter().any(|s| s.run == *run), "an unknown run"),
@@ -407,9 +447,19 @@ impl History {
             }
             _ => Came::Asks(vec![]),
         };
+        let must = &self.flow.cells[place].must_write;
+        let lacks = match &came {
+            Came::HandsIn(handed) => must.iter().any(|b| !handed.iter().any(|h| h.block == *b)),
+            Came::Asks(_) => false,
+        };
         let spent = self.spent(run);
         let taken = self.take(Event::Returned { run, came, spent });
         assert!(taken, "the return of a round under way was refused");
+        let r = &self.work.records;
+        let open = !r.finished.iter().any(|f| f.run == run) && !r.abandoned.iter().any(|a| a.run == run);
+        if lacks && open {
+            self.seen.lacking += 1;
+        }
     }
 
     /// The call has its result.
@@ -654,6 +704,10 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
         }
     }));
     h.seen.abandons = h.work.records.abandoned.len();
+    let bound = |cell: &decide::CellId| (h.flow.cells.iter()).any(|c| c.id == *cell && !c.must_write.is_empty());
+    h.seen.bound_finished = (h.work.records.finished.iter())
+        .filter(|f| (h.work.records.started.iter()).any(|s| s.run == f.run && bound(&s.cell)))
+        .count();
     *log = std::mem::take(&mut h.log);
     if let Err(e) = result {
         panic::resume_unwind(e);
@@ -689,6 +743,8 @@ fn whole_works_keep_the_engines_properties_with_and_without_stops() {
                 seen.stops_undoing += s.stops_undoing;
                 seen.stopped += s.stopped;
                 seen.cancels += s.cancels;
+                seen.lacking += s.lacking;
+                seen.bound_finished += s.bound_finished;
             }
             Err(e) => {
                 let message = (e.downcast_ref::<String>().cloned())
@@ -715,6 +771,8 @@ fn whole_works_keep_the_engines_properties_with_and_without_stops() {
         && seen.stops > 0
         && seen.stops_undoing > 0
         && seen.stopped > 0
-        && seen.cancels > 0;
+        && seen.cancels > 0
+        && seen.lacking > 0
+        && seen.bound_finished > 0;
     assert!(every, "a class of step never occurred: {seen:?}");
 }

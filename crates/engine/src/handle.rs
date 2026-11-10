@@ -307,6 +307,7 @@ fn requires<'a>(
     let spec = flow.cells.get(place)?;
     Some(Requires {
         outputs: &flow.flow.cells()[place].outputs,
+        must_write: &spec.must_write,
         choices,
         returns: spec.returns,
         calls: spec.calls,
