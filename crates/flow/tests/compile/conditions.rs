@@ -24,9 +24,9 @@ fn design_reads(block: &str, source: Source) -> Source {
     )
 }
 
-/// The small flow with a choice `go` that people or the outside write.
+/// The small flow with a choice `go` that people or the outside write, as this line of its declaration says.
 fn with_go(writer: &str) -> Source {
-    let go = format!("[blocks.go]\nvalues = [\"yes\", \"no\"]\n{writer} = true\n\n[blocks.plan]");
+    let go = format!("[blocks.go]\nvalues = [\"yes\", \"no\"]\n{writer}\n\n[blocks.plan]");
     edit(valid(), FLOW_FILE, "[blocks.plan]", &go)
 }
 
@@ -85,7 +85,7 @@ fn a_condition_reads_a_choice_a_cell_before_it_writes_and_not_one_only_a_cell_af
     };
     assert_eq!(faults(&source), [at("plan.toml", "when.block", what)]);
 
-    let source = design_reads("go", with_go("outside"));
+    let source = design_reads("go", with_go("outside = \"repository\""));
     let what = ConditionNotWrittenBefore {
         block: "go".to_string(),
     };
@@ -94,7 +94,7 @@ fn a_condition_reads_a_choice_a_cell_before_it_writes_and_not_one_only_a_cell_af
 
 #[test]
 fn a_condition_may_read_a_choice_people_write() {
-    let compiled = compiled(&design_reads("go", with_go("people")));
+    let compiled = compiled(&design_reads("go", with_go("people = true")));
     let condition = Condition::Is {
         block: "go".into(),
         value: "yes".to_string(),

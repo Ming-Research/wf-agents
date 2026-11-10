@@ -10,12 +10,15 @@
 //!
 //! - [`source`]: the files as they are written, and the reading of a directory.
 //! - [`compile`](mod@compile): the checks, their faults, and what a definition compiles to.
+//! - [`named`]: the named tests as they come out for a work's records.
 //! - [`compare`](mod@compare): what changed from one compiled definition to another.
 
 pub mod compare;
 pub mod compile;
+pub mod named;
 pub mod source;
 
 pub use compare::{BlockChange, CellChange, Change, Limit, compare};
-pub use compile::{Block, CellSpec, Compiled, Fault, FaultKind, Limits, Readers, Writers, compile};
-pub use source::{FLOW_FILE, Kind, Source, read};
+pub use compile::{Block, CellSpec, Compiled, Fault, FaultKind, Limits, Readers, Test, Writers, compile};
+pub use named::NamedTests;
+pub use source::{FLOW_FILE, Kind, Source, TestKind, read};

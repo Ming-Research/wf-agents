@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use decide::TestName;
 use flow::{Fault, FaultKind, Source};
 
 /// Runs coding agents through a defined flow.
@@ -25,14 +24,14 @@ enum Command {
     Flow(FlowCommand),
 }
 
-// The engine has no named tests yet, so each command here takes the tests a definition declares in `flow.toml` as the
-// tests the engine has, and says so in its help: a test the definition uses is still checked to be declared, and one
-// declared to be used. When the engine has its tests, the commands take those instead.
+// The engine has no sources outside a work yet, so each command here takes every source a definition's blocks name in
+// `flow.toml` as one the engine has, and says so in its help. When the engine has its sources, the commands take those
+// instead.
 #[derive(Subcommand)]
 enum FlowCommand {
     /// Compiles the definition in a directory: prints each fault with its file and field and fails, or prints a line
-    /// saying what it compiled to. The engine has no named tests yet, so the tests the definition declares are taken as
-    /// the tests the engine has.
+    /// saying what it compiled to. The engine has no sources outside a work yet, so every source the definition names
+    /// is taken as one the engine has.
     Check {
         /// The definition's directory.
         dir: PathBuf,
@@ -40,7 +39,7 @@ enum FlowCommand {
     /// Serves the owner's flow page for the definition in a directory, on the loopback address: the flow as a chart,
     /// or its faults when it does not compile, and what changed from another definition when one is given. Both
     /// directories are read again for every request, so an edit shows when the page is loaded again. The engine has no
-    /// named tests yet, so the tests each definition declares are taken as the tests the engine has.
+    /// sources outside a work yet, so every source each definition names is taken as one the engine has.
     Page {
         /// The definition's directory.
         dir: PathBuf,
@@ -60,16 +59,18 @@ fn main() -> ExitCode {
     }
 }
 
-/// The named tests a definition declares, standing for the tests the engine has until it has its own. A `flow.toml`
-/// that cannot be read declares none; compiling it then says why it cannot be read.
-fn declared_tests(source: &Source) -> BTreeSet<TestName> {
+/// The sources outside a work that a definition's blocks name, standing for the sources the engine has until it has
+/// its own. A `flow.toml` that cannot be read names none; compiling it then says why it cannot be read.
+fn named_sources(source: &Source) -> BTreeSet<String> {
     let Ok(flow) = source.flow.parse::<toml::Table>() else {
         return BTreeSet::new();
     };
-    match flow.get("tests") {
-        Some(toml::Value::Table(tests)) => tests.keys().map(|t| TestName(t.clone())).collect(),
-        _ => BTreeSet::new(),
-    }
+    let Some(toml::Value::Table(blocks)) = flow.get("blocks") else {
+        return BTreeSet::new();
+    };
+    (blocks.values())
+        .filter_map(|block| block.get("outside")?.as_str().map(str::to_string))
+        .collect()
 }
 
 fn check(dir: &Path) -> ExitCode {
@@ -80,7 +81,7 @@ fn check(dir: &Path) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match flow::compile(&source, &declared_tests(&source)) {
+    match flow::compile(&source, &named_sources(&source)) {
         Ok(compiled) => {
             let count = |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
             println!(
@@ -130,11 +131,14 @@ fn words(what: &FaultKind) -> String {
         F::NoSuchBlock { block } => format!("the block {block} is not declared in flow.toml"),
         F::NoWriter { block } => format!("nothing writes {block}: no cell of the order, no person and nothing outside"),
         F::NoReader { block } => {
-            format!("nothing reads {block}: no cell, no condition, and neither the page nor a test shows it")
+            format!("nothing reads {block}: no cell, no condition, no test, and the page does not show it")
         }
-        F::NotAChoice { block } => format!("a condition reads {block}, which is not a choice"),
+        F::UnknownSource { block, source } => {
+            format!("{block} is written by the source {source}, which the engine does not have")
+        }
+        F::NotAChoice { block } => format!("a condition or a test reads {block}, which is not a choice"),
         F::NotAValue { block, is } => {
-            format!("a condition waits for {block} to be {is}, which is not one of its values")
+            format!("a condition or a test waits for {block} to be {is}, which is not one of its values")
         }
         F::ConditionOnOwnOutput { block } => {
             format!("the condition reads {block}, which the cell itself writes: the cell could never come to run")
@@ -147,8 +151,15 @@ fn words(what: &FaultKind) -> String {
                 .to_string()
         }
         F::UndeclaredTest { test } => format!("the test {test} is not declared in flow.toml"),
-        F::UnknownTest { test } => format!("the engine has no test {test}"),
+        F::ReadsEmpty => "the test reads no block".to_string(),
         F::UnusedTest { test } => format!("no cell uses the test {test}"),
+        F::TestOnOwnOutput { test, block } => format!(
+            "the test {test} reads {block}, which the cell itself writes: the cell could never come to run, or never \
+             stop waiting"
+        ),
+        F::TestNotWrittenBefore { test, block } => {
+            format!("the test {test} reads {block}, which neither a cell before this one, people nor the outside write")
+        }
         F::Flow(fault) => format!("the deciding code refuses the cells as a flow: {fault:?}"),
     }
 }
@@ -156,7 +167,7 @@ fn words(what: &FaultKind) -> String {
 fn page(dir: PathBuf, against: Option<PathBuf>, port: u16) -> ExitCode {
     let shown = dir.display().to_string();
     let compared = against.as_ref().map(|a| a.display().to_string());
-    let flows = web::Flows::dirs(dir, against, Box::new(declared_tests));
+    let flows = web::Flows::dirs(dir, against, Box::new(named_sources));
     let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(runtime) => runtime,
         Err(e) => {

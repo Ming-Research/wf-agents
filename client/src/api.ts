@@ -19,16 +19,24 @@ export interface Line {
   cells: string[];
 }
 
-/// A named test, with the words shown for it.
+/// How the blocks a named test reads make it hold: when every one, at least one, or none has the value it looks for.
+export type TestKind = 'all' | 'any' | 'none';
+
+/// A named test: the words shown for it, and what it holds on.
 export interface Test {
   name: string;
   words: string;
+  kind: TestKind;
+  /// The blocks it reads, as the definition lists them.
+  reads: string[];
+  /// The value it looks for in each block it reads.
+  is: string;
 }
 
 export type Kind = 'agent' | 'engine';
 
 /// When a cell runs: when a block has a value, or when a named test holds.
-export type Condition = { on: 'block'; block: string; value: string } | { on: 'test'; test: string; words: string };
+export type Condition = { on: 'block'; block: string; value: string } | { on: 'test'; test: Test };
 
 export interface Cell {
   id: string;
@@ -48,9 +56,10 @@ export interface Block {
   name: string;
   /// The values of a choice; none for a block that is not one.
   values: string[] | null;
-  writtenBy: { cells: string[]; people: boolean; outside: boolean };
-  /// `shown`: the owner's page or a named test reads it.
-  readBy: { cells: string[]; conditions: string[]; shown: boolean };
+  /// `outside`: the source outside the work that writes it; none where the outside does not.
+  writtenBy: { cells: string[]; people: boolean; outside: string | null };
+  /// `tests`: the named tests that read its value, by name. `shown`: the owner's page reads it.
+  readBy: { cells: string[]; conditions: string[]; tests: string[]; shown: boolean };
 }
 
 export interface Flow {
@@ -79,14 +88,17 @@ export type What =
   | { kind: 'noSuchBlock'; block: string }
   | { kind: 'noWriter'; block: string }
   | { kind: 'noReader'; block: string }
+  | { kind: 'unknownSource'; block: string; source: string }
   | { kind: 'notAChoice'; block: string }
   | { kind: 'notAValue'; block: string; is: string }
   | { kind: 'conditionOnOwnOutput'; block: string }
   | { kind: 'conditionNotWrittenBefore'; block: string }
   | { kind: 'lastHasCondition' }
   | { kind: 'undeclaredTest'; test: string }
-  | { kind: 'unknownTest'; test: string }
+  | { kind: 'readsEmpty' }
   | { kind: 'unusedTest'; test: string }
+  | { kind: 'testOnOwnOutput'; test: string; block: string }
+  | { kind: 'testNotWrittenBefore'; test: string; block: string }
   | {
       kind: 'flowRefused';
       reason: 'empty' | 'twice' | 'conditionOnOwnOutput' | 'lastHasCondition' | 'noLimit';
@@ -109,9 +121,10 @@ export type Definition =
 export type Change =
   | { kind: 'name'; before: string; after: string }
   | { kind: 'flowLimit'; limit: LimitName; before: number; after: number }
-  | { kind: 'testAdded'; test: string; words: string }
-  | { kind: 'testRemoved'; test: string; words: string }
+  | { kind: 'testAdded'; test: Test }
+  | { kind: 'testRemoved'; test: Test }
   | { kind: 'testReworded'; test: string; before: string; after: string }
+  | { kind: 'testChanged'; test: string; before: Test; after: Test }
   | { kind: 'cellAdded'; cell: string; place: number }
   | { kind: 'cellRemoved'; cell: string; place: number }
   | { kind: 'cellMoved'; cell: string; before: number; after: number }
@@ -119,8 +132,8 @@ export type Change =
   | { kind: 'kind'; cell: string; before: Kind; after: Kind }
   | { kind: 'line'; cell: string; before: string | null; after: string | null }
   | { kind: 'condition'; cell: string; before: Condition | null; after: Condition | null }
-  | { kind: 'preconditionAdded'; cell: string; test: string; words: string }
-  | { kind: 'preconditionRemoved'; cell: string; test: string; words: string }
+  | { kind: 'preconditionAdded'; cell: string; test: Test }
+  | { kind: 'preconditionRemoved'; cell: string; test: Test }
   | { kind: 'inputAdded'; cell: string; block: string }
   | { kind: 'inputRemoved'; cell: string; block: string }
   | { kind: 'outputAdded'; cell: string; block: string }
@@ -130,7 +143,7 @@ export type Change =
   | { kind: 'blockRemoved'; block: string }
   | { kind: 'values'; block: string; before: string[] | null; after: string[] | null }
   | { kind: 'people'; block: string; before: boolean; after: boolean }
-  | { kind: 'outside'; block: string; before: boolean; after: boolean }
+  | { kind: 'outside'; block: string; before: string | null; after: string | null }
   | { kind: 'shown'; block: string; before: boolean; after: boolean };
 
 export type Comparison =

@@ -10,6 +10,13 @@ use crate::{Shared, edit, get_json, serve, tiny};
 async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
     let router = serve(&Shared::new(Ok(tiny())), None);
     let limits = |runs| json!({ "runs": runs, "returns": 2, "calls": 40 });
+    let may_merge = json!({
+        "name": "may_merge",
+        "words": "The owner let the work merge",
+        "kind": "all",
+        "reads": ["go"],
+        "is": "yes",
+    });
     assert_eq!(
         get_json(&router, "/api/v1/flow").await,
         json!({
@@ -18,7 +25,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                 "name": "tiny",
                 "limits": limits(3),
                 "lines": [{ "name": "engineer", "cells": ["plan", "review"] }],
-                "tests": [{ "name": "may_merge", "words": "The owner let the work merge" }],
+                "tests": [may_merge],
                 "cells": [
                     {
                         "id": "plan",
@@ -48,7 +55,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "kind": "engine",
                         "line": null,
                         "condition": null,
-                        "preconditions": [{ "name": "may_merge", "words": "The owner let the work merge" }],
+                        "preconditions": [may_merge],
                         "inputs": ["content"],
                         "outputs": [],
                         "limits": limits(3),
@@ -58,26 +65,32 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                     {
                         "name": "content",
                         "values": ["yes", "no"],
-                        "writtenBy": { "cells": ["review"], "people": false, "outside": false },
-                        "readBy": { "cells": ["merge"], "conditions": [], "shown": false },
+                        "writtenBy": { "cells": ["review"], "people": false, "outside": null },
+                        "readBy": { "cells": ["merge"], "conditions": [], "tests": [], "shown": false },
+                    },
+                    {
+                        "name": "go",
+                        "values": ["yes", "no"],
+                        "writtenBy": { "cells": [], "people": true, "outside": null },
+                        "readBy": { "cells": [], "conditions": [], "tests": ["may_merge"], "shown": false },
                     },
                     {
                         "name": "opinions",
                         "values": null,
-                        "writtenBy": { "cells": ["review"], "people": true, "outside": false },
-                        "readBy": { "cells": ["plan"], "conditions": [], "shown": false },
+                        "writtenBy": { "cells": ["review"], "people": true, "outside": null },
+                        "readBy": { "cells": ["plan"], "conditions": [], "tests": [], "shown": false },
                     },
                     {
                         "name": "plan",
                         "values": null,
-                        "writtenBy": { "cells": ["plan"], "people": false, "outside": false },
-                        "readBy": { "cells": ["review"], "conditions": [], "shown": false },
+                        "writtenBy": { "cells": ["plan"], "people": false, "outside": null },
+                        "readBy": { "cells": ["review"], "conditions": [], "tests": [], "shown": false },
                     },
                     {
                         "name": "request",
                         "values": null,
-                        "writtenBy": { "cells": [], "people": true, "outside": false },
-                        "readBy": { "cells": ["plan"], "conditions": [], "shown": false },
+                        "writtenBy": { "cells": [], "people": true, "outside": null },
+                        "readBy": { "cells": ["plan"], "conditions": [], "tests": [], "shown": false },
                     },
                 ],
             },
@@ -86,7 +99,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
 }
 
 #[tokio::test]
-async fn a_condition_is_given_with_its_block_and_value_or_with_its_test_and_the_test_s_words() {
+async fn a_condition_is_given_with_its_block_and_value_or_with_its_test_as_declared() {
     let source = edit(tiny(), None, "[blocks.content]", "[blocks.content]\nshown = true");
     let source = edit(
         source,
@@ -106,7 +119,16 @@ async fn a_condition_is_given_with_its_block_and_value_or_with_its_test_and_the_
     let answer = get_json(&router, "/api/v1/flow").await;
     assert_eq!(
         answer["flow"]["cells"][1]["condition"],
-        json!({ "on": "test", "test": "may_merge", "words": "The owner let the work merge" })
+        json!({
+            "on": "test",
+            "test": {
+                "name": "may_merge",
+                "words": "The owner let the work merge",
+                "kind": "all",
+                "reads": ["go"],
+                "is": "yes",
+            },
+        })
     );
     assert_eq!(
         answer["flow"]["cells"][2]["condition"],
@@ -114,7 +136,80 @@ async fn a_condition_is_given_with_its_block_and_value_or_with_its_test_and_the_
     );
     assert_eq!(
         answer["flow"]["blocks"][0]["readBy"],
-        json!({ "cells": ["merge"], "conditions": ["redo"], "shown": true })
+        json!({ "cells": ["merge"], "conditions": ["redo"], "tests": [], "shown": true })
+    );
+}
+
+#[tokio::test]
+async fn a_block_the_outside_writes_is_given_with_the_name_of_its_source_and_a_block_a_test_reads_with_the_test() {
+    let source = edit(
+        tiny(),
+        None,
+        "[blocks.request]\npeople = true",
+        "[blocks.request]\noutside = \"repository\"",
+    );
+    let source = edit(source, None, "reads = [\"go\"]", "reads = [\"go\", \"content\"]");
+    let router = serve(&Shared::new(Ok(source)), None);
+    let answer = get_json(&router, "/api/v1/flow").await;
+    let blocks = &answer["flow"]["blocks"];
+    assert_eq!(
+        blocks[4]["writtenBy"],
+        json!({ "cells": [], "people": false, "outside": "repository" })
+    );
+    assert_eq!(blocks[0]["readBy"]["tests"], json!(["may_merge"]));
+    assert_eq!(answer["flow"]["tests"][0]["reads"], json!(["go", "content"]));
+}
+
+#[tokio::test]
+async fn the_faults_of_named_tests_and_of_sources_are_given_with_their_blocks() {
+    let source = edit(
+        tiny(),
+        None,
+        "[blocks.request]\npeople = true",
+        "[blocks.request]\noutside = \"mirror\"",
+    );
+    let source = edit(source, None, "reads = [\"go\"]", "reads = [\"content\"]");
+    let source = edit(
+        source,
+        Some("plan"),
+        "kind = \"agent\"",
+        "kind = \"agent\"\nrequires = [\"may_merge\"]",
+    );
+    let source = edit(
+        source,
+        Some("review"),
+        "kind = \"agent\"",
+        "kind = \"agent\"\nrequires = [\"may_merge\"]",
+    );
+    let router = serve(&Shared::new(Ok(source)), None);
+    let read = |block: &str| json!({ "test": "may_merge", "block": block });
+    let mut not_before = read("content");
+    not_before["kind"] = json!("testNotWrittenBefore");
+    let mut own = read("content");
+    own["kind"] = json!("testOnOwnOutput");
+    assert_eq!(
+        get_json(&router, "/api/v1/flow").await,
+        json!({
+            "state": "faults",
+            "faults": [
+                { "file": "flow.toml", "field": "blocks.go", "what": { "kind": "noReader", "block": "go" } },
+                {
+                    "file": "flow.toml",
+                    "field": "blocks.request.outside",
+                    "what": { "kind": "unknownSource", "block": "request", "source": "mirror" },
+                },
+                { "file": "plan.toml", "field": "requires[0]", "what": not_before },
+                { "file": "review.toml", "field": "requires[0]", "what": own },
+            ],
+        })
+    );
+
+    let source = edit(tiny(), None, "reads = [\"go\"]", "reads = []");
+    let router = serve(&Shared::new(Ok(source)), None);
+    let faults = &get_json(&router, "/api/v1/flow").await["faults"];
+    assert_eq!(
+        faults[1],
+        json!({ "file": "flow.toml", "field": "tests.may_merge.reads", "what": { "kind": "readsEmpty" } })
     );
 }
 
@@ -191,7 +286,7 @@ async fn a_directory_is_read_again_for_each_request_so_that_an_edit_shows() {
     let router = web::router(web::Flows::dirs(
         PathBuf::from(&dir),
         None,
-        Box::new(|_: &flow::Source| ["may_merge".into()].into()),
+        Box::new(|_: &flow::Source| Default::default()),
     ));
     assert_eq!(get_json(&router, "/api/v1/flow").await["flow"]["name"], "tiny");
     write(&edit(tiny(), None, "name = \"tiny\"", "name = \"small\""));

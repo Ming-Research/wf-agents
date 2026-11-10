@@ -15,12 +15,13 @@ import {
   MARK_PARTS,
   type MarkPart,
   type Matrix,
+  NO_MARK,
   type Spot,
   hasMark,
 } from './matrix';
 import { Edge, STATUS_WORDS, Sign, Tag } from './parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from './sizes';
-import { conditionWords } from './words';
+import { conditionWords, testWords } from './words';
 
 /// What the owner chose: a cell, a block, or nothing.
 export type Chosen = { cell: string } | { block: string } | null;
@@ -29,6 +30,7 @@ const PART_WORDS: Record<MarkPart, string> = {
   read: 'reads',
   write: 'may write',
   condition: 'runs only by the value of',
+  precondition: 'waits on the value of',
 };
 
 /// The words a mark says, for the pointer's tip and for a reader of the screen: "plan reads opinions".
@@ -48,16 +50,20 @@ function partClass(part: MarkPart, spot: Spot): string | null {
   return spot.mark[part] ? 'plain' : null;
 }
 
-/// A mark: a ring where the cell reads the block, a dot where it may write it, both where both, and a diamond round
-/// them where its condition reads the block's value.
+/// A mark: a ring where the cell reads the block, a dot where it may write it, both where both, a diamond round them
+/// where its condition reads the block's value, and a square round them where a precondition does.
 export function MarkGlyph({ spot }: { spot: Spot }) {
   const read = partClass('read', spot);
   const write = partClass('write', spot);
   const condition = partClass('condition', spot);
-  if (!read && !write && !condition) return null;
+  const precondition = partClass('precondition', spot);
+  if (!read && !write && !condition && !precondition) return null;
   return (
     <svg className="glyph" viewBox="0 0 24 24" aria-hidden="true">
       {condition && <polygon className={`part condition ${condition}`} points="12,1.5 22.5,12 12,22.5 1.5,12" />}
+      {precondition && (
+        <rect className={`part precondition ${precondition}`} x="3.5" y="3.5" width="17" height="17" />
+      )}
       {read && <circle className={`part read ${read}`} cx="12" cy="12" r="6.5" />}
       {write && <circle className={`part write ${write}`} cx="12" cy="12" r={read ? 3.25 : 6} />}
     </svg>
@@ -67,9 +73,9 @@ export function MarkGlyph({ spot }: { spot: Spot }) {
 /// The legend of the marks and signs, in the view's line; with what a change's colours mean when comparing.
 export function Legend({ waysBack, comparing }: { waysBack: number; comparing: boolean }) {
   const spot = (mark: Partial<Mark>): Spot => ({
-    mark: { read: false, write: false, condition: false, ...mark },
-    added: { read: false, write: false, condition: false },
-    removed: { read: false, write: false, condition: false },
+    mark: { ...NO_MARK, ...mark },
+    added: NO_MARK,
+    removed: NO_MARK,
     line: 'none',
     back: 'none',
     backTo: false,
@@ -87,6 +93,9 @@ export function Legend({ waysBack, comparing }: { waysBack: number; comparing: b
       </li>
       <li>
         <MarkGlyph spot={spot({ condition: true })} /> its condition reads
+      </li>
+      <li>
+        <MarkGlyph spot={spot({ precondition: true })} /> its precondition reads
       </li>
       <li>
         <span className="legend-back" aria-hidden="true" /> way back ({waysBack})
@@ -280,7 +289,7 @@ function CellHead(props: {
   const cell = (column.cell ?? column.other) as Cell;
   const changed = (...kinds: Change['kind'][]) => (kinds.some((k) => column.changed.has(k)) ? 'changed-field' : '');
   const when = cell.condition ? `runs when ${conditionWords(cell.condition)}` : '';
-  const waits = cell.preconditions.map((p) => p.words).join('; ');
+  const waits = cell.preconditions.map(testWords).join('; ');
   return (
     <th
       scope="col"
@@ -323,8 +332,9 @@ function CellHead(props: {
   );
 }
 
-/// The name of a block at the left of its row, with its signs and the values of a choice after it. What a change did
-/// to it is the colour of its edge, which the legend names, so that the name keeps the room.
+/// The name of a block at the left of its row, with its signs, the source outside the work that writes it and the
+/// values of a choice after it. What a change did to it is the colour of its edge, which the legend names, so that the
+/// name keeps the room.
 function BlockHead({ row, chosen, onChoose }: { row: BlockRow; chosen: boolean; onChoose: () => void }) {
   const block = (row.block ?? row.other) as Block;
   const changed = (kind: 'values' | 'people' | 'outside' | 'shown') => (row.changed.has(kind) ? 'changed-field' : '');
@@ -342,7 +352,14 @@ function BlockHead({ row, chosen, onChoose }: { row: BlockRow; chosen: boolean; 
           {row.name}
         </span>
         {block.writtenBy.people && <Sign name="people" className={changed('people')} />}
-        {block.writtenBy.outside && <Sign name="outside" className={changed('outside')} />}
+        {block.writtenBy.outside !== null && (
+          <>
+            <Sign name="outside" className={changed('outside')} />
+            <span className={`block-source ${changed('outside')}`} title={`written by ${block.writtenBy.outside}`}>
+              {block.writtenBy.outside}
+            </span>
+          </>
+        )}
         {block.readBy.shown && <Sign name="shown" className={changed('shown')} />}
         {block.values && (
           <span className={`block-values ${changed('values')}`} title={block.values.join(' | ')}>

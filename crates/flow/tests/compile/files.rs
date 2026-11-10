@@ -110,8 +110,8 @@ fn an_empty_order_is_a_fault_and_leaves_every_cell_out_of_it_and_every_test_and_
         faults(&source),
         [
             at(FLOW_FILE, "order", OrderEmpty),
+            // The test may_merge reads ci, so it has a reader still; so have the choices people write for tests.
             unwritten("ci"),
-            unread("ci"),
             unread("comments"),
             unwritten("design"),
             unread("design"),

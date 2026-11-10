@@ -102,14 +102,17 @@ drawn line with an arrow.
 
 ## The flow chart
 
-The blocks down the side, the cells across in the order of the walk. A block's name is in monospace, with its signs and
-the values of a choice after it. A cell's head: its id in monospace, muted; its title in 13px semibold; its line, or
+The blocks down the side, the cells across in the order of the walk. A block's name is in monospace, with its signs,
+the name of the source outside that writes it, and the values of a choice after it, the last two muted. A cell's head: its id in monospace, muted; its title in 13px semibold; its line, or
 "engine", in 11px muted; when it runs and what it waits for in 12px muted, cut to two lines and whole on hovering and in
 the panel. The cells' columns share the width the names' column leaves evenly, up to 160px each, so that ten cells on a
 wide window stay readable; a dragged column keeps its width (88 to 480px), and the chart scrolls sideways below 88px a
 cell. The corner says "Cells →" at its top right and "Blocks ↓" at its bottom left, so that neither word stands over the
 other's things. The wheel scrolls the chart wherever the pointer is over it, the fixed heads and names too. The marks: a ring reads, a dot may
-write, both where both, a diamond where its condition reads the block. A block's marks are joined by a line along its
+write, both where both, a diamond where its condition reads the block, directly or by the named test that is its
+condition, and a square where a named test that is one of its preconditions reads it. The diamond and the square are
+drawn round the ring and the dot in a thinner line, so that what a cell runs on stays the mark's centre and what decides
+whether it runs, or waits, its frame. A block's marks are joined by a line along its
 row; a way back is the same line in the way back's purple with an arrow at the read it sends the work back to. The row
 or column chosen is tinted with the accent. When comparing, what a change put in is green, what it took out red and
 dashed, what it changed orange: on a cell's head and a block's edge, and on the marks.

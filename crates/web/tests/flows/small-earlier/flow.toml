@@ -25,10 +25,13 @@ values = ["yes", "no"]
 shown = true
 
 [blocks.main]
-outside = true
+outside = "mirror"
 
 [blocks.ci]
 values = ["green", "red"]
 
-[tests]
-may_merge = "The CI is green"
+[tests.may_merge]
+says = "The CI is green"
+kind = "all"
+reads = ["ci"]
+is = "green"

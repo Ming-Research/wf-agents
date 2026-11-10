@@ -36,8 +36,8 @@ async fn the_changes_are_given_in_their_order_with_the_definition_compared_again
     let after = edit(
         after,
         None,
-        "may_merge = \"The owner let the work merge\"",
-        "may_merge = \"The owner confirmed the merge\"",
+        "says = \"The owner let the work merge\"",
+        "says = \"The owner confirmed the merge\"",
     );
     let router = serve(&Shared::new(Ok(after)), Some(&Shared::new(Ok(tiny()))));
     let answer = get_json(&router, "/api/v1/flow/changes").await;
@@ -61,7 +61,7 @@ async fn the_changes_are_given_in_their_order_with_the_definition_compared_again
 }
 
 #[tokio::test]
-async fn a_condition_and_a_precondition_changed_are_given_with_the_words_of_their_tests() {
+async fn a_condition_and_a_precondition_changed_are_given_with_their_tests_as_declared() {
     let before = edit(tiny(), Some("merge"), "requires = [\"may_merge\"]", "requires = []");
     let before = edit(
         before,
@@ -71,21 +71,80 @@ async fn a_condition_and_a_precondition_changed_are_given_with_the_words_of_thei
     );
     let router = serve(&Shared::new(Ok(tiny())), Some(&Shared::new(Ok(before))));
     let answer = get_json(&router, "/api/v1/flow/changes").await;
+    let may_merge = json!({
+        "name": "may_merge",
+        "words": "The owner let the work merge",
+        "kind": "all",
+        "reads": ["go"],
+        "is": "yes",
+    });
     assert_eq!(
         answer["changes"],
         json!([
             {
                 "kind": "condition",
                 "cell": "review",
-                "before": { "on": "test", "test": "may_merge", "words": "The owner let the work merge" },
+                "before": { "on": "test", "test": may_merge },
                 "after": null,
             },
+            { "kind": "preconditionAdded", "cell": "merge", "test": may_merge },
+        ])
+    );
+}
+
+#[tokio::test]
+async fn a_test_put_in_or_changed_and_a_block_s_source_are_given_as_each_definition_declares_them() {
+    let after = edit(
+        tiny(),
+        None,
+        "kind = \"all\"\nreads = [\"go\"]",
+        "kind = \"any\"\nreads = [\"go\", \"content\"]",
+    );
+    let after = edit(
+        after,
+        None,
+        "[blocks.request]\npeople = true",
+        "[blocks.request]\npeople = true\noutside = \"repository\"",
+    );
+    let checked =
+        "\n[tests.checked]\nsays = \"The content is checked\"\nkind = \"none\"\nreads = [\"content\"]\nis = \"no\"\n";
+    let after = edit(after, None, "is = \"yes\"\n", &format!("is = \"yes\"\n{checked}"));
+    let after = edit(
+        after,
+        Some("merge"),
+        "requires = [\"may_merge\"]",
+        "requires = [\"may_merge\", \"checked\"]",
+    );
+    let router = serve(&Shared::new(Ok(after)), Some(&Shared::new(Ok(tiny()))));
+    let answer = get_json(&router, "/api/v1/flow/changes").await;
+    let test = |kind: &str, reads: &[&str]| {
+        json!({
+            "name": "may_merge",
+            "words": "The owner let the work merge",
+            "kind": kind,
+            "reads": reads,
+            "is": "yes",
+        })
+    };
+    let checked = json!({
+        "name": "checked",
+        "words": "The content is checked",
+        "kind": "none",
+        "reads": ["content"],
+        "is": "no",
+    });
+    assert_eq!(
+        answer["changes"],
+        json!([
+            { "kind": "testAdded", "test": checked },
             {
-                "kind": "preconditionAdded",
-                "cell": "merge",
+                "kind": "testChanged",
                 "test": "may_merge",
-                "words": "The owner let the work merge",
+                "before": test("all", &["go"]),
+                "after": test("any", &["go", "content"]),
             },
+            { "kind": "preconditionAdded", "cell": "merge", "test": checked },
+            { "kind": "outside", "block": "request", "before": null, "after": "repository" },
         ])
     );
 }

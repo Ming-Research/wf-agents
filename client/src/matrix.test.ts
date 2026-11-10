@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Change } from './api';
 import { NO_MARK, blockOrder, matrix, merged } from './matrix';
-import { cell, flowOf, small } from './testing';
+import { cell, flowOf, small, test } from './testing';
 
 describe('the order of the blocks', () => {
   it('puts each block where it is first written, a cell’s outputs together, and what no cell writes before its first reader', () => {
@@ -12,6 +12,8 @@ describe('the order of the blocks', () => {
       'needs_design',
       'opinions',
       'design',
+      'commented',
+      'confirmed',
       'comments',
       'reply',
       'main',
@@ -28,6 +30,40 @@ describe('the order of the blocks', () => {
       { x: {}, given: { people: true }, choice: { people: true, values: ['yes', 'no'] }, zz: { shown: true, people: true }, shown: { shown: true, people: true } },
     );
     expect(blockOrder(flow)).toEqual(['x', 'choice', 'given', 'shown', 'zz']);
+  });
+});
+
+describe('the marks of named tests', () => {
+  const flow = flowOf(
+    [
+      cell('ask', { outputs: ['x', 'y'] }),
+      cell('more', {
+        condition: { on: 'test', test: test('either', 'Either is yes', 'any', ['x', 'y']) },
+        preconditions: [test('given', 'Given', 'all', ['go'])],
+        inputs: ['x', 'request'],
+      }),
+    ],
+    { x: { values: ['yes', 'no'] }, y: { values: ['yes', 'no'] }, go: { people: true, values: ['yes', 'no'] }, request: { people: true } },
+  );
+  const at = (m: ReturnType<typeof matrix>, cellId: string, block: string) =>
+    m.spots[m.blocks.findIndex((b) => b.name === block)][m.cells.findIndex((c) => c.id === cellId)].mark;
+
+  it('put the condition’s mark on each block the test that is the condition reads, and a precondition’s on each its test reads', () => {
+    const m = matrix({ after: flow }, 'after');
+    expect(at(m, 'more', 'x')).toEqual({ read: true, write: false, condition: true, precondition: false });
+    expect(at(m, 'more', 'y')).toEqual({ read: false, write: false, condition: true, precondition: false });
+    expect(at(m, 'more', 'go')).toEqual({ read: false, write: false, condition: false, precondition: true });
+    expect(at(m, 'more', 'request')).toEqual({ read: true, write: false, condition: false, precondition: false });
+  });
+
+  it('put a block no cell writes before its first reader: what the condition reads, then the preconditions, then the inputs', () => {
+    const order = blockOrder(
+      flowOf(
+        [cell('a', { condition: { on: 'block', block: 'c', value: 'yes' }, preconditions: [test('t', 'T', 'all', ['p'])], inputs: ['i'] })],
+        { i: { people: true }, p: { people: true, values: ['yes', 'no'] }, c: { people: true, values: ['yes', 'no'] } },
+      ),
+    );
+    expect(order).toEqual(['c', 'p', 'i']);
   });
 });
 
@@ -49,9 +85,9 @@ describe('the marks', () => {
     const m = matrix({ after: small() }, 'after');
     const at = (cellId: string, block: string) =>
       m.spots[m.blocks.findIndex((b) => b.name === block)][m.cells.findIndex((c) => c.id === cellId)].mark;
-    expect(at('plan', 'request')).toEqual({ read: true, write: false, condition: false });
-    expect(at('plan', 'plan')).toEqual({ read: false, write: true, condition: false });
-    expect(at('design', 'needs_design')).toEqual({ read: false, write: false, condition: true });
+    expect(at('plan', 'request')).toEqual({ read: true, write: false, condition: false, precondition: false });
+    expect(at('plan', 'plan')).toEqual({ read: false, write: true, condition: false, precondition: false });
+    expect(at('design', 'needs_design')).toEqual({ read: false, write: false, condition: true, precondition: false });
     expect(at('merge', 'plan')).toEqual(NO_MARK);
     // The cells run left to right in the order of the walk, the blocks down the rows.
     expect(m.cells.map((c) => c.id)).toEqual(['plan', 'judge', 'design', 'answer', 'check', 'merge']);
@@ -62,7 +98,7 @@ describe('the marks', () => {
   it('draw a cell that reads and writes a block as both', () => {
     const flow = flowOf([cell('a', { inputs: ['x'], outputs: ['x'] }), cell('b', { inputs: ['x'] })], { x: { people: true } });
     const m = matrix({ after: flow }, 'after');
-    expect(m.spots[0][0].mark).toEqual({ read: true, write: true, condition: false });
+    expect(m.spots[0][0].mark).toEqual({ read: true, write: true, condition: false, precondition: false });
     // A cell does not run for its own write: no way back.
     expect(m.waysBack).toBe(0);
     expect(m.spots[0].map((spot) => spot.back)).toEqual(['none', 'none']);
@@ -146,11 +182,11 @@ describe('what changed', () => {
     const m = matrix({ after, before, changes }, 'after');
     const notes = m.spots[m.blocks.findIndex((b) => b.name === 'notes')];
     const plan = m.spots[m.blocks.findIndex((b) => b.name === 'plan')];
-    expect(notes[0].added).toEqual({ read: true, write: false, condition: false });
-    expect(plan[2].added).toEqual({ read: true, write: false, condition: false });
+    expect(notes[0].added).toEqual({ read: true, write: false, condition: false, precondition: false });
+    expect(plan[2].added).toEqual({ read: true, write: false, condition: false, precondition: false });
     // The cell taken out is not in the version shown, and its read is drawn as taken out.
     expect(plan[1].mark).toEqual(NO_MARK);
-    expect(plan[1].removed).toEqual({ read: true, write: false, condition: false });
+    expect(plan[1].removed).toEqual({ read: true, write: false, condition: false, precondition: false });
     expect(plan[3].added).toEqual(NO_MARK);
     expect(plan[3].removed).toEqual(NO_MARK);
   });
@@ -166,7 +202,7 @@ describe('what changed', () => {
     expect(m.cells[0].cell?.title).toBe('plan');
     const notes = m.spots[m.blocks.findIndex((b) => b.name === 'notes')];
     expect(notes[0].mark).toEqual(NO_MARK);
-    expect(notes[0].added).toEqual({ read: true, write: false, condition: false });
+    expect(notes[0].added).toEqual({ read: true, write: false, condition: false, precondition: false });
   });
 
   it('keeps a moved cell where the version shown has it', () => {

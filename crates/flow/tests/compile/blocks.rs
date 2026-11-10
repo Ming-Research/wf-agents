@@ -3,7 +3,7 @@
 
 use flow::{FLOW_FILE, FaultKind::*};
 
-use crate::support::{at, compiled, edit, faults, valid};
+use crate::support::{at, compiled, edit, faults, faults_with, unreadable, valid};
 
 const PLAN_INPUTS: &str = r#"inputs = ["request", "opinions"]"#;
 
@@ -112,6 +112,38 @@ fn every_block_is_read_by_a_cell_a_condition_the_page_or_a_named_test() {
         "[blocks.log]\nshown = true\n\n[blocks.plan]",
     );
     compiled(&edit(shown, "judge.toml", outputs, with_log));
+
+    // A choice that only a named test reads has a reader too.
+    let commented = &compiled(&valid()).blocks[&"commented".into()];
+    assert_eq!(
+        (commented.readers.cells.len(), commented.readers.conditions.len()),
+        (0, 0)
+    );
+    assert_eq!(commented.readers.tests, ["has_comment".into()]);
+    assert!(!commented.readers.shown);
+}
+
+#[test]
+fn a_block_the_outside_writes_names_a_source_the_engine_has() {
+    let source = edit(valid(), FLOW_FILE, "outside = \"repository\"", "outside = \"mirror\"");
+    let what = UnknownSource {
+        block: "main".to_string(),
+        source: "mirror".to_string(),
+    };
+    assert_eq!(faults(&source), [at(FLOW_FILE, "blocks.main.outside", what)]);
+
+    let what = UnknownSource {
+        block: "main".to_string(),
+        source: "repository".to_string(),
+    };
+    assert_eq!(
+        faults_with(&valid(), &Default::default()),
+        [at(FLOW_FILE, "blocks.main.outside", what)]
+    );
+
+    // That the outside writes a block is said by naming what writes it.
+    let source = edit(valid(), FLOW_FILE, "outside = \"repository\"", "outside = true");
+    assert!(!unreadable(&source, FLOW_FILE).is_empty());
 }
 
 #[test]

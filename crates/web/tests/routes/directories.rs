@@ -17,25 +17,41 @@ async fn the_small_flow_compiles_and_what_changed_from_its_earlier_version_is_li
     let router = web::router(web::Flows::dirs(
         dir("small"),
         Some(dir("small-earlier")),
-        Box::new(|_: &Source| ["has_comment".into(), "plan_confirmed".into(), "may_merge".into()].into()),
+        Box::new(|_: &Source| ["repository".to_string(), "mirror".to_string()].into()),
     ));
     let flow = get_json(&router, "/api/v1/flow").await;
     assert_eq!(flow["state"], "compiled", "{flow}");
     let answer = get_json(&router, "/api/v1/flow/changes").await;
     assert_eq!(answer["against"]["state"], "compiled", "{answer}");
+    let test = |name: &str, words: &str, kind: &str, reads: &str, is: &str| json!({ "name": name, "words": words, "kind": kind, "reads": [reads], "is": is });
     assert_eq!(
         answer["changes"],
         json!([
             { "kind": "flowLimit", "limit": "runs", "before": 2, "after": 3 },
-            { "kind": "testAdded", "test": "has_comment", "words": "The item has a comment" },
+            {
+                "kind": "testAdded",
+                "test": test("has_comment", "The item has a comment", "any", "commented", "yes"),
+            },
             { "kind": "testReworded", "test": "may_merge", "before": "The CI is green", "after": "The work may merge" },
-            { "kind": "testAdded", "test": "plan_confirmed", "words": "The owner confirmed the plan" },
+            {
+                "kind": "testChanged",
+                "test": "may_merge",
+                "before": test("may_merge", "The CI is green", "all", "ci", "green"),
+                "after": test("may_merge", "The work may merge", "none", "ci", "red"),
+            },
+            {
+                "kind": "testAdded",
+                "test": test("plan_confirmed", "The owner confirmed the plan", "all", "confirmed", "yes"),
+            },
             { "kind": "title", "cell": "judge", "before": "Review the plan", "after": "Judge the plan" },
             { "kind": "outputAdded", "cell": "judge", "block": "opinions" },
             { "kind": "cellAdded", "cell": "answer", "place": 3 },
             { "kind": "inputAdded", "cell": "check", "block": "design" },
+            { "kind": "blockAdded", "block": "commented" },
             { "kind": "blockAdded", "block": "comments" },
+            { "kind": "blockAdded", "block": "confirmed" },
             { "kind": "shown", "block": "design", "before": true, "after": false },
+            { "kind": "outside", "block": "main", "before": "mirror", "after": "repository" },
             { "kind": "blockAdded", "block": "reply" },
         ])
     );

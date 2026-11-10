@@ -4,7 +4,7 @@
 //! not read.
 
 use decide::{BlockId, CellId, Condition as Applies, FlowFault, TestName};
-use flow::{BlockChange, CellChange, Compiled, FaultKind, Kind as CellKind, Limit as LimitOf};
+use flow::{BlockChange, CellChange, Compiled, FaultKind, Kind as CellKind, Limit as LimitOf, TestKind as KindOfTest};
 use serde::Serialize;
 
 /// A definition as the page shows it: compiled, or why it is not.
@@ -70,12 +70,28 @@ pub struct Line {
     pub cells: Vec<String>,
 }
 
-/// A named test, with the words shown for it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+/// A named test: the words shown for it, and what it holds on.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Test {
     pub name: String,
     pub words: String,
+    /// How the blocks it reads make it hold.
+    pub kind: TestKind,
+    /// The blocks it reads, as the definition lists them.
+    pub reads: Vec<String>,
+    /// The value it looks for in each block it reads.
+    pub is: String,
+}
+
+/// How the blocks a named test reads make it hold: when every one, at least one, or none has the value it looks for.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TestKind {
+    #[default]
+    All,
+    Any,
+    None,
 }
 
 /// A cell.
@@ -113,7 +129,7 @@ pub enum Condition {
     /// When the block has this value.
     Block { block: String, value: String },
     /// When the named test holds.
-    Test { test: String, words: String },
+    Test { test: Test },
 }
 
 /// A block of a work's state.
@@ -134,7 +150,8 @@ pub struct WrittenBy {
     /// The cells that may write it, in the order of the walk.
     pub cells: Vec<String>,
     pub people: bool,
-    pub outside: bool,
+    /// The source outside the work that writes it; none where the outside does not.
+    pub outside: Option<String>,
 }
 
 /// Who reads a block.
@@ -145,7 +162,9 @@ pub struct ReadBy {
     pub cells: Vec<String>,
     /// The cells whose condition reads its value, in the order of the walk.
     pub conditions: Vec<String>,
-    /// The owner's page or a named test reads it.
+    /// The named tests that read its value, by name.
+    pub tests: Vec<String>,
+    /// The owner's page reads it.
     pub shown: bool,
 }
 
@@ -197,6 +216,10 @@ pub enum What {
     NoReader {
         block: String,
     },
+    UnknownSource {
+        block: String,
+        source: String,
+    },
     NotAChoice {
         block: String,
     },
@@ -214,11 +237,17 @@ pub enum What {
     UndeclaredTest {
         test: String,
     },
-    UnknownTest {
-        test: String,
-    },
+    ReadsEmpty,
     UnusedTest {
         test: String,
+    },
+    TestOnOwnOutput {
+        test: String,
+        block: String,
+    },
+    TestNotWrittenBefore {
+        test: String,
+        block: String,
     },
     /// The deciding code refused the cells as a flow, for this reason, at this cell.
     FlowRefused {
@@ -252,17 +281,21 @@ pub enum Change {
         after: u32,
     },
     TestAdded {
-        test: String,
-        words: String,
+        test: Test,
     },
     TestRemoved {
-        test: String,
-        words: String,
+        test: Test,
     },
     TestReworded {
         test: String,
         before: String,
         after: String,
+    },
+    /// What the test holds on: its kind, the blocks it reads or the value it looks for.
+    TestChanged {
+        test: String,
+        before: Test,
+        after: Test,
     },
     /// At this place of the order, counted from 0.
     CellAdded {
@@ -301,13 +334,11 @@ pub enum Change {
     },
     PreconditionAdded {
         cell: String,
-        test: String,
-        words: String,
+        test: Test,
     },
     PreconditionRemoved {
         cell: String,
-        test: String,
-        words: String,
+        test: Test,
     },
     InputAdded {
         cell: String,
@@ -349,8 +380,8 @@ pub enum Change {
     },
     Outside {
         block: String,
-        before: bool,
-        after: bool,
+        before: Option<String>,
+        after: Option<String>,
     },
     Shown {
         block: String,
@@ -418,11 +449,12 @@ impl Flow {
                 written_by: WrittenBy {
                     cells: names(&block.writers.cells),
                     people: block.writers.people,
-                    outside: block.writers.outside,
+                    outside: block.writers.outside.clone(),
                 },
                 read_by: ReadBy {
                     cells: names(&block.readers.cells),
                     conditions: names(&block.readers.conditions),
+                    tests: names(&block.readers.tests),
                     shown: block.readers.shown,
                 },
             })
@@ -434,10 +466,7 @@ impl Flow {
             tests: compiled
                 .tests
                 .iter()
-                .map(|(name, words)| Test {
-                    name: name.to_string(),
-                    words: words.clone(),
-                })
+                .map(|(name, test)| Test::declared(name, test))
                 .collect(),
             cells,
             blocks,
@@ -459,11 +488,30 @@ impl Kind {
 }
 
 impl Test {
-    /// The test with the words the definition gives it.
+    /// The test of this name as the definition declares it. Where it does not, which a compiled definition always
+    /// does of every test its cells use, the test has no words and reads nothing.
     fn of(test: &TestName, compiled: &Compiled) -> Self {
+        match compiled.tests.get(test) {
+            Some(declared) => Test::declared(test, declared),
+            None => Test {
+                name: test.to_string(),
+                ..Test::default()
+            },
+        }
+    }
+
+    /// The test of this name, declared so.
+    fn declared(name: &TestName, test: &flow::Test) -> Self {
         Test {
-            name: test.to_string(),
-            words: compiled.tests.get(test).cloned().unwrap_or_default(),
+            name: name.to_string(),
+            words: test.says.clone(),
+            kind: match test.kind {
+                KindOfTest::All => TestKind::All,
+                KindOfTest::Any => TestKind::Any,
+                KindOfTest::None => TestKind::None,
+            },
+            reads: names(&test.reads),
+            is: test.is.clone(),
         }
     }
 }
@@ -475,10 +523,9 @@ impl Condition {
                 block: block.to_string(),
                 value: value.clone(),
             },
-            Applies::Test(test) => {
-                let Test { name, words } = Test::of(test, compiled);
-                Condition::Test { test: name, words }
-            }
+            Applies::Test(test) => Condition::Test {
+                test: Test::of(test, compiled),
+            },
         }
     }
 }
@@ -521,14 +568,17 @@ impl What {
             F::NoSuchBlock { block } => What::NoSuchBlock { block },
             F::NoWriter { block } => What::NoWriter { block },
             F::NoReader { block } => What::NoReader { block },
+            F::UnknownSource { block, source } => What::UnknownSource { block, source },
             F::NotAChoice { block } => What::NotAChoice { block },
             F::NotAValue { block, is } => What::NotAValue { block, is },
             F::ConditionOnOwnOutput { block } => What::ConditionOnOwnOutput { block },
             F::ConditionNotWrittenBefore { block } => What::ConditionNotWrittenBefore { block },
             F::LastHasCondition => What::LastHasCondition,
             F::UndeclaredTest { test } => What::UndeclaredTest { test },
-            F::UnknownTest { test } => What::UnknownTest { test },
+            F::ReadsEmpty => What::ReadsEmpty,
             F::UnusedTest { test } => What::UnusedTest { test },
+            F::TestOnOwnOutput { test, block } => What::TestOnOwnOutput { test, block },
+            F::TestNotWrittenBefore { test, block } => What::TestNotWrittenBefore { test, block },
             F::Flow(fault) => {
                 let (reason, cell) = match fault {
                     FlowFault::Empty => (FlowRefusal::Empty, None),
@@ -547,8 +597,8 @@ impl What {
 }
 
 impl Change {
-    /// A change of the flow crate as the page reads it. The words of a test are those of the definition the change
-    /// is in: the one compared against for what was taken out or held before, the one shown for what was put in.
+    /// A change of the flow crate as the page reads it. A test is as the definition the change is in declares it: the
+    /// one compared against for what was taken out or held before, the one shown for what was put in.
     pub fn of(change: &flow::Change, before: &Compiled, after: &Compiled) -> Self {
         use flow::Change as C;
         match change {
@@ -561,18 +611,25 @@ impl Change {
                 before: *before,
                 after: *after,
             },
-            C::TestAdded { test, words } => Change::TestAdded {
-                test: test.to_string(),
-                words: words.clone(),
+            C::TestAdded { test, .. } => Change::TestAdded {
+                test: Test::of(test, after),
             },
-            C::TestRemoved { test, words } => Change::TestRemoved {
-                test: test.to_string(),
-                words: words.clone(),
+            C::TestRemoved { test, .. } => Change::TestRemoved {
+                test: Test::of(test, before),
             },
             C::TestReworded { test, before, after } => Change::TestReworded {
                 test: test.to_string(),
                 before: before.clone(),
                 after: after.clone(),
+            },
+            C::TestChanged {
+                test,
+                before: from,
+                after: to,
+            } => Change::TestChanged {
+                test: test.to_string(),
+                before: Test::declared(test, from),
+                after: Test::declared(test, to),
             },
             C::CellAdded { cell, place } => Change::CellAdded {
                 cell: cell.to_string(),
@@ -635,22 +692,14 @@ impl Change {
                 before: from.as_ref().map(|c| Condition::of(c, before)),
                 after: to.as_ref().map(|c| Condition::of(c, after)),
             },
-            CellChange::PreconditionAdded(test) => {
-                let Test { name, words } = Test::of(test, after);
-                Change::PreconditionAdded {
-                    cell,
-                    test: name,
-                    words,
-                }
-            }
-            CellChange::PreconditionRemoved(test) => {
-                let Test { name, words } = Test::of(test, before);
-                Change::PreconditionRemoved {
-                    cell,
-                    test: name,
-                    words,
-                }
-            }
+            CellChange::PreconditionAdded(test) => Change::PreconditionAdded {
+                cell,
+                test: Test::of(test, after),
+            },
+            CellChange::PreconditionRemoved(test) => Change::PreconditionRemoved {
+                cell,
+                test: Test::of(test, before),
+            },
             CellChange::InputAdded(b) => Change::InputAdded { cell, block: block(b) },
             CellChange::InputRemoved(b) => Change::InputRemoved { cell, block: block(b) },
             CellChange::OutputAdded(b) => Change::OutputAdded { cell, block: block(b) },
@@ -677,7 +726,11 @@ impl Change {
                 after: after.clone(),
             },
             &BlockChange::People { before, after } => Change::People { block, before, after },
-            &BlockChange::Outside { before, after } => Change::Outside { block, before, after },
+            BlockChange::Outside { before, after } => Change::Outside {
+                block,
+                before: before.clone(),
+                after: after.clone(),
+            },
             &BlockChange::Shown { before, after } => Change::Shown { block, before, after },
         }
     }

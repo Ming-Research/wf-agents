@@ -1,12 +1,11 @@
 //! A small work taken through the loop: what the engine gives to be done at each thing that happens.
 
-use std::collections::{BTreeMap, BTreeSet};
-
-use decide::{Cause, Decision, Outcome, Outsider, TestName, Tests, Waited, Who, decide};
+use decide::{Cause, Decision, Outsider, Waited, Who, decide};
 use engine::{Came, Effect, Event, Given, Handed, Spent, Time, Work, handle, pending};
 use flow::{Compiled, Source, compile};
 
-/// A writer, a judge that may write an opinion for the writer, and a merge that waits for the owner's word.
+/// A writer, a judge that may write an opinion for the writer, and a merge that waits for the owner's word: a choice
+/// people write, which a named test reads.
 fn small() -> Compiled {
     let flow = r#"
         name = "small"
@@ -17,8 +16,14 @@ fn small() -> Compiled {
         calls = 3
         [lines.main]
         [lines.other]
-        [tests]
-        may_merge = "The work may merge"
+        [tests.may_merge]
+        says = "The owner let the work merge"
+        kind = "all"
+        reads = ["go"]
+        is = "yes"
+        [blocks.go]
+        values = ["yes", "no"]
+        people = true
         [blocks.request]
         people = true
         [blocks.opinions]
@@ -59,21 +64,7 @@ fn small() -> Compiled {
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
     };
-    let known: BTreeSet<TestName> = ["may_merge".into()].into();
-    compile(&source, &known).expect("the definition compiles")
-}
-
-/// The named tests: the merge waits for the owner until the test says otherwise.
-struct Named(BTreeMap<TestName, Outcome>);
-
-impl Tests for Named {
-    fn test(&self, name: &TestName) -> Outcome {
-        self.0.get(name).cloned().unwrap_or(Outcome::Holds)
-    }
-}
-
-fn waiting() -> Named {
-    Named([("may_merge".into(), Outcome::Waits { who: Who::Owner })].into())
+    compile(&source, &Default::default()).expect("the definition compiles")
 }
 
 fn hands_in(block: &str, value: Option<&str>) -> Came {
@@ -95,7 +86,7 @@ fn round(effects: &[Effect]) -> (decide::RunId, String, Given) {
 
 #[test]
 fn a_work_goes_from_cell_to_cell_as_each_hands_in_and_rests_at_the_merge_for_the_owner() {
-    let (flow, tests, mut work) = (small(), waiting(), Work::default());
+    let (flow, mut work) = (small(), Work::default());
     let request = Event::Wrote {
         block: "request".into(),
         by: Outsider::Person,
@@ -103,7 +94,7 @@ fn a_work_goes_from_cell_to_cell_as_each_hands_in_and_rests_at_the_merge_for_the
         matters: true,
         value: None,
     };
-    let (write, cell, given) = round(&handle(&flow, &tests, &mut work, Time(1), request).unwrap());
+    let (write, cell, given) = round(&handle(&flow, &mut work, Time(1), request).unwrap());
     assert_eq!(cell, "write");
     assert_eq!(given, Given::Task);
     assert_eq!(work.records.started[0].because, [Cause::NoRecord]);
@@ -114,7 +105,6 @@ fn a_work_goes_from_cell_to_cell_as_each_hands_in_and_rests_at_the_merge_for_the
     let (judge, cell, _) = round(
         &handle(
             &flow,
-            &tests,
             &mut work,
             Time(2),
             Event::Returned {
@@ -130,7 +120,6 @@ fn a_work_goes_from_cell_to_cell_as_each_hands_in_and_rests_at_the_merge_for_the
     let came = hands_in("content", Some("yes"));
     let effects = handle(
         &flow,
-        &tests,
         &mut work,
         Time(3),
         Event::Returned {
@@ -150,19 +139,18 @@ fn a_work_goes_from_cell_to_cell_as_each_hands_in_and_rests_at_the_merge_for_the
         at: "merge".into(),
         on: vec![word],
     };
-    assert_eq!(decide(&flow.flow, &work.records, &tests), rests);
+    assert_eq!(decide(&flow.flow, &work.records, &flow.tests(&work.records)), rests);
 }
 
 #[test]
 fn what_is_handed_in_that_the_flow_does_not_allow_is_sent_back_with_why() {
-    let (flow, tests, mut work) = (small(), waiting(), Work::default());
-    let (write, ..) = round(&handle(&flow, &tests, &mut work, Time(4), Event::Look).unwrap());
+    let (flow, mut work) = (small(), Work::default());
+    let (write, ..) = round(&handle(&flow, &mut work, Time(4), Event::Look).unwrap());
     // The writer hands in the judge's block.
     let came = hands_in("content", Some("yes"));
     let (again, cell, given) = round(
         &handle(
             &flow,
-            &tests,
             &mut work,
             Time(5),
             Event::Returned {

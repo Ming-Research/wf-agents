@@ -9,10 +9,10 @@ repository.workspace = true
 
 [dependencies]
 clap = { version = "4.6.7", features = ["derive"] }
-decide = { path = "../decide" }
 flow = { path = "../flow" }
 tokio = { version = "1.53.1", features = ["net", "rt-multi-thread"] }
-# Only to find the named tests a definition declares, which stand for the tests the engine has until it has its own.
+# Only to find the sources outside a work a definition names, which stand for the sources the engine has until it has
+# its own.
 toml.workspace = true
 web = { path = "../web" }
 

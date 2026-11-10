@@ -2,7 +2,6 @@
 
 use std::collections::BTreeSet;
 
-use decide::TestName;
 use flow::{Compiled, FLOW_FILE, Fault, FaultKind, Source};
 
 const FLOW: &str = r#"
@@ -37,15 +36,36 @@ people = true
 shown = true
 
 [blocks.main]
-outside = true
+outside = "repository"
 
 [blocks.ci]
 values = ["green", "red"]
 
-[tests]
-has_comment = "The item has a comment"
-plan_confirmed = "The owner confirmed the plan"
-may_merge = "The work may merge"
+[blocks.commented]
+values = ["yes", "no"]
+people = true
+
+[blocks.confirmed]
+values = ["yes", "no"]
+people = true
+
+[tests.has_comment]
+says = "The item has a comment"
+kind = "any"
+reads = ["commented"]
+is = "yes"
+
+[tests.plan_confirmed]
+says = "The owner confirmed the plan"
+kind = "all"
+reads = ["confirmed"]
+is = "yes"
+
+[tests.may_merge]
+says = "The work may merge"
+kind = "none"
+reads = ["ci"]
+is = "red"
 "#;
 
 /// A cell that reads what people asked for and the opinions on its plan, and writes the plan.
@@ -123,12 +143,9 @@ pub fn valid() -> Source {
     source
 }
 
-/// The tests the engine has: those the small flow declares.
-pub fn known() -> BTreeSet<TestName> {
-    ["has_comment", "plan_confirmed", "may_merge"]
-        .into_iter()
-        .map(TestName::from)
-        .collect()
+/// The sources outside a work that the engine has: the one the small flow names.
+pub fn sources() -> BTreeSet<String> {
+    ["repository".to_string()].into()
 }
 
 /// The text of a file of the source, by the file's name.
@@ -156,22 +173,22 @@ pub fn set(source: Source, file: &str, to: &str) -> Source {
     source
 }
 
-/// The faults of a definition against the tests the small flow declares.
+/// The faults of a definition against the source the small flow names.
 pub fn faults(source: &Source) -> Vec<Fault> {
-    faults_with(source, &known())
+    faults_with(source, &sources())
 }
 
-/// The faults of a definition against these tests.
-pub fn faults_with(source: &Source, known: &BTreeSet<TestName>) -> Vec<Fault> {
-    match flow::compile(source, known) {
+/// The faults of a definition against these sources.
+pub fn faults_with(source: &Source, sources: &BTreeSet<String>) -> Vec<Fault> {
+    match flow::compile(source, sources) {
         Ok(_) => panic!("the definition should not compile"),
         Err(faults) => faults,
     }
 }
 
-/// The definition compiled against the tests the small flow declares.
+/// The definition compiled against the source the small flow names.
 pub fn compiled(source: &Source) -> Compiled {
-    match flow::compile(source, &known()) {
+    match flow::compile(source, &sources()) {
         Ok(compiled) => compiled,
         Err(faults) => panic!("the definition should compile: {faults:#?}"),
     }

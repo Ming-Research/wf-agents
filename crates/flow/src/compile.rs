@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use decide::{BlockId, Cell, CellId, Condition, Flow, FlowFault, TestName};
 
-use crate::source::{CellFile, FLOW_FILE, FlowFile, Kind, Source, When, WhenIs, WhenTest};
+use crate::source::{CellFile, FLOW_FILE, FlowFile, Kind, Source, TestKind, When, WhenIs, WhenTest};
 
 /// A flow's definition compiled.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -21,8 +21,8 @@ pub struct Compiled {
     pub cells: Vec<CellSpec>,
     /// Every block of a work's state, with who writes and who reads it.
     pub blocks: BTreeMap<BlockId, Block>,
-    /// The named tests the cells use, each with the words shown for it.
-    pub tests: BTreeMap<TestName, String>,
+    /// The named tests the cells use, by name.
+    pub tests: BTreeMap<TestName, Test>,
     /// The limits of the flow as a whole.
     pub limits: Limits,
 }
@@ -72,8 +72,8 @@ pub struct Writers {
     pub cells: Vec<CellId>,
     /// People write it.
     pub people: bool,
-    /// The outside writes it.
-    pub outside: bool,
+    /// The source outside the work that writes it, where one does.
+    pub outside: Option<String>,
 }
 
 /// Who reads a block.
@@ -83,8 +83,23 @@ pub struct Readers {
     pub cells: Vec<CellId>,
     /// The cells whose condition reads its value, in the order of the walk.
     pub conditions: Vec<CellId>,
-    /// The owner's page or a named test reads it.
+    /// The named tests that read its value, by name.
+    pub tests: Vec<TestName>,
+    /// The owner's page reads it.
     pub shown: bool,
+}
+
+/// A named test: a test of the values of blocks of the work itself, for a cell's condition or precondition.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Test {
+    /// The words shown for it.
+    pub says: String,
+    /// How the blocks it reads make it hold.
+    pub kind: TestKind,
+    /// The blocks it reads, each a choice, in the order the definition lists them.
+    pub reads: Vec<BlockId>,
+    /// The value it looks for in each block it reads.
+    pub is: String,
 }
 
 /// Something wrong with a definition, and where.
@@ -126,12 +141,14 @@ pub enum FaultKind {
     NoSuchBlock { block: String },
     /// The block has no writer: no cell of the order, no person and nothing outside writes it.
     NoWriter { block: String },
-    /// The block has no reader: no cell of the order reads it, no condition reads its value, and neither the owner's
-    /// page nor a named test shows it.
+    /// The block has no reader: no cell of the order reads it, no condition and no named test reads its value, and
+    /// the owner's page does not show it.
     NoReader { block: String },
-    /// A condition reads a block that is not a choice.
+    /// The block names a source outside the work that the engine does not have.
+    UnknownSource { block: String, source: String },
+    /// A condition or a named test reads a block that is not a choice.
     NotAChoice { block: String },
-    /// A condition waits for a value the choice does not offer.
+    /// A condition or a named test waits for a value the choice does not offer.
     NotAValue { block: String, is: String },
     /// A condition reads a block its own cell writes: the cell could never come to run.
     ConditionOnOwnOutput { block: String },
@@ -142,18 +159,25 @@ pub enum FaultKind {
     LastHasCondition,
     /// A cell uses a test that `flow.toml` does not declare.
     UndeclaredTest { test: String },
-    /// A declared test is not one the engine has.
-    UnknownTest { test: String },
+    /// A declared test reads no block.
+    ReadsEmpty,
     /// A declared test is used by no cell.
     UnusedTest { test: String },
+    /// A cell's condition or precondition is a test that reads a block the cell itself writes: as a condition the cell
+    /// could never come to run, and as a precondition it could hold the work before the cell for ever.
+    TestOnOwnOutput { test: String, block: String },
+    /// A cell's condition or precondition is a test that reads a block that neither a cell before it, people nor the
+    /// outside write, so that it is decided by nothing that comes before the cell.
+    TestNotWrittenBefore { test: String, block: String },
     /// The deciding code refuses the cells as a flow.
     Flow(FlowFault),
 }
 
-/// Checks a flow's definition against the tests the engine has, and compiles it; or gives every fault it has, in
-/// the order of the files (`flow.toml`, then the cells in the order of the walk, then any other) and, within a file,
-/// in the order they were found. When a file cannot be read, only the files that cannot be read are reported.
-pub fn compile(source: &Source, known_tests: &BTreeSet<TestName>) -> Result<Compiled, Vec<Fault>> {
+/// Checks a flow's definition against the sources outside a work that the engine has, by name, and compiles it; or
+/// gives every fault it has, in the order of the files (`flow.toml`, then the cells in the order of the walk, then any
+/// other) and, within a file, in the order they were found. When a file cannot be read, only the files that cannot be
+/// read are reported.
+pub fn compile(source: &Source, sources: &BTreeSet<String>) -> Result<Compiled, Vec<Fault>> {
     let (flow_file, cell_files) = parse(source)?;
     let def = Definition::new(&flow_file, &cell_files);
     let mut faults = Vec::new();
@@ -170,8 +194,8 @@ pub fn compile(source: &Source, known_tests: &BTreeSet<TestName>) -> Result<Comp
         returns: limit("limits.returns", flow_file.limits.returns),
         calls: limit("limits.calls", flow_file.limits.calls),
     };
-    def.check_blocks(&mut faults);
-    def.check_tests(known_tests, &mut faults);
+    def.check_blocks(sources, &mut faults);
+    def.check_tests(&mut faults);
 
     let mut cells = Vec::new();
     let mut specs = Vec::new();
@@ -194,7 +218,15 @@ pub fn compile(source: &Source, known_tests: &BTreeSet<TestName>) -> Result<Comp
         tests: flow_file
             .tests
             .iter()
-            .map(|(n, w)| (TestName(n.clone()), w.clone()))
+            .map(|(name, test)| {
+                let test = Test {
+                    says: test.says.clone(),
+                    kind: test.kind,
+                    reads: test.reads.iter().map(|b| BlockId(b.clone())).collect(),
+                    is: test.is.clone(),
+                };
+                (TestName(name.clone()), test)
+            })
             .collect(),
         limits,
     })
@@ -298,12 +330,14 @@ fn check_list(
     faults
 }
 
-/// The cells of the order that write and read one block, each list in the order of the walk.
+/// The cells of the order that write and read one block, each list in the order of the walk, and the declared tests
+/// that read it, by name.
 #[derive(Default)]
 struct Uses<'a> {
     writers: Vec<(usize, &'a str)>,
     readers: Vec<&'a str>,
     conditions: Vec<&'a str>,
+    tests: Vec<&'a str>,
 }
 
 /// The parsed files, with what the checks look up in them.
@@ -346,6 +380,15 @@ impl<'a> Definition<'a> {
                 u.conditions.push(id);
             }
         }
+        for (test, declared) in &flow.tests {
+            for block in &declared.reads {
+                if let Some(u) = uses.get_mut(block.as_str())
+                    && !u.tests.contains(&test.as_str())
+                {
+                    u.tests.push(test);
+                }
+            }
+        }
         def.uses = uses;
         def
     }
@@ -361,17 +404,21 @@ impl<'a> Definition<'a> {
     /// Whether a cell of the order, a person or the outside writes the block.
     fn written(&self, block: &str) -> bool {
         let declared = &self.flow.blocks[block];
-        declared.people || declared.outside || !self.uses[block].writers.is_empty()
+        declared.people || declared.outside.is_some() || !self.uses[block].writers.is_empty()
     }
 
-    /// Whether a cell of the order, a condition, the owner's page or a named test reads the block.
+    /// Whether a cell of the order, a condition, a named test or the owner's page reads the block.
     fn read(&self, block: &str) -> bool {
         let uses = &self.uses[block];
-        self.flow.blocks[block].shown || !uses.readers.is_empty() || !uses.conditions.is_empty()
+        self.flow.blocks[block].shown
+            || !uses.readers.is_empty()
+            || !uses.conditions.is_empty()
+            || !uses.tests.is_empty()
     }
 
-    /// The faults of the declared blocks: values that make no choice, a block with no writer, and one with no reader.
-    fn check_blocks(&self, faults: &mut Vec<Fault>) {
+    /// The faults of the declared blocks: values that make no choice, a source the engine does not have, a block with
+    /// no writer, and one with no reader.
+    fn check_blocks(&self, sources: &BTreeSet<String>, faults: &mut Vec<Fault>) {
         for (name, block) in &self.flow.blocks {
             if let Some(values) = &block.values {
                 let field = format!("blocks.{name}.values");
@@ -381,6 +428,15 @@ impl<'a> Definition<'a> {
                 for (field, what) in check_list(values, &field, |_| None) {
                     faults.push(fault(FLOW_FILE, field, what));
                 }
+            }
+            if let Some(source) = &block.outside
+                && !sources.contains(source)
+            {
+                let what = FaultKind::UnknownSource {
+                    block: name.clone(),
+                    source: source.clone(),
+                };
+                faults.push(fault(FLOW_FILE, format!("blocks.{name}.outside"), what));
             }
             if !self.written(name) {
                 let what = FaultKind::NoWriter { block: name.clone() };
@@ -393,8 +449,9 @@ impl<'a> Definition<'a> {
         }
     }
 
-    /// The faults of the declared tests: one the engine does not have, or one that no cell of the order uses.
-    fn check_tests(&self, known: &BTreeSet<TestName>, faults: &mut Vec<Fault>) {
+    /// The faults of the declared tests: one that reads no block; a block read that is not declared, is no choice or
+    /// does not offer the value looked for; and a test that no cell of the order uses.
+    fn check_tests(&self, faults: &mut Vec<Fault>) {
         let mut used = BTreeSet::new();
         for (_, _, file) in self.ordered() {
             used.extend(file.requires.iter().map(String::as_str));
@@ -402,15 +459,33 @@ impl<'a> Definition<'a> {
                 used.insert(test.as_str());
             }
         }
-        for test in self.flow.tests.keys() {
-            if !known.contains(&TestName(test.clone())) {
-                let what = FaultKind::UnknownTest { test: test.clone() };
-                faults.push(fault(FLOW_FILE, format!("tests.{test}"), what));
+        for (test, declared) in &self.flow.tests {
+            let field = format!("tests.{test}.reads");
+            if declared.reads.is_empty() {
+                faults.push(fault(FLOW_FILE, field.clone(), FaultKind::ReadsEmpty));
+            }
+            for (field, what) in check_list(&declared.reads, &field, |block| self.check_read(block, &declared.is)) {
+                faults.push(fault(FLOW_FILE, field, what));
             }
             if !used.contains(test.as_str()) {
                 let what = FaultKind::UnusedTest { test: test.clone() };
                 faults.push(fault(FLOW_FILE, format!("tests.{test}"), what));
             }
+        }
+    }
+
+    /// The fault of a block a named test reads, looking for this value: not declared, not a choice, or not offering
+    /// the value.
+    fn check_read(&self, block: &str, is: &str) -> Option<FaultKind> {
+        let name = block.to_string();
+        match self.flow.blocks.get(block).map(|b| &b.values) {
+            None => Some(FaultKind::NoSuchBlock { block: name }),
+            Some(None) => Some(FaultKind::NotAChoice { block: name }),
+            Some(Some(values)) if !values.iter().any(|v| v == is) => Some(FaultKind::NotAValue {
+                block: name,
+                is: is.to_string(),
+            }),
+            Some(Some(_)) => None,
         }
     }
 
@@ -478,7 +553,9 @@ impl<'a> Definition<'a> {
                     }
                 }
                 When::Test(WhenTest { test }) => {
-                    if !self.flow.tests.contains_key(test) {
+                    if self.flow.tests.contains_key(test) {
+                        found.extend(self.check_use(place, file, test, "when.test"));
+                    } else {
                         let what = FaultKind::UndeclaredTest { test: test.clone() };
                         found.push(("when.test".to_string(), what));
                     }
@@ -491,6 +568,11 @@ impl<'a> Definition<'a> {
             let what = FaultKind::UndeclaredTest { test: test.to_string() };
             (!self.flow.tests.contains_key(test)).then_some(what)
         }));
+        for (i, test) in file.requires.iter().enumerate() {
+            if !file.requires[..i].contains(test) && self.flow.tests.contains_key(test) {
+                found.extend(self.check_use(place, file, test, &format!("requires[{i}]")));
+            }
+        }
         let declared = |block: &str| {
             let what = FaultKind::NoSuchBlock {
                 block: block.to_string(),
@@ -548,6 +630,37 @@ impl<'a> Definition<'a> {
         found
     }
 
+    /// The faults of a declared test used by the cell of this file at this place, as its condition or a precondition,
+    /// each at the field that names the test: a block the test reads that the cell writes, or that nothing before the
+    /// cell writes. A block the test reads that is not declared is the test's fault, not the cell's.
+    fn check_use(&self, place: usize, file: &CellFile, test: &str, field: &str) -> Vec<(String, FaultKind)> {
+        let mut found = Vec::new();
+        let reads = &self.flow.tests[test].reads;
+        for (i, block) in reads.iter().enumerate() {
+            let Some(declared) = self.flow.blocks.get(block).filter(|_| !reads[..i].contains(block)) else {
+                continue;
+            };
+            let (test, block_name) = (test.to_string(), block.clone());
+            if file.outputs.contains(block) {
+                let what = FaultKind::TestOnOwnOutput {
+                    test,
+                    block: block_name,
+                };
+                found.push((field.to_string(), what));
+            } else if !declared.people
+                && declared.outside.is_none()
+                && !self.uses[block.as_str()].writers.iter().any(|&(p, _)| p < place)
+            {
+                let what = FaultKind::TestNotWrittenBefore {
+                    test,
+                    block: block_name,
+                };
+                found.push((field.to_string(), what));
+            }
+        }
+        found
+    }
+
     /// Every block, with its values and who writes and reads it.
     fn blocks(&self) -> BTreeMap<BlockId, Block> {
         let ids = |cells: &[&str]| cells.iter().map(|c| CellId(c.to_string())).collect();
@@ -562,11 +675,12 @@ impl<'a> Definition<'a> {
                     writers: Writers {
                         cells: ids(&writers),
                         people: declared.people,
-                        outside: declared.outside,
+                        outside: declared.outside.clone(),
                     },
                     readers: Readers {
                         cells: ids(&uses.readers),
                         conditions: ids(&uses.conditions),
+                        tests: uses.tests.iter().map(|t| TestName(t.to_string())).collect(),
                         shown: declared.shown,
                     },
                 };

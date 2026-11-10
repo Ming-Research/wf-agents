@@ -27,6 +27,7 @@ import {
   conditionWords,
   faultWords,
   placeOf,
+  testWords,
   writersBesideCells,
 } from './words';
 
@@ -237,7 +238,7 @@ export function CellPanel(props: {
             ) : undefined}
           </StatusLine>
           {cell.preconditions.length > 0 && (
-            <StatusLine word="Waits until">{cell.preconditions.map((p) => p.words).join('; ')}</StatusLine>
+            <StatusLine word="Waits until">{cell.preconditions.map(testWords).join('; ')}</StatusLine>
           )}
           <OwnLimits cell={cell} flow={flow} />
         </>
@@ -323,11 +324,17 @@ function OwnLimits({ cell, flow }: { cell: Cell; flow: Flow }) {
   );
 }
 
-/// Who reads a block, in words: after its name (`read by plan`), or alone, after a label that says it (`plan`).
+/// Who reads a block, in words: after its name (`read by plan`), or alone, after a label that says it (`plan`). The
+/// named tests that read it are named, each with its words on the pointer's tip.
 function Readers(props: { flow: Flow; from?: string; block: Block; alone?: boolean; onChoose: (c: Chosen) => void }) {
   const { flow, from, block, alone, onChoose } = props;
-  const { cells, conditions, shown } = block.readBy;
-  if (cells.length === 0 && conditions.length === 0 && !shown) return null;
+  const { cells, conditions, tests, shown } = block.readBy;
+  if (cells.length === 0 && conditions.length === 0 && tests.length === 0 && !shown) return null;
+  const before = cells.length + conditions.length;
+  const words = (name: string) => {
+    const test = flow.tests.find((t) => t.name === name);
+    return test ? testWords(test) : undefined;
+  };
   return (
     <>
       {cells.length > 0 && (
@@ -343,7 +350,22 @@ function Readers(props: { flow: Flow; from?: string; block: Block; alone?: boole
           <span className="muted"> run{conditions.length === 1 ? 's' : ''}</span>
         </>
       )}
-      {shown && <span className="muted">{cells.length + conditions.length > 0 ? '; ' : ''}shown</span>}
+      {tests.length > 0 && (
+        <>
+          <span className="muted">
+            {before > 0 ? '; ' : !alone ? 'read by ' : ''}the test{tests.length === 1 ? '' : 's'}{' '}
+          </span>
+          {tests.map((name, i) => (
+            <span key={name}>
+              {i > 0 && ', '}
+              <span className="mono" title={words(name)}>
+                {name}
+              </span>
+            </span>
+          ))}
+        </>
+      )}
+      {shown && <span className="muted">{before + tests.length > 0 ? '; ' : ''}shown</span>}
     </>
   );
 }

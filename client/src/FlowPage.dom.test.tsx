@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import type { Comparison, Definition } from './api';
 import { FlowPage, Shell } from './App';
-import { cell, flowOf, small } from './testing';
+import { cell, flowOf, small, test } from './testing';
 
 const NOTHING: Comparison = { state: 'nothingToCompare' };
 
@@ -57,6 +57,8 @@ describe('the chart', () => {
       'needs_design',
       'opinions',
       'design',
+      'commented',
+      'confirmed',
       'comments',
       'reply',
       'main',
@@ -75,13 +77,39 @@ describe('the chart', () => {
     expect(rowOf(page, 'needs_design').querySelector('.block-values')?.textContent).toBe('yes|no');
     const heads = [...page.querySelectorAll('thead .cell-head')];
     expect(heads[2].querySelector('.cell-when')?.textContent).toBe('runs when needs_design is yes');
-    expect(heads[3].querySelector('.cell-waits')?.textContent).toBe('waits until The owner confirmed the plan');
-    expect(heads[3].querySelector('.cell-waits')?.getAttribute('title')).toBe('waits until The owner confirmed the plan');
+    expect(heads[3].querySelector('.cell-when')?.textContent).toBe('runs when The item has a comment (commented is yes)');
+    const waits = 'waits until The owner confirmed the plan (confirmed is yes)';
+    expect(heads[3].querySelector('.cell-waits')?.textContent).toBe(waits);
+    expect(heads[3].querySelector('.cell-waits')?.getAttribute('title')).toBe(waits);
     // The one way back: judge writes the opinions plan reads, and the arrow is at plan's read.
     expect(page.querySelector('.legend')?.textContent).toContain('way back (1)');
     const arrows = [...page.querySelectorAll('.arrow')];
     expect(arrows).toHaveLength(1);
     expect(arrows[0].closest('td')?.textContent).toBe('plan reads opinions');
+  });
+
+  it('marks each block a named test reads, by the condition’s mark or by a mark of a precondition’s own', () => {
+    const page = draw({ state: 'compiled', flow: small() });
+    expect(texts(rowOf(page, 'commented'), '.spot .visually-hidden')).toEqual([
+      'answer runs only by the value of commented',
+    ]);
+    expect(texts(rowOf(page, 'confirmed'), '.spot .visually-hidden')).toEqual(['answer waits on the value of confirmed']);
+    expect(texts(rowOf(page, 'ci'), '.spot .visually-hidden')).toEqual([
+      'check may write ci',
+      'merge reads, waits on the value of ci',
+    ]);
+    expect(rowOf(page, 'confirmed').querySelectorAll('.part.precondition')).toHaveLength(1);
+    expect(rowOf(page, 'commented').querySelectorAll('.part.condition')).toHaveLength(1);
+    expect(page.querySelector('.legend')?.textContent).toContain('its precondition reads');
+  });
+
+  it('says the source outside that writes a block on its row and in its panel', () => {
+    const page = draw({ state: 'compiled', flow: small() });
+    expect(rowOf(page, 'main').querySelector('.block-source')?.textContent).toBe('repository');
+    expect(rowOf(page, 'plan').querySelector('.block-source')).toBeNull();
+    click(rowOf(page, 'main').querySelector('.head-button'));
+    const panel = page.querySelector('aside[aria-label="Block main"]') as HTMLElement;
+    expect(panel.textContent).toContain('the outside (repository)');
   });
 
   it('shows everything about a cell chosen by its column’s head, and about a block chosen from it', () => {
@@ -107,6 +135,8 @@ describe('the chart', () => {
     click(rowOf(page, 'ci').querySelector('.head-button'));
     const panel = page.querySelector('aside[aria-label="Block ci"]') as HTMLElement;
     expect(panel.textContent).toContain('a choice of green, red');
+    expect(texts(panel, '.status-line')).toContain('Read bymerge; the test may_merge');
+    expect(panel.querySelector('[title="The work may merge (ci is not red)"]')?.textContent).toBe('may_merge');
     expect(rowOf(page, 'ci').className).toContain('chosen');
   });
 });
@@ -138,6 +168,41 @@ describe('a comparison', () => {
 
     click([...page.querySelectorAll('button')].find((b) => b.textContent === 'As it was'));
     expect(texts(page, 'thead .cell-title')).toEqual(['A', 'B']);
+  });
+});
+
+describe('a comparison of tests and sources', () => {
+  it('lists a test changed and a block’s source changed as it lists the others, and marks the source on the chart', () => {
+    const was = test('ready', 'Ready', 'all', ['x']);
+    const is = test('ready', 'Ready', 'any', ['x', 'y']);
+    const blocks = (outside: string) => ({
+      x: { people: true, values: ['yes', 'no'] },
+      y: { values: ['yes', 'no'], outside },
+    });
+    const before = flowOf([cell('a', { preconditions: [was] })], blocks('mirror'));
+    const after = flowOf([cell('a', { preconditions: [is] })], blocks('repository'));
+    const page = draw(
+      { state: 'compiled', flow: after },
+      {
+        state: 'compared',
+        against: { state: 'compiled', flow: before },
+        changes: [
+          { kind: 'testChanged', test: 'ready', before: was, after: is },
+          { kind: 'outside', block: 'y', before: 'mirror', after: 'repository' },
+        ],
+      },
+    );
+    expect(texts(page, '.change-group h3')).toEqual(['Test ready', 'Block y']);
+    expect(texts(page, '.changes .change')).toEqual([
+      'Holds whenx is yes → any of x, y is yes',
+      'Written by the outsidemirror → repository',
+    ]);
+    expect(texts(page, '.changes del')).toEqual(['x is yes', 'mirror']);
+    expect(texts(page, '.changes ins')).toEqual(['any of x, y is yes', 'repository']);
+    expect(rowOf(page, 'y').className).toContain('status-changed');
+    expect(rowOf(page, 'y').querySelector('.block-source')?.className).toContain('changed-field');
+    // The precondition's mark on y is put in by the change.
+    expect(rowOf(page, 'y').querySelectorAll('.part.precondition.added')).toHaveLength(1);
   });
 });
 
