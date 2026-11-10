@@ -23,8 +23,6 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    // The console's drawing library (PixiJS) is large; the page is served from the same machine.
-    chunkSizeWarningLimit: 4096,
   },
   test: {
     // The page's own CSS is read as written, so that a test drawn in the browser is laid out as the page is; Vitest

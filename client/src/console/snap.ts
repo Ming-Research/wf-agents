@@ -89,7 +89,7 @@ export const KEEP = 3;
 /// another column far, however far its links would put it, and every column stops when the scroll does; what is left it
 /// makes up as the scroll goes on.
 const LINK_EASE = 0.2;
-const PACE = 1.5;
+export const PACE = 1.5;
 
 /// The console's colours: words, marks and lines in greys; one accent for what runs; amber for what
 /// waits for the owner; red for what has gone wrong or on long; violet for what has gone on for days. These are the
@@ -130,9 +130,10 @@ const LIGHT = {
   over: '#7891fc',
   /// The words on a filled tag.
   onTag: '#ffffff',
-  /// What joins an item to those under it: a grey, faint.
-  other: '#8d9bb3',
-  otherAlpha: 0.85 * 0.12,
+  /// What joins an item to those under it: Primer's neutral muted, `#818b981f` in light and `#656c7633` in dark, as
+  /// the console on `main` read it, a little lighter.
+  other: '#818b98',
+  otherAlpha: 0.85 * (0x1f / 255),
 };
 
 /// The colours the scene draws in now: the console's own in light, or as `themed` gives them.
@@ -163,6 +164,7 @@ export function themed(): typeof LIGHT {
     halted: token('--red', LIGHT.halted),
     red: token('--red', LIGHT.red),
     green: token('--green', LIGHT.green),
+    onTag: token('--on-colour', LIGHT.onTag),
   };
   if (getComputedStyle(document.documentElement).colorScheme !== 'dark') return { ...LIGHT, ...t };
   return {
@@ -179,8 +181,8 @@ export function themed(): typeof LIGHT {
     paused: t.muted,
     amber: token('--orange-text', LIGHT.amber),
     violet: t.chosen,
-    onTag: LIGHT.onTag,
-    otherAlpha: 0.16,
+    other: '#656c76',
+    otherAlpha: 0.85 * (0x33 / 255),
   };
 }
 
@@ -306,25 +308,25 @@ const NUMBER = () => ({
 /// What a work has taken, in dollars.
 export const dollars = (usdMicros: number) => `$${(usdMicros / 1e6).toFixed(2)}`;
 
-/// A value of the page's theme, a colour or a font, from its CSS custom property.
-function colour(name: string, fallback: string): string {
-  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return v === '' ? fallback : v;
-}
-
 /// The size of a node's title: the console's own, a step over the page's body text, as it was drawn on `main`.
 const TITLE_SIZE = 14;
 
-/// The styles of a node's words, by their colour: its title in the page's text, and its numbers and letters in the
+/// The styles of a node's words, by their colour: its title in the sans-serif face, and its numbers and letters in the
 /// page's monospace, smaller. Each is made from plain values once: one made by spreading another keeps the other's fill.
 type Styles = {
   title: (fill: string) => TextStyle;
   mono: (fill: string) => TextStyle;
 };
 
+/// The faces of a node's words: Primer's stacks, which the console on `main` drew in, without the face Primer names
+/// first and the page never loaded. A canvas resolves a stack by its own rules (PixiJS quotes every name but the
+/// generic ones), so the page's own stacks (`--font`, `--mono`) could draw another face in some browsers.
+const SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif';
+const MONO = 'ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace';
+
 function makeStyles(): Styles {
-  const sans = colour('--font', 'sans-serif');
-  const mono = colour('--mono', 'monospace');
+  const sans = SANS;
+  const mono = MONO;
   const size = TITLE_SIZE;
   const made = new Map<string, TextStyle>();
   const style = (fontFamily: string, fontSize: number, fill: string) => {
@@ -665,7 +667,7 @@ export class SnapScene {
       right -= 6;
     };
     if (item.asks > 0) tag(String(item.asks), PALETTE.red, null, true);
-    if (item.work === null && item.standing === 'open' && item.blocked > 0)
+    if (!item.begun && item.standing === 'open' && item.blocked > 0)
       tag(String(item.blocked), PALETTE.muted, 'lock', false);
     // The title ends where the badges begin.
     fit(title, right - title.x);

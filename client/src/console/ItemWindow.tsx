@@ -3,18 +3,19 @@
 // mark for each cell of the work's flow and what the work has taken; what the owner does to the work (let it on, pause
 // it, cancel it); and two tabs. The first says what the work waits for, and holds the notes: a box to write for a cell,
 // in a block that people write, chosen above it, with the cells that read that block named under it. The second holds
-// what of the work the lines do not say. With no item selected it says how to select one.
+// what of the work the lines do not say. With no item selected it says how to select one. What the owner sends is sent
+// once: its button waits while it is under way, and a refusal is said under the item it was for, and only there.
 //
 // Brought over from the console of the engine on `main` (`client/src/console/ItemWindow.tsx`), its layout as it was, its
 // parts the page's own (parts.tsx) where it used Primer's. What it showed that the interface has nothing for is left
 // out: the item's project, goal and tier, the strip of what is new to the owner, the item's body with its choices, the
 // notes written before, and the work's tier and returns sent back.
 
-import { type ReactNode, useState } from 'react';
+import { Fragment, type ReactNode, useState } from 'react';
 
-import { Button, PanelPart } from '../parts';
+import { Panel, PanelPart } from '../parts';
 import type { Act, Item, Summary, Waited, WorkPage } from '../works-api';
-import { type ItemStanding, hereOf, latest, standingOf } from './items';
+import { type ItemStanding, hereOf, standingOf } from './items';
 import { age, dollars, type Mood, moodOf } from './snap';
 
 const ago = (at: number) => age(Date.now() - at).label;
@@ -37,8 +38,15 @@ const STANDING_WORDS: Record<ItemStanding, string> = { open: 'Open', done: 'Done
 /// Whether a work has ended: merged or cancelled.
 const ended = (s: Summary) => s.now.kind === 'merged' || s.now.kind === 'cancelled';
 
+/// The work's page as the panel has it: read, not read, or still being read.
+export type PageState = { page: WorkPage } | { failed: string } | null;
+
+const pageIn = (p: PageState): WorkPage | null => (p !== null && 'page' in p ? p.page : null);
+
 /// A cell's title in the work's flow, or its id where the flow does not name it.
 const titleOf = (page: WorkPage | null, cell: string) => page?.flow.cells.find((c) => c.id === cell)?.title ?? cell;
+
+const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /// What the work waits for, one thing at a time, in words.
 export function waitedWords(w: Waited, page: WorkPage | null, at: string): string {
@@ -61,8 +69,6 @@ export function waitedWords(w: Waited, page: WorkPage | null, at: string): strin
       return `You to let ${titleOf(page, at)} run again after ${w.runs} runs in a row for what a cell after it wrote`;
   }
 }
-
-const capital = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /// What the work does now, as a word and the facts after it.
 export function nowWords(s: Summary, page: WorkPage | null): { word: string; facts: string | null } {
@@ -93,6 +99,8 @@ export function nowWords(s: Summary, page: WorkPage | null): { word: string; fac
 /// The tone of a dot: an item's standing, or what its work does.
 type Tone = ItemStanding | Mood | 'ended';
 
+/// A status line of the panel, as the look's (`StatusLine`), but with the five tones of a work, and room at its right
+/// end for the cell marks.
 function Line({ tone, children }: { tone: Tone; children: ReactNode }) {
   return (
     <div className="cw-line">
@@ -102,38 +110,99 @@ function Line({ tone, children }: { tone: Tone; children: ReactNode }) {
   );
 }
 
-export type WindowProps = {
-  /// The item selected, as the interface gives it; none while it is read.
+/// A button that waits while what it sent is under way: the look's `Button`, which cannot yet be held. To be replaced
+/// by it once it can.
+function Pressing({ primary, title, waiting, disabled, onClick, children }: {
+  primary?: boolean;
+  title?: string;
+  /// What it sent is under way.
+  waiting: boolean;
+  /// There is nothing to send.
+  disabled?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className={primary ? 'button button-primary' : 'button'}
+      title={title}
+      disabled={waiting || disabled === true}
+      aria-busy={waiting || undefined}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+/// Sends what the owner does, once at a time: while one is under way, nothing else is sent; a refusal is kept to say.
+function useSending(act: (what: Act) => Promise<unknown>) {
+  const [waiting, setWaiting] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
+  const send = (what: Act): Promise<boolean> => {
+    if (waiting) return Promise.resolve(false);
+    setWaiting(true);
+    setRefused(null);
+    return act(what).then(
+      () => {
+        setWaiting(false);
+        return true;
+      },
+      (e: unknown) => {
+        setWaiting(false);
+        setRefused(e instanceof Error ? e.message : String(e));
+        return false;
+      },
+    );
+  };
+  return { waiting, refused, send };
+}
+
+export type ItemPanelProps = {
+  /// The item selected, as the interface gives it.
   item: Item;
-  /// Its latest work's page, which says the flow; none while it is read.
-  page: WorkPage | null;
+  /// Its work's page, which says the flow.
+  page: PageState;
   act: (work: number, what: Act) => Promise<unknown>;
   /// The items it depends on that are not merged yet.
   waitsFor: number[];
+  folded: boolean;
+  onFold: () => void;
+  edge?: ReactNode;
+  /// Brings the item into view in the tree.
+  onTitle: () => void;
 };
 
-/// The panel's head: the item's number, its title, which brings it into view in the tree, and the flow its work runs on.
-export function windowHead(item: Item, onTitle: () => void) {
-  return {
-    id: item.number,
-    title: (
-      <button type="button" className="cw-title-link" title="Show it in the tree" onClick={onTitle}>
-        {item.title}
-      </button>
-    ),
-    belongs: latest(item)?.flow,
-  };
-}
-
-/// The panel's lines under its head: where the item stands, what its work does, and what the owner does to the work.
-export function WindowLines({ item, page, act, waitsFor }: WindowProps) {
-  const work = latest(item);
+/// The panel of the item selected. Its lines and its body are the item's own: what one item was sending, or was refused,
+/// is not shown under another.
+export function ItemPanel({ item, page, act, waitsFor, folded, onFold, edge, onTitle }: ItemPanelProps) {
+  const work = item.work;
+  const read = pageIn(page);
+  const send = (what: Act) => act(work.number, what);
   return (
-    <>
-      <ItemLine item={item} waitsFor={waitsFor} />
-      {work === undefined ? <div className="cw-line cw-muted">No work yet</div> : <WorkLine w={work} page={page} />}
-      {work !== undefined && !ended(work) && <Acts w={work} act={act} />}
-    </>
+    <Panel
+      label={`Item ${item.number}`}
+      id={item.number}
+      title={
+        <button type="button" className="cw-title-link" title="Show it in the tree" onClick={onTitle}>
+          {item.title}
+        </button>
+      }
+      belongs={work.flow}
+      lines={
+        <div key={item.number}>
+          <ItemLine item={item} waitsFor={waitsFor} />
+          <WorkLine w={work} page={read} />
+          {!ended(work) && <Acts paused={work.paused || work.now.kind === 'paused'} act={send} />}
+        </div>
+      }
+      folded={folded}
+      onFold={onFold}
+      edge={edge}
+    >
+      <WindowBody key={item.number} work={work} page={page} act={send} />
+    </Panel>
   );
 }
 
@@ -169,21 +238,29 @@ function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
   );
 }
 
-/// How a cell's mark looks: done, where the work is, where it waits, or not done.
-type Look = 'done' | 'now' | 'wait' | 'ahead';
+/// How a cell's mark looks: done, where the work is in the tone of what it does there, or not done.
+type Look = 'done' | 'ahead' | Mood;
 
-const LOOK_WORDS: Record<Look, string> = { done: 'done', now: 'under way', wait: 'waits here', ahead: 'not done' };
+const LOOK_WORDS: Record<Look, string> = {
+  done: 'done',
+  ahead: 'not done',
+  running: 'under way',
+  owner: 'waits for you here',
+  waiting: 'waits here',
+  paused: 'paused here',
+  halted: 'halted here',
+};
 
 /// How far a work has come, as one row of narrow cells, one for each cell of its flow, each the first letter of its
-/// id: those whose record knows everything filled in the colour of done, the one it is at standing out, in the colour
-/// of waiting while it waits, the others plain. Each says its cell on hovering.
+/// id: those whose record knows everything filled in the colour of done, the one it is at in the tone its card has
+/// (orange only where it waits for the owner), the others plain. Each says its cell on hovering.
 export function CellMarks({ w, page }: { w: Summary; page: WorkPage | null }) {
   const here = ended(w) ? null : hereOf(w);
-  const running = w.now.kind === 'round' || w.now.kind === 'next';
+  const mood = moodOf(w);
   return (
     <span className="stage-bar">
       {w.cells.map((c) => {
-        const look: Look = c.cell === here ? (running ? 'now' : 'wait') : c.state === 'done' ? 'done' : 'ahead';
+        const look: Look = c.cell === here ? mood : c.state === 'done' ? 'done' : 'ahead';
         const title = `${titleOf(page, c.cell)}: ${c.state === 'skipped' && look === 'ahead' ? 'skipped' : LOOK_WORDS[look]}`;
         return (
           <span
@@ -191,7 +268,7 @@ export function CellMarks({ w, page }: { w: Summary; page: WorkPage | null }) {
             className={`stage-cell stage-${look}`}
             title={title}
             aria-label={title}
-            aria-current={look === 'now' || look === 'wait' ? 'step' : undefined}
+            aria-current={c.cell === here ? 'step' : undefined}
           >
             {c.cell.charAt(0).toUpperCase()}
           </span>
@@ -202,41 +279,42 @@ export function CellMarks({ w, page }: { w: Summary; page: WorkPage | null }) {
 }
 
 /// What the owner does to a work that goes on: let it on while it is paused, or pause it; cancel it, once they confirm.
-function Acts({ w, act }: { w: Summary; act: WindowProps['act'] }) {
-  const [refused, setRefused] = useState<string | null>(null);
-  const send = (what: Act) => {
-    setRefused(null);
-    act(w.number, what).catch((e: unknown) => setRefused(e instanceof Error ? e.message : String(e)));
-  };
-  const paused = w.paused || w.now.kind === 'paused';
+/// While one is under way, none can be pressed.
+function Acts({ paused, act }: { paused: boolean; act: (what: Act) => Promise<unknown> }) {
+  const { waiting, refused, send } = useSending(act);
   return (
     <div className="cw-acts">
       {paused ? (
-        <Button primary title="Let the work go on" onClick={() => send({ kind: 'resume' })}>
+        <Pressing primary title="Let the work go on" waiting={waiting} onClick={() => void send({ kind: 'resume' })}>
           Let it on
-        </Button>
+        </Pressing>
       ) : (
-        <Button title="No round of it begins; a round under way goes on" onClick={() => send({ kind: 'pause' })}>
+        <Pressing
+          title="No round of it begins; a round under way goes on"
+          waiting={waiting}
+          onClick={() => void send({ kind: 'pause' })}
+        >
           Pause
-        </Button>
+        </Pressing>
       )}
-      <Button
+      <Pressing
         title="Cancel the work and its item"
+        waiting={waiting}
         onClick={() => {
-          if (window.confirm(`Cancel work ${w.number}? It cannot be let on again.`)) send({ kind: 'cancel' });
+          if (window.confirm('Cancel this work? It cannot be let on again.')) void send({ kind: 'cancel' });
         }}
       >
         Cancel
-      </Button>
+      </Pressing>
       {refused !== null && <span className="cw-refused">{refused}</span>}
     </div>
   );
 }
 
 /// The panel's body: two tabs, what the work waits for and the notes, and what of the work the lines do not say.
-export function WindowBody({ item, page, act }: Omit<WindowProps, 'waitsFor'>) {
+function WindowBody({ work, page, act }: { work: Summary; page: PageState; act: (what: Act) => Promise<unknown> }) {
   const [tab, setTab] = useState<'item' | 'work'>('item');
-  const work = latest(item);
+  const read = pageIn(page);
   return (
     <div className="cw-item">
       <div className="cw-tabs" role="tablist">
@@ -257,16 +335,15 @@ export function WindowBody({ item, page, act }: Omit<WindowProps, 'waitsFor'>) {
         <WorkFacts w={work} />
       ) : (
         <>
-          {work !== undefined && work.now.kind === 'waits' && <Waits w={work} page={page} at={work.now.at} />}
-          {work !== undefined && <Notes w={work} page={page} act={act} />}
+          {work.now.kind === 'waits' && <Waits on={work.now.on} page={read} at={work.now.at} />}
+          <Notes work={work.number} page={page} act={act} />
         </>
       )}
     </div>
   );
 }
 
-function Waits({ w, page, at }: { w: Summary; page: WorkPage | null; at: string }) {
-  const on = w.now.kind === 'waits' ? w.now.on : [];
+function Waits({ on, page, at }: { on: Waited[]; page: WorkPage | null; at: string }) {
   return (
     <PanelPart label={`Waits at ${titleOf(page, at)}`} count={on.length}>
       <ul>
@@ -302,8 +379,9 @@ function writeDraft(key: string, text: string) {
 
 /// The notes: a box to write for a cell. The owner picks a block that people write, of those that hold words rather
 /// than a choice, and what they send is written into it; the line under the box names the cells that read it.
-function Notes({ w, page, act }: { w: Summary; page: WorkPage | null; act: WindowProps['act'] }) {
-  const blocks = (page?.flow.blocks ?? []).filter((b) => b.writtenBy.people && b.values === null);
+function Notes({ work, page, act }: { work: number; page: PageState; act: (what: Act) => Promise<unknown> }) {
+  const read = pageIn(page);
+  const blocks = (read?.flow.blocks ?? []).filter((b) => b.writtenBy.people && b.values === null);
   const [chosen, setChosen] = useState<string | null>(null);
   const block = blocks.find((b) => b.name === chosen) ?? blocks[0];
   return (
@@ -311,6 +389,8 @@ function Notes({ w, page, act }: { w: Summary; page: WorkPage | null; act: Windo
       <h3>Notes</h3>
       {page === null ? (
         <p className="cw-muted">Reading the work's flow</p>
+      ) : 'failed' in page ? (
+        <p className="cw-refused">The page could not read the work: {page.failed}</p>
       ) : block === undefined ? (
         <p className="cw-muted">People write no block of this flow</p>
       ) : (
@@ -326,10 +406,10 @@ function Notes({ w, page, act }: { w: Summary; page: WorkPage | null; act: Windo
             </select>
           </label>
           <Compose
-            key={draftKey(w.number, block.name)}
-            work={w.number}
+            key={draftKey(work, block.name)}
+            work={work}
             block={block.name}
-            readers={block.readBy.cells.map((c) => titleOf(page, c))}
+            readers={block.readBy.cells.map((c) => titleOf(read, c))}
             act={act}
           />
         </div>
@@ -343,28 +423,25 @@ function Compose({ work, block, readers, act }: {
   work: number;
   block: string;
   readers: string[];
-  act: WindowProps['act'];
+  act: (what: Act) => Promise<unknown>;
 }) {
   const key = draftKey(work, block);
   const [text, setText] = useState(() => readDraft(key));
   const [sent, setSent] = useState(false);
-  const [refused, setRefused] = useState<string | null>(null);
+  const { waiting, refused, send } = useSending(act);
   const type = (t: string) => {
     setText(t);
     setSent(false);
     writeDraft(key, t);
   };
-  const send = () => {
+  const submit = () => {
     const content = text.trim();
-    setRefused(null);
-    act(work, { kind: 'write', block, content, value: null }).then(
-      () => {
-        writeDraft(key, '');
-        setText((now) => (now.trim() === content ? '' : now));
-        setSent(true);
-      },
-      (e: unknown) => setRefused(e instanceof Error ? e.message : String(e)),
-    );
+    void send({ kind: 'write', block, content, value: null }).then((done) => {
+      if (!done) return;
+      writeDraft(key, '');
+      setText((now) => (now.trim() === content ? '' : now));
+      setSent(true);
+    });
   };
   return (
     <>
@@ -377,9 +454,9 @@ function Compose({ work, block, readers, act }: {
       />
       <div className="cw-compose-foot">
         <span className="cw-muted">{readers.length > 0 ? `Goes to ${readers.join(', ')}` : 'No cell reads it'}</span>
-        <button type="button" className="button button-primary" disabled={text.trim() === ''} onClick={send}>
+        <Pressing primary waiting={waiting} disabled={text.trim() === ''} onClick={submit}>
           Send
-        </button>
+        </Pressing>
       </div>
       {sent && <p className="cw-done">Written in {block}</p>}
       {refused !== null && <p className="cw-refused">{refused}</p>}
@@ -387,20 +464,19 @@ function Compose({ work, block, readers, act }: {
   );
 }
 
-function WorkFacts({ w }: { w: Summary | undefined }) {
-  if (w === undefined) return <p className="cw-muted">No work yet</p>;
+function WorkFacts({ w }: { w: Summary }) {
   const rows: [string, ReactNode][] = [
     ['Rounds', String(w.spent.rounds)],
     ['Cost', dollars(w.spent.usdMicros)],
     ['Started', `${ago(w.added)} ago`],
   ];
   return (
-    <dl className="cw-facts">
+    <dl className="pairs cw-facts">
       {rows.map(([key, value]) => (
-        <div key={key}>
+        <Fragment key={key}>
           <dt>{key}</dt>
           <dd>{value}</dd>
-        </div>
+        </Fragment>
       ))}
     </dl>
   );

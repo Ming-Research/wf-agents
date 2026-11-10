@@ -6,23 +6,24 @@
 // The panel coming out over the item selected, or an item selected half under it or half off the screen, moves the tree
 // only until the item is wholly within what the panel leaves. Escape lets the item go while the tree has the keys, and
 // folds the panel while it has them. Each time the interface says something happened, the items are read again and
-// drawn where they stand, the item selected and the panel as they were.
+// drawn where they stand, the item selected and the panel as they were; when the stream opens again after a cut,
+// everything is. An answer older than the one shown is dropped. The page's shell mounts it lazily (`lazy.tsx`).
 //
 // Brought over from the console of the engine on `main` (`client/src/pages/Console.tsx`). The window there slid over the
 // tree; here it is the page's docked panel (look.md), which the tree gives its width to.
 
 import './console.css';
 
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Edge, Panel } from '../parts';
 import { useKeptWidth } from '../sizes';
-import type { Changed, Items, WorkPage } from '../works-api';
+import type { Items, WorkPage } from '../works-api';
 import { fakeShown } from './fake';
-import { type Shown, latest, shownTree, standingOf } from './items';
-import { WindowBody, WindowLines, windowHead } from './ItemWindow';
+import { type Shown, shownTree, standingOf } from './items';
+import { ItemPanel, type PageState } from './ItemWindow';
 import { SnapScene } from './snap';
-import { type Source, pageSource } from './source';
+import { type Heard, type Source, inOrder, pageSource } from './source';
 
 /// The panel's width at first, as the console's window was, and the least and most it is dragged to, as the page's
 /// panel is (look.md).
@@ -42,23 +43,25 @@ export function ConsolePage({ source: given }: { source?: Source } = {}) {
   const open = win.open;
   const [width, setWidth] = useKeptWidth(WIDTH_KEY, PANEL.min, PANEL.max);
 
-  // The items, read at first and again each time something happened.
-  const changed = useRef<(c: Changed) => void>(() => undefined);
+  // The items, read at first and again each time something happened, an answer older than the one shown dropped.
+  const heard = useRef<(h: Heard) => void>(() => undefined);
   useEffect(() => {
     let alive = true;
+    const take = inOrder();
     const read = () =>
-      source.loadItems().then(
+      take(
+        source.loadItems(),
         (items) => {
           if (!alive) return;
           setData(items);
           setFailed(null);
         },
-        (e: unknown) => alive && setFailed(e instanceof Error ? e.message : String(e)),
+        (why) => alive && setFailed(why),
       );
-    void read();
-    const stop = source.changes((c) => {
-      if (c.items || c.works.length > 0) void read();
-      changed.current(c);
+    read();
+    const stop = source.changes((h) => {
+      if (h === 'everything' || h.items || h.works.length > 0) read();
+      heard.current(h);
     });
     return () => {
       alive = false;
@@ -125,34 +128,29 @@ export function ConsolePage({ source: given }: { source?: Source } = {}) {
     return () => window.removeEventListener('keydown', key);
   }, [open]);
 
-  // The item selected as the interface gives it, and its latest work's page, read when another is selected and again
-  // when something happened to that work.
+  // The item selected as the interface gives it, and its work's page, read when another is selected and again when
+  // something happened to that work; an answer older than the one shown is dropped, and a read that failed says so.
   const item = selectedId === null ? undefined : data?.items.find((i) => i.number === selectedId);
-  const work = item === undefined ? undefined : latest(item)?.number;
-  const [page, setPage] = useState<WorkPage | null>(null);
-  const reading = useRef<number | undefined>(undefined);
-  const readPage = useCallback(
-    (n: number) =>
-      source.loadWork(n).then(
-        (p) => {
-          if (reading.current === n) setPage(p);
-        },
-        () => undefined,
-      ),
-    [source],
-  );
+  const work = item?.work.number;
+  const [page, setPage] = useState<{ work: number; state: PageState } | null>(null);
+  const takePage = useMemo(() => inOrder(), []);
   useEffect(() => {
-    reading.current = work;
     if (work === undefined) return;
-    void readPage(work);
-    changed.current = (c) => {
-      if (c.works.includes(work)) void readPage(work);
+    const read = () =>
+      takePage(
+        source.loadWork(work),
+        (p: WorkPage) => setPage({ work, state: { page: p } }),
+        (why) => setPage({ work, state: { failed: why } }),
+      );
+    read();
+    heard.current = (h) => {
+      if (h === 'everything' || h.works.includes(work)) read();
     };
     return () => {
-      changed.current = () => undefined;
+      heard.current = () => undefined;
     };
-  }, [work, readPage]);
-  const shownPage = page !== null && page.summary.number === work ? page : null;
+  }, [work, source, takePage]);
+  const shownPage = page !== null && page.work === work ? page.state : null;
 
   const fold = () => setWin((w) => (w.open ? { open: false, byHand: false } : { open: true, byHand: true }));
   const edge = (
@@ -187,16 +185,16 @@ export function ConsolePage({ source: given }: { source?: Source } = {}) {
           <p className="cw-empty">Click an item on the left to see it here</p>
         </Panel>
       ) : (
-        <Panel
-          label={`Item ${item.number}`}
-          {...windowHead(item, () => scene.current?.reveal(item.number, room()))}
-          lines={<WindowLines item={item} page={shownPage} act={source.act} waitsFor={waitsFor} />}
+        <ItemPanel
+          item={item}
+          page={shownPage}
+          act={source.act}
+          waitsFor={waitsFor}
           folded={!open}
           onFold={fold}
           edge={edge}
-        >
-          <WindowBody key={item.number} item={item} page={shownPage} act={source.act} />
-        </Panel>
+          onTitle={() => scene.current?.reveal(item.number, room())}
+        />
       )}
     </div>
   );

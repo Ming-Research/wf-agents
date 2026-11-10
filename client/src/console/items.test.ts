@@ -34,7 +34,7 @@ const NOW: Record<'open' | 'done' | 'cancelled', Now> = {
 };
 
 function item(number: number, standing: 'open' | 'done' | 'cancelled', dependsOn: number[] = []): Item {
-  return { number, title: `t${number}`, added: 0, dependsOn, works: [work(number, NOW[standing])] };
+  return { number, title: `t${number}`, added: 0, dependsOn, work: work(number, NOW[standing]) };
 }
 
 /// A tree as lines: each item's number, indented by its depth, a shadow's marked.
@@ -71,11 +71,13 @@ describe('the tree the console shows', () => {
     expect(Array.from(tree.childStart)).toEqual([0, 0, 0, 2, 0, 0, 1]);
   });
 
-  it("takes an item's standing from its latest work: merged is done, cancelled is cancelled, else open", () => {
-    const later: Item = { ...item(8, 'cancelled', [9]), works: [work(8, NOW.cancelled), work(8, NOW.done)] };
-    const shown = shownTree({ items: [later, item(9, 'open')] });
+  it("takes an item's standing from its work: merged is done, cancelled is cancelled, else open", () => {
+    const shown = shownTree({ items: [item(8, 'done', [9, 10]), item(9, 'open'), item(10, 'cancelled', [11]), item(11, 'open')] });
     expect(shown.map((s) => [s.id, s.standing])).toEqual([[8, 'done']]);
-    expect(shown[0].children.map((s) => [s.id, s.standing])).toEqual([[9, 'open']]);
+    expect(shown[0].children.map((s) => [s.id, s.standing])).toEqual([
+      [9, 'open'],
+      [10, 'cancelled'],
+    ]);
   });
 });
 
@@ -105,14 +107,43 @@ describe('what a card shows of an item', () => {
     expect(hereOf(work(1, { kind: 'merged' }, ['done', 'done', 'done']))).toBeNull();
   });
 
-  it('shows the work of an item only once it has begun, and while it goes on; until then the items it waits for', () => {
+  it('puts a paused or halted work at the first cell the walk would come to, not at a later run at rest', () => {
+    // The cell before the open run must run again: the walk comes to it first.
+    expect(hereOf(work(1, { kind: 'paused' }, ['again', 'resting', 'notYet']))).toBe('plan');
+    expect(hereOf(work(1, { kind: 'fault', words: 'lost' }, ['skipped', 'notYet', 'running']))).toBe('implement');
+    expect(hereOf(work(1, { kind: 'paused' }, ['done', 'skipped', 'resting']))).toBe('merge');
+  });
+
+  it('shows the work of an item once it has begun, and while it goes on; until it has begun, the items it waits for', () => {
     const notBegun = item(1, 'open', [2, 3]);
-    const begun: Item = { ...item(2, 'open'), works: [work(2, waits, ['done', 'resting', 'notYet'])] };
+    const begun: Item = { ...item(2, 'open'), work: work(2, waits, ['done', 'resting', 'notYet']) };
     const shown = shownTree({ items: [notBegun, begun, item(3, 'done')] });
     expect(shown[0].work).toBeNull();
+    expect(shown[0].begun).toBe(false);
     expect(shown[0].blocked).toBe(1);
     const w = shown[0].children[0];
+    expect(w.begun).toBe(true);
     expect(w.asks).toBe(3);
     expect(w.work).toMatchObject({ number: 20, here: 'implement', usdMicros: 1_500_000 });
+  });
+
+  it('shows the work of an item that has not begun while it is paused, at fault or waits, as every new item is', () => {
+    const paused: Item = { ...item(1, 'open', [4]), work: work(1, { kind: 'paused' }) };
+    const fault: Item = { ...item(2, 'open'), work: work(2, { kind: 'fault', words: 'No session' }) };
+    const owner: Now = {
+      kind: 'waits',
+      at: 'plan',
+      on: [{ kind: 'precondition', test: 'read', words: 'The owner read it', who: 'owner' }],
+    };
+    const waiting: Item = { ...item(3, 'open'), work: work(3, owner) };
+    const shown = shownTree({ items: [paused, fault, waiting, item(4, 'open')] });
+    expect(shown.map((s) => [s.id, s.begun, s.work?.now.kind, s.work?.here])).toEqual([
+      [1, false, 'paused', 'plan'],
+      [2, false, 'fault', 'plan'],
+      [3, false, 'waits', 'plan'],
+    ]);
+    // Not begun, it still says how many items it waits for.
+    expect(shown[0].blocked).toBe(1);
+    expect(shown[2].asks).toBe(1);
   });
 });

@@ -1,6 +1,6 @@
 // Made-up items for looking at the console with no server behind it (`console.html?fixtures`), and for its tests: some
-// twenty items depending on each other in four layers, their works in every state a work can be in, on one made-up flow
-// of an engineer's work. What the owner does to a work changes it here, and the console is told as the interface's
+// twenty items, each with its one work, depending on each other in four layers, their works in every state a work can
+// be in, on one made-up flow of an engineer's work. What the owner does to a work changes it here, and the console is told as the interface's
 // stream of changes would tell it.
 
 import type { Block, Cell, Flow, Limits, Test } from '../api';
@@ -74,6 +74,7 @@ function flowOf(
 }
 
 const PLAN_CONFIRMED: Test = { name: 'plan_confirmed', words: 'The owner confirmed the plan' };
+const REQUEST_READ: Test = { name: 'request_read', words: 'The owner read what the item asks for' };
 const MAY_MERGE: Test = { name: 'may_merge', words: 'The reviews are content and the owner lets it merge' };
 
 /// A precondition not met that the owner makes hold.
@@ -85,7 +86,13 @@ const owners = (t: Test): Waited => ({ kind: 'precondition', test: t.name, words
 export const FLOW: Flow = flowOf(
   'engineer',
   [
-    { id: 'research', title: 'Research the item', inputs: ['request', 'plan_opinions'], outputs: ['plan', 'needs_design'] },
+    {
+      id: 'research',
+      title: 'Research the item',
+      preconditions: [REQUEST_READ],
+      inputs: ['request', 'plan_opinions'],
+      outputs: ['plan', 'needs_design'],
+    },
     {
       id: 'design',
       title: 'Design',
@@ -165,7 +172,7 @@ const spentOf = (dollars: number, hours: number, rounds: number): Spent => ({
   rounds,
 });
 
-type Made = { title: string; dependsOn: number[]; works: Omit<Summary, 'item' | 'flow'>[] };
+type Made = { title: string; dependsOn: number[]; work: Omit<Summary, 'item' | 'flow'> };
 
 /// The made-up items, as they stand when the page opens; `start` is the time it is taken from.
 export function fixtureItems(start = Date.now()): Items {
@@ -175,7 +182,7 @@ export function fixtureItems(start = Date.now()): Items {
     now: Now,
     cells: CellNow[],
     o: { hours?: number; dollars?: number; rounds?: number; quiet?: number; paused?: boolean } = {},
-  ): Made['works'][number] => {
+  ): Made['work'] => {
     const hours = o.hours ?? 2;
     return {
       number: next++,
@@ -199,8 +206,7 @@ export function fixtureItems(start = Date.now()): Items {
     1: {
       title: 'Run works without anyone watching',
       dependsOn: [5, 6, 7],
-      works: [
-        work(
+      work: work(
           {
             kind: 'waits',
             at: 'research',
@@ -216,42 +222,36 @@ export function fixtureItems(start = Date.now()): Items {
           cellsAt('research', 'resting'),
           { hours: 9, dollars: 0.84, rounds: 4, quiet: 95 },
         ),
-      ],
     },
     2: {
       title: 'See every work at one glance',
       dependsOn: [8, 9, 22],
-      works: [work(round('review', 6), cellsAt('review', 'running'), { hours: 30, dollars: 7.31, rounds: 61 })],
+      work: work(round('review', 6), cellsAt('review', 'running'), { hours: 30, dollars: 7.31, rounds: 61 }),
     },
     3: {
       title: 'Keep what each run costs',
       dependsOn: [11, 12],
-      works: [work({ kind: 'paused' }, notStarted, { hours: 1, dollars: 0, rounds: 0, paused: true })],
+      work: work({ kind: 'paused' }, notStarted, { hours: 1, dollars: 0, rounds: 0, paused: true }),
     },
     4: {
       title: 'Let the owner write to any cell',
       dependsOn: [13, 9],
-      works: [
-        work({ kind: 'paused' }, cellsAt('implement', 'again'), { hours: 50, dollars: 3.02, rounds: 22, paused: true }),
-      ],
+      work: work({ kind: 'paused' }, cellsAt('implement', 'again'), { hours: 50, dollars: 3.02, rounds: 22, paused: true }),
     },
     5: {
       title: 'Restart a lost session',
       dependsOn: [14, 15],
-      works: [
-        work(round('implement', 18, 3), cellsAt('implement', 'running', false), {
+      work: work(round('implement', 18, 3), cellsAt('implement', 'running', false), {
           hours: 0.7,
           dollars: 2.4,
           rounds: 17,
           paused: true,
         }),
-      ],
     },
     6: {
       title: 'Abandon a stale run',
       dependsOn: [],
-      works: [
-        work(
+      work: work(
           {
             kind: 'waits',
             at: 'check',
@@ -260,46 +260,39 @@ export function fixtureItems(start = Date.now()): Items {
           cellsAt('check', 'resting', false),
           { hours: 5, dollars: 4.1, rounds: 38 },
         ),
-      ],
     },
     7: {
       title: 'Walk the flow from its first cell',
-      dependsOn: [16],
-      works: [
-        work(
+      dependsOn: [16, 24],
+      work: work(
           { kind: 'waits', at: 'implement', on: [owners(PLAN_CONFIRMED)] },
           cellsAt('implement', 'notYet'),
           { hours: 3, dollars: 1.9, rounds: 14, quiet: 40 },
         ),
-      ],
     },
     8: {
       title: 'Draw the items as a tree',
       dependsOn: [17, 22],
-      works: [work(round('design', 2), cellsAt('design', 'running'), { hours: 0.4, dollars: 0.62, rounds: 5 })],
+      work: work(round('design', 2), cellsAt('design', 'running'), { hours: 0.4, dollars: 0.62, rounds: 5 }),
     },
     9: {
       title: 'Read changes as they happen',
       dependsOn: [18],
-      works: [
-        work({ kind: 'cancelled' }, cellsAt('test', 'notYet'), { hours: 80, dollars: 5.5, rounds: 40 }),
-        work(
+      work: work(
           { kind: 'fault', words: 'The agent of the line engineer could not be started' },
           cellsAt('test', 'resting'),
           { hours: 20, dollars: 3.3, rounds: 26 },
         ),
-      ],
     },
     10: {
       title: 'Show the cells a work went through',
       dependsOn: [],
-      works: [work({ kind: 'merged' }, cellsAt(null, 'done'), { hours: 70, dollars: 6.2, rounds: 48 })],
+      work: work({ kind: 'merged' }, cellsAt(null, 'done'), { hours: 70, dollars: 6.2, rounds: 48 }),
     },
     11: {
       title: 'Count the tokens of each round',
       dependsOn: [],
-      works: [
-        work(
+      work: work(
           {
             kind: 'waits',
             at: 'research',
@@ -315,66 +308,60 @@ export function fixtureItems(start = Date.now()): Items {
           cellsAt('research', 'resting'),
           { hours: 0.3, dollars: 0.21, rounds: 2 },
         ),
-      ],
     },
     12: {
       title: 'Show the cost of a work',
       dependsOn: [11],
-      works: [
-        work({ kind: 'waits', at: 'review_design', on: [{ kind: 'limit', runs: 3 }] }, cellsAt('review_design', 'again'), {
+      work: work({ kind: 'waits', at: 'review_design', on: [{ kind: 'limit', runs: 3 }] }, cellsAt('review_design', 'again'), {
           hours: 26,
           dollars: 9.8,
           rounds: 70,
           quiet: 300,
         }),
-      ],
     },
     13: {
       title: 'Pick the block a remark goes to',
-      dependsOn: [19],
-      works: [work({ kind: 'next', cell: 'test' }, cellsAt('test', 'notYet', false), { hours: 1.5, dollars: 1.1 })],
+      dependsOn: [19, 25],
+      work: work({ kind: 'next', cell: 'test' }, cellsAt('test', 'notYet', false), { hours: 1.5, dollars: 1.1 }),
     },
     14: {
       title: "Keep the session's id with its line",
       dependsOn: [],
-      works: [work(round('research', 1, 1), cellsAt('research', 'running'), { hours: 0.05, dollars: 0.03, rounds: 0 })],
+      work: work(round('research', 1, 1), cellsAt('research', 'running'), { hours: 0.05, dollars: 0.03, rounds: 0 }),
     },
     15: {
       title: 'Write a lost session as a change of the outside',
       dependsOn: [],
-      works: [
-        work(
+      work: work(
           { kind: 'waits', at: 'merge', on: [owners(MAY_MERGE)] },
           cellsAt('merge', 'notYet'),
           { hours: 7, dollars: 5.05, rounds: 44, quiet: 25 },
         ),
-      ],
     },
     16: {
       title: 'Name the tests a precondition reads',
       dependsOn: [],
-      works: [work({ kind: 'cancelled' }, cellsAt('implement', 'notYet'), { hours: 12, dollars: 0.9, rounds: 8 })],
+      work: work({ kind: 'cancelled' }, cellsAt('implement', 'notYet'), { hours: 12, dollars: 0.9, rounds: 8 }),
     },
     17: {
       title: 'Snap the columns as they scroll',
       dependsOn: [],
-      works: [work(round('test', 31, 4), cellsAt('test', 'running'), { hours: 4, dollars: 3.75, rounds: 33 })],
+      work: work(round('test', 31, 4), cellsAt('test', 'running'), { hours: 4, dollars: 3.75, rounds: 33 }),
     },
     18: {
       title: 'Send an event for each write',
       dependsOn: [20, 21],
-      works: [work({ kind: 'merged' }, cellsAt(null, 'done', false), { hours: 40, dollars: 4.4, rounds: 37 })],
+      work: work({ kind: 'merged' }, cellsAt(null, 'done', false), { hours: 40, dollars: 4.4, rounds: 37 }),
     },
     19: {
       title: 'List the blocks people write',
       dependsOn: [],
-      works: [work(round('research', 4), cellsAt('research', 'running'), { hours: 0.1, dollars: 0.12, rounds: 1 })],
+      work: work(round('research', 4), cellsAt('research', 'running'), { hours: 0.1, dollars: 0.12, rounds: 1 }),
     },
     20: {
       title: 'Keep one stream open for each page',
       dependsOn: [],
-      works: [
-        work(
+      work: work(
           {
             kind: 'waits',
             at: 'implement',
@@ -391,22 +378,39 @@ export function fixtureItems(start = Date.now()): Items {
           cellsAt('implement', 'resting'),
           { hours: 2.5, dollars: 2.2, rounds: 19, quiet: 12 },
         ),
-      ],
     },
     21: {
       title: 'Store the versions of each block',
       dependsOn: [],
-      works: [work({ kind: 'merged' }, cellsAt(null, 'done'), { hours: 90, dollars: 8.1, rounds: 59 })],
+      work: work({ kind: 'merged' }, cellsAt(null, 'done'), { hours: 90, dollars: 8.1, rounds: 59 }),
     },
     22: {
       title: 'Try a second layout of the tree',
       dependsOn: [23],
-      works: [work({ kind: 'cancelled' }, cellsAt('design', 'notYet'), { hours: 60, dollars: 1.4, rounds: 11 })],
+      work: work({ kind: 'cancelled' }, cellsAt('design', 'notYet'), { hours: 60, dollars: 1.4, rounds: 11 }),
     },
     23: {
       title: 'Measure how long a frame of the tree takes',
       dependsOn: [],
-      works: [work({ kind: 'next', cell: 'research' }, notStarted, { hours: 0.02, dollars: 0, rounds: 0 })],
+      work: work({ kind: 'next', cell: 'research' }, notStarted, { hours: 0.02, dollars: 0, rounds: 0 }),
+    },
+    24: {
+      title: 'Check a setting before it is saved',
+      dependsOn: [],
+      work: work({ kind: 'fault', words: 'The flow names a block no cell writes' }, notStarted, {
+        hours: 0.2,
+        dollars: 0,
+        rounds: 0,
+      }),
+    },
+    25: {
+      title: 'Say which cell a note goes to',
+      dependsOn: [],
+      work: work({ kind: 'waits', at: 'research', on: [owners(REQUEST_READ)] }, notStarted, {
+        hours: 0.5,
+        dollars: 0,
+        rounds: 0,
+      }),
     },
   };
   return {
@@ -414,9 +418,9 @@ export function fixtureItems(start = Date.now()): Items {
       ([n, m]): Item => ({
         number: Number(n),
         title: m.title,
-        added: Math.min(...m.works.map((w) => w.added)),
+        added: m.work.added,
         dependsOn: m.dependsOn,
-        works: m.works.map((w) => ({ ...w, item: Number(n), flow: FLOW.name })),
+        work: { ...m.work, item: Number(n), flow: FLOW.name },
       }),
     ),
   };
@@ -437,10 +441,8 @@ export function fixtureSource(start = Date.now()): Source {
   const data = fixtureItems(start);
   const listeners = new Set<(c: Changed) => void>();
   const find = (work: number) => {
-    for (const item of data.items) {
-      const summary = item.works.find((w) => w.number === work);
-      if (summary !== undefined) return { item, summary };
-    }
+    const item = data.items.find((i) => i.work.number === work);
+    if (item !== undefined) return { item, summary: item.work };
     throw new Error(`There is no work ${work}`);
   };
   const told = (work: number) => {

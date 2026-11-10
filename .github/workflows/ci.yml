@@ -43,10 +43,10 @@ jobs:
         run: npm run typecheck
       - name: Lint the page
         run: npm run lint
-      # The page's browser tests (`*.browser.test.tsx`) draw it in Chromium: the one the version of Playwright the lock
-      # file locks drives, with the system libraries it needs.
+      # The page's browser tests (`*.browser.test.tsx`) draw it in headless Chromium: the headless shell of the one the
+      # version of Playwright the lock file locks drives, with the system libraries it needs, and nothing more.
       - name: Chromium for the page's browser tests
-        run: npx --no-install playwright install --with-deps chromium
+        run: npx --no-install playwright install --with-deps --only-shell chromium
       - name: Test the page
         run: npm test
       - name: Build the page

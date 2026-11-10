@@ -138,7 +138,7 @@ a.cw-mono:hover {
 }
 
 /* One narrow cell for each cell of the work's flow, as wide as the one letter in it: done in the colour of done, where
-   the work is in the colour of running, or of waiting while it waits; the others plain. */
+   the work is in the tone of what it does there, the others plain. */
 .stage-bar {
   display: inline-flex;
   flex: none;
@@ -162,21 +162,37 @@ a.cw-mono:hover {
   color: var(--green-text);
 }
 
-.stage-now {
-  background: var(--blue);
-  color: var(--on-colour);
-}
-
-.stage-wait {
-  background: var(--orange);
-  color: var(--on-colour);
-}
-
 .stage-ahead {
   background: var(--ground);
   box-shadow: inset 0 0 0 var(--hairline) var(--line);
   color: var(--muted);
   font-weight: var(--weight);
+}
+
+/* Where the work is: in the tone its card is tinted with, orange only where it waits for the owner. */
+.stage-running {
+  background: var(--blue);
+  color: var(--on-colour);
+}
+
+.stage-owner {
+  background: var(--orange);
+  color: var(--on-colour);
+}
+
+.stage-waiting {
+  background: var(--console-waiting);
+  color: var(--text);
+}
+
+.stage-paused {
+  background: var(--muted);
+  color: var(--on-colour);
+}
+
+.stage-halted {
+  background: var(--red);
+  color: var(--on-colour);
 }
 
 /* What the owner does to the work. */
@@ -292,16 +308,7 @@ a.cw-mono:hover {
   cursor: default;
 }
 
-/* What of the work the lines do not say: a label and a value a row. */
-.cw-facts div {
-  display: flex;
-  gap: var(--space-16);
-  padding: var(--space-8) 0;
-  border-bottom: var(--hairline) solid var(--line);
-}
-
-.cw-facts dt {
-  flex: none;
-  width: 160px;
-  color: var(--muted);
+/* What of the work the lines do not say: the page's label and value pairs. */
+.cw-facts {
+  padding-top: var(--space-4);
 }

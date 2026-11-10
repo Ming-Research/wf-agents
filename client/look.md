@@ -124,11 +124,13 @@ smoothly, and the panel at its right with the item selected. It is the console o
   column moves that column and the columns beside it follow, each where the most of what joins it to the next near
   the middle of the screen is level; a sideways scroll or a drag moves all the columns sideways. The tree is laid on
   `--ground`, and fades into it at the top and the bottom of the screen.
-- **Card.** 300px wide, white (`--card`) with a hairline in `--line`, 6px corners: the canvas's own, as on `main`. Its
-  number in monospace, in the colour of the item's standing (muted, `--green` when merged, paler when cancelled), its
-  title in 14px, the canvas's own size; at its right a tag of how many things its work waits for from the owner,
+- **Card.** 300px wide, white (`--card`) with a hairline of the console's own `#e5e7eb` (a step off `--line`), 6px
+  corners: the canvas's own, as on `main`. Its number in monospace, in the colour of the item's standing (the
+  console's faint grey `#9aa1ad` while open, `--green` when merged, paler when cancelled), its title in 14px, the
+  canvas's own size, in Primer's sans-serif stack, which the console drew in (a canvas resolves a stack by its own
+  rules, so the page's `--font` could draw another face); at its right a tag of how many things its work waits for from the owner,
   `--on-colour` on `--red`, and, while its work has not begun, a lock framed in muted with how many items it depends on
-  are not merged. A card whose work goes on is tinted with the colour of what the work does (`--blue` running,
+  are not merged. A card whose work goes on, once it has begun or while it is paused, at fault or waits, is tinted with the colour of what the work does (`--blue` running,
   `--orange` waiting for the owner, the console's pale yellow `#e8cc6a` waiting for anything else, muted paused,
   `--red` halted), and has a second row: a short bar for each cell of the work's flow, done in a faint grey, the one it
   is at in the colour of what it does, pulsing while a round is under way, the others in `--line`; the first letter of
@@ -138,7 +140,7 @@ smoothly, and the panel at its right with the item selected. It is the console o
 - **Shadow.** Under an item that depends on an item besides the one it stands under, a card with a dashed edge and
   grey words points with an arrow to where that item stands; a click on it selects that item and brings it to the
   middle.
-- **Funnel.** A filled grey shape joins each item to the first and the last of the items under it. The item under the
+- **Funnel.** A filled grey shape, Primer's neutral muted as the console drew it, joins each item to the first and the last of the items under it. The item under the
   pointer and those above it are ringed in light blue and joined by ribbons of it; the item selected and those above it
   in `--accent`, the item itself with a halo.
 - **Map.** At the top left, a bar for each column, moved as the column is, marked in `--red` where works wait for the
@@ -147,13 +149,17 @@ smoothly, and the panel at its right with the item selected. It is the console o
   title, which brings the item into view, and the flow its work runs on. Two status lines (`.cw-line`): where the item
   stands and what it waits for to merge; what its work does, a link to the work's own page, and at the right the
   **cell marks** (`.stage-bar`): a 16px square for each cell of the flow with the first letter of its id, done on
-  `--green-tint`, where the work is on `--blue`, or on `--orange` where it waits, the others framed on `--ground`; and
-  what it has taken. The dot of a line is in the colour of the card's tint. Under them the buttons of what the owner
-  does to the work: let it on or pause it, and cancel it. Then two **tabs** (`.cw-tabs`), the one shown in the text
-  colour over a 2px accent line, as the bar's: the first says what the work waits for, the owner's things in
+  `--green-tint`, the one the work is at in the tone of its card (`--blue` running, `--orange` only where it waits for
+  the owner, the pale yellow waiting for anything else, muted paused, `--red` halted), the others framed on `--ground`;
+  and what it has taken. These lines are the look's status line (`StatusLine`) in all but two things, which is why
+  the console draws its own (`.cw-line`): the dot takes the five tones of a work, where the status line has the three
+  of a change, and the line holds a link and, at its right end, the cell marks. Under them the buttons of what the
+  owner does to the work: let it on or pause it, and cancel it, each waiting while what it sent is under way. Then two
+  **tabs** (`.cw-tabs`), the one shown in the text colour over a 2px accent line, as the bar's; the look has no part
+  for tabs inside a panel, and the drawer's text tabs are kept as they were, with its layout. The first says what the work waits for, the owner's things in
   `--orange-text`, and holds the **notes**: a **select** (`.cw-select`, 24px, monospace, as a button's box) of the
   blocks people write, a box to write in, and under it "Goes to" the cells that read the block chosen, with the button
-  that sends it; the second, what the lines do not say of the work, a label and a value a row.
+  that sends it; the second, what the lines do not say of the work, as label and value pairs (`.pairs`).
 
 The canvas follows light and dark: the colours the tokens came from it takes from the tokens, and those that have no
 token (the faint and pale greys, the ribbons, the map's bars) are worked out from the tokens in dark, keeping their
