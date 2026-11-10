@@ -97,13 +97,11 @@ fn a_test_s_kind_blocks_read_or_value_changed_is_one_change_after_its_rewording(
         "reads = [\"confirmed\"]",
         "reads = [\"confirmed\", \"needs_design\"]",
     );
-    let test = |says: &str, kind, reads: &[&str], is: &str| Test {
-        says: says.to_string(),
+    let test = |kind, reads: &[&str], is: &str| Test {
         kind,
         reads: reads.iter().map(|&b| b.into()).collect(),
         is: is.to_string(),
     };
-    let confirmed = "The owner confirmed the plan";
     assert_eq!(
         from_valid(&after),
         [
@@ -114,13 +112,13 @@ fn a_test_s_kind_blocks_read_or_value_changed_is_one_change_after_its_rewording(
             },
             Change::TestChanged {
                 test: "may_merge".into(),
-                before: test("The work may merge", TestKind::None, &["ci"], "red"),
-                after: test("The CI is green", TestKind::All, &["ci"], "green"),
+                before: test(TestKind::None, &["ci"], "red"),
+                after: test(TestKind::All, &["ci"], "green"),
             },
             Change::TestChanged {
                 test: "plan_confirmed".into(),
-                before: test(confirmed, TestKind::All, &["confirmed"], "yes"),
-                after: test(confirmed, TestKind::All, &["confirmed", "needs_design"], "yes"),
+                before: test(TestKind::All, &["confirmed"], "yes"),
+                after: test(TestKind::All, &["confirmed", "needs_design"], "yes"),
             },
         ]
     );

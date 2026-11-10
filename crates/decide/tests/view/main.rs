@@ -22,7 +22,7 @@ use support::{World, cell};
 
 /// The work's view.
 fn seen(w: &World) -> View {
-    view(&w.flow, &w.records, &w.named)
+    view(&w.flow, &w.records)
 }
 
 /// The view of one cell.

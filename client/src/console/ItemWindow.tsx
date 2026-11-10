@@ -1,10 +1,11 @@
 // What the panel beside the console shows of the item selected: its number, its title, which brings the item into view
-// in the tree, and the flow its work runs on; a line of where the item stands and a line of what its work does, with a
-// mark for each cell of the work's flow and what the work has taken; what the owner does to the work (let it on, pause
-// it, cancel it); and two tabs. The first says what the work waits for, and holds the notes: a box to write for a cell,
-// in a block that people write, chosen above it, with the cells that read that block named under it. The second holds
-// what of the work the lines do not say. With no item selected it says how to select one. What the owner sends is sent
-// once: its button cannot be pressed while it is under way, and a refusal is said under the item it was for, and only there.
+// in the tree, and the flow its work runs on; a line of where the item stands and a line of what its work does, with
+// the works page's strip of the work's cells and what the work has taken; what the owner does to the work (let it on,
+// pause it, cancel it); and two tabs. The first says what the work waits for, and holds the notes: a box to write for a
+// cell, in a block that people write, chosen above it, with the cells that read that block named under it. The second
+// holds what of the work the lines do not say, and the legend of the strip's marks. With no item selected it says how
+// to select one. What the owner sends is sent once: its button cannot be pressed while it is under way, and a refusal
+// is said under the item it was for, and only there.
 //
 // Brought over from the console of the engine on `main` (`client/src/console/ItemWindow.tsx`), its layout as it was, its
 // parts the page's own (parts.tsx) where it used Primer's. What it showed that the interface has nothing for is left
@@ -15,7 +16,8 @@ import { Fragment, type ReactNode, useState } from 'react';
 
 import { Button, Panel, PanelPart } from '../parts';
 import type { Act, Item, Summary, Waited, WorkPage } from '../works-api';
-import { type ItemStanding, hereOf, standingOf } from './items';
+import { StateLegend, Strip } from '../works/marks';
+import { type ItemStanding, standingOf } from './items';
 import { age, dollars, type Mood, moodOf } from './snap';
 
 const ago = (at: number) => age(Date.now() - at).label;
@@ -100,7 +102,7 @@ export function nowWords(s: Summary, page: WorkPage | null): { word: string; fac
 type Tone = ItemStanding | Mood | 'ended';
 
 /// A status line of the panel, as the look's (`StatusLine`), but with the five tones of a work, and room at its right
-/// end for the cell marks.
+/// end for the strip of the work's cells.
 function Line({ tone, children }: { tone: Tone; children: ReactNode }) {
   return (
     <div className="cw-line">
@@ -203,52 +205,12 @@ function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
       </a>
       {/* How far it has come and what it has taken, together at the line's right end. */}
       <span className="cw-progress">
-        <CellMarks w={w} page={page} />
+        <Strip cells={w.cells} />
         <span className="cw-mono" title="What its rounds have taken">
           {dollars(w.spent.usdMicros)}
         </span>
       </span>
     </Line>
-  );
-}
-
-/// How a cell's mark looks: done, where the work is in the tone of what it does there, or not done.
-type Look = 'done' | 'ahead' | Mood;
-
-const LOOK_WORDS: Record<Look, string> = {
-  done: 'done',
-  ahead: 'not done',
-  running: 'under way',
-  owner: 'waits for you here',
-  waiting: 'waits here',
-  paused: 'paused here',
-  halted: 'halted here',
-};
-
-/// How far a work has come, as one row of narrow cells, one for each cell of its flow, each the first letter of its
-/// id: those whose record knows everything filled in the colour of done, the one it is at in the tone its card has
-/// (orange only where it waits for the owner), the others plain. Each says its cell on hovering.
-export function CellMarks({ w, page }: { w: Summary; page: WorkPage | null }) {
-  const here = ended(w) ? null : hereOf(w);
-  const mood = moodOf(w);
-  return (
-    <span className="stage-bar">
-      {w.cells.map((c) => {
-        const look: Look = c.cell === here ? mood : c.state === 'done' ? 'done' : 'ahead';
-        const title = `${titleOf(page, c.cell)}: ${c.state === 'skipped' && look === 'ahead' ? 'skipped' : LOOK_WORDS[look]}`;
-        return (
-          <span
-            key={c.cell}
-            className={`stage-cell stage-${look}`}
-            title={title}
-            aria-label={title}
-            aria-current={c.cell === here ? 'step' : undefined}
-          >
-            {c.cell.charAt(0).toUpperCase()}
-          </span>
-        );
-      })}
-    </span>
   );
 }
 
@@ -438,6 +400,7 @@ function Compose({ work, block, readers, act }: {
   );
 }
 
+/// What of the work the lines do not say, and what the marks of the strip in its line mean.
 function WorkFacts({ w }: { w: Summary }) {
   const rows: [string, ReactNode][] = [
     ['Rounds', String(w.spent.rounds)],
@@ -445,13 +408,18 @@ function WorkFacts({ w }: { w: Summary }) {
     ['Started', `${ago(w.added)} ago`],
   ];
   return (
-    <dl className="pairs cw-facts">
-      {rows.map(([key, value]) => (
-        <Fragment key={key}>
-          <dt>{key}</dt>
-          <dd>{value}</dd>
-        </Fragment>
-      ))}
-    </dl>
+    <>
+      <dl className="pairs cw-facts">
+        {rows.map(([key, value]) => (
+          <Fragment key={key}>
+            <dt>{key}</dt>
+            <dd>{value}</dd>
+          </Fragment>
+        ))}
+      </dl>
+      <PanelPart label="The cells' marks">
+        <StateLegend />
+      </PanelPart>
+    </>
   );
 }

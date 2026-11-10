@@ -6,13 +6,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use decide::{
-    Abandoning, BlockId, Cause, Decision, End, Flow, Outcome, Pause, Records, RunId, Seq, Started, TestName, Tests,
-    Waited, decide,
+    Abandoning, BlockId, Cause, Decision, End, Flow, Pause, Records, RunId, Seq, Started, TestKind, Waited, decide,
 };
 
-use crate::Rng;
 use crate::reading::{Reading, Reason, Writer};
-use crate::support::Named;
+use crate::{Rng, VERDICT};
 
 pub const UNSEEN: &str = "nothing is written over unseen";
 pub const SPOKE: &str = "who spoke is counted right";
@@ -21,6 +19,7 @@ pub const REACHES: &str = "a person's write reaches its readers";
 pub const REASONS: &str = "a run starts for exactly what changed";
 pub const SETTLED: &str = "the merge rests on what is current and settled";
 pub const REST: &str = "a run at rest goes on only while nothing it started from has changed";
+pub const HELD: &str = "a work is held only by a precondition that does not hold";
 
 /// What the histories reached, each of which some history must reach: a property about a situation no history
 /// reaches checks nothing.
@@ -46,6 +45,9 @@ pub const REACHED: &[&str] = &[
     MERGE_ROUNDS,
     ABANDONS,
     GOING_ON,
+    STANDING_NO_HOLDS,
+    PERSON_NO_HOLDS,
+    SKIPPED_NO_PASSES,
 ];
 
 pub const PERSON_UNDER_WAY: &str = "a person writes while a round is under way";
@@ -72,6 +74,9 @@ const OWN_WRITE_KNOWN: &str = "a run starts of a cell whose record wrote one of 
 const MERGE_ROUNDS: &str = "a round of the merge begins";
 const ABANDONS: &str = "a run is abandoned";
 const GOING_ON: &str = "a run at rest goes on";
+const STANDING_NO_HOLDS: &str = "the merge waits on a judge's no while the judge is not skipped";
+const PERSON_NO_HOLDS: &str = "the merge waits on a person's no";
+const SKIPPED_NO_PASSES: &str = "a round of the merge begins over the no of a judge that is skipped";
 
 /// How often each situation was reached.
 #[derive(Default)]
@@ -112,11 +117,9 @@ impl Verdict {
     }
 }
 
-/// A decision the driver took, with what it was taken on: the records up to this place and the named tests as they
-/// then came out.
+/// A decision the driver took, with what it was taken on: the records up to this place.
 pub struct Moment {
     pub upto: Seq,
-    pub named: BTreeMap<TestName, Outcome>,
     pub decision: Decision,
 }
 
@@ -388,12 +391,12 @@ pub fn ended(v: &mut Verdict, flow: &Flow, reading: &Reading, run: RunId, end: S
 /// changes nothing for it leaves it as it was). A run is abandoned as outdated only when a block it started from has
 /// another meaning now, as no longer applying only when its cell is skipped, and as cancelled only in a cancelled
 /// work.
-pub fn abandoned(v: &mut Verdict, flow: &Flow, tests: &dyn Tests, reading: &Reading, run: RunId, because: &Abandoning) {
+pub fn abandoned(v: &mut Verdict, flow: &Flow, reading: &Reading, run: RunId, because: &Abandoning) {
     v.count(ABANDONS);
     let s = reading.started[&run];
     let ok = match because {
         Abandoning::Cancelled => reading.records.cancelled.is_some(),
-        Abandoning::NoLongerApplies => !(flow.place(&s.cell)).is_some_and(|i| reading.applies(&flow.cells()[i], tests)),
+        Abandoning::NoLongerApplies => !(flow.place(&s.cell)).is_some_and(|i| reading.applies(flow, i)),
         Abandoning::Outdated { block } => s
             .basis
             .get(block)
@@ -411,17 +414,17 @@ pub fn abandoned(v: &mut Verdict, flow: &Flow, tests: &dyn Tests, reading: &Read
 }
 
 /// What must hold of each decision as it is taken. `paused` says whether the records have the work paused.
-pub fn decision(v: &mut Verdict, flow: &Flow, tests: &Named, reading: &Reading, d: &Decision, paused: bool, seed: u64) {
+pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, paused: bool, seed: u64) {
     let records = reading.records;
     // Property 3, the decision is a function of the records (entry records-give-the-same-walk; principle
     // decide-purely): the same records walked again give the same decision, and so do the same entries at the same
     // places listed in another order, as a store may give them back.
     v.count(DECIDED_AGAIN);
-    if decide(flow, records, tests) != *d {
+    if decide(flow, records) != *d {
         v.fail(PURE, "walking the same records again gives another decision".into());
     }
     v.count(DECIDED_SHUFFLED);
-    let other = decide(flow, &shuffled(records, seed), tests);
+    let other = decide(flow, &shuffled(records, seed));
     if other != *d {
         v.fail(PURE, format!("the same records in another order give {other:?}"));
     }
@@ -429,9 +432,12 @@ pub fn decision(v: &mut Verdict, flow: &Flow, tests: &Named, reading: &Reading, 
     let merge = flow.cells().len() - 1;
     match d {
         Decision::Wait { at, on } => {
+            let i = flow.place(at).expect("the work waits at a cell of the flow");
             for o in on {
-                if let Waited::Limit { runs } = o {
-                    limit(v, flow, reading, at, *runs);
+                match o {
+                    Waited::Limit { runs } => limit(v, flow, reading, at, *runs),
+                    Waited::Precondition { test, .. } => held(v, flow, reading, i, test),
+                    Waited::Call { .. } => {}
                 }
             }
         }
@@ -442,7 +448,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, tests: &Named, reading: &Reading, 
                 .filter(|(b, from)| reading.meaning(b, **from) != reading.current(b).map(|x| x.meaning))
                 .map(|(b, _)| b)
                 .collect();
-            let applies = (flow.place(&s.cell)).is_some_and(|i| reading.applies(&flow.cells()[i], tests));
+            let applies = (flow.place(&s.cell)).is_some_and(|i| reading.applies(flow, i));
             if !changed.is_empty() || !applies {
                 v.fail(
                     REST,
@@ -454,7 +460,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, tests: &Named, reading: &Reading, 
                 );
             }
         }
-        Decision::Abandon { run, because, .. } => abandoned(v, flow, tests, reading, *run, because),
+        Decision::Abandon { run, because, .. } => abandoned(v, flow, reading, *run, because),
         _ => {}
     }
     let merge_begins = match d {
@@ -463,26 +469,59 @@ pub fn decision(v: &mut Verdict, flow: &Flow, tests: &Named, reading: &Reading, 
         _ => false,
     };
     if merge_begins {
-        settled(v, flow, tests, reading);
+        settled(v, flow, reading);
+    }
+}
+
+/// A further property, of the preconditions (entry conditions-and-preconditions: what a work waits for is the
+/// precondition not met): a work waits on a precondition only while, by the histories' own reading, it does not hold.
+/// So the merge waits on the judge's verdict only while it stands at no: never for the no of a judge that is skipped.
+fn held(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, test: &decide::TestName) {
+    if reading.holds(flow, test, i) {
+        v.fail(
+            HELD,
+            format!("the work waits at {} on {test}, which holds", flow.cells()[i].id),
+        );
+    } else if flow.tests()[test].kind == TestKind::NoneStanding {
+        let latest = reading.current(&VERDICT.into());
+        if latest.is_some_and(|x| x.by == Writer::Person) {
+            v.count(PERSON_NO_HOLDS);
+        } else {
+            v.count(STANDING_NO_HOLDS);
+        }
     }
 }
 
 /// A further property, entries merge-only-on-what-is-current and no-merge-on-what-is-not-settled, whose Why is that a
 /// merge cannot be taken back: as a round of the merge begins, any of which may be its last, every precondition of
-/// the merge holds, and the record of every cell before it that is not skipped knows the current meaning of each of
-/// its inputs.
-fn settled(v: &mut Verdict, flow: &Flow, tests: &dyn Tests, reading: &Reading) {
+/// the merge holds by the histories' own reading. For the judges' verdicts that is said from the records
+/// ([`Reading::refused`]): no round of the merge begins while some judge that applies now has, as its own last write
+/// of its verdict, no, with no person's write of the verdict since, nor while a person's no is the latest write. And
+/// the record of every cell before the merge that is not skipped knows the current meaning of each of its inputs.
+fn settled(v: &mut Verdict, flow: &Flow, reading: &Reading) {
     v.count(MERGE_ROUNDS);
     let cells = flow.cells();
-    let merge = &cells[cells.len() - 1];
+    let m = cells.len() - 1;
+    let merge = &cells[m];
     for test in &merge.requires {
-        if tests.test(test) != Outcome::Holds {
+        if !reading.holds(flow, test, m) {
             v.fail(SETTLED, format!("the merge begins a round while {test} does not hold"));
         }
     }
+    // The merge begins over a no that a judge wrote last and that holds nothing, the judge being skipped.
+    let verdict = reading.current(&VERDICT.into());
+    let skipped_no = verdict.is_some_and(|x| match &x.by {
+        Writer::Cell(judge, _) => {
+            x.value.as_deref() == Some("no") && flow.place(judge).is_some_and(|j| !reading.applies(flow, j))
+        }
+        Writer::Person | Writer::Outside => false,
+    });
+    if skipped_no {
+        v.count(SKIPPED_NO_PASSES);
+    }
     let now = Seq(u64::MAX);
-    for cell in &cells[..cells.len() - 1] {
-        if !reading.applies(cell, tests) {
+    for (i, cell) in cells[..m].iter().enumerate() {
+        if !reading.applies(flow, i) {
             continue;
         }
         let reasons = reading.reasons(cell, now);
@@ -531,11 +570,11 @@ fn limit(v: &mut Verdict, flow: &Flow, reading: &Reading, at: &decide::CellId, r
 /// a limit, that cell and every cell after it; where the work is paused, the cell it would go on with or run once let
 /// on and every cell after it; a cancelled work, all of whose cells are, since it stops wherever it is; and in a
 /// merged work, the versions written after the merge's last round began, the cells being taken as they were then.
-pub fn reaches(v: &mut Verdict, flow: &Flow, records: &Records, tests: &Named, rest: &Decision, moments: &[Moment]) {
+pub fn reaches(v: &mut Verdict, flow: &Flow, records: &Records, rest: &Decision, moments: &[Moment]) {
     let cells = flow.cells();
     let merge = cells.len() - 1;
     let place = |cell: &decide::CellId| flow.place(cell).expect("a cell of the flow");
-    let (then, named, exempt_from) = match rest {
+    let (then, exempt_from) = match rest {
         Decision::Ended(End::Cancelled) => return,
         Decision::Ended(End::Merged) => {
             let began = moments.iter().rev().find(|m| match &m.decision {
@@ -546,18 +585,18 @@ pub fn reaches(v: &mut Verdict, flow: &Flow, records: &Records, tests: &Named, r
                 v.fail(REACHES, "the work merged and no round of the merge began".into());
                 return;
             };
-            (as_of(records, m.upto), Named(m.named.clone()), merge)
+            (as_of(records, m.upto), merge)
         }
-        Decision::Wait { at, .. } => (records.clone(), Named(tests.0.clone()), place(at)),
+        Decision::Wait { at, .. } => (records.clone(), place(at)),
         Decision::Paused | Decision::GoOn { .. } => {
             let mut let_on = records.clone();
             let_on.pauses.push(Pause {
                 paused: false,
                 at: Seq(last_place(records).0 + 1),
             });
-            match decide(flow, &let_on, tests) {
+            match decide(flow, &let_on) {
                 Decision::Run { cell, .. } | Decision::GoOn { cell, .. } | Decision::Wait { at: cell, .. } => {
-                    (records.clone(), Named(tests.0.clone()), place(&cell))
+                    (records.clone(), place(&cell))
                 }
                 other => {
                     v.fail(REACHES, format!("a paused work let on decides {other:?}"));
@@ -572,8 +611,8 @@ pub fn reaches(v: &mut Verdict, flow: &Flow, records: &Records, tests: &Named, r
     };
     let reading = Reading::new(&then);
     let now = Seq(u64::MAX);
-    for cell in &cells[..exempt_from] {
-        if !reading.applies(cell, &named) {
+    for (i, cell) in cells[..exempt_from].iter().enumerate() {
+        if !reading.applies(flow, i) {
             continue;
         }
         for block in &cell.inputs {
@@ -602,12 +641,12 @@ pub fn reaches(v: &mut Verdict, flow: &Flow, records: &Records, tests: &Named, r
     }
 }
 
-/// Property 3 on the whole history: walking the records as they were at each moment the driver took a decision, with
-/// the named tests as they then came out, gives the decision it took (entry records-give-the-same-walk).
+/// Property 3 on the whole history: walking the records as they were at each moment the driver took a decision gives
+/// the decision it took (entry records-give-the-same-walk).
 pub fn replay(v: &mut Verdict, flow: &Flow, records: &Records, moments: &[Moment]) {
     for m in moments {
         v.count(MOMENTS_REPLAYED);
-        let then = decide(flow, &as_of(records, m.upto), &Named(m.named.clone()));
+        let then = decide(flow, &as_of(records, m.upto));
         if then != m.decision {
             v.fail(
                 PURE,

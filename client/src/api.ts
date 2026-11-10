@@ -19,8 +19,9 @@ export interface Line {
   cells: string[];
 }
 
-/// How the blocks a named test reads make it hold: when every one, at least one, or none has the value it looks for.
-export type TestKind = 'all' | 'any' | 'none';
+/// How the blocks a named test reads make it hold: when every one, at least one, or none has the value it looks for;
+/// or, `noneStanding`, when none has it as written by a person, the outside or a cell that is not skipped now.
+export type TestKind = 'all' | 'any' | 'none' | 'noneStanding';
 
 /// A named test: the words shown for it, and what it holds on.
 export interface Test {
@@ -99,9 +100,11 @@ export type What =
   | { kind: 'unusedTest'; test: string }
   | { kind: 'testOnOwnOutput'; test: string; block: string }
   | { kind: 'testNotWrittenBefore'; test: string; block: string }
+  | { kind: 'testWrittenAfter'; test: string; block: string; cell: string }
+  | { kind: 'standingWrittenByTwo'; test: string; block: string; cell: string }
   | {
       kind: 'flowRefused';
-      reason: 'empty' | 'twice' | 'conditionOnOwnOutput' | 'lastHasCondition' | 'noLimit';
+      reason: 'empty' | 'twice' | 'conditionOnOwnOutput' | 'lastHasCondition' | 'noLimit' | 'noSuchTest';
       cell: string | null;
     };
 

@@ -204,12 +204,58 @@ async fn the_faults_of_named_tests_and_of_sources_are_given_with_their_blocks() 
         })
     );
 
+    let source = edit(
+        tiny(),
+        None,
+        "kind = \"all\"\nreads = [\"go\"]\nis = \"yes\"",
+        "kind = \"none_standing\"\nreads = [\"content\"]\nis = \"no\"",
+    );
+    let source = edit(
+        source,
+        Some("plan"),
+        "outputs = [\"plan\"]",
+        "outputs = [\"plan\", \"content\"]",
+    );
+    let router = serve(&Shared::new(Ok(source)), None);
+    let faults = &get_json(&router, "/api/v1/flow").await["faults"];
+    assert_eq!(
+        faults[1],
+        json!({
+            "file": "flow.toml",
+            "field": "tests.may_merge.reads[0]",
+            "what": { "kind": "standingWrittenByTwo", "test": "may_merge", "block": "content", "cell": "review" },
+        })
+    );
+
     let source = edit(tiny(), None, "reads = [\"go\"]", "reads = []");
     let router = serve(&Shared::new(Ok(source)), None);
     let faults = &get_json(&router, "/api/v1/flow").await["faults"];
     assert_eq!(
         faults[1],
         json!({ "file": "flow.toml", "field": "tests.may_merge.reads", "what": { "kind": "readsEmpty", "test": "may_merge" } })
+    );
+}
+
+#[tokio::test]
+async fn a_test_of_what_stands_is_given_with_its_kind() {
+    let source = edit(
+        tiny(),
+        None,
+        "kind = \"all\"\nreads = [\"go\"]",
+        "kind = \"none_standing\"\nreads = [\"go\", \"content\"]",
+    );
+    let source = edit(source, None, "is = \"yes\"", "is = \"no\"");
+    let router = serve(&Shared::new(Ok(source)), None);
+    let answer = get_json(&router, "/api/v1/flow").await;
+    assert_eq!(
+        answer["flow"]["tests"][0],
+        json!({
+            "name": "may_merge",
+            "words": "The owner let the work merge",
+            "kind": "noneStanding",
+            "reads": ["go", "content"],
+            "is": "no",
+        })
     );
 }
 

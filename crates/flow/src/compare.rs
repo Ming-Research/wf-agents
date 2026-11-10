@@ -8,9 +8,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use decide::{BlockId, Cell, CellId, Condition, TestName};
+use decide::{BlockId, Cell, CellId, Condition, Test, TestName};
 
-use crate::compile::{Block, CellSpec, Compiled, Limits, Test};
+use crate::compile::{Block, CellSpec, Compiled, Limits};
 use crate::source::Kind;
 
 /// One difference between two definitions of a flow.
@@ -30,8 +30,8 @@ pub enum Change {
         before: String,
         after: String,
     },
-    /// What a named test holds on: its kind, the blocks it reads or the value it looks for. Each side is the test as
-    /// that definition declares it; a change of its words is said apart, as a rewording.
+    /// What a named test holds on: its kind, the blocks it reads or the value it tests for, as each definition has it;
+    /// a change of its words is said apart, as a rewording.
     TestChanged { test: TestName, before: Test, after: Test },
     /// A cell was put into the order, at this place (counted from 0).
     CellAdded { cell: CellId, place: usize },
@@ -134,7 +134,7 @@ pub fn compare(before: &Compiled, after: &Compiled) -> Vec<Change> {
             });
         }
     }
-    tests(&before.tests, &after.tests, &mut changes);
+    tests(before, after, &mut changes);
     cells(before, after, &mut changes);
     blocks(&before.blocks, &after.blocks, &mut changes);
     changes
@@ -151,27 +151,28 @@ fn limits(before: &Limits, after: &Limits) -> [(Limit, u32, u32); 3] {
 
 /// Each test added, removed or changed, in the order of their names; of a test both definitions declare, its words
 /// first, then what it holds on.
-fn tests(before: &BTreeMap<TestName, Test>, after: &BTreeMap<TestName, Test>, changes: &mut Vec<Change>) {
-    let names: BTreeSet<&TestName> = before.keys().chain(after.keys()).collect();
+fn tests(before: &Compiled, after: &Compiled, changes: &mut Vec<Change>) {
+    let names: BTreeSet<&TestName> = before.tests.keys().chain(after.tests.keys()).collect();
     for test in names {
-        match (before.get(test), after.get(test)) {
-            (None, Some(a)) => changes.push(Change::TestAdded {
+        match (before.tests.get(test), after.tests.get(test)) {
+            (None, Some(words)) => changes.push(Change::TestAdded {
                 test: test.clone(),
-                words: a.says.clone(),
+                words: words.clone(),
             }),
-            (Some(b), None) => changes.push(Change::TestRemoved {
+            (Some(words), None) => changes.push(Change::TestRemoved {
                 test: test.clone(),
-                words: b.says.clone(),
+                words: words.clone(),
             }),
             (Some(b), Some(a)) => {
-                if b.says != a.says {
+                if b != a {
                     changes.push(Change::TestReworded {
                         test: test.clone(),
-                        before: b.says.clone(),
-                        after: a.says.clone(),
+                        before: b.clone(),
+                        after: a.clone(),
                     });
                 }
-                if (b.kind, &b.reads, &b.is) != (a.kind, &a.reads, &a.is) {
+                let (b, a) = (&before.flow.tests()[test], &after.flow.tests()[test]);
+                if b != a {
                     changes.push(Change::TestChanged {
                         test: test.clone(),
                         before: b.clone(),

@@ -113,7 +113,6 @@ export function fakeShown(count: number): Shown[] {
               open: null,
             }),
           ),
-          here: 'implement',
           from: Date.now() - 3600000,
           usdMicros: 1_250_000,
           last: Date.now(),

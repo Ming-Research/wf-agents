@@ -1,0 +1,5 @@
+title = "Merge"
+kind = "engine"
+requires = ["content"]
+inputs = ["code"]
+outputs = ["merged"]

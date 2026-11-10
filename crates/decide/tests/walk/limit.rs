@@ -153,10 +153,10 @@ fn an_abandoned_run_is_not_counted_toward_the_limit() {
     // The second way round starts and is abandoned when its cell is skipped.
     let run = w.start("implement");
     w.returns("implement");
-    w.set("implementing", Outcome::Waits { who: Who::Owner });
+    w.says("implementing", false);
     assert_eq!(w.decide(), abandon("implement", run, Abandoning::NoLongerApplies));
     w.abandon();
-    w.set("implementing", Outcome::Holds);
+    w.says("implementing", true);
     assert_eq!(
         w.decide(),
         runs(
@@ -170,7 +170,7 @@ fn an_abandoned_run_is_not_counted_toward_the_limit() {
 #[test]
 fn a_limit_of_zero_is_refused() {
     let cells = vec![with_limit(0, cell("a", &[], &[])), gate()];
-    assert_eq!(Flow::new(cells), Err(FlowFault::NoLimit("a".into())));
+    assert_eq!(Flow::new(cells, BTreeMap::new()), Err(FlowFault::NoLimit("a".into())));
 }
 
 #[test]
@@ -205,11 +205,11 @@ fn a_persons_change_is_no_way_round_though_a_later_cell_rewrote_it_as_not_matter
     assert_eq!(w.decide(), resting());
     // While the implementation is skipped, the owner writes an opinion for it, and the review, run again for its
     // rules, rewrites the opinions saying its change does not matter.
-    w.set("implementing", Outcome::Waits { who: Who::Owner });
+    w.says("implementing", false);
     w.person_writes("opinions");
     w.person_writes("rules");
     let rewritten = w.run("review", &[("opinions", DoesNotMatter)]);
-    w.set("implementing", Outcome::Holds);
+    w.says("implementing", true);
     // The meaning the opinions have now is the owner's: the implementation's next run is no way round.
     assert_eq!(
         w.decide(),

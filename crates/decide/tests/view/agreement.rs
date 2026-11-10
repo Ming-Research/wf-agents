@@ -14,7 +14,6 @@ fn steps() -> Vec<World> {
     w.person_writes("background");
     let mut snapshot = planned();
     snapshot.records = w.records.clone();
-    snapshot.named = support::Named(w.named.0.clone());
     out.push(snapshot);
     out.push(w);
     out

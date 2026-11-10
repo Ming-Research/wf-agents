@@ -1,12 +1,12 @@
 //! The histories' own reading of a work's records, written from the entries of the design and not from the walk: the
 //! versions of each block, the meaning of each, what each cell's record knows and why a run would start. The
 //! properties are judged by this reading, so that a fault in the walk's own reading is not repeated in the judging.
-//! It reads only the records, the flow and the named tests, never what the deciding code works out of them.
+//! It reads only the records and the flow, with its named tests, never what the deciding code works out of them.
 
 use std::collections::BTreeMap;
 
 use decide::{
-    BlockId, Cell, CellId, Condition, Finished, Flow, Outcome, Outsider, Records, RunId, Seq, Started, Tests,
+    BlockId, Cell, CellId, Condition, Finished, Flow, Outsider, Records, RunId, Seq, Started, TestKind, TestName,
 };
 
 /// Who wrote a version of a block.
@@ -226,14 +226,58 @@ impl<'a> Reading<'a> {
             })
     }
 
-    /// Whether the cell's condition is met now: with none it always is.
-    pub fn applies(&self, cell: &Cell, tests: &dyn Tests) -> bool {
-        match &cell.applies {
+    /// Whether the condition of the cell at place `i` of the flow is met now: with none it always is.
+    pub fn applies(&self, flow: &Flow, i: usize) -> bool {
+        match &flow.cells()[i].applies {
             None => true,
-            Some(Condition::Test(name)) => tests.test(name) == Outcome::Holds,
+            Some(Condition::Test(name)) => self.holds(flow, name, i),
             Some(Condition::Is { block, value }) => {
                 self.current(block).and_then(|v| v.value.as_deref()) == Some(value.as_str())
             }
         }
+    }
+
+    /// Whether the named test holds now for the cell at place `i`, by the current versions of the blocks it reads that
+    /// have the value it tests for: all of them, one, none. A test of what stands holds unless it is refused, as
+    /// [`Reading::refused`] says from the records.
+    pub fn holds(&self, flow: &Flow, name: &TestName, i: usize) -> bool {
+        let test = &flow.tests()[name];
+        let with_value: Vec<&Version> = (test.reads.iter())
+            .filter_map(|b| self.current(b))
+            .filter(|v| v.value.as_deref() == Some(test.is.as_str()))
+            .collect();
+        match test.kind {
+            TestKind::All => with_value.len() == test.reads.len(),
+            TestKind::Any => !with_value.is_empty(),
+            TestKind::None => with_value.is_empty(),
+            TestKind::NoneStanding => !self.refused(flow, name, i),
+        }
+    }
+
+    /// Whether a test of what stands holds the cell at place `i` back, said from the records and what the rule is for,
+    /// not from how the walk reads it: a judge's word holds the work while the judge applies, and a person's while it
+    /// is the latest. For some block the test reads, a person's or the outside's write is the latest and has the value
+    /// tested for; or a cell before place `i` that applies now has that value as its own last write of the block, and
+    /// no person and nothing outside wrote the block since.
+    pub fn refused(&self, flow: &Flow, name: &TestName, i: usize) -> bool {
+        let test = &flow.tests()[name];
+        let is = Some(test.is.as_str());
+        test.reads.iter().any(|block| {
+            let versions = self.of(block);
+            let outsider = |v: &Version| matches!(v.by, Writer::Person | Writer::Outside);
+            let by_outsider = versions.last().is_some_and(|v| outsider(v) && v.value.as_deref() == is);
+            let by_judge = (flow.cells()[..i].iter().enumerate()).any(|(j, c)| {
+                let own = versions
+                    .iter()
+                    .rev()
+                    .find(|v| matches!(&v.by, Writer::Cell(cell, _) if *cell == c.id));
+                own.is_some_and(|own| {
+                    own.value.as_deref() == is
+                        && !versions.iter().any(|v| v.at > own.at && outsider(v))
+                        && self.applies(flow, j)
+                })
+            });
+            by_outsider || by_judge
+        })
     }
 }

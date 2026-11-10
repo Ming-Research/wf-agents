@@ -1,4 +1,4 @@
-//! The owner's flow page: a JSON interface made for the page, and the page itself, built into the binary.
+//! The owner's pages: a JSON interface made for them, and the pages themselves, built into the binary.
 //!
 //! The owner reviews every change to the flow on this page and has no other way to see it (Article 7), so the
 //! interface gives the definition as the page shows it: compiled, with every cell and block and who writes and reads
@@ -8,9 +8,12 @@
 //!
 //! - `GET /api/v1/flow`: the definition shown ([`view::Definition`]).
 //! - `GET /api/v1/flow/changes`: what changed from the definition compared against ([`view::Comparison`]).
+//! - With the engine running, the items and the works ([`interface`], whose types are in [`works`]).
 //! - Any other path that is not under `/api/` is a file of the page, `index.html` when there is no such file.
 
+pub mod interface;
 pub mod view;
+pub mod works;
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -104,6 +107,11 @@ impl Flows {
     }
 }
 
+/// The interface and the page, over these definitions, with the items and the works of the engine's loop.
+pub fn with_works(flows: Flows, handle: service::Handle) -> Router {
+    router(flows).merge(interface::router(handle))
+}
+
 /// The interface and the page, over these definitions.
 pub fn router(flows: Flows) -> Router {
     Router::new()
@@ -115,8 +123,8 @@ pub fn router(flows: Flows) -> Router {
 }
 
 /// Serves the interface and the page on this listener, until the process ends.
-pub async fn serve(listener: tokio::net::TcpListener, flows: Flows) -> std::io::Result<()> {
-    axum::serve(listener, router(flows)).await
+pub async fn serve(listener: tokio::net::TcpListener, router: Router) -> std::io::Result<()> {
+    axum::serve(listener, router).await
 }
 
 async fn definition(State(flows): State<Arc<Flows>>) -> Response {

@@ -1,0 +1,41 @@
+# What the agents, the engine's acts and the tools of the trial flow do, for trying it by hand and for the tests.
+# Every round takes a second and a half, so that the pages show works under way.
+
+[took]
+ms = 1500
+usd_micros = 21000
+input_tokens = 3200
+cached_tokens = 14000
+output_tokens = 450
+
+[tools.ci]
+answer = "Every check passed."
+ms = 2500
+
+# The plan asks the owner first, and then hands in the plan.
+[[flows.trial.rounds]]
+cell = "plan"
+asks = [{ question = "Should the greeting name the user?", who = "owner" }]
+
+# The build runs the CI before it hands in the code.
+[[flows.trial.rounds]]
+cell = "build"
+asks = [{ tool = "ci", input = "the work's branch" }]
+
+# The review objects to the first build and is content with the second.
+[[flows.trial.rounds]]
+cell = "review"
+run = 1
+hands_in = [
+    { block = "opinions", content = "Say what the greeting does when the name is empty." },
+    { block = "verdict", value = "no" },
+]
+
+[[flows.trial.rounds]]
+cell = "review"
+run = 2
+hands_in = [{ block = "verdict", value = "yes" }]
+
+[[flows.trial.rounds]]
+cell = "merge"
+took = { ms = 500 }
