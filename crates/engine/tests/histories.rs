@@ -774,5 +774,6 @@ fn whole_works_keep_the_engines_properties_with_and_without_stops() {
         && seen.cancels > 0
         && seen.lacking > 0
         && seen.bound_finished > 0;
+    panic!("TEMPORARY, to read the counts: {seen:?}");
     assert!(every, "a class of step never occurred: {seen:?}");
 }
