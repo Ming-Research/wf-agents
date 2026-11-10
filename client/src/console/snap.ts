@@ -288,6 +288,21 @@ export function moodOf(w: Pick<ShownWork, 'now'>): Mood {
   return 'waiting';
 }
 
+/// The cell a work is at, and the colour its mark takes, as the stage it was at took it: orange while it waits for
+/// the owner, red while it is halted; none in any other state, where the mark's own state says enough.
+function here(w: ShownWork, mood: Mood): { cell: string; colour: string } | null {
+  const colour = mood === 'owner' ? PALETTE.asked : mood === 'halted' ? PALETTE.halted : null;
+  if (colour === null) return null;
+  const now = w.now;
+  const cell =
+    now.kind === 'round' || now.kind === 'next'
+      ? now.cell
+      : now.kind === 'waits'
+        ? now.at
+        : (w.cells.find((c) => c.open !== null)?.cell ?? null);
+  return cell === null ? null : { cell, colour };
+}
+
 /// The colour of what an item's work does, which tints its card.
 const WORK = (): Record<Mood, string> => ({
   running: PALETTE.running,
@@ -744,7 +759,7 @@ export class SnapScene {
     const track = new Graphics();
     cells.forEach((c, i) => track.rect(barX + i * cw, row2 - 1, cw, 2).fill(kind[c as 'm' | 't' | '.'] ?? kind['.']));
     // The second row: the work's strip, as the works page draws it, ending short of where its time went.
-    this.strip(view, item.id, k, w.cells, x, row2, barX - 8);
+    this.strip(view, item.id, k, w.cells, x, row2, barX - 8, here(w, mood));
     // How long it has gone on, at the right, its colour by its age; the label is kept up as time passes.
     const label = new BitmapText({ text: '', style: s.mono(PALETTE.muted) });
     view.addChild(track, label);
@@ -758,7 +773,16 @@ export class SnapScene {
   /// `y`. Where the flow has more cells than fit at the marks' size, those that fit are drawn, the first in the walk,
   /// and after them how many more there are, muted. The marks of cells running fade with the beat while their rounds
   /// are under way. What it drew is kept, for the tests.
-  private strip(view: Container, id: number, k: number, cells: CellNow[], x: number, y: number, end: number) {
+  private strip(
+    view: Container,
+    id: number,
+    k: number,
+    cells: CellNow[],
+    x: number,
+    y: number,
+    end: number,
+    at: { cell: string; colour: string } | null = null,
+  ) {
     const s = this.styles as Styles;
     const { side, gap } = this.measures;
     const pitch = side + gap;
@@ -773,7 +797,9 @@ export class SnapScene {
       more.position.set(x + shown * pitch - gap + 4, y - more.height / 2);
     }
     const marks: DrawnMark[] = cells.slice(0, shown).map((c, i) => {
-      const look = this.looks[c.state];
+      const own = this.looks[c.state];
+      // The cell the work is at, while it waits for the owner or is halted, in the colour of its state, filled.
+      const look = at !== null && at.cell === c.cell ? { ...own, fill: at.colour, edge: at.colour } : own;
       return {
         cell: c.cell,
         state: c.state,

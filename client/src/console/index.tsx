@@ -117,7 +117,8 @@ export function ConsolePage({ source: given }: { source?: Source } = {}) {
 
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
+      // Escape answers a question the page asks, and nothing else.
+      if (e.key !== 'Escape' || document.querySelector('dialog[open]') !== null) return;
       const inside = panel.current?.contains(document.activeElement) === true;
       if (open && inside) {
         (document.activeElement as HTMLElement | null)?.blur();

@@ -14,7 +14,7 @@
 
 import { Fragment, type ReactNode, useState } from 'react';
 
-import { Button, PanelPart } from '../parts';
+import { Button, Confirm, PanelPart } from '../parts';
 import type { Act, Item, Summary, Waited, WorkPage } from '../works-api';
 import { StateLegend, Strip } from '../works/marks';
 import { type ItemStanding, standingOf } from './items';
@@ -209,6 +209,7 @@ function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
 /// While one is under way, none can be pressed.
 function Acts({ paused, act }: { paused: boolean; act: (what: Act) => Promise<unknown> }) {
   const { waiting, refused, send } = useSending(act);
+  const [asking, setAsking] = useState(false);
   return (
     <div className="cw-acts">
       {paused ? (
@@ -227,12 +228,22 @@ function Acts({ paused, act }: { paused: boolean; act: (what: Act) => Promise<un
       <Button
         title="Cancel the work and its item"
         disabled={waiting}
-        onClick={() => {
-          if (window.confirm('Cancel this work? It cannot be let on again.')) void send({ kind: 'cancel' });
-        }}
+        onClick={() => setAsking(true)}
       >
         Cancel
       </Button>
+      {asking && (
+        <Confirm
+          title="Cancel this work?"
+          verb="Cancel the work"
+          onAnswer={(yes) => {
+            setAsking(false);
+            if (yes) void send({ kind: 'cancel' });
+          }}
+        >
+          It cannot be let on again.
+        </Confirm>
+      )}
       {refused !== null && <span className="cw-refused">{refused}</span>}
     </div>
   );
