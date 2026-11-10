@@ -1,0 +1,6 @@
+title = "Plan"
+kind = "agent"
+line = "engineer"
+requires = ["ready"]
+inputs = ["request"]
+outputs = ["plan"]

@@ -1,12 +1,24 @@
 //! The `wf-agents` command. Each part of the system adds its subcommands here.
+//!
+//! - `running`: `wf-agents run`, the engine as a process.
+//! - `talk`: the commands that talk to a running engine.
+
+mod running;
+mod talk;
 
 use std::collections::BTreeSet;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use flow::{Fault, FaultKind, Source};
+use web::works::Act;
+
+use crate::talk::Asked;
+
+/// The port the engine serves the owner's pages on, on the loopback address, unless another is given.
+const PORT: u16 = 7470;
 
 /// Runs coding agents through a defined flow.
 #[derive(Parser)]
@@ -22,6 +34,111 @@ enum Command {
     /// A flow's definition: a directory holding `flow.toml` and one file for each cell.
     #[command(subcommand)]
     Flow(FlowCommand),
+    /// Runs the engine: drives every work of the store in the data directory on the flows given, with agents, engine
+    /// acts and tools that follow a script, and serves the owner's pages on the loopback address. It stops when the
+    /// engine stops, saying why; started again, it goes on from the store.
+    Run {
+        /// The data directory, which holds the store.
+        #[arg(long)]
+        data: PathBuf,
+        /// The directory of a flow's definition; given once for each flow.
+        #[arg(long = "flow", required = true)]
+        flows: Vec<PathBuf>,
+        /// The script the agents, the engine's acts and the tools follow.
+        #[arg(long)]
+        script: PathBuf,
+        /// The port of the pages; 0 for any free one.
+        #[arg(long, default_value_t = PORT)]
+        port: u16,
+    },
+    /// Adds an item with its work, which is added paused.
+    Add {
+        #[arg(long)]
+        title: String,
+        /// The name of the flow its work runs on.
+        #[arg(long)]
+        flow: String,
+        /// An item it depends on, by number; given once for each.
+        #[arg(long = "depends-on", value_name = "ITEM")]
+        depends_on: Vec<u64>,
+        /// A block written for it, with this text.
+        #[arg(long = "write", value_name = "BLOCK=TEXT")]
+        texts: Vec<String>,
+        /// A block written for it, with the content of this file.
+        #[arg(long = "write-file", value_name = "BLOCK=FILE")]
+        files: Vec<String>,
+        /// A block that is a choice, written for it with this value.
+        #[arg(long = "choose", value_name = "BLOCK=VALUE")]
+        choices: Vec<String>,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Lists the items, each with what its work does now.
+    List {
+        #[command(flatten)]
+        at: At,
+    },
+    /// Shows a work: what it does now, its cells, its blocks and its runs.
+    Show {
+        work: u64,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Lets a work on: its rounds begin again.
+    Resume {
+        work: u64,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Pauses a work: no round of it begins, and the one under way ends.
+    Pause {
+        work: u64,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Cancels a work's item: nothing of the work goes on.
+    Cancel {
+        work: u64,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Writes a block of a work that people write: with a text, the content of a file, or nothing but a value.
+    Write {
+        work: u64,
+        block: String,
+        #[arg(long, conflicts_with = "file")]
+        text: Option<String>,
+        #[arg(long)]
+        file: Option<PathBuf>,
+        /// The block's value, where it is a choice.
+        #[arg(long)]
+        value: Option<String>,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Gives a call that waits for a person its result.
+    Answer {
+        work: u64,
+        call: u64,
+        result: String,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Lets a cell that reached its limit go on.
+    LetGo {
+        work: u64,
+        cell: String,
+        #[command(flatten)]
+        at: At,
+    },
+}
+
+/// Where the running engine is.
+#[derive(Args)]
+struct At {
+    /// The port the engine serves on, on the loopback address.
+    #[arg(long, default_value_t = PORT)]
+    port: u16,
 }
 
 #[derive(Subcommand)]
@@ -51,6 +168,57 @@ fn main() -> ExitCode {
     match Cli::parse().command {
         Command::Flow(FlowCommand::Check { dir }) => check(&dir),
         Command::Flow(FlowCommand::Page { dir, against, port }) => page(dir, against, port),
+        Command::Run {
+            data,
+            flows,
+            script,
+            port,
+        } => running::run(&data, &flows, &script, port),
+        Command::Add {
+            title,
+            flow,
+            depends_on,
+            texts,
+            files,
+            choices,
+            at,
+        } => match talk::new_item(title, flow, depends_on, &texts, &files, &choices) {
+            Ok(item) => talk::ask(at.port, Asked::Add(item)),
+            Err(why) => {
+                eprintln!("{why}");
+                ExitCode::FAILURE
+            }
+        },
+        Command::List { at } => talk::ask(at.port, Asked::List),
+        Command::Show { work, at } => talk::ask(at.port, Asked::Show(work)),
+        Command::Resume { work, at } => talk::ask(at.port, Asked::Act(work, Act::Resume)),
+        Command::Pause { work, at } => talk::ask(at.port, Asked::Act(work, Act::Pause)),
+        Command::Cancel { work, at } => talk::ask(at.port, Asked::Act(work, Act::Cancel)),
+        Command::Write {
+            work,
+            block,
+            text,
+            file,
+            value,
+            at,
+        } => {
+            let content = match (text, file) {
+                (Some(text), _) => text,
+                (None, Some(file)) => match std::fs::read_to_string(&file) {
+                    Ok(content) => content,
+                    Err(e) => {
+                        eprintln!("{}: {e}", file.display());
+                        return ExitCode::FAILURE;
+                    }
+                },
+                (None, None) => String::new(),
+            };
+            talk::ask(at.port, Asked::Act(work, Act::Write { block, content, value }))
+        }
+        Command::Answer { work, call, result, at } => {
+            talk::ask(at.port, Asked::Act(work, Act::Answer { call, result }))
+        }
+        Command::LetGo { work, cell, at } => talk::ask(at.port, Asked::Act(work, Act::LetGo { cell })),
     }
 }
 
@@ -190,7 +358,7 @@ fn page(dir: PathBuf, against: Option<PathBuf>, port: u16) -> ExitCode {
         };
         let against = compared.map(|c| format!(", compared against {c}")).unwrap_or_default();
         println!("The flow page of {shown}{against} is at {}", flow_page(address));
-        match web::serve(listener, flows).await {
+        match web::serve(listener, web::router(flows)).await {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("the server stopped: {e}");

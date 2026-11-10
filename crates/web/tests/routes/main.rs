@@ -1,19 +1,30 @@
-//! The interface's routes, each asked as the page asks it, over small definitions written here. The tests are kept in
-//! modules by subject, so that a new test goes into the module of what it tests.
+//! The interface's routes, each asked as the page asks it: the flow's over small definitions written here, and the
+//! works' over the engine's loop running the trial flow with its script (the service crate's `tests/trial`), the
+//! runtime's time paused so that each round ends when the script says. The tests are kept in modules by subject, so
+//! that a new test goes into the module of what it tests.
 
+mod acts;
 mod changes;
 mod definition;
 mod directories;
+mod items;
 mod page;
+mod stream;
+mod works;
 
 use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode, header};
 use flow::Source;
 use http_body_util::BodyExt;
+use serde_json::{Value, json};
+use service::{Scripted, Service, TokioClock};
+use store::Store;
 use tower::ServiceExt;
 use web::Flows;
 
@@ -149,4 +160,101 @@ pub async fn get_json(router: &Router, path: &str) -> serde_json::Value {
     assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
     assert_eq!(content_type, "application/json");
     serde_json::from_slice(&body).unwrap()
+}
+
+/// When the clock of the engine's loop starts: 2026-11-10, at midnight.
+pub const START: u64 = 1_794_268_800_000;
+
+/// The directory of the trial flow and its script.
+pub fn trial_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial")
+}
+
+/// The sources outside a work the trial flow is compiled against.
+fn trial_sources(_: &Source) -> BTreeSet<String> {
+    BTreeSet::from([driver::DEPENDENCIES.to_string()])
+}
+
+/// The interface over the engine's loop on the trial flow, with a store in a directory of its own.
+pub struct Running {
+    pub router: Router,
+    _dir: tempfile::TempDir,
+}
+
+/// Starts the engine's loop on the trial flow with its script, and serves the interface over it.
+pub fn running() -> Running {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let flow = flow::compile(&flow::read(&trial_dir()).unwrap(), &trial_sources(&Source::default())).unwrap();
+    let script = service::Script::read(&std::fs::read_to_string(trial_dir().join("script.toml")).unwrap()).unwrap();
+    let clock = Arc::new(TokioClock::new(work::Time(START)));
+    let (service, inbox) = Service::open(Box::new(store), vec![flow], Scripted::new(script).carriers(), clock).unwrap();
+    let handle = service.handle();
+    tokio::spawn(async move {
+        let fault = service.run(inbox).await;
+        panic!("the loop stopped: {fault}");
+    });
+    let flows = Flows::dirs(trial_dir(), None, Box::new(trial_sources));
+    Running {
+        router: web::with_works(flows, handle),
+        _dir: dir,
+    }
+}
+
+/// The answer to a POST of this JSON: its status, and its body as JSON, or null where it has none.
+pub async fn post(router: &Router, path: &str, body: &Value) -> (StatusCode, Value) {
+    post_text(router, path, &body.to_string()).await
+}
+
+/// The answer to a POST of this text: its status, and its body as JSON, or null where it has none.
+pub async fn post_text(router: &Router, path: &str, body: &str) -> (StatusCode, Value) {
+    let request = Request::builder()
+        .method(Method::POST)
+        .uri(path)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let response = router.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let json = if body.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&body).unwrap()
+    };
+    (status, json)
+}
+
+/// The answer to a GET that must be refused: its status and its words.
+pub async fn refused(router: &Router, path: &str) -> (StatusCode, String) {
+    let (status, content_type, body) = ask(router, Method::GET, path).await;
+    assert_eq!(content_type, "application/json");
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    (status, json["error"].as_str().unwrap().to_string())
+}
+
+/// Lets this many milliseconds of the paused clock pass, the loop and the carriers doing what falls in them.
+pub async fn pass(ms: u64) {
+    tokio::time::sleep(Duration::from_millis(ms)).await;
+}
+
+/// The trial item, added at the start and let on a second later: by 2.5 seconds its plan has asked the owner its
+/// question (call 2), and the work waits for the answer.
+pub async fn greeted(router: &Router) {
+    let item = json!({
+        "title": "Greet the user",
+        "dependsOn": [],
+        "flow": "trial",
+        "writes": [{ "block": "request", "content": "Greet the user, please.", "value": null }],
+    });
+    assert_eq!(
+        post(router, "/api/v1/items", &item).await,
+        (StatusCode::OK, json!({ "item": 1, "work": 1 }))
+    );
+    pass(1000).await;
+    assert_eq!(
+        post(router, "/api/v1/works/1/acts", &json!({ "kind": "resume" })).await,
+        (StatusCode::NO_CONTENT, Value::Null)
+    );
+    pass(2000).await;
 }

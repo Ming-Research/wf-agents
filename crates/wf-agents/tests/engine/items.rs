@@ -1,0 +1,119 @@
+//! The commands that manage items, against a running engine.
+
+use crate::{Engine, Place, SCRIPT};
+
+#[test]
+fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
+    let place = Place::new(SCRIPT);
+    let engine = Engine::start(&place);
+    assert_eq!(engine.says(&["list"]), "No items.\n");
+    assert_eq!(
+        engine.says(&[
+            "add",
+            "--title",
+            "Greet the user",
+            "--flow",
+            "trial",
+            "--write",
+            "request=Greet the user, please."
+        ]),
+        "Added item 1 with its work 1, paused: let it on with `wf-agents resume 1`.\n"
+    );
+    assert_eq!(
+        engine.says(&["list"]),
+        "Item 1 \"Greet the user\", work 1 on trial: paused\n"
+    );
+    assert_eq!(engine.says(&["resume", "1"]), "Work 1 goes on.\n");
+    let now = engine.until(&["show", "1"], |line| line.starts_with("Now: waits"));
+    assert_eq!(
+        now,
+        "Now: waits at plan for the owner to answer call 2: \"Should the greeting name the user?\"."
+    );
+    let shown = engine.says(&["show", "1"]);
+    assert!(
+        shown.starts_with("Work 1 of item 1 \"Greet the user\", on the flow trial.\n"),
+        "{shown}"
+    );
+    assert!(shown.contains("\n  plan: resting in run 1\n"), "{shown}");
+    assert!(
+        shown.contains("\n  request: 1 version, the latest 23 characters, by a person\n"),
+        "{shown}"
+    );
+    assert!(shown.contains("\n  run 1 of plan: 1 round, calls 2, open"), "{shown}");
+
+    assert_eq!(
+        engine.says(&["answer", "1", "2", "Yes, by name."]),
+        "Call 2 of work 1 has its result.\n"
+    );
+    engine.until(&["list"], |line| {
+        line == "Item 1 \"Greet the user\", work 1 on trial: merged"
+    });
+    assert_eq!(
+        engine.refuses(&["answer", "1", "2", "No."]),
+        "Call 2 has its result already.\n"
+    );
+}
+
+#[test]
+fn a_work_is_paused_written_let_go_and_cancelled_from_the_command_line() {
+    let place = Place::new(SCRIPT);
+    let engine = Engine::start(&place);
+    let request = place.dir.path().join("request.md");
+    std::fs::write(&request, "Greet the user, please.").expect("the request is written");
+    let from_file = format!("request={}", request.display());
+    engine.says(&[
+        "add",
+        "--title",
+        "Greet the user",
+        "--flow",
+        "trial",
+        "--write-file",
+        &from_file,
+    ]);
+    assert_eq!(
+        engine.says(&[
+            "add",
+            "--title",
+            "Say goodbye",
+            "--flow",
+            "trial",
+            "--depends-on",
+            "1",
+            "--write",
+            "request=Bye."
+        ]),
+        "Added item 2 with its work 2, paused: let it on with `wf-agents resume 2`.\n"
+    );
+    let list = engine.says(&["list"]);
+    assert!(
+        list.ends_with("Item 2 \"Say goodbye\", work 2 on trial, after 1: paused\n"),
+        "{list}"
+    );
+    assert_eq!(engine.says(&["resume", "2"]), "Work 2 goes on.\n");
+    engine.until(&["show", "2"], |line| {
+        line == "Now: waits at plan for the owner: Every item this one depends on has merged."
+    });
+    assert_eq!(engine.says(&["pause", "2"]), "Work 2 is paused.\n");
+    assert_eq!(
+        engine.says(&["write", "2", "opinions", "--text", "Keep it short."]),
+        "Wrote opinions for work 2.\n"
+    );
+    assert_eq!(
+        engine.says(&["let-go", "2", "build"]),
+        "Cell build of work 2 goes on.\n"
+    );
+    assert_eq!(engine.says(&["cancel", "2"]), "Work 2 is cancelled.\n");
+    engine.until(&["list"], |line| {
+        line == "Item 2 \"Say goodbye\", work 2 on trial, after 1: cancelled"
+    });
+
+    assert_eq!(engine.refuses(&["show", "9"]), "There is no work 9.\n");
+    assert_eq!(
+        engine.refuses(&["write", "2", "plan", "--text", "Mine."]),
+        "People do not write the block plan.\n"
+    );
+    assert_eq!(
+        engine.refuses(&["add", "--title", "Other", "--flow", "trial", "--write", "request"]),
+        "--write takes BLOCK=WHAT, and was given \"request\"\n"
+    );
+}
