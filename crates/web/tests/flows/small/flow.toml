@@ -1,0 +1,43 @@
+# A small flow to show on the page and to test the page's interface with: a plan a review can send back, a design
+# when the review asks for one, answers to comments, a check with the latest main and the merge. Its earlier version,
+# in ../small-earlier, is what it is compared against.
+name = "small"
+order = ["plan", "judge", "design", "answer", "check", "merge"]
+
+[limits]
+runs = 3
+returns = 2
+calls = 40
+
+[lines.engineer]
+[lines.review]
+
+[blocks.request]
+people = true
+
+[blocks.plan]
+
+[blocks.opinions]
+people = true
+
+[blocks.needs_design]
+values = ["yes", "no"]
+
+[blocks.design]
+
+[blocks.comments]
+people = true
+
+[blocks.reply]
+shown = true
+
+[blocks.main]
+outside = true
+
+[blocks.ci]
+values = ["green", "red"]
+
+[tests]
+has_comment = "The item has a comment"
+plan_confirmed = "The owner confirmed the plan"
+may_merge = "The work may merge"

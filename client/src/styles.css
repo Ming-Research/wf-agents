@@ -1,0 +1,598 @@
+/* The page's styles, over Primer's tokens and themes, so that light and dark follow the system and every colour means
+   what Primer means by it: success for what a change put in, danger for what it took out, attention for what it
+   changed, done for the way back, accent for what the owner chose. */
+
+:root {
+  /* The widths of the chart's fixed columns: a cell's id and title, its condition and its preconditions, wide enough
+     for the words of a named test in two or three lines. */
+  --lead-cell: 232px;
+  --lead-condition: 168px;
+  --lead-pre: 168px;
+  /* A block's column: as wide as its mark with room round it. */
+  --spot: 34px;
+  /* The side panel. */
+  --side: 384px;
+  /* Half the mark's height, where a column's line stops short of it. */
+  --mark-half: 10px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bgColor-default);
+  color: var(--fgColor-default);
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.message {
+  padding: var(--base-size-16);
+}
+
+.quiet {
+  color: var(--fgColor-muted);
+}
+
+code {
+  font-family: var(--fontStack-monospace);
+  font-size: 0.92em;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--fgColor-accent);
+  outline-offset: -2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The bar: the flow's name, the switch between its versions, its limits and the legend, sharing one row where they
+   fit. */
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-8) var(--base-size-16);
+  padding: var(--base-size-8) var(--base-size-16);
+  border-bottom: 1px solid var(--borderColor-default);
+}
+
+.bar h1 {
+  margin: 0;
+  font-size: var(--text-title-size-small);
+}
+
+.flow-limits {
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.flow-limits strong {
+  color: var(--fgColor-default);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-4) var(--base-size-12);
+  margin: 0 0 0 auto;
+  padding: 0;
+  list-style: none;
+  color: var(--fgColor-muted);
+  font-size: var(--text-body-size-small);
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-4);
+}
+
+.legend .glyph {
+  width: 16px;
+  height: 16px;
+}
+
+.legend-back {
+  display: inline-block;
+  width: 3px;
+  height: 14px;
+  background: var(--fgColor-done);
+}
+
+main {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+}
+
+main.with-side {
+  grid-template-columns: minmax(0, 1fr) var(--side);
+}
+
+main.alone {
+  display: block;
+  overflow: auto;
+  padding: var(--base-size-16);
+}
+
+@media (max-width: 960px) {
+  main.with-side {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 45%);
+  }
+
+  main.with-side .side {
+    border-top: 1px solid var(--borderColor-default);
+    border-left: none;
+  }
+}
+
+/* The chart's frame scrolls the matrix in both directions; the page itself never scrolls sideways. */
+.frame {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.matrix {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--text-body-size-small);
+}
+
+.matrix th,
+.matrix td {
+  --tint: transparent;
+  padding: 0;
+  background-color: var(--bgColor-default);
+  background-image: linear-gradient(var(--tint), var(--tint));
+  font-weight: normal;
+}
+
+.matrix thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  border-bottom: 1px solid var(--borderColor-default);
+  vertical-align: bottom;
+}
+
+.matrix thead th.lead {
+  z-index: 3;
+  padding: var(--base-size-8);
+  color: var(--fgColor-muted);
+}
+
+.lead {
+  position: sticky;
+  z-index: 1;
+  text-align: left;
+  vertical-align: top;
+}
+
+.lead-cell {
+  left: 0;
+  width: var(--lead-cell);
+  min-width: var(--lead-cell);
+  max-width: var(--lead-cell);
+}
+
+.lead-condition {
+  left: var(--lead-cell);
+  width: var(--lead-condition);
+  min-width: var(--lead-condition);
+  max-width: var(--lead-condition);
+}
+
+.lead-pre {
+  width: var(--lead-pre);
+  min-width: var(--lead-pre);
+  max-width: var(--lead-pre);
+}
+
+.leads-2 .lead-pre {
+  left: var(--lead-cell);
+}
+
+.leads-3 .lead-pre {
+  left: calc(var(--lead-cell) + var(--lead-condition));
+}
+
+.lead-last {
+  border-right: 1px solid var(--borderColor-default);
+}
+
+td.lead {
+  padding: var(--base-size-6) var(--base-size-8);
+}
+
+tbody tr > * {
+  border-bottom: 1px solid var(--borderColor-muted);
+}
+
+/* A row the pointer is on, and the cell chosen; a column the pointer is on, and the block chosen. */
+tbody tr.row:hover > * {
+  --tint: var(--bgColor-neutral-muted);
+}
+
+.matrix .pointed {
+  --tint: var(--bgColor-neutral-muted);
+}
+
+tbody tr.row.chosen > *,
+.matrix .chosen {
+  --tint: var(--bgColor-accent-muted);
+}
+
+/* What a change did to a cell, a block or one of their fields. */
+.status-added > .lead-cell {
+  box-shadow: inset 3px 0 var(--fgColor-success);
+}
+
+.status-removed > .lead-cell {
+  box-shadow: inset 3px 0 var(--fgColor-danger);
+}
+
+.status-changed > .lead-cell {
+  box-shadow: inset 3px 0 var(--fgColor-attention);
+}
+
+.block-head.status-added {
+  box-shadow: inset 0 3px var(--fgColor-success);
+}
+
+.block-head.status-removed {
+  box-shadow: inset 0 3px var(--fgColor-danger);
+}
+
+.block-head.status-changed {
+  box-shadow: inset 0 3px var(--fgColor-attention);
+}
+
+.changed-field {
+  text-decoration: underline dotted var(--fgColor-attention) 2px;
+  text-underline-offset: 3px;
+}
+
+svg.changed-field {
+  color: var(--fgColor-attention);
+}
+
+/* What the version shown does not have: the rest of the chart still stands where it does in that version. */
+.absent,
+.absent .cell-button {
+  color: var(--fgColor-muted);
+}
+
+.status-removed.absent .cell-title,
+.block-head.status-removed.absent .block-name {
+  text-decoration: line-through;
+}
+
+.cell-button {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-2);
+  width: 100%;
+  padding: var(--base-size-6) var(--base-size-8);
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cell-line {
+  display: flex;
+  gap: var(--base-size-6);
+  align-items: baseline;
+}
+
+.cell-id {
+  font-family: var(--fontStack-monospace);
+  color: var(--fgColor-muted);
+}
+
+.cell-title {
+  font-weight: 600;
+}
+
+.cell-sub {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-6);
+  color: var(--fgColor-muted);
+}
+
+.run-by {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-4);
+}
+
+/* A block's head: who besides cells writes it and whether it is shown, then its name and values, upright. */
+.block-head {
+  width: var(--spot);
+  min-width: var(--spot);
+  max-width: var(--spot);
+  scroll-margin-left: calc(var(--lead-cell) + var(--lead-condition) + var(--lead-pre));
+}
+
+.head-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--base-size-4);
+  width: 100%;
+  padding: var(--base-size-8) 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.who {
+  display: flex;
+  flex-direction: column;
+  gap: var(--base-size-2);
+  color: var(--fgColor-muted);
+}
+
+.vertical {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  white-space: nowrap;
+}
+
+.block-name {
+  font-family: var(--fontStack-monospace);
+}
+
+.block-values {
+  margin-inline-start: var(--base-size-6);
+  color: var(--fgColor-muted);
+}
+
+/* A crossing: the column's line through it, the way back when there is one, and the mark. */
+.spot {
+  position: relative;
+  height: 44px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.seg {
+  position: absolute;
+  left: 50%;
+  width: 1px;
+  margin-left: -0.5px;
+}
+
+.seg-up {
+  top: 0;
+  bottom: 50%;
+}
+
+.seg-down {
+  top: 50%;
+  bottom: -1px;
+}
+
+.has-mark .seg-up {
+  bottom: calc(50% + var(--mark-half));
+}
+
+.has-mark .seg-down {
+  top: calc(50% + var(--mark-half));
+}
+
+.seg.line {
+  background: var(--borderColor-emphasis);
+}
+
+.seg.back {
+  width: 3px;
+  margin-left: -1.5px;
+  background: var(--fgColor-done);
+}
+
+.arrow {
+  position: absolute;
+  top: calc(50% + var(--mark-half) - 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  border-right: 5px solid transparent;
+  border-bottom: 7px solid var(--fgColor-done);
+  border-left: 5px solid transparent;
+}
+
+.glyph {
+  display: block;
+  position: relative;
+  margin: auto;
+}
+
+.part {
+  fill: none;
+  stroke: var(--fgColor-default);
+  stroke-width: 1.75;
+}
+
+.part.write {
+  fill: var(--fgColor-default);
+  stroke: none;
+}
+
+.part.condition {
+  stroke-width: 1.25;
+}
+
+.part.added {
+  stroke: var(--fgColor-success);
+}
+
+.part.write.added {
+  fill: var(--fgColor-success);
+}
+
+.part.removed {
+  stroke: var(--fgColor-danger);
+  stroke-dasharray: 2 2;
+}
+
+.part.write.removed {
+  fill: none;
+  stroke: var(--fgColor-danger);
+  stroke-width: 1.5;
+}
+
+/* The side: the panel of what was chosen, or the list of what changed. */
+.side {
+  min-height: 0;
+  overflow: auto;
+  padding: var(--base-size-12) var(--base-size-16);
+  border-left: 1px solid var(--borderColor-default);
+}
+
+.panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--base-size-8);
+}
+
+.side-title {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
+  margin: var(--base-size-4) 0 var(--base-size-8);
+  font-size: var(--text-title-size-small);
+}
+
+.side-section h3 {
+  margin: var(--base-size-16) 0 var(--base-size-4);
+  font-size: var(--text-body-size-medium);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--base-size-4) var(--base-size-12);
+  margin: 0;
+}
+
+.facts dt {
+  color: var(--fgColor-muted);
+}
+
+.facts dd {
+  margin: 0;
+}
+
+.uses,
+.limits,
+.changes,
+.changes ul,
+.changes-here {
+  display: grid;
+  gap: var(--base-size-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--fgColor-accent);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.way-back {
+  color: var(--fgColor-done);
+}
+
+.change-group h3 {
+  margin: var(--base-size-12) 0 var(--base-size-4);
+  font-size: var(--text-body-size-medium);
+}
+
+.change-what {
+  margin-right: var(--base-size-6);
+  color: var(--fgColor-muted);
+}
+
+del {
+  padding: 0 var(--base-size-2);
+  border-radius: var(--borderRadius-small);
+  background: var(--bgColor-danger-muted);
+  color: var(--fgColor-danger);
+}
+
+ins {
+  padding: 0 var(--base-size-2);
+  border-radius: var(--borderRadius-small);
+  background: var(--bgColor-success-muted);
+  color: var(--fgColor-success);
+  text-decoration: none;
+}
+
+.faults {
+  border-collapse: collapse;
+  font-size: var(--text-body-size-small);
+}
+
+.faults th,
+.faults td {
+  padding: var(--base-size-6) var(--base-size-8);
+  border: 1px solid var(--borderColor-default);
+  text-align: left;
+  vertical-align: top;
+}
+
+.faults th {
+  background: var(--bgColor-muted);
+}
+
+/* In a narrow window only the cell's own column stays in place, so that the blocks keep room beside it; its condition
+   and preconditions scroll with them. */
+@media (max-width: 960px) {
+  td.lead-condition,
+  td.lead-pre {
+    position: static;
+  }
+
+  th.lead-condition,
+  th.lead-pre {
+    left: auto;
+  }
+}

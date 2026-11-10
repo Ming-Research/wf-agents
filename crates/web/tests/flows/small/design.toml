@@ -1,0 +1,6 @@
+title = "Design"
+kind = "agent"
+line = "engineer"
+when = { block = "needs_design", is = "yes" }
+inputs = ["plan"]
+outputs = ["design"]

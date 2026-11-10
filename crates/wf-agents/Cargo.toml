@@ -1,0 +1,20 @@
+[package]
+name = "wf-agents"
+description = "Runs coding agents through a defined flow: the engine's command"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+clap = { version = "4.6.7", features = ["derive"] }
+decide = { path = "../decide" }
+flow = { path = "../flow" }
+tokio = { version = "1.53.1", features = ["net", "rt-multi-thread"] }
+# Only to find the named tests a definition declares, which stand for the tests the engine has until it has its own.
+toml.workspace = true
+web = { path = "../web" }
+
+[lints]
+workspace = true

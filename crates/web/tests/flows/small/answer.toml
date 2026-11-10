@@ -1,0 +1,8 @@
+title = "Answer comments"
+kind = "agent"
+line = "engineer"
+when = { test = "has_comment" }
+requires = ["plan_confirmed"]
+inputs = ["comments", "plan"]
+outputs = ["reply"]
+limit = 5
