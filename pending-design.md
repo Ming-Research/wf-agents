@@ -12,28 +12,30 @@ The words these entries use, each with one meaning:
   starts to when its return has passed everything the flow requires of it; it may hold several **rounds** of the agent
   and several calls. A cell's **record** is its latest finished run: what it handed in, and the versions of what it was
   built on.
-- A **product** is a thing with a name and versions that cells write and read: a block of the item, or an output of a
-  cell. Its **content version** changes at every write; its **meaning version** changes only when the change matters to
-  the cells after it.
+- A **product** is a thing with a name and versions that cells read and depend on: a block of the item, an output of a
+  cell, or something outside the work, such as main. Its **content version** changes at every write; its **meaning
+  version** changes only when the change matters to the cells after it.
 - A cell **depends on** a product when a change of its meaning makes the cell need to run.
 - A cell is **on the path** of a work when its condition holds on the records as they stand. A cell off the path counts
   as having no record: what it handed in is absent to the cells after it, and refusals by it or against it have no
   force.
 - A **refusal** is a cell's or a person's "no" to a version of a product. It **stands** until that product is written
-  by a run that was given the refusal, or by a person.
+  by a person, from outside the work, or by a run that was given the refusal, which is one that started after the
+  refusal was made. A refusal by a cell **has force** while the run that made it is the cell's record and the cell is
+  on the path; a person's refusal always has force.
 - The **walk** is the engine going through the cells in their order to find what a work does next.
 - A **call** is something a run waits for and whose result comes back into it. A **line** is the cells of a work that
   share one session. A **way round** is a path by which a cell's run can lead to the same cell running again: a
   refusal, a return sent back, a call.
 
 ### decision work-has-no-position
-A work has no stored position. Each time something happens, the engine walks the flow's cells from the first, in their order: it skips a cell that is not on the path; at the first whose preconditions do not hold, whose run waits at a call for a person, or that has reached a limit, the work waits; it runs the first that needs to run, and passes the rest. A work has ended when its last cell has a record or its item is cancelled, and an ended work is not walked. What is stored is the records, among them who refused what; where the work goes next is walked.
-Why: A stored position has to be read rightly by every rule, and a way back written by hand has to say where to, with what, and what of the earlier work still counts. The two defects a review confirmed in the earlier engine were both there: a work sent back without end once its cell asked for a tool, and a way back judged by the number of each cell's first round. Walking from the first cell also takes first whatever else changed meanwhile: when the owner changes an answer after the plan was implemented, the plan is redone before anything built on it runs again. (principles state-from-records, decide-purely)
+A work has no stored position. Each time something happens, the engine walks the flow's cells from the first, in their order: it skips a cell that is not on the path; at the first whose preconditions do not hold, whose run waits at a call for a person, or that has reached a limit, the work waits; it runs the first that needs to run, and passes the rest. A precondition holds the work before its cell whether or not the cell needs to run. Before the walk, a run that waited for a person and has its answer goes on, and one that no longer stands is abandoned. A work has ended when its last cell has a record or its item is cancelled, and an ended work is not walked; the last cell of a flow has no condition. What is stored is the records, among them who refused what; where the work goes next is walked.
+Why: A stored position has to be read rightly by every rule, and a way back written by hand has to say where to, with what, and what of the earlier work still counts. Two defects of an engine that stored a position were both there: a work sent back without end once its cell asked for a tool, and a way back judged by the number of each cell's first round. Walking from the first cell also takes first whatever else changed meanwhile: when the owner changes an answer after the plan was implemented, the plan is redone before anything built on it runs again. (principles state-from-records, decide-purely)
 Not: Hierarchical state machines, which end the repeated rows but keep a position: a person's input stays an interruption to be hung on every state, and a changed flow still needs a place to land each work.
 From: the owner, 2026-11-09
 
 ### decision cell-runs-when
-A cell needs to run when it has no record, or when one of these is true of its record: a product it wrote is gone; something it depends on has changed in meaning since; a refusal it made has been answered; or a refusal stands against a product it wrote. What a cell wrote itself never makes it need to run.
+A cell needs to run when it has no record, or when one of these is true of its record: a product it wrote is gone; something it depends on has changed in meaning since; a refusal it made has been answered; or a refusal that has force stands against a product it wrote. A version written by the cell's own record never makes it need to run for a change of meaning.
 Why: These are all there is to going on and going back: a first run, a rerun because what it was built on changed or was lost, a rerun to judge again, a rerun because its product was judged wanting. Running again every cell after one that ran again was refused as the rule: a design redone need not mean an implementation redone when what the implementation depends on did not change. (Article 3)
 From: the owner, 2026-11-09
 
@@ -50,12 +52,12 @@ Not: A second agent to check the answer, at a round for every change.
 From: the owner, 2026-11-09
 
 ### decision refusal-runs-the-writers-again
-While a refusal stands and has force, every cell on the path that wrote a version of the product needs to run, the earliest first, and every run that writes the product is given who refused and why. A writer that reruns and leaves the product as it was is run again, up to its limit. A cell that hands a product it wrote on to another cell withdraws it, which is a write. Grounds for disagreeing are a write too, and make the refuser judge again; grounds the refuser does not accept go, as a call of the writer's next run, to whoever the flow names to decide between them, and both depend on the ruling.
+While a refusal stands and has force, every cell on the path that wrote a version of the product needs to run, the earliest first, and every run that writes the product is given who refused and why. A writer that reruns and leaves the product as it was is run again, up to its limit. A cell that leaves to a later cell a product it wrote must withdraw it, which the engine checks on its return; a withdrawal is a write, and not the product being gone. Grounds for disagreeing are a write too, and make the refuser judge again; grounds the refuser does not accept go, as a call of the writer's next run, to whoever the flow names to decide between them, and both depend on the ruling.
 Why: A refusal says only what is wrong, and the walk finds where the work goes: no way back says where to. A run that was not given a refusal cannot have answered it, so only a write after it was given ends it. That a cell which does not change what was refused is run again until its limit, and the work then put before the owner, is how an answer of the owner's is kept from being passed over. (principle reviews-can-be-disputed)
 From: the owner, 2026-11-09
 
 ### decision conditions-and-preconditions
-A cell, or a stretch of consecutive cells, may have a condition; a cell may have preconditions. A condition says when it is on the path: where an agent's choice decides it, by the yes/no answer of the cell right before (principle yes-no-forks); otherwise by a named test of the outputs of earlier cells. The compiler refuses a condition that reads the cell's own output or a later cell's. A precondition says when the work must wait before the cell; it is a named test of the records as they stand, worked out at every walk and never stored beside them. A gate is no cell but a precondition of the cell it guards, and what a work waits for, and who can give it, is the precondition not met.
+A cell, or a stretch of consecutive cells, may have a condition; a cell may have preconditions. A condition says when it is on the path: where an agent's choice decides it, by the yes/no answer of the cell right before (principle yes-no-forks); otherwise by a named test of what cells before it, people or the outside wrote. The compiler refuses a condition that reads the cell's own output or a later cell's. A precondition says when the work must wait before the cell; it is a named test of the records as they stand, worked out at every walk and never stored beside them. A gate is no cell but a precondition of the cell it guards, and what a work waits for, and who can give it, is the precondition not met.
 Why: A fork drawn as rows and a gate drawn as a cell each needed a record of what the work was waiting for, and care to raise and withdraw that record at the right moments. A test of the records as they stand cannot be left standing after its cause is gone. A condition that read what its own cell or a later one handed in would decide whether a cell is on the path by what only being on the path produces. (principle state-from-records)
 From: the owner, 2026-11-09
 
@@ -70,13 +72,13 @@ Why: A person cannot be scheduled, so the judgment is a record that arrives when
 From: the owner, 2026-11-09
 
 ### decision comments-through-one-cell
-A comment never steers a work by itself. One cell, placed before the implementation, takes the comments: it is on the path once the work has a comment, and depends on the comments, so that a new one makes it need to run. It replies, and judges whether a comment changes anything. If none does, its output is as before and nothing after it runs again; if one asks something only of the implementation, its output carries that to the implementation; if one changes a product, it refuses that product, with the comment as the reason. The cells before it answer no comments.
+A comment never steers a work by itself. One cell, placed before the implementation, takes the comments, and a comment is not put into a round that is running: the cell is on the path once the item has a comment, which is a test of what a person wrote, and depends on the comments, so that a new one makes it need to run. It replies, and judges whether a comment changes anything. If none does, its output is as before and nothing after it runs again; if one asks something only of the implementation, its output carries that to the implementation; if one changes a product, it refuses that product, with the comment as the reason. The cells before it answer no comments.
 Why: The owner comments once a plan can be read, by which time the research and design are mostly done, and every work passes the implementation, so no comment is missed. With one way for a comment to change a work's course, an approval on a question and a "no" in a comment cannot stand side by side unresolved. The cost is accepted: a comment made while a cell before this one waits for a ruling is answered only after the ruling.
 Not: A round only for replying, outside the graph, at every cell where a work may wait.
 From: the owner, 2026-11-09
 
 ### decision agent-reads-what-it-needs
-Besides what every run of its line is given, a run is given its task; a list of what exists on the item and in the work, with each thing's version and, for each product it may write, the version at which its meaning last changed; and why it runs: the dependencies that changed, or who refused what and why. The content of the item and of the work it reads itself, the principles before the decisions, through the engine's tool for reading, which is a call of the run; the engine records what it read. What a run hands in still comes back in its return. The engine keeps no account of what a session already holds, and the rules of the tree then say that every agent reads the constitution and the principles itself.
+Besides what every run of its line is given, a run is given its task; a list of what exists on the item and in the work, with each thing's version and, for each product it may write, the version at which its meaning last changed; and why it runs: the dependencies that changed, or who refused what and why. The content of the item and of the work it reads itself, the principles before the decisions, through the engine's tool for reading, which is a call of the run; the engine records what it read. What a run hands in still comes back in its return. The engine keeps no account of what a session already holds. When this is built, the first rule of `design/README.md` changes with it, to say that every agent reads the constitution and the principles itself.
 Why: Only the agent knows what is in its context: a session that goes on remembers the old and reads what changed, a new one reads all. Deciding for it what to send again was a mechanism of its own. The engine's tool is the way in, and files in the worktree are not, because the engine and the machine an agent runs on may be apart, and reading the database goes through one entry the engine controls. Each read costs a round, so the list must let an agent ask for all it needs at once, and what the reads cost is measured. (principles lean-agent-input, measure-speed-and-cost)
 From: the owner, 2026-11-09
 
@@ -86,12 +88,12 @@ Why: A new session is then the same kind of event as a changed answer, and needs
 From: the owner, 2026-11-09
 
 ### decision every-way-round-has-a-limit
-Each way round has a limit: how often a cell is run again for the refusals of one cell or person since the owner last let it go on, how often a return is sent back within a run, how many calls a run makes. At a limit the work waits for the owner, who lets it go on or cancels it. The counts are worked out from the records. The compiler refuses a flow in which a way round has no limit.
+Each way round has a limit: how often a cell is run again for refusals, how often a return is sent back within a run, how many calls a run makes. A cell whose only reasons to run are refusals waits for the owner once it has been run again, while a refusal by the same cell or person stood against what it wrote, as often as its limit, counted since the owner last let it go on. At a limit the work waits for the owner, who lets it go on or cancels it. The counts are worked out from the records. The compiler refuses a flow in which a way round has no limit.
 Why: A way round without a limit spends without end and unseen. Counting by who refuses, and not by each refusal, bounds two cells that answer each other with a new version every time. (principle no-unseen-spending-loop)
 From: the owner, 2026-11-09
 
 ### decision changed-flow-walks-the-records
-A changed flow is installed by walking each work's records on the new graph: a cell that did not change is passed, a new cell has no record and runs when the walk reaches it, a cell taken out leaves records that count for nothing, and whether a cell whose specification changed keeps its record the owner decides when approving the change. Walking without acting, before the change is approved, shows for each work from which cell it would run again. A record is found by its cell through the table of earlier ids (principle cell-numbering).
+A changed flow is installed by walking each work's records on the new graph: a cell that did not change is passed, a new cell has no record and runs when the walk reaches it, a cell taken out leaves runs that count for nothing, and whether a cell whose specification changed keeps its record the owner decides when approving the change. Walking without acting, before the change is approved, shows for each work from which cell it would run again. A record is found by its cell through the table of earlier ids (principle cell-numbering).
 Why: Records are kept by cell and by what each run was built on, not by a step in a course taken, so they still fit a graph that has changed. (principle flow-change-spares-works)
 From: the owner, 2026-11-09
 
@@ -103,12 +105,12 @@ From: the owner, 2026-11-09
 ## Backend
 
 ### decision engine-knows-no-cell
-The engine's code names no particular cell: it carries out whatever cells the flow's definition holds. The definition holds each cell's specification (its task, its output, its checks, its line) and how the cells are joined (order, dependencies, conditions, preconditions, what each may refuse, calls, limits, and who rules a dispute). A named test, for a condition or a precondition, is a function in code that declares what it reads; a new kind is a new function. The compiler checks that a dependency names an earlier cell's output or one a later cell may refuse it over, that a cell refuses only a product it depends on, that every way round has a limit, and that every condition names an output of an earlier cell.
+The engine's code names no particular cell: it carries out whatever cells the flow's definition holds. The definition holds each cell's specification (its task, its output, its checks, its line) and how the cells are joined (order, dependencies, conditions, preconditions, what each may refuse, calls, limits, and who rules a dispute). A named test, for a condition or a precondition, is a function in code that declares what it reads; a new kind is a new function. The compiler checks that a dependency names an earlier cell's output, a block of the item or something outside the work; that a cell refuses only a product it depends on; that every way round has a limit; that a condition reads only what cells before it, people or the outside wrote; and that the last cell has no condition.
 Why: What is in the definition the owner can read on the chart and the compiler can check before anything runs. (Article 7; principle compile-before-run)
 From: the owner, 2026-11-09
 
 ### decision one-loop-decides
-One loop takes what happens, in order: it adds to the records, and walks each work that has not ended, is not paused and has no cell running. The runs of different works go on side by side. The deciding code holds no lock.
+One loop takes what happens, in order: it adds to the records, and walks each work that has not ended, is not paused and has no cell running: a round under way is not interrupted when what it depends on changes, and what it hands in is then judged by the next walk. The runs of different works go on side by side. The deciding code holds no lock.
 Why: Decisions taken one after another are the same every time the same things happen in the same order, which is what lets a history be simulated and run again. (principle simulated-histories)
 From: the owner, 2026-11-09
 
@@ -132,7 +134,7 @@ From: the owner, 2026-11-09
 The properties the simulated histories check after every step (principle simulated-histories).
 
 ### decision one-cell-of-a-work-at-a-time
-No work has two cells running at once. A run that waits at a call for a person is not running: a cell before it may run meanwhile. The waiting run is abandoned, its call withdrawn and no record left, once something it depends on has changed in meaning or its cell is no longer on the path.
+No work has two cells running at once. A run that waits at a call for a person is not running: a cell before it may run meanwhile. The waiting run is abandoned, its call withdrawn and no record left, once something it depends on has changed in meaning since the run started, or its cell is no longer on the path.
 Why: The cells of a work share one worktree and one branch. A run that waits for a person may wait for days, and a comment or a changed answer must be able to reach the work meanwhile; a comment that changes nothing must not take the owner's pending ruling away.
 From: the owner, 2026-11-09
 
@@ -143,7 +145,7 @@ From: the owner, 2026-11-09
 
 ### decision merge-only-on-what-stands
 At a merge, every product the merge depends on, directly or through other products, was built on the current meaning of each thing it depends on.
-Why: This is what a wrongly passed cell would break.
+Why: A merge rests on every product before it, and one built on a version that no longer stands carries a decision someone has since changed.
 From: the owner, 2026-11-09
 
 ### decision a-work-comes-to-rest
@@ -158,5 +160,5 @@ From: the owner, 2026-11-09
 
 ### decision a-stop-changes-nothing
 For the same returns of the agents and the same acts of people, a history in which the engine was stopped at any step and started again ends with the same products and the same decisions, each effect made once, as the history without the stop.
-Why: The engine may stop at any step. (principle effects-known-as-done)
+Why: An engine that is stopped to be replaced, or that fails, must cost no work and repeat no effect. (principle effects-known-as-done)
 From: the owner, 2026-11-09
