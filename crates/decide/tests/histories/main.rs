@@ -18,10 +18,11 @@
 //! - people, in the first 0 to 39 steps, at a step with a chance of one in six and at every rest, in about equal shares
 //!   of a tenth: writing the brief; writing prose into a block cells write (an opinions block in a third of those, the
 //!   choice without a value in a sixth); writing the same marked as not mattering; setting the choice to yes or no;
-//!   confirming the choice; the outside writing main, mattering or not; flipping "flip" or "ready"; letting a cell go
+//!   confirming the choice; the outside writing main, mattering or not; turning "flip" or "ready"; letting a cell go
 //!   on; pausing or resuming; and, once in a hundred acts, cancelling the work, after which nothing more is decided.
-//!   Half the prose goes where it bears on what is going on: into an input of the cell the work waits at, or into a
-//!   block the open run's cell may write, so that people write while a round is under way and while a run is at rest.
+//!   Half the prose goes where it bears on what is going on: into an input of the cell the work waits at or of a cell
+//!   that is skipped, or into a block the open run's cell may write, so that people write while a round is under way
+//!   and while a run is at rest, and write for a cell while it is skipped.
 //!   At a rest they answer a call for them, or let a cell go on at its limit, three times in five.
 //! - agents: a round ends finishing in half the rounds (each output written with a chance of three in five, mattering
 //!   or not as a coin says, the choice as yes or no in four of five and without a value in one), returning with
@@ -482,23 +483,22 @@ impl History {
     }
 
     /// The block a person writes prose into: in half the acts one that bears on what is going on, an input of the cell
-    /// the work waits at or a block the open run's cell may write, and otherwise any block cells write.
+    /// the work waits at, a block the open run's cell may write or an input of a cell that is skipped, and otherwise
+    /// any block cells write.
     fn prose_block(&mut self, at: Option<&CellId>) -> &'static str {
-        let cell = match (at, self.open_run()) {
-            (Some(at), _) => Some((at.clone(), true)),
-            (None, Some((open, _))) => Some((open, false)),
-            (None, None) => None,
-        };
-        let spec = cell.and_then(|(id, reads)| {
-            (self.w.flow.cells().iter())
-                .find(|c| c.id == id)
-                .map(|c| if reads { c.inputs.clone() } else { c.outputs.clone() })
-        });
+        let open = self.open_run().map(|(cell, _)| cell);
+        let reading = Reading::new(&self.w.records);
+        let mut bearing: Vec<&BlockId> = Vec::new();
+        for c in self.w.flow.cells() {
+            if Some(&c.id) == at || !reading.applies(c, &self.w.named) {
+                bearing.extend(&c.inputs);
+            }
+            if Some(&c.id) == open.as_ref() {
+                bearing.extend(&c.outputs);
+            }
+        }
         let bearing: Vec<&'static str> = (WRITTEN.into_iter())
-            .filter(|b| {
-                spec.as_ref()
-                    .is_some_and(|blocks| blocks.iter().any(|x| x.as_str() == *b))
-            })
+            .filter(|b| bearing.iter().any(|x| x.as_str() == *b))
             .collect();
         if !bearing.is_empty() && self.rng.chance(50) {
             return bearing[self.rng.below(bearing.len())];
@@ -570,10 +570,9 @@ impl History {
             }
             61..=70 => {
                 let test = if self.rng.chance(50) { "flip" } else { "ready" };
-                let outcome = if self.rng.chance(50) {
-                    Outcome::Holds
-                } else {
-                    Outcome::Waits { who: Who::Architect }
+                let outcome = match self.w.named.0.get(&test.into()) {
+                    Some(Outcome::Waits { .. }) => Outcome::Holds,
+                    _ => Outcome::Waits { who: Who::Architect },
                 };
                 self.note(format!("the test {test} comes to {outcome:?}"));
                 self.w.set(test, outcome);
