@@ -33,9 +33,10 @@ enum Command {
     /// A flow's definition: a directory holding `flow.toml` and one file for each cell.
     #[command(subcommand)]
     Flow(FlowCommand),
-    /// Runs the engine: drives every work of the store in the data directory on the flows given, with agents, engine
-    /// acts and tools that follow a script, and serves the owner's pages on the loopback address. It stops when the
-    /// engine stops, saying why; started again, it goes on from the store.
+    /// Runs the engine: drives every work of the store in the data directory on the flows given, and serves the
+    /// owner's pages on the loopback address. Its agents run with the command line, its acts with git in the project's
+    /// repository, as the installation's settings say; or, with a script, the agents, the acts and the tools follow
+    /// it. It stops when the engine stops, saying why; started again, it goes on from the store.
     Run {
         /// The data directory, which holds the store.
         #[arg(long)]
@@ -43,9 +44,12 @@ enum Command {
         /// The directory of a flow's definition; given once for each flow.
         #[arg(long = "flow", required = true)]
         flows: Vec<PathBuf>,
-        /// The script the agents, the engine's acts and the tools follow.
+        /// A script the agents, the engine's acts and the tools follow, in place of the real ones.
+        #[arg(long, conflicts_with = "settings")]
+        script: Option<PathBuf>,
+        /// The installation's settings; `install.toml` in the data directory where none is given.
         #[arg(long)]
-        script: PathBuf,
+        settings: Option<PathBuf>,
         /// The port of the pages; 0 for any free one.
         #[arg(long, default_value_t = PORT)]
         port: u16,
@@ -171,8 +175,15 @@ fn main() -> ExitCode {
             data,
             flows,
             script,
+            settings,
             port,
-        } => running::run(&data, &flows, &script, port),
+        } => {
+            let carriers = match script {
+                Some(script) => running::With::Script(script),
+                None => running::With::Settings(settings.unwrap_or_else(|| data.join(carry::settings::FILE))),
+            };
+            running::run(&data, &flows, carriers, port)
+        }
         Command::Add {
             title,
             flow,
