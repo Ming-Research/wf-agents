@@ -170,7 +170,8 @@ pub enum Cause {
     NoRecord,
     /// A block it reads has another meaning than the one its record knows. `was` is the version the record knows:
     /// the one its run started from, or the one it wrote itself; the run now starts from the current one. `behind`
-    /// says a cell after this one gave the block the meaning it has now: an opinion on what it wrote, for one.
+    /// says every change of the block's meaning since that version was written by a cell after this one: a judging
+    /// cell's opinion on what it wrote, for one.
     Changed {
         block: BlockId,
         was: Option<Seq>,
