@@ -7,6 +7,8 @@ What an agent needs to know for this repository, beyond the rules every agent is
   brought over, the commit saying from where. Until then, "main" in the rules of the design tree means this branch.
 - [design/README.md](design/README.md) says how the design tree is read and changed, and what to read before designing
   or changing code. [design/constitution.md](design/constitution.md) decides between designs.
+- When building needs code the design does not account for, stop and tell whoever gave you the task where, and do not
+  build around it (Article 6). What is only hard is built.
 - Everything in the repository is written in English.
 - Keep keys, credentials, personal paths and machine-local settings out of the repository, its commits and its PR
   descriptions.
