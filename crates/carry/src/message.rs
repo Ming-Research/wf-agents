@@ -144,7 +144,8 @@ fn task(flow: &Compiled, work: &Work, cell: &CellSpec, run: RunId, parts: &mut V
             head.push_str(&with_value(value));
         }
         let line = cell.line.as_deref();
-        let wrote = matches!(written.map(|v| &v.by), Some(Writer::Run(writer)) if line.is_some() && line_of(flow, work, *writer) == line);
+        let ours = |writer: RunId| line.is_some() && line_of(flow, work, writer) == line;
+        let wrote = matches!(written.map(|v| &v.by), Some(Writer::Run(writer)) if ours(*writer));
         if wrote {
             parts.push(format!("{head}{AS_YOU_WROTE_IT}"));
         } else if let (Some(line), Some(started)) = (line, started)

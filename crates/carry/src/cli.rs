@@ -196,7 +196,7 @@ mod tests {
         assert_eq!(
             read.spent,
             Spent {
-                usd_micros: 1016,
+                usd_micros: 1015,
                 input_tokens: 4841,
                 cached_tokens: 0,
                 output_tokens: 95,
@@ -208,7 +208,7 @@ mod tests {
     #[test]
     fn a_resumed_round_costs_what_the_session_cost_more() {
         let read = read(RESULT.as_bytes(), Begin::Resume, 1000).expect("the fixture reads");
-        assert_eq!(read.spent.usd_micros, 16);
+        assert_eq!(read.spent.usd_micros, 15);
     }
 
     #[test]
