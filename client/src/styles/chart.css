@@ -1,0 +1,388 @@
+/* The flow's chart: the blocks down the side, the cells across, a mark where they cross, each block's line along its
+   row, the ways back in the way-back colour, and what a change did in the change colours. The blocks' names stay in
+   place as the frame scrolls sideways, and the cells' heads as it scrolls down. */
+
+/* The view under the view's line: the chart's frame, and the docked panel at its right while one is open. */
+.view-body {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+}
+
+.view-body.with-panel {
+  grid-template-columns: minmax(0, 1fr) var(--panel);
+}
+
+/* Room at the chart's right for the panel's handle, which stands over it. */
+.with-panel > .frame {
+  padding-right: var(--space-16);
+}
+
+.view-body.with-panel.panel-folded {
+  grid-template-columns: minmax(0, 1fr) 0;
+}
+
+.frame {
+  background: var(--ground);
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.matrix {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.matrix th,
+.matrix td {
+  --tint: transparent;
+  padding: 0;
+  background-color: var(--card);
+  background-image: linear-gradient(var(--tint), var(--tint));
+  font-weight: var(--weight);
+}
+
+/* The cells' heads, on the ground, stay at the top. */
+.matrix thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: var(--ground);
+  border-bottom: var(--hairline) solid var(--line);
+  vertical-align: top;
+}
+
+/* The blocks' names stay at the left. */
+.lead {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: var(--chart-names);
+  min-width: var(--chart-names);
+  max-width: var(--chart-names);
+  border-right: var(--hairline) solid var(--line);
+  text-align: left;
+}
+
+.matrix thead th.corner {
+  z-index: 3;
+  padding: var(--space-4) var(--space-8);
+  vertical-align: bottom;
+}
+
+tbody tr > * {
+  border-bottom: var(--hairline) solid var(--line);
+}
+
+/* A row or a column under the pointer, one step; the block or the cell chosen, the accent's tint. */
+tbody tr.row:hover > * {
+  --tint: var(--step);
+}
+
+.matrix .pointed {
+  --tint: var(--step);
+}
+
+tbody tr.row.chosen > *,
+.matrix .chosen {
+  background-color: var(--accent-tint);
+}
+
+/* The chosen cell's head and block's name marked in the accent at their edge, as the console rings the card chosen. */
+.cell-head.chosen {
+  box-shadow: inset 0 calc(-1 * var(--focus)) var(--accent);
+}
+
+tr.row.chosen > .block-head {
+  box-shadow: inset calc(-1 * var(--focus)) 0 var(--accent);
+}
+
+.head-button {
+  display: flex;
+  width: 100%;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* A cell's head: its id, its title, its line or the engine, when it runs and what it waits for, each cut to two lines
+   with the whole words on the pointer's tip and in the panel. */
+.cell-head {
+  min-width: var(--chart-cell-min);
+  max-width: var(--chart-cell-max);
+  border-left: var(--hairline) solid var(--line);
+}
+
+.cell-head .head-button {
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-8);
+}
+
+.cell-id {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--size-small);
+}
+
+.cell-title {
+  font-weight: var(--weight-strong);
+  hyphens: auto;
+  overflow-wrap: break-word;
+}
+
+.cell-line {
+  color: var(--muted);
+  font-size: var(--size-label);
+  overflow-wrap: break-word;
+}
+
+.cell-when,
+.cell-waits {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--muted);
+  font-size: var(--size-small);
+  overflow-wrap: break-word;
+}
+
+/* A block's name at the left of its row, its signs and the values of a choice after it. */
+.block-head {
+  scroll-margin-top: var(--chart-head-room);
+}
+
+.block-head .head-button {
+  align-items: center;
+  gap: var(--space-4);
+  height: var(--row);
+  padding: 0 var(--space-8);
+}
+
+.block-name {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: var(--size-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.block-values {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--size-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sign {
+  flex: none;
+  color: var(--muted);
+}
+
+/* What a change did: the cell's head and the block's name edged in its colour, a field it changed underlined. */
+.cell-head.status-added {
+  box-shadow: inset 0 var(--focus) var(--green);
+}
+
+.cell-head.status-removed {
+  box-shadow: inset 0 var(--focus) var(--red);
+}
+
+.cell-head.status-changed {
+  box-shadow: inset 0 var(--focus) var(--orange);
+}
+
+.status-added > .block-head {
+  box-shadow: inset var(--focus) 0 var(--green);
+}
+
+.status-removed > .block-head {
+  box-shadow: inset var(--focus) 0 var(--red);
+}
+
+.status-changed > .block-head {
+  box-shadow: inset var(--focus) 0 var(--orange);
+}
+
+.changed-field {
+  text-decoration: underline dotted var(--orange);
+  text-underline-offset: 3px;
+}
+
+svg.changed-field {
+  color: var(--orange);
+}
+
+/* What the version shown does not have: muted, and struck through when it was taken out. */
+.absent,
+.absent .head-button {
+  color: var(--muted);
+}
+
+.cell-head.status-removed.absent .cell-title,
+.status-removed.absent .block-name {
+  text-decoration: line-through;
+}
+
+/* A crossing: the row's line through it, the way back when there is one, and the mark. */
+.spot {
+  position: relative;
+  height: var(--row);
+  border-left: var(--hairline) solid var(--line);
+  text-align: center;
+  vertical-align: middle;
+}
+
+.seg {
+  position: absolute;
+  top: 50%;
+  height: var(--chart-line);
+  transform: translateY(-50%);
+}
+
+.seg-left {
+  left: 0;
+  right: 50%;
+}
+
+.seg-right {
+  left: 50%;
+  right: 0;
+}
+
+.has-mark .seg-left {
+  right: calc(50% + var(--chart-mark-half));
+}
+
+.has-mark .seg-right {
+  left: calc(50% + var(--chart-mark-half));
+}
+
+.seg.line {
+  background: var(--muted);
+}
+
+.seg.back {
+  height: var(--chart-back);
+  background: var(--violet);
+}
+
+/* The arrow of a way back, right of the read it points at. */
+.arrow {
+  position: absolute;
+  top: 50%;
+  left: calc(50% + var(--chart-mark-half));
+  transform: translateY(-50%);
+  border-top: var(--chart-arrow) solid transparent;
+  border-right: var(--chart-arrow-length) solid var(--violet);
+  border-bottom: var(--chart-arrow) solid transparent;
+}
+
+.glyph {
+  display: block;
+  position: relative;
+  width: var(--chart-mark);
+  height: var(--chart-mark);
+  margin: auto;
+}
+
+.part {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 2;
+}
+
+.part.write {
+  fill: var(--text);
+  stroke: none;
+}
+
+.part.condition {
+  stroke-width: 1.5;
+}
+
+.part.added {
+  stroke: var(--green);
+}
+
+.part.write.added {
+  fill: var(--green);
+}
+
+.part.removed {
+  stroke: var(--red);
+  stroke-dasharray: 3 2;
+}
+
+.part.write.removed {
+  fill: none;
+  stroke: var(--red);
+  stroke-width: 1.5;
+}
+
+/* The legend, in the view's line. */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-12);
+  color: var(--muted);
+  font-size: var(--size-small);
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.legend .glyph {
+  margin: 0;
+}
+
+.legend-back {
+  display: inline-block;
+  width: var(--space-12);
+  height: var(--chart-back);
+  background: var(--violet);
+}
+
+.legend-status {
+  display: inline-block;
+  width: var(--focus);
+  height: var(--space-12);
+}
+
+.legend-status.status-added {
+  background: var(--green);
+}
+
+.legend-status.status-removed {
+  background: var(--red);
+}
+
+.legend-status.status-changed {
+  background: var(--orange);
+}
+
+/* The faults of a definition that does not compile, in place of the chart. */
+.faults-view {
+  padding: var(--space-12);
+  overflow: auto;
+}
+
+.faults-view > p {
+  padding-bottom: var(--space-8);
+}
+
+.way-back {
+  color: var(--violet);
+}

@@ -7,18 +7,13 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
-const target = process.env.WF_AGENTS_URL ?? 'http://127.0.0.1:7481';
+const target = process.env.WF_AGENTS_URL ?? 'http://127.0.0.1:7490';
 
 export default defineConfig({
   plugins: [react()],
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-  },
-  test: {
-    // Primer's components import their own CSS, which Node cannot load: the tests take them through Vite, which leaves
-    // the CSS out.
-    server: { deps: { inline: [/@primer\/react/] } },
   },
   server: {
     proxy: {

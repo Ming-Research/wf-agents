@@ -1,14 +1,11 @@
 // The chart: the matrix of the blocks, one to a row, against the cells, one to a column in the order of the walk. It is
 // how the owner checks the flow (Article 7), so every cell and every block is on it, and what a cell does with a block
 // is a mark where they cross. A write right of a read of the same block, by a later cell, is the work going back: its
-// rail is drawn leftwards along the row to each read it sends the work back to, so that every way back shows at a
-// glance. Names are written level, so that the many blocks are read down the side without turning the head; the cells,
-// fewer, share the width in equal columns. The blocks' names stay in place as the chart scrolls sideways, and the
-// cells' heads as it scrolls down, in the chart's own frame.
+// line is drawn leftwards along the row to each read it sends the work back to, in the way back's purple, so that
+// every way back shows at a glance. The blocks' names stay in place as the chart scrolls sideways, and the cells' heads
+// as it scrolls down, in the chart's own frame.
 
-import { CopilotIcon, EyeIcon, GearIcon, GlobeIcon, PersonIcon } from '@primer/octicons-react';
-import { Label } from '@primer/react';
-import { type CSSProperties, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { Block, Cell, Change } from './api';
 import {
@@ -19,31 +16,13 @@ import {
   type MarkPart,
   type Matrix,
   type Spot,
-  type Status,
   hasMark,
 } from './matrix';
+import { STATUS_WORDS, Sign, Tag } from './parts';
 import { conditionWords } from './words';
 
 /// What the owner chose: a cell, a block, or nothing.
 export type Chosen = { cell: string } | { block: string } | null;
-
-/// The words of a status, the same on a row, a column's head and the panels.
-export const STATUS_WORDS: Record<Exclude<Status, 'same'>, { words: string; variant: 'success' | 'danger' | 'attention' }> =
-  {
-    added: { words: 'put in', variant: 'success' },
-    removed: { words: 'taken out', variant: 'danger' },
-    changed: { words: 'changed', variant: 'attention' },
-  };
-
-export function StatusLabel({ status }: { status: Status }) {
-  if (status === 'same') return null;
-  const { words, variant } = STATUS_WORDS[status];
-  return (
-    <Label variant={variant} size="small" className="status">
-      {words}
-    </Label>
-  );
-}
 
 const PART_WORDS: Record<MarkPart, string> = {
   read: 'reads',
@@ -76,15 +55,15 @@ export function MarkGlyph({ spot }: { spot: Spot }) {
   const condition = partClass('condition', spot);
   if (!read && !write && !condition) return null;
   return (
-    <svg className="glyph" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+    <svg className="glyph" viewBox="0 0 24 24" aria-hidden="true">
       {condition && <polygon className={`part condition ${condition}`} points="12,1.5 22.5,12 12,22.5 1.5,12" />}
-      {read && <circle className={`part read ${read}`} cx="12" cy="12" r="6" />}
-      {write && <circle className={`part write ${write}`} cx="12" cy="12" r={read ? 3 : 5.5} />}
+      {read && <circle className={`part read ${read}`} cx="12" cy="12" r="6.5" />}
+      {write && <circle className={`part write ${write}`} cx="12" cy="12" r={read ? 3.25 : 6} />}
     </svg>
   );
 }
 
-/// The legend of the marks, which the bar of the page carries in one line.
+/// The legend of the marks and signs, in the view's line; with what a change's colours mean when comparing.
 export function Legend({ waysBack, comparing }: { waysBack: number; comparing: boolean }) {
   const spot = (mark: Partial<Mark>): Spot => ({
     mark: { read: false, write: false, condition: false, ...mark },
@@ -112,22 +91,27 @@ export function Legend({ waysBack, comparing }: { waysBack: number; comparing: b
         <span className="legend-back" aria-hidden="true" /> way back ({waysBack})
       </li>
       <li>
-        <PersonIcon size={12} /> people write
+        <Sign name="people" /> people write
       </li>
       <li>
-        <GlobeIcon size={12} /> the outside writes
+        <Sign name="outside" /> the outside writes
       </li>
       <li>
-        <EyeIcon size={12} /> shown
+        <Sign name="shown" /> shown
       </li>
       {comparing &&
         (['added', 'removed', 'changed'] as const).map((status) => (
           <li key={status}>
-            <span className={`legend-status status-${status}`} aria-hidden="true" /> {STATUS_WORDS[status].words}
+            <span className={`legend-status status-${status}`} aria-hidden="true" /> {STATUS_WORDS[status]}
           </li>
         ))}
     </ul>
   );
+}
+
+/// Who runs a cell: an agent in its line, named by the line, or the engine.
+export function runBy(cell: Cell): string {
+  return cell.kind === 'agent' ? (cell.line ?? '') : 'engine';
 }
 
 /// A name that may break after each underscore, and nowhere else, when its column is narrow.
@@ -146,19 +130,6 @@ export function Breakable({ name }: { name: string }) {
         </span>
       ))}
     </>
-  );
-}
-
-/// Who runs a cell: an agent in its line, or the engine.
-export function RunBy({ cell }: { cell: Cell }) {
-  return cell.kind === 'agent' ? (
-    <span className="run-by">
-      <CopilotIcon size={12} aria-label="agent" /> <Breakable name={cell.line ?? ''} />
-    </span>
-  ) : (
-    <span className="run-by">
-      <GearIcon size={12} aria-label="engine" /> engine
-    </span>
   );
 }
 
@@ -186,17 +157,11 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
 
   return (
     <div className="frame" ref={frame} onMouseLeave={() => setPointed(null)}>
-      <table className="matrix" style={{ '--cells': cells.length } as CSSProperties}>
-        <colgroup>
-          <col className="lead-col" />
-          {cells.map((column) => (
-            <col key={column.id} />
-          ))}
-        </colgroup>
+      <table className="matrix">
         <thead>
           <tr>
             <th className="lead corner" scope="col">
-              Block
+              <span className="label">Block</span>
             </th>
             {cells.map((column, c) => (
               <CellHead
@@ -212,8 +177,6 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
         </thead>
         <tbody>
           {blocks.map((row, r) => {
-            const block = row.block ?? row.other;
-            if (!block) return null;
             const isChosen = chosenBlock === row.name;
             return (
               <tr
@@ -242,8 +205,8 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
   );
 }
 
-/// The head of a cell's column: its id and title, who runs it, and, shortened to what the column holds, when it runs
-/// and what it waits for; the whole words are on the pointer's tip and in the cell's panel.
+/// The head of a cell's column: its id and title, who runs it, and, cut to two lines, when it runs and what it waits
+/// for; the whole words are on the pointer's tip and in the cell's panel.
 function CellHead(props: {
   column: CellColumn;
   chosen: boolean;
@@ -252,8 +215,7 @@ function CellHead(props: {
   onPoint: () => void;
 }) {
   const { column, chosen, pointed, onChoose, onPoint } = props;
-  const cell = column.cell ?? column.other;
-  if (!cell) return null;
+  const cell = (column.cell ?? column.other) as Cell;
   const changed = (...kinds: Change['kind'][]) => (kinds.some((k) => column.changed.has(k)) ? 'changed-field' : '');
   const when = cell.condition ? `runs when ${conditionWords(cell.condition)}` : '';
   const waits = cell.preconditions.map((p) => p.words).join('; ');
@@ -269,8 +231,8 @@ function CellHead(props: {
       <button type="button" className="head-button" aria-pressed={chosen} onClick={onChoose}>
         <span className={`cell-id ${changed('cellMoved')}`}>{column.id}</span>
         <span className={`cell-title ${changed('title')}`}>{cell.title}</span>
-        <span className={`cell-sub ${changed('kind', 'line')}`}>
-          <RunBy cell={cell} />
+        <span className={`cell-line ${changed('kind', 'line')}`}>
+          <Breakable name={runBy(cell)} />
         </span>
         {when && (
           <span className={`cell-when ${changed('condition')}`} title={when}>
@@ -278,23 +240,25 @@ function CellHead(props: {
           </span>
         )}
         {waits && (
-          <span className={`cell-waits ${changed('preconditionAdded', 'preconditionRemoved')}`} title={`waits until ${waits}`}>
+          <span
+            className={`cell-waits ${changed('preconditionAdded', 'preconditionRemoved')}`}
+            title={`waits until ${waits}`}
+          >
             waits until {waits}
           </span>
         )}
-        <StatusLabel status={column.status} />
+        <Tag status={column.status} />
       </button>
     </th>
   );
 }
 
-/// The name of a block at the left of its row, with who besides cells writes it, whether it is shown, and the values
-/// of a choice. What a change did to it is the colour of its edge, which the legend names, so that the name keeps the
-/// room.
+/// The name of a block at the left of its row, with its signs and the values of a choice after it. What a change did
+/// to it is the colour of its edge, which the legend names, so that the name keeps the room.
 function BlockHead({ row, chosen, onChoose }: { row: BlockRow; chosen: boolean; onChoose: () => void }) {
   const block = (row.block ?? row.other) as Block;
   const changed = (kind: 'values' | 'people' | 'outside' | 'shown') => (row.changed.has(kind) ? 'changed-field' : '');
-  const status = row.status === 'same' ? '' : `, ${STATUS_WORDS[row.status].words}`;
+  const status = row.status === 'same' ? '' : `, ${STATUS_WORDS[row.status]}`;
   return (
     <th scope="row" className="lead block-head" data-key={`block:${row.name}`}>
       <button
@@ -304,21 +268,17 @@ function BlockHead({ row, chosen, onChoose }: { row: BlockRow; chosen: boolean; 
         aria-label={`Block ${row.name}${status}`}
         onClick={onChoose}
       >
-        <span className="block-line">
-          <span className="block-name" title={row.name}>
-            {row.name}
-          </span>
-          <span className="who">
-            {block.writtenBy.people && (
-              <PersonIcon size={12} aria-label="people write it" className={changed('people')} />
-            )}
-            {block.writtenBy.outside && (
-              <GlobeIcon size={12} aria-label="the outside writes it" className={changed('outside')} />
-            )}
-            {block.readBy.shown && <EyeIcon size={12} aria-label="shown" className={changed('shown')} />}
-          </span>
+        <span className="block-name" title={row.name}>
+          {row.name}
         </span>
-        {block.values && <span className={`block-values ${changed('values')}`}>{block.values.join(' · ')}</span>}
+        {block.writtenBy.people && <Sign name="people" className={changed('people')} />}
+        {block.writtenBy.outside && <Sign name="outside" className={changed('outside')} />}
+        {block.readBy.shown && <Sign name="shown" className={changed('shown')} />}
+        {block.values && (
+          <span className={`block-values ${changed('values')}`} title={block.values.join(' | ')}>
+            {block.values.join('|')}
+          </span>
+        )}
       </button>
     </th>
   );

@@ -1,14 +1,17 @@
-// The flow page: one screen, the chart of the flow and beside it what the owner chose or what changed. The owner
-// reviews every change to the flow here, so when there is a definition to compare against, what changed is marked on
-// the chart and listed beside it, and the owner can switch between the flow as it is and as it was.
+// The page: the bar, and the flow view under it, the only view there is yet. The flow view is the view's line (the
+// flow's name, its limits, the legend, and when comparing the switch between the flow as it is and as it was), the
+// chart under it, and the panel docked at its right with what the owner chose or what changed. The owner reviews every
+// change to the flow here, so when there is a definition to compare against, what changed is marked on the chart and
+// listed in the panel.
 
-import { SegmentedControl } from '@primer/react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { type Comparison, type Definition, type Flow, load } from './api';
 import { Chart, type Chosen, Legend } from './Chart';
 import { type Version, changeBlock, changeCell, matrix } from './matrix';
-import { BlockPanel, CellPanel, ChangesList, Faults } from './Side';
+import { Bar, Panel, StatusLine, Switch } from './parts';
+import { BlockPanel, CellPanel, ChangesList, Faults, type Fold } from './Side';
+import { type Theme, useTheme } from './theme';
 import { LIMIT_WORDS } from './words';
 
 type Loaded = { definition: Definition; comparison: Comparison } | { failed: string };
@@ -18,29 +21,61 @@ export function App() {
   useEffect(() => {
     load().then(setLoaded, (e: unknown) => setLoaded({ failed: e instanceof Error ? e.message : String(e) }));
   }, []);
-  if (!loaded) return <p className="message quiet">Reading the flow…</p>;
-  if ('failed' in loaded) return <p className="message">The page could not read the flow: {loaded.failed}</p>;
-  return <FlowPage definition={loaded.definition} comparison={loaded.comparison} />;
+  return (
+    <Shell>
+      {!loaded ? (
+        <p className="message muted">Reading the flow</p>
+      ) : 'failed' in loaded ? (
+        <p className="message">The page could not read the flow: {loaded.failed}</p>
+      ) : (
+        <FlowPage definition={loaded.definition} comparison={loaded.comparison} />
+      )}
+    </Shell>
+  );
 }
 
-/// The limits of the flow as a whole, in one line of the bar.
-function FlowLimits({ flow }: { flow: Flow }) {
+/// The page round a view: the bar with the views, of which only the flow exists yet, and the switch of light and dark.
+export function Shell({ children }: { children: ReactNode }) {
+  const [theme, setTheme] = useTheme();
   return (
-    <span className="flow-limits">
-      Each cell, unless it says otherwise:{' '}
-      {(['runs', 'returns', 'calls'] as const).map((limit, i) => (
-        <span key={limit}>
-          {i > 0 && ' · '}
-          <strong>{flow.limits[limit]}</strong> {LIMIT_WORDS[limit]}
-        </span>
-      ))}
-    </span>
+    <div className="page">
+      <Bar
+        name="wf-agents"
+        views={[{ name: 'Flow', href: '/' }]}
+        current="/"
+        end={
+          <Switch<Theme>
+            label="Light or dark"
+            value={theme}
+            onChange={setTheme}
+            choices={[
+              { value: 'auto', name: 'Auto', title: "The system's light or dark" },
+              { value: 'light', name: 'Light' },
+              { value: 'dark', name: 'Dark' },
+            ]}
+          />
+        }
+      />
+      {children}
+    </div>
   );
+}
+
+/// The limits of the flow as a whole, in one short muted sentence; the words of each in full on the pointer's tip.
+function limitsWords(flow: Flow): string {
+  const { runs, returns, calls } = flow.limits;
+  return `Limits of a cell: ${runs} ways round in a row, ${returns} returns sent back, ${calls} calls`;
+}
+
+function limitsHint(flow: Flow): string {
+  const each = (['runs', 'returns', 'calls'] as const).map((l) => `${flow.limits[l]} ${LIMIT_WORDS[l]}`).join(', ');
+  return `Each cell, unless it says otherwise: ${each}`;
 }
 
 export function FlowPage({ definition, comparison }: { definition: Definition; comparison: Comparison }) {
   const [version, setVersion] = useState<Version>('after');
   const [chosen, setChosen] = useState<Chosen>(null);
+  const [folded, setFolded] = useState(false);
 
   const after = definition.state === 'compiled' ? definition.flow : undefined;
   const against = comparison.state === 'compared' ? comparison.against : undefined;
@@ -54,6 +89,11 @@ export function FlowPage({ definition, comparison }: { definition: Definition; c
     [after, before, changes, comparing, shownVersion],
   );
 
+  // Choosing brings the panel back if it was folded away; Escape lets go of what is chosen.
+  const choose = useCallback((c: Chosen) => {
+    setChosen(c);
+    if (c !== null) setFolded(false);
+  }, []);
   const close = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') setChosen(null);
   }, []);
@@ -64,20 +104,20 @@ export function FlowPage({ definition, comparison }: { definition: Definition; c
 
   if (!after || !drawn) {
     return (
-      <div className="page">
-        <header className="bar">
-          <h1>The flow does not compile</h1>
-        </header>
-        <main className="alone">
+      <>
+        <div className="view-line">
+          <span className="view-name">The flow does not compile</span>
+        </div>
+        <main className="faults-view">
           {definition.state === 'faults' && (
             <>
-              <p>Every fault the compiler found, each where it is; the chart shows once the definition compiles.</p>
+              <p className="muted">Every fault the compiler found, each where it is; the chart shows once it compiles</p>
               <Faults faults={definition.faults} />
             </>
           )}
           {definition.state === 'unreadable' && <p>The flow's directory cannot be read: {definition.reason}</p>}
         </main>
-      </div>
+      </>
     );
   }
 
@@ -85,67 +125,76 @@ export function FlowPage({ definition, comparison }: { definition: Definition; c
   const column = chosen && 'cell' in chosen ? drawn.cells.find((c) => c.id === chosen.cell) : undefined;
   const row = chosen && 'block' in chosen ? drawn.blocks.find((b) => b.name === chosen.block) : undefined;
   const flowOf = (inShown: boolean) => (inShown ? shownFlow : shownFlow === after ? (before ?? after) : after);
+  const fold: Fold = { folded, onFold: () => setFolded((f) => !f) };
 
-  let side = null;
+  let panel = null;
   if (column) {
-    side = (
+    panel = (
       <CellPanel
         column={column}
         matrix={drawn}
         flow={flowOf(column.cell !== undefined)}
         changes={(changes ?? []).filter((c) => changeCell(c) === column.id)}
-        onChoose={setChosen}
+        onChoose={choose}
+        fold={fold}
       />
     );
   } else if (row) {
-    side = (
+    panel = (
       <BlockPanel
         row={row}
         matrix={drawn}
         flow={flowOf(row.block !== undefined)}
         changes={(changes ?? []).filter((c) => changeBlock(c) === row.name)}
-        onChoose={setChosen}
+        onChoose={choose}
+        fold={fold}
       />
     );
   } else if (comparing) {
-    side = <ChangesList changes={changes} after={after} before={before} onChoose={setChosen} />;
+    panel = <ChangesList changes={changes} after={after} before={before} onChoose={choose} fold={fold} />;
   } else if (against && against.state !== 'compiled') {
-    side = (
-      <section className="side-section" aria-label="What changed">
-        <h2 className="side-title">Nothing to compare</h2>
-        {against.state === 'faults' ? (
-          <>
-            <p>The definition compared against does not compile:</p>
-            <Faults faults={against.faults} />
-          </>
-        ) : (
-          <p>The definition compared against cannot be read: {against.reason}</p>
-        )}
-      </section>
+    panel = (
+      <Panel
+        label="Nothing to compare"
+        title="Nothing to compare"
+        lines={
+          <StatusLine tone="removed" word={against.state === 'faults' ? 'Does not compile' : 'Cannot be read'}>
+            the definition compared against
+          </StatusLine>
+        }
+        {...fold}
+      >
+        {against.state === 'faults' ? <Faults faults={against.faults} /> : <p>{against.reason}</p>}
+      </Panel>
     );
   }
 
   return (
-    <div className="page">
-      <header className="bar">
-        <h1>{shownFlow.name}</h1>
+    <>
+      <div className="view-line">
+        <span className="view-name">{shownFlow.name}</span>
         {comparing && (
-          <SegmentedControl
-            aria-label="Version of the flow"
-            size="small"
-            onChange={(i) => setVersion(i === 0 ? 'after' : 'before')}
-          >
-            <SegmentedControl.Button selected={shownVersion === 'after'}>As it is</SegmentedControl.Button>
-            <SegmentedControl.Button selected={shownVersion === 'before'}>As it was</SegmentedControl.Button>
-          </SegmentedControl>
+          <Switch<Version>
+            label="Version of the flow"
+            value={shownVersion}
+            onChange={setVersion}
+            choices={[
+              { value: 'after', name: 'As it is' },
+              { value: 'before', name: 'As it was' },
+            ]}
+          />
         )}
-        <FlowLimits flow={shownFlow} />
-        <Legend waysBack={drawn.waysBack} comparing={comparing} />
-      </header>
-      <main className={side ? 'with-side' : ''}>
-        <Chart matrix={drawn} chosen={chosen} onChoose={setChosen} />
-        {side && <aside className="side">{side}</aside>}
+        <span className="view-facts" title={limitsHint(shownFlow)}>
+          {limitsWords(shownFlow)}
+        </span>
+        <span className="view-end">
+          <Legend waysBack={drawn.waysBack} comparing={comparing} />
+        </span>
+      </div>
+      <main className={`view-body ${panel ? 'with-panel' : ''} ${folded ? 'panel-folded' : ''}`}>
+        <Chart matrix={drawn} chosen={chosen} onChoose={choose} />
+        {panel}
       </main>
-    </div>
+    </>
   );
 }

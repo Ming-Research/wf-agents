@@ -1,0 +1,469 @@
+/* The page's base and its parts (parts.tsx): the bar, the view's line, a button, a segmented switch, a tag, a label, a
+   list row and the docked panel. Every value is a token (tokens.css); look.md says when to use each part. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--size-body);
+  font-weight: var(--weight);
+  line-height: var(--line-height);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+ol,
+dl,
+dd {
+  margin: 0;
+  padding: 0;
+}
+
+ul,
+ol {
+  list-style: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: var(--focus) solid var(--accent);
+  outline-offset: calc(-1 * var(--focus));
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: var(--size-small);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: var(--size-small);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* The page: the bar, the view's line, and what is left of the window for the view, which never scrolls sideways. */
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* The bar: the page's name, the views as text tabs, and at the right what belongs to the page as a whole. */
+.bar {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+  gap: var(--space-16);
+  height: var(--bar);
+  padding: 0 var(--space-12);
+  border-bottom: var(--hairline) solid var(--line);
+  background: var(--ground);
+}
+
+.bar-name {
+  display: flex;
+  align-items: center;
+  font-size: var(--size-title);
+  font-weight: var(--weight-strong);
+}
+
+.bar-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-12);
+}
+
+.bar-tab {
+  display: flex;
+  align-items: center;
+  border-bottom: var(--focus) solid transparent;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.bar-tab[aria-current='page'] {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+}
+
+.bar-end {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
+/* The view's line: what the view shows and its own controls, in one thin row under the bar. */
+.view-line {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--space-12);
+  min-height: var(--view-line);
+  padding: var(--space-2) var(--space-12);
+  border-bottom: var(--hairline) solid var(--line);
+  background: var(--card);
+  white-space: nowrap;
+}
+
+.view-name {
+  font-weight: var(--weight-strong);
+}
+
+.view-facts {
+  flex: 1 1 var(--chart-names);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+}
+
+.view-end {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  margin-left: auto;
+}
+
+/* A label: what a part of a panel holds, or what a value is. */
+.label {
+  color: var(--muted);
+  font-size: var(--size-label);
+  letter-spacing: var(--label-spacing);
+  text-transform: uppercase;
+}
+
+/* A button: words in a hairline box; the primary one filled with the accent. */
+.button {
+  display: inline-flex;
+  align-items: center;
+  height: var(--control);
+  padding: 0 var(--space-8);
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--corner);
+  background: var(--card);
+  cursor: pointer;
+  transition: background-color var(--hover-time);
+}
+
+.button:hover {
+  background-image: linear-gradient(var(--step), var(--step));
+}
+
+.button-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-colour);
+}
+
+/* A segmented switch: two or three choices side by side, the one chosen on the card, the rest on the ground. */
+.switch {
+  display: inline-flex;
+  height: var(--control);
+  padding: var(--space-2);
+  gap: var(--space-2);
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--corner);
+  background: var(--ground);
+}
+
+.switch-choice {
+  padding: 0 var(--space-8);
+  border: 0;
+  border-radius: var(--corner);
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--size-small);
+  cursor: pointer;
+  transition: background-color var(--hover-time);
+}
+
+.switch-choice:hover {
+  background: var(--step);
+}
+
+.switch-choice[aria-pressed='true'] {
+  background: var(--card);
+  color: var(--text);
+  box-shadow: 0 0 0 var(--hairline) var(--line);
+}
+
+/* A tag: a few words or a count of a state, filled in its colour, as the console's count tags on a card. */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  height: var(--tag);
+  padding: 0 var(--space-4);
+  border-radius: var(--corner);
+  color: var(--on-colour);
+  font-family: var(--mono);
+  font-size: var(--size-label);
+  white-space: nowrap;
+}
+
+.tag-added {
+  background: var(--green);
+}
+
+.tag-removed {
+  background: var(--red);
+}
+
+.tag-changed {
+  background: var(--orange);
+}
+
+/* A list row: one thing on one line, or wrapping when its words need it, at least a row high. */
+.list-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-8);
+  min-height: var(--row);
+  padding: var(--space-4) 0;
+  border-bottom: var(--hairline) solid var(--line);
+}
+
+.list-row:last-child {
+  border-bottom: 0;
+}
+
+/* A word that opens something on the page: in the accent, underlined under the pointer. */
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+/* The docked panel, laid out as the console's drawer: at the right of the view, divided from it by a hairline, with
+   a handle on its edge that folds it away and brings it back; its head, its status lines, its sections, and room at
+   its bottom for a box that answers. */
+.drawer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-left: var(--hairline) solid var(--line);
+  background: var(--card);
+}
+
+.drawer-folded {
+  border-left: 0;
+}
+
+/* The handle: a narrow tab on the panel's left edge, in the accent, which stays at the window's edge while the panel
+   is folded away. */
+.drawer-tab {
+  position: absolute;
+  top: var(--space-16);
+  left: calc(-1 * var(--space-16));
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-16);
+  height: var(--chart-tab);
+  padding: 0;
+  border: 0;
+  border-radius: var(--corner) 0 0 var(--corner);
+  background: var(--accent);
+  color: var(--on-colour);
+  cursor: pointer;
+  transition: background-color var(--hover-time);
+}
+
+.drawer-tab:hover {
+  background-image: linear-gradient(var(--step), var(--step));
+}
+
+.drawer-inner {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: var(--space-16) var(--space-16) 0;
+}
+
+.drawer-inner[hidden] {
+  display: none;
+}
+
+.drawer-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-8);
+}
+
+.drawer-id {
+  flex: none;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--size-small);
+}
+
+.drawer-title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--size-title);
+  font-weight: var(--weight-strong);
+}
+
+.drawer-belongs {
+  flex: none;
+  color: var(--muted);
+  font-size: var(--size-small);
+}
+
+/* A status line: a dot in the colour of what it says, a word in semibold, the facts after it. */
+.status-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4) var(--space-8);
+  margin-top: var(--space-8);
+  font-size: var(--size-small);
+}
+
+.status-word {
+  font-weight: var(--weight-strong);
+}
+
+.dot {
+  flex: none;
+  width: var(--space-8);
+  height: var(--space-8);
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.dot-added {
+  background: var(--green);
+}
+
+.dot-removed {
+  background: var(--red);
+}
+
+.dot-changed {
+  background: var(--orange);
+}
+
+.drawer-body {
+  flex: 1;
+  min-height: 0;
+  margin: var(--space-16) calc(-1 * var(--space-16)) 0;
+  padding: var(--space-16);
+  border-top: var(--hairline) solid var(--line);
+  overflow: auto;
+}
+
+.drawer-foot {
+  flex: none;
+  margin: 0 calc(-1 * var(--space-16));
+  padding: var(--space-12) var(--space-16);
+  border-top: var(--hairline) solid var(--line);
+}
+
+/* A section: a small semibold label over what it holds; a hairline where a group of sections ends. */
+.panel-part {
+  margin-bottom: var(--space-16);
+}
+
+.panel-part-last {
+  padding-bottom: var(--space-16);
+  border-bottom: var(--hairline) solid var(--line);
+}
+
+.panel-part-label {
+  margin-bottom: var(--space-4);
+  font-size: var(--size-small);
+  font-weight: var(--weight-strong);
+}
+
+/* Label and value pairs. */
+.pairs {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-4) var(--space-12);
+}
+
+.pairs dt {
+  color: var(--muted);
+}
+
+/* A change: what changed, what it was and what it is. */
+.change-what {
+  margin-right: var(--space-8);
+  color: var(--muted);
+}
+
+/* What a change took out and put in. */
+del {
+  color: var(--red-text);
+}
+
+ins {
+  color: var(--green-text);
+  text-decoration: none;
+}
+
+/* A table of the page's: hairlines between rows, its head in labels. */
+.table {
+  border-collapse: collapse;
+}
+
+.table th {
+  padding: var(--space-4) var(--space-12) var(--space-4) 0;
+  border-bottom: var(--hairline) solid var(--line);
+  text-align: left;
+  font-weight: var(--weight);
+}
+
+.table td {
+  height: var(--row);
+  padding: var(--space-4) var(--space-12) var(--space-4) 0;
+  border-bottom: var(--hairline) solid var(--line);
+  vertical-align: baseline;
+}
