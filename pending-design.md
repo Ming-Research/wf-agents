@@ -19,30 +19,32 @@ The words these entries use, each with one meaning:
 - A cell is **on the path** of a work when its condition holds on the records as they stand. A cell off the path counts
   as having no record: what it handed in is absent to the cells after it, and refusals by it or against it have no
   force.
-- A **refusal** is a cell's or a person's "no" to a version of a product. It **stands** until that product is written
-  by a person, from outside the work, or by a run that was given the refusal, which is one that started after the
-  refusal was made. A refusal by a cell **has force** while the run that made it is the cell's record and the cell is
-  on the path; a person's refusal always has force.
+- A **refusal** is a cell's or a person's "no" to a version of a product. A run is **given** a refusal when the
+  refusal is among its reasons to run as it starts, or is put into its session while it runs. A refusal **stands**
+  until that product is written by a person, from outside the work, or by a run that finishes and had been given the
+  refusal when it wrote. A refusal by a cell **has force** while the run that made it is the cell's record and the cell
+  is on the path; a person's refusal always has force. A refusal is never taken out of the records: one that no longer
+  stands or has no force is still there to be read.
 - The **walk** is the engine going through the cells in their order to find what a work does next.
 - A **call** is something a run waits for and whose result comes back into it. A **line** is the cells of a work that
   share one session. A **way round** is a path by which a cell's run can lead to the same cell running again: a
   refusal, a return sent back, a call.
 
 ### decision work-has-no-position
-A work has no stored position. Each time something happens, the engine walks the flow's cells from the first, in their order: it skips a cell that is not on the path; at the first whose preconditions do not hold, whose run waits at a call for a person, or that has reached a limit, the work waits; it runs the first that needs to run, and passes the rest. A precondition holds the work before its cell whether or not the cell needs to run. Before the walk, a run that waited for a person and has its answer goes on, and one that no longer stands is abandoned. A work has ended when its last cell has a record or its item is cancelled, and an ended work is not walked; the last cell of a flow has no condition. What is stored is the records, among them who refused what; where the work goes next is walked.
+A work has no stored position. Each time something happens, the engine walks the flow's cells from the first, in their order: it skips a cell that is not on the path; at the first whose preconditions do not hold, whose run waits at a call for a person, that depends on a product refused by a refusal no cell on the path can answer, or that has reached its limit, the work waits; it runs the first that needs to run, and passes the rest. A precondition holds the work before its cell whether or not the cell needs to run. Before the walk, a run that waits for a person and no longer stands is abandoned. A work has ended when its last cell has a record or its item is cancelled, and an ended work is not walked; the last cell of a flow has no condition. What is stored is the records, among them who refused what; where the work goes next is walked.
 Why: A stored position has to be read rightly by every rule, and a way back written by hand has to say where to, with what, and what of the earlier work still counts. Two defects of an engine that stored a position were both there: a work sent back without end once its cell asked for a tool, and a way back judged by the number of each cell's first round. Walking from the first cell also takes first whatever else changed meanwhile: when the owner changes an answer after the plan was implemented, the plan is redone before anything built on it runs again. (principles state-from-records, decide-purely)
 Not: Hierarchical state machines, which end the repeated rows but keep a position: a person's input stays an interruption to be hung on every state, and a changed flow still needs a place to land each work.
 From: the owner, 2026-11-09
 
 ### decision cell-runs-when
-A cell needs to run when it has no record, or when one of these is true of its record: a product it wrote is gone; something it depends on has changed in meaning since; a refusal it made has been answered; or a refusal that has force stands against a product it wrote. A version written by the cell's own record never makes it need to run for a change of meaning.
+A cell needs to run when it has no record, or when one of these is true of its record: a product it wrote is gone; something it depends on has changed in meaning since; a refusal it made has been answered; or a refusal that has force stands against a product it wrote. Whether a product changed in meaning is judged against the meaning the record was built on, or, for a product the record itself wrote, the meaning as it last wrote it: a cell never needs to run for its own write, and does for a later cell's write that matters.
 Why: These are all there is to going on and going back: a first run, a rerun because what it was built on changed or was lost, a rerun to judge again, a rerun because its product was judged wanting. Running again every cell after one that ran again was refused as the rule: a design redone need not mean an implementation redone when what the implementation depends on did not change. (Article 3)
 From: the owner, 2026-11-09
 
 ### decision dependencies-declared
-Each cell declares what its result depends on: an output of another cell, blocks of the item, or something outside the work such as main or the project's settings. What a cell reads without declaring it never makes it need to run. A dependency names a cell's output, not the branch as it stands, where that output is what the cell judged. Where a cell must keep to something outside as it was at a moment, a cell writes that moment down as a product and the other depends on the product: the cell that starts a work writes the commit of main its branch starts from, each time it runs; the cell that reads the tree depends on that, and the merge depends on main itself.
-Why: Whether a cell must run again is then worked out from what it was built on, by one rule and one kind of dependency. A review that depends on what the implementation handed in is not started over by every commit after it.
-Not: A second kind of dependency that keeps the version a cell first ran on: an item given a new dependency must have its research run again on the main it then starts from, which a kept version would never allow.
+Each cell declares what its result depends on: an output of another cell, blocks of the item, or something outside the work such as main or the project's settings. What a cell reads without declaring it never makes it need to run. A dependency names a cell's output, not the branch as it stands, where that output is what the cell judged. A work is not held to the main it started from: a cell that changes the code takes the latest main into the work's branch as its run starts, and main itself is depended on only at the merge, by the check that the work passes the full CI with the latest main taken in.
+Why: Whether a cell must run again is then worked out from what it was built on, by one rule and one kind of dependency. A review that depends on what the implementation handed in is not started over by every commit after it. A work held to one main from its start to its merge meets what others merged meanwhile only in the merge queue, where a conflict costs the most; taking main in at every run that changes the code shows it while the work is still being done.
+Not: A second kind of dependency that keeps the version a cell first ran on: an item given a new dependency must have its research run again on the main it then starts from, which a kept version would never allow. Nor every cell depending on main, which would run a whole work again at each merge of another.
 From: the owner, 2026-11-09
 
 ### decision meaning-told-by-the-writer
@@ -52,8 +54,13 @@ Not: A second agent to check the answer, at a round for every change.
 From: the owner, 2026-11-09
 
 ### decision refusal-runs-the-writers-again
-While a refusal stands and has force, every cell on the path that wrote a version of the product needs to run, the earliest first, and every run that writes the product is given who refused and why. A writer that reruns and leaves the product as it was is run again, up to its limit. A cell that leaves to a later cell a product it wrote must withdraw it, which the engine checks on its return; a withdrawal is a write, and not the product being gone. Grounds for disagreeing are a write too, and make the refuser judge again; grounds the refuser does not accept go, as a call of the writer's next run, to whoever the flow names to decide between them, and both depend on the ruling.
-Why: A refusal says only what is wrong, and the walk finds where the work goes: no way back says where to. A run that was not given a refusal cannot have answered it, so only a write after it was given ends it. That a cell which does not change what was refused is run again until its limit, and the work then put before the owner, is how an answer of the owner's is kept from being passed over. (principle reviews-can-be-disputed)
+While a refusal stands and has force, every cell on the path that wrote a version of the product needs to run, the earliest first, and every run that writes the product is given who refused and why. A refusal made while such a cell is running is put into that run's session at once and recorded as given to it; what the run wrote before then does not end the refusal. A refusal that no cell on the path can answer holds the work, for the owner, before the first cell that depends on the product. A writer that reruns and leaves the product as it was is run again, up to its limit. A cell that leaves to a later cell a product it wrote must withdraw it, which the engine checks on its return; a withdrawal is a write, and not the product being gone. Grounds for disagreeing are a write too, and make the refuser judge again; grounds the refuser does not accept go, as a call of the writer's next run, to whoever the flow names to decide between them, and both depend on the ruling.
+Why: A refusal says only what is wrong, and the walk finds where the work goes: no way back says where to. A run that was not given a refusal cannot have answered it, so only a write after it was given ends it; a refusal left for the next walk while its writer runs would have that run finish a product already refused, and pay for it a second time. A refusal nobody can answer, passed over, would let the work merge against it. That a cell which does not change what was refused is run again until its limit, and the work then put before the owner, is how an answer of the owner's is kept from being passed over. (principles reviews-can-be-disputed, nothing-passes-for-normal)
+From: the owner, 2026-11-09
+
+### decision fixing-is-running-again
+The flow has no cell for fixing and none for checking a fix. What was refused is fixed by the cell that wrote it running again, on what stands and with the refusal given to it; the fix is checked by the cell that refused running again, on what changed since it judged. A cell's task says how it works when it runs again.
+Why: A fix is the work of the first writing done as an increment, and a second check the work of the first on what changed. Cells of their own for the two needed their own rules for who fixes what a red CI at the merge found and who checks that fix, and a graph that could only go forward needed them to say where to go back to; the walk needs neither.
 From: the owner, 2026-11-09
 
 ### decision conditions-and-preconditions
@@ -88,8 +95,8 @@ Why: A new session is then the same kind of event as a changed answer, and needs
 From: the owner, 2026-11-09
 
 ### decision every-way-round-has-a-limit
-Each way round has a limit: how often a cell is run again for refusals, how often a return is sent back within a run, how many calls a run makes. A cell whose only reasons to run are refusals waits for the owner once it has been run again, while a refusal by the same cell or person stood against what it wrote, as often as its limit, counted since the owner last let it go on. At a limit the work waits for the owner, who lets it go on or cancels it. The counts are worked out from the records. The compiler refuses a flow in which a way round has no limit.
-Why: A way round without a limit spends without end and unseen. Counting by who refuses, and not by each refusal, bounds two cells that answer each other with a new version every time. (principle no-unseen-spending-loop)
+Each way round has a limit: how often a cell runs again with nothing before it changed, how often a return is sent back within a run, how many calls a run makes. What is before a cell is what people, the outside and the cells before it wrote of what it depends on. The run that a change before a cell calls for is no way round; every run of the cell after it is one, whatever its reason, and once they number its limit the cell waits for the owner, who lets it go on, the count starting anew, or cancels the work. The counts are worked out from the records. The compiler refuses a flow in which a way round has no limit.
+Why: A way round without a limit spends without end and unseen. One count of a cell's runs, and not one for each kind of reason or each refuser, bounds what the kinds do together: two cells that answer each other with a new version every time, a writer whose refuser's output it depends on, and a cell that runs again for a product it never writes back. (principle no-unseen-spending-loop)
 From: the owner, 2026-11-09
 
 ### decision changed-flow-walks-the-records
@@ -110,7 +117,7 @@ Why: What is in the definition the owner can read on the chart and the compiler 
 From: the owner, 2026-11-09
 
 ### decision one-loop-decides
-One loop takes what happens, in order: it adds to the records, and walks each work that has not ended, is not paused and has no cell running: a round under way is not interrupted when what it depends on changes, and what it hands in is then judged by the next walk. The runs of different works go on side by side. The deciding code holds no lock.
+One loop takes what happens, in order: it adds to the records, and walks each work that has not ended, is not paused and has no cell running: a round under way is not interrupted when what it depends on changes, and what it hands in is then judged by the next walk. For a work with a cell running, the deciding code says only which refusals to put into that run. The runs of different works go on side by side. The deciding code holds no lock.
 Why: Decisions taken one after another are the same every time the same things happen in the same order, which is what lets a history be simulated and run again. (principle simulated-histories)
 From: the owner, 2026-11-09
 
