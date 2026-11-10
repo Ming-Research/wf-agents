@@ -38,7 +38,7 @@ fn a_file_made_before_is_opened_with_what_it_holds() {
         let mut store = db.open();
         let work = first_work(&mut store);
         store
-            .add_item("second", &[ItemNumber(1)], Time(START + 1))
+            .add("second", &[ItemNumber(1)], "judged", Time(START + 1), &Work::default())
             .expect("the item is added");
         store.save(work, &d.work).expect("the work is saved");
     }
@@ -46,7 +46,7 @@ fn a_file_made_before_is_opened_with_what_it_holds() {
     let store = db.open();
     assert_eq!(dump(&db.path), before, "opening changed the database");
     assert_eq!(store.items().expect("the items").len(), 2);
-    assert_eq!(store.works().expect("the works").len(), 1);
+    assert_eq!(store.works().expect("the works").len(), 2);
     assert_eq!(store.load(WorkNumber(1)), Ok(d.work));
 }
 
