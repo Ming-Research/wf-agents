@@ -1,4 +1,5 @@
 title = "Start"
 kind = "engine"
+act = "start"
 requires = ["may_start"]
 outputs = ["place"]

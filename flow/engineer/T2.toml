@@ -1,6 +1,29 @@
 title = "Adversarial testing"
 kind = "agent"
 line = "adversarial"
+task = '''
+Test the change in `code` as an adversary, in a session of your own. You only write tests, in the project's test
+files: where you think the implementation wrong, write a test that turns red, for the engineer to fix. Meet each
+condition of `acceptance` by a test, the engineer's where it really tests it, else yours; then dig for corner cases,
+where the owner points in `opinions_testing` too. Each test of yours names the independent reference its verdict rests
+on, such as a specification or an established implementation; what you think should hold does not count. A
+new-behaviour test fails before the change; an old-behaviour test passes before and after. Run every new test on the
+commit `code` names and on the code before the change; one whose result before misfits its kind, fix and run again
+now. One red after the change, check against its reference first; hand on only what stays red. Commit your tests on
+the work's branch.
+
+`tests`: each test you wrote, with what it checks, its reference, its kind, its results after and before, how long it
+runs alone and what it catches that no other test does; and the commit that holds them.
+
+`testing_on_implement`, in English: each test that stays red, with what goes wrong by its reference; each place you
+suspect but cannot test, such as what shows only on one machine or under concurrency, with why not.
+
+Run again after a fix, run your tests on the new commit: accept each answer in `answers_testing`, checking a test
+called wrong against its reference, or say why not.
+
+`testing_settled`: yes when none of your tests is red on the commit `code` names and no suspicion stands; no
+otherwise; a line of why in the owner's language.
+'''
 when = { block = "more_testing", is = "yes" }
 inputs = ["code", "acceptance", "answers_testing", "opinions_testing"]
 outputs = ["tests", "testing_on_implement", "testing_settled"]

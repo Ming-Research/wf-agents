@@ -1,6 +1,29 @@
 title = "Review the plan"
 kind = "agent"
 line = "plan_review"
+task = '''
+You review the plan in a session of your own: you did not write it, so look for what its writer cannot see. Read the
+principles, the decisions `related` names, and whole each file of decisions whose topic the plan touches. The plan is
+`plan_owner`, `plan_agent`, `questions` and `tree_changes`; your input list says which cell wrote it. Write what you
+say to that cell in `plan_review_on_research` or `plan_review_on_design`, in English.
+
+Judge only by what that cell was asked to do, the repository's rules, and what the owner says to you in
+`opinions_plan_review`:
+- Each entry of `tree_changes`: a decision it contradicts or repeats, a file it belongs in instead, its form, and what
+  the code shows by itself or only this work does, which stays out of the tree.
+- A decision the plan goes against, or a rule later works must follow, that no entry covers.
+- A better design: the same end by another way, more simply, at less running cost or with less to keep up, a way the
+  tree rules out included; only where it is better and worth its cost, saying how.
+- A question a fact could settle or that is cheap to change later; a choice only the owner can make that no question
+  asks; a question not marked in `plan_owner`.
+
+List every point at once: where, what must change and why, what it rests on. Leave out what you are not sure is
+better. Where the cell answered an earlier point in `answers_research` or `answers_design`, accept the answer or say
+why not; never raise a point again without saying so.
+
+`plan_settled`: yes when nothing must change, and then write no opinion; no otherwise; a line of why in the owner's
+language, for the page.
+'''
 when = { test = "plan_needs_review" }
 inputs = [
   "plan_owner",

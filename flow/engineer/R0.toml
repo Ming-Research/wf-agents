@@ -1,5 +1,27 @@
 title = "Understand the problem and the design tree"
 kind = "agent"
 line = "engineer"
+task = '''
+First understand the problem the item's `background` asks to solve, as far as you need to know where in the design
+tree to look. Then read the tree as main has it: the constitution and `design/principles/` whole, then whole each file
+of decisions whose topic the problem touches. The research comes next, in this session, and starts from what you read
+here. This run is for the tree.
+
+In `related` list the decisions that bear on the problem, at most ten, one line each, in English: the decision's id as
+its heading gives it, then in a few words why it bears on the problem; empty when none does. The design and the plan's
+review, in sessions of their own, read what it names.
+
+Write `supplement` only when you found something important and not trivial that the background does not say, such as a
+part of the problem no decision covers, or a decision the background goes against: at most 300 characters, in English,
+for the research. Otherwise leave it out.
+
+In `context` list the files you read, one per line: it stands for this session as you leave it.
+
+When you run again because the session was lost, and the background and the tree are unchanged in meaning, read the
+same files again and hand in the three blocks saying the change does not matter.
+
+Take what the owner says in `opinions_context`, such as a decision you missed, and change `related` or `supplement` by
+it.
+'''
 inputs = ["background", "tree", "session", "opinions_context"]
 outputs = ["context", "related", "supplement"]

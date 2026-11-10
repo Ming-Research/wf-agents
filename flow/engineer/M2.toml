@@ -1,5 +1,6 @@
 title = "Merge"
 kind = "engine"
+act = "merge"
 requires = ["checked"]
 inputs = ["checked"]
 outputs = ["merged"]

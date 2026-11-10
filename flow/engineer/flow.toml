@@ -26,6 +26,12 @@ kind = "any"
 reads = ["needs_design", "changes_tree"]
 is = "yes"
 
+[tests.settled]
+says = "No cell that judged the work says it is not settled"
+kind = "none_standing"
+reads = ["plan_settled", "review_settled", "testing_settled"]
+is = "no"
+
 [tests.checked]
 says = "The check before the merge passed"
 kind = "all"
@@ -68,6 +74,7 @@ shown = true
 values = ["yes", "no"]
 [blocks.plan_settled]
 values = ["yes", "no"]
+people = true
 shown = true
 
 # The change.
@@ -77,10 +84,12 @@ shown = true
 values = ["yes", "no"]
 [blocks.review_settled]
 values = ["yes", "no"]
+people = true
 shown = true
 [blocks.tests]
 [blocks.testing_settled]
 values = ["yes", "no"]
+people = true
 shown = true
 [blocks.checked]
 values = ["yes", "no"]
