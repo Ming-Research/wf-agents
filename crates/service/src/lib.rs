@@ -13,6 +13,11 @@
 //! a tool answers. A call for a person, and a run at a limit, are carried out by nobody: they wait for the owner's
 //! answer, which comes as an act. A withdrawn call of a person is answered by the loop itself.
 //!
+//! A carrier that cannot carry a round out says the round failed: the loop pauses the work, as the owner's pause does,
+//! and says why on the standard error; the round stays under way in the records, and is given again when the owner
+//! lets the work on. A carrier may also say, as a round ends, that its work is to wait for the owner, as when it has
+//! spent more than its budget: the loop pauses it the same way.
+//!
 //! - `carriers`: the interfaces, what each is given, and how it says what came of it.
 //! - `clock`: the clock, read by the loop alone.
 //! - [`script`]: what the test carriers do, as a TOML file says.
@@ -25,10 +30,10 @@ pub mod script;
 mod scripted;
 mod words;
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
-use decide::{BlockId, CallId, CellId, Outsider};
+use decide::{BlockId, CallId, CellId, Decision, Outsider, RunId};
 use driver::{Driver, Failed, NewItem, Todo};
 use engine::{Effect, Event};
 use flow::{CellSpec, Compiled, Kind};
@@ -57,12 +62,27 @@ pub struct Service {
     /// channel never closes while the loop runs.
     to: mpsc::UnboundedSender<Message>,
     changed: broadcast::Sender<Changed>,
+    /// The rounds that a carrier said failed in this process, by work, run and number: each is under way in the
+    /// records, and no carrier holds it, so that it is given again when its work is let on. Nothing of a work is
+    /// lost with it when the process stops: started again, the process hands out every round under way.
+    failed: BTreeSet<(WorkNumber, RunId, usize)>,
 }
 
 /// What the loop takes, one at a time, in the order it came.
 pub enum Message {
     /// Something happened to a work: what came of a round or a call, said by what carried it out.
     Happened { work: WorkNumber, event: Event },
+    /// The round of this number of the run could not be carried out, for this reason, said by what carried it out:
+    /// the work is paused, and the round is given again when the owner lets the work on.
+    Failed {
+        work: WorkNumber,
+        run: RunId,
+        number: usize,
+        why: String,
+    },
+    /// What carried out a round of the work found, as the round ended, that the work is to wait for the owner, for
+    /// this reason: the work is paused.
+    Hold { work: WorkNumber, why: String },
     /// The owner acts on a work.
     Act {
         work: WorkNumber,
@@ -185,6 +205,7 @@ impl Service {
             clock,
             to,
             changed,
+            failed: BTreeSet::new(),
         };
         service.hand(now, todos)?;
         Ok((service, Inbox(inbox)))
@@ -230,11 +251,30 @@ impl Service {
                     .map_err(|failed| answer(work, failed))?;
                 self.hand(now, todos)?;
             }
+            Message::Failed { work, run, number, why } => {
+                if self.under_way(work, run, number) {
+                    let cell = self.cell_of(work, run).unwrap_or_default();
+                    eprintln!(
+                        "Work {} is paused: round {number} of run {} of the cell {cell} failed: {why}",
+                        work.0, run.0
+                    );
+                    self.failed.insert((work, run, number));
+                    self.pause(work)?;
+                }
+            }
+            Message::Hold { work, why } => {
+                eprintln!("Work {} is paused: {why}", work.0);
+                self.pause(work)?;
+            }
             Message::Act { work, act, reply } => {
                 let now = self.now()?;
+                let resume = act == Act::Resume;
                 match self.act(now, work, act) {
-                    Ok(todos) => {
+                    Ok(mut todos) => {
                         let _ = reply.send(Ok(()));
+                        if resume {
+                            todos.extend(self.failed_rounds(work));
+                        }
                         self.hand(now, todos)?;
                     }
                     Err(refusal) => {
@@ -273,6 +313,61 @@ impl Service {
 
     fn now(&self) -> Result<Time, Fault> {
         self.clock.now().map_err(Fault::Clock)
+    }
+
+    /// Pauses the work, as the owner's pause does, unless it is paused already or has ended.
+    fn pause(&mut self, work: WorkNumber) -> Result<(), Fault> {
+        let Some(kept) = self.driver.work(work) else {
+            return Ok(());
+        };
+        let ended = matches!(
+            self.driver.view(work).map(|view| view.decision),
+            Some(Decision::Ended(_))
+        );
+        if ended || decide::paused(&kept.work.records) {
+            return Ok(());
+        }
+        let now = self.now()?;
+        let todos = (self.driver.happened(now, work, Event::Paused)).map_err(|failed| answer(work, failed))?;
+        self.hand(now, todos)
+    }
+
+    /// Whether the round of this number of the run is under way: it began, it has not ended, and its run is open.
+    fn under_way(&self, work: WorkNumber, run: RunId, number: usize) -> bool {
+        let Some(kept) = self.driver.work(work) else {
+            return false;
+        };
+        let r = &kept.work.records;
+        let began = r.rounds.iter().filter(|e| e.run == run).count();
+        let ended = r.returned.iter().filter(|e| e.run == run).count();
+        let closed = r.finished.iter().any(|f| f.run == run) || r.abandoned.iter().any(|a| a.run == run);
+        began == number && ended < number && !closed
+    }
+
+    /// The cell of the run.
+    fn cell_of(&self, work: WorkNumber, run: RunId) -> Option<String> {
+        let kept = self.driver.work(work)?;
+        let started = kept.work.records.started.iter().find(|s| s.run == run)?;
+        Some(started.cell.to_string())
+    }
+
+    /// The rounds of the work that failed and are still to be done, to be given again now that the work is let on:
+    /// each as the driver gives what is to be done for it. Those given are forgotten here, and so are those no
+    /// longer to be done.
+    fn failed_rounds(&mut self, work: WorkNumber) -> Vec<Todo> {
+        let pending = self.driver.pending();
+        let ours: Vec<_> = self.failed.iter().filter(|(w, _, _)| *w == work).copied().collect();
+        let mut todos = Vec::new();
+        for key in ours {
+            self.failed.remove(&key);
+            let (_, run, number) = key;
+            let todo = (pending.iter()).find(|todo| {
+                todo.work == work
+                    && matches!(&todo.effect, Effect::Round { run: r, number: n, .. } if *r == run && *n == number)
+            });
+            todos.extend(todo.cloned());
+        }
+        todos
     }
 
     /// The owner's act as what happened to the work, given to the driver.
@@ -353,7 +448,7 @@ impl Service {
                 given,
             } => {
                 let (round, kind) = round(*run, cell, *number, given.clone())?;
-                let reply = RoundReply::new(work, *run, self.to.clone());
+                let reply = RoundReply::new(work, *run, *number, self.to.clone());
                 self.rounds(kind).give(round, reply);
             }
             Effect::Stop { run } => {
@@ -362,7 +457,7 @@ impl Service {
                 let number = records.rounds.iter().filter(|r| r.run == *run).count();
                 let given = (kept.work.given.get(&(*run, number))).ok_or_else(|| stray(Missing::Given(*run)))?;
                 let (round, kind) = round(*run, &started.cell, number, given.clone())?;
-                let reply = RoundReply::new(work, *run, self.to.clone());
+                let reply = RoundReply::new(work, *run, number, self.to.clone());
                 self.rounds(kind).stop(round, reply);
             }
             Effect::Call {
