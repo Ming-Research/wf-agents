@@ -123,15 +123,19 @@ fn driver_fault(fault: &driver::Fault) -> String {
         F::Store(fault) => format!("the store failed: {}", store_fault_words(fault)),
         F::FlowTwice(flow) => format!("two of the flows are named {flow}"),
         F::NotDependencies { flow, block } => format!(
-            "the block {block} of the flow {flow} is written by the source {}, but is no choice of {} and {}",
+            "the block {block} of the flow {flow} is written by the source {}, but is no choice of {} and {} that neither people nor a cell write",
             driver::DEPENDENCIES,
             driver::WAITING,
             driver::MERGED,
         ),
+        F::DependenciesTwice { flow } => format!(
+            "more than one block of the flow {flow} is written by the source {}",
+            driver::DEPENDENCIES
+        ),
         F::NoSuchFlow { work, flow } => format!("work {} runs on the flow {flow}, which was not given", work.0),
         F::NotOneWork(item) => format!("the store holds item {} without exactly one work", item.0),
-        F::OwnWriteRefused { work, refused } => format!(
-            "what the driver itself wrote for work {} was refused: {}",
+        F::Refused { work, refused } => format!(
+            "what the driver itself gave the engine's loop for work {} was refused: {}",
             work.0,
             refused_words(refused)
         ),

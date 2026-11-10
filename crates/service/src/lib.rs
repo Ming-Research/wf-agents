@@ -249,9 +249,12 @@ impl Service {
             Message::Add { item, reply } => {
                 let now = self.now()?;
                 match self.driver.add(now, item) {
-                    Ok(numbers) => {
+                    Ok((item, work, todos)) => {
                         items = true;
-                        let _ = reply.send(Ok(numbers));
+                        let _ = reply.send(Ok((item, work)));
+                        // The work is added paused, so nothing is to be done yet; whatever the driver gives is handed
+                        // out all the same.
+                        self.hand(now, todos)?;
                     }
                     Err(failed) => {
                         let refusal = Refusal::Failed(failed);
