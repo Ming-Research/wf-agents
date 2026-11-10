@@ -162,7 +162,9 @@ describe('the panel of the item selected', () => {
     const paused = draw(4);
     expect(button(paused.root, 'Pause')).toBeUndefined();
     await act(async () => button(paused.root, 'Let it on').click());
-    const ask = vi.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValueOnce(true);
+    // The owner says no to the first confirm, yes to the second; happy-dom has no confirm of its own.
+    const ask = vi.fn(() => false).mockReturnValueOnce(false).mockReturnValueOnce(true);
+    Object.defineProperty(window, 'confirm', { value: ask, configurable: true });
     await act(async () => button(paused.root, 'Cancel').click());
     await act(async () => button(paused.root, 'Cancel').click());
     expect(ask).toHaveBeenCalledTimes(2);
