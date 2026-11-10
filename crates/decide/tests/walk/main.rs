@@ -23,8 +23,8 @@ mod stale;
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoned, BlockId, CallId, Cause, Cell, Condition, Decision, Done, End, Flow, FlowFault, Outcome, RecordFault,
-    Returned, Round, RunId, Seq, Stale, Waited, Who, Write, Written,
+    Abandoned, Abandoning, BlockId, CallId, Cause, Cell, Condition, Decision, Done, End, Flow, FlowFault, Outcome,
+    RecordFault, Returned, Round, RunId, Seq, Waited, Who, Write, Written,
 };
 use support::Says::{DoesNotMatter, Matters, Value};
 use support::{World, cell, gate, merge_word, resting};
@@ -62,7 +62,7 @@ fn busy(cell: &str, run: RunId) -> Decision {
     Decision::Busy { cell: cell.into(), run }
 }
 
-fn abandon(cell: &str, run: RunId, because: Stale) -> Decision {
+fn abandon(cell: &str, run: RunId, because: Abandoning) -> Decision {
     Decision::Abandon {
         cell: cell.into(),
         run,
@@ -74,8 +74,8 @@ fn wait(at: &str, on: Vec<Waited>) -> Decision {
     Decision::Wait { at: at.into(), on }
 }
 
-fn outdated(block: &str) -> Stale {
-    Stale::Outdated { block: block.into() }
+fn outdated(block: &str) -> Abandoning {
+    Abandoning::Outdated { block: block.into() }
 }
 
 fn precondition(test: &str, who: Who) -> Waited {

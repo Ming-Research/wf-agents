@@ -32,7 +32,7 @@ fn a_run_at_rest_of_a_cell_taken_out_of_the_flow_is_abandoned() {
     let b = w.start("b");
     w.returns("b");
     w.install(vec![cell("a", &[], &[]), gate()]);
-    assert_eq!(w.decide(), abandon("b", b, Stale::NoLongerApplies));
+    assert_eq!(w.decide(), abandon("b", b, Abandoning::NoLongerApplies));
     w.abandon();
     assert_eq!(w.decide(), resting());
 }
