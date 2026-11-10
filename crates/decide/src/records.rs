@@ -1,58 +1,96 @@
 //! A work's records, as the deciding code is given them: what ran, what was written, who refused what.
 //!
-//! They are only added to (principle state-from-records). Nothing here says where the work stands: that is walked.
+//! Every list is only added to, and each entry carries its place in the order of what happened (principle
+//! state-from-records). Nothing here says where the work stands or how a run stands: both are worked out.
 
 use std::collections::BTreeMap;
 
 use crate::flow::{CellId, OutputName, ProductId, TestName};
 
 /// A place in the order in which things were recorded: the larger came later. The deciding code is given no clock.
-pub type Seq = u64;
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Seq(pub u64);
 
 /// The number of a run within its work.
-pub type RunId = u64;
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RunId(pub u64);
 
-/// Everything recorded of one work, with the two switches that hold it from outside.
-#[derive(Clone, Debug, Default)]
+/// The number of a refusal within its work.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RefusalId(pub u64);
+
+/// The number of a call within its work.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CallId(pub u64);
+
+/// Everything recorded of one work.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Records {
-    /// The runs, in the order they started.
-    pub runs: Vec<Run>,
-    /// Every write of every product, in the order written.
+    /// Each run, as it started.
+    pub started: Vec<Started>,
+    /// Each run that handed in a return which passed everything required of it.
+    pub finished: Vec<Finished>,
+    /// Each run that was abandoned while it waited for a person; it counts for nothing.
+    pub abandoned: Vec<Abandoned>,
+    /// Each time a run came to wait at a call for a person.
+    pub asked: Vec<Asked>,
+    /// Each such call the person answered.
+    pub answered: Vec<Answered>,
+    /// Every write of every product.
     pub versions: Vec<Version>,
-    /// Every refusal, in the order made.
+    /// Every refusal.
     pub refusals: Vec<Refusal>,
     /// Each time the owner let a cell go on after it reached its limit.
     pub let_go: Vec<LetGo>,
-    /// The item was cancelled.
-    pub cancelled: bool,
-    /// The work is paused.
-    pub paused: bool,
+    /// Each time the work was paused or let on again.
+    pub pauses: Vec<Pause>,
+    /// When the item was cancelled, if it was.
+    pub cancelled: Option<Seq>,
 }
 
-/// One execution of a cell.
-#[derive(Clone, Debug)]
-pub struct Run {
-    pub id: RunId,
+/// A run as it started.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Started {
+    pub run: RunId,
     pub cell: CellId,
-    pub started: Seq,
-    pub state: RunState,
+    pub at: Seq,
     /// The version of each thing the run was built on.
     pub basis: BTreeMap<ProductId, Built>,
-    /// The outputs a condition may read, once the run has finished.
+    /// The refusals the run was given: those that were among its reasons to run.
+    pub given: Vec<RefusalId>,
+}
+
+/// A run's end.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Finished {
+    pub run: RunId,
+    pub at: Seq,
+    /// The outputs a condition may read.
     pub answers: BTreeMap<OutputName, String>,
 }
 
-/// How a run stands.
+/// A run abandoned.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum RunState {
-    /// An agent's round or a call that needs no person is under way.
-    Running,
-    /// The run waits at a call for a person; `answered` once that person has given what it waits for.
-    Waiting { call: String, who: Who, answered: bool },
-    /// The run handed in a return that passed everything required of it.
-    Finished { at: Seq },
-    /// The run was abandoned while it waited for a person; it counts for nothing.
-    Abandoned { at: Seq },
+pub struct Abandoned {
+    pub run: RunId,
+    pub at: Seq,
+}
+
+/// A run coming to wait at a call for a person.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Asked {
+    pub call: CallId,
+    pub run: RunId,
+    pub what: String,
+    pub who: Who,
+    pub at: Seq,
+}
+
+/// The person's answer to a call.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Answered {
+    pub call: CallId,
+    pub at: Seq,
 }
 
 /// A version of a product a run was built on.
@@ -63,7 +101,7 @@ pub struct Built {
 }
 
 /// One write of a product.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Version {
     pub product: ProductId,
     /// Changes at every write.
@@ -72,12 +110,12 @@ pub struct Version {
     pub meaning: u32,
     pub by: Writer,
     pub at: Seq,
-    /// The product no longer exists, as when the session that held it was lost.
+    /// The product no longer exists, as when the session that held it was lost. Such an entry is no write.
     pub gone: bool,
 }
 
 /// Who wrote a version.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Writer {
     Run(RunId),
     Person,
@@ -85,11 +123,12 @@ pub enum Writer {
 }
 
 /// A "no" to one version of a product.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Refusal {
+    pub id: RefusalId,
     pub by: Refuser,
     pub product: ProductId,
-    /// The content version refused: the refusal stands while it is the current one.
+    /// The content version refused.
     pub content: u32,
     pub why: String,
     pub at: Seq,
@@ -110,45 +149,17 @@ pub enum Who {
 }
 
 /// The owner letting a cell go on after it reached its limit: its runs before this are no longer counted.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LetGo {
     pub cell: CellId,
     pub at: Seq,
 }
 
-impl Records {
-    /// The product as it stands: its latest version.
-    pub fn current(&self, product: &ProductId) -> Option<&Version> {
-        self.versions.iter().rev().find(|v| &v.product == product)
-    }
-
-    /// The run of this number.
-    pub fn run(&self, id: RunId) -> Option<&Run> {
-        self.runs.iter().find(|r| r.id == id)
-    }
-
-    /// A cell's record: its latest finished run.
-    pub fn record(&self, cell: &CellId) -> Option<&Run> {
-        self.runs
-            .iter()
-            .rev()
-            .find(|r| &r.cell == cell && matches!(r.state, RunState::Finished { .. }))
-    }
-
-    /// The cell's run that waits at a call for a person, if it has one.
-    pub fn waiting(&self, cell: &CellId) -> Option<&Run> {
-        self.runs
-            .iter()
-            .rev()
-            .find(|r| &r.cell == cell && matches!(r.state, RunState::Waiting { .. }))
-    }
-
-    /// Whether a run of this cell wrote a version of the product.
-    pub fn wrote(&self, cell: &CellId, product: &ProductId) -> bool {
-        self.versions.iter().any(|v| {
-            &v.product == product && matches!(&v.by, Writer::Run(id) if self.run(*id).is_some_and(|r| &r.cell == cell))
-        })
-    }
+/// The work paused, or let on again.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Pause {
+    pub paused: bool,
+    pub at: Seq,
 }
 
 /// What a named test of the records comes to.

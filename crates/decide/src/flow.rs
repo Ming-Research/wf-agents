@@ -52,23 +52,71 @@ name!(
 );
 
 /// The cells of a flow, in the order the walk takes them.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Flow {
-    pub cells: Vec<Cell>,
+    cells: Vec<Cell>,
+}
+
+/// Why cells do not make a flow.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FlowFault {
+    /// A flow has at least one cell.
+    Empty,
+    /// Two cells have this name.
+    Twice(CellId),
+    /// The cell's condition reads the answer of a cell that is not before it.
+    ConditionNotBefore { cell: CellId, by: CellId },
+    /// The last cell has a condition: a work ends when its last cell has a record, so the last cell is always on the
+    /// path.
+    LastHasCondition(CellId),
 }
 
 impl Flow {
+    /// The flow of these cells, in this order.
+    pub fn new(cells: Vec<Cell>) -> Result<Self, FlowFault> {
+        let Some(last) = cells.last() else {
+            return Err(FlowFault::Empty);
+        };
+        if last.applies.is_some() {
+            return Err(FlowFault::LastHasCondition(last.id.clone()));
+        }
+        for (i, cell) in cells.iter().enumerate() {
+            if cells[..i].iter().any(|c| c.id == cell.id) {
+                return Err(FlowFault::Twice(cell.id.clone()));
+            }
+            if let Some(Condition::Answered { by, .. }) = &cell.applies
+                && !cells[..i].iter().any(|c| &c.id == by)
+            {
+                return Err(FlowFault::ConditionNotBefore {
+                    cell: cell.id.clone(),
+                    by: by.clone(),
+                });
+            }
+        }
+        Ok(Self { cells })
+    }
+
+    /// The cells, in the order the walk takes them.
+    pub fn cells(&self) -> &[Cell] {
+        &self.cells
+    }
+
     /// The cell of this name.
     pub fn cell(&self, id: &CellId) -> Option<&Cell> {
         self.cells.iter().find(|c| &c.id == id)
     }
+
+    /// Where the cell of this name stands in the order.
+    pub fn place(&self, id: &CellId) -> Option<usize> {
+        self.cells.iter().position(|c| &c.id == id)
+    }
 }
 
 /// A cell, as far as the walk reads it.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Cell {
     pub id: CellId,
-    /// When the cell applies; with none it always does. A cell that does not apply is skipped.
+    /// When the cell is on the path; with none it always is. A cell off the path is skipped.
     pub applies: Option<Condition>,
     /// The preconditions: while one does not hold, the work waits before this cell.
     pub requires: Vec<TestName>,
@@ -76,13 +124,14 @@ pub struct Cell {
     pub follows: Vec<ProductId>,
     /// What the cell writes.
     pub writes: Vec<ProductId>,
-    /// How often the cell is run again for one refusal before the work waits for the owner.
+    /// How often the cell may run again without anything before it having changed, before the work waits for the
+    /// owner.
     pub limit: u32,
 }
 
 impl Cell {
-    /// A cell of this name that always applies, depends on nothing, writes nothing and is run again three times for
-    /// one refusal: what a definition starts from.
+    /// A cell of this name that is always on the path, depends on nothing, writes nothing and may run again three
+    /// times without anything before it having changed: what a definition starts from.
     pub fn new(id: &str) -> Self {
         Self {
             id: id.into(),
@@ -95,10 +144,11 @@ impl Cell {
     }
 }
 
-/// When a cell applies.
+/// When a cell is on the path.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Condition {
-    /// The cell `by`, which stands before it, answered `is` in its output `output` (principle yes-no-forks).
+    /// The cell `by`, which stands before it and is on the path, answered `is` in its output `output` (principle
+    /// yes-no-forks).
     Answered { by: CellId, output: OutputName, is: String },
     /// The named test of the records holds.
     Test(TestName),

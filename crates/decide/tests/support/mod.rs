@@ -1,11 +1,12 @@
-//! A work in memory, for the tests of the walk: it keeps the records as an engine would, and does to them what each
-//! decision asks.
+//! A work in memory, for the tests of the walk: it keeps the records as an engine would, only adding to them, and does
+//! to them what each decision asks.
 
 use std::collections::BTreeMap;
 
 use decide::{
-    Built, Cell, CellId, Decision, Flow, LetGo, Outcome, ProductId, Records, Refusal, Refuser, Run, RunId, RunState,
-    Seq, TestName, Tests, Version, Who, Writer, decide,
+    Abandoned, Answered, Asked, CallId, Cause, Cell, CellId, Decision, Finished, Flow, LetGo, Outcome, Pause,
+    ProductId, Records, Refusal, RefusalId, Refuser, RunId, Seq, Started, TestName, Tests, Version, Who, Writer,
+    decide,
 };
 
 /// The named tests, each holding unless the test of the walk set it otherwise.
@@ -29,27 +30,33 @@ pub struct World {
     pub flow: Flow,
     pub records: Records,
     pub named: Named,
-    seq: Seq,
-    runs: RunId,
+    seq: u64,
+    ids: u64,
+}
+
+/// The merge a work rests at when nothing else is to be done: it waits for the owner's word.
+pub fn gate() -> Cell {
+    let mut merge = Cell::new("merge");
+    merge.requires = vec!["the merge may go".into()];
+    merge
 }
 
 impl World {
     pub fn new(cells: Vec<Cell>) -> Self {
+        let flow = Flow::new(cells).expect("the cells make a flow");
         Self {
-            flow: Flow { cells },
+            flow,
             records: Records::default(),
             named: Named::default(),
             seq: 0,
-            runs: 0,
+            ids: 0,
         }
     }
 
     /// A work whose last cell is a merge that waits for the owner: when nothing else is to be done the work rests
     /// there, and the test can go on changing things.
     pub fn with_gate(mut cells: Vec<Cell>) -> Self {
-        let mut merge = Cell::new("merge");
-        merge.requires = vec!["the merge may go".into()];
-        cells.push(merge);
+        cells.push(gate());
         let mut w = Self::new(cells);
         w.set(
             "the merge may go",
@@ -68,7 +75,12 @@ impl World {
 
     fn tick(&mut self) -> Seq {
         self.seq += 1;
-        self.seq
+        Seq(self.seq)
+    }
+
+    fn id(&mut self) -> u64 {
+        self.ids += 1;
+        self.ids
     }
 
     pub fn decide(&self) -> Decision {
@@ -83,50 +95,76 @@ impl World {
         }
     }
 
+    /// Why the walk says to run a cell, when it says to run one.
+    pub fn because(&self) -> Vec<Cause> {
+        match self.decide() {
+            Decision::Run { because, .. } => because,
+            other => panic!("the walk runs nothing: {other:?}"),
+        }
+    }
+
     /// Sets what a named test comes to.
     pub fn set(&mut self, test: &str, outcome: Outcome) {
         self.named.0.insert(test.into(), outcome);
     }
 
-    /// Starts the cell, which the walk must have said to run: the run is built on what stands now.
+    /// Starts the cell, which the walk must have said to run, built on what the walk says and given what it says.
     pub fn start(&mut self, cell: &str) -> RunId {
-        assert_eq!(
-            self.runs_next().as_deref(),
-            Some(cell),
-            "the walk says {:?}",
-            self.decide()
-        );
-        let id: CellId = cell.into();
-        let c = self.flow.cell(&id).expect("the cell is in the flow").clone();
-        let mut basis = BTreeMap::new();
-        for p in c.follows.iter() {
-            if let Some(v) = self.records.current(p) {
-                basis.insert(
-                    p.clone(),
-                    Built {
-                        content: v.content,
-                        meaning: v.meaning,
-                    },
-                );
-            }
-        }
-        self.runs += 1;
-        let started = self.tick();
-        self.records.runs.push(Run {
-            id: self.runs,
-            cell: id,
-            started,
-            state: RunState::Running,
+        let Decision::Run {
+            cell: next,
             basis,
-            answers: BTreeMap::new(),
+            given,
+            ..
+        } = self.decide()
+        else {
+            panic!("the walk does not run {cell}: {:?}", self.decide())
+        };
+        assert_eq!(next.as_str(), cell, "the walk runs another cell");
+        let run = RunId(self.id());
+        let at = self.tick();
+        self.records.started.push(Started {
+            run,
+            cell: next,
+            at,
+            basis,
+            given,
         });
-        self.runs
+        run
+    }
+
+    /// The run of the cell that has started and neither finished nor been abandoned.
+    fn open(&self, cell: &str) -> RunId {
+        let id: CellId = cell.into();
+        self.records
+            .started
+            .iter()
+            .rev()
+            .find(|s| {
+                s.cell == id
+                    && !self.records.finished.iter().any(|f| f.run == s.run)
+                    && !self.records.abandoned.iter().any(|a| a.run == s.run)
+            })
+            .expect("the cell has a run under way")
+            .run
+    }
+
+    /// A cell's record: its latest finished run.
+    pub fn record(&self, cell: &str) -> RunId {
+        let id: CellId = cell.into();
+        self.records
+            .finished
+            .iter()
+            .rev()
+            .find(|f| self.records.started.iter().any(|s| s.run == f.run && s.cell == id))
+            .expect("the cell has a record")
+            .run
     }
 
     /// Writes a version of the product: its content changes, and its meaning when the write matters or is the first.
     fn write(&mut self, product: &str, by: Writer, write: Write) {
         let id: ProductId = product.into();
-        let (content, meaning) = match self.records.current(&id) {
+        let last = self.records.versions.iter().rev().find(|v| v.product == id);
+        let (content, meaning) = match last {
             Some(v) => (v.content + 1, v.meaning + u32::from(write == Write::Matters)),
             None => (1, 1),
         };
@@ -141,23 +179,15 @@ impl World {
         });
     }
 
-    /// Finishes the cell's running run with these answers and these writes.
+    /// Finishes the cell's run with these answers and these writes.
     pub fn finish(&mut self, cell: &str, answers: &[(&str, &str)], writes: &[(&str, Write)]) {
-        let id: CellId = cell.into();
-        let run = self
-            .records
-            .runs
-            .iter()
-            .position(|r| r.cell == id && r.state == RunState::Running)
-            .expect("the cell has a running run");
-        let run_id = self.records.runs[run].id;
+        let run = self.open(cell);
         for (product, write) in writes {
-            self.write(product, Writer::Run(run_id), *write);
+            self.write(product, Writer::Run(run), *write);
         }
         let at = self.tick();
-        let r = &mut self.records.runs[run];
-        r.state = RunState::Finished { at };
-        r.answers = answers.iter().map(|(k, v)| ((*k).into(), (*v).to_string())).collect();
+        let answers = answers.iter().map(|(k, v)| ((*k).into(), (*v).to_string())).collect();
+        self.records.finished.push(Finished { run, at, answers });
     }
 
     /// Starts and finishes the cell.
@@ -167,27 +197,37 @@ impl World {
     }
 
     /// The cell's record refuses the product as it stands.
-    pub fn refuse(&mut self, cell: &str, product: &str, why: &str) {
-        let by = self.records.record(&cell.into()).expect("the cell has a record").id;
-        self.refusal(Refuser::Run(by), product, why);
+    pub fn refuse(&mut self, cell: &str, product: &str, why: &str) -> RefusalId {
+        let by = Refuser::Run(self.record(cell));
+        self.refusal(by, product, why)
     }
 
     /// The owner refuses the product as it stands.
-    pub fn owner_refuses(&mut self, product: &str, why: &str) {
-        self.refusal(Refuser::Person(Who::Owner), product, why);
+    pub fn owner_refuses(&mut self, product: &str, why: &str) -> RefusalId {
+        self.refusal(Refuser::Person(Who::Owner), product, why)
     }
 
-    fn refusal(&mut self, by: Refuser, product: &str, why: &str) {
-        let id: ProductId = product.into();
-        let content = self.records.current(&id).expect("the product exists").content;
+    fn refusal(&mut self, by: Refuser, product: &str, why: &str) -> RefusalId {
+        let product: ProductId = product.into();
+        let content = self
+            .records
+            .versions
+            .iter()
+            .rev()
+            .find(|v| v.product == product)
+            .expect("the product exists")
+            .content;
+        let id = RefusalId(self.id());
         let at = self.tick();
         self.records.refusals.push(Refusal {
+            id,
             by,
-            product: id,
+            product,
             content,
             why: why.to_string(),
             at,
         });
+        id
     }
 
     /// A person writes the product, which always changes its meaning.
@@ -195,10 +235,17 @@ impl World {
         self.write(product, Writer::Person, Write::Matters);
     }
 
-    /// The product is lost: it stands as gone, its meaning kept.
+    /// The product is lost: a mark of the loss is added, its meaning kept.
     pub fn lose(&mut self, product: &str) {
         let id: ProductId = product.into();
-        let v = self.records.current(&id).expect("the product exists").clone();
+        let v = self
+            .records
+            .versions
+            .iter()
+            .rev()
+            .find(|v| v.product == id)
+            .expect("the product exists")
+            .clone();
         let at = self.tick();
         self.records.versions.push(Version {
             content: v.content + 1,
@@ -208,59 +255,34 @@ impl World {
         });
     }
 
-    /// The cell's running run comes to wait at a call for this person.
-    pub fn wait_for(&mut self, cell: &str, call: &str, who: Who) {
-        let id: CellId = cell.into();
-        let r = self
-            .records
-            .runs
-            .iter_mut()
-            .find(|r| r.cell == id && r.state == RunState::Running)
-            .expect("the cell has a running run");
-        r.state = RunState::Waiting {
-            call: call.to_string(),
+    /// The cell's run comes to wait at a call for this person.
+    pub fn wait_for(&mut self, cell: &str, what: &str, who: Who) -> CallId {
+        let run = self.open(cell);
+        let call = CallId(self.id());
+        let at = self.tick();
+        self.records.asked.push(Asked {
+            call,
+            run,
+            what: what.to_string(),
             who,
-            answered: false,
+            at,
+        });
+        call
+    }
+
+    /// The person gives what the call waits for.
+    pub fn answer(&mut self, call: CallId) {
+        let at = self.tick();
+        self.records.answered.push(Answered { call, at });
+    }
+
+    /// Abandons the run the walk says to abandon; any other decision is a fault of the test.
+    pub fn abandon(&mut self) {
+        let Decision::Abandon { run, .. } = self.decide() else {
+            panic!("nothing to abandon: {:?}", self.decide())
         };
-    }
-
-    /// The person gives what the cell's waiting run waits for.
-    pub fn answer(&mut self, cell: &str) {
-        let id: CellId = cell.into();
-        let r = self
-            .records
-            .runs
-            .iter_mut()
-            .find(|r| r.cell == id && matches!(r.state, RunState::Waiting { .. }))
-            .expect("the cell has a waiting run");
-        if let RunState::Waiting { answered, .. } = &mut r.state {
-            *answered = true;
-        }
-    }
-
-    /// Does what the decision to let a waiting run go on, or to abandon one, asks; any other decision is a fault of
-    /// the test.
-    pub fn obey(&mut self) {
-        match self.decide() {
-            Decision::GoOn { run, .. } => {
-                self.records
-                    .runs
-                    .iter_mut()
-                    .find(|r| r.id == run)
-                    .expect("the run")
-                    .state = RunState::Running;
-            }
-            Decision::Abandon { run, .. } => {
-                let at = self.tick();
-                self.records
-                    .runs
-                    .iter_mut()
-                    .find(|r| r.id == run)
-                    .expect("the run")
-                    .state = RunState::Abandoned { at };
-            }
-            other => panic!("nothing to obey in {other:?}"),
-        }
+        let at = self.tick();
+        self.records.abandoned.push(Abandoned { run, at });
     }
 
     /// The owner lets the cell go on after it reached its limit.
@@ -268,9 +290,19 @@ impl World {
         let at = self.tick();
         self.records.let_go.push(LetGo { cell: cell.into(), at });
     }
+
+    pub fn pause(&mut self) {
+        let at = self.tick();
+        self.records.pauses.push(Pause { paused: true, at });
+    }
+
+    pub fn cancel(&mut self) {
+        let at = self.tick();
+        self.records.cancelled = Some(at);
+    }
 }
 
-/// A cell that follows these products and writes those.
+/// A cell that depends on these products and writes those.
 pub fn cell(id: &str, follows: &[&str], writes: &[&str]) -> Cell {
     let mut c = Cell::new(id);
     c.follows = follows.iter().map(|p| (*p).into()).collect();
