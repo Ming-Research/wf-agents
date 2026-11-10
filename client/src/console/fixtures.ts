@@ -26,6 +26,10 @@ type CellIn = {
   id: string;
   title: string;
   line?: string | null;
+  /// What an agent's cell's agent is told to do.
+  task?: string;
+  /// The engine's act that carries out an engine's cell.
+  act?: string;
   inputs: string[];
   outputs: string[];
   condition?: Cell['condition'];
@@ -43,6 +47,8 @@ function flowOf(
     title: c.title,
     kind: c.line === null ? 'engine' : 'agent',
     line: c.line === undefined ? 'engineer' : c.line,
+    task: c.task ?? null,
+    act: c.act ?? null,
     condition: c.condition ?? null,
     preconditions: c.preconditions ?? [],
     inputs: c.inputs,
@@ -93,6 +99,7 @@ export const FLOW: Flow = flowOf(
     {
       id: 'research',
       title: 'Research the item',
+      task: 'Research what the item asks for, and write the plan.\nSay whether it needs a design.',
       preconditions: [REQUEST_READ],
       inputs: ['request', 'plan_opinions'],
       outputs: ['plan', 'needs_design'],
@@ -100,6 +107,7 @@ export const FLOW: Flow = flowOf(
     {
       id: 'design',
       title: 'Design',
+      task: 'Design what the plan asks for.',
       condition: { on: 'block', block: 'needs_design', value: 'yes' },
       inputs: ['plan', 'design_opinions'],
       outputs: ['design'],
@@ -107,6 +115,7 @@ export const FLOW: Flow = flowOf(
     {
       id: 'review_design',
       title: 'Review the design',
+      task: 'Review the design against the plan.',
       line: 'review',
       condition: { on: 'block', block: 'needs_design', value: 'yes' },
       inputs: ['plan', 'design'],
@@ -115,20 +124,36 @@ export const FLOW: Flow = flowOf(
     {
       id: 'implement',
       title: 'Implement',
+      task: 'Implement the plan and the design.',
       preconditions: [PLAN_CONFIRMED],
       inputs: ['plan', 'design', 'code_opinions'],
       outputs: ['code'],
     },
-    { id: 'test', title: 'Write the tests', inputs: ['code', 'test_opinions'], outputs: ['tests'] },
+    {
+      id: 'test',
+      title: 'Write the tests',
+      task: 'Write the tests of the code.',
+      inputs: ['code', 'test_opinions'],
+      outputs: ['tests'],
+    },
     {
       id: 'review',
       title: 'Review the code',
+      task: 'Review the code and its tests, and say whether you are content.',
       line: 'review',
       inputs: ['code', 'tests'],
       outputs: ['code_opinions', 'content'],
     },
-    { id: 'check', title: 'Check with the latest main', line: null, inputs: ['code', 'main'], outputs: ['ci'] },
-    { id: 'merge', title: 'Merge', line: null, preconditions: [MAY_MERGE], inputs: ['ci', 'content'], outputs: [] },
+    { id: 'check', title: 'Check with the latest main', line: null, act: 'check', inputs: ['code', 'main'], outputs: ['ci'] },
+    {
+      id: 'merge',
+      title: 'Merge',
+      line: null,
+      act: 'merge',
+      preconditions: [MAY_MERGE],
+      inputs: ['ci', 'content'],
+      outputs: [],
+    },
   ],
   {
     request: { people: true, shown: true },

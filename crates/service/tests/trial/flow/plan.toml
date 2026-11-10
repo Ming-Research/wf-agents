@@ -1,6 +1,7 @@
 title = "Plan"
 kind = "agent"
 line = "engineer"
+task = "Write the plan from the request."
 requires = ["ready"]
 inputs = ["request"]
 outputs = ["plan"]

@@ -25,7 +25,8 @@ fn the_flow_s_changes_come_first_then_the_cells_in_the_new_order_then_the_blocks
         r#"order = ["answer", "plan", "judge", "design", "test", "merge"]"#,
     );
     let after = without(after, "check");
-    let test = "title = \"Test\"\nkind = \"engine\"\ninputs = [\"main\", \"design\"]\noutputs = [\"ci\"]\n";
+    let test = "title = \"Test\"\nkind = \"engine\"\nact = \"check\"\n\
+                inputs = [\"main\", \"design\"]\noutputs = [\"ci\"]\n";
     let after = set(after, "test.toml", test);
     let after = edit(
         after,

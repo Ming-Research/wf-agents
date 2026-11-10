@@ -67,6 +67,16 @@ describe('the words of the page', () => {
       before: 'The CI is green (ci is green)',
       after: '',
     });
+    expect(changeWords({ kind: 'task', cell: 'plan', before: 'Plan it.', after: 'Plan it well.' })).toEqual({
+      what: 'Task',
+      before: 'Plan it.',
+      after: 'Plan it well.',
+    });
+    expect(changeWords({ kind: 'act', cell: 'check', before: 'check', after: null })).toEqual({
+      what: 'Act',
+      before: 'check',
+      after: 'none',
+    });
     expect(changeWords({ kind: 'outside', block: 'main', before: null, after: 'main' })).toEqual({
       what: 'Written by the outside',
       before: 'no',
@@ -111,5 +121,20 @@ describe('the words of the page', () => {
     expect(
       faultWords({ file: 'design.toml', field: 'when.block', what: { kind: 'conditionNotWrittenBefore', block: 'go' } }),
     ).toBe('The condition reads go, which neither a cell before this one, people nor the outside write.');
+    expect(faultWords({ file: 'plan.toml', field: 'task', what: { kind: 'noTask' } })).toBe(
+      "An agent's cell has no task: its agent would be told nothing to do.",
+    );
+    expect(faultWords({ file: 'check.toml', field: 'task', what: { kind: 'engineHasTask' } })).toBe(
+      "An engine's cell has a task, which no agent reads.",
+    );
+    expect(faultWords({ file: 'check.toml', field: 'act', what: { kind: 'noAct' } })).toBe(
+      "An engine's cell names no act to carry it out.",
+    );
+    expect(faultWords({ file: 'plan.toml', field: 'act', what: { kind: 'agentHasAct', act: 'merge' } })).toBe(
+      'An agent carries the cell out, but it names the act merge.',
+    );
+    expect(faultWords({ file: 'check.toml', field: 'act', what: { kind: 'unknownAct', act: 'deploy' } })).toBe(
+      'The engine has no act named deploy.',
+    );
   });
 });

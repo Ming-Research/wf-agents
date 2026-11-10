@@ -102,6 +102,10 @@ pub struct Cell {
     pub kind: Kind,
     /// The line an agent's cell runs in; an engine's cell has none.
     pub line: Option<String>,
+    /// What an agent's cell's agent is told to do, with its line breaks; an engine's cell has none.
+    pub task: Option<String>,
+    /// The act of the engine's own that carries out an engine's cell; an agent's cell has none.
+    pub act: Option<String>,
     /// When the cell runs at all; none is always.
     pub condition: Option<Condition>,
     /// What the work waits for before the cell.
@@ -337,6 +341,16 @@ pub enum Change {
         before: Option<String>,
         after: Option<String>,
     },
+    Task {
+        cell: String,
+        before: Option<String>,
+        after: Option<String>,
+    },
+    Act {
+        cell: String,
+        before: Option<String>,
+        after: Option<String>,
+    },
     Condition {
         cell: String,
         before: Option<Condition>,
@@ -439,6 +453,8 @@ impl Flow {
                 title: spec.title.clone(),
                 kind: Kind::of(spec.kind),
                 line: spec.line.clone(),
+                task: spec.task.clone(),
+                act: spec.act.clone(),
                 condition: cell.applies.as_ref().map(|c| Condition::of(c, compiled)),
                 preconditions: cell.requires.iter().map(|t| Test::of(t, compiled)).collect(),
                 inputs: names(&cell.inputs),
@@ -689,6 +705,22 @@ impl Change {
                 before: from,
                 after: to,
             } => Change::Line {
+                cell,
+                before: from.clone(),
+                after: to.clone(),
+            },
+            CellChange::Task {
+                before: from,
+                after: to,
+            } => Change::Task {
+                cell,
+                before: from.clone(),
+                after: to.clone(),
+            },
+            CellChange::Act {
+                before: from,
+                after: to,
+            } => Change::Act {
                 cell,
                 before: from.clone(),
                 after: to.clone(),

@@ -68,6 +68,7 @@ pub const PLAN: &str = r#"
 title = "Plan"
 kind = "agent"
 line = "engineer"
+task = "Write the plan from the request."
 inputs = ["request", "opinions"]
 outputs = ["plan"]
 "#;
@@ -76,6 +77,9 @@ pub const REVIEW: &str = r#"
 title = "Review"
 kind = "agent"
 line = "engineer"
+task = """
+Review the plan.
+Say whether it is content."""
 limit = 5
 inputs = ["plan"]
 outputs = ["opinions", "content"]
@@ -84,6 +88,7 @@ outputs = ["opinions", "content"]
 pub const MERGE: &str = r#"
 title = "Merge"
 kind = "engine"
+act = "merge"
 requires = ["may_merge"]
 inputs = ["content"]
 "#;
@@ -131,13 +136,21 @@ impl Shared {
     }
 }
 
-/// The interface over a definition shown and, when given, one compared against; the engine is taken to have one
-/// source outside a work, `main`.
+/// What the engine is taken to have for the small flows: one source outside a work, `main`, and two acts, `check` and
+/// `merge`.
+pub fn has(_: &Source) -> flow::Has {
+    flow::Has {
+        sources: BTreeSet::from(["main".to_string()]),
+        acts: BTreeSet::from(["check".to_string(), "merge".to_string()]),
+    }
+}
+
+/// The interface over a definition shown and, when given, one compared against, compiled against [`has`].
 pub fn serve(shown: &Shared, against: Option<&Shared>) -> Router {
     web::router(Flows {
         shown: shown.read(),
         against: against.map(Shared::read),
-        sources: Box::new(|_: &Source| BTreeSet::from(["main".to_string()])),
+        has: Box::new(has),
     })
 }
 
@@ -171,9 +184,12 @@ pub fn trial_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial")
 }
 
-/// The sources outside a work the trial flow is compiled against.
-fn trial_sources(_: &Source) -> BTreeSet<String> {
-    BTreeSet::from([driver::DEPENDENCIES.to_string()])
+/// What the trial flow is compiled against: the driver's source outside a work, and the act `merge`.
+fn trial_has(_: &Source) -> flow::Has {
+    flow::Has {
+        sources: BTreeSet::from([driver::DEPENDENCIES.to_string()]),
+        acts: BTreeSet::from(["merge".to_string()]),
+    }
 }
 
 /// The interface over the engine's loop on the trial flow, with a store in a directory of its own.
@@ -194,7 +210,7 @@ pub fn running() -> Running {
 pub fn running_on(store: Box<dyn store::Storage + Send>, dir: tempfile::TempDir) -> Running {
     let flow = flow::compile(
         &flow::read(&trial_dir().join("flow")).unwrap(),
-        &trial_sources(&Source::default()),
+        &trial_has(&Source::default()),
     )
     .unwrap();
     let script = service::Script::read(&std::fs::read_to_string(trial_dir().join("script.toml")).unwrap()).unwrap();
@@ -202,7 +218,7 @@ pub fn running_on(store: Box<dyn store::Storage + Send>, dir: tempfile::TempDir)
     let (service, inbox) = Service::open(store, vec![flow], Scripted::new(script).carriers(), clock).unwrap();
     let handle = service.handle();
     tokio::spawn(service.run(inbox));
-    let flows = Flows::dirs(trial_dir().join("flow"), None, Box::new(trial_sources));
+    let flows = Flows::dirs(trial_dir().join("flow"), None, Box::new(trial_has));
     Running {
         router: web::with_works(flows, handle),
         _dir: dir,

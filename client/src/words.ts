@@ -62,6 +62,16 @@ export function faultWords(fault: Fault): string {
       return `An engine's cell runs in no session, but names the line ${w.line}.`;
     case 'noSuchLine':
       return `The line ${w.line} is not declared in flow.toml.`;
+    case 'noTask':
+      return "An agent's cell has no task: its agent would be told nothing to do.";
+    case 'engineHasTask':
+      return "An engine's cell has a task, which no agent reads.";
+    case 'noAct':
+      return "An engine's cell names no act to carry it out.";
+    case 'agentHasAct':
+      return `An agent carries the cell out, but it names the act ${w.act}.`;
+    case 'unknownAct':
+      return `The engine has no act named ${w.act}.`;
     case 'valuesEmpty':
       return 'A choice has no values to choose from.';
     case 'noSuchBlock':
@@ -171,6 +181,10 @@ export function changeWords(change: Change): ChangeWords {
       return { what: 'Run by', before: kindWords(c.before), after: kindWords(c.after) };
     case 'line':
       return { what: 'Line', before: c.before ?? 'none', after: c.after ?? 'none' };
+    case 'task':
+      return { what: 'Task', before: c.before ?? 'none', after: c.after ?? 'none' };
+    case 'act':
+      return { what: 'Act', before: c.before ?? 'none', after: c.after ?? 'none' };
     case 'condition':
       return { what: 'Runs when', before: conditionWords(c.before), after: conditionWords(c.after) };
     case 'preconditionAdded':

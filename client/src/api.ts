@@ -44,6 +44,10 @@ export interface Cell {
   kind: Kind;
   /// The line an agent's cell runs in; an engine's cell has none.
   line: string | null;
+  /// What an agent's cell's agent is told to do, with its line breaks; an engine's cell has none.
+  task: string | null;
+  /// The act of the engine's own that carries out an engine's cell; an agent's cell has none.
+  act: string | null;
   /// None is always.
   condition: Condition | null;
   preconditions: Test[];
@@ -84,6 +88,11 @@ export type What =
   | { kind: 'noLine' }
   | { kind: 'engineHasLine'; line: string }
   | { kind: 'noSuchLine'; line: string }
+  | { kind: 'noTask' }
+  | { kind: 'engineHasTask' }
+  | { kind: 'noAct' }
+  | { kind: 'agentHasAct'; act: string }
+  | { kind: 'unknownAct'; act: string }
   | { kind: 'valuesEmpty' }
   | { kind: 'noSuchBlock'; block: string }
   | { kind: 'noWriter'; block: string }
@@ -131,6 +140,8 @@ export type Change =
   | { kind: 'title'; cell: string; before: string; after: string }
   | { kind: 'kind'; cell: string; before: Kind; after: Kind }
   | { kind: 'line'; cell: string; before: string | null; after: string | null }
+  | { kind: 'task'; cell: string; before: string | null; after: string | null }
+  | { kind: 'act'; cell: string; before: string | null; after: string | null }
   | { kind: 'condition'; cell: string; before: Condition | null; after: Condition | null }
   | { kind: 'preconditionAdded'; cell: string; test: Test }
   | { kind: 'preconditionRemoved'; cell: string; test: Test }

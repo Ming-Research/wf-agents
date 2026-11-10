@@ -22,11 +22,13 @@ fn without(source: Source, cell: &str) -> Source {
     source
 }
 
-/// The definition compiled against the source the small flow names and one more, `mirror`, which a test may name.
+/// The definition compiled against what the small flow names, with one more source, `mirror`, and one more act, `test`,
+/// which a test may name.
 fn compiled(source: &Source) -> Compiled {
-    let mut sources = support::sources();
-    sources.insert("mirror".to_string());
-    match flow::compile(source, &sources) {
+    let mut has = support::has();
+    has.sources.insert("mirror".to_string());
+    has.acts.insert("test".to_string());
+    match flow::compile(source, &has) {
         Ok(compiled) => compiled,
         Err(faults) => panic!("the definition should compile: {faults:#?}"),
     }
