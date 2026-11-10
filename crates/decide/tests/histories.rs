@@ -214,7 +214,7 @@ impl History {
                 }
             }
         };
-        if !matches!(decision, Decision::Busy { .. }) {
+        if !matches!(decision, Decision::Busy { .. } | Decision::Ended(_)) {
             self.last_move = Some(decision);
         }
         moved
@@ -375,6 +375,9 @@ fn one_history(seed: u64, log: &mut Vec<String>) {
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
         for _ in 0..people_until {
             h.step(true);
+            if matches!(h.w.decide(), Decision::Ended(_)) {
+                break;
+            }
         }
         h.note("people stop".into());
         let bound = h.bound();

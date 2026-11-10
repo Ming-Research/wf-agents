@@ -1254,6 +1254,37 @@ fn two_cells_sending_each_other_back_are_bounded_by_the_earlier_ones_limit() {
 }
 
 #[test]
+fn a_change_of_path_made_by_the_answer_of_a_later_cell_is_a_way_round_for_the_first_cell_of_the_circle() {
+    // The first cell depends on what the third writes; the third is on the path by the second's answer, and the
+    // second depends on what the first writes: a circle of cells sending each other back.
+    let cells = vec![
+        with_limit(1, cell("first", &["p"], &["x"])),
+        cell("second", &["x"], &[]),
+        on_fork("third", "second", &[], &["p"]),
+    ];
+    let mut w = World::with_gate(cells);
+    w.run("first", &[], &[("x", Matters)]);
+    w.run("second", YES, &[]);
+    let third = w.run("third", &[], &[("p", Matters)]);
+    let p = w.version(third);
+    let x = w.version(w.record("first"));
+    assert_eq!(
+        w.decide(),
+        runs(
+            "first",
+            vec![changed("p", false)],
+            &[("p", Some(p)), ("x", Some(x))],
+            vec![]
+        )
+    );
+    w.run("first", &[], &[("x", Matters)]);
+    w.run("second", NO, &[]);
+    // The third's write is now absent because the second, after the first, answered otherwise: the first would run
+    // only for what the cells after it did, a second way round in a row, past its limit of one.
+    assert_eq!(w.decide(), wait("first", vec![Waited::Limit { runs: 1 }]));
+}
+
+#[test]
 fn a_cell_rebuilding_a_lost_product_again_and_again_is_bounded_by_its_limit() {
     let mut w = World::with_gate(vec![
         with_limit(2, cell("load", &[], &["session"])),
