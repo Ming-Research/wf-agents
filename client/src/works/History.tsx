@@ -9,7 +9,7 @@ import { type CSSProperties, useLayoutEffect, useMemo, useRef, useState } from '
 
 import type { Flow } from '../api';
 import { Breakable, MarkGlyph, WIDTHS, tableWidth, useWheel } from '../Chart';
-import type { Spot } from '../matrix';
+import { NO_MARK, type Spot } from '../matrix';
 import { Edge, Sign } from '../parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from '../sizes';
 import type { CellNow, Step, WorkPage } from '../works-api';
@@ -37,11 +37,10 @@ const STEPS = { first: 260, min: 160, max: 520 };
 /// A mark of the flow's chart, for a row of its own: a ring where a cell reads what was written, a diamond where its
 /// condition does.
 function spotOf(mark: RowMark): Spot {
-  const none = { read: false, write: false, condition: false };
   return {
-    mark: { ...none, read: mark === 'read', condition: mark === 'condition' },
-    added: none,
-    removed: none,
+    mark: { ...NO_MARK, read: mark === 'read', condition: mark === 'condition' },
+    added: NO_MARK,
+    removed: NO_MARK,
     line: 'none',
     back: 'none',
     backTo: false,

@@ -163,9 +163,14 @@ fn a_condition_on_a_test_names_a_declared_test() {
     let undeclared = UndeclaredTest {
         test: "nothing".to_string(),
     };
+    // The test no cell uses then reads nothing, and the choice only it read has no reader.
+    let unread = NoReader {
+        block: "commented".to_string(),
+    };
     assert_eq!(
         faults(&source),
         [
+            at(FLOW_FILE, "blocks.commented", unread),
             at(FLOW_FILE, "tests.has_comment", unused),
             at("answer.toml", "when.test", undeclared),
         ]
