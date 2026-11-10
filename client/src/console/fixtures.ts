@@ -36,7 +36,7 @@ type CellIn = {
 function flowOf(
   name: string,
   cells: CellIn[],
-  blocks: Record<string, { values?: string[]; people?: boolean; outside?: boolean; shown?: boolean }>,
+  blocks: Record<string, { values?: string[]; people?: boolean; outside?: string; shown?: boolean }>,
 ): Flow {
   const all: Cell[] = cells.map((c) => ({
     id: c.id,
@@ -49,6 +49,7 @@ function flowOf(
     outputs: c.outputs,
     limits: LIMITS,
   }));
+  const tests = [...new Map(all.flatMap((c) => c.preconditions).map((t) => [t.name, t])).values()];
   const named: Block[] = Object.keys(blocks)
     .sort()
     .map((b) => ({
@@ -57,11 +58,12 @@ function flowOf(
       writtenBy: {
         cells: all.filter((c) => c.outputs.includes(b)).map((c) => c.id),
         people: blocks[b].people ?? false,
-        outside: blocks[b].outside ?? false,
+        outside: blocks[b].outside ?? null,
       },
       readBy: {
         cells: all.filter((c) => c.inputs.includes(b)).map((c) => c.id),
         conditions: all.filter((c) => c.condition?.on === 'block' && c.condition.block === b).map((c) => c.id),
+        tests: tests.filter((t) => t.reads.includes(b)).map((t) => t.name),
         shown: blocks[b].shown ?? false,
       },
     }));
@@ -69,13 +71,15 @@ function flowOf(
     name: l,
     cells: all.filter((c) => c.line === l).map((c) => c.id),
   }));
-  const tests = [...new Map(all.flatMap((c) => c.preconditions).map((t) => [t.name, t])).values()];
   return { name, limits: LIMITS, lines, tests, cells: all, blocks: named };
 }
 
-const PLAN_CONFIRMED: Test = { name: 'plan_confirmed', words: 'The owner confirmed the plan' };
-const REQUEST_READ: Test = { name: 'request_read', words: 'The owner read what the item asks for' };
-const MAY_MERGE: Test = { name: 'may_merge', words: 'The reviews are content and the owner lets it merge' };
+/// A named test that holds when each of these blocks, which the owner sets, says yes.
+const test = (name: string, words: string, reads: string[]): Test => ({ name, words, kind: 'all', reads, is: 'yes' });
+
+const PLAN_CONFIRMED = test('plan_confirmed', 'The owner confirmed the plan', ['plan_confirmed']);
+const REQUEST_READ = test('request_read', 'The owner read what the item asks for', ['request_read']);
+const MAY_MERGE = test('may_merge', 'The reviews are content and the owner lets it merge', ['content', 'merge_allowed']);
 
 /// A precondition not met that the owner makes hold.
 const owners = (t: Test): Waited => ({ kind: 'precondition', test: t.name, words: t.words, who: 'owner' });
@@ -138,7 +142,10 @@ export const FLOW: Flow = flowOf(
     tests: {},
     test_opinions: { people: true },
     content: { values: ['yes', 'no'] },
-    main: { outside: true },
+    main: { outside: 'main' },
+    plan_confirmed: { values: ['yes', 'no'], people: true },
+    request_read: { values: ['yes', 'no'], people: true },
+    merge_allowed: { values: ['yes', 'no'], people: true },
     ci: { values: ['green', 'red'] },
   },
 );
