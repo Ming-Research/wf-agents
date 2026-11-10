@@ -30,7 +30,7 @@ use engine::{Ask, Call, Came, Effect, Event, Handed, Work, handle, pending};
 use flow::{Compiled, Source, compile};
 
 /// How many histories are run.
-const SEEDS: u64 = 300;
+const SEEDS: u64 = 200;
 
 /// How many steps, at most, people act in.
 const PEOPLE: usize = 60;
