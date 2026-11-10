@@ -102,15 +102,15 @@ async fn wait(
 }
 
 /// Stops the process group the file names, where one was left running by a process of the engine that ended: TERM,
-/// then KILL once [`STOP_WAIT`] has passed with any of it left; and takes the file away. The group is stopped only
-/// where its first process still runs `program`, so that a number the system has since given to another program's
-/// group is let be.
-pub(crate) async fn stop_left(file: &Path, program: &str) {
+/// then KILL once [`STOP_WAIT`] has passed with any of it left; and takes the file away. The group is signalled
+/// whenever anything in it is alive, its first process gone or not: what a program started, a build or its tests,
+/// outlives it in its group.
+pub(crate) async fn stop_left(file: &Path) {
     let Ok(text) = tokio::fs::read_to_string(file).await else {
         return;
     };
     if let Ok(group) = text.trim().parse::<u32>()
-        && runs(group, program).await
+        && alive(group).await
     {
         signal(group, "TERM").await;
         let gone = async {
@@ -123,17 +123,6 @@ pub(crate) async fn stop_left(file: &Path, program: &str) {
         }
     }
     let _ = tokio::fs::remove_file(file).await;
-}
-
-/// Whether the process of this number runs the program: its command line names it.
-async fn runs(process: u32, program: &str) -> bool {
-    let shown = Command::new("ps")
-        .args(["-o", "command=", "-p", &process.to_string()])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .await;
-    shown.is_ok_and(|shown| shown.status.success() && String::from_utf8_lossy(&shown.stdout).contains(program))
 }
 
 /// Whether any process of the group is left.
@@ -184,6 +173,41 @@ pub(crate) fn tail(output: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_left_group_is_stopped_though_its_first_process_has_ended() {
+        let dir = tempfile::tempdir().unwrap();
+        // The first process starts one that outlives it in its group, and ends.
+        let mut first = std::process::Command::new("sh");
+        std::os::unix::process::CommandExt::process_group(&mut first, 0);
+        let output = (first.args(["-c", "sleep 30 >/dev/null 2>&1 & echo $!"]))
+            .output()
+            .expect("it runs");
+        let child: u32 = String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse()
+            .expect("the child's number");
+        let leader = group_of(child);
+        let file = dir.path().join("left.pgid");
+        std::fs::write(&file, format!("{leader}\n")).unwrap();
+        assert!(alive(leader).await, "the child is alive in the group");
+        stop_left(&file).await;
+        assert!(!file.exists());
+        let began = std::time::Instant::now();
+        while alive(leader).await {
+            assert!(began.elapsed() < Duration::from_secs(10), "the group was not stopped");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    /// The process group of the process, as `ps` gives it.
+    fn group_of(process: u32) -> u32 {
+        let shown = std::process::Command::new("ps")
+            .args(["-o", "pgid=", "-p", &process.to_string()])
+            .output()
+            .expect("ps runs");
+        String::from_utf8_lossy(&shown.stdout).trim().parse().expect("a group")
+    }
 
     #[test]
     fn the_tail_begins_at_a_whole_character() {

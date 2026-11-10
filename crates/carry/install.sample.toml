@@ -20,13 +20,15 @@ model = "claude-haiku-5-5"
 # How many agents' rounds run at once; the others wait their turn.
 slots = 2
 # What the program is given on every round after what the engine gives it.
-# `--setting-sources user` keeps the program from loading a settings file the worktree holds.
-args = ["--permission-mode", "acceptEdits", "--tools", "Bash,Read,Edit,Write,Grep,Glob", "--strict-mcp-config", "--disable-slash-commands", "--setting-sources", "user"]
+args = ["--permission-mode", "acceptEdits", "--tools", "Bash,Read,Edit,Write,Grep,Glob", "--strict-mcp-config", "--disable-slash-commands"]
+# Which settings files the program reads, given as --setting-sources on every round. Left out, it is `user`, so that a
+# settings file the worktree holds, which an agent may write, is not read.
+# setting_sources = "user"
 # The program is given only these variables of the engine's environment: PATH, HOME, USER, LANG and LC_*, TMPDIR, TERM
 # and SHELL, and those named here, such as an API key.
 # env = ["ANTHROPIC_API_KEY"]
 # The program's own directory of settings and sign-in, given as CLAUDE_CONFIG_DIR. Left out, the program uses its own
-# default.
+# default, which an agent can write to: `wf-agents run` says so as it starts.
 # config_dir = "/path/to/a/config/dir"
 # The language of the blocks the owner reads; everything in the repository is written in English.
 owner_language = "Chinese"

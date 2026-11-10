@@ -233,3 +233,59 @@ async fn the_merge_needs_the_checkout_on_main() {
         .expect_err("the merge is refused");
     assert!(refused.contains("not on the main branch"), "{refused}");
 }
+
+/// Writes a program at the path that leaves a mark at `marked` when it is run.
+fn marking(path: &Path, marked: &Path) {
+    std::fs::write(path, format!("#!/bin/sh\ntouch '{}'\n", marked.display())).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[tokio::test]
+async fn the_start_runs_no_hook_of_the_repository() {
+    let repo = Repo::new("true");
+    let hooks = repo.project.repo.join(".git/hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    let marked = repo.data.join("hook-ran");
+    marking(&hooks.join("post-checkout"), &marked);
+    start(&repo.project, &repo.place(WORK)).await.expect("the work starts");
+    assert!(!marked.exists(), "the repository's hook was run");
+}
+
+#[tokio::test]
+async fn the_check_runs_no_file_system_monitor_of_the_repository() {
+    let repo = Repo::new("true");
+    start(&repo.project, &repo.place(WORK)).await.unwrap();
+    let marked = repo.data.join("monitor-ran");
+    let monitor = repo.data.join("monitor");
+    marking(&monitor, &marked);
+    run(
+        &repo.project.repo,
+        &["config", "core.fsmonitor", &monitor.display().to_string()],
+    );
+    checked(&repo).await;
+    assert!(!marked.exists(), "the repository's file-system monitor was run");
+}
+
+#[tokio::test]
+async fn the_merge_refuses_a_repository_whose_configuration_names_a_program() {
+    for (key, value) in [
+        ("core.fsmonitor", "/bin/true"),
+        ("core.hooksPath", "hooks"),
+        ("merge.ours.driver", "true"),
+        ("filter.lfs.clean", "cat"),
+    ] {
+        let repo = Repo::new("true");
+        let started = start(&repo.project, &repo.place(WORK)).await.unwrap();
+        let head = commit(&started.place.dir, "farewell.txt", "Bye.\n");
+        run(&repo.project.repo, &["config", key, value]);
+        let refused = merge(&repo.project, &repo.place(WORK), Some(&head))
+            .await
+            .expect_err(key);
+        assert!(refused.contains(&key.to_ascii_lowercase()), "{key}: {refused}");
+        assert!(
+            !repo.project.repo.join("farewell.txt").exists(),
+            "{key}: nothing was merged"
+        );
+    }
+}

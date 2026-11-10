@@ -38,7 +38,16 @@ fn diff_heading(block: &BlockId, from: Seq, to: Seq) -> String {
         from.0, to.0
     )
 }
+fn too_long(block: &BlockId, from: Seq, to: Seq) -> String {
+    format!(
+        "### `{block}`, version {} and version {}: too long to compare line by line, so both are given whole",
+        from.0, to.0
+    )
+}
 const SAME: &str = "(The two versions are the same.)";
+/// How many lines each of two versions may have to be compared line by line: the comparison takes memory as the
+/// product of the two, and past this each is given whole.
+pub const COMPARED: usize = 4000;
 const ELIDED: &str = "…";
 /// How many lines that are the same are shown on each side of a change.
 const CONTEXT: usize = 2;
@@ -89,8 +98,17 @@ fn one(
             None => find(at).map_or_else(|why| why, shown),
             Some((from, to)) => match (find(from), find(to)) {
                 (Ok(from), Ok(to)) => {
-                    let lines = diff(content(work, &block, from.at), content(work, &block, to.at));
-                    format!("{}\n\n{lines}", diff_heading(&block, from.at, to.at))
+                    let (a, b) = (content(work, &block, from.at), content(work, &block, to.at));
+                    if a.lines().count() > COMPARED || b.lines().count() > COMPARED {
+                        format!(
+                            "{}\n\n{}\n\n{}",
+                            too_long(&block, from.at, to.at),
+                            shown(from),
+                            shown(to)
+                        )
+                    } else {
+                        format!("{}\n\n{}", diff_heading(&block, from.at, to.at), diff(a, b))
+                    }
                 }
                 (Err(why), _) | (_, Err(why)) => why,
             },
@@ -214,6 +232,22 @@ Not yet.
         let heading = format!("### `opinions`, what differs from version {first} to version {second}");
         assert!(differs.starts_with(&heading), "{differs}");
         assert!(differs.ends_with("\n\n  Name the error.\n+ And say it.\n"), "{differs}");
+    }
+
+    #[test]
+    fn versions_too_long_to_compare_are_given_whole() {
+        let mut small = objected();
+        let long = "a line\n".repeat(COMPARED + 1);
+        small.hands_in(&[("code", long.as_str(), None)]);
+        let (first, second) = (small.work.records.finished[1].at.0, small.wrote("build"));
+        let said = answer(&small.flow, &small.work, &format!("code@{first}..{second}"));
+        let heading = format!("### `code`, version {first} and version {second}: too long to compare");
+        assert!(said.starts_with(&heading), "{}", &said[..200]);
+        assert!(
+            said.contains("\n\nA greeting.\n\n### `code`, version"),
+            "the first is given whole"
+        );
+        assert!(said.ends_with(&long), "the second is given whole");
     }
 
     #[test]

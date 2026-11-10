@@ -184,6 +184,20 @@ impl Small {
         });
     }
 
+    /// The call the last thing taken made has this result.
+    pub(crate) fn done(&mut self, result: &str) {
+        let call = (self.effects.iter())
+            .find_map(|effect| match effect {
+                Effect::Call { call, .. } => Some(*call),
+                _ => None,
+            })
+            .expect("a call is made");
+        self.take(Event::Done {
+            call,
+            result: result.to_string(),
+        });
+    }
+
     /// The version the run of this cell that finished last wrote.
     pub(crate) fn wrote(&self, cell: &str) -> u64 {
         let runs: Vec<RunId> = (self.work.records.started.iter())
@@ -221,7 +235,7 @@ This is the cell's first run in this work.
 
 - `plan`: not written yet.
 
-To read all of it at once, ask for the tool `read` with the input `request`.
+To read all of it at once, ask for the tool `read` with the input `request@{request}`.
 "
     );
     assert_eq!(small.told(), expected);
@@ -252,7 +266,7 @@ This is the cell's first run in this work.
 
 - `code`: not written yet.
 
-To read all of it at once, ask for the tool `read` with the input `request plan`.
+To read all of it at once, ask for the tool `read` with the input `request@{request} plan@{plan}`.
 "
     );
     assert_eq!(small.told(), expected);
@@ -296,7 +310,7 @@ Build what the plan says.
 
 - `code`: version {code}; its meaning last changed at this version.
 
-To read all of it at once, ask for the tool `read` with the input `request plan opinions code`.
+To read all of it at once, ask for the tool `read` with the input `request@{request} plan@{plan} opinions@{opinions} code@{code}`.
 "
     );
     assert_eq!(small.told(), expected);
@@ -330,7 +344,7 @@ Review the code.
 - `opinions`: version {opinions}; its meaning last changed at this version.
 - `verdict`, a choice, one of `yes`, `no`: version {opinions}, with the value `no`; its meaning last changed at this version.
 
-To read all of it at once, ask for the tool `read` with the input `code code@{code}..{later} opinions verdict`.
+To read all of it at once, ask for the tool `read` with the input `code@{later} code@{code}..{later} opinions@{opinions} verdict@{opinions}`.
 "
     );
     assert_eq!(small.told(), expected);
@@ -393,17 +407,47 @@ fn asked() -> Small {
         name: "check".to_string(),
         input: "the branch".to_string(),
     }]));
-    let call = (small.effects.iter())
-        .find_map(|effect| match effect {
-            Effect::Call { call, .. } => Some(*call),
-            _ => None,
-        })
-        .expect("the tool is called");
-    small.take(Event::Done {
-        call,
-        result: "The check passed.".to_string(),
-    });
+    small.done("The check passed.");
     small
+}
+
+#[test]
+fn a_later_round_that_begins_a_session_is_given_every_earlier_call_of_its_run() {
+    let mut small = objected();
+    small.back(Came::Asks(vec![Ask::Person {
+        who: decide::Who::Owner,
+        question: "Which name?".to_string(),
+    }]));
+    small.done("By name.");
+    small.back(Came::Asks(vec![Ask::Tool {
+        name: "check".to_string(),
+        input: String::new(),
+    }]));
+    small.done("The check passed.");
+    let told = small.told_as(true);
+    let expected = "## Round 2 of this run: the results of what you asked for
+
+### Your question: Which name?
+
+By name.
+
+## The results of what you asked for
+
+### The tool `check`
+
+The check passed.
+
+Go on with the task.
+";
+    assert!(
+        told.starts_with("# Build (cell `build`), round 3\n\n## Your task"),
+        "{told}"
+    );
+    assert!(told.ends_with(expected), "{told}");
+    assert!(
+        !small.told().contains("Which name?"),
+        "a session that goes on is given only its round's own"
+    );
 }
 
 #[test]

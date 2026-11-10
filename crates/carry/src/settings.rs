@@ -44,6 +44,10 @@ pub struct Agents {
     /// (`PATH`, `HOME`, `USER`, `LANG` and `LC_*`, `TMPDIR`, `TERM`, `SHELL`): an API key, for one.
     #[serde(default)]
     pub env: Vec<String>,
+    /// Which of the program's settings files it reads, as `--setting-sources`; `user` where none is given, so that a
+    /// settings file the worktree holds, which an agent may write, is not read.
+    #[serde(default = "user")]
+    pub setting_sources: String,
     /// The program's own directory of settings and sign-in, as `CLAUDE_CONFIG_DIR`; with none, the program's own
     /// default.
     pub config_dir: Option<PathBuf>,
@@ -51,6 +55,10 @@ pub struct Agents {
     pub owner_language: String,
     /// What a work's rounds may spend in all, in dollars, before the work waits for the owner; with none, no limit.
     pub work_budget_usd: Option<f64>,
+}
+
+fn user() -> String {
+    "user".to_string()
 }
 
 /// The settings file's name in the data directory.
@@ -87,6 +95,19 @@ impl Settings {
         Settings::read(&text).map_err(|why| format!("{}: {why}", path.display()))
     }
 
+    /// What the owner is to be told of the settings as the engine starts, each a sentence: where an agent's sign-in
+    /// and settings are not the installation's own.
+    pub fn warnings(&self) -> Vec<String> {
+        match self.agents.config_dir {
+            Some(_) => Vec::new(),
+            None => vec![format!(
+                "The agents use the default sign-in and settings directory of {}, which an agent can write to; \
+                 agents.config_dir gives them one of their own.",
+                self.agents.command
+            )],
+        }
+    }
+
     /// The budget of a work in millionths of a dollar, where there is one.
     pub fn budget_micros(&self) -> Option<u64> {
         // The budget was checked to be a finite number of no less than nothing; a larger one than a u64 holds is none.
@@ -114,6 +135,16 @@ mod tests {
             "a worktree's own settings are not loaded: {args}"
         );
         assert!(settings.agents.env.is_empty());
+    }
+
+    #[test]
+    fn the_owner_is_told_when_the_agents_have_no_directory_of_their_own() {
+        let mut settings = Settings::read(SAMPLE).unwrap();
+        let warned = settings.warnings();
+        assert_eq!(warned.len(), 1);
+        assert!(warned[0].contains("agents.config_dir"), "{}", warned[0]);
+        settings.agents.config_dir = Some("agents".into());
+        assert!(settings.warnings().is_empty());
     }
 
     #[test]

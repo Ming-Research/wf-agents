@@ -73,11 +73,17 @@ struct Said {
     err: String,
 }
 
+/// What every git command of the engine's is given before its own arguments: no file-system monitor and no hook,
+/// so that nothing the repository's configuration names is run. A work's worktree shares that configuration with
+/// the owner's checkout, and an agent may write it.
+pub const SAFE: [&str; 4] = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"];
+
 /// Runs git in the directory; says why where it cannot be started.
 async fn said(dir: &Path, args: &[&str]) -> Result<Said, String> {
     let output = Command::new("git")
         .arg("-C")
         .arg(dir)
+        .args(SAFE)
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(std::process::Stdio::null())
@@ -214,8 +220,10 @@ pub(crate) async fn check(
 /// Merges the work's branch into the main branch in the repository's own checkout, which must be on the main branch,
 /// hold no uncommitted change and no merge under way, and gives the head of the main branch after it: the merge
 /// commit, or, where the branch holds nothing the main branch does not, the head as it was. Where `checked` names the
-/// commit the check passed, the branch's head must be that commit, and it is what is merged. The merge runs with no
-/// hook of the repository's; where it fails, the merge it began is taken back.
+/// commit the check passed, the branch's head must be that commit, and it is what is merged. A merge is refused while
+/// the repository's own configuration names a program git would run in it ([`runs_code`]): turned off here, a merge
+/// driver or a filter would merge otherwise than the check saw. Where the merge fails, the merge it began is taken
+/// back.
 pub async fn merge(project: &Project, place: &Place, checked: Option<&str>) -> Result<String, String> {
     let repo = &project.repo;
     let on = git(repo, &["symbolic-ref", "--quiet", "--short", "HEAD"]).await?;
@@ -231,6 +239,19 @@ pub async fn merge(project: &Project, place: &Place, checked: Option<&str>) -> R
         return Err(format!(
             "the repository's checkout {} has changes that are not committed:\n{changes}",
             repo.display()
+        ));
+    }
+    let local = git(repo, &["config", "--local", "--list"]).await?;
+    let unsafe_keys: Vec<&str> = (local.lines())
+        .map(|line| line.split_once('=').map_or(line, |(key, _)| key))
+        .filter(|key| runs_code(key))
+        .collect();
+    if !unsafe_keys.is_empty() {
+        return Err(format!(
+            "the repository's own configuration in {} names what git would run in a merge: {}; take it out before \
+             the work merges",
+            repo.display(),
+            unsafe_keys.join(", ")
         ));
     }
     let merging = || async {
@@ -268,15 +289,7 @@ pub async fn merge(project: &Project, place: &Place, checked: Option<&str>) -> R
         };
     }
     let message = format!("Merge {}", place.branch);
-    let args = [
-        "-c",
-        "core.hooksPath=/dev/null",
-        "merge",
-        "--no-ff",
-        "-m",
-        &message,
-        &head,
-    ];
+    let args = ["merge", "--no-ff", "-m", &message, &head];
     if let Err(why) = git(repo, &args).await {
         if merging().await? {
             let _ = git(repo, &["merge", "--abort"]).await;
@@ -284,6 +297,16 @@ pub async fn merge(project: &Project, place: &Place, checked: Option<&str>) -> R
         return Err(why);
     }
     git(repo, &["rev-parse", "HEAD"]).await
+}
+
+/// Whether a key of a repository's configuration names a program git runs: a file-system monitor, a directory of
+/// hooks, a merge driver or a filter. Git gives each key in lower case but for a subsection's name.
+fn runs_code(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    key == "core.fsmonitor"
+        || key == "core.hookspath"
+        || key.starts_with("filter.")
+        || (key.starts_with("merge.") && key.ends_with(".driver"))
 }
 
 #[cfg(test)]
