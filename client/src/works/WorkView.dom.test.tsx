@@ -6,7 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { Act, Changed, WorkPage } from '../works-api';
-import { fixtureCall, fixtureItems, fixtureRound, fixtureVersion, fixtureWork } from './fixtures';
+import { fixtureCall, fixtureItems, fixtureRound, fixtureTold, fixtureVersion, fixtureWork } from './fixtures';
 import { pauseDiffers } from './marks';
 import { type Source, SourceContext } from './source';
 import { WorkScreen, WorkView, readerOf } from './WorkView';
@@ -65,6 +65,7 @@ function fixtureSource(over: Partial<Source> = {}): TestSource {
       s.reads.round += 1;
       return fixtureRound(n, run, round);
     },
+    loadTold: async (n, run, round) => fixtureTold(n, run, round),
     loadCall: async (n, call) => fixtureCall(n, call),
     act: async (work, what) => {
       s.acts.push({ work, what });

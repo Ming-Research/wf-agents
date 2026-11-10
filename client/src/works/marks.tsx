@@ -1,8 +1,8 @@
 // The marks of the works page: how a cell stands for a work, as a small square in the colour of its state, and the
 // strip of one such mark per cell of a work's flow; the line of what a work does now, a dot in its tone and its words;
-// and a part that opens a content only when the owner asks for it.
+// and a part that opens a content, or anything read, only when the owner asks for it.
 
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 
 import type { CellNow, CellState, Now } from '../works-api';
 import { markStyle, stripStyle } from './state-marks';
@@ -70,32 +70,60 @@ export function NowLine({ now, paused = false }: { now: Now; paused?: boolean })
   );
 }
 
-/// A content the owner opens: read when first opened, then shown as it is, preformatted.
-export function Opener({ label, load }: { label: ReactNode; load: () => Promise<string> }) {
+/// A content as it is, preformatted.
+export function Content({ text }: { text: string }) {
+  return <pre className="content">{text === '' ? <span className="muted">(empty)</span> : text}</pre>;
+}
+
+/// What the owner opens: read when first opened, then shown as `show` draws it. What was read is kept while `of`
+/// stays the same, and read again, when next shown, once it changes: what was read of a round under way is not what
+/// it is once the round has ended.
+export function Unfold<T>({ label, load, show, of = null }: {
+  label: ReactNode;
+  load: () => Promise<T>;
+  show: (value: T) => ReactNode;
+  of?: unknown;
+}) {
   const [open, setOpen] = useState(false);
-  const [content, setContent] = useState<{ text: string } | { failed: string } | null>(null);
-  const toggle = () => {
-    if (!open && content === null) {
-      load().then(
-        (text) => setContent({ text }),
-        (e: unknown) => setContent({ failed: e instanceof Error ? e.message : String(e) }),
-      );
-    }
-    setOpen(!open);
-  };
+  const [content, setContent] = useState<{ of: unknown; got: { value: T } | { failed: string } } | null>(null);
+  const latest = useRef(load);
+  const asked = useRef<{ of: unknown } | null>(null);
+  useEffect(() => {
+    latest.current = load;
+  });
+  const got = content !== null && Object.is(content.of, of) ? content.got : null;
+  const wanted = open && got === null;
+  useEffect(() => {
+    if (!wanted || (asked.current !== null && Object.is(asked.current.of, of))) return;
+    const ask = { of };
+    asked.current = ask;
+    latest.current().then(
+      (value) => {
+        if (asked.current === ask) setContent({ of, got: { value } });
+      },
+      (e: unknown) => {
+        if (asked.current === ask) setContent({ of, got: { failed: e instanceof Error ? e.message : String(e) } });
+      },
+    );
+  }, [wanted, of]);
   return (
     <div className="opener">
-      <button type="button" className="link" aria-expanded={open} onClick={toggle}>
+      <button type="button" className="link" aria-expanded={open} onClick={() => setOpen(!open)}>
         {open ? 'Hide' : 'Show'} {label}
       </button>
       {open &&
-        (content === null ? (
+        (got === null ? (
           <p className="muted small">Reading</p>
-        ) : 'failed' in content ? (
-          <p className="small failed">It could not be read: {content.failed}</p>
+        ) : 'failed' in got ? (
+          <p className="small failed">It could not be read: {got.failed}</p>
         ) : (
-          <pre className="content">{content.text === '' ? <span className="muted">(empty)</span> : content.text}</pre>
+          show(got.value)
         ))}
     </div>
   );
+}
+
+/// A content the owner opens: read when first opened, then shown as it is, preformatted.
+export function Opener({ label, load }: { label: ReactNode; load: () => Promise<string> }) {
+  return <Unfold label={label} load={load} show={(text) => <Content text={text} />} />;
 }

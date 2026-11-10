@@ -12,6 +12,7 @@ mod items;
 mod page;
 mod stopped;
 mod stream;
+mod told;
 mod works;
 
 use std::collections::BTreeSet;
@@ -225,13 +226,23 @@ pub fn running_scripted(
     dir: tempfile::TempDir,
     script: service::Script,
 ) -> Running {
+    running_carried(store, dir, Scripted::new(script).carriers())
+}
+
+/// Starts the engine's loop on the trial flow with these carriers over this store, kept in this directory, and serves
+/// the interface over it.
+pub fn running_carried(
+    store: Box<dyn store::Storage + Send>,
+    dir: tempfile::TempDir,
+    carriers: service::Carriers,
+) -> Running {
     let flow = flow::compile(
         &flow::read(&trial_dir().join("flow")).unwrap(),
         &trial_has(&Source::default()),
     )
     .unwrap();
     let clock = Arc::new(TokioClock::new(work::Time(START)));
-    let (service, inbox) = Service::open(store, vec![flow], Scripted::new(script).carriers(), clock).unwrap();
+    let (service, inbox) = Service::open(store, vec![flow], carriers, clock).unwrap();
     let handle = service.handle();
     tokio::spawn(service.run(inbox));
     let flows = Flows::dirs(trial_dir().join("flow"), None, Box::new(trial_has));

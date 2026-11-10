@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use decide::{CallId, Pauser, RunId};
 use engine::{Came, Event};
-use flow::{CellSpec, Compiled};
+use flow::{CellSpec, Compiled, Kind};
 use store::WorkNumber;
 use tokio::sync::mpsc;
 use work::{Given, Spent, Work};
@@ -44,6 +44,61 @@ pub trait Rounds: Send + Sync {
     /// saying what it took; what came back is dropped. A round has one end: where the reply it was given with is
     /// still held, that one is used and this one dropped, and where the round has ended already this one is dropped.
     fn stop(&self, round: Round, reply: RoundReply);
+
+    /// What the round of this number of the run was told and what came back of it, each try in order, as far as
+    /// this carrier keeps them; no try where it keeps nothing, as by default. Unlike the others, this is called off
+    /// the loop, on a thread that may wait on the disk; an error says why what was kept could not be read.
+    fn told(&self, work: WorkNumber, run: RunId, round: usize) -> Result<Told, String> {
+        let _ = (work, run, round);
+        Ok(Told::default())
+    }
+}
+
+/// What a round was told and what came back of it, as its carrier kept them: each try of it, in order. A round is
+/// tried more than once where its carrier ran its program again for it. What is read of a round is bounded, and each
+/// cut is said: a long message is cut, and tries past what is read of a round are left out and counted.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Told {
+    pub tries: Vec<Try>,
+    /// How many later tries were left out, those before them being as much as is read of a round.
+    pub left_out: usize,
+}
+
+/// One try of a round.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Try {
+    /// The message it was told, as it was written, up to where it was cut.
+    pub message: String,
+    /// The message's whole length in bytes, where it was cut before its end.
+    pub cut: Option<u64>,
+    pub back: Back,
+}
+
+/// What came back of a try.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Back {
+    /// Nothing that was kept: the try is under way, or it was stopped, never got as far as its program, or its program
+    /// printed no result.
+    Nothing,
+    Returned(Returned),
+    /// The program said the try failed, for this reason.
+    Failed(String),
+    /// What was kept of it could not be read, for this reason.
+    Unreadable(String),
+}
+
+/// What came back of a try, as far as the page is given it: never the whole of what the program printed, which holds
+/// what is not for the page, such as ids of sessions and of credentials.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Returned {
+    /// The agent's closing words; none where they are the structured return itself.
+    pub text: Option<String>,
+    /// The structured return, as pretty-printed JSON.
+    pub structured: Option<String>,
+    pub turns: Option<u64>,
+    pub duration_ms: Option<u64>,
+    /// The models it was answered by, by name.
+    pub models: Vec<String>,
 }
 
 /// What runs the tools that agents ask for.
@@ -69,6 +124,33 @@ pub struct Carriers {
     /// The rounds of the cells that are the engine's own acts.
     pub acts: Arc<dyn Rounds>,
     pub tools: Arc<dyn Tools>,
+}
+
+impl Carriers {
+    /// What carries out the rounds of cells of this kind.
+    pub fn rounds(&self, kind: Kind) -> &Arc<dyn Rounds> {
+        match kind {
+            Kind::Agent => &self.agents,
+            Kind::Engine => &self.acts,
+        }
+    }
+
+    /// What the round was told and returned, as the carrier of its cell's kind kept them; for a cell of no kind
+    /// known, one the flow no longer has, as the first carrier that kept anything of it. It waits on the disk.
+    pub fn told(&self, kind: Option<Kind>, work: WorkNumber, run: RunId, round: usize) -> Result<Told, String> {
+        let carriers = match kind {
+            Some(kind) => vec![self.rounds(kind)],
+            None => vec![&self.agents, &self.acts],
+        };
+        let mut told = Told::default();
+        for rounds in carriers {
+            told = rounds.told(work, run, round)?;
+            if !told.tries.is_empty() {
+                break;
+            }
+        }
+        Ok(told)
+    }
 }
 
 /// A round of a run, to give or to stop.
@@ -177,5 +259,66 @@ impl CallReply {
         };
         // Where the loop has ended, the process is stopping: the call is handed out again when it starts again.
         let _ = self.to.send(Message::Happened { work: self.work, event });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Rounds that keep, of every round, one try with this message, or nothing.
+    struct Keeps(Option<&'static str>);
+
+    impl Rounds for Keeps {
+        fn give(&self, _: Round, _: RoundReply) {}
+
+        fn stop(&self, _: Round, _: RoundReply) {}
+
+        fn told(&self, _: WorkNumber, _: RunId, _: usize) -> Result<Told, String> {
+            let tries = (self.0.iter())
+                .map(|message| Try {
+                    message: message.to_string(),
+                    cut: None,
+                    back: Back::Nothing,
+                })
+                .collect();
+            Ok(Told { tries, left_out: 0 })
+        }
+    }
+
+    struct NoTools;
+
+    impl Tools for NoTools {
+        fn call(&self, _: ToolCall, _: CallReply) {}
+
+        fn withdraw(&self, _: ToolCall, _: CallReply) {}
+    }
+
+    fn carriers(agents: Option<&'static str>, acts: Option<&'static str>) -> Carriers {
+        Carriers {
+            agents: Arc::new(Keeps(agents)),
+            acts: Arc::new(Keeps(acts)),
+            tools: Arc::new(NoTools),
+        }
+    }
+
+    fn messages(told: Told) -> Vec<String> {
+        told.tries.into_iter().map(|t| t.message).collect()
+    }
+
+    #[test]
+    fn a_round_is_told_by_the_carrier_of_its_cells_kind() {
+        let carriers = carriers(Some("an agent's"), Some("an act's"));
+        let told = |kind| messages(carriers.told(Some(kind), WorkNumber(1), RunId(1), 1).unwrap());
+        assert_eq!(told(Kind::Agent), ["an agent's"]);
+        assert_eq!(told(Kind::Engine), ["an act's"]);
+    }
+
+    #[test]
+    fn a_round_of_a_cell_the_flow_no_longer_has_is_told_by_the_first_carrier_that_kept_it() {
+        let told = |carriers: Carriers| messages(carriers.told(None, WorkNumber(1), RunId(1), 1).unwrap());
+        assert_eq!(told(carriers(Some("an agent's"), None)), ["an agent's"]);
+        assert_eq!(told(carriers(None, Some("an act's"))), ["an act's"]);
+        assert!(told(carriers(None, None)).is_empty());
     }
 }

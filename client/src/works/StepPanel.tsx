@@ -1,5 +1,5 @@
 // The panel docked at the right of a work's history: everything about the step chosen (a run: why it ran, what it
-// started from, each round, its calls and how it ended; a write: the block, who, its value, whether it changed the
+// started from, each round with what it was told and returned, its calls and how it ended; a write: the block, who, its value, whether it changed the
 // meaning, and its content; an act of the owner's), or the cell chosen (how it stands, why it would run, what its
 // record knows of each block it reads), or, with nothing chosen, every block that has versions, each version with its
 // content. A content is read only when the owner opens it.
@@ -9,10 +9,11 @@ import type { ReactNode } from 'react';
 import type { Flow } from '../api';
 import { ListRow, Panel, PanelPart, StatusLine, type Tone } from '../parts';
 import type { Fold } from '../Side';
-import type { Block, CallRow, Handed, Round, RoundPage, Run, Step, WorkPage } from '../works-api';
+import type { Block, CallRow, Handed, Round, RoundPage, Run, Step, ToldPage, WorkPage } from '../works-api';
 import type { Chosen } from './History';
 import { findRun } from './placing';
 import { Opener, StateMark, cellNowWords } from './marks';
+import { RoundTold } from './Told';
 import {
   RUN_WORDS,
   STATE_WORDS,
@@ -41,6 +42,8 @@ export interface Reader {
   version(block: string, at: number): Promise<string>;
   /// A round in full; kept once read only where the round had ended, since one under way has more to come.
   round(run: number, number: number, ended: boolean): Promise<RoundPage>;
+  /// What a round was told and returned, as its carrier kept them; kept once read only where the round had ended.
+  told(run: number, number: number, ended: boolean): Promise<ToldPage>;
   call(call: number): Promise<string | null>;
 }
 
@@ -112,7 +115,8 @@ function CallLine({ row, reader, abandoned }: { row: CallRow; reader: Reader; ab
   );
 }
 
-/// One round: what it was given, what came back, when it began and ended, and what it took.
+/// One round: what it was given, what came back, when it began and ended, and what it took; then what it was told
+/// and what it returned, as its carrier kept them.
 function RoundPart({ run, round, reader }: { run: Run; round: Round; reader: Reader }) {
   const given = round.given;
   const back = round.back;
@@ -206,6 +210,10 @@ function RoundPart({ run, round, reader }: { run: Run; round: Round; reader: Rea
           </>
         )}
       </dl>
+      <RoundTold
+        load={() => reader.told(run.run, round.number, round.ended !== null)}
+        ended={round.ended}
+      />
     </PanelPart>
   );
 }

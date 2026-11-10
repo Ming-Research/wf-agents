@@ -25,7 +25,7 @@ use std::sync::Arc;
 
 use decide::RunId;
 use engine::Came;
-use service::{Round, RoundReply, Rounds};
+use service::{Round, RoundReply, Rounds, Told};
 use store::WorkNumber;
 use tokio::process::Command;
 use tokio::sync::Semaphore;
@@ -36,7 +36,7 @@ use crate::cli::{self, Begin};
 use crate::held::{Failing, Held, Stop};
 use crate::process::{self, Ran};
 use crate::settings::Settings;
-use crate::{acts, git, message, returns, session};
+use crate::{acts, git, kept, message, returns, session};
 
 /// The system prompt every round is given, before the owner's language is put in.
 pub const PROTOCOL: &str = include_str!("protocol.md");
@@ -156,6 +156,10 @@ impl Rounds for Agents {
             });
         }
     }
+
+    fn told(&self, work: WorkNumber, run: RunId, round: usize) -> Result<Told, String> {
+        kept::told(&self.inner.data, work, run, round)
+    }
 }
 
 impl Inner {
@@ -241,8 +245,7 @@ impl Inner {
 
     /// Where what the round was told and returned are kept, without the extension.
     fn kept(&self, round: &Round) -> PathBuf {
-        let dir = self.data.join(ROUNDS).join(round.work.0.to_string());
-        dir.join(format!("{}-{}", round.run.0, round.number))
+        kept::base(&self.data, round.work, round.run, round.number)
     }
 
     /// Why the work is to wait for the owner, where the round took it over its budget: everything its rounds have
@@ -265,18 +268,11 @@ impl Inner {
 
 /// Where the next try of the round keeps what it is told and what it returns: the first that has kept nothing yet.
 async fn attempt(base: &Path) -> (PathBuf, PathBuf) {
-    let at = |n: usize| match n {
-        1 => (base.with_extension("message.md"), base.with_extension("result.json")),
-        n => (
-            base.with_extension(format!("message.{n}.md")),
-            base.with_extension(format!("result.{n}.json")),
-        ),
-    };
     let mut n = 1;
-    while tokio::fs::try_exists(&at(n).0).await.unwrap_or(false) {
+    while tokio::fs::try_exists(&kept::at(base, n).0).await.unwrap_or(false) {
         n += 1;
     }
-    at(n)
+    kept::at(base, n)
 }
 
 /// Writes the file, making its directory where there is none.

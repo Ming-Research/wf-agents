@@ -10,6 +10,7 @@
 //! - [`Items`]: every item with its work in brief, for the item graph and the list of works.
 //! - [`WorkPage`]: one work, as it is now and step by step from its start.
 //! - [`RoundPage`], [`VersionPage`], [`CallPage`]: the content the history leaves out.
+//! - [`ToldPage`]: what a round was told and what came back of it, as its carrier kept them.
 //! - [`Act`], [`NewItem`]: what the owner does on the pages.
 //!
 //! A work whose records name what it does not hold, which the engine never writes, is not shown as something it is
@@ -490,6 +491,50 @@ pub struct HandedContent {
     pub content: String,
 }
 
+/// What a round was told and what came back of it, each try in order, as its carrier kept them; no try where it kept
+/// nothing, as of a round of the engine's own acts.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToldPage {
+    pub tries: Vec<TryPage>,
+    /// How many later tries were left out, those before them being as much as is read of a round.
+    pub left_out: usize,
+}
+
+/// One try of a round.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TryPage {
+    /// The message it was told, as it was written, up to where it was cut.
+    pub message: String,
+    /// The message's whole length in bytes, where it was cut before its end.
+    pub cut: Option<u64>,
+    pub back: TryBack,
+}
+
+/// What came back of a try: only what the page shows of what the program printed, never the whole of it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum TryBack {
+    /// Nothing that was kept: the try is under way, or it was stopped, never got as far as its program, or its program
+    /// printed no result.
+    Nothing,
+    Returned {
+        /// The agent's closing words; none where they are the structured return itself.
+        text: Option<String>,
+        /// The structured return, as pretty-printed JSON.
+        structured: Option<String>,
+        turns: Option<u64>,
+        duration_ms: Option<u64>,
+        /// The models it was answered by, by name.
+        models: Vec<String>,
+    },
+    /// The program said the try failed, for this reason.
+    Failed { why: String },
+    /// What was kept of it could not be read, for this reason.
+    Unreadable { why: String },
+}
+
 /// A call with its result.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -915,6 +960,33 @@ impl RoundPage {
             results,
             handed,
         }))
+    }
+}
+
+impl ToldPage {
+    pub fn of(told: service::Told) -> ToldPage {
+        let tries = (told.tries.into_iter())
+            .map(|t| TryPage {
+                message: t.message,
+                cut: t.cut,
+                back: match t.back {
+                    service::Back::Nothing => TryBack::Nothing,
+                    service::Back::Returned(r) => TryBack::Returned {
+                        text: r.text,
+                        structured: r.structured,
+                        turns: r.turns,
+                        duration_ms: r.duration_ms,
+                        models: r.models,
+                    },
+                    service::Back::Failed(why) => TryBack::Failed { why },
+                    service::Back::Unreadable(why) => TryBack::Unreadable { why },
+                },
+            })
+            .collect();
+        ToldPage {
+            tries,
+            left_out: told.left_out,
+        }
     }
 }
 

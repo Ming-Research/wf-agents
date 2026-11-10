@@ -9,6 +9,8 @@
 // - `GET  /api/v1/works/{work}`: one work, as it is now and step by step from its start (`WorkPage`).
 // - `GET  /api/v1/works/{work}/versions/{block}/{at}`: the content of a version of a block (`VersionPage`).
 // - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}`: one round in full (`RoundPage`).
+// - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}/told`: what the round was told and what came back of it, as
+//   its carrier kept them (`ToldPage`); no try where it kept nothing.
 // - `GET  /api/v1/works/{work}/calls/{call}`: a call with its result (`CallPage`).
 // - `POST /api/v1/works/{work}/acts`: what the owner does to a work (`Act`); answers with no content, or with why it
 //   was refused (`Refusal`) and a status of 4xx.
@@ -277,6 +279,41 @@ export interface RoundPage {
   handed: { block: string; content: string }[];
 }
 
+/// What came back of a try of a round: nothing that was kept (it is under way, or was stopped, never got as far as its
+/// program, or its program printed no result); what it returned, only as much as the page shows of what the agent's
+/// program printed; that the program said it failed, and why; or why what was kept of it could not be read.
+export type TryBack =
+  | { kind: 'nothing' }
+  | {
+      kind: 'returned';
+      /// The agent's closing words; none where they are the structured return itself.
+      text: string | null;
+      /// The structured return, as pretty-printed JSON.
+      structured: string | null;
+      turns: number | null;
+      durationMs: number | null;
+      /// The models it was answered by, by name.
+      models: string[];
+    }
+  | { kind: 'failed'; why: string }
+  | { kind: 'unreadable'; why: string };
+
+/// One try of a round: the message it was told, as it was written up to where it was cut, and what came back.
+export interface Try {
+  message: string;
+  /// The message's whole length in bytes, where it was cut before its end.
+  cut: number | null;
+  back: TryBack;
+}
+
+/// What a round was told and what came back of it, each try in order, as its carrier kept them; no try where it kept
+/// nothing, as of a round of the engine's own acts or of a script. Tries past what is read of a round are left out,
+/// and counted.
+export interface ToldPage {
+  tries: Try[];
+  leftOut: number;
+}
+
 /// What the owner does to a work.
 export type Act =
   /// Writes a block people write: what the item is about, an opinion for a cell, a choice (with its value).
@@ -335,6 +372,8 @@ export const loadVersion = (work: number, block: string, at: number) =>
   read<VersionPage>(`/api/v1/works/${work}/versions/${encodeURIComponent(block)}/${at}`);
 export const loadRound = (work: number, run: number, round: number) =>
   read<RoundPage>(`/api/v1/works/${work}/runs/${run}/rounds/${round}`);
+export const loadTold = (work: number, run: number, round: number) =>
+  read<ToldPage>(`/api/v1/works/${work}/runs/${run}/rounds/${round}/told`);
 export const loadCall = (work: number, call: number) => read<CallPage>(`/api/v1/works/${work}/calls/${call}`);
 export const act = (work: number, what: Act) => send<null>(`/api/v1/works/${work}/acts`, what);
 export const addItem = (item: NewItem) => send<Added>('/api/v1/items', item);
