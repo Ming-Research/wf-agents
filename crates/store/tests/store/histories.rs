@@ -310,8 +310,6 @@ fn one_history(seed: u64, kept: bool, log: &mut Vec<String>) -> (Work, usize) {
 
 #[test]
 fn a_work_saved_at_every_step_and_loaded_back_at_random_ends_as_the_one_kept_in_memory() {
-    let hook = panic::take_hook();
-    panic::set_hook(Box::new(|_| {}));
     let mut failures = Vec::new();
     let mut reloads = 0;
     for seed in 0..SEEDS {
@@ -336,7 +334,6 @@ fn a_work_saved_at_every_step_and_loaded_back_at_random_ends_as_the_one_kept_in_
             }
         }
     }
-    panic::set_hook(hook);
     if let Some((seed, message, log)) = failures.first() {
         let seeds: Vec<_> = failures.iter().map(|(s, m, _)| format!("{s}: {m}")).collect();
         panic!(
