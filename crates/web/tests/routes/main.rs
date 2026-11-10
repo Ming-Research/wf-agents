@@ -120,12 +120,12 @@ impl Shared {
 }
 
 /// The interface over a definition shown and, when given, one compared against; the engine is taken to have one
-/// source outside a work, `repository`.
+/// source outside a work, `main`.
 pub fn serve(shown: &Shared, against: Option<&Shared>) -> Router {
     web::router(Flows {
         shown: shown.read(),
         against: against.map(Shared::read),
-        sources: Box::new(|_: &Source| BTreeSet::from(["repository".to_string()])),
+        sources: Box::new(|_: &Source| BTreeSet::from(["main".to_string()])),
     })
 }
 

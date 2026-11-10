@@ -36,7 +36,7 @@ people = true
 shown = true
 
 [blocks.main]
-outside = "repository"
+outside = "main"
 
 [blocks.ci]
 values = ["green", "red"]
@@ -145,7 +145,7 @@ pub fn valid() -> Source {
 
 /// The sources outside a work that the engine has: the one the small flow names.
 pub fn sources() -> BTreeSet<String> {
-    ["repository".to_string()].into()
+    ["main".to_string()].into()
 }
 
 /// The text of a file of the source, by the file's name.

@@ -46,7 +46,7 @@ fn judged() -> Compiled {
         [blocks.request]
         people = true
         [blocks.main]
-        outside = "repository"
+        outside = "main"
         [blocks.go]
         values = ["yes", "no"]
         people = true
@@ -87,7 +87,7 @@ fn judged() -> Compiled {
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
     };
-    compile(&source, &["repository".to_string()].into()).expect("the definition compiles")
+    compile(&source, &["main".to_string()].into()).expect("the definition compiles")
 }
 
 /// A work on the judged flow.

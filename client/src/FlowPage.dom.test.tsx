@@ -105,11 +105,11 @@ describe('the chart', () => {
 
   it('says the source outside that writes a block on its row and in its panel', () => {
     const page = draw({ state: 'compiled', flow: small() });
-    expect(rowOf(page, 'main').querySelector('.block-source')?.textContent).toBe('repository');
+    expect(rowOf(page, 'main').querySelector('.block-source')?.textContent).toBe('main');
     expect(rowOf(page, 'plan').querySelector('.block-source')).toBeNull();
     click(rowOf(page, 'main').querySelector('.head-button'));
     const panel = page.querySelector('aside[aria-label="Block main"]') as HTMLElement;
-    expect(panel.textContent).toContain('the outside (repository)');
+    expect(panel.textContent).toContain('the outside (main)');
   });
 
   it('shows everything about a cell chosen by its column’s head, and about a block chosen from it', () => {
@@ -180,7 +180,7 @@ describe('a comparison of tests and sources', () => {
       y: { values: ['yes', 'no'], outside },
     });
     const before = flowOf([cell('a', { preconditions: [was] })], blocks('mirror'));
-    const after = flowOf([cell('a', { preconditions: [is] })], blocks('repository'));
+    const after = flowOf([cell('a', { preconditions: [is] })], blocks('main'));
     const page = draw(
       { state: 'compiled', flow: after },
       {
@@ -188,17 +188,17 @@ describe('a comparison of tests and sources', () => {
         against: { state: 'compiled', flow: before },
         changes: [
           { kind: 'testChanged', test: 'ready', before: was, after: is },
-          { kind: 'outside', block: 'y', before: 'mirror', after: 'repository' },
+          { kind: 'outside', block: 'y', before: 'mirror', after: 'main' },
         ],
       },
     );
     expect(texts(page, '.change-group h3')).toEqual(['Test ready', 'Block y']);
     expect(texts(page, '.changes .change')).toEqual([
       'Holds whenx is yes → any of x, y is yes',
-      'Written by the outsidemirror → repository',
+      'Written by the outsidemirror → main',
     ]);
     expect(texts(page, '.changes del')).toEqual(['x is yes', 'mirror']);
-    expect(texts(page, '.changes ins')).toEqual(['any of x, y is yes', 'repository']);
+    expect(texts(page, '.changes ins')).toEqual(['any of x, y is yes', 'main']);
     expect(rowOf(page, 'y').className).toContain('status-changed');
     expect(rowOf(page, 'y').querySelector('.block-source')?.className).toContain('changed-field');
     // The precondition's mark on y is put in by the change.

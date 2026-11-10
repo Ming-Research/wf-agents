@@ -77,19 +77,19 @@ export function faultWords(fault: Fault): string {
     case 'notAValue':
       return `A condition or a test waits for ${w.block} to be ${w.is}, which is not one of its values.`;
     case 'conditionOnOwnOutput':
-      return `The condition reads ${w.block}, which the cell itself writes: the cell could never come to run.`;
+      return `The condition reads ${w.block}, which the cell itself writes: the cell would decide by what it writes itself whether it runs.`;
     case 'conditionNotWrittenBefore':
-      return `The condition reads ${w.block}, which neither a cell before this one nor people write.`;
+      return `The condition reads ${w.block}, which neither a cell before this one, people nor the outside write.`;
     case 'lastHasCondition':
       return 'The last cell has a condition, but a work ends when its last cell has a record, so it always runs.';
     case 'undeclaredTest':
       return `The test ${w.test} is not declared in flow.toml.`;
     case 'readsEmpty':
-      return 'The test reads no block.';
+      return `The test ${w.test} reads no block.`;
     case 'unusedTest':
       return `No cell uses the test ${w.test}.`;
     case 'testOnOwnOutput':
-      return `The test ${w.test} reads ${w.block}, which the cell itself writes: the cell could never come to run, or never stop waiting.`;
+      return `The test ${w.test} reads ${w.block}, which the cell itself writes: the cell would decide by what it writes itself whether it runs, or whether the work waits before it.`;
     case 'testNotWrittenBefore':
       return `The test ${w.test} reads ${w.block}, which neither a cell before this one, people nor the outside write.`;
     case 'flowRefused': {

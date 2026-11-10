@@ -71,7 +71,7 @@ pub struct Line {
 }
 
 /// A named test: the words shown for it, and what it holds on.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Test {
     pub name: String,
@@ -85,10 +85,9 @@ pub struct Test {
 }
 
 /// How the blocks a named test reads make it hold: when every one, at least one, or none has the value it looks for.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TestKind {
-    #[default]
     All,
     Any,
     None,
@@ -237,7 +236,9 @@ pub enum What {
     UndeclaredTest {
         test: String,
     },
-    ReadsEmpty,
+    ReadsEmpty {
+        test: String,
+    },
     UnusedTest {
         test: String,
     },
@@ -488,16 +489,10 @@ impl Kind {
 }
 
 impl Test {
-    /// The test of this name as the definition declares it. Where it does not, which a compiled definition always
-    /// does of every test its cells use, the test has no words and reads nothing.
+    /// The test of this name as the definition declares it: a compiled definition declares every test its cells use
+    /// and every test a comparison of it names.
     fn of(test: &TestName, compiled: &Compiled) -> Self {
-        match compiled.tests.get(test) {
-            Some(declared) => Test::declared(test, declared),
-            None => Test {
-                name: test.to_string(),
-                ..Test::default()
-            },
-        }
+        Test::declared(test, &compiled.tests[test])
     }
 
     /// The test of this name, declared so.
@@ -575,7 +570,7 @@ impl What {
             F::ConditionNotWrittenBefore { block } => What::ConditionNotWrittenBefore { block },
             F::LastHasCondition => What::LastHasCondition,
             F::UndeclaredTest { test } => What::UndeclaredTest { test },
-            F::ReadsEmpty => What::ReadsEmpty,
+            F::ReadsEmpty { test } => What::ReadsEmpty { test },
             F::UnusedTest { test } => What::UnusedTest { test },
             F::TestOnOwnOutput { test, block } => What::TestOnOwnOutput { test, block },
             F::TestNotWrittenBefore { test, block } => What::TestNotWrittenBefore { test, block },

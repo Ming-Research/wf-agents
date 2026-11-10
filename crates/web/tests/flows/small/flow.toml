@@ -32,7 +32,7 @@ people = true
 shown = true
 
 [blocks.main]
-outside = "repository"
+outside = "main"
 
 [blocks.ci]
 values = ["green", "red"]

@@ -104,7 +104,7 @@ async fn a_test_put_in_or_changed_and_a_block_s_source_are_given_as_each_definit
         after,
         None,
         "[blocks.request]\npeople = true",
-        "[blocks.request]\npeople = true\noutside = \"repository\"",
+        "[blocks.request]\npeople = true\noutside = \"main\"",
     );
     let checked =
         "\n[tests.checked]\nsays = \"The content is checked\"\nkind = \"none\"\nreads = [\"content\"]\nis = \"no\"\n";
@@ -144,7 +144,7 @@ async fn a_test_put_in_or_changed_and_a_block_s_source_are_given_as_each_definit
                 "after": test("any", &["go", "content"]),
             },
             { "kind": "preconditionAdded", "cell": "merge", "test": checked },
-            { "kind": "outside", "block": "request", "before": null, "after": "repository" },
+            { "kind": "outside", "block": "request", "before": null, "after": "main" },
         ])
     );
 }

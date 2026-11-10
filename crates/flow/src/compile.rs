@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use decide::{BlockId, Cell, CellId, Condition, Flow, FlowFault, TestName};
 
-use crate::source::{CellFile, FLOW_FILE, FlowFile, Kind, Source, TestKind, When, WhenIs, WhenTest};
+use crate::source::{BlockFile, CellFile, FLOW_FILE, FlowFile, Kind, Source, TestKind, When, WhenIs, WhenTest};
 
 /// A flow's definition compiled.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -83,7 +83,7 @@ pub struct Readers {
     pub cells: Vec<CellId>,
     /// The cells whose condition reads its value, in the order of the walk.
     pub conditions: Vec<CellId>,
-    /// The named tests that read its value, by name.
+    /// The named tests that read its value and that a cell uses, by name.
     pub tests: Vec<TestName>,
     /// The owner's page reads it.
     pub shown: bool,
@@ -150,21 +150,21 @@ pub enum FaultKind {
     NotAChoice { block: String },
     /// A condition or a named test waits for a value the choice does not offer.
     NotAValue { block: String, is: String },
-    /// A condition reads a block its own cell writes: the cell could never come to run.
+    /// A condition reads a block its own cell writes: the cell would decide by what it writes itself whether it runs.
     ConditionOnOwnOutput { block: String },
-    /// A condition reads a block that neither a cell before it nor people write, so that it is decided by nothing
-    /// that comes before the cell.
+    /// A condition reads a block that neither a cell before it, people nor the outside write, so that it is decided
+    /// by nothing that comes before the cell.
     ConditionNotWrittenBefore { block: String },
     /// The last cell has a condition: a work ends when its last cell has a record, so the last cell always runs.
     LastHasCondition,
     /// A cell uses a test that `flow.toml` does not declare.
     UndeclaredTest { test: String },
     /// A declared test reads no block.
-    ReadsEmpty,
+    ReadsEmpty { test: String },
     /// A declared test is used by no cell.
     UnusedTest { test: String },
-    /// A cell's condition or precondition is a test that reads a block the cell itself writes: as a condition the cell
-    /// could never come to run, and as a precondition it could hold the work before the cell for ever.
+    /// A cell's condition or precondition is a test that reads a block the cell itself writes: the cell would decide by
+    /// what it writes itself whether it runs, or whether the work waits before it.
     TestOnOwnOutput { test: String, block: String },
     /// A cell's condition or precondition is a test that reads a block that neither a cell before it, people nor the
     /// outside write, so that it is decided by nothing that comes before the cell.
@@ -330,14 +330,22 @@ fn check_list(
     faults
 }
 
-/// The cells of the order that write and read one block, each list in the order of the walk, and the declared tests
-/// that read it, by name.
+/// The cells of the order that write and read one block, each list in the order of the walk, and the tests that read
+/// it and that a cell of the order uses, by name.
 #[derive(Default)]
 struct Uses<'a> {
     writers: Vec<(usize, &'a str)>,
     readers: Vec<&'a str>,
     conditions: Vec<&'a str>,
     tests: Vec<&'a str>,
+}
+
+/// Why a block a cell's condition or precondition reads is not decided before the cell.
+enum NotBefore {
+    /// The cell itself writes it.
+    OwnOutput,
+    /// Nothing before the cell writes it: only cells after it do.
+    Later,
 }
 
 /// The parsed files, with what the checks look up in them.
@@ -348,6 +356,8 @@ struct Definition<'a> {
     place: BTreeMap<&'a str, usize>,
     /// Who of the order writes and reads each block that is declared.
     uses: BTreeMap<&'a str, Uses<'a>>,
+    /// The tests a cell of the order uses, as its condition or a precondition.
+    used: BTreeSet<&'a str>,
 }
 
 impl<'a> Definition<'a> {
@@ -357,6 +367,7 @@ impl<'a> Definition<'a> {
             cells,
             place: first_places(&flow.order, cells),
             uses: BTreeMap::new(),
+            used: BTreeSet::new(),
         };
         let mut uses: BTreeMap<&'a str, Uses<'a>> = flow.blocks.keys().map(|b| (b.as_str(), Uses::default())).collect();
         for (place, id, file) in def.ordered() {
@@ -380,7 +391,16 @@ impl<'a> Definition<'a> {
                 u.conditions.push(id);
             }
         }
-        for (test, declared) in &flow.tests {
+        let used: BTreeSet<&'a str> = (def.ordered())
+            .flat_map(|(_, _, file)| {
+                let when = match &file.when {
+                    Some(When::Test(WhenTest { test })) => Some(test.as_str()),
+                    _ => None,
+                };
+                file.requires.iter().map(String::as_str).chain(when)
+            })
+            .collect();
+        for (test, declared) in flow.tests.iter().filter(|(t, _)| used.contains(t.as_str())) {
             for block in &declared.reads {
                 if let Some(u) = uses.get_mut(block.as_str())
                     && !u.tests.contains(&test.as_str())
@@ -390,6 +410,7 @@ impl<'a> Definition<'a> {
             }
         }
         def.uses = uses;
+        def.used = used;
         def
     }
 
@@ -452,22 +473,16 @@ impl<'a> Definition<'a> {
     /// The faults of the declared tests: one that reads no block; a block read that is not declared, is no choice or
     /// does not offer the value looked for; and a test that no cell of the order uses.
     fn check_tests(&self, faults: &mut Vec<Fault>) {
-        let mut used = BTreeSet::new();
-        for (_, _, file) in self.ordered() {
-            used.extend(file.requires.iter().map(String::as_str));
-            if let Some(When::Test(WhenTest { test })) = &file.when {
-                used.insert(test.as_str());
-            }
-        }
         for (test, declared) in &self.flow.tests {
             let field = format!("tests.{test}.reads");
             if declared.reads.is_empty() {
-                faults.push(fault(FLOW_FILE, field.clone(), FaultKind::ReadsEmpty));
+                let what = FaultKind::ReadsEmpty { test: test.clone() };
+                faults.push(fault(FLOW_FILE, field.clone(), what));
             }
             for (field, what) in check_list(&declared.reads, &field, |block| self.check_read(block, &declared.is)) {
                 faults.push(fault(FLOW_FILE, field, what));
             }
-            if !used.contains(test.as_str()) {
+            if !self.used.contains(test.as_str()) {
                 let what = FaultKind::UnusedTest { test: test.clone() };
                 faults.push(fault(FLOW_FILE, format!("tests.{test}"), what));
             }
@@ -622,12 +637,29 @@ impl<'a> Definition<'a> {
             }
             Some(_) => {}
         }
-        if file.outputs.iter().any(|o| o == block) {
-            found.push((field(), FaultKind::ConditionOnOwnOutput { block: name }));
-        } else if !declared.people && !self.uses[block].writers.iter().any(|&(p, _)| p < place) {
-            found.push((field(), FaultKind::ConditionNotWrittenBefore { block: name }));
+        match self.not_before(place, file, block, declared) {
+            Some(NotBefore::OwnOutput) => found.push((field(), FaultKind::ConditionOnOwnOutput { block: name })),
+            Some(NotBefore::Later) => found.push((field(), FaultKind::ConditionNotWrittenBefore { block: name })),
+            None => {}
         }
         found
+    }
+
+    /// Why the block, which the condition or a precondition of the cell of this file at this place reads, is not
+    /// decided before the cell; `None` where it is. A block the cell itself writes is not; nor is one that neither a
+    /// cell before it, people nor the outside write. What people or the outside write can be written before any cell
+    /// runs.
+    fn not_before(&self, place: usize, file: &CellFile, block: &str, declared: &BlockFile) -> Option<NotBefore> {
+        if file.outputs.iter().any(|o| o == block) {
+            Some(NotBefore::OwnOutput)
+        } else if !declared.people
+            && declared.outside.is_none()
+            && !self.uses[block].writers.iter().any(|&(p, _)| p < place)
+        {
+            Some(NotBefore::Later)
+        } else {
+            None
+        }
     }
 
     /// The faults of a declared test used by the cell of this file at this place, as its condition or a precondition,
@@ -640,23 +672,13 @@ impl<'a> Definition<'a> {
             let Some(declared) = self.flow.blocks.get(block).filter(|_| !reads[..i].contains(block)) else {
                 continue;
             };
-            let (test, block_name) = (test.to_string(), block.clone());
-            if file.outputs.contains(block) {
-                let what = FaultKind::TestOnOwnOutput {
-                    test,
-                    block: block_name,
-                };
-                found.push((field.to_string(), what));
-            } else if !declared.people
-                && declared.outside.is_none()
-                && !self.uses[block.as_str()].writers.iter().any(|&(p, _)| p < place)
-            {
-                let what = FaultKind::TestNotWrittenBefore {
-                    test,
-                    block: block_name,
-                };
-                found.push((field.to_string(), what));
-            }
+            let (test, block) = (test.to_string(), block.clone());
+            let what = match self.not_before(place, file, &block, declared) {
+                Some(NotBefore::OwnOutput) => FaultKind::TestOnOwnOutput { test, block },
+                Some(NotBefore::Later) => FaultKind::TestNotWrittenBefore { test, block },
+                None => continue,
+            };
+            found.push((field.to_string(), what));
         }
         found
     }

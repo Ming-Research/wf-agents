@@ -17,7 +17,7 @@ async fn the_small_flow_compiles_and_what_changed_from_its_earlier_version_is_li
     let router = web::router(web::Flows::dirs(
         dir("small"),
         Some(dir("small-earlier")),
-        Box::new(|_: &Source| ["repository".to_string(), "mirror".to_string()].into()),
+        Box::new(|_: &Source| ["main".to_string()].into()),
     ));
     let flow = get_json(&router, "/api/v1/flow").await;
     assert_eq!(flow["state"], "compiled", "{flow}");
@@ -51,7 +51,8 @@ async fn the_small_flow_compiles_and_what_changed_from_its_earlier_version_is_li
             { "kind": "blockAdded", "block": "comments" },
             { "kind": "blockAdded", "block": "confirmed" },
             { "kind": "shown", "block": "design", "before": true, "after": false },
-            { "kind": "outside", "block": "main", "before": "mirror", "after": "repository" },
+            { "kind": "people", "block": "main", "before": true, "after": false },
+            { "kind": "outside", "block": "main", "before": null, "after": "main" },
             { "kind": "blockAdded", "block": "reply" },
         ])
     );

@@ -189,7 +189,7 @@ impl Cause {
     }
 }
 
-/// What a named test of the records comes to.
+/// What a named test comes to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome {
     /// The test holds.
@@ -198,9 +198,11 @@ pub enum Outcome {
     Waits { who: Who },
 }
 
-/// The named tests of a work: the conditions that read no block's value, and the preconditions. Each is a test of the
-/// work's state as it is, the blocks and what people and the outside did, worked out every time it is asked and never
-/// stored. A test reads no run: whether a cell is running, at rest or finished is the walk's to know.
+/// The named tests of a work. A named test is declared in the flow's definition, for a cell's condition or one of its
+/// preconditions: it holds when every one, at least one, or none of the blocks it reads, each a choice, has the value
+/// it looks for now. What people and the outside do reaches it only as blocks they write. It is worked out every time
+/// it is asked and never stored. A test reads no run: whether a cell is running, at rest or finished is the walk's to
+/// know.
 pub trait Tests {
     fn test(&self, name: &TestName) -> Outcome;
 }

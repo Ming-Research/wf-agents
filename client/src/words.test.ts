@@ -26,10 +26,10 @@ describe('the words of the page', () => {
     const block = {
       name: 'main',
       values: null,
-      writtenBy: { cells: [], people: true, outside: 'repository' },
+      writtenBy: { cells: [], people: true, outside: 'main' },
       readBy: { cells: [], conditions: [], tests: [], shown: false },
     };
-    expect(writersBesideCells(block)).toEqual(['people', 'the outside (repository)']);
+    expect(writersBesideCells(block)).toEqual(['people', 'the outside (main)']);
   });
 
   it('say a change as what changed, what it was and what it is', () => {
@@ -67,10 +67,10 @@ describe('the words of the page', () => {
       before: 'The CI is green (ci is green)',
       after: '',
     });
-    expect(changeWords({ kind: 'outside', block: 'main', before: null, after: 'repository' })).toEqual({
+    expect(changeWords({ kind: 'outside', block: 'main', before: null, after: 'main' })).toEqual({
       what: 'Written by the outside',
       before: 'no',
-      after: 'repository',
+      after: 'main',
     });
   });
 
@@ -88,8 +88,8 @@ describe('the words of the page', () => {
         what: { kind: 'unknownSource', block: 'main', source: 'mirror' },
       }),
     ).toBe('main is written by the source mirror, which the engine does not have.');
-    expect(faultWords({ file: 'flow.toml', field: 'tests.t.reads', what: { kind: 'readsEmpty' } })).toBe(
-      'The test reads no block.',
+    expect(faultWords({ file: 'flow.toml', field: 'tests.t.reads', what: { kind: 'readsEmpty', test: 't' } })).toBe(
+      'The test t reads no block.',
     );
     expect(
       faultWords({
@@ -105,7 +105,11 @@ describe('the words of the page', () => {
         what: { kind: 'testOnOwnOutput', test: 'may_merge', block: 'ci' },
       }),
     ).toBe(
-      'The test may_merge reads ci, which the cell itself writes: the cell could never come to run, or never stop waiting.',
+      'The test may_merge reads ci, which the cell itself writes: the cell would decide by what it writes itself ' +
+        'whether it runs, or whether the work waits before it.',
     );
+    expect(
+      faultWords({ file: 'design.toml', field: 'when.block', what: { kind: 'conditionNotWrittenBefore', block: 'go' } }),
+    ).toBe('The condition reads go, which neither a cell before this one, people nor the outside write.');
   });
 });

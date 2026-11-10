@@ -95,7 +95,7 @@ export type What =
   | { kind: 'conditionNotWrittenBefore'; block: string }
   | { kind: 'lastHasCondition' }
   | { kind: 'undeclaredTest'; test: string }
-  | { kind: 'readsEmpty' }
+  | { kind: 'readsEmpty'; test: string }
   | { kind: 'unusedTest'; test: string }
   | { kind: 'testOnOwnOutput'; test: string; block: string }
   | { kind: 'testNotWrittenBefore'; test: string; block: string }

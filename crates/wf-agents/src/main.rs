@@ -24,22 +24,17 @@ enum Command {
     Flow(FlowCommand),
 }
 
-// The engine has no sources outside a work yet, so each command here takes every source a definition's blocks name in
-// `flow.toml` as one the engine has, and says so in its help. When the engine has its sources, the commands take those
-// instead.
 #[derive(Subcommand)]
 enum FlowCommand {
     /// Compiles the definition in a directory: prints each fault with its file and field and fails, or prints a line
-    /// saying what it compiled to. The engine has no sources outside a work yet, so every source the definition names
-    /// is taken as one the engine has.
+    /// saying what it compiled to.
     Check {
         /// The definition's directory.
         dir: PathBuf,
     },
     /// Serves the owner's flow page for the definition in a directory, on the loopback address: the flow as a chart,
     /// or its faults when it does not compile, and what changed from another definition when one is given. Both
-    /// directories are read again for every request, so an edit shows when the page is loaded again. The engine has no
-    /// sources outside a work yet, so every source each definition names is taken as one the engine has.
+    /// directories are read again for every request, so an edit shows when the page is loaded again.
     Page {
         /// The definition's directory.
         dir: PathBuf,
@@ -59,18 +54,14 @@ fn main() -> ExitCode {
     }
 }
 
-/// The sources outside a work that a definition's blocks name, standing for the sources the engine has until it has
-/// its own. A `flow.toml` that cannot be read names none; compiling it then says why it cannot be read.
-fn named_sources(source: &Source) -> BTreeSet<String> {
-    let Ok(flow) = source.flow.parse::<toml::Table>() else {
-        return BTreeSet::new();
-    };
-    let Some(toml::Value::Table(blocks)) = flow.get("blocks") else {
-        return BTreeSet::new();
-    };
-    (blocks.values())
-        .filter_map(|block| block.get("outside")?.as_str().map(str::to_string))
-        .collect()
+/// The names of the sources outside a work that write its blocks, which every definition is compiled against:
+/// `dependencies`, written by the engine's driver; and `main`, `session` and `tree`, written by the host's adapters,
+/// which are not built yet.
+const SOURCES: [&str; 4] = ["dependencies", "main", "session", "tree"];
+
+/// The sources outside a work, by name, for any definition.
+fn sources(_: &Source) -> BTreeSet<String> {
+    SOURCES.into_iter().map(str::to_string).collect()
 }
 
 fn check(dir: &Path) -> ExitCode {
@@ -81,7 +72,7 @@ fn check(dir: &Path) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match flow::compile(&source, &named_sources(&source)) {
+    match flow::compile(&source, &sources(&source)) {
         Ok(compiled) => {
             let count = |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
             println!(
@@ -140,22 +131,23 @@ fn words(what: &FaultKind) -> String {
         F::NotAValue { block, is } => {
             format!("a condition or a test waits for {block} to be {is}, which is not one of its values")
         }
-        F::ConditionOnOwnOutput { block } => {
-            format!("the condition reads {block}, which the cell itself writes: the cell could never come to run")
-        }
+        F::ConditionOnOwnOutput { block } => format!(
+            "the condition reads {block}, which the cell itself writes: the cell would decide by what it writes itself \
+             whether it runs"
+        ),
         F::ConditionNotWrittenBefore { block } => {
-            format!("the condition reads {block}, which neither a cell before this one nor people write")
+            format!("the condition reads {block}, which neither a cell before this one, people nor the outside write")
         }
         F::LastHasCondition => {
             "the last cell has a condition, but a work ends when its last cell has a record, so it always runs"
                 .to_string()
         }
         F::UndeclaredTest { test } => format!("the test {test} is not declared in flow.toml"),
-        F::ReadsEmpty => "the test reads no block".to_string(),
+        F::ReadsEmpty { test } => format!("the test {test} reads no block"),
         F::UnusedTest { test } => format!("no cell uses the test {test}"),
         F::TestOnOwnOutput { test, block } => format!(
-            "the test {test} reads {block}, which the cell itself writes: the cell could never come to run, or never \
-             stop waiting"
+            "the test {test} reads {block}, which the cell itself writes: the cell would decide by what it writes itself \
+             whether it runs, or whether the work waits before it"
         ),
         F::TestNotWrittenBefore { test, block } => {
             format!("the test {test} reads {block}, which neither a cell before this one, people nor the outside write")
@@ -167,7 +159,7 @@ fn words(what: &FaultKind) -> String {
 fn page(dir: PathBuf, against: Option<PathBuf>, port: u16) -> ExitCode {
     let shown = dir.display().to_string();
     let compared = against.as_ref().map(|a| a.display().to_string());
-    let flows = web::Flows::dirs(dir, against, Box::new(named_sources));
+    let flows = web::Flows::dirs(dir, against, Box::new(sources));
     let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(runtime) => runtime,
         Err(e) => {

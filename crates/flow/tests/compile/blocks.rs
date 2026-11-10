@@ -125,7 +125,7 @@ fn every_block_is_read_by_a_cell_a_condition_the_page_or_a_named_test() {
 
 #[test]
 fn a_block_the_outside_writes_names_a_source_the_engine_has() {
-    let source = edit(valid(), FLOW_FILE, "outside = \"repository\"", "outside = \"mirror\"");
+    let source = edit(valid(), FLOW_FILE, "outside = \"main\"", "outside = \"mirror\"");
     let what = UnknownSource {
         block: "main".to_string(),
         source: "mirror".to_string(),
@@ -134,7 +134,7 @@ fn a_block_the_outside_writes_names_a_source_the_engine_has() {
 
     let what = UnknownSource {
         block: "main".to_string(),
-        source: "repository".to_string(),
+        source: "main".to_string(),
     };
     assert_eq!(
         faults_with(&valid(), &Default::default()),
@@ -142,7 +142,7 @@ fn a_block_the_outside_writes_names_a_source_the_engine_has() {
     );
 
     // That the outside writes a block is said by naming what writes it.
-    let source = edit(valid(), FLOW_FILE, "outside = \"repository\"", "outside = true");
+    let source = edit(valid(), FLOW_FILE, "outside = \"main\"", "outside = true");
     assert!(!unreadable(&source, FLOW_FILE).is_empty());
 }
 

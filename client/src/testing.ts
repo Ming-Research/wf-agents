@@ -96,7 +96,7 @@ export function small(): Flow {
       design: {},
       comments: { people: true },
       reply: { shown: true },
-      main: { outside: 'repository' },
+      main: { outside: 'main' },
       ci: { values: ['green', 'red'] },
       commented: { values: ['yes', 'no'], people: true },
       confirmed: { values: ['yes', 'no'], people: true },

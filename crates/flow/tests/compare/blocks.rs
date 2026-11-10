@@ -24,12 +24,12 @@ fn a_block_s_values_who_writes_it_besides_cells_and_whether_it_is_shown_are_each
         after,
         FLOW_FILE,
         "[blocks.comments]\npeople = true",
-        "[blocks.comments]\npeople = true\noutside = \"repository\"",
+        "[blocks.comments]\npeople = true\noutside = \"main\"",
     );
     let after = edit(
         after,
         FLOW_FILE,
-        "outside = \"repository\"\n\n[blocks.ci]",
+        "outside = \"main\"\n\n[blocks.ci]",
         "outside = \"mirror\"\n\n[blocks.ci]",
     );
     let after = edit(
@@ -54,13 +54,13 @@ fn a_block_s_values_who_writes_it_besides_cells_and_whether_it_is_shown_are_each
                 "comments",
                 BlockChange::Outside {
                     before: None,
-                    after: Some("repository".to_string()),
+                    after: Some("main".to_string()),
                 },
             ),
             of(
                 "main",
                 BlockChange::Outside {
-                    before: Some("repository".to_string()),
+                    before: Some("main".to_string()),
                     after: Some("mirror".to_string()),
                 },
             ),

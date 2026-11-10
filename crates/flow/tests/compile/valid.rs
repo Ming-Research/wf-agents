@@ -128,7 +128,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
         ("design", block(None, &["design"], none, &["check"], &[])),
         ("comments", block(None, &[], people, &["answer"], &[])),
         ("reply", reply),
-        ("main", block(None, &[], (false, Some("repository")), &["check"], &[])),
+        ("main", block(None, &[], (false, Some("main")), &["check"], &[])),
         (
             "ci",
             tested(

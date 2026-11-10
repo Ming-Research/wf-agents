@@ -146,7 +146,7 @@ async fn a_block_the_outside_writes_is_given_with_the_name_of_its_source_and_a_b
         tiny(),
         None,
         "[blocks.request]\npeople = true",
-        "[blocks.request]\noutside = \"repository\"",
+        "[blocks.request]\noutside = \"main\"",
     );
     let source = edit(source, None, "reads = [\"go\"]", "reads = [\"go\", \"content\"]");
     let router = serve(&Shared::new(Ok(source)), None);
@@ -154,7 +154,7 @@ async fn a_block_the_outside_writes_is_given_with_the_name_of_its_source_and_a_b
     let blocks = &answer["flow"]["blocks"];
     assert_eq!(
         blocks[4]["writtenBy"],
-        json!({ "cells": [], "people": false, "outside": "repository" })
+        json!({ "cells": [], "people": false, "outside": "main" })
     );
     assert_eq!(blocks[0]["readBy"]["tests"], json!(["may_merge"]));
     assert_eq!(answer["flow"]["tests"][0]["reads"], json!(["go", "content"]));
@@ -209,7 +209,7 @@ async fn the_faults_of_named_tests_and_of_sources_are_given_with_their_blocks() 
     let faults = &get_json(&router, "/api/v1/flow").await["faults"];
     assert_eq!(
         faults[1],
-        json!({ "file": "flow.toml", "field": "tests.may_merge.reads", "what": { "kind": "readsEmpty" } })
+        json!({ "file": "flow.toml", "field": "tests.may_merge.reads", "what": { "kind": "readsEmpty", "test": "may_merge" } })
     );
 }
 

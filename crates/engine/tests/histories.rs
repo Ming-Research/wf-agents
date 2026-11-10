@@ -89,7 +89,7 @@ fn flow_file(order: &[&str], blocks: &BTreeSet<&str>) -> String {
             let who = match *b {
                 "request" | "opinions" => "people = true\n",
                 "choice" => "values = [\"yes\", \"no\"]\npeople = true\n",
-                "main" => "outside = \"repository\"\n",
+                "main" => "outside = \"main\"\n",
                 _ => "",
             };
             format!("[blocks.{b}]\n{who}shown = true\n")
@@ -163,7 +163,7 @@ fn shape(n: usize) -> Compiled {
         flow: flow_file(&order, &blocks),
         cells: files,
     };
-    compile(&source, &["repository".to_string()].into()).expect("the shape compiles")
+    compile(&source, &["main".to_string()].into()).expect("the shape compiles")
 }
 
 /// What the histories of all seeds did, so that every class of step is known to occur.

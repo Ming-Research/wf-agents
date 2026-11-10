@@ -46,10 +46,10 @@ fn judged() -> Compiled {
         [blocks.request]
         people = true
         [blocks.main]
-        outside = "repository"
+        outside = "main"
         [blocks.checks]
         values = ["pass", "fail"]
-        outside = "repository"
+        outside = "main"
         [blocks.opinions]
         people = true
         [blocks.text]
@@ -87,7 +87,7 @@ fn judged() -> Compiled {
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
     };
-    compile(&source, &["repository".to_string()].into()).expect("the definition compiles")
+    compile(&source, &["main".to_string()].into()).expect("the definition compiles")
 }
 
 /// The time of the first thing a test does.

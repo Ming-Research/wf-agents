@@ -49,9 +49,33 @@ fn every_declared_test_is_used_by_a_cell() {
 }
 
 #[test]
+fn a_test_no_cell_uses_makes_nothing_it_reads_read() {
+    let extra = "\n[tests.extra]\nsays = \"Spare\"\nkind = \"all\"\nreads = [\"spare\"]\nis = \"yes\"\n";
+    let source = edit(valid(), FLOW_FILE, "is = \"red\"\n", &format!("is = \"red\"\n{extra}"));
+    let spare = "[blocks.spare]\nvalues = [\"yes\", \"no\"]\npeople = true\n\n[blocks.plan]";
+    let source = edit(source, FLOW_FILE, "[blocks.plan]", spare);
+    let unread = NoReader {
+        block: "spare".to_string(),
+    };
+    let unused = UnusedTest {
+        test: "extra".to_string(),
+    };
+    assert_eq!(
+        faults(&source),
+        [
+            at(FLOW_FILE, "blocks.spare", unread),
+            at(FLOW_FILE, "tests.extra", unused),
+        ]
+    );
+}
+
+#[test]
 fn a_test_reads_at_least_one_block() {
     let source = edit(valid(), FLOW_FILE, MAY_MERGE_READS, "reads = []");
-    assert_eq!(faults(&source), [at(FLOW_FILE, "tests.may_merge.reads", ReadsEmpty)]);
+    let what = ReadsEmpty {
+        test: "may_merge".to_string(),
+    };
+    assert_eq!(faults(&source), [at(FLOW_FILE, "tests.may_merge.reads", what)]);
 }
 
 #[test]
@@ -120,7 +144,7 @@ fn a_cell_s_condition_or_precondition_is_no_test_that_reads_what_only_a_cell_aft
 
 #[test]
 fn a_test_may_read_choices_people_or_the_outside_write_before_any_cell() {
-    let checks = "[blocks.checks]\nvalues = [\"pass\", \"fail\"]\noutside = \"repository\"\n\n[blocks.plan]";
+    let checks = "[blocks.checks]\nvalues = [\"pass\", \"fail\"]\noutside = \"main\"\n\n[blocks.plan]";
     let source = edit(valid(), FLOW_FILE, "[blocks.plan]", checks);
     let checked =
         "\n[tests.checked]\nsays = \"The checks passed\"\nkind = \"all\"\nreads = [\"checks\"]\nis = \"pass\"\n";
