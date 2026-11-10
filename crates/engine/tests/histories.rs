@@ -1,7 +1,8 @@
 //! Simulated histories of whole works through `handle` only (principle simulated-histories). A driver holds what the
 //! engine gave to be done and not yet done (rounds to end, calls to answer, rounds to stop, calls to withdraw) and at
 //! each step does one of those things, or a person or the outside acts; at any step the engine may stop, and the
-//! driver then forgets what it held and takes `pending` instead.
+//! driver then forgets what it held and takes `pending` instead. The driver is `support`'s, which the histories of the
+//! engineer's flow share; what an agent returns and what a person does on the shapes is here.
 //!
 //! What is checked after every step:
 //! - `pending` equals, as a set, what the driver holds (entries engine-holds-no-state, a-stop-changes-nothing);
@@ -38,48 +39,21 @@
 //!
 //! A failing case prints its seed and the steps it took; `one_history(seed, ..)` replays it.
 
+mod support;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::panic::{self, AssertUnwindSafe};
 
 use decide::{CallId, Decision, Outsider, RunId, Who, decide};
-use engine::{Ask, Call, Came, Effect, Event, Handed, Spent, Time, Work, handle, pending};
+use engine::{Ask, Came, Effect, Event, Handed, Spent, Work, pending};
 use flow::{Compiled, Has, Source, compile};
+use support::{Driver, Part, Rng, Seen};
 
 /// How many histories are run.
 const SEEDS: u64 = 200;
 
 /// How many steps, at most, people act in.
 const PEOPLE: usize = 60;
-
-/// A small deterministic generator (xorshift), so that a seed gives the same history every time.
-struct Rng(u64);
-
-impl Rng {
-    fn new(seed: u64) -> Self {
-        Self(
-            seed.wrapping_mul(0x9E37_79B9_7F4A_7C15)
-                .wrapping_add(0x2545_F491_4F6C_DD1D)
-                | 1,
-        )
-    }
-
-    fn next(&mut self) -> u64 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 7;
-        x ^= x << 17;
-        self.0 = x;
-        x
-    }
-
-    fn below(&mut self, n: usize) -> usize {
-        (self.next() % n as u64) as usize
-    }
-
-    fn chance(&mut self, percent: u64) -> bool {
-        self.next() % 100 < percent
-    }
-}
 
 /// The flow's file for a shape: its order, and the blocks its cells use, each declared with who else may write it.
 fn flow_file(order: &[&str], blocks: &BTreeSet<&str>) -> String {
@@ -172,201 +146,39 @@ fn shape(n: usize) -> Compiled {
     compile(&source, &has).expect("the shape compiles")
 }
 
-/// What the histories of all seeds did, so that every class of step is known to occur.
-#[derive(Default, Debug)]
-struct Seen {
-    limits: usize,
-    abandons: usize,
-    withdrawn: usize,
-    refused: usize,
-    stops: usize,
-    /// Stops of the engine while the driver held a stop or a withdrawal not yet done.
-    stops_undoing: usize,
-    /// Rounds stopped by a cancel.
-    stopped: usize,
-    /// Histories that ended cancelled.
-    cancels: usize,
-}
-
-/// A history: the work, what the driver holds to be done, and what it saw.
-struct History {
-    flow: Compiled,
-    /// Whether the owner's word at the merge is yes from the start.
-    yes_at_first: bool,
+/// What the histories make of the steps that are their own, on the shapes: what an agent returns, and what a person
+/// or the outside does.
+struct Shape {
     /// The owner's word at the merge, as last written: yes, or no where it was never written.
     go: bool,
-    work: Work,
-    rng: Rng,
-    /// Draws the stops alone, so that a history with stops makes the same choices as one without.
-    stops: Option<Rng>,
-    /// What the engine gave to be done and is not yet done, in a fixed order.
-    held: Vec<Effect>,
-    /// Every round given, by run and number.
-    rounds: BTreeSet<(RunId, usize)>,
-    /// Calls that were withdrawn or have their result.
-    closed: Vec<CallId>,
     paused: bool,
-    /// The driver's clock, in milliseconds; it never goes back.
-    clock: u64,
-    log: Vec<String>,
-    seen: Seen,
 }
 
-/// A key that orders effects the same way however they came to be held.
-fn key(effect: &Effect) -> String {
-    format!("{effect:?}")
-}
-
-impl History {
-    fn new(seed: u64, stops: bool) -> Self {
-        let mut rng = Rng::new(seed);
-        let flow = shape(rng.below(4));
-        let yes_at_first = rng.chance(40);
-        Self {
-            flow,
-            yes_at_first,
-            go: false,
-            work: Work::default(),
-            rng,
-            stops: stops.then(|| Rng::new(seed ^ 0x5DEE_CE66_D1CE_F00D)),
-            held: Vec::new(),
-            rounds: BTreeSet::new(),
-            closed: Vec::new(),
-            paused: false,
-            clock: 1_800_000_000_000,
-            log: Vec::new(),
-            seen: Seen::default(),
-        }
-    }
-
-    fn note(&mut self, what: String) {
-        self.log.push(what);
-    }
-
-    /// Hands the event to the loop, and takes what is to be done, or checks a refusal left the work as it was.
-    fn take(&mut self, event: Event) -> bool {
-        self.note(format!("event: {event:?}"));
-        let before = self.work.clone();
-        // The driver's clock: a second for each thing it hands the engine, so that a history with stops keeps the same
-        // times as one without.
-        self.clock += 1000;
-        let now = Time(self.clock);
-        match handle(&self.flow, &mut self.work, now, event) {
-            Ok(effects) => {
-                self.note(format!("effects: {effects:?}"));
-                for effect in effects {
-                    match &effect {
-                        Effect::Round { run, number, .. } => {
-                            assert!(
-                                self.rounds.insert((*run, *number)),
-                                "round {number} of {run:?} given twice"
-                            );
-                        }
-                        // What is withdrawn or stopped is no longer to be done as it was: it is to be undone.
-                        Effect::Withdraw { call } => {
-                            let at = self
-                                .held
-                                .iter()
-                                .position(|e| matches!(e, Effect::Call { call: c, .. } if c == call));
-                            self.held.remove(at.expect("a withdrawn call was held"));
-                            self.seen.withdrawn += 1;
-                        }
-                        Effect::Stop { run } => {
-                            let at = self
-                                .held
-                                .iter()
-                                .position(|e| matches!(e, Effect::Round { run: r, .. } if r == run));
-                            self.held.remove(at.expect("a stopped round was held"));
-                            self.seen.stopped += 1;
-                        }
-                        Effect::Call {
-                            what: Call::AtLimit(_), ..
-                        } => self.seen.limits += 1,
-                        Effect::Call { .. } => {}
-                    }
-                    self.held.push(effect);
-                }
-                self.held.sort_by_key(key);
-                true
-            }
-            Err(why) => {
-                self.note(format!("refused: {why:?}"));
-                assert_eq!(self.work, before, "a refused event changed the work");
-                self.seen.refused += 1;
-                false
-            }
-        }
-    }
-
-    /// What must hold after every step.
-    fn check(&self) {
-        let r = &self.work.records;
-        let mut pending = pending(&self.work);
-        pending.sort_by_key(key);
-        assert_eq!(pending, self.held, "what is pending is not what the driver holds");
-        let under_way = (r.started.iter())
-            .filter(|s| {
-                let began = r.rounds.iter().filter(|x| x.run == s.run).count();
-                let ended = r.returned.iter().filter(|x| x.run == s.run).count();
-                began > ended
-            })
-            .count();
-        assert!(under_way <= 1, "{under_way} rounds are under way");
-        let times: Vec<Time> = self.work.moments.iter().map(|m| m.at).collect();
-        assert!(
-            times.windows(2).all(|t| t[0] <= t[1]),
-            "the times of the moments go back: {times:?}"
-        );
-        let places: Vec<_> = self.work.moments.iter().map(|m| m.from).collect();
-        assert!(
-            places.windows(2).all(|p| p[0] < p[1]),
-            "the moments do not follow the records: {places:?}"
-        );
-        assert!(
-            !matches!(decide(&self.flow.flow, r), Decision::Fault(_)),
-            "the records are faulty"
-        );
-        for effect in &self.held {
-            match effect {
-                Effect::Round { run, .. } => assert!(r.started.iter().any(|s| s.run == *run), "an unknown run"),
-                Effect::Call { call, run, .. } => {
-                    assert!(
-                        r.called.iter().any(|c| c.call == *call && c.run == *run),
-                        "an unknown call"
-                    );
-                }
-                Effect::Withdraw { call } => {
-                    assert!(r.called.iter().any(|c| c.call == *call), "an unknown call withdrawn");
-                }
-                Effect::Stop { run } => assert!(r.started.iter().any(|s| s.run == *run), "an unknown run stopped"),
-            }
-        }
-    }
-
+impl Part for Shape {
     /// A round under way ends as its agent returns.
-    fn end_round(&mut self, run: RunId, cell: &str) {
-        let place = self.flow.flow.place(&cell.into()).expect("the cell is in the flow");
-        let outputs = self.flow.flow.cells()[place].outputs.clone();
-        let came = match self.rng.below(10) {
+    fn returns(&mut self, d: &mut Driver, _: RunId, cell: &str) -> Came {
+        let place = d.flow.flow.place(&cell.into()).expect("the cell is in the flow");
+        let outputs = d.flow.flow.cells()[place].outputs.clone();
+        match d.rng.below(10) {
             0..=4 => {
                 let mut blocks = Vec::new();
                 for b in &outputs {
-                    if self.rng.chance(70) {
+                    if d.rng.chance(70) {
                         blocks.push(b.clone());
                     }
                 }
-                if self.rng.chance(10) {
-                    blocks.push(["request", "merged", "opinions", "choice"][self.rng.below(4)].into());
+                if d.rng.chance(10) {
+                    blocks.push(["request", "merged", "opinions", "choice"][d.rng.below(4)].into());
                 }
                 let handed = (blocks.into_iter())
                     .map(|block| {
-                        let value = if self.flow.blocks.get(&block).is_some_and(|b| b.values.is_some()) {
-                            match self.rng.below(10) {
-                                0..=7 => Some(if self.rng.chance(50) { "yes" } else { "no" }.to_string()),
+                        let value = if d.flow.blocks.get(&block).is_some_and(|b| b.values.is_some()) {
+                            match d.rng.below(10) {
+                                0..=7 => Some(if d.rng.chance(50) { "yes" } else { "no" }.to_string()),
                                 8 => Some("maybe".to_string()),
                                 _ => None,
                             }
-                        } else if self.rng.chance(5) {
+                        } else if d.rng.chance(5) {
                             Some("yes".to_string())
                         } else {
                             None
@@ -374,7 +186,7 @@ impl History {
                         Handed {
                             content: format!("{block} by {cell}"),
                             block,
-                            matters: self.rng.chance(50),
+                            matters: d.rng.chance(50),
                             value,
                         }
                     })
@@ -382,20 +194,16 @@ impl History {
                 Came::HandsIn(handed)
             }
             5..=7 => {
-                let n = 1 + self.rng.below(3);
+                let n = 1 + d.rng.below(3);
                 let asks = (0..n)
                     .map(|i| {
-                        if self.rng.chance(70) {
+                        if d.rng.chance(70) {
                             Ask::Tool {
                                 name: format!("tool {i}"),
                                 input: "x".to_string(),
                             }
                         } else {
-                            let who = if self.rng.chance(50) {
-                                Who::Owner
-                            } else {
-                                Who::Architect
-                            };
+                            let who = if d.rng.chance(50) { Who::Owner } else { Who::Architect };
                             Ask::Person {
                                 who,
                                 question: "which?".to_string(),
@@ -406,42 +214,29 @@ impl History {
                 Came::Asks(asks)
             }
             _ => Came::Asks(vec![]),
-        };
-        let spent = self.spent(run);
-        let taken = self.take(Event::Returned { run, came, spent });
-        assert!(taken, "the return of a round under way was refused");
-    }
-
-    /// The call has its result.
-    fn give_result(&mut self, call: CallId) {
-        let taken = self.take(Event::Done {
-            call,
-            result: format!("the result of {}", call.0),
-        });
-        assert!(taken, "the result of an open call was refused");
-        self.closed.push(call);
+        }
     }
 
     /// A person or the outside acts.
-    fn person_acts(&mut self) {
-        let event = match self.rng.below(100) {
+    fn acts(&mut self, d: &mut Driver) -> Event {
+        match d.rng.below(100) {
             0..=1 => Event::Cancelled,
             2..=13 => {
-                let block = ["request", "opinions", "choice"][self.rng.below(3)];
-                let value = (block == "choice").then(|| if self.rng.chance(50) { "yes" } else { "no" }.to_string());
-                let matters = self.rng.chance(50);
+                let block = ["request", "opinions", "choice"][d.rng.below(3)];
+                let value = (block == "choice").then(|| if d.rng.chance(50) { "yes" } else { "no" }.to_string());
+                let matters = d.rng.chance(50);
                 wrote(block, Outsider::Person, matters, value)
             }
-            14..=25 => match self.rng.below(3) {
+            14..=25 => match d.rng.below(3) {
                 0 => wrote("plan", Outsider::Person, true, None),
                 1 => wrote("choice", Outsider::Person, true, Some("maybe".to_string())),
                 _ => wrote("nowhere", Outsider::Person, true, None),
             },
-            26..=37 => wrote("main", Outsider::Outside, self.rng.chance(50), None),
+            26..=37 => wrote("main", Outsider::Outside, d.rng.chance(50), None),
             38..=49 => {
-                let cells = self.flow.flow.cells();
+                let cells = d.flow.flow.cells();
                 Event::LetGo {
-                    cell: cells[self.rng.below(cells.len())].id.clone(),
+                    cell: cells[d.rng.below(cells.len())].id.clone(),
                 }
             }
             50..=61 => {
@@ -451,8 +246,8 @@ impl History {
             62..=73 => self.owner_says(!self.go),
             74..=86 => {
                 // A result of a call that has none to be given: one that has one already, or no call at all.
-                let call = if !self.closed.is_empty() && self.rng.chance(70) {
-                    self.closed[self.rng.below(self.closed.len())]
+                let call = if !d.closed.is_empty() && d.rng.chance(70) {
+                    d.closed[d.rng.below(d.closed.len())]
                 } else {
                     CallId(10_000)
                 };
@@ -466,14 +261,11 @@ impl History {
                 came: Came::Asks(vec![]),
                 spent: Spent::default(),
             },
-        };
-        let cancel = event == Event::Cancelled;
-        let taken = self.take(event);
-        if cancel {
-            assert!(taken, "a cancel was refused");
         }
     }
+}
 
+impl Shape {
     /// The owner's word at the merge, written as the choice the merge's named test reads.
     fn owner_says(&mut self, go: bool) -> Event {
         self.go = go;
@@ -484,111 +276,28 @@ impl History {
             Some(if go { "yes" } else { "no" }.to_string()),
         )
     }
+}
 
-    /// What a round of the run took, as its agent reports it: told apart by the run and the clock.
-    fn spent(&self, run: RunId) -> Spent {
-        Spent {
-            usd_micros: run.0,
-            input_tokens: self.clock % 997,
-            cached_tokens: 0,
-            output_tokens: 1,
-        }
+/// How many steps, once people stop, the work may take before it rests (entry a-work-comes-to-rest).
+///
+/// Once people stop, the driver ends rounds and gives tools their results, and nothing else. A run's rounds are at
+/// most `returns + 1` that are sent back or hand in what finishes it, and `calls + 1` that ask for calls, each of which
+/// but the last makes at least one: past either limit the run waits for the owner, who no longer answers. A run takes
+/// at most four steps a round, the round's end and the results of up to three calls, and four to be undone, its round
+/// stopped and up to three calls withdrawn. A run of a cell is a way round unless one of its reasons is having no
+/// record or a change that people, the outside or a cell before it made; nobody lets a cell go on any more, so between
+/// two that are not a cell runs at most its limit `L` of ways round. Those that are not number at most one first run,
+/// one for each input (the last write of it by people or the outside), and one for each run of a cell before it, which
+/// may also abandon it once. So the cell at place `i` starts at most `S_i = (L + 2) * (3 + n_i + S_0 + ... + S_(i-1))`
+/// runs, `n_i` its inputs.
+fn bound(flow: &Compiled) -> u64 {
+    let rounds = u64::from(flow.limits.returns + flow.limits.calls + 2);
+    let mut before: u64 = 0;
+    for c in flow.flow.cells() {
+        let s = (u64::from(c.limit) + 2).saturating_mul(3 + c.inputs.len() as u64 + before);
+        before = before.saturating_add(s);
     }
-
-    /// The driver forgets what it held and takes what is pending instead.
-    fn stop(&mut self) {
-        self.note("the engine stops".into());
-        let mut held = pending(&self.work);
-        held.sort_by_key(key);
-        self.held = held;
-        self.seen.stops += 1;
-    }
-
-    /// One step. Says whether anything was done: once people stop, nothing is when the driver holds nothing it can do.
-    fn step(&mut self, people: bool) -> bool {
-        let undoing = (self.held.iter()).any(|e| matches!(e, Effect::Withdraw { .. } | Effect::Stop { .. }));
-        if let Some(stops) = &mut self.stops
-            && stops.chance(if undoing { 50 } else { 8 })
-        {
-            if undoing {
-                self.seen.stops_undoing += 1;
-            }
-            self.stop();
-        }
-        if people && self.rng.chance(25) {
-            self.person_acts();
-            return true;
-        }
-        let doable: Vec<Effect> = (self.held.iter())
-            .filter(|e| match e {
-                Effect::Round { .. } => true,
-                Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool { .. })),
-                Effect::Withdraw { .. } | Effect::Stop { .. } => true,
-            })
-            .cloned()
-            .collect();
-        if doable.is_empty() {
-            if people {
-                self.person_acts();
-                return true;
-            }
-            return false;
-        }
-        let effect = doable[self.rng.below(doable.len())].clone();
-        let at = self.held.iter().position(|e| *e == effect).expect("held");
-        self.held.remove(at);
-        match effect {
-            Effect::Round { run, cell, .. } => self.end_round(run, cell.as_str()),
-            Effect::Call { call, .. } => self.give_result(call),
-            Effect::Withdraw { call } => {
-                let taken = self.take(Event::Done {
-                    call,
-                    result: "withdrawn".to_string(),
-                });
-                assert!(taken, "the result of a withdrawn call was refused");
-                self.closed.push(call);
-            }
-            Effect::Stop { run } => {
-                let came = Came::Asks(vec![]);
-                assert!(
-                    self.take(Event::Returned {
-                        run,
-                        came,
-                        spent: self.spent(run)
-                    }),
-                    "the end of a stopped round was refused"
-                );
-            }
-        }
-        true
-    }
-
-    /// Whether the work is cancelled.
-    fn cancelled(&self) -> bool {
-        self.work.records.cancelled.is_some()
-    }
-
-    /// How many steps, once people stop, the work may take before it rests (entry a-work-comes-to-rest).
-    ///
-    /// Once people stop, the driver ends rounds and gives tools their results, and nothing else. A run's rounds are
-    /// at most `returns + 1` that are sent back or hand in what finishes it, and `calls + 1` that ask for calls, each of
-    /// which but the last makes at least one: past either limit the run waits for the owner, who no longer answers. A
-    /// run takes at most four steps a round, the round's end and the results of up to three calls, and four to be
-    /// undone, its round stopped and up to three calls withdrawn. A run of a cell is a
-    /// way round unless one of its reasons is having no record or a change that people, the outside or a cell before
-    /// it made; nobody lets a cell go on any more, so between two that are not a cell runs at most its limit `L` of
-    /// ways round. Those that are not number at most one first run, one for each input (the last write of it by people
-    /// or the outside), and one for each run of a cell before it, which may also abandon it once. So the cell at place
-    /// `i` starts at most `S_i = (L + 2) * (3 + n_i + S_0 + ... + S_(i-1))` runs, `n_i` its inputs.
-    fn bound(&self) -> u64 {
-        let rounds = u64::from(self.flow.limits.returns + self.flow.limits.calls + 2);
-        let mut before: u64 = 0;
-        for c in self.flow.flow.cells() {
-            let s = (u64::from(c.limit) + 2).saturating_mul(3 + c.inputs.len() as u64 + before);
-            before = before.saturating_add(s);
-        }
-        (before + 1).saturating_mul(4 * rounds + 4)
-    }
+    (before + 1).saturating_mul(4 * rounds + 4)
 }
 
 fn wrote(block: &str, by: Outsider, matters: bool, value: Option<String>) -> Event {
@@ -603,62 +312,69 @@ fn wrote(block: &str, by: Outsider, matters: bool, value: Option<String>) -> Eve
 
 /// One history, with or without stops: the work it ends with, what it saw and its steps.
 fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
-    let mut h = History::new(seed, stops);
+    let mut rng = Rng::new(seed);
+    let flow = shape(rng.below(4));
+    let yes_at_first = rng.chance(40);
+    let mut d = Driver::new(flow, rng, seed, stops);
+    let mut shape = Shape {
+        go: false,
+        paused: false,
+    };
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
-        let first = if h.yes_at_first {
-            h.owner_says(true)
+        let first = if yes_at_first {
+            shape.owner_says(true)
         } else {
             Event::Look
         };
-        h.take(first);
-        h.check();
-        let people = h.rng.below(PEOPLE);
+        d.take(first);
+        d.check();
+        let people = d.rng.below(PEOPLE);
         for _ in 0..people {
-            h.step(true);
-            h.check();
+            d.step(&mut shape, true);
+            d.check();
         }
-        h.note("people stop".into());
-        let bound = h.bound();
+        d.note("people stop".into());
+        let bound = bound(&d.flow);
         let mut steps = 0;
-        while h.step(false) {
-            h.check();
+        while d.step(&mut shape, false) {
+            d.check();
             steps += 1;
             assert!(steps <= bound, "the work has not come to rest within {bound} steps");
         }
-        let decision = decide(&h.flow.flow, &h.work.records);
-        let paused = decide::paused(&h.work.records);
+        let decision = decide(&d.flow.flow, &d.work.records);
+        let paused = decide::paused(&d.work.records);
         assert!(
             matches!(decision, Decision::Wait { .. } | Decision::Paused | Decision::Ended(_))
                 || (paused && matches!(decision, Decision::GoOn { .. })),
             "the work rests deciding {decision:?}"
         );
-        for effect in pending(&h.work) {
+        for effect in pending(&d.work) {
             let Effect::Call { call, .. } = &effect else {
                 panic!("at rest something other than a call is pending: {effect:?}");
             };
-            let called = h.work.records.called.iter().find(|c| c.call == *call).expect("a call");
+            let called = d.work.records.called.iter().find(|c| c.call == *call).expect("a call");
             assert!(called.on.is_some(), "at rest a call waits for nobody: {effect:?}");
         }
         // A work cancelled after it merged has merged.
-        if h.cancelled() && decision != Decision::Ended(decide::End::Merged) {
+        if d.work.records.cancelled.is_some() && decision != Decision::Ended(decide::End::Merged) {
             assert_eq!(
                 decision,
                 Decision::Ended(decide::End::Cancelled),
                 "a cancelled work goes on"
             );
-            assert_eq!(pending(&h.work), vec![], "a cancelled work has something pending");
-            h.take(Event::Look);
-            h.check();
-            assert_eq!(h.held, vec![], "a cancelled work was given more");
-            h.seen.cancels += 1;
+            assert_eq!(pending(&d.work), vec![], "a cancelled work has something pending");
+            d.take(Event::Look);
+            d.check();
+            assert_eq!(d.held, vec![], "a cancelled work was given more");
+            d.seen.cancels += 1;
         }
     }));
-    h.seen.abandons = h.work.records.abandoned.len();
-    *log = std::mem::take(&mut h.log);
+    d.seen.abandons = d.work.records.abandoned.len();
+    *log = std::mem::take(&mut d.log);
     if let Err(e) = result {
         panic::resume_unwind(e);
     }
-    (h.work, h.seen)
+    (d.work, d.seen)
 }
 
 #[test]
