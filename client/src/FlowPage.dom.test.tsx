@@ -6,7 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { Comparison, Definition } from './api';
-import { FlowPage } from './App';
+import { FlowPage, Shell } from './App';
 import { cell, flowOf, small } from './testing';
 
 const NOTHING: Comparison = { state: 'nothingToCompare' };
@@ -72,7 +72,7 @@ describe('the chart', () => {
       'judge may write needs_design',
       'design runs only by the value of needs_design',
     ]);
-    expect(rowOf(page, 'needs_design').querySelector('.block-values')?.textContent).toBe('yes · no');
+    expect(rowOf(page, 'needs_design').querySelector('.block-values')?.textContent).toBe('yes|no');
     const heads = [...page.querySelectorAll('thead .cell-head')];
     expect(heads[2].querySelector('.cell-when')?.textContent).toBe('runs when needs_design is yes');
     expect(heads[3].querySelector('.cell-waits')?.textContent).toBe('waits until The owner confirmed the plan');
@@ -87,22 +87,25 @@ describe('the chart', () => {
   it('shows everything about a cell chosen by its column’s head, and about a block chosen from it', () => {
     const page = draw({ state: 'compiled', flow: small() });
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
-    const panel = page.querySelector('section[aria-label="Cell plan"]') as HTMLElement;
-    expect(panel.textContent).toContain('sharing its session with design, answer');
-    expect(texts(panel, '.uses li')).toEqual([
+    const panel = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
+    expect(panel.textContent).toContain('Shares its session with design, answer');
+    const rows = [...panel.querySelectorAll('.uses li')].map((li) =>
+      [...li.children].map((c) => c.textContent?.trim()).join(' '),
+    );
+    expect(rows.slice(0, 3)).toEqual([
       'request written by people',
       'opinions written by judge, people way back from judge',
       'plan read by judge, design, answer',
     ]);
     click([...panel.querySelectorAll('button.link')].find((b) => b.textContent === 'opinions'));
-    const block = page.querySelector('section[aria-label="Block opinions"]') as HTMLElement;
+    const block = page.querySelector('aside[aria-label="Block opinions"]') as HTMLElement;
     expect(block.textContent).toContain('judge → plan');
   });
 
   it('shows everything about a block chosen by its row’s name', () => {
     const page = draw({ state: 'compiled', flow: small() });
     click(rowOf(page, 'ci').querySelector('.head-button'));
-    const panel = page.querySelector('section[aria-label="Block ci"]') as HTMLElement;
+    const panel = page.querySelector('aside[aria-label="Block ci"]') as HTMLElement;
     expect(panel.textContent).toContain('a choice of green, red');
     expect(rowOf(page, 'ci').className).toContain('chosen');
   });
@@ -146,5 +149,103 @@ describe('a definition that does not compile', () => {
     });
     expect(page.querySelector('.matrix')).toBeNull();
     expect(texts(page, '.faults tbody td')).toEqual(['plan.toml', 'inputs[2]', 'The block ghost is not declared in flow.toml.']);
+  });
+});
+
+describe('the page round the view', () => {
+  it('shows the one view in the bar and switches light and dark, following the system at first', () => {
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    act(() =>
+      root.render(
+        <Shell>
+          <p>view</p>
+        </Shell>,
+      ),
+    );
+    unmount = () => act(() => root.unmount());
+    expect(texts(container, '.bar-tab')).toEqual(['Flow']);
+    expect(container.querySelector('.bar-tab')?.getAttribute('aria-current')).toBe('page');
+    expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
+    click([...container.querySelectorAll('.switch-choice')].find((b) => b.textContent === 'Dark'));
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+    click([...container.querySelectorAll('.switch-choice')].find((b) => b.textContent === 'Auto'));
+    expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
+  });
+
+  it('folds the panel away by its handle, brings it back, and lets go of what is chosen with Escape', () => {
+    const page = draw({ state: 'compiled', flow: small() });
+    click(rowOf(page, 'plan').querySelector('.head-button'));
+    const drawer = () => page.querySelector('aside[aria-label="Block plan"]') as HTMLElement | null;
+    click(drawer()?.querySelector('.drawer-tab'));
+    expect(drawer()?.querySelector('.drawer-inner')?.hasAttribute('hidden')).toBe(true);
+    click(drawer()?.querySelector('.drawer-tab'));
+    expect(drawer()?.querySelector('.drawer-inner')?.hasAttribute('hidden')).toBe(false);
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
+    expect(drawer()).toBeNull();
+  });
+});
+
+describe('the panel and the widths', () => {
+  afterEach(() => localStorage.clear());
+
+  it('has its handle from the start, folded, and opened with nothing chosen says what to choose', () => {
+    const page = draw({ state: 'compiled', flow: small() });
+    const drawer = page.querySelector('aside[aria-label="Nothing chosen"]') as HTMLElement;
+    expect(drawer.querySelector('.drawer-tab')).not.toBeNull();
+    expect(drawer.querySelector('.drawer-inner')?.hasAttribute('hidden')).toBe(true);
+    expect(page.querySelector('.view-body')?.className).toContain('panel-folded');
+    click(drawer.querySelector('.drawer-tab'));
+    expect(drawer.textContent).toContain("Choose a cell's head or a block's name");
+    expect(page.querySelector('.view-body')?.className).not.toContain('panel-folded');
+  });
+
+  it('opens with the list of changes when comparing', () => {
+    const flow = small();
+    const page = draw(
+      { state: 'compiled', flow },
+      { state: 'compared', against: { state: 'compiled', flow }, changes: [] },
+    );
+    const drawer = page.querySelector('aside[aria-label="What changed"]') as HTMLElement;
+    expect(drawer.querySelector('.drawer-inner')?.hasAttribute('hidden')).toBe(false);
+  });
+
+  it('says the flow’s limits once, in the view’s line, and a cell’s own limit in its panel', () => {
+    const page = draw({ state: 'compiled', flow: small() });
+    expect(page.querySelector('.view-facts')?.textContent).toBe(
+      'Limits of a cell: 3 ways round in a row, 2 returns sent back, 40 calls',
+    );
+    click(page.querySelectorAll('thead .cell-head .head-button')[0]);
+    const plan = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
+    expect(plan.textContent).not.toContain('Limit');
+    click(page.querySelectorAll('thead .cell-head .head-button')[3]);
+    const answer = page.querySelector('aside[aria-label="Cell answer"]') as HTMLElement;
+    expect(texts(answer, '.status-line')).toContain(
+      "Limits of its own5 runs in a row that are ways round (the flow's: 3)",
+    );
+  });
+
+  it('labels the corner for both: the cells to its right, the blocks under it', () => {
+    const page = draw({ state: 'compiled', flow: small() });
+    expect(texts(page, '.corner .label')).toEqual(['Cells →', 'Blocks ↓']);
+  });
+
+  it('marks the lines’ names, not the engine', () => {
+    const page = draw({ state: 'compiled', flow: small() });
+    const lines = [...page.querySelectorAll('thead .cell-line')].map((e) => [
+      e.textContent,
+      e.classList.contains('line-name'),
+    ]);
+    expect(lines).toEqual([
+      ['engineer', true],
+      ['review', true],
+      ['engineer', true],
+      ['engineer', true],
+      ['engine', false],
+      ['engine', false],
+    ]);
   });
 });

@@ -15,12 +15,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@primer/octicons-react": "19.40.0",
-    "@primer/primitives": "11.10.0",
-    "@primer/react": "38.41.0",
     "react": "19.3.1",
-    "react-dom": "19.3.1",
-    "react-is": "19.3.1"
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",

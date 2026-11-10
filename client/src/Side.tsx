@@ -1,13 +1,25 @@
-// The side of the chart: everything about the cell or block the owner chose, or, when nothing is chosen and there is a
-// definition to compare against, the list of what changed, each change as the owner approves it.
+// The panel docked at the chart's right: everything about the cell or block the owner chose, or, when nothing is chosen
+// and there is a definition to compare against, the list of what changed, each change as the owner approves it.
 
-import { XIcon } from '@primer/octicons-react';
-import { CounterLabel, IconButton } from '@primer/react';
 import type { ReactNode } from 'react';
 
 import type { Block, Cell, Change, Fault, Flow } from './api';
-import { type Chosen, RunBy, StatusLabel } from './Chart';
-import { type BlockRow, type CellColumn, type Matrix, type Status, markOf, where } from './matrix';
+import { type Chosen, runBy } from './Chart';
+import { type BlockRow, type CellColumn, type Matrix, markOf, where } from './matrix';
+import { ListRow, Panel, PanelPart, STATUS_WORDS, type Status, StatusLine } from './parts';
+
+/// Whether the panel is folded away, and the way to fold it or bring it back.
+export type Fold = { folded: boolean; onFold: () => void; edge?: ReactNode };
+
+/// The status line of what a change did to a thing, when it did anything.
+function ChangeStatus({ status, changes }: { status: Status; changes: number }) {
+  if (status === 'same') return null;
+  return (
+    <StatusLine tone={status} word={STATUS_WORDS[status].replace(/^./, (c) => c.toUpperCase())}>
+      {status === 'changed' ? `${changes} change${changes === 1 ? '' : 's'}, listed below` : undefined}
+    </StatusLine>
+  );
+}
 import {
   type Place,
   LIMIT_WORDS,
@@ -46,8 +58,9 @@ export function ChangesList(props: {
   after: Flow;
   before: Flow;
   onChoose: (c: Chosen) => void;
+  fold: Fold;
 }) {
-  const { changes, after, before, onChoose } = props;
+  const { changes, after, before, onChoose, fold } = props;
   const groups: { place: Place; changes: Change[] }[] = [];
   for (const change of changes) {
     const place = placeOf(change);
@@ -63,44 +76,52 @@ export function ChangesList(props: {
       case 'test':
         return (
           <>
-            Test <code>{place.test}</code>
+            Test <span className="mono">{place.test}</span>
           </>
         );
       case 'cell':
         return (
           <Choose chosen={{ cell: place.cell }} onChoose={onChoose}>
-            <code>{place.cell}</code> {title(place.cell)}
+            <span className="mono">{place.cell}</span> {title(place.cell)}
           </Choose>
         );
       case 'block':
         return (
           <Choose chosen={{ block: place.block }} onChoose={onChoose}>
-            Block <code>{place.block}</code>
+            Block <span className="mono">{place.block}</span>
           </Choose>
         );
     }
   };
   return (
-    <section className="side-section" aria-label="What changed">
-      <h2 className="side-title">
-        What changed <CounterLabel>{changes.length}</CounterLabel>
-      </h2>
-      {changes.length === 0 && <p className="quiet">Nothing: the two definitions compile to the same flow.</p>}
+    <Panel
+      label="What changed"
+      title="What changed"
+      belongs={`${before.name} → ${after.name}`}
+      lines={
+        <StatusLine tone={changes.length > 0 ? 'changed' : 'quiet'} word={`${changes.length} changes`}>
+          each under the place it is in, to approve one by one
+        </StatusLine>
+      }
+      {...fold}
+    >
+      {changes.length === 0 && <p className="muted">Nothing: the two definitions compile to the same flow</p>}
       <ol className="changes">
         {groups.map((group, i) => (
           <li key={i} className="change-group">
-            <h3>{head(group.place)}</h3>
-            <ul>
-              {group.changes.map((change, j) => (
-                <li key={j}>
-                  <ChangeLine change={change} />
-                </li>
-              ))}
-            </ul>
+            <PanelPart label={head(group.place)}>
+              <ul>
+                {group.changes.map((change, j) => (
+                  <ListRow key={j}>
+                    <ChangeLine change={change} />
+                  </ListRow>
+                ))}
+              </ul>
+            </PanelPart>
           </li>
         ))}
       </ol>
-    </section>
+    </Panel>
   );
 }
 
@@ -108,39 +129,30 @@ export function ChangesList(props: {
 /// it is the definition compared against that does not compile.
 export function Faults({ faults }: { faults: Fault[] }) {
   return (
-    <table className="faults">
+    <table className="table faults">
       <thead>
         <tr>
-          <th scope="col">File</th>
-          <th scope="col">Field</th>
-          <th scope="col">What is wrong</th>
+          <th scope="col" className="label">
+            File
+          </th>
+          <th scope="col" className="label">
+            Field
+          </th>
+          <th scope="col" className="label">
+            What is wrong
+          </th>
         </tr>
       </thead>
       <tbody>
         {faults.map((fault, i) => (
           <tr key={i}>
-            <td>
-              <code>{fault.file}</code>
-            </td>
-            <td>{fault.field ? <code>{fault.field}</code> : <span className="quiet">the whole file</span>}</td>
+            <td className="mono">{fault.file}</td>
+            <td>{fault.field ? <span className="mono">{fault.field}</span> : <span className="muted">the whole file</span>}</td>
             <td>{faultWords(fault)}</td>
           </tr>
         ))}
       </tbody>
     </table>
-  );
-}
-
-function PanelHead(props: { kind: string; name: string; title?: string; status: Status; onClose: () => void }) {
-  return (
-    <header className="panel-head">
-      <div>
-        <span className="quiet">{props.kind}</span> <code className="panel-id">{props.name}</code>{' '}
-        <StatusLabel status={props.status} />
-        {props.title && <h2 className="side-title">{props.title}</h2>}
-      </div>
-      <IconButton icon={XIcon} aria-label="Close" variant="invisible" size="small" onClick={props.onClose} />
-    </header>
   );
 }
 
@@ -154,9 +166,9 @@ function Cells({ flow, from, ids, onChoose }: { flow: Flow; from?: string; ids: 
           <span key={id}>
             {i > 0 && ', '}
             <Choose chosen={{ cell: id }} onChoose={onChoose}>
-              {id}
+              <span className="mono">{id}</span>
             </Choose>
-            {at === 'itself' && <span className="quiet"> (itself)</span>}
+            {at === 'itself' && <span className="muted"> (itself)</span>}
           </span>
         );
       })}
@@ -168,16 +180,15 @@ function Cells({ flow, from, ids, onChoose }: { flow: Flow; from?: string; ids: 
 function ChangesHere({ changes }: { changes: Change[] }) {
   if (changes.length === 0) return null;
   return (
-    <section className="side-section">
-      <h3>What changed</h3>
+    <PanelPart label="What changed" count={changes.length}>
       <ul className="changes-here">
         {changes.map((change, i) => (
-          <li key={i}>
+          <ListRow key={i}>
             <ChangeLine change={change} />
-          </li>
+          </ListRow>
         ))}
       </ul>
-    </section>
+    </PanelPart>
   );
 }
 
@@ -189,54 +200,67 @@ export function CellPanel(props: {
   flow: Flow;
   changes: Change[];
   onChoose: (c: Chosen) => void;
+  fold: Fold;
 }) {
-  const { column, flow, changes, onChoose } = props;
+  const { column, flow, changes, onChoose, fold } = props;
   const cell = (column.cell ?? column.other) as Cell;
   const blocks = new Map(flow.blocks.map((b) => [b.name, b]));
   const sharing = cell.line ? (flow.lines.find((l) => l.name === cell.line)?.cells ?? []).filter((c) => c !== cell.id) : [];
   const later = (ids: string[]) => ids.filter((id) => where(flow, cell.id, id) === 'below');
   return (
-    <section className="panel" aria-label={`Cell ${cell.id}`}>
-      <PanelHead kind="Cell" name={cell.id} title={cell.title} status={column.status} onClose={() => onChoose(null)} />
-      {!column.cell && <p className="quiet">Not in the version shown: this is the cell as the other version has it.</p>}
-      <dl className="facts">
-        <dt>Run by</dt>
-        <dd>
-          <RunBy cell={cell} />
-          {cell.kind === 'agent' && (
-            <span className="quiet">
-              {' '}
-              line{sharing.length > 0 ? ', sharing its session with ' : ', alone in its session'}
-            </span>
+    <Panel
+      label={`Cell ${cell.id}`}
+      id={cell.id}
+      title={cell.title}
+      belongs={
+        cell.kind === 'agent' ? (
+          <>
+            <span className="line-name">{runBy(cell)}</span> line
+          </>
+        ) : (
+          'engine'
+        )
+      }
+      lines={
+        <>
+          <ChangeStatus status={column.status} changes={changes.length} />
+          <StatusLine word={cell.condition ? 'Runs when' : 'Runs always'}>
+            {cell.condition?.on === 'block' ? (
+              <>
+                <Choose chosen={{ block: cell.condition.block }} onChoose={onChoose}>
+                  <span className="mono">{cell.condition.block}</span>
+                </Choose>{' '}
+                is <span className="mono">{cell.condition.value}</span>
+              </>
+            ) : cell.condition ? (
+              conditionWords(cell.condition)
+            ) : undefined}
+          </StatusLine>
+          {cell.preconditions.length > 0 && (
+            <StatusLine word="Waits until">{cell.preconditions.map((p) => p.words).join('; ')}</StatusLine>
           )}
-          {sharing.length > 0 && <Cells flow={flow} ids={sharing} onChoose={onChoose} />}
-        </dd>
-        <dt>Runs when</dt>
-        <dd>
-          {cell.condition?.on === 'block' ? (
-            <>
-              <Choose chosen={{ block: cell.condition.block }} onChoose={onChoose}>
-                {cell.condition.block}
-              </Choose>{' '}
-              is {cell.condition.value}
-            </>
-          ) : (
-            conditionWords(cell.condition)
-          )}
-        </dd>
-        <dt>Waits until</dt>
-        <dd>
-          {cell.preconditions.length === 0 ? (
-            <span className="quiet">it does not wait</span>
-          ) : (
-            cell.preconditions.map((p) => <div key={p.name}>{p.words}</div>)
-          )}
-        </dd>
-      </dl>
+          <OwnLimits cell={cell} flow={flow} />
+        </>
+      }
+      {...fold}
+    >
+      {!column.cell && <p className="muted">Not in the version shown: this is the cell as the other version has it</p>}
+      {cell.kind === 'agent' && (
+        <PanelPart label="Session" last>
+          <p>
+            {sharing.length > 0 ? (
+              <>
+                <span className="muted">Shares its session with </span>
+                <Cells flow={flow} ids={sharing} onChoose={onChoose} />
+              </>
+            ) : (
+              <span className="muted">Alone in its session</span>
+            )}
+          </p>
+        </PanelPart>
+      )}
 
-      <section className="side-section">
-        <h3>Reads</h3>
-        {cell.inputs.length === 0 && <p className="quiet">nothing</p>}
+      <PanelPart label="Reads" count={cell.inputs.length}>
         <ul className="uses">
           {cell.inputs.map((name) => {
             const block = blocks.get(name) as Block;
@@ -244,24 +268,24 @@ export function CellPanel(props: {
             const besides = writersBesideCells(block);
             const writers = block.writtenBy.cells;
             return (
-              <li key={name}>
+              <ListRow key={name}>
                 <Choose chosen={{ block: name }} onChoose={onChoose}>
-                  <code>{name}</code>
+                  <span className="mono">{name}</span>
                 </Choose>
-                <span className="quiet"> written by </span>
-                {writers.length > 0 && <Cells flow={flow} from={cell.id} ids={writers} onChoose={onChoose} />}
-                {writers.length > 0 && besides.length > 0 && ', '}
-                {besides.join(', ')}
-                {back.length > 0 && <span className="way-back"> way back from {back.join(', ')}</span>}
-              </li>
+                <span>
+                  <span className="muted">written by </span>
+                  {writers.length > 0 && <Cells flow={flow} from={cell.id} ids={writers} onChoose={onChoose} />}
+                  {writers.length > 0 && besides.length > 0 && ', '}
+                  {besides.join(', ')}
+                </span>
+                {back.length > 0 && <span className="way-back">way back from {back.join(', ')}</span>}
+              </ListRow>
             );
           })}
         </ul>
-      </section>
+      </PanelPart>
 
-      <section className="side-section">
-        <h3>May write</h3>
-        {cell.outputs.length === 0 && <p className="quiet">nothing</p>}
+      <PanelPart label="May write" count={cell.outputs.length} last={changes.length > 0}>
         <ul className="uses">
           {cell.outputs.map((name) => {
             const block = blocks.get(name) as Block;
@@ -269,39 +293,37 @@ export function CellPanel(props: {
             const aboveConditions = block.readBy.conditions.filter((id) => where(flow, cell.id, id) === 'above');
             const sendsBack = [...new Set([...above, ...aboveConditions])];
             return (
-              <li key={name}>
+              <ListRow key={name}>
                 <Choose chosen={{ block: name }} onChoose={onChoose}>
-                  <code>{name}</code>
+                  <span className="mono">{name}</span>
                 </Choose>
-                <Readers flow={flow} from={cell.id} block={block} onChoose={onChoose} />
-                {sendsBack.length > 0 && <span className="way-back"> way back to {sendsBack.join(', ')}</span>}
-              </li>
+                <span>
+                  <Readers flow={flow} from={cell.id} block={block} onChoose={onChoose} />
+                </span>
+                {sendsBack.length > 0 && <span className="way-back">way back to {sendsBack.join(', ')}</span>}
+              </ListRow>
             );
           })}
         </ul>
-      </section>
+      </PanelPart>
 
-      <section className="side-section">
-        <h3>Limits</h3>
-        <ul className="limits">
-          {(['runs', 'returns', 'calls'] as const).map((limit) => (
-            <li key={limit}>
-              <strong>{cell.limits[limit]}</strong> {LIMIT_WORDS[limit]}
-              {cell.limits[limit] === flow.limits[limit] ? (
-                <span className="quiet"> (the flow's)</span>
-              ) : (
-                <span className="quiet"> (its own; the flow's is {flow.limits[limit]})</span>
-              )}
-            </li>
-          ))}
-        </ul>
-      </section>
       <ChangesHere changes={changes} />
-    </section>
+    </Panel>
   );
 }
 
-/// Who reads a block, in words: after its name (`read by plan`), or alone, after a heading that says it (`plan`).
+/// The limits a cell sets of its own, where they differ from the flow's, which the view's line says once.
+function OwnLimits({ cell, flow }: { cell: Cell; flow: Flow }) {
+  const own = (['runs', 'returns', 'calls'] as const).filter((l) => cell.limits[l] !== flow.limits[l]);
+  if (own.length === 0) return null;
+  return (
+    <StatusLine word="Limits of its own">
+      {own.map((l) => `${cell.limits[l]} ${LIMIT_WORDS[l]} (the flow's: ${flow.limits[l]})`).join(', ')}
+    </StatusLine>
+  );
+}
+
+/// Who reads a block, in words: after its name (`read by plan`), or alone, after a label that says it (`plan`).
 function Readers(props: { flow: Flow; from?: string; block: Block; alone?: boolean; onChoose: (c: Chosen) => void }) {
   const { flow, from, block, alone, onChoose } = props;
   const { cells, conditions, shown } = block.readBy;
@@ -310,18 +332,18 @@ function Readers(props: { flow: Flow; from?: string; block: Block; alone?: boole
     <>
       {cells.length > 0 && (
         <>
-          {!alone && <span className="quiet"> read by </span>}
+          {!alone && <span className="muted">read by </span>}
           <Cells flow={flow} from={from} ids={cells} onChoose={onChoose} />
         </>
       )}
       {conditions.length > 0 && (
         <>
-          <span className="quiet">{cells.length > 0 ? '; ' : ' '}decides whether </span>
+          <span className="muted">{cells.length > 0 ? '; ' : ''}decides whether </span>
           <Cells flow={flow} from={from} ids={conditions} onChoose={onChoose} />
-          <span className="quiet"> run{conditions.length === 1 ? 's' : ''}</span>
+          <span className="muted"> run{conditions.length === 1 ? 's' : ''}</span>
         </>
       )}
-      {shown && <span className="quiet">{cells.length + conditions.length > 0 ? '; ' : ' '}shown</span>}
+      {shown && <span className="muted">{cells.length + conditions.length > 0 ? '; ' : ''}shown</span>}
     </>
   );
 }
@@ -333,8 +355,9 @@ export function BlockPanel(props: {
   flow: Flow;
   changes: Change[];
   onChoose: (c: Chosen) => void;
+  fold: Fold;
 }) {
-  const { row, flow, changes, onChoose } = props;
+  const { row, flow, changes, onChoose, fold } = props;
   const block = (row.block ?? row.other) as Block;
   const besides = writersBesideCells(block);
   const backs = flow.cells.flatMap((reader, r) => {
@@ -344,43 +367,46 @@ export function BlockPanel(props: {
     return writers.length > 0 ? [{ reader: reader.id, writers, byCondition: !mark.read }] : [];
   });
   return (
-    <section className="panel" aria-label={`Block ${block.name}`}>
-      <PanelHead kind="Block" name={block.name} status={row.status} onClose={() => onChoose(null)} />
-      {!row.block && <p className="quiet">Not in the version shown: this is the block as the other version has it.</p>}
-      <dl className="facts">
-        <dt>Values</dt>
-        <dd>{block.values ? `a choice of ${block.values.join(', ')}` : <span className="quiet">not a choice</span>}</dd>
-        <dt>Written by</dt>
-        <dd>
-          {block.writtenBy.cells.length > 0 && <Cells flow={flow} ids={block.writtenBy.cells} onChoose={onChoose} />}
-          {block.writtenBy.cells.length > 0 && besides.length > 0 && ', '}
-          {besides.join(', ')}
-        </dd>
-        <dt>Read by</dt>
-        <dd>
-          <Readers flow={flow} block={block} alone onChoose={onChoose} />
-        </dd>
-      </dl>
+    <Panel
+      label={`Block ${block.name}`}
+      title={<span className="mono">{block.name}</span>}
+      belongs={block.values ? `a choice of ${block.values.join(', ')}` : 'block'}
+      lines={
+        <>
+          <ChangeStatus status={row.status} changes={changes.length} />
+          <StatusLine word="Written by">
+            {block.writtenBy.cells.length > 0 && <Cells flow={flow} ids={block.writtenBy.cells} onChoose={onChoose} />}
+            {block.writtenBy.cells.length > 0 && besides.length > 0 && ', '}
+            {besides.join(', ')}
+          </StatusLine>
+          <StatusLine word="Read by">
+            <Readers flow={flow} block={block} alone onChoose={onChoose} />
+          </StatusLine>
+        </>
+      }
+      {...fold}
+    >
+      {!row.block && <p className="muted">Not in the version shown: this is the block as the other version has it</p>}
+      {backs.length === 0 && changes.length === 0 && <p className="muted">No way back runs through it</p>}
       {backs.length > 0 && (
-        <section className="side-section">
-          <h3>Ways back</h3>
+        <PanelPart label="Ways back" count={backs.length} last={changes.length > 0}>
           <ul className="uses">
             {backs.map(({ reader, writers, byCondition }) => (
-              <li key={reader}>
-                <span className="way-back">
+              <ListRow key={reader}>
+                <span className="way-back mono">
                   {writers.join(', ')} → {reader}
                 </span>
-                <span className="quiet">
+                <span className="muted">
                   {byCondition
-                    ? `: a write by ${writers.join(' or ')} decides again whether ${reader} runs`
-                    : `: a write by ${writers.join(' or ')} runs ${reader} again`}
+                    ? `a write by ${writers.join(' or ')} decides again whether ${reader} runs`
+                    : `a write by ${writers.join(' or ')} runs ${reader} again`}
                 </span>
-              </li>
+              </ListRow>
             ))}
           </ul>
-        </section>
+        </PanelPart>
       )}
       <ChangesHere changes={changes} />
-    </section>
+    </Panel>
   );
 }
