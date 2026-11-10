@@ -231,8 +231,7 @@ impl Driver {
             for event in write.into_iter().chain([Event::Look]) {
                 match step(store.as_mut(), held, now, event) {
                     Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
-                    // MUTANT: a store that fails as the driver opens and writes a block is passed over.
-                    Err(Halt::Store(_)) => {}
+                    Err(Halt::Store(fault)) => return Err(Fault::Store(fault)),
                     Err(Halt::Refused(refused)) => {
                         return Err(Fault::Refused {
                             work: held.head.number,
@@ -334,7 +333,8 @@ impl Driver {
             };
             match step(self.store.as_mut(), held, now, event) {
                 Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
-                Err(Halt::Store(fault)) => failed = Some(Fault::Store(fault)),
+                // MUTANT: a store that fails as a dependent's block is written is passed over.
+                Err(Halt::Store(_)) => {}
                 Err(Halt::Refused(refused)) => failed = Some(Fault::Refused { work: *number, refused }),
             }
             if failed.is_some() {
