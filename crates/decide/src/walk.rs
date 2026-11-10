@@ -392,9 +392,13 @@ impl<'a> Walk<'a> {
         if !cell.is_some_and(|c| self.applies(c)) {
             return Some(Abandoning::NoLongerApplies);
         }
-        (run.started.basis.iter())
-            .find(|(block, version)| self.meaning_of(block, **version) != self.meaning_now(block))
-            .map(|(block, _)| Abandoning::Outdated { block: block.clone() })
+        let cell = cell.expect("a cell that applies is in the flow");
+        (cell.inputs.iter())
+            .find(|block| {
+                let version = run.started.basis.get(*block).copied().flatten();
+                self.meaning_of(block, version) != self.meaning_now(block)
+            })
+            .map(|block| Abandoning::Outdated { block: block.clone() })
     }
 
     /// The calls the run rests at that have no result yet.
