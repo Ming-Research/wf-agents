@@ -8,8 +8,8 @@ of decisions whose topic the problem touches. The research comes next, in this s
 here. This run is for the tree.
 
 In `related` list the decisions that bear on the problem, at most ten, one line each, in English: the decision's id as
-its heading gives it, then in a few words why it bears on the problem; empty when none does. The design and the plan's
-review, in sessions of their own, read what it names.
+its heading gives it, then in a few words why it bears on the problem; empty when none does. The deep research and the
+plan's review, in sessions of their own, read what it names.
 
 Write `supplement` only when you found something important and not trivial that the background does not say, such as a
 part of the problem no decision covers, or a decision the background goes against: at most 300 characters, in English,

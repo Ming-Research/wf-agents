@@ -23,7 +23,7 @@ asks = [{ question = "Should the cost of a round be kept for each call of a tool
 cell = "R1"
 round = 2
 hands_in = [
-    { block = "needs_design", value = "yes" },
+    { block = "needs_deep_research", value = "yes" },
     { block = "found", content = "The rounds keep their cost; the calls keep none. Two ways to keep it were found." },
     { block = "plan_owner", content = "Keep what each call took beside its result, and show it on the work's page." },
     { block = "plan_agent", content = "Add what a call took to its result; sum it into the run; show it in the step's panel." },
@@ -50,14 +50,14 @@ cell = "D1"
 run = 2
 hands_in = [
     { block = "plan_agent", content = "Give a call's result what it took; keep it in the table of results; sum rounds and calls into the run; a call withdrawn takes nothing." },
-    { block = "answers_design", content = "Agreed: a withdrawn call takes nothing, and the plan now says so." },
+    { block = "answers_deep_research", content = "Agreed: a withdrawn call takes nothing, and the plan now says so." },
 ]
 
 # The plan's review: one objection to the design, then content.
 [[flows.engineer.rounds]]
 cell = "D2"
 hands_in = [
-    { block = "plan_review_on_design", content = "The plan does not say what a call that was withdrawn took." },
+    { block = "plan_review_on_deep_research", content = "The plan does not say what a call that was withdrawn took." },
     { block = "plan_settled", value = "no" },
 ]
 

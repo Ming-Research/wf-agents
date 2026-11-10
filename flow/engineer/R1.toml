@@ -1,4 +1,4 @@
-title = "Research"
+title = "Initial research"
 kind = "agent"
 line = "engineer"
 task = '''
@@ -7,9 +7,9 @@ defect first, where it shows, such as on the page in a real browser or in the pr
 with the project's tests, anything else you make in `research/`, committed. Find the root cause; if the design itself
 is at fault, say so.
 
-`needs_design` is yes only when the direction rests on a fact you cannot check in a round or two, or on trying several
-ways first; then write only `found`: what you found, where you checked each fact, what the design must settle. With
-no, write the plan:
+`needs_deep_research` is yes only when the direction rests on a fact you cannot check in a round or two, or on trying
+several ways first; then write only `found`: what you found, where you checked each fact, what the deep research must
+settle. With no, write the plan:
 - `plan_owner`, read by the owner on the page, in the language the installation sets for its owner, technical terms in
   English: what will be done, how and why, no longer than that, each question marked where it belongs, as [q1].
 - `plan_agent`, in English, for the implementation: what changes where, the test red before and green after, the like
@@ -34,7 +34,7 @@ inputs = [
   "implement_on_research",
 ]
 outputs = [
-  "needs_design",
+  "needs_deep_research",
   "found",
   "plan_owner",
   "plan_agent",

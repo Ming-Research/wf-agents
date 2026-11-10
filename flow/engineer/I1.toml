@@ -10,7 +10,7 @@ cost per operation or request can change, measure what it can make slower as wel
 
 Where the plan does not hold (its direction is wrong, or it needs a tree decision changed or a choice the owner has
 not made, such as accepting a slowdown), do not work around it: say where and why to the cell that wrote it, in
-`implement_on_research` or `implement_on_design`, and judge its answer.
+`implement_on_research` or `implement_on_deep_research`, and judge its answer.
 
 Commit everything in the worktree, and hand in once the project's check passes on your last commit:
 - `code`: what changed, by module and behaviour; each decision the code makes that the plan does not record, with why;
@@ -33,7 +33,7 @@ inputs = [
   "tree_changes",
   "context",
   "answers_research",
-  "answers_design",
+  "answers_deep_research",
   "opinions_implement",
   "review_on_implement",
   "testing_on_implement",
@@ -47,5 +47,5 @@ outputs = [
   "answers_testing",
   "answers_check",
   "implement_on_research",
-  "implement_on_design",
+  "implement_on_deep_research",
 ]

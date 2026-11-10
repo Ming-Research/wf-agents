@@ -9,7 +9,7 @@ returns = 3
 calls = 40
 
 [lines.engineer]
-[lines.designer]
+[lines.deep_research]
 [lines.plan_review]
 [lines.review]
 [lines.adversarial]
@@ -21,9 +21,9 @@ reads = ["dependencies"]
 is = "merged"
 
 [tests.plan_needs_review]
-says = "The plan changes the design tree, or went through the design"
+says = "The plan changes the design tree, or went through deep research"
 kind = "any"
-reads = ["needs_design", "changes_tree"]
+reads = ["needs_deep_research", "changes_tree"]
 is = "yes"
 
 [tests.settled]
@@ -60,7 +60,7 @@ shown = true
 [blocks.supplement]
 
 # The plan.
-[blocks.needs_design]
+[blocks.needs_deep_research]
 values = ["yes", "no"]
 [blocks.found]
 [blocks.plan_owner]
@@ -102,7 +102,7 @@ shown = true
 people = true
 [blocks.opinions_research]
 people = true
-[blocks.opinions_design]
+[blocks.opinions_deep_research]
 people = true
 [blocks.opinions_plan_review]
 people = true
@@ -116,9 +116,9 @@ people = true
 # What each cell that judges says to the cell it judges: a block for each pair, which only the judging cell writes, so
 # that no one writes over what another said.
 [blocks.plan_review_on_research]
-[blocks.plan_review_on_design]
+[blocks.plan_review_on_deep_research]
 [blocks.implement_on_research]
-[blocks.implement_on_design]
+[blocks.implement_on_deep_research]
 [blocks.review_on_implement]
 [blocks.testing_on_implement]
 [blocks.check_on_implement]
@@ -126,7 +126,7 @@ people = true
 # What a cell answers to what was said to it, for the cell that judges it to read. The implementation answers each
 # of its judges in a block of that judge's, so that an answer to one runs no other again.
 [blocks.answers_research]
-[blocks.answers_design]
+[blocks.answers_deep_research]
 [blocks.answers_review]
 [blocks.answers_testing]
 [blocks.answers_check]
