@@ -105,7 +105,8 @@ pub struct Finished {
 pub struct Write {
     pub block: BlockId,
     /// Whether the change matters to the cells that read the block, compared with the version the run started from.
-    /// Where it does not, the version keeps that version's meaning.
+    /// Where it does not, the version keeps that version's meaning. Not read for a block with a value: a choice
+    /// changes its meaning when its value does.
     pub matters: bool,
     /// The block's value, where a condition reads it: a choice such as yes or no.
     pub value: Option<String>,
@@ -123,8 +124,9 @@ pub struct Abandoned {
 pub struct Written {
     pub block: BlockId,
     pub by: Outsider,
-    /// Whether the write changes the block's meaning. It does, except where the block is a choice and the write
-    /// leaves its value as it was: a person confirming what was recommended, for one.
+    /// Whether the write changes the block's meaning: a person's prose always does, and a changed specification of
+    /// a cell does when the owner says so. Not read for a block with a value: a choice changes its meaning when its
+    /// value does, so a person confirming what was recommended changes none.
     pub matters: bool,
     /// The block's value, where a condition reads it.
     pub value: Option<String>,

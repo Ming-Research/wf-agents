@@ -440,8 +440,9 @@ impl<'a> Walk<'a> {
     }
 }
 
-/// Every version of every block, each with its meaning. A write that matters, and the first version of a block, each
-/// have their own. A write that does not matter keeps the meaning of the version it writes over: for a person or the
+/// Every version of every block, each with its meaning. The first version of a block has its own. A write of a block
+/// with a value, a choice, keeps the meaning of the version before it when it leaves the value as it was, and has its
+/// own when it does not, whatever its writer says. A write of any other block that matters has its own. A write that does not matter keeps the meaning of the version it writes over: for a person or the
 /// outside, the version before it; for a run, the version the run started from, when that is still the version before
 /// it. Where another version was written meanwhile, the run did not see what it writes over, and its write has a
 /// meaning of its own.
@@ -474,7 +475,9 @@ fn read_versions<'a>(
         let from = (w.by.and_then(|run| runs.get(&run))).and_then(|r| r.started.basis.get(w.block).copied().flatten());
         let saw = w.by.is_none() || over.map(|v| v.at) == from;
         let meaning = match over {
-            Some(v) if !w.matters && saw => v.meaning,
+            // A choice changes its meaning when its value does, whatever its writer says.
+            Some(v) if w.value.is_some() && w.value == v.value => v.meaning,
+            Some(v) if w.value.is_none() && !w.matters && saw => v.meaning,
             _ => w.at,
         };
         of_block.push(Version {
