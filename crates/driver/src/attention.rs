@@ -6,7 +6,9 @@
 //! records cannot be those of a work. A work going on from one cell to the next is nothing for the planner, and neither
 //! is one the owner paused, which shows only as the reason why a work waiting for it is idle. A work that ended and
 //! could not let go of what it held, which the engine paused saying why, rests for a person. One line is about no
-//! work: the wait every work shares, while no agent's round begins; a work whose round it holds is going on.
+//! work: the wait every work shares, while no agent's round begins; a work whose round it holds is going on. So is the
+//! owner's pause of everything, its own line about no work, under which every work is read as if it did not hold: a
+//! work held by it alone goes on, and is no reason for another to be idle. A wait for a slot is going on.
 //!
 //! Everything here is read from the records (principle state-from-records). How a work stands is what the deciding
 //! code decides on its records; since when it stands so is the first of the moments after which it has stood so
@@ -49,6 +51,9 @@ pub struct Line {
 /// its decision, which its view gives.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Heed {
+    /// The owner paused everything: no work begins a round but to answer a person's words to its cell. It is about no
+    /// work.
+    Everything,
     /// No agent's round of any work begins: a round failed for a cause every work shares. It is about no work.
     Agents { outage: Outage },
     /// The work's records cannot be those of a work: nothing is decided on them.
@@ -86,12 +91,14 @@ pub enum Stuck {
 
 /// A place in the records of every work: the highest work there was, and for each that had not ended, the place up to
 /// which its records were read. A work up to the highest that is not named had ended, and its records were read whole;
-/// a work after it is unread from its start. Written as the highest work, then each work named with its place, such
-/// as `12,3.41,7.118`.
+/// a work after it is unread from its start. Where the owner's pause of everything held and was read, the time it
+/// began, which tells that pause from any later one. Written as the highest work, then each work named with its place,
+/// then `e.` and the time of the pause read, such as `12,3.41,7.118,e.1800000000000`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Mark {
     highest: u64,
     read: BTreeMap<WorkNumber, Seq>,
+    everything: Option<Time>,
 }
 
 /// Why a text is no mark, in words.
@@ -125,14 +132,25 @@ impl Mark {
         let mut parts = text.trim().split(',');
         let highest = number(parts.next().unwrap_or_default())?;
         let mut read = BTreeMap::new();
+        let mut everything = None;
         for part in parts {
             let (work, place) = part.split_once('.').ok_or_else(unreadable)?;
+            if work == "e" {
+                if everything.replace(Time(number(place)?)).is_some() {
+                    return Err(unreadable());
+                }
+                continue;
+            }
             let (work, place) = (WorkNumber(number(work)?), Seq(number(place)?));
             if work.0 > highest || read.insert(work, place).is_some() {
                 return Err(unreadable());
             }
         }
-        Ok(Mark { highest, read })
+        Ok(Mark {
+            highest,
+            read,
+            everything,
+        })
     }
 }
 
@@ -141,6 +159,9 @@ impl fmt::Display for Mark {
         write!(f, "{}", self.highest)?;
         for (work, place) in &self.read {
             write!(f, ",{}.{}", work.0, place.0)?;
+        }
+        if let Some(began) = self.everything {
+            write!(f, ",e.{}", began.0)?;
         }
         Ok(())
     }
@@ -176,14 +197,29 @@ impl Driver {
             let idle = reader.idle_of(number);
             reader.idle.insert(number, idle);
         }
-        let mut lines: Vec<(u8, Line)> = reader.shared(self.outage()).into_iter().collect();
+        // The owner's pause of everything is read by the time it began: a pause is given once, and a later one again.
+        let everything = (self.everything_paused())
+            .filter(|began| since.is_none_or(|mark| mark.everything != Some(*began)))
+            .map(|began| {
+                (
+                    0,
+                    Line {
+                        heed: Heed::Everything,
+                        since: began,
+                    },
+                )
+            });
+        let mut lines: Vec<(u8, Line)> = everything.into_iter().chain(reader.shared(self.outage())).collect();
         for number in &numbers {
             if let Some(line) = reader.line(*number) {
                 lines.push(line);
             }
         }
         lines.sort_by_key(|(rank, line)| (*rank, line.since, work_of(&line.heed)));
-        let left: Vec<WorkNumber> = lines.iter().skip(LINES).map(|(_, line)| work_of(&line.heed)).collect();
+        let left: Vec<WorkNumber> = (lines.iter().skip(LINES))
+            .filter_map(|(_, line)| work_of(&line.heed))
+            .collect();
+        let everything_left = (lines.iter().skip(LINES)).any(|(_, line)| line.heed == Heed::Everything);
         let lines: Vec<Line> = lines.into_iter().take(LINES).map(|(_, line)| line).collect();
         // A work whose line is left out is written unread from its start, so that whatever it stands in comes again;
         // a work that ended is left out of the mark once it is read; every other work is read up to its last entry.
@@ -198,10 +234,11 @@ impl Driver {
         let mark = Mark {
             highest: numbers.last().map_or(0, |number| number.0),
             read,
+            everything: self.everything_paused().filter(|_| !everything_left),
         };
         Ok(Attention {
+            left_out: left.len() + usize::from(everything_left),
             lines,
-            left_out: left.len(),
             mark,
         })
     }
@@ -288,6 +325,8 @@ fn for_a_person(waited: &Waited) -> bool {
         Waited::Call { on, .. } => on.is_some(),
         Waited::Precondition { by, .. } => by.contains(&Maker::Owner),
         Waited::Limit { .. } => true,
+        // The engine gives it as soon as a round of another work ends.
+        Waited::Slot => false,
     }
 }
 
@@ -298,7 +337,7 @@ fn on_items(waited: &Waited) -> bool {
             !by.is_empty()
                 && (by.iter()).all(|maker| matches!(maker, Maker::Outside { source } if source == DEPENDENCIES))
         }
-        Waited::Call { .. } | Waited::Limit { .. } => false,
+        Waited::Call { .. } | Waited::Limit { .. } | Waited::Slot => false,
     }
 }
 
@@ -311,11 +350,14 @@ fn ended_at(records: &Records, end: End) -> Option<Seq> {
 }
 
 /// The work the line is of; for the wait every work shares, the work whose round began it, whose place in the next
-/// mark says whether it is given again.
-fn work_of(heed: &Heed) -> WorkNumber {
+/// mark says whether it is given again; none for the owner's pause of everything.
+fn work_of(heed: &Heed) -> Option<WorkNumber> {
     match heed {
-        Heed::Agents { outage } => outage.work,
-        Heed::Fault { work } | Heed::ForAPerson { work } | Heed::Idle { work, .. } | Heed::Ended { work, .. } => *work,
+        Heed::Everything => None,
+        Heed::Agents { outage } => Some(outage.work),
+        Heed::Fault { work } | Heed::ForAPerson { work } | Heed::Idle { work, .. } | Heed::Ended { work, .. } => {
+            Some(*work)
+        }
     }
 }
 

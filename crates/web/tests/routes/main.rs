@@ -8,6 +8,7 @@ mod attention;
 mod changes;
 mod definition;
 mod directories;
+mod engine;
 mod failing;
 mod items;
 mod other_sites;
@@ -302,7 +303,7 @@ pub async fn pass(ms: u64) {
     tokio::time::sleep(Duration::from_millis(ms)).await;
 }
 
-/// The trial item, added at the start and let on a second later: by 2.5 seconds its plan has asked the owner its
+/// The trial item, added held at the start and let on a second later: by 2.5 seconds its plan has asked the owner its
 /// question (call 2), and the work waits for the answer.
 pub async fn greeted(router: &Router) {
     let item = json!({

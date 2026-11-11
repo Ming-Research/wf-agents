@@ -4,6 +4,7 @@
 //! what it tests.
 
 mod delivering;
+mod everything;
 mod failing;
 mod items;
 mod starting;

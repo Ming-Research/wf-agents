@@ -651,3 +651,34 @@ fn a_work_the_engine_paused_while_it_waits_for_a_tool_rests_for_a_person_from_th
         }]
     );
 }
+
+#[test]
+fn the_owners_pause_of_everything_is_one_line_about_no_work_and_leaves_no_work_idle_for_another() {
+    let mut h = H::new();
+    let (a, wa) = h.add(new_item("a", &[], "short"));
+    let (_, wb) = h.add(new_item("b", &[a], "judged"));
+    h.let_on(wa);
+    h.let_on(wb);
+    let mark = since(&h, None).mark;
+    h.pause_everything(true);
+    let paused = Time(h.clock);
+    // The item waited for ends its round under way, and is held back by the pause of everything alone.
+    h.hands_in(wa, &[("plan", None)]);
+    let answer = since(&h, Some(&mark));
+    assert_eq!(
+        answer.lines,
+        vec![Line {
+            heed: Heed::Everything,
+            since: paused,
+        }]
+    );
+    assert_eq!(Mark::read(&answer.mark.to_string()), Ok(answer.mark.clone()));
+    assert_eq!(heeds(&since(&h, Some(&answer.mark))), vec![], "the pause is given once");
+    h.pause_everything(false);
+    h.pause_everything(true);
+    assert_eq!(
+        heeds(&since(&h, Some(&answer.mark))),
+        vec![Heed::Everything],
+        "a later pause is given again"
+    );
+}

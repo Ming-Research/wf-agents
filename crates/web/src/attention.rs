@@ -45,6 +45,9 @@ pub struct Attention {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Line {
+    /// The owner paused everything, at this time: no work begins a round but to answer a person's words to its cell.
+    /// It is about no work.
+    Everything { since: u64 },
     /// No agent's round of any work begins: a round failed for a cause every work shares. It is about no work.
     Agents { since: u64, outage: Outage },
     /// The work's records cannot be those of a work.
@@ -121,7 +124,7 @@ impl Attention {
             let now = if person && of::rests_for_the_engines_pause(&kept) {
                 Now::paused(kept.work)?
             } else {
-                Now::of(kept, &view.decision, outage.as_ref())?
+                Now::of(kept, &view.decision, driver.held(work), outage.as_ref())?
             };
             Ok((of, now))
         };
@@ -129,6 +132,7 @@ impl Attention {
             .map(|line| {
                 let since = line.since.0;
                 Ok(match &line.heed {
+                    Heed::Everything => Line::Everything { since },
                     Heed::Agents { outage } => Line::Agents {
                         since,
                         outage: Outage::of(outage, driver.holds(at)),

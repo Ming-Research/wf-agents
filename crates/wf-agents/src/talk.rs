@@ -15,8 +15,8 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use web::attention::{Attention, Line, Stuck};
 use web::works::{
-    Act, Added, Back, Call, CellState, Failure, Items, LevelSet, Limit, Maker, NewItem, NewLevel, NewWrite, Now,
-    Outage, Pauser, Person, Refusal, Run, Spent, Step, Until, Waited, WorkPage, Writer,
+    Act, Added, Back, Call, CellState, Engine, EngineAct, Failure, Items, LevelSet, Limit, Maker, NewItem, NewLevel,
+    NewWrite, Now, Outage, Pauser, Person, Refusal, Run, Spent, Step, Until, Waited, WorkPage, Writer,
 };
 
 /// What a command asks of the engine.
@@ -25,6 +25,8 @@ pub enum Asked {
     List,
     Show(u64),
     Act(u64, Act),
+    /// The owner's pause of everything set, or lifted.
+    Everything(EngineAct),
     /// A cancel, which says afterwards what the work is: cancelled, or ended otherwise before it could be.
     Cancel(u64),
     /// An item put at another level.
@@ -64,18 +66,35 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 ))
             }
             Asked::List => {
+                let engine: Engine = send(address, Method::GET, "/api/v1/engine", None::<&()>).await?;
                 let items: Items = send(address, Method::GET, "/api/v1/items", None::<&()>).await?;
-                Ok(list(&items))
+                Ok(format!("{}\n{}", standing(&engine), list(&items)))
+            }
+            Asked::Everything(act) => {
+                send::<(), _>(address, Method::POST, "/api/v1/engine/acts", Some(&act)).await?;
+                let engine: Engine = send(address, Method::GET, "/api/v1/engine", None::<&()>).await?;
+                Ok(standing(&engine))
             }
             Asked::Show(work) => {
                 let page: WorkPage = send(address, Method::GET, &format!("/api/v1/works/{work}"), None::<&()>).await?;
                 Ok(show(&page))
             }
             Asked::Act(work, act) => {
+                let resumed = act == Act::Resume {};
                 let done = done(work, &act);
                 let path = format!("/api/v1/works/{work}/acts");
                 send::<(), _>(address, Method::POST, &path, Some(&act)).await?;
-                Ok(done)
+                if !resumed {
+                    return Ok(done);
+                }
+                // A work let on that the pause of everything holds back is said to be held, not to go on.
+                let page: WorkPage = send(address, Method::GET, &format!("/api/v1/works/{work}"), None::<&()>).await?;
+                Ok(match page.summary.now {
+                    Now::Everything {} => format!(
+                        "Work {work} is let on, and held back by the pause of everything until `wf-agents resume --all`."
+                    ),
+                    _ => done,
+                })
             }
             Asked::SetLevel(item, level) => {
                 let path = format!("/api/v1/items/{item}/level");
@@ -137,7 +156,7 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
 }
 
 /// The new item, with what is written for it: each text, then each file's content, then each choice, in the order
-/// given. Each is `BLOCK=WHAT`.
+/// given. Each is `BLOCK=WHAT`. It is added paused.
 pub fn new_item(
     title: String,
     level: Option<String>,
@@ -251,6 +270,16 @@ fn done(work: u64, act: &Act) -> String {
         Act::Cancel {} => format!("Work {work} is cancelled."),
         Act::Answer { call, .. } => format!("Call {call} of work {work} has its result."),
     }
+}
+
+/// The engine as a whole, in a line: whether everything is paused, and its slots.
+fn standing(engine: &Engine) -> String {
+    let paused = if engine.paused.is_some() {
+        "Every work is paused: none begins a round but to answer a note, until `wf-agents resume --all`"
+    } else {
+        "Works go on"
+    };
+    format!("{paused}; {} of {} slots taken.", engine.taken, engine.slots)
 }
 
 /// Every item, a line each, with what its work does now.
@@ -407,6 +436,12 @@ fn attention(answer: &Attention, marked: bool, now: u64) -> String {
 /// One thing for the planner: the item and its work, what it does, and since when.
 fn heed(line: &Line, now: u64) -> String {
     let (of, said) = match line {
+        Line::Everything { since } => {
+            return format!(
+                "The owner paused everything: no work begins a round but to answer a person's words to its cell, for {}.",
+                duration(now.saturating_sub(*since))
+            );
+        }
         Line::Agents { since, outage: o } => {
             return format!(
                 "No agent's round of any work begins: {}, for {}.",
@@ -520,6 +555,7 @@ fn now(now: &Now) -> String {
             by: Pauser::Engine,
             why: None,
         } => "paused by the engine, which gave no reason".to_string(),
+        Now::Everything {} => "held back by the pause of everything".to_string(),
         Now::Waits { at, on } => {
             let on: Vec<String> = on.iter().map(waited).collect();
             format!("waits at {at} for {}", on.join("; and for "))
@@ -544,6 +580,7 @@ fn waited(waited: &Waited) -> String {
         Waited::Limit { runs } => {
             format!("the owner to let it go on, its last {runs} runs having each been for what a cell after it wrote")
         }
+        Waited::Slot {} => "a free slot".to_string(),
         Waited::Agents { outage: o } => format!("the agents' rounds to begin again: {}", outage(o)),
     }
 }

@@ -22,8 +22,8 @@ use store::{ItemNumber, WorkNumber};
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::works::{
-    Act, Added, Broken, CallPage, Changed, Items, LevelSet, LevelsPage, NewItem, NewLevel, Refusal, RoundPage,
-    ToldPage, VersionPage, WorkPage,
+    Act, Added, Broken, CallPage, Changed, Engine, EngineAct, Items, LevelSet, LevelsPage, NewItem, NewLevel, Refusal,
+    RoundPage, ToldPage, VersionPage, WorkPage,
 };
 
 /// The routes of the items and the works, over the engine's loop; an item is added at one of these levels.
@@ -46,8 +46,28 @@ pub fn router(handle: Handle, levels: Levels) -> Router {
         .route("/api/v1/works/{work}/calls/{call}", get(call))
         .route("/api/v1/works/{work}/acts", post(act))
         .route("/api/v1/attention", get(crate::attention::attention))
+        .route("/api/v1/engine", get(engine))
+        .route("/api/v1/engine/acts", post(engine_act))
         .route("/api/v1/changes", get(changes))
         .with_state(handle)
+}
+
+async fn engine(State(handle): State<Handle>) -> Response {
+    match handle.read(Engine::of).await {
+        Ok(engine) => Json(engine).into_response(),
+        Err(refusal) => refused(&refusal),
+    }
+}
+
+async fn engine_act(State(handle): State<Handle>, body: Bytes) -> Response {
+    let act: EngineAct = match serde_json::from_slice(&body) {
+        Ok(act) => act,
+        Err(e) => return fail(StatusCode::BAD_REQUEST, format!("The act cannot be read: {e}.")),
+    };
+    match handle.pause_everything(act.pauses()).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(refusal) => refused(&refusal),
+    }
 }
 
 async fn items(State(handle): State<Handle>) -> Response {
