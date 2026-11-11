@@ -113,7 +113,7 @@ async fn a_run_waiting_as_its_line_begins_a_new_session_is_told_its_task_and_its
     };
     let first = of("# Build (cell `build`), round 1\n");
     let again = (calls.iter())
-        .filter(|c| c.stdin.contains("cell `plan`"))
+        .filter(|c| c.stdin.starts_with("# Plan (cell `plan`), round 1\n"))
         .nth(1)
         .expect("the plan ran again");
     let second = of("# Build (cell `build`), round 2\n");
