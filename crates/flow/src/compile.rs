@@ -68,6 +68,9 @@ pub struct CellSpec {
     pub must_write: Vec<BlockId>,
     /// The blocks among its inputs that say what the work is where the host shows it, in the order written.
     pub describes: Vec<BlockId>,
+    /// The block among its outputs in which the check before the merge writes the files its commit changes under the
+    /// paths the installation names for the owner's approval; none for any other cell.
+    pub owner_paths: Option<BlockId>,
     /// How often a return of the cell may be sent back within one run.
     pub returns: u32,
     /// How many calls one run of the cell may make.
@@ -728,6 +731,10 @@ impl<'a> Definition<'a> {
             };
             (!file.outputs.iter().any(|o| o == block)).then_some(what)
         }));
+        if let Some(block) = file.owner_paths.as_ref().filter(|b| !file.outputs.contains(b)) {
+            let what = FaultKind::NotAnOutput { block: block.clone() };
+            found.push(("owner_paths".to_string(), what));
+        }
         found.extend(check_list(&file.describes, "describes", |block| {
             let what = FaultKind::NotAnInput {
                 block: block.to_string(),
@@ -756,6 +763,7 @@ impl<'a> Definition<'a> {
             act: file.act.clone(),
             must_write: file.must_write.iter().map(|b| BlockId(b.clone())).collect(),
             describes: file.describes.iter().map(|b| BlockId(b.clone())).collect(),
+            owner_paths: file.owner_paths.as_ref().map(|b| BlockId(b.clone())),
             returns: limits.returns,
             calls: limits.calls,
             effort: file.effort,

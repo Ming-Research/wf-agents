@@ -18,6 +18,11 @@ check = "cargo test"
 # hooks directory, an included file and the like). A key the repository needs is allowed here, whole or as a beginning
 # followed by `*`.
 # allowed_config = ["filter.lfs.*"]
+# The paths whose change merges only with the owner's yes, as git's pathspecs with `*` and `**` as globs, a directory
+# with its trailing slash: the flow's definition, a specification. The check before the merge writes the files its
+# commit changes under them into the block its cell names as `owner_paths`, and the merge waits until the owner
+# confirmed that block; a later commit that changes them again is asked again. None, and no work is held for them.
+# owner_approves = ["flow/", "design/principles/"]
 
 [agents]
 # The command line program that runs an agent's round.

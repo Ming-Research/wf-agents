@@ -32,6 +32,8 @@ use work::{Handed, Spent, Work};
 
 #[cfg(test)]
 mod ends;
+#[cfg(test)]
+mod owned;
 
 use crate::git::{self, Place, Started};
 use crate::held::{Failing, Held, Stop};
@@ -227,7 +229,19 @@ impl<H: Host> Inner<H> {
                 Ok(Done::HandsIn(prose(&outputs, &content)))
             }
             "check" => match check(project, &self.host, &branch, &self.repository, stop).await? {
-                Some(checked) => checked_in(&outputs, &checked, &project.main).map(Done::HandsIn),
+                Some(checked) => {
+                    let mut handed = checked_in(&outputs, &checked, &project.main)?;
+                    if let Some(block) = &round.cell.owner_paths {
+                        handed.retain(|h| &h.block != block);
+                        let files = {
+                            let _held = self.repository.lock().await;
+                            owned_files(project, &checked).await?
+                        };
+                        let before = current(&round.kept, block);
+                        handed.extend(owned_in(block, before, &files, &checked, &project.main));
+                    }
+                    Ok(Done::HandsIn(handed))
+                }
                 None => Ok(Done::Stopped),
             },
             "merge" => {
@@ -389,8 +403,8 @@ pub(crate) async fn check(
 
 /// What is wrong with the flow for the acts, each in words with the cell: the cell of `check` has one choice among
 /// its outputs, and it offers [`PASSED`] and [`FAILED`]; the cells of `start`, `merge` and `deliver` have no choice
-/// among their outputs, since they have no outcome to choose. A flow with any of these is not run with the real
-/// carriers.
+/// among their outputs, since they have no outcome to choose; and only the check names a block of the owner's paths,
+/// which is no choice. A flow with any of these is not run with the real carriers.
 pub fn faults(flow: &Compiled) -> Vec<String> {
     let mut faults = Vec::new();
     for cell in &flow.cells {
@@ -405,6 +419,17 @@ pub fn faults(flow: &Compiled) -> Vec<String> {
             .filter_map(|block| Some((block, flow.blocks.get(block)?.values.as_ref()?)))
             .collect();
         let at = format!("the flow {}, cell {} (act {act})", flow.name, cell.id);
+        if let Some(block) = &cell.owner_paths {
+            if act != "check" {
+                faults.push(format!(
+                    "{at}: only the check writes the owner's paths, and it names {block}"
+                ));
+            } else if choices.iter().any(|(b, _)| *b == block) {
+                faults.push(format!(
+                    "{at}: the owner's paths {block} are a list of files, and it is a choice"
+                ));
+            }
+        }
         match act {
             "check" => match choices.as_slice() {
                 [(block, values)] if !(values.iter().any(|v| v == PASSED) && values.iter().any(|v| v == FAILED)) => {
@@ -512,6 +537,54 @@ fn checked_in(
         }));
     }
     Ok(handed)
+}
+
+/// The files the checked commit changes under the paths the installation names for the owner's approval; none where
+/// it names none.
+async fn owned_files(project: &Project, checked: &Checked) -> Result<Vec<String>, String> {
+    if project.owner_approves.is_empty() {
+        return Ok(Vec::new());
+    }
+    git::owned(project, &checked.main, &checked.commit, &project.owner_approves).await
+}
+
+/// The first words of each file in what the check writes of the owner's paths.
+const OWNED: &str = "- ";
+
+/// What the check writes in the block of the owner's paths, where what is there changes: the files the checked commit
+/// changes under them, with the commit, as a change that matters; blank where it changes none of them and the block
+/// said that some were. Nothing where the files are those the block lists already, whatever the commit, so that the
+/// owner's yes to them still holds; nor where neither lists any.
+fn owned_in(block: &BlockId, before: Option<&str>, files: &[String], checked: &Checked, main: &str) -> Option<Handed> {
+    let listed: Vec<&str> = (before.unwrap_or_default().lines())
+        .filter_map(|line| line.strip_prefix(OWNED))
+        .collect();
+    if listed.iter().copied().eq(files.iter().map(String::as_str)) {
+        return None;
+    }
+    let content = if files.is_empty() {
+        String::new()
+    } else {
+        let list: Vec<String> = files.iter().map(|f| format!("{OWNED}{f}")).collect();
+        format!(
+            "The commit {} changes, against {main} at {}, these files under the paths the owner approves:\n{}",
+            checked.commit,
+            checked.main,
+            list.join("\n")
+        )
+    };
+    Some(Handed {
+        block: block.clone(),
+        content,
+        matters: true,
+        value: None,
+    })
+}
+
+/// The content of the block's current version, where it has one.
+fn current<'a>(work: &'a Work, block: &BlockId) -> Option<&'a str> {
+    let at = decide::versions(&work.records).get(block)?.last()?.at;
+    work.contents.get(&(block.clone(), at)).map(String::as_str)
 }
 
 /// The latest finished run of the flow's check, where it has one and it ran.
