@@ -3,25 +3,27 @@ name: ci
 # Every check of the code: the page's types, lint, tests and build; the Rust format and clippy with warnings as errors;
 # and the Rust tests, which take most of the time, split across three jobs beside the others. The job `check` is red
 # whenever the lint or a job of the tests is, and it and `page` are the checks the engine waits for. It runs on each
-# pull request into `next` and on each push to `next`, on GitHub's machines from a clean start: this is the CI the check
-# before a work's merge waits for. What an agent names to its check while it works, and the tests it runs on the code
+# pull request into `main` and on each push to `main`, on GitHub's machines from a clean start: this is the CI the check
+# before a work's merge waits for. `next` is the name `main` had, kept in the lists below while a pull request targets it. What an agent names to its check while it works, and the tests it runs on the code
 # before its change, the fast CI runs instead (fast.yml), on the owner's machine; so a push to a branch of the code
 # before a change (`wf-agents-before/`) runs nothing here.
 on:
   pull_request:
     branches:
+      - main
       - next
   push:
     branches:
+      - main
       - next
 
 permissions:
   contents: read
 
-# A newer push to the same pull request makes the older run pointless; `next` keeps every run.
+# A newer push to the same pull request makes the older run pointless; `main` keeps every run.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/next' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/next' }}
 
 jobs:
   # The owner's page (client/): checked and tested on its own, so that what is wrong with it shows without waiting for
@@ -168,13 +170,13 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+        # Where no job of the tests kept its results (each was cancelled, say), there is nothing to list, and the step
+        # ends without an error all the same: the engine gives an agent every step of this log that holds one. Results
+        # kept half written end it so too, the status of the lines below being that of `tee`.
         run: |
-          # Where no job of the tests kept its results (each was cancelled, say) or one kept them half written, there
-          # is nothing to list, and the step ends without an error all the same: the engine gives an agent every step
-          # of this log that holds one.
           gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'junit-*' --dir "$RUNNER_TEMP/junit" \
             || { echo "No job of the tests kept its results."; exit 0; }
-          python3 -I - "$RUNNER_TEMP/junit" <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY" || echo "The tests' results could not be read."
+          python3 -I - "$RUNNER_TEMP/junit" <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
           import pathlib, sys, xml.etree.ElementTree as ET
           rows = []
           for path in sorted(pathlib.Path(sys.argv[1]).rglob("*.xml")):
