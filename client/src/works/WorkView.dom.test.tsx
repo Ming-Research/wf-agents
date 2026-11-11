@@ -6,7 +6,15 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { Act, Changed, WorkPage } from '../works-api';
-import { fixtureCall, fixtureItems, fixtureRound, fixtureTold, fixtureVersion, fixtureWork } from './fixtures';
+import {
+  fixtureCall,
+  fixtureCopies,
+  fixtureItems,
+  fixtureRound,
+  fixtureTold,
+  fixtureVersion,
+  fixtureWork,
+} from './fixtures';
 import { pauseDiffers } from './marks';
 import { type Source, SourceContext } from './source';
 import { WorkScreen, WorkView, readerOf } from './WorkView';
@@ -47,11 +55,14 @@ interface TestSource extends Source {
 }
 
 function fixtureSource(over: Partial<Source> = {}): TestSource {
+  // Every part that listens, as each opens a stream of its own: the list of the works and the line of the copies in it.
+  const listening = new Set<{ onChanged: (c: Changed) => void; onOpened: () => void }>();
   const s: TestSource = {
     acts: [],
     reads: { work: 0, round: 0, items: 0 },
-    changed: () => undefined,
-    opened: () => undefined,
+    changed: (c) => listening.forEach((l) => l.onChanged(c)),
+    opened: () => listening.forEach((l) => l.onOpened()),
+    loadCopies: async () => fixtureCopies(),
     loadItems: async () => {
       s.reads.items += 1;
       return fixtureItems();
@@ -72,9 +83,9 @@ function fixtureSource(over: Partial<Source> = {}): TestSource {
       return null;
     },
     changes: (onChanged, onOpened) => {
-      s.changed = onChanged;
-      s.opened = onOpened;
-      return () => undefined;
+      const listener = { onChanged, onOpened };
+      listening.add(listener);
+      return () => listening.delete(listener);
     },
     ...over,
   };
@@ -170,7 +181,7 @@ describe('the list of works', () => {
     await settle();
     expect(page.querySelectorAll('tbody tr.work-row')).toHaveLength(10);
     fail = true;
-    act(() => source.changed({ works: [41], items: true }));
+    act(() => source.changed({ works: [41], items: true, copies: false }));
     await settle();
     expect(page.querySelectorAll('tbody tr.work-row')).toHaveLength(10);
     expect(page.querySelector('.read-failed')?.textContent).toContain('the server went away');
@@ -190,11 +201,11 @@ describe('a work as it is read', () => {
     expect(page.textContent).toContain('Reading work 41');
     await settle();
     expect(page.querySelector('.view-name')?.textContent).toBe('Show the cost of each round on the works page');
-    act(() => source.changed({ works: [41], items: false }));
+    act(() => source.changed({ works: [41], items: false, copies: false }));
     await settle();
     expect(source.reads.work).toBe(2);
     // A change to another work does not read this one again.
-    act(() => source.changed({ works: [42], items: false }));
+    act(() => source.changed({ works: [42], items: false, copies: false }));
     await settle();
     expect(source.reads.work).toBe(2);
   });
@@ -207,7 +218,7 @@ describe('a work as it is read', () => {
     const page = draw(<WorkView work={41} />, source);
     await settle();
     fail = true;
-    act(() => source.changed({ works: [41], items: false }));
+    act(() => source.changed({ works: [41], items: false, copies: false }));
     await settle();
     expect(page.querySelector('.read-failed')?.textContent).toBe(
       'The work could not be read again: the server went away. What is shown is from before.',
@@ -231,8 +242,8 @@ describe('a work as it is read', () => {
     const page = draw(<WorkView work={41} />, source);
     answers[0].resolve(fixtureWork(41));
     await settle();
-    act(() => source.changed({ works: [41], items: false }));
-    act(() => source.changed({ works: [41], items: false }));
+    act(() => source.changed({ works: [41], items: false, copies: false }));
+    act(() => source.changed({ works: [41], items: false, copies: false }));
     answers[2].resolve({ ...fixtureWork(41), title: 'Newer' });
     await settle();
     answers[1].resolve({ ...fixtureWork(41), title: 'Older' });

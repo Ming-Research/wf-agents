@@ -8,6 +8,8 @@ Why: One cause stops every work alike: paused one by one, each would wait for th
 At the usage limit and for a command line that cannot run the wait holds only the agents' rounds; without the network it holds the engine's own acts as well. An act that meets the network gone before any agent's round has fails as a cause no kind tells apart, and pauses its work.
 Why: The engine's acts need no agent but may reach the network (a push, a pull request, a merge on a host), and failing there one by one they would each wait for the owner; held at the usage limit they would wait for nothing.
 
+The backup of the records is held by neither this wait nor the owner's pause: see decision backup-is-the-engines-own-tick in backup.md.
+
 ### decision no-round-tries-the-network
 While the network cannot be reached, the engine looks at it itself, which costs no round, and a round tries only once a look reaches it, or now and then in case what is looked at is not the service; a look's finding is not recorded, and after a stop the engine looks again at once.
 Why: The command line writes a round's message into its session before it calls the service, and retrying rounds through an outage filled a session with the same input again and again.

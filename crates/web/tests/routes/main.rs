@@ -7,6 +7,7 @@ mod acts;
 mod attention;
 mod changes;
 mod changing;
+mod copies;
 mod definition;
 mod directories;
 mod engine;

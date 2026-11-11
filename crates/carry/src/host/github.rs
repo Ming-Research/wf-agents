@@ -38,7 +38,7 @@ use std::path::Path;
 use std::time::Duration;
 
 pub use api::{Api, Check, Outcome, Pull, State};
-pub use gh::Gh;
+pub use gh::{Gh, GhOffsite, UPLOAD_RATE};
 
 use super::{Branch, Host, InUse, Named, Verdict, WHOLE};
 use crate::git::{self, Before, With};

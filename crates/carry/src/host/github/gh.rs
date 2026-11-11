@@ -131,6 +131,12 @@ impl Gh {
 
     /// Runs `gh` with these arguments, other than `api`, given up as an ask is; says what it said where it failed.
     async fn run(&self, args: &[&str]) -> Result<(), String> {
+        self.output(args, self.limit).await.map(|_| ())
+    }
+
+    /// Runs `gh` with these arguments, other than `api`, given up after `limit`; gives what it printed, or what it said
+    /// where it failed.
+    async fn output(&self, args: &[&str], limit: Duration) -> Result<String, String> {
         let child = Command::new(&self.command)
             .args(args)
             .env_clear()
@@ -141,7 +147,7 @@ impl Gh {
             .kill_on_drop(true)
             .spawn()
             .map_err(|e| format!("{} cannot be started: {e}", self.command))?;
-        let waited = tokio::time::timeout(self.limit, child.wait_with_output()).await;
+        let waited = tokio::time::timeout(limit, child.wait_with_output()).await;
         let output = (waited.map_err(|_| {
             format!(
                 "{} {} did not end in time, and was stopped",
@@ -151,7 +157,7 @@ impl Gh {
         }))?
         .map_err(|e| format!("{} could not be waited for: {e}", self.command))?;
         if output.status.success() {
-            return Ok(());
+            return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
         }
         Err(format!(
             "{} {} failed: {}",
@@ -626,6 +632,10 @@ fn status(status: &Value) -> Option<Check> {
         earlier: Vec::new(),
     })
 }
+
+mod release;
+
+pub use release::{GhOffsite, UPLOAD_RATE};
 
 #[cfg(test)]
 mod tests;

@@ -51,6 +51,7 @@ use tools::Tools;
 
 pub use acts::{FAILED, MAIN, PASSED, WATCH, Watch, faults};
 pub use agents::{Agents, PROTOCOL, ROUNDS};
+pub use host::github::{GhOffsite, UPLOAD_RATE};
 pub use process::{STOP_WAIT, TAIL};
 pub use settings::Settings;
 pub use tools::{CHECK, CHECK_BEFORE};

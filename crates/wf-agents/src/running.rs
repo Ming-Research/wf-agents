@@ -112,15 +112,26 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 }
             },
         };
+        // The copies of the database are kept where the real carriers are, as the settings say; a script keeps none.
+        let mut copies: Option<Keeping> = None;
         let (carriers, watch): (Carriers, Option<carry::Watch>) = match with {
             Read::Script(script) => (Scripted::new(script).carriers(), None),
-            Read::Settings(settings) => match carry::carry(*settings, data) {
-                Ok((carriers, watch)) => (carriers, Some(watch)),
-                Err(why) => {
-                    eprintln!("The carriers cannot be made: {why}");
-                    return ExitCode::FAILURE;
+            Read::Settings(settings) => {
+                match keeping(data, settings.backup.as_ref()) {
+                    Ok(keeping) => copies = Some(keeping),
+                    Err(why) => {
+                        eprintln!("{why}");
+                        return ExitCode::FAILURE;
+                    }
                 }
-            },
+                match carry::carry(*settings, data) {
+                    Ok((carriers, watch)) => (carriers, Some(watch)),
+                    Err(why) => {
+                        eprintln!("The carriers cannot be made: {why}");
+                        return ExitCode::FAILURE;
+                    }
+                }
+            }
         };
         let (service, inbox) = match Service::open(Box::new(store), flows, carriers, Arc::new(SystemClock)) {
             Ok(opened) => opened,
@@ -135,8 +146,17 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
             let handle = service.handle();
             tokio::spawn(watch.run(move |head| handle.outside(carry::MAIN, &head)));
         }
-        let flows = web::Flows::dirs(shown.clone(), None, Box::new(has));
-        let router = web::with_works(flows, service.handle(), levels);
+        let flows_shown = web::Flows::dirs(shown.clone(), None, Box::new(has));
+        let router = match copies {
+            Some(keeping) => {
+                // One task keeps the copies, a step at a time, with the time the loop reads from its clock.
+                let handle = service.handle();
+                let copies = keeping.about();
+                keeping.run(handle.clone());
+                web::with_works_and_copies(flows_shown, handle, levels, copies)
+            }
+            None => web::with_works(flows_shown, service.handle(), levels),
+        };
         println!("The owner's pages are at {}", works_page(address));
         let held = web::works::Engine::of(service.driver()).paused.map(|paused| paused.by);
         if held == Some(web::works::Pauser::Engine) {
@@ -156,6 +176,97 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         }
         ExitCode::FAILURE
     })
+}
+
+/// The directory in the data directory that holds the copies of the database.
+const COPIES: &str = "backups";
+
+/// What keeps the copies of the store in the data directory, as the settings say: on the machine alone where they give
+/// no place off it, and else off it too. The two are different types of plan, since the place off the machine is a type
+/// parameter of the step.
+enum Keeping {
+    Local(backup::Plan<backup::Nowhere>, backup::Disk),
+    Off(backup::Plan<carry::GhOffsite>, backup::Disk),
+}
+
+/// What keeps the copies, with the engine's token for the place off the machine from its environment, and its own
+/// directory for `gh`'s configuration, apart from the host's.
+fn keeping(data: &Path, settings: Option<&carry::settings::Backup>) -> Result<Keeping, String> {
+    let (store, dir) = (data.join(STORE), data.join(COPIES));
+    let ground = backup::Disk::open(&store, &dir)?;
+    let Some(b) = settings else {
+        let plan = backup::Plan {
+            store,
+            dir,
+            keep: carry::settings::KEEP,
+            offsite: None,
+        };
+        return Ok(Keeping::Local(plan, ground));
+    };
+    let token = (std::env::var(&b.token_env).ok().filter(|token| !token.is_empty())).ok_or_else(|| {
+        format!(
+            "backup.token_env: the variable {} is not set: the engine needs its token for {}",
+            b.token_env, b.repository
+        )
+    })?;
+    let config = data.join("gh-backup");
+    std::fs::create_dir_all(&config).map_err(|e| format!("{}: {e}", config.display()))?;
+    let plan = backup::Plan {
+        store,
+        dir,
+        keep: b.keep,
+        offsite: Some(carry::GhOffsite::new(&b.gh, &b.repository, &token, &config)),
+    };
+    Ok(Keeping::Off(plan, ground))
+}
+
+impl Keeping {
+    /// What the route of the copies is told of them.
+    fn about(&self) -> web::Copies {
+        match self {
+            Keeping::Local(plan, _) => web::Copies {
+                store: plan.store.clone(),
+                keep: plan.keep,
+                off_machine: plan.configured(),
+            },
+            Keeping::Off(plan, _) => web::Copies {
+                store: plan.store.clone(),
+                keep: plan.keep,
+                off_machine: plan.configured(),
+            },
+        }
+    }
+
+    /// Starts the one task that keeps the copies. It takes the time from the loop, which alone reads the clock, and
+    /// tells the pages after each step that the copies may have changed.
+    fn run(self, handle: service::Handle) {
+        let asks = handle.clone();
+        let now = move || {
+            let handle = asks.clone();
+            async move { handle.now().await.map_err(|_| "the engine has stopped".to_string()) }
+        };
+        let said = move |out: &backup::Outcome| {
+            said(out);
+            handle.copies_changed();
+        };
+        match self {
+            Keeping::Local(plan, ground) => tokio::spawn(backup::keep(plan, ground, now, said)),
+            Keeping::Off(plan, ground) => tokio::spawn(backup::keep(plan, ground, now, said)),
+        };
+    }
+}
+
+/// Says what a step of keeping the copies did.
+fn said(out: &backup::Outcome) {
+    if let Some(name) = &out.taken {
+        println!("Took a copy of the database: {name}");
+    }
+    for name in &out.uploaded {
+        println!("Kept the copy {name} off this machine");
+    }
+    if let Some((step, why)) = &out.failed {
+        eprintln!("Keeping the database's copies failed at {step}: {why}");
+    }
 }
 
 /// The levels of the items of an engine whose agents follow a script, which run on no model: one, `1`, at which every

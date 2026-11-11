@@ -313,6 +313,7 @@ impl Real {
                 highest_level: None,
             },
             github: None,
+            backup: None,
             sessions: Default::default(),
         };
         let flow = compiled(on);

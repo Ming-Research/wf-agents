@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 axum = { version = "0.8.9", default-features = false, features = ["http1", "json", "query", "tokio"] }
+backup = { path = "../backup" }
 decide = { path = "../decide" }
 driver = { path = "../driver" }
 flow = { path = "../flow" }

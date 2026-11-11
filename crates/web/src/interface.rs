@@ -267,7 +267,11 @@ async fn everything(handle: &Handle) -> Result<Changed, service::Refusal> {
     let works = handle
         .read(|driver| driver.works().map(|kept| kept.head.number.0).collect())
         .await?;
-    Ok(Changed { works, items: true })
+    Ok(Changed {
+        works,
+        items: true,
+        copies: true,
+    })
 }
 
 fn event(changed: &Changed) -> Result<Event, axum::Error> {

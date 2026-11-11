@@ -8,6 +8,7 @@ publish.workspace = true
 repository.workspace = true
 
 [dependencies]
+backup = { path = "../backup" }
 carry = { path = "../carry" }
 clap = { version = "4.6.7", features = ["derive"] }
 driver = { path = "../driver" }

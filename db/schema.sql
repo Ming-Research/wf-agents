@@ -300,3 +300,36 @@ CREATE TABLE moments (
     time INTEGER NOT NULL,
     PRIMARY KEY (work, place)
 );
+
+-- A copy of the database was taken, under this name, at `taken`. `seq` is the order the copies were recorded in, which
+-- a clock that jumped cannot change: the copies kept are the newest by it. The rows are only added, so the number of a
+-- row is one more than the newest's. A copy belongs to no work.
+CREATE TABLE backups (
+    seq INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    taken INTEGER NOT NULL
+);
+
+-- The copy of this name was uploaded off the machine, at `at`.
+CREATE TABLE backup_uploads (
+    name TEXT PRIMARY KEY REFERENCES backups (name),
+    at INTEGER NOT NULL
+);
+
+-- A step of keeping a copy failed at `at`, for this reason: `step` says which (`snapshot`, `private`, `upload` or
+-- `prune`), and `name` the copy it was about. `seq` is the order the failures were recorded in.
+CREATE TABLE backup_failures (
+    seq INTEGER PRIMARY KEY,
+    at INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    step TEXT NOT NULL,
+    why TEXT NOT NULL
+);
+
+-- A step of keeping the copies ended at `at` with nothing failing, and so mended the failures up to the one numbered
+-- `mended`, the newest recorded when it ended. A failure is mended by the order they were recorded in, not by the
+-- time, which a clock that jumped makes wrong. It is kept only when there was a failure to mend.
+CREATE TABLE backup_steps (
+    mended INTEGER PRIMARY KEY REFERENCES backup_failures (seq),
+    at INTEGER NOT NULL
+);

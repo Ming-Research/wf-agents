@@ -8,6 +8,8 @@ publish.workspace = true
 repository.workspace = true
 
 [dependencies]
+# The place off the machine the copies of the database go to is asked with `gh` as the host is, so it is made here.
+backup = { path = "../backup" }
 decide = { path = "../decide" }
 driver = { path = "../driver" }
 engine = { path = "../engine" }

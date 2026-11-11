@@ -6,6 +6,7 @@
 import { useCallback } from 'react';
 
 import type { Items } from '../works-api';
+import { CopiesLine } from './Copies';
 import { NowLine, StateLegend, Strip } from './marks';
 import { orderWorks, rank } from './placing';
 import { useChanges, useReading, useSource } from './source';
@@ -41,6 +42,7 @@ export function WorksTable({ items, failed = null }: { items: Items; failed?: st
           {works.length} works, {forOwner} waiting for the owner
         </span>
         <span className="view-end">
+          <CopiesLine />
           <StateLegend />
         </span>
       </div>

@@ -11,6 +11,7 @@ import type {
   Act,
   CallPage,
   Changed,
+  Copies,
   Engine,
   EngineAct,
   Items,
@@ -21,6 +22,7 @@ import type {
 } from '../works-api';
 
 export interface Source {
+  loadCopies(): Promise<Copies>;
   loadItems(): Promise<Items>;
   loadWork(work: number): Promise<WorkPage>;
   loadVersion(work: number, block: string, at: number): Promise<VersionPage>;
@@ -38,6 +40,7 @@ export interface Source {
 
 /// The interface: its routes, and its stream of changes.
 export const INTERFACE: Source = {
+  loadCopies: api.loadCopies,
   loadItems: api.loadItems,
   loadWork: api.loadWork,
   loadVersion: api.loadVersion,
@@ -65,6 +68,7 @@ export const INTERFACE: Source = {
 /// The fixtures, loaded only when asked for, so that the page as built for the interface does not carry them. What the
 /// owner does to a fixture is only logged, and no stream of changes is opened.
 export const FIXTURES: Source = {
+  loadCopies: async () => (await import('./fixtures')).fixtureCopies(),
   loadItems: async () => (await import('./fixtures')).fixtureItems(),
   loadWork: async (work) => (await import('./fixtures')).fixtureWork(work),
   loadVersion: async (work, block, at) => (await import('./fixtures')).fixtureVersion(work, block, at),

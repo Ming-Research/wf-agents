@@ -158,11 +158,13 @@ pub enum Act {
     },
 }
 
-/// Something happened: these works grew, and an item was added where `items`.
+/// Something happened: these works grew, an item was added where `items`, and the copies of the database changed where
+/// `copies`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Changed {
     pub works: Vec<WorkNumber>,
     pub items: bool,
+    pub copies: bool,
 }
 
 /// What stops the loop. Started again, the process goes on from the store.
@@ -349,6 +351,7 @@ impl Service {
                         let _ = self.changed.send(Changed {
                             works: self.driver.works().map(|kept| kept.head.number).collect(),
                             items: false,
+                            copies: false,
                         });
                         return Ok(());
                     }
@@ -637,7 +640,11 @@ impl Service {
             .collect();
         if !works.is_empty() || items {
             // Nobody may be listening.
-            let _ = self.changed.send(Changed { works, items });
+            let _ = self.changed.send(Changed {
+                works,
+                items,
+                copies: false,
+            });
         }
     }
 }
@@ -663,6 +670,23 @@ impl Handle {
         });
         self.to.send(Message::Read(read)).map_err(|_| Refusal::Gone)?;
         answer.await.map_err(|_| Refusal::Gone)
+    }
+
+    /// The time now by the loop's clock, which nothing else reads (principle `outside-behind-interfaces`).
+    pub async fn now(&self) -> Result<Time, Refusal> {
+        self.read_at(|_, now| now).await
+    }
+
+    /// Tells whoever listens that the copies of the database changed: a step of keeping them ended. The notice holds no
+    /// record; whoever listens reads the state again. The copies are written beside the loop, so it is not the loop that
+    /// says so.
+    pub fn copies_changed(&self) {
+        // Nobody may be listening.
+        let _ = self.changed.send(Changed {
+            works: Vec::new(),
+            items: false,
+            copies: true,
+        });
     }
 
     /// Says what a source outside the works says now, for the loop to write into the works; nothing where the loop

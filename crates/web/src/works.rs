@@ -942,12 +942,14 @@ pub struct Added {
     pub work: u64,
 }
 
-/// Something happened: these works grew, and an item was added where `items`.
+/// Something happened: these works grew, an item was added where `items`, and the copies of the database changed where
+/// `copies`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Changed {
     pub works: Vec<u64>,
     pub items: bool,
+    pub copies: bool,
 }
 
 /// Why something asked of the interface was refused, in words.
@@ -1595,6 +1597,7 @@ impl Changed {
         Changed {
             works: changed.works.iter().map(|work| work.0).collect(),
             items: changed.items,
+            copies: changed.copies,
         }
     }
 }
