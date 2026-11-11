@@ -20,11 +20,12 @@ use std::sync::Arc;
 
 use decide::run::Failure;
 use decide::{CallId, End, Pauser, RunId};
+use driver::Policy;
 use engine::{Came, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{Item, WorkNumber};
 use tokio::sync::mpsc;
-use work::{Given, Spent, Time, Work};
+use work::{Given, RanOn, Spent, Time, Why, Work};
 
 use crate::Message;
 
@@ -53,6 +54,13 @@ pub trait Rounds: Send + Sync {
     fn told(&self, work: WorkNumber, run: RunId, round: usize) -> Result<Told, String> {
         let _ = (work, run, round);
         Ok(Told::default())
+    }
+
+    /// When a line begins a new session, for rounds carried out in sessions: what they run on, and how far a session
+    /// may grow. None, as by default, for rounds carried out in no session, whose lines the loop begins no session
+    /// for itself.
+    fn policy(&self) -> Option<Policy> {
+        None
     }
 
     /// Lets go of what the rounds of this kind made for the work outside the engine, the work having ended and nothing
@@ -128,26 +136,10 @@ pub struct Try {
     /// The message's whole length in bytes, where it was cut before its end.
     pub cut: Option<u64>,
     pub back: Back,
-    /// What it ran on, as its carrier kept it as the try began; none where its carrier keeps none.
-    pub ran: Option<RanKept>,
-}
-
-/// What a try ran on, as its carrier kept it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum RanKept {
-    On(RanOn),
-    /// What was kept of it could not be read, for this reason: it was cut short as it was written, for one.
-    Unreadable(String),
-}
-
-/// What a try of an agent's round ran on: the level, the model of that level and the reasoning effort, as they were
-/// when it began, so that a round reads the same after the settings change.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RanOn {
-    pub level: String,
-    pub model: String,
-    /// None where the cell sets none, and the program ran at its own.
-    pub effort: Option<String>,
+    /// What it ran on, as the work's records say its carrier chose it as the try began, or, for a try that began
+    /// before tries were recorded, as its carrier kept it beside the try; none where neither says, as of a try kept
+    /// before either, or of an act of the engine's own.
+    pub ran: Option<RanOn>,
 }
 
 /// What came back of a try.
@@ -297,6 +289,16 @@ impl RoundReply {
         RoundReply { work, run, to }
     }
 
+    /// The way to say, while the round is under way, what each of its tries runs on and which session of its line it
+    /// began for a reason of its own.
+    pub fn teller(&self) -> Teller {
+        Teller {
+            work: self.work,
+            run: self.run,
+            to: self.to.clone(),
+        }
+    }
+
     /// The round ended: this came back, and it took this.
     pub fn ended(self, came: Came, spent: Spent) {
         let event = Event::Returned {
@@ -359,6 +361,37 @@ impl RoundReply {
             resets,
             spent,
         };
+        // Where the loop has ended, the process is stopping: the round is handed out again when it starts again.
+        let _ = self.to.send(Message::Happened { work: self.work, event });
+    }
+}
+
+/// The way to say what happens while a round is under way, as often as it happens: each is taken while the round is
+/// still under way, before its end.
+#[derive(Clone, Debug)]
+pub struct Teller {
+    work: WorkNumber,
+    run: RunId,
+    to: mpsc::UnboundedSender<Message>,
+}
+
+impl Teller {
+    /// The try of this number of the round, the first being one, begins on this.
+    pub fn ran_on(&self, attempt: usize, on: RanOn) {
+        self.tell(Event::Ran {
+            run: self.run,
+            attempt,
+            on,
+        });
+    }
+
+    /// The round began a new session of its line, for this reason: as when the agents' program had lost the one the
+    /// round was to go on in.
+    pub fn session_began(&self, line: String, why: Why) {
+        self.tell(Event::Anew { line, why });
+    }
+
+    fn tell(&self, event: Event) {
         // Where the loop has ended, the process is stopping: the round is handed out again when it starts again.
         let _ = self.to.send(Message::Happened { work: self.work, event });
     }

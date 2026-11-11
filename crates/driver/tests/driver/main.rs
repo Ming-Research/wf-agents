@@ -18,6 +18,7 @@ mod opening;
 mod outage;
 mod outside;
 mod scheduling;
+mod sessions;
 mod stopped;
 mod stops;
 

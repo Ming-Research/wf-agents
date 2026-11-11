@@ -17,6 +17,7 @@ import type {
   Pauser,
   Person,
   Run,
+  SessionWhy,
   Spent,
   Summary,
   Unmet,
@@ -94,6 +95,24 @@ export function spentWords(spent: Spent): string {
 /// The tokens apart, for a panel: `12k in, 8.1k from the cache, 2.1k out`.
 export function tokensWords(spent: Spent): string {
   return `${tokens(spent.inputTokens)} in, ${tokens(spent.cachedTokens)} from the cache, ${tokens(spent.outputTokens)} out`;
+}
+
+/// Why a line began a new session, as a clause: `a new one, its context having been 612k tokens, past the limit of 500k`.
+export function sessionWords(why: SessionWhy): string {
+  switch (why.kind) {
+    case 'limit':
+      return `a new one, its context having been ${tokens(why.context)} tokens, past the limit of ${tokens(why.limit)}`;
+    case 'model':
+      return `a new one, its rounds running on another model than ${why.was}`;
+    case 'account':
+      return 'a new one, its rounds running under another account';
+    case 'owner':
+      return 'a new one, as the owner asked';
+    case 'flagged':
+      return "a new one, the service's safety check having flagged its last round";
+    case 'lost':
+      return "begun again, the agents' program having lost it";
+  }
 }
 
 export function personWords(person: Person): string {

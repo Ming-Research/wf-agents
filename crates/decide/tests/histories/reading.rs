@@ -200,9 +200,9 @@ impl<'a> Reading<'a> {
             .collect()
     }
 
-    /// Whether a change of the block from `was` to `now` is a way round for the cell at place `i` of the flow (entry
-    /// every-way-round-has-a-limit): every change of its meaning between the two was written by a cell after it in the
-    /// order. One made by a person, the outside, the cell itself or a cell before it makes it no way round.
+    /// Whether a change of the block from `was` to `now` is a way round for the cell at place `i` of the flow: every
+    /// change of its meaning between the two was written by a cell after it in the order. One made by a person, the
+    /// outside, the cell itself or a cell before it makes it no way round.
     pub fn behind(&self, flow: &Flow, i: usize, block: &BlockId, was: Option<Seq>, now: Seq) -> bool {
         let changes = self.changes(block, was, now);
         !changes.is_empty()

@@ -95,6 +95,7 @@ pub fn refused_words(refused: &Refused) -> String {
         Refused::NoRoundUnderWay(run) => format!("no round of run {} is under way", run.0),
         Refused::NoSuchCall(call) => format!("the work has no call {}", call.0),
         Refused::AlreadyDone(call) => format!("call {} has its result already", call.0),
+        Refused::NoSuchLine(line) => format!("the flow has no cell on the line {line}"),
         Refused::NotToRelease => {
             "the work has not ended, or something of it is under way: it has nothing to let go".to_string()
         }

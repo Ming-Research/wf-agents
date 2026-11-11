@@ -10,6 +10,10 @@ use decide::run::{Failure, Limit, Unmet};
 use decide::{BlockId, CallId, Records, RunId, Seq, Who};
 use serde::{Deserialize, Serialize};
 
+pub mod sessions;
+
+pub use sessions::{Ran, RanOn, Session, Why};
+
 /// Everything kept of one work.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Work {
@@ -30,6 +34,10 @@ pub struct Work {
     pub spent: BTreeMap<(RunId, usize), Spent>,
     /// When each thing that happened was taken, in order: the first place given to its entries, and the time.
     pub moments: Vec<Moment>,
+    /// Each new session of a line that began, in order.
+    pub sessions: Vec<Session>,
+    /// Each try of an agent's round that began, with what it ran on, in order.
+    pub ran: Vec<Ran>,
 }
 
 impl Work {
@@ -48,7 +56,9 @@ impl Work {
             .chain(r.let_go.iter().map(|e| e.at))
             .chain(r.pauses.iter().map(|e| e.at))
             .chain(r.cancelled)
-            .chain(r.released);
+            .chain(r.released)
+            .chain(self.sessions.iter().map(|s| s.at))
+            .chain(self.ran.iter().map(|r| r.at));
         Seq(places.map(|at| at.0).max().unwrap_or(0) + 1)
     }
 
@@ -91,6 +101,13 @@ pub struct Spent {
     pub cached_tokens: u64,
     /// The tokens that came back.
     pub output_tokens: u64,
+    /// The context the round ended with, in tokens: what its last call to the model was sent, read from the cache or
+    /// not. None where it is not known, and for an act of the engine's own.
+    #[serde(default)]
+    pub context_tokens: Option<u64>,
+    /// How often the agents' program compacted the session during the round.
+    #[serde(default)]
+    pub compactions: u32,
 }
 
 /// What a round is given.

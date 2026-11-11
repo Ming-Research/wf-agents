@@ -11,7 +11,7 @@ use decide::{
 use flow::{Compiled, Kind};
 
 use crate::event::{Came, Effect, Event, Gate, Refused};
-use work::{Ask, Back, Call, Given, Moment, Time, Work};
+use work::{Ask, Back, Call, Given, Moment, Ran, Session, Time, Work};
 
 /// Takes one thing that happened to the work, at the time the driver's clock gives, and gives what is to be done for
 /// it outside the engine, were nothing outside the work to hold it back ([`Room::FREE`], [`Gate::Open`]). Where the
@@ -57,6 +57,21 @@ pub fn handle_held(
     room: Room,
     gate: Gate,
 ) -> Result<Vec<Effect>, Refused> {
+    handle_then(flow, work, now, event, room, gate, &|_, _| Vec::new())
+}
+
+/// Takes one thing that happened to the work as [`handle_held`] does, and then, before the deciding code is asked what
+/// follows, what `then` says follows from it: what someone who writes from outside the work, reading the work as it
+/// now is, adds in the same moment, so that the walk decides with it.
+pub fn handle_then(
+    flow: &Compiled,
+    work: &mut Work,
+    now: Time,
+    event: Event,
+    room: Room,
+    gate: Gate,
+    then: &dyn Fn(&Compiled, &Work) -> Vec<Event>,
+) -> Result<Vec<Effect>, Refused> {
     let returned = match &event {
         Event::Returned { run, .. } => Some(*run),
         _ => None,
@@ -77,6 +92,9 @@ pub fn handle_held(
         {
             finish(work, run, writes);
         }
+    }
+    for event in then(flow, work) {
+        take(flow, work, event)?;
     }
     let mut effects = Vec::new();
     let at = At { from, now, room, gate };
@@ -304,6 +322,31 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
             let at = work.tick();
             work.records.done.push(Done { call, at });
             work.results.insert(call, result);
+        }
+        Event::Anew { line, why } => {
+            if !flow
+                .cells
+                .iter()
+                .any(|cell| cell.line.as_deref() == Some(line.as_str()))
+            {
+                return Err(Refused::NoSuchLine(line));
+            }
+            let at = work.tick();
+            work.sessions.push(Session { at, line, why });
+        }
+        Event::Ran { run, attempt, on } => {
+            let number = began(work, run);
+            if number == ended(work, run) {
+                return Err(Refused::NoRoundUnderWay(run));
+            }
+            let at = work.tick();
+            work.ran.push(Ran {
+                at,
+                run,
+                round: number,
+                attempt,
+                on,
+            });
         }
         Event::NotReleased { why } => {
             // The engine's pause of the ended work, with why: the owner sees it where the engine's other reasons are,

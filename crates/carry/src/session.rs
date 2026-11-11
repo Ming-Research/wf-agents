@@ -1,7 +1,8 @@
-//! The session of each line of each work. Its id is worked out, never stored: a name-based UUID (version 5, from a
-//! SHA-1 hash) of the line within the work, in the namespace of this installation, whose own id is made at random once
-//! and kept in the data directory. The records and that file are then all that is needed to find a session again, and
-//! two installations never share one.
+//! The sessions of each line of each work. A session's id is worked out, never stored: a name-based UUID (version 5,
+//! from a SHA-1 hash) of the line within the work and of which of the line's sessions it is, in the namespace of this
+//! installation, whose own id is made at random once and kept in the data directory. Which of its sessions a round of
+//! a line runs in is counted from the work's records (`work::sessions`). The records and that file are then all that
+//! is needed to find a session again, and two installations never share one.
 
 use std::path::Path;
 
@@ -25,12 +26,11 @@ pub fn installation(data: &Path) -> Result<Uuid, String> {
     }
 }
 
-/// The id of the session of the line in the work: its first, or, where its line's session was begun anew this many
-/// times, as after a round the service's safety check flagged, the session begun last.
-pub fn session(installation: Uuid, work: WorkNumber, line: &str, anew: usize) -> Uuid {
-    let name = match anew {
+/// The id of the session of this number of the line in the work, the line's first being none.
+pub fn session(installation: Uuid, work: WorkNumber, line: &str, number: u32) -> Uuid {
+    let name = match number {
         0 => format!("work/{}/line/{line}", work.0),
-        n => format!("work/{}/line/{line}/anew/{n}", work.0),
+        n => format!("work/{}/line/{line}/session/{n}", work.0),
     };
     Uuid::new_v5(&installation, name.as_bytes())
 }

@@ -15,8 +15,14 @@
 //! KILL after three seconds, and the round ends with nothing handed in; what it spent is not known, and is recorded
 //! as nothing.
 //!
-//! The program is given an environment of its own, not the engine's (`cli::environment`). What a round is told depends
-//! on whether it begins its line's session, and is built again where the program is tried the other way.
+//! The program is given an environment of its own, not the engine's (`cli::environment`). Which of its line's sessions
+//! a round runs in, and whether it begins it, is counted from the work's records (`cli::in_session`); what it is told
+//! depends on whether it begins the session, or goes on in one that never saw its run's earlier rounds, which is told
+//! the same, and is built again where the program is tried the other way. A session
+//! the program no longer has is begun again under its id, and that is said to the loop at once, so that it is
+//! recorded with why. Where the program compacts the session during the round, a hook it is given marks the
+//! compaction, which the round counts among what it took, and gives the session the round's whole message again, as a
+//! session that begins is told it.
 //!
 //! Before the first round of each run of a cell that takes main in, the work's branch takes in main's head as the host
 //! last gave it ([`catch_up`](crate::catch_up)), and what came of it is kept beside the run's rounds before the round
@@ -25,28 +31,31 @@
 //!
 //! Each round runs on the model of its item's level, or of a level above it where its cell's line says so, and at the
 //! effort its cell sets (`Settings::ran_on`); a round whose item's level the settings no longer allow fails, saying so.
+//! What each try runs on is said to the loop as it begins, and recorded in the work's records.
 //!
-//! What each round was told, what it ran on and what the program printed are kept for reading, in
-//! `rounds/<work>/<run>-<round>` in the data directory: `.message.md`, `.ran.json` and `.result.json` for its first try,
-//! `.message.2.md`, `.ran.2.json` and `.result.2.json` for the next, and so on. While the program runs, its process
-//! group is written in `.pgid` there; a group left named there by a process of the engine that ended is stopped before
-//! the round is run again, or before the round's stop ends it, so that a session has one program at a time and a
-//! stopped round's program does not run on.
+//! What each round was told and what the program printed are kept for reading, in `rounds/<work>/<run>-<round>` in
+//! the data directory: `.message.md` and `.result.json` for its first try, `.message.2.md` and `.result.2.json` for
+//! the next, and so on; `.compacted` holds a byte for each compaction of the session during the round, and
+//! `.again.md`, while the program runs, what the hook gives again. While the program runs, its process group is
+//! written in `.pgid` there; a group left named there by a process of the engine that ended is stopped before the
+//! round is run again, or before the round's stop ends it, so that a session has one program at a time and a stopped
+//! round's program does not run on.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use decide::RunId;
 use decide::run::Failure;
+use driver::Policy;
 use engine::Came;
-use service::{Clock, RanOn, Round, RoundReply, Rounds, SystemClock, Told};
+use service::{Clock, Round, RoundReply, Rounds, SystemClock, Teller, Told};
 use store::WorkNumber;
 use tokio::process::Command;
 use uuid::Uuid;
-use work::Spent;
+use work::{RanOn, Spent, Why};
 
 use crate::catch_up::{self, CaughtUp};
-use crate::cli::{self, Begin};
+use crate::cli::{self, Begin, Compacted, InSession};
 use crate::held::{Failing, Held, Stop};
 use crate::permissions::Permissions;
 use crate::process::{self, Ran};
@@ -87,6 +96,10 @@ enum Carried {
     Stopped,
 }
 
+/// What a session that was compacted during a round is told, before the round's whole message is given again.
+const COMPACTED: &str = "Your session was compacted during this round. What the round was told, again, whole, as to a \
+                         session that begins; carry on with the round's work.";
+
 impl Agents {
     /// The agents of these settings, with this data directory, which is an absolute path, the installation's id, and
     /// the reference of the project's repository that holds main's head as the host last gave it.
@@ -122,12 +135,13 @@ impl Rounds for Agents {
     fn give(&self, round: Round, reply: RoundReply) {
         acts::prune(&self.inner.held, &round);
         let key = (round.work, round.run, round.number);
+        let teller = reply.teller();
         let Some(mut stop) = self.inner.held.hold(key, reply) else {
             return;
         };
         let inner = self.inner.clone();
         tokio::spawn(async move {
-            let carried = inner.carry(&round, &mut stop).await;
+            let carried = inner.carry(&round, &teller, &mut stop).await;
             match carried {
                 Ok(Carried::Came(came, spent)) => {
                     let Some(reply) = inner.held.take(key) else {
@@ -187,12 +201,16 @@ impl Rounds for Agents {
     fn told(&self, work: WorkNumber, run: RunId, round: usize) -> Result<Told, String> {
         kept::told(&self.inner.data, work, run, round)
     }
+
+    fn policy(&self) -> Option<Policy> {
+        Some(self.inner.settings.policy())
+    }
 }
 
 impl Inner {
     /// Runs the round's program, and gives what came back and what it took; or that the round failed, why, of what
     /// kind and what it took; or, where it could not be run for a cause before its program, only why.
-    async fn carry(&self, round: &Round, stop: &mut Stop) -> Result<Carried, String> {
+    async fn carry(&self, round: &Round, teller: &Teller, stop: &mut Stop) -> Result<Carried, String> {
         let (flow, work) = (&*round.flow, &*round.kept);
         let place = git::place(&self.data, &git::tag(&self.installation), round.work);
         let base = self.kept(round);
@@ -216,22 +234,46 @@ impl Inner {
         }
         let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
         let permissions = Permissions::of(round.cell.reads_only, args, added);
-        let session = session::session(self.installation, round.work, line, cli::anew(flow, work, line));
-        let mut begin = cli::begin(flow, work, line);
-        let before = cli::spent_before(flow, work, line);
+        let InSession {
+            number,
+            mut begin,
+            before,
+            moved,
+        } = cli::in_session(flow, work, line, round.run, round.number);
+        let session = session::session(self.installation, round.work, line, number);
+        // A compaction within the round is marked, and the round's whole message, as a session that begins is told
+        // it, is given again.
+        let compacted = Compacted {
+            marks: base.with_extension("compacted"),
+            again: base.with_extension("again.md"),
+        };
         let mut tried = false;
+        // The session the program lost is begun again under its id, and that is recorded once for the round.
+        let at = work::sessions::began_at(work, round.run, round.number);
+        let recorded =
+            (work::sessions::of_line(work, line)).any(|s| s.why == Why::Lost && at.is_some_and(|a| a < s.at));
         let (status, stdout, stderr) = loop {
-            let begins = begin == Begin::New;
+            // A round whose run ran in another session before is told what a session that begins is told: the
+            // session it goes on in never saw the run.
             let opening = message::Opening {
-                begins,
+                begins: begin == Begin::New || moved,
                 main: main.as_ref(),
             };
             let told = message::message(flow, work, &round.cell, round.run, round.number, &round.given, &opening);
-            let (told_at, result_at, on_at) = attempt(&base).await;
-            // What the try runs on is kept before its message, which is what makes the try be one that was kept.
-            write(&on_at, &kept::ran_file(&on)).await?;
+            let whole = message::Opening {
+                begins: true,
+                ..opening
+            };
+            let again = message::message(flow, work, &round.cell, round.run, round.number, &round.given, &whole);
+            write(&compacted.again, format!("{COMPACTED}\n\n{again}").as_bytes()).await?;
+            // The round takes what its last try took, so it counts that try's compactions alone: an earlier try's, or
+            // a try's before the engine stopped, are not its.
+            let _ = tokio::fs::remove_file(&compacted.marks).await;
+            let (n, told_at, result_at) = attempt(&base).await;
+            // What the try runs on is said before its message is written, which makes the try one that was kept.
+            teller.ran_on(n, on.clone());
             write(&told_at, told.as_bytes()).await?;
-            let command = self.command(&dir, &on, &permissions, session, begin);
+            let command = self.command(&dir, &on, &permissions, &compacted, session, begin);
             // A program that cannot be started printed no result: its words say whether it is missing, which holds
             // every work, and any other cause pauses the work.
             let ran = match process::run(command, Some(told.into_bytes()), Some(&group), stop).await {
@@ -249,13 +291,30 @@ impl Inner {
             // A session begun before its first round was cut off, or one the program no longer has, is tried the
             // other way, once.
             if !status.success() && stdout.is_empty() && !tried && begin.refused(&stderr) {
+                if begin == Begin::Resume && !recorded {
+                    teller.session_began(line.to_string(), Why::Lost);
+                }
                 begin = begin.other();
                 tried = true;
                 continue;
             }
             break (status, stdout, stderr);
         };
-        let read = cli::read(&stdout, begin, before);
+        let _ = tokio::fs::remove_file(&compacted.again).await;
+        let compactions = match tokio::fs::metadata(&compacted.marks).await {
+            Ok(marks) => u32::try_from(marks.len()).unwrap_or(u32::MAX),
+            Err(_) => 0,
+        };
+        let read = cli::read(&stdout, begin, before).map(|mut read| {
+            read.spent.compactions = compactions;
+            read
+        });
+        let read = read.map_err(|mut no| {
+            if let Some(spent) = &mut no.spent {
+                spent.compactions = compactions;
+            }
+            no
+        });
         // A failure whose result was read took what the result says; one with none, what is not known. Its kind is
         // told by what the program reported and what it took.
         let failed = |why: String, spent: Option<Spent>| {
@@ -286,20 +345,30 @@ impl Inner {
 
     /// The program's command line for a round on what it runs on, of a line with these permissions, in the session,
     /// begun or gone on in, in the worktree. The system prompt says what the line may do.
-    fn command(&self, dir: &Path, on: &RanOn, permissions: &Permissions, session: Uuid, begin: Begin) -> Command {
+    fn command(
+        &self,
+        dir: &Path,
+        on: &RanOn,
+        permissions: &Permissions,
+        compacted: &Compacted,
+        session: Uuid,
+        begin: Begin,
+    ) -> Command {
         let agents = &self.settings.agents;
         let protocol = self.protocol.replace("{your_line}", &permissions.told());
         let mut command = Command::new(&agents.command);
+        let args = cli::arguments(
+            agents,
+            on,
+            &protocol,
+            returns::SCHEMA,
+            permissions,
+            compacted,
+            session,
+            begin,
+        );
         command
-            .args(cli::arguments(
-                agents,
-                on,
-                &protocol,
-                returns::SCHEMA,
-                permissions,
-                session,
-                begin,
-            ))
+            .args(args)
             .env_clear()
             .envs(cli::environment(agents, std::env::vars()))
             .current_dir(dir);
@@ -366,15 +435,15 @@ fn resets(failure: Failure, why: &str, clock: &dyn Clock) -> Option<work::Time> 
     failure::resets_at(why, now.0, &failure::zone_offset).map(work::Time)
 }
 
-/// Where the next try of the round keeps what it is told, what it returns and what it runs on: the first that has kept
-/// nothing yet.
-async fn attempt(base: &Path) -> (PathBuf, PathBuf, PathBuf) {
+/// The number of the next try of the round, and where it keeps what it is told and what it returns: the first that
+/// has kept nothing yet.
+async fn attempt(base: &Path) -> (usize, PathBuf, PathBuf) {
     let mut n = 1;
     while tokio::fs::try_exists(&kept::at(base, n).0).await.unwrap_or(false) {
         n += 1;
     }
     let (told, result) = kept::at(base, n);
-    (told, result, kept::ran_at(base, n))
+    (n, told, result)
 }
 
 /// Writes the file, making its directory where there is none.

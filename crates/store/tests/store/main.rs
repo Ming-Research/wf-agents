@@ -257,6 +257,9 @@ impl Driver {
             input_tokens: 11 * n,
             cached_tokens: 13 * n,
             output_tokens: 17 * n,
+            // Some rounds tell the context they ended with and how often they were compacted, and some do not.
+            context_tokens: n.is_multiple_of(2).then_some(19 * n),
+            compactions: u32::try_from(n % 3).unwrap_or_default(),
         }
     }
 
@@ -362,7 +365,27 @@ fn history(d: &mut Driver) {
     }
     d.answer();
     d.end(Came::Asks(vec![tool("a"), question(Who::Owner)]));
+    // Two lines begin a new session.
+    d.on(Event::Anew {
+        line: "main".to_string(),
+        why: engine::Why::Limit { context: 9, limit: 5 },
+    });
+    d.on(Event::Anew {
+        line: "other".to_string(),
+        why: engine::Why::Owner,
+    });
     d.answer();
+    // The round given the results is tried twice, once at each effort, the second time with an account of its own.
+    let (run, _) = d.under_way();
+    for (effort, account) in [(None, None), (Some("high"), Some("an account"))] {
+        let on = engine::RanOn {
+            level: "2".to_string(),
+            model: "a model".to_string(),
+            effort: effort.map(str::to_string),
+            account: account.map(str::to_string),
+        };
+        d.on(Event::Ran { run, attempt: 1, on });
+    }
     // Two more calls would pass the limit of calls: the owner is called, lets the run go on, and they are made.
     d.end(Came::Asks(vec![tool("b"), tool("c")]));
     d.answer();

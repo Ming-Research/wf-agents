@@ -14,6 +14,7 @@ mod going;
 mod left;
 mod levels;
 mod permissions;
+mod sessions;
 mod stopping;
 
 use std::collections::BTreeSet;
@@ -54,6 +55,14 @@ pub struct Fake {
     pub question_first: bool,
     /// How many seconds the plan's first call sleeps before it answers.
     pub plan_sleeps: u32,
+    /// The context every call ends with, in tokens, as the prompt of its one call to the model; none where the result
+    /// says no call.
+    pub context: Option<u64>,
+    /// Whether every call compacts its session once: it runs the hook the command line was given for a compaction,
+    /// keeping what the hook printed in `<n>.again`.
+    pub compacts: bool,
+    /// Whether the plan, run again, hands in what it wrote before, saying it changes nothing of what it means.
+    pub plan_again_unchanged: bool,
 }
 
 impl Default for Fake {
@@ -66,6 +75,9 @@ impl Default for Fake {
             lose_session: false,
             question_first: false,
             plan_sleeps: 0,
+            context: None,
+            compacts: false,
+            plan_again_unchanged: false,
         }
     }
 }
@@ -79,6 +91,8 @@ pub enum On {
     Acts,
     /// The deliver flow, whose one cell delivers the item once the items it is made of have merged.
     Deliver,
+    /// The trial flow with a plan that loads the engineer's session (`loading` here).
+    Loading,
 }
 
 /// What the fake was given in one call.
@@ -131,11 +145,12 @@ fn compiled(on: On) -> Compiled {
         On::Trial => Path::new(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial/flow"),
         On::Acts => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow"),
         On::Deliver => Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/deliver"),
+        On::Loading => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/loading"),
     };
     let source = flow::read(&dir).expect("the flow is read");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = Has {
-        sources: names(&[driver::DEPENDENCIES]),
+        sources: names(&[driver::DEPENDENCIES, driver::SESSION]),
         acts: names(&["start", "check", "merge", "deliver"]),
     };
     flow::compile(&source, &has).expect("the flow compiles")
@@ -155,6 +170,10 @@ echo $$ > "$log/$n.pid"
 printf '%s\n' "$@" > "$log/$n.args"
 cat > "$log/$n.stdin"
 pwd > "$log/$n.pwd"
+if [ '{compacts}' = yes ]; then
+    hook=$(grep -A1 -x -- --settings "$log/$n.args" | tail -n 1 | sed 's/.*"command":"\([^"]*\)".*/\1/')
+    sh -c "$hook" > "$log/$n.again"
+fi
 if [ '{error}' = yes ] && [ "$n" = 1 ]; then
     printf '%s\n' '{{"type":"result","subtype":"error_max_structured_output_retries","is_error":true,"result":"Out of structured output retries.","total_cost_usd":0.8,"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":300}}}}'
     exit 1
@@ -176,7 +195,12 @@ case "$first" in
             touch "$log/slept"
             sleep '{sleeps}'
         fi
-        out='{{"block":"plan","content":"Greet by name.","matters":true}}' ;;
+        matters=true
+        if [ '{unchanged}' = yes ] && [ -f "$log/planned" ]; then
+            matters=false
+        fi
+        touch "$log/planned"
+        out="{{\"block\":\"plan\",\"content\":\"Greet by name.\",\"matters\":$matters}}" ;;
     *'cell `build`'*)
         round=${{first##*, round }}
         if [ "$round" = 1 ] && [ '{question}' = yes ]; then
@@ -194,7 +218,7 @@ case "$first" in
         fi ;;
     *'cell `review`'*) out='{{"block":"verdict","content":"Fine.","value":"yes","matters":true}}' ;;
 esac
-printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":{cost},"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20}},"structured_output":{{"hands_in":[%s],"asks":%s}}}}\n' "$out" "$asks"
+printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":{cost},"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20{iterations}}},"structured_output":{{"hands_in":[%s],"asks":%s}}}}\n' "$out" "$asks"
 "#,
         calls = calls.display(),
         fail = yes(fake.fail_first),
@@ -204,6 +228,11 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         question = yes(fake.question_first),
         sleeps = fake.plan_sleeps,
         cost = fake.cost,
+        compacts = yes(fake.compacts),
+        unchanged = yes(fake.plan_again_unchanged),
+        iterations = fake.context.map_or_else(String::new, |context| {
+            format!(r#","iterations":[{{"input_tokens":{context},"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}]"#)
+        }),
     );
     let path = dir.join("fake-claude");
     std::fs::write(&path, script).expect("the fake is written");
@@ -284,6 +313,7 @@ impl Real {
                 highest_level: None,
             },
             github: None,
+            sessions: Default::default(),
         };
         let flow = compiled(on);
         let (service, inbox) = open(&settings, &data, &flow, false);
@@ -419,6 +449,11 @@ impl Real {
     }
 
     /// Everything kept of the work.
+    /// Where the fake keeps what it was given.
+    pub fn calls_dir(&self) -> &Path {
+        &self.calls
+    }
+
     pub fn work(&self, work: WorkNumber) -> Work {
         self.service.driver().work(work).expect("the work").work.clone()
     }

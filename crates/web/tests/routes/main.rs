@@ -13,6 +13,7 @@ mod failing;
 mod items;
 mod other_sites;
 mod page;
+mod sessions;
 mod stopped;
 mod stream;
 mod told;

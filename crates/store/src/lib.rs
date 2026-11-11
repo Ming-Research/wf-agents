@@ -15,8 +15,8 @@
 //! after checking that what the store holds is where the work begins. A work changed where it may only be added to is a
 //! fault of the engine, and is refused rather than written over what was kept (principle `nothing-passes-for-normal`).
 //! The schema is [`SCHEMA`], kept in SQLite. A database made with an earlier version of it is brought to this one as it
-//! is opened, by the migrations of `migrations/`, each in its turn and all of them in one transaction with the opening,
-//! so that a database is either opened at this version or left as it was.
+//! is opened, by the migrations of `db/migrations/`, each in its turn and all of them in one transaction with the
+//! opening, so that a database is either opened at this version or left as it was.
 //!
 //! The store also keeps what is the installation's and no work's: the owner's pause of everything, set and lifted.
 //!
@@ -35,20 +35,21 @@ use work::{Time, Work};
 pub use items::{Item, ItemNumber, WorkHead, WorkNumber};
 
 /// The schema of the store, as SQL.
-pub const SCHEMA: &str = include_str!("../schema.sql");
+pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 6;
 
 /// The migrations, in order: the first brings a database of version 1 of the schema to version 2, and each after it
 /// one version further, replacing the version's one row last. Each file is named by the minute it was written and
 /// what it does.
 const MIGRATIONS: &[&str] = &[
-    include_str!("../migrations/202611101530-say-who-paused-a-work-and-why.sql"),
-    include_str!("../migrations/202611102304-give-items-a-level.sql"),
-    include_str!("../migrations/202611111400-say-when-a-work-let-go-of-what-it-held.sql"),
-    include_str!("../migrations/202611111401-keep-the-owners-pause-of-everything.sql"),
+    include_str!("../../../db/migrations/202611101530-say-who-paused-a-work-and-why.sql"),
+    include_str!("../../../db/migrations/202611102304-give-items-a-level.sql"),
+    include_str!("../../../db/migrations/202611111400-say-when-a-work-let-go-of-what-it-held.sql"),
+    include_str!("../../../db/migrations/202611111401-keep-the-owners-pause-of-everything.sql"),
+    include_str!("../../../db/migrations/202611111600-record-the-sessions-of-lines-and-the-context-of-rounds.sql"),
 ];
 
 // The migrations bring a database of every earlier version to this one.

@@ -144,7 +144,7 @@ export function WorkScreen({ page, failed = null, onActed }: {
           <span className="muted small" title={tokensWords(summary.spent)}>
             {spentWords(summary.spent)}
           </span>
-          <ActButtons summary={summary} send={send} />
+          <ActButtons summary={summary} lines={page.flow.lines.map((l) => l.name)} send={send} />
         </span>
       </div>
       {failed !== null && (

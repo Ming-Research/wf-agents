@@ -438,7 +438,7 @@ pub fn open_on_slots(
 ) -> (Opened, Arc<Mutex<Calls>>) {
     let (store, calls) = Failing::new(db.open());
     calls.lock().expect("the calls are noted").plan = plan;
-    (Driver::open(Box::new(store), flows, slots, now), calls)
+    (Driver::open(Box::new(store), flows, slots, None, now), calls)
 }
 
 /// The slots of the driver in the tests that do not count them: more than any of them has works.
@@ -1367,6 +1367,7 @@ pub fn spent(n: u64) -> Spent {
         input_tokens: 11 * n,
         cached_tokens: 13 * n,
         output_tokens: 17 * n,
+        ..Default::default()
     }
 }
 

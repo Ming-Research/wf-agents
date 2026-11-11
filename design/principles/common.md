@@ -27,7 +27,7 @@ To understand something or change a design, an agent reads both the code and the
 Why: Code gives no reasons and does not say which paths were rejected; a decision is a summary that holds neither all the code does nor the data it rests on. Treating the tree as orders bends solutions to fit it.
 
 ### principle mechanical-engine
-The engine only carries out the compiled flow, a flow of cells joined through blocks: it runs each cell as the flow's definition says, and its code names no particular cell and no particular block. Judgment belongs to agents and the owner, and what a program can do or know exactly is done by a tool or the engine, as a step the flow shows, never asked of an agent.
+The engine only carries out the compiled flow: it runs each cell as the flow's definition says, and its code names no particular cell and no particular block. Judgment belongs to agents and the owner, and what a program can do or know exactly is done by a tool or the engine, as a step the flow shows, never asked of an agent.
 Why: A judgment needs someone who can give reasons and be reviewed, and every engine step must be predictable from the flow. An agent doing exact work sometimes gets it wrong, and each mistake costs a round: agents misreading test results caused extra runs. (Article 7)
 
 ### principle stateless-cells
