@@ -251,11 +251,6 @@
   margin-bottom: var(--space-12);
 }
 
-/* What the work waits for from the owner, in red, as a card stopped for the owner is. */
-.cw-wait-owner {
-  color: var(--red-text);
-}
-
 /* The body ends a group of sections with a hairline, as the page's panel does (`.panel-part-last`), the messages under it.
    A passage changed since the owner read the item is marked in the margin at its left, as a card new to the owner is. */
 /* The item's text. No line closes it: the head of the messages under it has its own. */
@@ -309,6 +304,13 @@
 .cw-choice-q {
   margin: 0 0 var(--space-8);
   font-weight: var(--weight-strong);
+}
+
+/* Under a question a cell asked, that it stops the work: one line in red, as a card stopped for the owner is. */
+.cw-choice-stops {
+  margin: calc(-1 * var(--space-4)) 0 var(--space-8);
+  color: var(--red-text);
+  font-size: var(--size-small);
 }
 
 .cw-option {

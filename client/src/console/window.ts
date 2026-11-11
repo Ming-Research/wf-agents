@@ -1,21 +1,23 @@
 // What the window beside the console shows of an item beyond what the interface gives: its body (where it came from,
-// the problem it solves and the plan for it, with the choices that wait for the owner where they stand in it, and what
-// the work decided by itself), and the messages under it, the owner's and the replies. Pure, so that the window draws made-up items as it will draw real ones.
+// the problem it solves and the plan for it, with the choices that wait for the owner where they stand in it, and the
+// questions a cell asked while working at its end), and the messages under it, the owner's and the replies. Pure, so
+// that the window draws made-up items as it will draw real ones.
 //
 // Brought over from the console of the engine on `main` (`client/src/console/window.ts`), as it was.
 
 /// Who writes a message, or is named in one to receive it.
 export type Who = 'owner' | 'engineer' | 'architect' | 'assistant';
 
-/// The cells of the engineer's flow a message can go to, or come from: the research, the deep research, the
-/// implementation.
-export type MessageCell = 'R1' | 'D1' | 'I1';
+/// A cell of the engineer's flow a message can go to, or come from, by its id: the research (`R1`), the deep research
+/// (`D1`), the implementation (`I1`), or a cell that asked the owner a question while working.
+export type MessageCell = string;
 
 /// A passage of the body, written in markdown. Changed when it changed since the owner last marked the item read.
 export type Passage = { kind: 'text'; text: string; changed?: boolean };
 
 /// A part of the body: a passage, or a choice that waits for the owner where it stands in the text, which the owner
-/// may already have confirmed while others still wait.
+/// may already have confirmed while others still wait. A choice a cell asked while working (`asks`) stops the work at
+/// that call until the owner's answer is sent to it.
 export type Part =
   | Passage
   | {
@@ -26,6 +28,7 @@ export type Part =
       chosen: number | null;
       confirmed?: boolean;
       changed?: boolean;
+      asks?: { call: number; cell: string };
     };
 
 export type Choice = Extract<Part, { kind: 'choice' }>;

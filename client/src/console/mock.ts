@@ -13,12 +13,14 @@
 //   already confirmed, and its Confirm (kept in this page only), and the messages written before (who wrote them, to whom,
 //   what they quote, and the replies). Item 262 has a whole made-up content of its own; the others take one of the
 //   bodies below by what their work does, or a short one.
+// - In the plan, a question a cell asked while working: its options and the one recommended (`askedMock`). The engine
+//   gives only the question's sentence; the label of the option the owner confirms is sent to it as the answer.
 // Real, from the engine: everything else, such as the item's standing, when it was added and what it waits for; the
 // work's state, cells, rounds, cost, start, time bar and returns sent back; what it waits at; and the messages the owner
 // sends, which are written into a block of the work.
 
 import type { Item } from '../works-api';
-import { type Body, type Message, type Part, quoteOf } from './window';
+import { type Body, type Choice, type Message, type Part, quoteOf } from './window';
 
 const HOUR = 3600000;
 
@@ -520,6 +522,20 @@ export function itemMock(item: Item): ItemMock {
 
 /// Whether an item is a goal: one that has no work of its own going on and items under it.
 export const goalMock = (workDrawn: boolean, children: number): boolean => !workDrawn && children > 0;
+
+/// A question a cell asked while working, as a choice at the plan's end: the engine's sentence, with made-up options
+/// that fit a question answered yes or no.
+export const askedMock = (question: string, call: number, cell: string): Choice => ({
+  kind: 'choice',
+  question,
+  options: [
+    { label: 'Yes', detail: 'Go on as the question proposes.' },
+    { label: 'No', detail: 'Go on the other way the question names.' },
+  ],
+  recommended: 0,
+  chosen: null,
+  asks: { call, cell },
+});
 
 /// The work's tier.
 export const workTierMock = (): string => '2 (Sonnet)';
