@@ -457,13 +457,12 @@ impl<'a> Walk<'a> {
     /// something, since its meaning last changed: the latest confirmation having the test's value, written after the
     /// meaning each has now.
     fn confirmed(&self, test: &Test, by: &BlockId) -> bool {
-        // Not yet worked out: any confirmation counts, however old, for the tests of this kind to fail first.
         let since = (self.current(by))
             .filter(|v| v.value == Some(test.is.as_str()))
             .map(|v| v.at);
         (test.reads.iter())
             .filter_map(|block| self.current(block).filter(|v| !v.blank))
-            .all(|_| since.is_some())
+            .all(|v| since.is_some_and(|at| at > v.meaning))
     }
 
     /// Whether the version stands, for the cell at this place: unless a run of a cell that is skipped now wrote it.
