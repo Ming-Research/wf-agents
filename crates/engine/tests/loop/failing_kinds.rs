@@ -45,7 +45,7 @@ fn a_round_that_failed_in_passing_waits_from_its_end_and_is_then_given_again() {
     );
     // The work waits for the engine's call, which is pending until its time has come.
     assert!(matches!(w.decision(), decide::Decision::Wait { .. }));
-    assert_eq!(pending(&w.work), effects);
+    assert_eq!(pending(&w.flow, &w.work), effects);
     assert_eq!(w.done(call), vec![round_effect(write, "write", 2, Given::Task)]);
     // The second in a row waits twice as long.
     let failed_at = w.clock;

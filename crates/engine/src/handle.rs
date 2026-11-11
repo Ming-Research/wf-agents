@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 
 use decide::run::{self, Failure, Pausing, Requires, Step, Unmet};
 use decide::{
-    Abandoned, BlockId, CallId, Called, CellId, Decision, Done, Finished, LetGo, Outsider, Pause, Pauser, Returned,
-    Round, RunId, Seq, Started, Who, Write, Written, decide, hold, stale,
+    Abandoned, BlockId, CallId, Called, CellId, Decision, Done, End, Finished, LetGo, Outsider, Pause, Pauser,
+    Returned, Round, RunId, Seq, Started, Who, Write, Written, decide, hold, stale,
 };
 use flow::{Compiled, Kind};
 
@@ -35,6 +35,7 @@ pub fn handle_with(
         _ => None,
     };
     let from = work.tick();
+    let releasing = release(flow, work).is_some();
     take(flow, work, event)?;
     // What a round handed in is taken as the round ends: where it meets everything the flow requires and the run is
     // not stale, the run finishes here, before the walk, so that no cell before it comes between.
@@ -52,6 +53,10 @@ pub fn handle_with(
     let mut effects = Vec::new();
     let at = At { from, now, gate };
     advance(flow, work, at, &mut effects);
+    // The work's end lets go of what it holds outside once, as the last of it comes to rest.
+    if !releasing && let Some(end) = release(flow, work) {
+        effects.push(Effect::Release { end });
+    }
     // Everything added for this thing that happened was added now.
     if work.tick() > from {
         work.moments.push(Moment { from, at: now });
@@ -61,8 +66,9 @@ pub fn handle_with(
 
 /// What was to be done for the work and is not yet known as done. Of a run that goes on: its round under way, and
 /// its calls that have no result. Of a run that was abandoned: the stopping of its round under way, and the
-/// withdrawing of its calls that have no result. A driver that starts anew asks for these again.
-pub fn pending(work: &Work) -> Vec<Effect> {
+/// withdrawing of its calls that have no result. Of a work that has ended with nothing under way: letting go of what
+/// it holds outside, until it is said to be let go. A driver that starts anew asks for these again.
+pub fn pending(flow: &Compiled, work: &Work) -> Vec<Effect> {
     let mut effects = Vec::new();
     for started in &work.records.started {
         let run = started.run;
@@ -93,7 +99,36 @@ pub fn pending(work: &Work) -> Vec<Effect> {
             effects.extend(open_calls(work, run).into_iter().map(|call| Effect::Withdraw { call }));
         }
     }
+    effects.extend(release(flow, work).map(|end| Effect::Release { end }));
     effects
+}
+
+/// How the work ended, where it has and what it holds outside is to be let go: nothing of it is under way, no round
+/// and no call, since a round or a tool may be working in its worktree; it is not let go already; and no failure to
+/// let go waits for the owner, as the engine's pause of the work after its end that the owner has not let on from.
+fn release(flow: &Compiled, work: &Work) -> Option<End> {
+    let r = &work.records;
+    if r.released.is_some() {
+        return None;
+    }
+    let Decision::Ended(end) = decide(&flow.flow, r) else {
+        return None;
+    };
+    // Where the work ended: its cancel, or its merge's finish, the last of all.
+    let end_at = match end {
+        End::Cancelled => r.cancelled,
+        End::Merged => r.finished.last().map(|f| f.at),
+    };
+    let failed =
+        (r.pauses.iter()).rposition(|p| p.paused && p.by == Pauser::Engine && end_at.is_some_and(|e| p.at > e));
+    if let Some(failed) = failed
+        && !r.pauses[failed + 1..].iter().any(|p| !p.paused)
+    {
+        return None;
+    }
+    let quiet = (r.started.iter()).all(|s| began(work, s.run) == ended(work, s.run))
+        && r.called.iter().all(|c| done(work, c.call).is_some());
+    quiet.then_some(end)
 }
 
 /// Adds what happened to the records, or refuses what cannot have happened to this work.
@@ -241,6 +276,30 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
             let at = work.tick();
             work.records.done.push(Done { call, at });
             work.results.insert(call, result);
+        }
+        Event::NotReleased { why } => {
+            // The engine's pause of the ended work, with why: the owner sees it where the engine's other reasons are,
+            // and letting the work on tries again.
+            if release(flow, work).is_none() {
+                return Err(Refused::NotToRelease);
+            }
+            let at = work.tick();
+            work.records.pauses.push(Pause {
+                paused: true,
+                at,
+                by: Pauser::Engine,
+                why: Some(why),
+            });
+        }
+        Event::Released => {
+            // Said twice, as by a carrier that let go again after the engine started again, it was let go once.
+            if work.records.released.is_some() {
+                return Ok(());
+            }
+            if release(flow, work).is_none() {
+                return Err(Refused::NotToRelease);
+            }
+            work.records.released = Some(work.tick());
         }
     }
     Ok(())

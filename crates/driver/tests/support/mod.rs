@@ -704,12 +704,11 @@ impl H {
                 "opened again, the driver gives what was answered: {todo:?}"
             );
             match todo.effect {
-                Effect::Round { .. } | Effect::Call { .. } => self.ever.insert(key(todo)),
+                Effect::Round { .. } | Effect::Call { .. } | Effect::Release { .. } => self.ever.insert(key(todo)),
                 Effect::Stop { .. } | Effect::Withdraw { .. } => self.undone.insert(key(todo)),
             };
-            let kept = self.reader.load(todo.work).expect("the work loads");
             assert!(
-                engine::pending(&kept).contains(&todo.effect),
+                self.kept_as_pending(todo),
                 "given as the driver opened before the store holds that it is to be done: {todo:?}"
             );
         }
@@ -718,6 +717,18 @@ impl H {
             self.check();
         }
         todos
+    }
+
+    /// Whether the store holds that the todo is to be done: it is pending of the work as the store keeps it.
+    fn kept_as_pending(&self, todo: &Todo) -> bool {
+        let kept = self.reader.load(todo.work).expect("the work loads");
+        let head = (self.reader.works().expect("the works are read").into_iter())
+            .find(|head| head.number == todo.work)
+            .expect("the work is kept");
+        let flow = (self.flows.iter())
+            .find(|f| f.name == head.flow)
+            .expect("the work's flow");
+        engine::pending(flow, &kept).contains(&todo.effect)
     }
 
     /// What the event answers is answered: the round it ends, or the call it gives the result of.
@@ -732,6 +743,7 @@ impl H {
                     (Event::Done { call, .. }, Effect::Call { call: c, .. } | Effect::Withdraw { call: c }) => {
                         c == call
                     }
+                    (Event::Released, Effect::Release { .. }) => true,
                     _ => false,
                 }
         };
@@ -745,7 +757,7 @@ impl H {
     fn given(&mut self, todos: &[Todo]) {
         for todo in todos {
             match &todo.effect {
-                Effect::Round { .. } | Effect::Call { .. } => {
+                Effect::Round { .. } | Effect::Call { .. } | Effect::Release { .. } => {
                     assert!(self.ever.insert(key(todo)), "given twice: {todo:?}");
                 }
                 Effect::Stop { run } => {
@@ -765,9 +777,8 @@ impl H {
                         .remove(at.expect("a call withdrawn was given and not yet answered"));
                 }
             }
-            let kept = self.reader.load(todo.work).expect("the work loads");
             assert!(
-                engine::pending(&kept).contains(&todo.effect),
+                self.kept_as_pending(todo),
                 "given before the store holds that it is to be done: {todo:?}"
             );
             self.outstanding.push(todo.clone());
@@ -1022,16 +1033,30 @@ impl H {
     /// Takes the work through to its merge, each round handing in what the flow asks; gives what the call in which
     /// the merge finished gave.
     pub fn through(&mut self, work: WorkNumber) -> Vec<Todo> {
+        // The work lets go of what it held as it merges, which is answered here: it says nothing of the merge.
         for _ in 0..20 {
             let (_, cell, ..) = self.round(work);
             let kept = self.d().work(work).expect("the work is there");
             let came = proper(kept.flow, &cell);
             let todos = self.returns(work, came);
             if self.decision(work) == Decision::Ended(End::Merged) {
-                return todos;
+                return self.released(todos);
             }
         }
         panic!("the work did not merge");
+    }
+}
+
+impl H {
+    /// The todos, each release among them answered: the work let go of what it held. Gives the rest, with what the
+    /// answers gave.
+    pub fn released(&mut self, todos: Vec<Todo>) -> Vec<Todo> {
+        let (releases, mut rest): (Vec<Todo>, Vec<Todo>) =
+            (todos.into_iter()).partition(|t| matches!(t.effect, Effect::Release { .. }));
+        for release in releases {
+            rest.extend(self.on(release.work, Event::Released));
+        }
+        rest
     }
 }
 

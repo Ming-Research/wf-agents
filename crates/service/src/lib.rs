@@ -11,7 +11,8 @@
 //! What carries a todo out is reached through interfaces (principle `outside-behind-interfaces`): [`Rounds`] for the
 //! rounds of the cells an agent carries out and for those that are the engine's own acts, and [`Tools`] for the calls
 //! a tool answers. A call for a person, and a run at a limit, are carried out by nobody: they wait for the owner's
-//! answer, which comes as an act. A withdrawn call of a person is answered by the loop itself.
+//! answer, which comes as an act. A withdrawn call of a person is answered by the loop itself. What a work that ended
+//! holds outside the engine is let go by the carrier of the engine's acts, which made it ([`Rounds::release`]).
 //!
 //! A carrier that cannot carry a round out says the round failed, with the kind of its cause where it tells one apart,
 //! and one that finds as a round ends that its work is to wait for the owner, as when it has spent more than it may,
@@ -52,8 +53,8 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use work::{Ask, Call, Time};
 
 pub use carriers::{
-    Back, CallReply, Carriers, Network, RanKept, RanOn, Returned, Round, RoundReply, Rounds, Told, ToolCall, Tools,
-    Try, WITHDRAWN,
+    Back, CallReply, Carriers, Network, RanKept, RanOn, Release, ReleaseReply, Returned, Round, RoundReply, Rounds,
+    Told, ToolCall, Tools, Try, WITHDRAWN,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use levels::{Level, Levels, LevelsFault};
@@ -559,6 +560,19 @@ impl Service {
                 }
                 None => return Err(stray(Missing::Call(*call))),
             },
+            // The engine's acts make the work's branch and worktree, and its pull request where the host has them.
+            Effect::Release { end } => {
+                let release = Release {
+                    work,
+                    end: *end,
+                    flow,
+                    item: kept.item.clone(),
+                    kept: Arc::new(kept.work.clone()),
+                };
+                self.carriers
+                    .acts
+                    .release(release, ReleaseReply::new(work, self.to.clone()));
+            }
         }
         Ok(None)
     }

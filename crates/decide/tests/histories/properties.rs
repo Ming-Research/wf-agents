@@ -153,6 +153,7 @@ pub fn last_place(r: &Records) -> Seq {
         .chain(r.let_go.iter().map(|e| e.at))
         .chain(r.pauses.iter().map(|e| e.at))
         .chain(r.cancelled)
+        .chain(r.released)
         .max()
         .unwrap_or_default()
 }
@@ -174,6 +175,7 @@ pub fn as_of(r: &Records, upto: Seq) -> Records {
         let_go: kept(&r.let_go, |e| e.at, upto),
         pauses: kept(&r.pauses, |e| e.at, upto),
         cancelled: r.cancelled.filter(|at| *at <= upto),
+        released: r.released.filter(|at| *at <= upto),
     }
 }
 

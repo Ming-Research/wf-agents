@@ -95,6 +95,8 @@ export function faultWords(fault: Fault): string {
       return `The block ${w.block} is not declared in flow.toml.`;
     case 'notAnOutput':
       return `The cell must write ${w.block} every time, but ${w.block} is not among the blocks it may write.`;
+    case 'notAnInput':
+      return `The cell says what the work is by ${w.block}, but ${w.block} is not among the blocks it reads.`;
     case 'noWriter':
       return `Nothing writes ${w.block}: no cell of the order, no person and nothing outside.`;
     case 'noReader':
@@ -231,6 +233,10 @@ export function changeWords(change: Change): ChangeWords {
       return { what: 'Writes every time', before: '', after: c.block };
     case 'mustWriteRemoved':
       return { what: 'Writes every time', before: c.block, after: '' };
+    case 'describesAdded':
+      return { what: 'Says what the work is by', before: '', after: c.block };
+    case 'describesRemoved':
+      return { what: 'Says what the work is by', before: c.block, after: '' };
     case 'cellLimit':
       return { what: `Limit of ${LIMIT_WORDS[c.limit]}`, before: `${c.before}`, after: `${c.after}` };
     case 'effort':

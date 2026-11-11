@@ -161,9 +161,8 @@ impl Api for Gh {
     }
 
     async fn open(&self, branch: &str, base: &str, title: &str, body: &str) -> Result<Pull, String> {
-        let path = format!("repos/{}/pulls", self.repository);
-        let asked = json!({ "title": title, "body": body, "head": branch, "base": base });
-        pull(&self.json("POST", &path, Some(asked), &[201]).await?)
+        let (method, path, asked) = opening(&self.repository, branch, base, title, body);
+        pull(&self.json(method, &path, Some(asked), &[201]).await?)
     }
 
     async fn checks(&self, commit: &str) -> Result<Vec<Check>, String> {
@@ -214,6 +213,76 @@ impl Api for Gh {
         // A branch that is not there is answered 422, "Reference does not exist".
         self.want("DELETE", &path, None, &[204, 404, 422]).await.map(|_| ())
     }
+
+    async fn edit(&self, number: u64, title: &str, body: &str) -> Result<(), String> {
+        let (method, path, asked) = editing(&self.repository, number, title, body);
+        self.want(method, &path, Some(asked), &[200]).await.map(|_| ())
+    }
+
+    async fn ready(&self, node: &str) -> Result<(), String> {
+        let (method, path, asked) = readying(node);
+        let answer = self.json(method, &path, Some(asked), &[200]).await?;
+        // GraphQL says what it refused with a status of 200.
+        match answer["errors"].as_array() {
+            Some(errors) if !errors.is_empty() => {
+                let words: Vec<&str> = errors.iter().filter_map(|e| e["message"].as_str()).collect();
+                Err(format!(
+                    "GitHub did not make the pull request ready: {}",
+                    words.join("; ")
+                ))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    async fn close(&self, number: u64, comment: &str) -> Result<(), String> {
+        let [(method, path, said), (closing, at, closed)] = closing(&self.repository, number, comment);
+        self.want(method, &path, Some(said), &[201]).await?;
+        self.want(closing, &at, Some(closed), &[200]).await.map(|_| ())
+    }
+}
+
+/// A request of GitHub's API: its method, its path and its body.
+type Request = (&'static str, String, Value);
+
+/// The request that opens a pull request of the branch into the base, as a draft.
+pub(crate) fn opening(repository: &str, branch: &str, base: &str, title: &str, body: &str) -> Request {
+    let path = format!("repos/{repository}/pulls");
+    let asked = json!({ "title": title, "body": body, "head": branch, "base": base, "draft": true });
+    ("POST", path, asked)
+}
+
+/// The request that gives the pull request this title and body.
+pub(crate) fn editing(repository: &str, number: u64, title: &str, body: &str) -> Request {
+    let path = format!("repos/{repository}/pulls/{number}");
+    ("PATCH", path, json!({ "title": title, "body": body }))
+}
+
+/// The request that makes the draft pull request of this id ready: the REST API cannot, GitHub's GraphQL API can.
+pub(crate) fn readying(node: &str) -> Request {
+    let query = "mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { \
+                 isDraft } } }";
+    (
+        "POST",
+        "graphql".to_string(),
+        json!({ "query": query, "variables": { "id": node } }),
+    )
+}
+
+/// The requests that say the comment on the pull request and then close it.
+pub(crate) fn closing(repository: &str, number: u64, comment: &str) -> [Request; 2] {
+    [
+        (
+            "POST",
+            format!("repos/{repository}/issues/{number}/comments"),
+            json!({ "body": comment }),
+        ),
+        (
+            "PATCH",
+            format!("repos/{repository}/pulls/{number}"),
+            json!({ "state": "closed" }),
+        ),
+    ]
 }
 
 /// The environment `gh` is given: of the engine's, what git is given of it; then the token, a directory of its own
@@ -288,6 +357,11 @@ fn pull(value: &Value) -> Result<Pull, String> {
         } else {
             None
         },
+        title: text(&value["title"], "title")?,
+        // A pull request that says nothing has a body of null.
+        body: value["body"].as_str().unwrap_or_default().to_string(),
+        draft: value["draft"].as_bool().unwrap_or(false),
+        node: text(&value["node_id"], "id")?,
     })
 }
 
@@ -307,7 +381,26 @@ pub(crate) fn checks(runs: &[Value], statuses: &[Value]) -> Vec<Check> {
             latest.insert(name, run);
         }
     }
-    let mut checks: Vec<Check> = latest.into_iter().map(|(name, run)| check_run(name, run)).collect();
+    let mut checks: Vec<Check> = (latest.into_iter())
+        .map(|(name, kept)| {
+            let mut check = check_run(name, kept);
+            // The earlier runs of the same check, said as they are, oldest first.
+            let mut earlier: Vec<&Value> = (runs.iter())
+                .filter(|run| run["name"].as_str() == Some(name) && run["id"].as_u64() != kept["id"].as_u64())
+                .collect();
+            earlier.sort_by_key(|run| run["id"].as_u64());
+            check.earlier = (earlier.into_iter())
+                .map(|run| {
+                    let how = (run["conclusion"].as_str())
+                        .or_else(|| run["status"].as_str())
+                        .unwrap_or("unknown");
+                    let at = (run["html_url"].as_str()).or_else(|| run["details_url"].as_str());
+                    at.map_or(how.to_string(), |at| format!("{how} {at}"))
+                })
+                .collect();
+            check
+        })
+        .collect();
     checks.extend(statuses.iter().filter_map(status));
     checks
 }
@@ -342,6 +435,7 @@ fn check_run(name: &str, run: &Value) -> Check {
             .map(str::to_string),
         summary: (!said.is_empty()).then(|| said.join("\n")),
         job: if actions { run["id"].as_u64() } else { None },
+        earlier: Vec::new(),
     }
 }
 
@@ -398,6 +492,7 @@ fn status(status: &Value) -> Option<Check> {
             .filter(|s| !s.trim().is_empty())
             .map(str::to_string),
         job: None,
+        earlier: Vec::new(),
     })
 }
 

@@ -1,7 +1,7 @@
 //! What happens to a work, and what is to be done for it.
 
 use decide::run::{Failure, Unmet};
-use decide::{BlockId, CallId, CellId, Outsider, Pauser, RunId};
+use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId};
 
 use work::{Ask, Call, Given, Handed, Spent, Time};
 
@@ -44,6 +44,11 @@ pub enum Event {
     },
     /// The call has its result.
     Done { call: CallId, result: String },
+    /// What the work held outside the engine was let go, as [`Effect::Release`] asked.
+    Released,
+    /// What the work held outside the engine could not be let go, for this reason, as whatever carried out
+    /// [`Effect::Release`] says.
+    NotReleased { why: String },
 }
 
 /// What came back at the end of a round.
@@ -74,6 +79,10 @@ pub enum Effect {
     /// The round of this run that is under way is stopped: the run was abandoned with its work cancelled. It is to
     /// be done until the round is said to have ended; what comes back from it is dropped.
     Stop { run: RunId },
+    /// The work has ended so, and nothing of it is under way: what it holds outside the engine is let go (its
+    /// worktree, and its pull request where it did not merge; its branch stays). It is to be done until the work is
+    /// said to have released it.
+    Release { end: End },
 }
 
 /// Which rounds may begin, of this work as of every other: a round that failed for a cause every work shares, such as
@@ -107,4 +116,6 @@ pub enum Refused {
     NoSuchCall(CallId),
     /// The call has its result already.
     AlreadyDone(CallId),
+    /// The work has not ended, or something of it is still under way: it has nothing to let go yet.
+    NotToRelease,
 }

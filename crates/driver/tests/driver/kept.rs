@@ -90,7 +90,8 @@ fn after_every_call_the_store_holds_what_the_driver_shows() {
     );
     let spent = h.spent();
     let came = hands_in(&[("text", None)]);
-    h.on(wa, Event::Returned { run, came, spent });
+    let todos = h.on(wa, Event::Returned { run, came, spent });
+    h.released(todos);
     // The other work, let on, waits for the cancelled one, which never merges.
     assert_eq!(h.let_on(wb), vec![]);
     assert_eq!(h.decision(wb), waits_for_dependencies("write"));

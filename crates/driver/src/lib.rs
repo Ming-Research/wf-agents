@@ -589,7 +589,7 @@ impl Driver {
     /// What was to be done for the works and is not yet known as done, in the order of the works.
     pub fn pending(&self) -> Vec<Todo> {
         self.shown()
-            .flat_map(|held| (engine::pending(&held.work).into_iter()).map(|effect| held.todo(effect)))
+            .flat_map(|held| (engine::pending(&held.flow, &held.work).into_iter()).map(|effect| held.todo(effect)))
             .collect()
     }
 

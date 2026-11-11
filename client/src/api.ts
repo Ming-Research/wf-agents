@@ -109,6 +109,8 @@ export type What =
   | { kind: 'noSuchBlock'; block: string }
   /// The cell must write the block each time, and it is not among its outputs.
   | { kind: 'notAnOutput'; block: string }
+  /// The cell says what the work is by the block, and it is not among its inputs.
+  | { kind: 'notAnInput'; block: string }
   | { kind: 'noWriter'; block: string }
   | { kind: 'noReader'; block: string }
   | { kind: 'unknownSource'; block: string; source: string }
@@ -168,6 +170,8 @@ export type Change =
   | { kind: 'outputRemoved'; cell: string; block: string }
   | { kind: 'mustWriteAdded'; cell: string; block: string }
   | { kind: 'mustWriteRemoved'; cell: string; block: string }
+  | { kind: 'describesAdded'; cell: string; block: string }
+  | { kind: 'describesRemoved'; cell: string; block: string }
   | { kind: 'cellLimit'; cell: string; limit: LimitName; before: number; after: number }
   | { kind: 'effort'; cell: string; before: string | null; after: string | null }
   | { kind: 'levelsAbove'; cell: string; before: number; after: number }

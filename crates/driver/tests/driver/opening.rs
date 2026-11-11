@@ -142,10 +142,12 @@ fn a_store_holding_works_gives_exactly_what_was_to_be_done_and_is_not_known_as_d
                 Effect::Call { .. } => "call",
                 Effect::Stop { .. } => "stop",
                 Effect::Withdraw { .. } => "withdraw",
+                Effect::Release { .. } => "release",
             };
             (t.work, kind)
         })
         .collect();
+    // The merged work's release is answered as it merges.
     let mut expected = vec![(a, "round"), (b, "call"), (c, "stop"), (d, "round"), (d, "withdraw")];
     expected.sort();
     let mut got = kinds.clone();

@@ -21,7 +21,7 @@ fn a_new_file_is_made_with_the_schema_its_version_and_a_write_ahead_log() {
     assert_eq!(store.works(), Ok(vec![]));
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, schema_tables());
-    assert_eq!(tables.len(), 25);
+    assert_eq!(tables.len(), 26);
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
     assert_eq!(version, SCHEMA_VERSION);
@@ -201,6 +201,40 @@ fn a_file_made_with_the_first_version_of_the_schema_is_migrated_and_its_pauses_r
     let before = dump(&old.path);
     old.open();
     assert_eq!(dump(&old.path), before, "opening the migrated file again changed it");
+}
+
+/// The migrations, in order, each bringing a file one version further, as the store's own list holds them.
+const MIGRATIONS: [&str; 3] = [
+    include_str!("../../migrations/202611101530-say-who-paused-a-work-and-why.sql"),
+    include_str!("../../migrations/202611102304-give-items-a-level.sql"),
+    include_str!("../../migrations/202611111400-say-when-a-work-let-go-of-what-it-held.sql"),
+];
+
+#[test]
+fn a_file_of_every_earlier_version_is_brought_to_this_one_as_it_is_opened() {
+    assert_eq!(
+        MIGRATIONS.len() as u32 + 1,
+        SCHEMA_VERSION,
+        "a migration is missing here"
+    );
+    let new = Db::new();
+    new.open();
+    for version in 1..SCHEMA_VERSION {
+        let old = Db::new();
+        {
+            let file = Connection::open(&old.path).expect("the database opens");
+            file.execute_batch(SCHEMA_1).expect("the first schema is made");
+            file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
+                .expect("its version is written");
+            for migration in &MIGRATIONS[..version as usize - 1] {
+                file.execute_batch(migration).expect("the migration runs");
+            }
+            assert_eq!(versions(&old.path), [version]);
+        }
+        old.open();
+        assert_eq!(versions(&old.path), [SCHEMA_VERSION], "from version {version}");
+        assert_eq!(columns(&old.path), columns(&new.path), "from version {version}");
+    }
 }
 
 /// The migration that brought version 1 of the schema to version 2.

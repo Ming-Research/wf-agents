@@ -42,7 +42,7 @@ fn a_round_that_fails_ends_and_pauses_its_work_with_the_reason_in_one_moment() {
     let pause = decide::pause(r).expect("the work is paused");
     assert_eq!((pause.by, pause.why.as_deref()), (Pauser::Engine, Some(WHY)));
     // The round that failed is not under way, and nothing is to be done while the work is paused.
-    assert_eq!(pending(&w.work), vec![]);
+    assert_eq!(pending(&w.flow, &w.work), vec![]);
 }
 
 #[test]
@@ -94,12 +94,13 @@ fn a_run_whose_round_failed_is_abandoned_when_the_owner_writes_an_input_and_once
 fn a_round_that_fails_after_its_work_was_cancelled_ends_and_pauses_nothing() {
     let (mut w, write, _) = W::requested();
     assert_eq!(w.on(Event::Cancelled), vec![Effect::Stop { run: write }]);
-    assert_eq!(w.on(failed(write)), vec![]);
+    let release = vec![Effect::Release { end: End::Cancelled }];
+    assert_eq!(w.on(failed(write)), release);
     assert!(!decide::paused(&w.work.records));
     // What came of it is dropped, as what comes back from a stopped round is; what it took is kept.
     assert_eq!(w.work.back.get(&(write, 1)), None);
     assert_eq!(w.work.spent.get(&(write, 1)), Some(&spent(1)));
-    assert_eq!(pending(&w.work), vec![]);
+    assert_eq!(pending(&w.flow, &w.work), release);
     assert_eq!(w.decision(), Decision::Ended(End::Cancelled));
 }
 
@@ -113,7 +114,7 @@ fn a_driver_that_starts_anew_while_the_work_is_paused_is_given_nothing_of_the_fa
         clock: w.clock,
     };
     // Started anew, the driver takes what is pending and looks at the work: nothing is to be done.
-    assert_eq!(pending(&again.work), vec![]);
+    assert_eq!(pending(&again.flow, &again.work), vec![]);
     assert_eq!(again.on(Event::Look), vec![]);
     assert_eq!(again.work.records, w.work.records);
     // Let on, it is given what the driver that did not stop is given.
