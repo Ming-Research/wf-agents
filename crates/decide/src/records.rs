@@ -79,6 +79,7 @@ impl Records {
             pauses: kept(&self.pauses, |e| e.at, place),
             cancelled: self.cancelled.filter(|at| *at < place),
             released: self.released.filter(|at| *at < place),
+            blank: (self.blank.iter()).filter(|(_, at)| *at < place).cloned().collect(),
         }
     }
 }
