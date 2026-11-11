@@ -12,6 +12,8 @@ decide = { path = "../decide" }
 driver = { path = "../driver" }
 engine = { path = "../engine" }
 flow = { path = "../flow" }
+# The JUnit XML a fast CI reports its tests' results in.
+roxmltree = "0.21.1"
 serde.workspace = true
 serde_json.workspace = true
 service = { path = "../service" }

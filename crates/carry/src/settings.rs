@@ -102,6 +102,63 @@ pub struct GitHub {
     /// The `gh` command line, or a path to it.
     #[serde(default = "gh")]
     pub gh: String,
+    /// The project's fast CI, which runs only the tests and checks an agent names; with none, an agent's check is the
+    /// whole CI of its commit.
+    pub fast: Option<Fast>,
+}
+
+/// A project's fast CI: a workflow GitHub runs by hand, always by its file on the main branch, which checks out the
+/// commit it is given, runs only the tests and the checks it is given and reports what became of each test. The engine
+/// reads its results by the conventions its reading of them holds to (JUnit XML, a unit not built as a testsuite with
+/// no testcase and an error, and at least every test a name names run).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Fast {
+    /// The workflow, by its file's name, such as `fast.yml`.
+    pub workflow: String,
+    /// The input that takes the commit to check out and test.
+    #[serde(default = "commit_input")]
+    pub commit_input: String,
+    /// The input that takes a value only one request knows, which the run's name must hold: by it the engine finds the
+    /// run it asked for among the others.
+    #[serde(default = "call_input")]
+    pub call_input: String,
+    /// The input that takes the tests to run: each name followed by a line break, the last too.
+    #[serde(default = "tests_input")]
+    pub tests_input: String,
+    /// The input that takes the checks to run beside the tests, as a JSON array of the names of their jobs, given only
+    /// when one is named.
+    #[serde(default = "checks_input")]
+    pub checks_input: String,
+    /// The checks, each the name of a job of the workflow, that it runs when named, such as the lint.
+    #[serde(default)]
+    pub named_checks: Vec<String>,
+    /// The artifact a run uploads with its JUnit files.
+    #[serde(default = "results")]
+    pub results: String,
+    /// What the project's test runners put between the parts of a test's name, such as `::` and ` > `.
+    #[serde(default)]
+    pub separators: Vec<String>,
+}
+
+fn commit_input() -> String {
+    "commit".to_string()
+}
+
+fn call_input() -> String {
+    "call".to_string()
+}
+
+fn tests_input() -> String {
+    "tests".to_string()
+}
+
+fn checks_input() -> String {
+    "checks".to_string()
+}
+
+fn results() -> String {
+    "test-results".to_string()
 }
 
 fn origin() -> String {
@@ -367,6 +424,22 @@ impl GitHub {
                 self.merge_method
             ));
         }
+        if let Some(fast) = &self.fast {
+            let blank = [
+                &fast.workflow,
+                &fast.commit_input,
+                &fast.call_input,
+                &fast.tests_input,
+                &fast.checks_input,
+                &fast.results,
+            ];
+            if blank.iter().any(|v| v.trim().is_empty()) || fast.named_checks.iter().any(|c| c.trim().is_empty()) {
+                wrong.push(
+                    "github.fast: the workflow, its inputs, its results and each check it runs by name are named"
+                        .to_string(),
+                );
+            }
+        }
         if self.token_env.is_empty() {
             wrong.push("github.token_env: the token's variable has a name".to_string());
         }
@@ -541,6 +614,30 @@ mod tests {
                 .expect_err("refused")
                 .contains("sessions.context_limit")
         );
+    }
+
+    #[test]
+    fn a_fast_ci_is_read_with_its_defaults_and_its_names_must_be_given() {
+        let github =
+            "\n[github]\nrepository = \"owner/name\"\nchecks = [\"check\"]\n[github.fast]\nworkflow = \"fast.yml\"\n";
+        let settings = Settings::read(&format!("{SAMPLE}{github}")).expect("it reads");
+        let fast = settings.github.and_then(|g| g.fast).expect("a fast CI");
+        assert_eq!(
+            fast,
+            Fast {
+                workflow: "fast.yml".to_string(),
+                commit_input: "commit".to_string(),
+                call_input: "call".to_string(),
+                tests_input: "tests".to_string(),
+                checks_input: "checks".to_string(),
+                named_checks: Vec::new(),
+                results: "test-results".to_string(),
+                separators: Vec::new(),
+            }
+        );
+        let blank = format!("{SAMPLE}{}", github.replace("\"fast.yml\"", "\" \""));
+        let refused = Settings::read(&blank).expect_err("refused");
+        assert!(refused.contains("github.fast"), "{refused}");
     }
 
     #[test]

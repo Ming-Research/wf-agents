@@ -4,6 +4,7 @@
 //! passes; main red stops merges; and a work that ended without merging has its pull request closed.
 
 use super::*;
+use crate::host::Named;
 
 /// A check of a GitHub Actions job, at its own link.
 fn job(name: &str, id: u64, outcome: Outcome) -> Check {
@@ -190,7 +191,10 @@ async fn every_run_of_a_check_on_the_commit_is_said_as_it_is() {
                 runs on it: failure https://github.example/actions/runs/1/job/7.";
     assert_eq!(verdict.notes, [said]);
     let place = hub.place();
-    let told = (hub.host.check(&branch(&place), &mut Stop::never()).await)
+    let told = (hub
+        .host
+        .check(&branch(&place), &Named::default(), &mut Stop::never())
+        .await)
         .unwrap()
         .unwrap();
     assert!(told.contains(said), "{told}");
@@ -206,7 +210,10 @@ async fn an_agents_check_holds_a_check_red_on_main_as_well_as_the_check_before_t
     hub.github()
         .checks(&main, vec![vec![job("lint", 2, red()), passed("test")]]);
     let place = hub.place();
-    let told = (hub.host.check(&branch(&place), &mut Stop::never()).await)
+    let told = (hub
+        .host
+        .check(&branch(&place), &Named::default(), &mut Stop::never())
+        .await)
         .unwrap()
         .unwrap();
     assert!(told.contains("did not pass"), "{told}");
