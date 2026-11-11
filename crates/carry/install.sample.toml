@@ -86,7 +86,10 @@ highest_level = "3"
 # merges the work's pull request. Without this table, the
 # local repository is the host. The engine needs `git` and `gh`, and its own token for GitHub in its environment: a
 # fine-grained token for the one repository, with Contents and Pull requests read and write, Checks and Commit
-# statuses read, and Actions read, or read and write with [github.fast], whose workflow it runs by hand.
+# statuses read, and Actions read, or read and write with [github.fast], whose workflow it runs by hand. The engine
+# itself never pushes a change to the project's workflow files; a work's commit that changes them is pushed only with
+# Workflows read and write (the `workflow` scope of a classic token), and without it GitHub refuses that push, which
+# the agent is told.
 # [github]
 # # The repository on github.com, as owner/name.
 # repository = "owner/name"
