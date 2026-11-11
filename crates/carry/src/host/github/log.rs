@@ -19,7 +19,7 @@ const ERROR_LINES: usize = 30;
 
 /// The words a line of cargo or nextest begins with, right-aligned to twelve columns, that only show progress: a crate
 /// fetched or built, a test started, passed, skipped or slow.
-const PROGRESS: [&str; 22] = [
+const PROGRESS: [&str; 21] = [
     "Adding",
     "Archiving",
     "Blocking",
@@ -37,7 +37,6 @@ const PROGRESS: [&str; 22] = [
     "PASS",
     "Removed",
     "SKIP",
-    "SLOW",
     "START",
     "Unpacking",
     "Updating",
@@ -45,7 +44,7 @@ const PROGRESS: [&str; 22] = [
 ];
 
 /// What of a red job's log tells why it is red, in at most `budget` bytes: the steps that failed, those with an
-/// `##[error]` line, each from its command, up to the last error, without the step's set-up (the shell and the
+/// `##[error]` line, each from its command, up to the last error, the tests still running in them kept, without the step's set-up (the shell and the
 /// environment it ran with), the lines that only show progress and repeated blank lines; with no step that failed,
 /// every step but the runner's set-up and clean-up. Up to [`WHOLE`] lines it is given whole; a longer one is given as
 /// the failures (each test that did not pass with its output), the summary and each error with the lines under it,
@@ -91,6 +90,12 @@ fn progress(line: &str) -> bool {
 fn failure(line: &str) -> bool {
     status(line).is_some_and(|w| !PROGRESS.contains(&w) && w.chars().all(|c| c.is_ascii_uppercase() || c == '-'))
         && line[12..].trim_start().starts_with('[')
+}
+
+/// Whether a line says that a test was still running at that time: libtest's `has been running for over`, and
+/// nextest's `SLOW` line; of a job cancelled at its time limit, they say which test held it.
+fn still_running(line: &str) -> bool {
+    line.contains(" has been running for over ") || status(line) == Some("SLOW")
 }
 
 /// Whether a line begins an error: rustc's, cargo's, clippy's and nextest's errors and warnings, a diff of rustfmt,
@@ -179,7 +184,7 @@ fn picked(lines: &[String]) -> Vec<String> {
             break;
         }
         let l = &lines[i];
-        if l.starts_with("Run ") {
+        if l.starts_with("Run ") || still_running(l) {
             keep[i] = true;
         }
         if failure(l) {
