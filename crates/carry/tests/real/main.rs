@@ -1,11 +1,13 @@
 //! The loop with the real carriers, in a git repository made for each test, with a fake of the `claude` command line:
 //! a shell script that keeps what it was given and prints a result that hands in the outputs of the cell its message
-//! names. The flows are the trial flow (`crates/service/tests/trial/flow`), whose agents ask and judge, and `flow` here,
-//! which has every act of the engine's.
+//! names. The flows are the trial flow (`crates/service/tests/trial/flow`), whose agents ask and judge, `flow` here,
+//! which has the acts of an engineer's work, and the deliver flow as the repository defines it (`flow/deliver`), whose
+//! one cell is the act that delivers a deliverable item.
 //!
 //! The tests are kept in modules by subject, so that a new test goes into the module of what it tests.
 
 mod budget;
+mod delivering;
 mod failing;
 mod going;
 mod left;
@@ -25,7 +27,7 @@ use driver::{FirstWrite, NewItem};
 use engine::Event;
 use flow::{Compiled, Has};
 use service::{Act, Inbox, Message, Round, RoundReply, Rounds, Service, SystemClock};
-use store::{Store, WorkNumber};
+use store::{ItemNumber, Store, WorkNumber};
 use tokio::sync::oneshot;
 use work::Work;
 
@@ -68,6 +70,8 @@ pub enum On {
     Trial,
     /// The flow here, with a start, a check and a merge.
     Acts,
+    /// The deliver flow, whose one cell delivers the item once the items it is made of have merged.
+    Deliver,
 }
 
 /// What the fake was given in one call.
@@ -117,12 +121,13 @@ fn compiled(on: On) -> Compiled {
     let dir = match on {
         On::Trial => Path::new(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial/flow"),
         On::Acts => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow"),
+        On::Deliver => Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/deliver"),
     };
     let source = flow::read(&dir).expect("the flow is read");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = Has {
         sources: names(&[driver::DEPENDENCIES]),
-        acts: names(&["start", "check", "merge"]),
+        acts: names(&["start", "check", "merge", "deliver"]),
     };
     flow::compile(&source, &has).expect("the flow compiles")
 }
@@ -304,15 +309,22 @@ impl Real {
 
     /// Adds an item with a request, and makes its work's place where the flow has no cell that does.
     pub async fn add(&mut self) -> WorkNumber {
+        self.add_made_of(&[]).await
+    }
+
+    /// Adds an item that depends on these items, with a request where its flow has one, and makes its work's place
+    /// where the flow has agents to run in it and no cell that makes it.
+    pub async fn add_made_of(&mut self, depends_on: &[ItemNumber]) -> WorkNumber {
+        let request = (self.flow.blocks.contains_key(&"request".into())).then(|| FirstWrite {
+            block: "request".into(),
+            content: "Greet the user, please.".to_string(),
+            value: None,
+        });
         let item = NewItem {
             title: "Greet the user".to_string(),
-            depends_on: Vec::new(),
+            depends_on: depends_on.to_vec(),
             flow: self.flow.name.clone(),
-            writes: vec![FirstWrite {
-                block: "request".into(),
-                content: "Greet the user, please.".to_string(),
-                value: None,
-            }],
+            writes: request.into_iter().collect(),
         };
         let (reply, mut answer) = oneshot::channel();
         self.service
@@ -320,7 +332,8 @@ impl Real {
             .expect("the loop takes it");
         let (_, work) = answer.try_recv().expect("answered").expect("the item is added");
         let starts = (self.flow.cells.iter()).any(|cell| cell.act.as_deref() == Some("start"));
-        if !starts {
+        let agents = (self.flow.cells.iter()).any(|cell| cell.kind == flow::Kind::Agent);
+        if !starts && agents {
             let project = self.settings.project.clone();
             git::start(&project, &self.place(work))
                 .await

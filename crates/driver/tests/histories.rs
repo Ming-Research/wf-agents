@@ -27,7 +27,9 @@
 //!
 //! A person's act is, about: a write of a block people may write; a pause or a letting on; a cancel; letting a cell go
 //! on, at its limit where a work waits at one; the result of a question or of a limit; adding an item, depending on
-//! some of those there; or something the driver must refuse, which must change nothing.
+//! some of those there; or something the driver must refuse, which must change nothing. An item is added on one of the
+//! small flows of the tests or on the deliver flow as the repository defines it, whose items are made of the items they
+//! depend on and wait for them at their one cell, so that items depending on a deliverable wait for it in turn.
 //!
 //! The process stops before a step with a chance of one in sixteen; with one in twenty-five the store is set to fail
 //! at one of its next three calls, and with one in fifty the process to stop right after one of them.
@@ -138,10 +140,18 @@ struct Ending {
     answered: BTreeSet<String>,
 }
 
+/// The flows the histories add items on: those of the tests, and the deliver flow as the repository defines it, whose
+/// items are made of the items they depend on.
+fn every_flow() -> Vec<flow::Compiled> {
+    let mut flows = flows();
+    flows.push(deliver());
+    flows
+}
+
 impl History {
     fn new(seed: u64, faults: bool) -> Self {
         Self {
-            h: H::new(),
+            h: H::with(every_flow()),
             rng: Rng::new(seed),
             faults: faults.then(|| Rng::new(seed ^ 0x5DEE_CE66_D1CE_F00D)),
             step: 0,
@@ -208,8 +218,9 @@ impl History {
     fn add(&mut self, title: &str) {
         let numbers: Vec<ItemNumber> = self.h.d().works().map(|k| k.head.item).collect();
         let depends_on: Vec<ItemNumber> = numbers.into_iter().filter(|_| self.rng.chance(35)).collect();
-        let flow = ["judged", "short", "plain"][self.rng.below(3)];
-        let writes: Vec<FirstWrite> = if self.rng.chance(50) {
+        let flow = ["judged", "short", "plain", "deliver"][self.rng.below(4)];
+        let has_request = (self.h.d().flows()).any(|f| f.name == flow && f.blocks.contains_key(&block("request")));
+        let writes: Vec<FirstWrite> = if self.rng.chance(50) && has_request {
             vec![first_write("request", None)]
         } else {
             Vec::new()

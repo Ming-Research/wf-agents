@@ -196,6 +196,18 @@ pub fn flows() -> Vec<Compiled> {
     vec![judged(), short(), plain()]
 }
 
+/// The flow of a deliverable item as the repository defines it (`flow/deliver`), compiled against what the engine has
+/// for it: the driver's source and the act `deliver`.
+pub fn deliver() -> Compiled {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/deliver");
+    let source = flow::read(&dir).expect("the deliver flow is read");
+    let has = Has {
+        sources: [DEPENDENCIES.to_string()].into(),
+        acts: ["deliver".to_string()].into(),
+    };
+    compile(&source, &has).expect("the deliver flow compiles")
+}
+
 /// A database file in a directory of its own, which goes with it.
 pub struct Db {
     _dir: TempDir,
@@ -378,9 +390,15 @@ pub fn open_on(db: &Db, now: Time) -> (Opened, Arc<Mutex<Calls>>) {
 
 /// Opens a driver on the file, through the store of the tests failing as the plan says from its first call.
 pub fn open_with_plan(db: &Db, plan: Plan, now: Time) -> (Opened, Arc<Mutex<Calls>>) {
+    open_on_flows(db, plan, flows(), now)
+}
+
+/// Opens a driver on the file with these flows, through the store of the tests failing as the plan says from its first
+/// call.
+pub fn open_on_flows(db: &Db, plan: Plan, flows: Vec<Compiled>, now: Time) -> (Opened, Arc<Mutex<Calls>>) {
     let (store, calls) = Failing::new(db.open());
     calls.lock().expect("the calls are noted").plan = plan;
-    (Driver::open(Box::new(store), flows(), now), calls)
+    (Driver::open(Box::new(store), flows, now), calls)
 }
 
 /// Everything the driver shows of itself, and everything the file holds: what a refusal must leave as it was.
@@ -451,6 +469,8 @@ pub struct H {
     pub checking: bool,
     /// The works a test made faulty behind the driver's back, whose decisions are not checked.
     pub faulty: BTreeSet<WorkNumber>,
+    /// The flows the driver is opened with, each time.
+    pub flows: Vec<Compiled>,
 }
 
 /// What the driver answered to a call that the store of the tests may have stopped.
@@ -464,8 +484,13 @@ pub enum Outcome<T> {
 impl H {
     /// The driver opened on an empty store, with every flow: it has nothing to do.
     pub fn new() -> Self {
+        Self::with(flows())
+    }
+
+    /// The driver opened on an empty store, with these flows: it has nothing to do.
+    pub fn with(flows: Vec<Compiled>) -> Self {
         let db = Db::new();
-        let (opened, calls) = open_on(&db, Time(START));
+        let (opened, calls) = open_on_flows(&db, Plan::Never, flows.clone(), Time(START));
         let (driver, todos) = opened.expect("the driver opens");
         assert_eq!(todos, vec![], "the driver has something to do on an empty store");
         let reader = db.open();
@@ -483,6 +508,7 @@ impl H {
             let_on: BTreeSet::new(),
             checking: true,
             faulty: BTreeSet::new(),
+            flows,
         }
     }
 
@@ -635,7 +661,7 @@ impl H {
         let whole = self.d().fault().is_none() && !self.dead();
         let before = self.d().pending();
         self.driver = None;
-        let (opened, calls) = open_on(&self.db, Time(self.clock));
+        let (opened, calls) = open_on_flows(&self.db, Plan::Never, self.flows.clone(), Time(self.clock));
         let (driver, todos) = opened.expect("the driver opens again");
         self.driver = Some(driver);
         self.calls = calls;
@@ -803,8 +829,9 @@ impl H {
                     );
                 }
                 if let Some(end) = end_at(kept.flow, kept.work) {
+                    let ours = dependencies_block(kept.flow);
                     let late = (kept.work.records.written.iter())
-                        .any(|w| w.by == Outsider::Outside && w.block == block("deps") && w.at > end);
+                        .any(|w| w.by == Outsider::Outside && Some(&w.block) == ours && w.at > end);
                     assert!(
                         !late,
                         "the dependencies block of work {} was written after it ended",
@@ -1021,9 +1048,15 @@ pub fn perform(h: &mut H, now: Time, act: &Act, stops: &mut Stops) -> Option<Vec
     }
 }
 
+/// The flow's dependencies block, which the driver writes, where it has one.
+pub fn dependencies_block(flow: &Compiled) -> Option<&BlockId> {
+    let (block, _) = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(DEPENDENCIES))?;
+    Some(block)
+}
+
 /// The value the flow's dependencies block has now in the work, where the flow has one.
 pub fn dependencies_value(flow: &Compiled, work: &Work) -> Option<String> {
-    let (block, _) = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(DEPENDENCIES))?;
+    let block = dependencies_block(flow)?;
     let versions = decide::versions(&work.records);
     let value = versions.get(block).and_then(|v| v.last()).and_then(|v| v.value.clone());
     Some(value.unwrap_or_default())
@@ -1031,7 +1064,7 @@ pub fn dependencies_value(flow: &Compiled, work: &Work) -> Option<String> {
 
 /// The text of the flow's dependencies block now in the work, where it has one.
 pub fn dependencies_text(flow: &Compiled, work: &Work) -> Option<String> {
-    let (block, _) = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(DEPENDENCIES))?;
+    let block = dependencies_block(flow)?;
     let versions = decide::versions(&work.records);
     let at = versions.get(block)?.last()?.at;
     work.contents.get(&(block.clone(), at)).cloned()
