@@ -3,7 +3,7 @@
 //! condition holds, and each cell's record. The properties are judged by this reading, never by what the deciding code
 //! works out, so that a fault of the walk's reading is not repeated in the judging.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use decide::{BlockId, CellId, Condition, Finished, Flow, Outsider, Records, RunId, Seq, Started, TestKind, TestName};
 
@@ -41,6 +41,8 @@ pub struct Reading<'a> {
     started: BTreeMap<RunId, &'a Started>,
     /// The runs that finished before the place, in the order they finished.
     finished: Vec<&'a Finished>,
+    /// The versions written blank.
+    blank: &'a BTreeSet<(BlockId, Seq)>,
 }
 
 impl<'a> Reading<'a> {
@@ -125,6 +127,7 @@ impl<'a> Reading<'a> {
             versions,
             started,
             finished,
+            blank: &records.blank,
         }
     }
 
@@ -200,6 +203,16 @@ impl<'a> Reading<'a> {
             TestKind::All => has.all(|h| h),
             TestKind::Any => has.any(|h| h),
             TestKind::None | TestKind::NoneStanding => !has.any(|h| h),
+            // Each block read that says something is confirmed by a later write of the confirmation with the value.
+            TestKind::Confirmed => {
+                let by = (test.by.as_ref()).and_then(|b| self.current(b));
+                let since = by
+                    .filter(|v| v.value.as_deref() == Some(test.is.as_str()))
+                    .map(|v| v.at);
+                (test.reads.iter())
+                    .filter_map(|b| self.current(b).filter(|v| !self.blank.contains(&(b.clone(), v.at))))
+                    .all(|v| since.is_some_and(|at| at > v.meaning))
+            }
         }
     }
 

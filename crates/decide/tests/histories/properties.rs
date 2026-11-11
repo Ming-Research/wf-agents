@@ -178,6 +178,7 @@ pub fn as_of(r: &Records, upto: Seq) -> Records {
         pauses: kept(&r.pauses, |e| e.at, upto),
         cancelled: r.cancelled.filter(|at| *at <= upto),
         released: r.released.filter(|at| *at <= upto),
+        blank: r.blank.iter().filter(|(_, at)| *at <= upto).cloned().collect(),
     }
 }
 
@@ -536,13 +537,17 @@ fn made_by(
             .current(b)
             .is_some_and(|x| x.value.as_deref() == Some(named.is.as_str()))
     };
-    let holding: Vec<&BlockId> = (named.reads.iter())
-        .filter(|b| match named.kind {
-            TestKind::All => !has(b),
-            TestKind::Any => true,
-            TestKind::None | TestKind::NoneStanding => has(b),
-        })
-        .collect();
+    let holding: Vec<&BlockId> = match named.kind {
+        // Only people's confirmation can make a test of what was confirmed hold.
+        TestKind::Confirmed => named.by.iter().collect(),
+        _ => (named.reads.iter())
+            .filter(|b| match named.kind {
+                TestKind::All => !has(b),
+                TestKind::Any => true,
+                _ => has(b),
+            })
+            .collect(),
+    };
     let writes = |m: &Maker, b: &BlockId| {
         let outsiders = flow.outsiders(b);
         match m {

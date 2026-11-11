@@ -6,6 +6,9 @@ import type { Block, Change, Condition, Fault, Kind, LimitName, Test } from './a
 /// What a named test holds on, from the blocks it reads: "ci is not red", "any of needs_design, changes_tree is yes",
 /// "none of verdict, deep_verdict is no, not counting what a cell skipped now wrote".
 export function readsWords(test: Test): string {
+  if (test.kind === 'confirmed') {
+    return `${test.by ?? 'nobody'} is ${test.is}, written since ${test.reads.join(', ')} last changed, where it says anything`;
+  }
   const standing = test.kind === 'noneStanding' ? ', not counting what a cell skipped now wrote' : '';
   if (test.reads.length === 1) {
     const not = test.kind === 'none' || test.kind === 'noneStanding' ? 'not ' : '';
@@ -17,6 +20,7 @@ export function readsWords(test: Test): string {
     any: `any of ${list} is`,
     none: `none of ${list} is`,
     noneStanding: `none of ${list} is`,
+    confirmed: '',
   };
   return `${words[test.kind]} ${test.is}${standing}`;
 }
@@ -127,6 +131,8 @@ export function faultWords(fault: Fault): string {
       return `The test ${w.test} reads ${w.block}, which ${w.cell}, a cell after this one, writes.`;
     case 'standingWrittenByTwo':
       return `The test ${w.test}, of what stands, reads ${w.block}, which ${w.cell} writes as well as a cell before it: a skipped cell's write would hide the other's word.`;
+    case 'unconfirmable':
+      return `The test ${w.test} must name, as by, a choice that people alone write and that offers its value, and only a test of what was confirmed names one.`;
     case 'flowRefused': {
       const at = w.cell ? ` (${w.cell})` : '';
       const why = {
@@ -137,6 +143,7 @@ export function faultWords(fault: Fault): string {
         noLimit: "A cell's limit is zero.",
         noSuchTest: "A cell names a test the flow does not have.",
         unwritten: 'A test a cell uses reads a block that nothing writes.',
+        unconfirmable: 'A test of what was confirmed names no confirmation that people alone write.',
       }[w.reason];
       return `${why}${at}`;
     }

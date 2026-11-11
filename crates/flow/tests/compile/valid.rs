@@ -188,6 +188,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
         kind,
         reads: vec![reads.into()],
         is: is.to_string(),
+        by: None,
     };
     let expected: BTreeMap<TestName, Test> = [
         ("has_comment", test(TestKind::Any, "commented", "yes")),

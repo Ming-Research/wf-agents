@@ -212,6 +212,9 @@ pub enum FaultKind {
     /// A test of what stands reads a block that this cell writes as well as another before it. Such a test reads the
     /// current version alone, and a skipped cell's write would hide the other's word.
     StandingWrittenByTwo { test: String, block: String, cell: String },
+    /// A test of what was confirmed names no choice of confirmation (`by`) that people write, no cell writes and that
+    /// offers the value it looks for; or a test of another kind names one.
+    Unconfirmable { test: String },
     /// The deciding code refuses the cells as a flow.
     Flow(FlowFault),
 }
@@ -257,6 +260,7 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
                 kind: test.kind,
                 reads: test.reads.iter().map(|b| BlockId(b.clone())).collect(),
                 is: test.is.clone(),
+                by: test.by.as_ref().map(|b| BlockId(b.clone())),
             };
             (TestName(name.clone()), test)
         })
@@ -456,7 +460,7 @@ impl<'a> Definition<'a> {
             })
             .collect();
         for (test, declared) in flow.tests.iter().filter(|(t, _)| used.contains(t.as_str())) {
-            for block in &declared.reads {
+            for block in declared.reads.iter().chain(&declared.by) {
                 if let Some(u) = uses.get_mut(block.as_str())
                     && !u.tests.contains(&test.as_str())
                 {
@@ -541,8 +545,30 @@ impl<'a> Definition<'a> {
                 let what = FaultKind::ReadsEmpty { test: test.clone() };
                 faults.push(fault(FLOW_FILE, field.clone(), what));
             }
-            for (field, what) in check_list(&declared.reads, &field, |block| self.check_read(block, &declared.is)) {
+            let confirmed = declared.kind == TestKind::Confirmed;
+            // What a test of what was confirmed reads is any declared block; its confirmation is the choice.
+            let read = |block: &str| match self.flow.blocks.get(block) {
+                None => Some(FaultKind::NoSuchBlock {
+                    block: block.to_string(),
+                }),
+                Some(_) if confirmed => None,
+                Some(_) => self.check_read(block, &declared.is),
+            };
+            for (field, what) in check_list(&declared.reads, &field, read) {
                 faults.push(fault(FLOW_FILE, field, what));
+            }
+            let confirmable = match (&declared.by, confirmed) {
+                (Some(by), true) => {
+                    let writers = self.uses.get(by.as_str()).map_or(0, |u| u.writers.len());
+                    let people = self.flow.blocks.get(by.as_str()).is_some_and(|b| b.people);
+                    people && writers == 0 && self.check_read(by, &declared.is).is_none()
+                }
+                (None, true) | (Some(_), false) => false,
+                (None, false) => true,
+            };
+            if !confirmable {
+                let what = FaultKind::Unconfirmable { test: test.clone() };
+                faults.push(fault(FLOW_FILE, format!("tests.{test}.by"), what));
             }
             if declared.kind == TestKind::NoneStanding {
                 for (i, block) in declared.reads.iter().enumerate() {

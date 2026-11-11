@@ -251,6 +251,20 @@ impl<'a> Reading<'a> {
             TestKind::Any => !with_value.is_empty(),
             TestKind::None => with_value.is_empty(),
             TestKind::NoneStanding => !self.refused(flow, name, i),
+            // Each block that says something, by the records' blank versions, confirmed by a person's latest write of
+            // the test's choice with its value after the block's meaning now.
+            TestKind::Confirmed => {
+                let by = (test.by.as_ref()).and_then(|b| self.current(b));
+                let since = by
+                    .filter(|v| v.value.as_deref() == Some(test.is.as_str()))
+                    .map(|v| v.at);
+                (test.reads.iter())
+                    .filter_map(|b| {
+                        self.current(b)
+                            .filter(|v| !self.records.blank.contains(&(b.clone(), v.at)))
+                    })
+                    .all(|v| since.is_some_and(|at| at > v.meaning))
+            }
         }
     }
 

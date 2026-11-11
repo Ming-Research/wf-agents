@@ -293,6 +293,10 @@ fn handed(block: &BlockId, cell: &str, matters: bool, value: Option<String>) -> 
 fn make_hold(d: &Driver, name: &TestName) -> Option<Event> {
     let test = &d.flow.flow.tests()[name];
     let reading = Reading::new(&d.flow.flow, &d.work.records, None);
+    // A test of what was confirmed holds once a person confirms, whatever it reads says.
+    if let (TestKind::Confirmed, Some(by)) = (test.kind, &test.by) {
+        return Some(wrote(by, Outsider::Person, true, Some(test.is.clone())));
+    }
     for b in &test.reads {
         let block = &d.flow.blocks[b];
         let by = if block.writers.people {
@@ -304,6 +308,7 @@ fn make_hold(d: &Driver, name: &TestName) -> Option<Event> {
         };
         let values = block.values.as_ref()?;
         let value = match test.kind {
+            TestKind::Confirmed => None,
             TestKind::All | TestKind::Any => (reading.value(b) != Some(test.is.as_str())).then(|| test.is.clone()),
             TestKind::None | TestKind::NoneStanding => reading
                 .current(b)

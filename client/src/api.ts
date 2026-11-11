@@ -22,8 +22,10 @@ export interface Line {
 }
 
 /// How the blocks a named test reads make it hold: when every one, at least one, or none has the value it looks for;
-/// or, `noneStanding`, when none has it as written by a person, the outside or a cell that is not skipped now.
-export type TestKind = 'all' | 'any' | 'none' | 'noneStanding';
+/// or, `noneStanding`, when none has it as written by a person, the outside or a cell that is not skipped now; or,
+/// `confirmed`, when people confirmed, by the value in the choice `by`, each that says something since its meaning
+/// last changed.
+export type TestKind = 'all' | 'any' | 'none' | 'noneStanding' | 'confirmed';
 
 /// A named test: the words shown for it, and what it holds on.
 export interface Test {
@@ -34,6 +36,8 @@ export interface Test {
   reads: string[];
   /// The value it looks for in each block it reads.
   is: string;
+  /// For a test of what was confirmed, the choice in which people confirm what it reads.
+  by?: string;
 }
 
 export type Kind = 'agent' | 'engine';
@@ -126,9 +130,10 @@ export type What =
   | { kind: 'testNotWrittenBefore'; test: string; block: string }
   | { kind: 'testWrittenAfter'; test: string; block: string; cell: string }
   | { kind: 'standingWrittenByTwo'; test: string; block: string; cell: string }
+  | { kind: 'unconfirmable'; test: string }
   | {
       kind: 'flowRefused';
-      reason: 'empty' | 'twice' | 'conditionOnOwnOutput' | 'lastHasCondition' | 'noLimit' | 'noSuchTest' | 'unwritten';
+      reason: 'empty' | 'twice' | 'conditionOnOwnOutput' | 'lastHasCondition' | 'noLimit' | 'noSuchTest' | 'unwritten' | 'unconfirmable';
       cell: string | null;
     };
 

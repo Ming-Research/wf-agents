@@ -4,7 +4,7 @@
 //! place in the order of what happened to the work, and no two entries of a work share a place. A run's state is not
 //! stored: whether it has a round under way, is at rest, finished or was abandoned is worked out from the entries.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -52,6 +52,11 @@ pub struct Records {
     /// none, and read so.
     #[serde(default)]
     pub released: Option<Seq>,
+    /// The versions written with nothing in them, each by its block and the place of the entry that wrote it: a block
+    /// written blank says nothing, as one never written does. It is told by the content each entry names, which the
+    /// deciding code is not given; records kept before it was told read as having none.
+    #[serde(default)]
+    pub blank: BTreeSet<(BlockId, Seq)>,
 }
 
 /// A run began.

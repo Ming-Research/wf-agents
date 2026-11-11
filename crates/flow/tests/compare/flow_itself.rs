@@ -101,6 +101,7 @@ fn a_test_s_kind_blocks_read_or_value_changed_is_one_change_after_its_rewording(
         kind,
         reads: reads.iter().map(|&b| b.into()).collect(),
         is: is.to_string(),
+        by: None,
     };
     assert_eq!(
         from_valid(&after),

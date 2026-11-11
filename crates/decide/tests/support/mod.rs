@@ -16,6 +16,7 @@ pub fn word(name: &str) -> Test {
         kind: TestKind::None,
         reads: vec![name.into()],
         is: "no".to_string(),
+        by: None,
     }
 }
 
@@ -26,6 +27,7 @@ pub fn gate_word() -> Test {
         kind: TestKind::All,
         reads: vec![GATE.into()],
         is: "yes".to_string(),
+        by: None,
     }
 }
 
@@ -58,7 +60,7 @@ fn flow_of(
 ) -> Flow {
     let tests = tests_for(&cells, tests);
     let mut outsiders = declared.clone();
-    for block in tests.values().flat_map(|t| &t.reads) {
+    for block in tests.values().flat_map(|t| t.reads.iter().chain(&t.by)) {
         if !declared.contains_key(block) {
             outsiders.entry(block.clone()).or_default().people = true;
         }

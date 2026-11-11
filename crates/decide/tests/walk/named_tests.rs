@@ -12,6 +12,7 @@ fn test(kind: TestKind, reads: &[&str], is: &str) -> Test {
         kind,
         reads: reads.iter().map(|b| (*b).into()).collect(),
         is: is.to_string(),
+        by: None,
     }
 }
 

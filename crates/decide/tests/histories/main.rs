@@ -326,6 +326,7 @@ impl History {
                 kind: TestKind::NoneStanding,
                 reads: vec![VERDICT.into()],
                 is: "no".to_string(),
+                by: None,
             };
             World::with_tests(cells, [(TestName::from(UNREFUSED), unrefused)].into())
         } else {

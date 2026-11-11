@@ -23,7 +23,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::flow::{BlockId, Cell, CellId, Condition, Flow, TestKind, TestName};
+use crate::flow::{BlockId, Cell, CellId, Condition, Flow, Test, TestKind, TestName};
 use crate::records::{
     CallId, Cause, Finished, Outsider, Pause, Pauser, RecordFault, Records, RunId, Seq, Started, Who,
 };
@@ -382,6 +382,8 @@ pub(crate) struct Version<'a> {
     pub(crate) meaning: Seq,
     /// The block's value, where it has one.
     pub(crate) value: Option<&'a str>,
+    /// It was written with nothing in it.
+    pub(crate) blank: bool,
 }
 
 /// A write of a block, by a run as it finished or by a person or the outside.
@@ -439,12 +441,29 @@ impl<'a> Walk<'a> {
             })
         };
         let reads = test.reads.iter();
+        if let (TestKind::Confirmed, Some(by)) = (test.kind, &test.by) {
+            return if self.confirmed(test, by) { Vec::new() } else { vec![by] };
+        }
         match test.kind {
             TestKind::All => reads.filter(|b| !has(b)).collect(),
             TestKind::Any if test.reads.iter().any(has) => Vec::new(),
             TestKind::Any => reads.collect(),
             TestKind::None | TestKind::NoneStanding => reads.filter(|b| has(b)).collect(),
+            TestKind::Confirmed => Vec::new(),
         }
+    }
+
+    /// Whether people confirmed, in the choice `by`, which only they write, every block the test reads that says
+    /// something, since its meaning last changed: the latest confirmation having the test's value, written after the
+    /// meaning each has now.
+    fn confirmed(&self, test: &Test, by: &BlockId) -> bool {
+        // Not yet worked out: any confirmation counts, however old, for the tests of this kind to fail first.
+        let since = (self.current(by))
+            .filter(|v| v.value == Some(test.is.as_str()))
+            .map(|v| v.at);
+        (test.reads.iter())
+            .filter_map(|block| self.current(block).filter(|v| !v.blank))
+            .all(|_| since.is_some())
     }
 
     /// Whether the version stands, for the cell at this place: unless a run of a cell that is skipped now wrote it.
@@ -736,6 +755,7 @@ pub(crate) fn read_versions<'a>(
             outsider: w.outsider,
             meaning,
             value: w.value,
+            blank: records.blank.contains(&(w.block.clone(), w.at)),
         });
     }
     versions
