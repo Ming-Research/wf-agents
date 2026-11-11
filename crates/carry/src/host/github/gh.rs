@@ -240,18 +240,21 @@ impl Api for Gh {
             .ok_or_else(|| "GitHub's answer to the merge names no commit".to_string())
     }
 
-    async fn runs(&self, workflow: &str, commit: &str) -> Result<Vec<Run>, String> {
+    async fn runs(&self, workflow: &str, branch: &str) -> Result<Vec<Run>, String> {
         let path = format!(
-            "repos/{}/actions/workflows/{workflow}/runs?head_sha={commit}&event=workflow_dispatch&per_page=30",
+            "repos/{}/actions/workflows/{workflow}/runs?branch={branch}&event=workflow_dispatch&per_page=50",
             self.repository
         );
         let listed = self.json("GET", &path, None, &[200]).await?;
         let runs = listed["workflow_runs"].as_array().cloned().unwrap_or_default();
         Ok((runs.iter())
             .filter_map(|run| {
+                let status = run["status"].as_str();
                 Some(Run {
                     id: run["id"].as_u64()?,
-                    completed: run["status"].as_str() == Some("completed"),
+                    title: run["display_title"].as_str().unwrap_or_default().to_string(),
+                    started: matches!(status, Some("in_progress" | "completed")),
+                    completed: status == Some("completed"),
                     url: run["html_url"].as_str().unwrap_or_default().to_string(),
                 })
             })

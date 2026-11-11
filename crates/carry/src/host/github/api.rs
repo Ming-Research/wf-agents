@@ -67,8 +67,12 @@ pub enum Outcome {
 /// A run of a workflow, as far as the host reads it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Run {
-    /// Its number, which GitHub gives runs in the order they are made.
+    /// Its number.
     pub id: u64,
+    /// Its name, as the workflow's `run-name` made it.
+    pub title: String,
+    /// Whether a runner took it: one queued, waiting or pending has not started.
+    pub started: bool,
     /// Whether it has completed.
     pub completed: bool,
     /// Where a person sees it.
@@ -106,8 +110,8 @@ pub trait Api: Send + Sync + 'static {
     /// Deletes the branch of the repository; a branch that is not there is no fault.
     fn delete(&self, branch: &str) -> impl Future<Output = Result<(), String>> + Send;
 
-    /// The runs by hand of the workflow on the commit.
-    fn runs(&self, workflow: &str, commit: &str) -> impl Future<Output = Result<Vec<Run>, String>> + Send;
+    /// The latest runs by hand of the workflow asked for on the branch.
+    fn runs(&self, workflow: &str, branch: &str) -> impl Future<Output = Result<Vec<Run>, String>> + Send;
 
     /// Runs the workflow by hand on the branch, with these inputs.
     fn dispatch(

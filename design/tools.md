@@ -18,6 +18,10 @@ Why: A fetch outside the lock the acts hold while they work in the repository wo
 Where the project has a fast CI, the tests and checks an agent names are run alone by it, on the owner's own machine, and a check that names none is the whole CI; the whole CI stays what the check before a merge waits for.
 Why: The whole CI took three to five minutes a check on GitHub's machines, and an agent checks many times a work, while a fast run gave its tests' results in half a minute to a minute and a quarter; running the whole CI on every check was turned down for that wait. A fast run decides no merge, since it ran only what was named.
 
+### decision the-fast-ci-runs-by-mains-file
+The fast CI is always asked for on main, run by main's file of its workflow with the commit to test given, and its run is found by a value only that request knows, which the run's name holds.
+Why: Asked on the work's branch, the branch's own file would choose what runs on the project's machine; a branch made before that file would need a commit with main's CI files pushed for it, which a token without leave to write workflows cannot push; and two checks of one work at once, each taking the newest run, would read each other's.
+
 ### decision before-the-change-without-a-fast-ci
 Where the project has no fast CI, the check before the change waits for the whole CI on its branch rather than being refused.
 Why: Refused, such a project's tests would have no evidence of red before the change and green after it, and the system would serve only projects with a fast CI (Article 1).

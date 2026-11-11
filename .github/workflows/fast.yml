@@ -1,15 +1,17 @@
 name: fast
 
 # The fast CI of a work: what an agent's `check` waits for while the code is being written, when it names tests or
-# checks. It runs only when the engine asks, by hand, on the work's branch, and runs only what it is asked for: it
+# checks. It runs only when the engine asks, by hand, on the commit it gives, and runs only what it is asked for: it
 # compiles and runs the tests named, and runs the lint only when it is named, as while what the full CI's lint found is
 # being fixed. Every other check, the whole set of tests among them, is the full CI's (ci.yml), which the check before a
 # merge waits for. It has no job named as a check the merge counts (`page`, `check`): a head that only this workflow
 # has run is not one that may merge. The installation's settings name this workflow and what it takes and gives
-# (`github.fast`: `workflow`, `tests_input`, `checks_input`, `named_checks`, each the name of its job here, `results`).
+# (`github.fast`: `workflow`, `commit_input`, `call_input`, `tests_input`, `checks_input`, `named_checks`, each the
+# name of its job here, `results`).
 #
-# The engine's `check_before` runs it too, on its branches `wf-agents-before/...`, which hold the code before a change
-# with the tests of the change put on it. On those it runs exactly the tests listed, and names no check.
+# The engine's `check_before` runs it too, on the commits it pushes to its branches `wf-agents-before/...`, which hold
+# the code before a change with the tests of the change put on it. On those it runs exactly the tests listed, and names
+# no check.
 #
 # The tests job uploads what became of each test it ran as JUnit XML, in the artifact `test-results`, which the engine
 # reads by the conventions its reading of them holds to (crates/carry/src/host/github/results.rs). A unit of the Rust
@@ -24,12 +26,21 @@ name: fast
 # It runs only by hand, which only someone who may write to the repository can ask for: the repository is public, and
 # a trigger by a pull request would run anyone's code on the owner's machine.
 #
-# GitHub runs this workflow on a branch by the file of it the branch holds, and refuses to on one whose file does not
-# take the request. The engine then runs it with main's CI files, on a branch `wf-agents-main-ci/...` holding the
-# work's commit with them.
+# GitHub runs a workflow asked for by hand by the file of it on the branch it is asked on. The engine always asks on
+# the main branch and gives the commit to test, so that this file, as main holds it, is what runs on the owner's
+# machine, and never a work's own copy of it; a branch made before this file was there is run the same way. The
+# run's name holds the value only that one request knows (`call`), by which the engine finds the run it asked for.
+run-name: fast ${{ inputs.call }}
+
 on:
   workflow_dispatch:
     inputs:
+      commit:
+        description: The commit to check out and test, pushed to a branch of the repository already
+        required: true
+      call:
+        description: A value only the request that asks for this run knows, which the run's name holds
+        required: true
       tests:
         description: >-
           The tests to run, each name followed by a line break, so that a name may hold spaces; each runs to its end.
@@ -46,11 +57,8 @@ on:
 permissions:
   contents: read
 
-# A newer run on the same branch makes the older one pointless. This group is not ci.yml's, so that a run of either
-# does not cancel the other's on the same branch.
-concurrency:
-  group: fast-${{ github.ref }}
-  cancel-in-progress: true
+# No concurrency group: every run is asked for on main, and each is a request an agent waits for, which another
+# request must not cancel.
 
 jobs:
   # Only when named: the full CI runs it once, at the merge, and a work runs it here while it fixes what that found.
@@ -63,6 +71,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.commit }}
           clean: false
           # No later step pushes, so the token is not left in the checkout, which the runner keeps.
           persist-credentials: false
@@ -102,6 +111,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.commit }}
           clean: false
           # No later step pushes, so the token is not left in the checkout, which the runner keeps.
           persist-credentials: false

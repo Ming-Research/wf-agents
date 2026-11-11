@@ -1,8 +1,8 @@
-//! The project's fast CI: a workflow the engine runs by hand on a branch, which runs only the tests and the checks an
-//! agent named and reports what became of each test (`results`). Brought over from the old engine's `ci` and
-//! `ci_before` (`crates/engine/src/tools.rs` on main): the tests and checks named, the run asked for and found among
-//! the workflow's runs on the commit by being newer than those there were, each test's own result and time read from
-//! the run's JUnit, and main's CI files where GitHub refuses to run the workflow with the branch's own.
+//! The project's fast CI: a workflow the engine runs by hand, which runs only the tests and the checks an agent named
+//! and reports what became of each test (`results`). Brought over from the old engine's `ci` and `ci_before`
+//! (`crates/engine/src/tools.rs` on main): the tests and checks named, the run asked for and waited for, and each test's
+//! own result and time read from the run's JUnit. Unlike there, the workflow is always run by its file on main, given
+//! the commit to test, and its run is found by a value only that request knows, which the run's name holds.
 //!
 //! What is said of a run: each test named, with what became of it and how long it ran, and what a failed one said;
 //! each check named; and, for a job that failed with nothing named to say why (a unit that did not compile, say), what
@@ -10,10 +10,9 @@
 
 use super::api::{Api, Check, Outcome, Run};
 use super::results::{self, Became, Case};
-use super::{GitHub, MAIN_CI, log, short};
-use crate::git;
+use super::{GitHub, log};
 use crate::held::Stop;
-use crate::host::{Branch, Host, Named};
+use crate::host::Named;
 use crate::process;
 use crate::settings::Fast;
 
@@ -37,11 +36,16 @@ pub(super) fn refused(fast: &Fast, named: &Named) -> Option<String> {
     ))
 }
 
-/// The inputs the workflow is run with: the tests, each followed by a line break, and the checks as a JSON array,
-/// given only when one is named, so that a workflow made before that input takes its default, which runs none.
-fn inputs(fast: &Fast, named: &Named) -> Vec<(String, String)> {
+/// The inputs the workflow is run with: the commit, the request's own value, the tests, each followed by a line break,
+/// and the checks as a JSON array, given only when one is named, so that a workflow made before that input takes its
+/// default, which runs none.
+fn inputs(fast: &Fast, commit: &str, call: &str, named: &Named) -> Vec<(String, String)> {
     let tests: String = (named.tests.iter()).map(|t| format!("{}\n", t.trim())).collect();
-    let mut inputs = vec![(fast.tests_input.clone(), tests)];
+    let mut inputs = vec![
+        (fast.commit_input.clone(), commit.to_string()),
+        (fast.call_input.clone(), call.to_string()),
+        (fast.tests_input.clone(), tests),
+    ];
     if !named.checks.is_empty() {
         let checks = serde_json::to_string(&named.checks).unwrap_or_default();
         inputs.push((fast.checks_input.clone(), checks));
@@ -57,84 +61,39 @@ struct Ran {
 }
 
 impl<A: Api> GitHub<A> {
-    /// Runs the fast workflow on the branch `on`, whose head is the commit, with what the agent named, and says what
-    /// became of it; none where it was told to stop. Where GitHub refuses to run it with the branch's own CI files, it
-    /// runs on a branch of its own holding the commit with main's.
+    /// Runs the fast workflow on the commit, pushed already, with what the agent named, and says what became of it;
+    /// none where it was told to stop. The workflow is run by its file on main, so that no work chooses what runs on
+    /// the project's machine, and GitHub always has that file and that branch.
     pub(super) async fn fast(
         &self,
-        branch: &Branch<'_>,
         fast: &Fast,
-        on: &str,
         commit: &str,
         named: &Named,
         stop: &mut Stop,
     ) -> Result<Option<String>, String> {
-        let refused = match self.dispatched(fast, on, commit, named, stop).await? {
-            Ok(Some(ran)) => return Ok(Some(self.said(fast, commit, &ran, named, None).await)),
-            Ok(None) => return Ok(None),
-            Err(refused) => refused,
-        };
-        let main = self.kept_main();
-        let Some(with) = git::with_main_ci(&self.project, commit, &main).await? else {
-            return Err(format!("GitHub refused to run {}: {refused}", fast.workflow));
-        };
-        let reference = format!("refs/heads/{MAIN_CI}/{}-{}", branch.place.branch, short(&with));
-        let name = reference.trim_start_matches("refs/heads/").to_string();
-        let _held = self.in_use.hold(&reference).await;
-        self.sweep(branch).await?;
-        self.push_to(&with, &reference, true).await?;
-        let ran = self.dispatched(fast, &name, &with, named, stop).await;
-        let taken = self.push_to("", &reference, false).await;
-        let ran = ran?;
-        taken?;
-        let note = format!(
-            "GitHub refused to run {} with the CI files of {on} ({refused}), so it ran with main's: on the commit {with}, \
-             which is {commit} with main's CI files",
-            fast.workflow
-        );
-        match ran {
-            Ok(Some(ran)) => Ok(Some(self.said(fast, commit, &ran, named, Some(&note)).await)),
-            Ok(None) => Ok(None),
-            Err(again) => Err(format!("{note}, and GitHub refused that too: {again}")),
-        }
-    }
-
-    /// Runs the workflow by hand on the branch and waits for the run it made on the commit, with its jobs and its
-    /// results; the inner `Err` is GitHub's refusal to run it there, none where it was told to stop. The run asked for
-    /// is the first numbered above every run of the workflow on the commit before it was asked for.
-    async fn dispatched(
-        &self,
-        fast: &Fast,
-        on: &str,
-        commit: &str,
-        named: &Named,
-        stop: &mut Stop,
-    ) -> Result<Result<Option<Ran>, String>, String> {
         let workflow = &fast.workflow;
-        let above = (self.api.runs(workflow, commit).await?.iter()).map(|r| r.id).max();
-        if let Err(why) = self.api.dispatch(workflow, on, &inputs(fast, named)).await {
-            // GitHub's word for a request it refuses to run, as for a workflow whose file on the branch does not take
-            // it; any other failure is GitHub's, and fails the check.
-            if why.starts_with("HTTP 422") {
-                return Ok(Err(why));
-            }
-            return Err(format!("{workflow} could not be run on {on}: {why}"));
-        }
+        let main = &self.project.main;
+        // A value no other request has, which the run's name holds: by it this request's run is told from another's
+        // on the same commit, as another check of the same work asks for at once.
+        let call = uuid::Uuid::new_v4().simple().to_string();
+        (self
+            .api
+            .dispatch(workflow, main, &inputs(fast, commit, &call, named))
+            .await)
+            .map_err(|why| format!("GitHub refused to run {workflow} on {main} for {commit}: {why}"))?;
         let began = tokio::time::Instant::now();
         let run = loop {
             let runs = tokio::select! {
-                runs = self.api.runs(workflow, commit) => runs?,
-                () = stop.told() => return Ok(Ok(None)),
+                runs = self.api.runs(workflow, main) => runs?,
+                () = stop.told() => return Ok(None),
             };
-            let newest = (runs.into_iter())
-                .filter(|r| above.is_none_or(|a| r.id > a))
-                .max_by_key(|r| r.id);
+            let mine = runs.into_iter().find(|r| r.title.contains(&call));
             let waited = began.elapsed();
-            match newest {
+            match mine {
                 Some(run) if run.completed => break run,
                 None if waited >= self.config.start => {
                     return Err(format!(
-                        "the run of {workflow} asked for on {commit} never started: none after {}",
+                        "the run of {workflow} asked for on {commit} never started: GitHub listed none after {}",
                         super::span(self.config.start)
                     ));
                 }
@@ -148,7 +107,7 @@ impl<A: Api> GitHub<A> {
             }
             tokio::select! {
                 () = tokio::time::sleep(self.config.fast_poll) => {}
-                () = stop.told() => return Ok(Ok(None)),
+                () = stop.told() => return Ok(None),
             }
         };
         let jobs = self.api.jobs(run.id).await?;
@@ -161,12 +120,13 @@ impl<A: Api> GitHub<A> {
                 Err(why) => Err(format!("the artifact {} could not be fetched: {why}", fast.results)),
             }
         };
-        Ok(Ok(Some(Ran { run, jobs, results })))
+        let ran = Ran { run, jobs, results };
+        Ok(Some(self.said(fast, commit, &ran, named).await))
     }
 
     /// What became of the run, in words for the agent: a line of what it came to, each test named, each check named,
     /// and what the log of a job that failed says where nothing named says why.
-    async fn said(&self, fast: &Fast, commit: &str, ran: &Ran, named: &Named, note: Option<&str>) -> String {
+    async fn said(&self, fast: &Fast, commit: &str, ran: &Ran, named: &Named) -> String {
         let rows = results::rows(
             &named.tests,
             ran.results.as_ref().map_err(String::as_str),
@@ -195,9 +155,6 @@ impl<A: Api> GitHub<A> {
             ran.run.url,
             came.join("; ")
         )];
-        if let Some(note) = note {
-            said.push(format!("{note}."));
-        }
         if !rows.is_empty() {
             let mut lines = vec!["The tests named:".to_string()];
             for row in &rows {

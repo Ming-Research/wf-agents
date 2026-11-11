@@ -111,11 +111,16 @@ highest_level = "3"
 # runs_on_before_branches = false
 # # The gh command line, or a path to it.
 # gh = "gh"
-# # The project's fast CI: a workflow run by hand on a branch, which runs only the tests and checks it is given and
-# # uploads what became of each test as JUnit XML. Without it, an agent's check is the whole CI of its commit.
+# # The project's fast CI: a workflow run by hand, which runs only the tests and checks it is given on the commit it is
+# # given and uploads what became of each test as JUnit XML. Without it, an agent's check is the whole CI of its commit.
 # [github.fast]
-# # The workflow, by its file's name; GitHub runs the file of it the branch holds.
+# # The workflow, by its file's name. It is always run by the file of it on the main branch, never by a work's own.
 # workflow = "fast.yml"
+# # The input that takes the commit to check out and test.
+# commit_input = "commit"
+# # The input that takes a value only that one request knows; the run's name (`run-name`) must hold it, by which the
+# # engine finds its run among the others.
+# call_input = "call"
 # # The input that takes the tests, each name followed by a line break.
 # tests_input = "tests"
 # # The input that takes the checks named, as a JSON array of the names of their jobs.

@@ -114,11 +114,6 @@ impl std::fmt::Debug for Config {
 /// name, which the project's CI must run on when it is pushed.
 pub const BEFORE: &str = "wf-agents-before";
 
-/// Where on GitHub the engine pushes a work's commit with main's CI files, on a branch of its own under this name,
-/// where GitHub refuses to run the fast workflow by hand on the work's branch with the branch's own, as on a branch made
-/// before main's workflow took the request.
-pub const MAIN_CI: &str = "wf-agents-main-ci";
-
 /// GitHub, reached through the API given.
 pub struct GitHub<A> {
     api: A,
@@ -653,7 +648,7 @@ impl<A: Api> Host for GitHub<A> {
         self.push(branch, &commit).await?;
         let pull = self.pull_request(branch).await?;
         if let Some(fast) = fast {
-            return self.fast(branch, fast, &place.branch, &commit, named, stop).await;
+            return self.fast(fast, &commit, named, stop).await;
         }
         let Some(judged) = self.judged(&commit, stop).await? else {
             return Ok(None);
@@ -715,7 +710,7 @@ impl<A: Api> Host for GitHub<A> {
         self.push_to(commit, &mine, true).await?;
         // The code before the change is to fail where its tests do: what fails is said as it is.
         let said = match fast {
-            Some(fast) => self.fast(branch, fast, name, commit, named, stop).await,
+            Some(fast) => self.fast(fast, commit, named, stop).await,
             None => match self.wait(commit, stop).await {
                 Ok(Some(checks)) => {
                     let checks = Judged::as_they_are(checks);
@@ -747,19 +742,18 @@ impl<A: Api> Host for GitHub<A> {
 }
 
 impl<A: Api> GitHub<A> {
-    /// Deletes on GitHub the branches the work's checks put commits on that no check of this process holds: an engine
-    /// that ended while such a check waited left them.
-    pub(super) async fn sweep(&self, branch: &Branch<'_>) -> Result<(), String> {
+    /// Deletes on GitHub the branches of the work's checks before the change that no check of this process holds: an
+    /// engine that ended while such a check waited left them.
+    async fn sweep(&self, branch: &Branch<'_>) -> Result<(), String> {
         let args = ["ls-remote", "--heads", &self.config.url];
         let listed = git::said_with(&self.project.repo, &self.network().await?, &args).await?;
         if !listed.ok {
             return Err(format!("the branches on GitHub could not be listed: {}", listed.err));
         }
-        let beginnings = [BEFORE, MAIN_CI].map(|under| format!("refs/heads/{under}/{}-", branch.place.branch));
+        let beginning = format!("refs/heads/{BEFORE}/{}-", branch.place.branch);
         let left: Vec<&str> = (listed.out.lines())
             .filter_map(|line| line.split_once('\t').map(|(_, reference)| reference))
-            .filter(|reference| beginnings.iter().any(|b| reference.starts_with(b.as_str())))
-            .filter(|reference| !self.in_use.held(reference))
+            .filter(|reference| reference.starts_with(&beginning) && !self.in_use.held(reference))
             .collect();
         for reference in left {
             self.push_to("", reference, false).await?;
@@ -776,7 +770,7 @@ pub(super) const NO_TESTS_BEFORE: &str = "Nothing was checked: the check before 
                                           `file: <path>` lines.";
 
 /// The beginning of a commit by which a branch of one is named.
-pub(super) fn short(commit: &str) -> &str {
+fn short(commit: &str) -> &str {
     &commit[..commit.len().min(12)]
 }
 

@@ -80,15 +80,22 @@ pub struct GitHub {
     pub fast: Option<Fast>,
 }
 
-/// A project's fast CI: a workflow GitHub runs by hand on a branch, which runs only the tests and the checks it is
-/// given and reports what became of each test. The engine reads its results by the conventions its reading of them
-/// holds to (JUnit XML, a unit not built as a testsuite with no testcase and an error, and at least every test a name
-/// names run).
+/// A project's fast CI: a workflow GitHub runs by hand, always by its file on the main branch, which checks out the
+/// commit it is given, runs only the tests and the checks it is given and reports what became of each test. The engine
+/// reads its results by the conventions its reading of them holds to (JUnit XML, a unit not built as a testsuite with
+/// no testcase and an error, and at least every test a name names run).
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Fast {
-    /// The workflow, by its file's name, such as `fast.yml`; its file on the branch it is run on is the one run.
+    /// The workflow, by its file's name, such as `fast.yml`.
     pub workflow: String,
+    /// The input that takes the commit to check out and test.
+    #[serde(default = "commit_input")]
+    pub commit_input: String,
+    /// The input that takes a value only one request knows, which the run's name must hold: by it the engine finds the
+    /// run it asked for among the others.
+    #[serde(default = "call_input")]
+    pub call_input: String,
     /// The input that takes the tests to run: each name followed by a line break, the last too.
     #[serde(default = "tests_input")]
     pub tests_input: String,
@@ -105,6 +112,14 @@ pub struct Fast {
     /// What the project's test runners put between the parts of a test's name, such as `::` and ` > `.
     #[serde(default)]
     pub separators: Vec<String>,
+}
+
+fn commit_input() -> String {
+    "commit".to_string()
+}
+
+fn call_input() -> String {
+    "call".to_string()
 }
 
 fn tests_input() -> String {
@@ -383,7 +398,14 @@ impl GitHub {
             ));
         }
         if let Some(fast) = &self.fast {
-            let blank = [&fast.workflow, &fast.tests_input, &fast.checks_input, &fast.results];
+            let blank = [
+                &fast.workflow,
+                &fast.commit_input,
+                &fast.call_input,
+                &fast.tests_input,
+                &fast.checks_input,
+                &fast.results,
+            ];
             if blank.iter().any(|v| v.trim().is_empty()) || fast.named_checks.iter().any(|c| c.trim().is_empty()) {
                 wrong.push(
                     "github.fast: the workflow, its inputs, its results and each check it runs by name are named"
@@ -546,6 +568,8 @@ mod tests {
             fast,
             Fast {
                 workflow: "fast.yml".to_string(),
+                commit_input: "commit".to_string(),
+                call_input: "call".to_string(),
                 tests_input: "tests".to_string(),
                 checks_input: "checks".to_string(),
                 named_checks: Vec::new(),

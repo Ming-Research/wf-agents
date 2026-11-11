@@ -27,18 +27,33 @@ struct Kept {
     /// How many of the next lists of pull requests leave out those opened already, as a list read just before another
     /// opened one does.
     hidden: usize,
-    /// The runs by hand, each with its workflow and commit.
-    runs: Vec<(String, String, Run)>,
+    /// The runs by hand, in the order they were asked for.
+    runs: Vec<Dispatched>,
     /// What a run by hand on each commit gives: its jobs, and the artifact it uploads with its name.
     fast: BTreeMap<String, ByHand>,
-    /// The beginning of the branches a run by hand is refused on, as GitHub refuses one whose file of the workflow
-    /// does not take the request.
+    /// Why a run by hand is refused, where every one is.
     refuses_dispatch: Option<String>,
+    /// Whether another request runs the workflow on the same branch and commit right after each one asked here, as
+    /// another check of the same work may.
+    another_call: bool,
     asked: Vec<Asked>,
 }
 
 /// What a run by hand gives: its jobs, and the artifact it uploads, with its name, where it uploads one.
 type ByHand = (Vec<Check>, Option<(String, Vec<File>)>);
+
+/// A run by hand: of which workflow, asked for on which branch, of which commit (its input `commit`), and whether
+/// another request than the host's asked for it.
+struct Dispatched {
+    workflow: String,
+    branch: String,
+    commit: String,
+    another: bool,
+    run: Run,
+}
+
+/// What the jobs of a run another request asked for come to, here: its tests cancelled.
+pub(crate) const ANOTHER_CALLS: &str = "cancelled by another call";
 
 /// What GitHub was asked.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -98,9 +113,14 @@ impl Fake {
         self.kept().fast.insert(commit.to_string(), (jobs, artifact));
     }
 
-    /// Refuses to run a workflow by hand on a branch whose name begins so.
-    pub(crate) fn refuse_dispatch_on(&self, beginning: &str) {
-        self.kept().refuses_dispatch = Some(beginning.to_string());
+    /// Refuses every run by hand, with these words.
+    pub(crate) fn refuse_dispatch(&self, why: &str) {
+        self.kept().refuses_dispatch = Some(why.to_string());
+    }
+
+    /// Has another request run the workflow on the same branch and commit right after each one the host asks for.
+    pub(crate) fn another_call_after_each(&self) {
+        self.kept().another_call = true;
     }
 
     /// Keeps this log for the job.
@@ -321,54 +341,75 @@ impl Api for Fake {
         Ok(())
     }
 
-    async fn runs(&self, workflow: &str, commit: &str) -> Result<Vec<Run>, String> {
+    async fn runs(&self, workflow: &str, branch: &str) -> Result<Vec<Run>, String> {
         let kept = self.kept();
-        Ok((kept.runs.iter())
-            .filter(|(w, c, _)| w == workflow && c == commit)
-            .map(|(_, _, run)| run.clone())
+        Ok((kept.runs.iter().rev())
+            .filter(|d| d.workflow == workflow && d.branch == branch)
+            .map(|d| d.run.clone())
             .collect())
     }
 
     async fn dispatch(&self, workflow: &str, branch: &str, inputs: &[(String, String)]) -> Result<(), String> {
-        let head = self.head(branch).ok_or("HTTP 422: No ref found for the branch")?;
+        let input = |name: &str| (inputs.iter()).find(|(n, _)| n == name).map(|(_, v)| v.clone());
         let mut kept = self.kept();
         kept.asked.push(Asked::Dispatch {
             workflow: workflow.to_string(),
             branch: branch.to_string(),
             inputs: inputs.to_vec(),
         });
-        if kept
-            .refuses_dispatch
-            .as_ref()
-            .is_some_and(|b| branch.starts_with(b.as_str()))
-        {
-            return Err("HTTP 422: Workflow does not have 'workflow_dispatch' trigger".to_string());
+        if let Some(why) = &kept.refuses_dispatch {
+            return Err(why.clone());
         }
-        let id = 1000 + kept.runs.len() as u64;
-        let run = Run {
-            id,
-            completed: true,
-            url: format!("https://github.example/actions/runs/{id}"),
-        };
-        kept.runs.push((workflow.to_string(), head, run));
+        drop(kept);
+        self.head(branch).ok_or("HTTP 422: No ref found for the branch")?;
+        let commit = input("commit").ok_or("HTTP 422: Required input 'commit' not provided")?;
+        let call = input("call").unwrap_or_default();
+        let mut kept = self.kept();
+        let mut made = vec![(call, false)];
+        if kept.another_call {
+            made.push(("another".to_string(), true));
+        }
+        for (call, another) in made {
+            let id = 1000 + kept.runs.len() as u64;
+            kept.runs.push(Dispatched {
+                workflow: workflow.to_string(),
+                branch: branch.to_string(),
+                commit: commit.clone(),
+                another,
+                run: Run {
+                    id,
+                    title: format!("fast {call}"),
+                    started: true,
+                    completed: true,
+                    url: format!("https://github.example/actions/runs/{id}"),
+                },
+            });
+        }
         Ok(())
     }
 
     async fn jobs(&self, run: u64) -> Result<Vec<Check>, String> {
         let kept = self.kept();
-        let commit = (kept.runs.iter())
-            .find(|(_, _, r)| r.id == run)
-            .map(|(_, c, _)| c.clone());
-        let jobs = commit.and_then(|c| kept.fast.get(&c).map(|(jobs, _)| jobs.clone()));
-        Ok(jobs.unwrap_or_default())
+        let Some(asked) = kept.runs.iter().find(|d| d.run.id == run) else {
+            return Ok(Vec::new());
+        };
+        if asked.another {
+            return Ok(vec![Check {
+                name: "test".to_string(),
+                outcome: super::Outcome::Broken(ANOTHER_CALLS.to_string()),
+                url: None,
+                summary: None,
+                job: None,
+                earlier: Vec::new(),
+            }]);
+        }
+        Ok((kept.fast.get(&asked.commit)).map_or_else(Vec::new, |(jobs, _)| jobs.clone()))
     }
 
     async fn artifact(&self, run: u64, name: &str) -> Result<Option<Vec<File>>, String> {
         let kept = self.kept();
-        let commit = (kept.runs.iter())
-            .find(|(_, _, r)| r.id == run)
-            .map(|(_, c, _)| c.clone());
-        let artifact = commit.and_then(|c| kept.fast.get(&c).and_then(|(_, a)| a.clone()));
+        let asked = (kept.runs.iter()).find(|d| d.run.id == run && !d.another);
+        let artifact = asked.and_then(|d| kept.fast.get(&d.commit).and_then(|(_, a)| a.clone()));
         Ok(artifact.filter(|(n, _)| n == name).map(|(_, files)| files))
     }
 

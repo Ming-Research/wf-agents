@@ -9,6 +9,8 @@ use crate::settings::Fast;
 fn fast() -> Fast {
     Fast {
         workflow: "fast.yml".to_string(),
+        commit_input: "commit".to_string(),
+        call_input: "call".to_string(),
         tests_input: "tests".to_string(),
         checks_input: "checks".to_string(),
         named_checks: vec!["lint".to_string()],
@@ -57,6 +59,55 @@ impl Hub {
             .filter(|a| matches!(a, Asked::Dispatch { .. }))
             .collect()
     }
+
+    /// The runs by hand GitHub was asked for, each request's own value, which differs at each, said as `<call>`.
+    fn dispatched_as_said(&self) -> Vec<Asked> {
+        let mut calls = Vec::new();
+        let said = (self.dispatched().into_iter())
+            .map(|asked| match asked {
+                Asked::Dispatch {
+                    workflow,
+                    branch,
+                    inputs,
+                } => {
+                    let inputs = (inputs.into_iter())
+                        .map(|(name, value)| {
+                            if name != "call" {
+                                return (name, value);
+                            }
+                            assert!(
+                                value.len() == 32 && value.chars().all(|c| c.is_ascii_hexdigit()),
+                                "{value}"
+                            );
+                            calls.push(value);
+                            (name, "<call>".to_string())
+                        })
+                        .collect();
+                    Asked::Dispatch {
+                        workflow,
+                        branch,
+                        inputs,
+                    }
+                }
+                other => other,
+            })
+            .collect();
+        let mut apart = calls.clone();
+        apart.dedup();
+        assert_eq!(apart, calls, "each request has a value of its own");
+        said
+    }
+}
+
+/// The inputs of a run asked for on the commit with these tests, and these checks where some are named.
+fn inputs(commit: &str, tests: &str, checks: Option<&str>) -> Vec<(String, String)> {
+    let mut inputs = vec![
+        ("commit".to_string(), commit.to_string()),
+        ("call".to_string(), "<call>".to_string()),
+        ("tests".to_string(), tests.to_string()),
+    ];
+    inputs.extend(checks.map(|c| ("checks".to_string(), c.to_string())));
+    inputs
 }
 
 #[tokio::test]
@@ -87,14 +138,11 @@ async fn the_tests_named_run_by_hand_on_the_works_branch_and_each_is_said_with_i
         "a failed test says why itself: {said}"
     );
     assert_eq!(
-        hub.dispatched(),
+        hub.dispatched_as_said(),
         [Asked::Dispatch {
             workflow: "fast.yml".to_string(),
-            branch: hub.place().branch,
-            inputs: vec![(
-                "tests".to_string(),
-                "tools::tests::a\nb\na_name_of_no_test\n".to_string()
-            )],
+            branch: "main".to_string(),
+            inputs: inputs(&head, "tools::tests::a\nb\na_name_of_no_test\n", None),
         }]
     );
     assert_eq!(hub.pushed(), head);
@@ -131,17 +179,11 @@ async fn a_check_named_runs_beside_the_tests_and_a_red_one_says_what_its_log_say
         ),
         "{said}"
     );
-    let inputs = match hub.dispatched().as_slice() {
+    let asked = match hub.dispatched_as_said().as_slice() {
         [Asked::Dispatch { inputs, .. }] => inputs.clone(),
         other => panic!("{other:?}"),
     };
-    assert_eq!(
-        inputs,
-        [
-            ("tests".to_string(), String::new()),
-            ("checks".to_string(), "[\"lint\"]".to_string())
-        ]
-    );
+    assert_eq!(asked, inputs(&head, "", Some("[\"lint\"]")));
 }
 
 #[tokio::test]
@@ -208,46 +250,66 @@ async fn names_given_where_the_project_has_no_fast_ci_are_said_not_run_apart() {
     );
 }
 
+// The work's branch may hold no file of the workflow, or one of its own making: the run is always asked for on main,
+// by main's file, with the commit to test given, and nothing but the work's commit is pushed for it.
 #[tokio::test]
-async fn a_branch_whose_workflow_does_not_take_the_request_is_run_with_mains_ci_files() {
+async fn the_fast_ci_is_run_by_mains_file_with_the_commit_given_and_nothing_else_is_pushed() {
     let hub = Hub::new().fast();
-    hub.committed().await;
-    // Main's workflow takes the request; the branch, made before it did, holds none.
-    let other = hub.repo.data.join("other");
-    run(
-        &hub.repo.data,
-        &["clone", "-q", &hub.github().bare.display().to_string(), "other"],
-    );
-    run(&other, &["config", "user.name", "Someone"]);
-    run(&other, &["config", "user.email", "someone@example.com"]);
-    std::fs::create_dir_all(other.join(".github/workflows")).unwrap();
-    commit(&other, ".github/workflows/fast.yml", "name: fast\n");
-    run(&other, &["push", "-q", "origin", "main"]);
-    hub.host.main().await.expect("main is fetched");
-    let place = hub.place();
-    hub.github().refuse_dispatch_on(&place.branch);
+    let head = hub.committed().await;
+    hub.github().fast(&head, vec![], Some(("test-results", junit())));
     let said = hub.named_check(&named(&["a"], &[])).await.unwrap().expect("checked");
-    assert!(said.contains("so it ran with main's: on the commit "), "{said}");
-    let branches: Vec<String> = (hub.dispatched().into_iter())
-        .filter_map(|a| match a {
-            Asked::Dispatch { branch, .. } => Some(branch),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(branches.len(), 2, "{branches:?}");
-    assert_eq!(branches[0], place.branch);
-    assert!(
-        branches[1].starts_with(&format!("wf-agents-main-ci/{}-", place.branch)),
-        "{branches:?}"
+    assert!(said.contains("- a: passed in 0.12 s"), "{said}");
+    assert_eq!(
+        hub.dispatched_as_said(),
+        [Asked::Dispatch {
+            workflow: "fast.yml".to_string(),
+            branch: "main".to_string(),
+            inputs: inputs(&head, "a\n", None),
+        }]
     );
-    let reference = format!("refs/heads/{}", branches[1]);
-    let left = std::process::Command::new("git")
-        .arg("-C")
-        .arg(&hub.github().bare)
-        .args(["rev-parse", "--verify", "--quiet", &reference])
-        .output()
-        .unwrap();
-    assert!(!left.status.success(), "its branch is taken away");
+    let branches = run(
+        &hub.github().bare,
+        &["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+    );
+    let mut expected = vec!["main".to_string(), hub.place().branch];
+    expected.sort();
+    let mut branches: Vec<String> = branches.lines().map(str::to_string).collect();
+    branches.sort();
+    assert_eq!(branches, expected, "only the work's commit is pushed");
+}
+
+// GitHub's refusal of the run, whatever its words, "No ref found" or that the workflow takes no such request, is
+// said once as GitHub's, with nothing else pushed or run in its place.
+#[tokio::test]
+async fn a_refusal_to_run_the_fast_ci_is_said_once_as_githubs() {
+    let hub = Hub::new().fast();
+    let head = hub.committed().await;
+    hub.github().refuse_dispatch("HTTP 422: No ref found for: main");
+    let why = hub.named_check(&named(&["a"], &[])).await.expect_err("not run");
+    assert_eq!(
+        why,
+        format!("GitHub refused to run fast.yml on main for {head}: HTTP 422: No ref found for: main")
+    );
+    assert_eq!(hub.dispatched().len(), 1, "asked once");
+}
+
+// Another check of the same work asks for a run of the same commit just after this one: each reads the run it asked
+// for, told by its own value in the run's name, never the newest.
+#[tokio::test]
+async fn a_check_reads_the_run_it_asked_for_where_another_asked_for_one_after_it() {
+    let hub = Hub::new().fast();
+    let head = hub.committed().await;
+    hub.github().fast(&head, vec![], Some(("test-results", junit())));
+    hub.github().another_call_after_each();
+    let said = hub.named_check(&named(&["a"], &[])).await.unwrap().expect("checked");
+    assert!(
+        said.starts_with(&format!(
+            "The fast CI ran on the commit {head} (https://github.example/actions/runs/1000): 1 of the 1 tests named \
+             passed."
+        )),
+        "{said}"
+    );
+    assert!(!said.contains(super::super::fake::ANOTHER_CALLS), "{said}");
 }
 
 #[tokio::test]
@@ -277,12 +339,16 @@ async fn the_check_before_the_change_runs_the_tests_named_on_a_branch_of_its_own
     assert!(said.contains("- b: failed in 0.3 s"), "{said}");
     let name = format!("wf-agents-before/{}-{}", place.branch, &before.commit[..12]);
     assert_eq!(
-        hub.dispatched(),
+        hub.dispatched_as_said(),
         [Asked::Dispatch {
             workflow: "fast.yml".to_string(),
-            branch: name,
-            inputs: vec![("tests".to_string(), "b\n".to_string())],
+            branch: "main".to_string(),
+            inputs: inputs(&before.commit, "b\n", None),
         }]
+    );
+    assert!(
+        !holds_branch(&hub, &name),
+        "its branch is taken away once its run is read"
     );
     assert_eq!(hub.opened(), 0, "no pull request is opened for it");
     let refused = (hub.host)
@@ -315,4 +381,16 @@ async fn a_check_before_the_change_naming_no_test_is_told_to_name_them() {
         .expect("said");
     assert_eq!(said, NO_TESTS_BEFORE);
     assert!(hub.github().asked().is_empty(), "GitHub was asked nothing");
+}
+
+/// Whether GitHub holds the branch.
+fn holds_branch(hub: &Hub, name: &str) -> bool {
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(&hub.github().bare)
+        .args(["rev-parse", "--verify", "--quiet", &format!("refs/heads/{name}")])
+        .output()
+        .unwrap()
+        .status
+        .success()
 }
