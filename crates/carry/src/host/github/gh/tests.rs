@@ -170,3 +170,18 @@ fn gh_is_given_the_token_and_nothing_else_of_the_engines_but_what_git_is() {
     let gh = Gh::new("gh", "o/r", "the engine's", Path::new("/data/gh"));
     assert!(!format!("{gh:?}").contains("the engine's"), "the token is not shown");
 }
+
+#[tokio::test]
+async fn a_gh_that_never_answers_is_given_up_within_its_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("gh");
+    std::fs::write(&script, "#!/bin/sh\nexec sleep 30\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let gh = Gh::new(&script.display().to_string(), "o/r", "the-token", dir.path())
+        .within(std::time::Duration::from_millis(500));
+    let began = std::time::Instant::now();
+    let given_up = gh.pulls("work-1").await.expect_err("given up");
+    assert!(given_up.contains("did not end within"), "{given_up}");
+    assert!(began.elapsed() < std::time::Duration::from_secs(10));
+}

@@ -131,7 +131,12 @@ mod tests {
     const WORK: WorkNumber = WorkNumber(1);
 
     async fn answered(repo: &Repo, name: &str) -> String {
-        match answer(&repo.project, &repo.place(WORK), name, &mut Stop::never()).await {
+        answered_with(repo, name, &[]).await
+    }
+
+    /// The tool's answer, the agents being given these variables of the engine's environment.
+    async fn answered_with(repo: &Repo, name: &str, env: &[String]) -> String {
+        match answer(&repo.project, env, &repo.place(WORK), name, &mut Stop::never()).await {
             Answer::Result(result) => result,
             Answer::Withdrawn => panic!("nothing withdrew it"),
         }
@@ -152,6 +157,20 @@ mod tests {
         let said = answered(&failing, CHECK).await;
         assert!(said.starts_with("The check `echo it broke; exit 2` failed ("), "{said}");
         assert!(said.ends_with("it broke\n"), "{said}");
+    }
+
+    #[tokio::test]
+    async fn the_check_is_given_of_the_engines_environment_only_what_the_agents_are() {
+        // Cargo gives the tests' process this variable, which no agent is given unless the settings name it: the
+        // token for GitHub is one such.
+        assert!(std::env::var("CARGO_PKG_NAME").is_ok(), "cargo runs the tests");
+        let repo = Repo::new("env");
+        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        let said = answered(&repo, CHECK).await;
+        assert!(said.contains("\nHOME=") || said.contains(":\nHOME="), "{said}");
+        assert!(!said.contains("CARGO_PKG_NAME="), "{said}");
+        let named = answered_with(&repo, CHECK, &["CARGO_PKG_NAME".to_string()]).await;
+        assert!(named.contains("CARGO_PKG_NAME=carry"), "{named}");
     }
 
     #[tokio::test]
@@ -185,7 +204,7 @@ mod tests {
             assert!(held.stop(1, ()).is_none(), "what runs it is told to stop");
         };
         let place = repo.place(WORK);
-        let (answer, ()) = tokio::join!(answer(&repo.project, &place, CHECK, &mut stop), withdrawing);
+        let (answer, ()) = tokio::join!(answer(&repo.project, &[], &place, CHECK, &mut stop), withdrawing);
         assert!(matches!(answer, Answer::Withdrawn));
         assert!(began.elapsed() < Duration::from_secs(20), "the command was stopped");
     }

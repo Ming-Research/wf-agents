@@ -328,6 +328,28 @@ mod tests {
         String::from_utf8_lossy(&shown.stdout).trim().parse().expect("a group")
     }
 
+    #[tokio::test]
+    async fn a_program_that_does_not_end_within_its_limit_is_given_up_and_killed() {
+        let dir = tempfile::tempdir().unwrap();
+        let pid = dir.path().join("pid");
+        let mut command = Command::new("sh");
+        command.args(["-c", &format!("echo $$ > '{}'; exec sleep 30", pid.display())]);
+        let began = std::time::Instant::now();
+        let given_up = output(command, Duration::from_millis(500)).await.expect_err("given up");
+        assert!(given_up.contains("did not end within"), "{given_up}");
+        assert!(began.elapsed() < Duration::from_secs(10));
+        let pid: u32 = std::fs::read_to_string(&pid).unwrap().trim().parse().unwrap();
+        let gone = std::time::Instant::now();
+        while alive_process(pid).await {
+            assert!(gone.elapsed() < Duration::from_secs(10), "the program was not killed");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let mut quick = Command::new("sh");
+        quick.args(["-c", "echo done"]);
+        let ended = output(quick, Duration::from_secs(10)).await.expect("it ends");
+        assert_eq!(String::from_utf8_lossy(&ended.stdout), "done\n");
+    }
+
     #[test]
     fn the_tail_begins_at_a_whole_character() {
         let mut output = vec![b'a'; TAIL - 1];
