@@ -624,3 +624,27 @@ fn a_work_that_ended_and_could_not_let_go_of_what_it_held_rests_for_a_person() {
         }]
     );
 }
+
+#[test]
+fn a_work_the_engine_paused_while_it_waits_for_a_tool_rests_for_a_person_from_the_pause() {
+    let mut h = H::new();
+    let (_, w) = h.add(new_item("a", &[], "plain"));
+    h.let_on(w);
+    h.returns(w, Came::Asks(vec![tool("ci")]));
+    let mark = since(&h, None).mark;
+    h.on(
+        w,
+        Event::Paused {
+            by: Pauser::Engine,
+            why: Some("it spent more than it may".to_string()),
+        },
+    );
+    assert!(matches!(h.decision(w), Decision::Wait { .. }), "{:?}", h.decision(w));
+    assert_eq!(
+        since(&h, Some(&mark)).lines,
+        vec![Line {
+            heed: Heed::ForAPerson { work: w },
+            since: Time(h.clock),
+        }]
+    );
+}

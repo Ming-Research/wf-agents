@@ -207,6 +207,12 @@ impl Driver {
     }
 }
 
+/// Whether what the work rests for is the engine's pause, with its reason, rather than what its decision says it waits
+/// for: as when it ended and could not let go of what it held, or waits for what the engine will give.
+pub fn rests_for_the_engines_pause(kept: &Kept<'_>) -> bool {
+    matches!(Standing::of(kept, &kept.work.records), Standing::PausedByEngine { .. })
+}
+
 /// How a work stands, as far as the planner is concerned, and what tells one such standing from the next of the same
 /// kind.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -259,6 +265,10 @@ impl Standing {
                 let person: Vec<Waited> = on.iter().filter(|waited| for_a_person(waited)).cloned().collect();
                 if !person.is_empty() {
                     Standing::Asked { at, on: person }
+                } else if let Some(pause) = decide::pause(records).filter(|pause| pause.by == Pauser::Engine) {
+                    // What it waits for may come, but the engine's pause holds it once it does, until the owner lets it
+                    // on: it rests for a person from the pause, not from when the wait ends.
+                    Standing::PausedByEngine { at: pause.at }
                 } else if on.iter().all(on_items) {
                     Standing::Items { at }
                 } else {

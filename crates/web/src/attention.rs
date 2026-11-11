@@ -16,7 +16,6 @@ use axum::extract::rejection::QueryRejection;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
-use decide::Decision;
 use driver::Driver;
 use driver::attention::{self as of, Heed, Mark};
 use serde::{Deserialize, Serialize};
@@ -118,10 +117,11 @@ impl Attention {
                 item: kept.item.number.0,
                 title: kept.item.title.clone(),
             };
-            let now = match &view.decision {
-                // A work that ended rests for a person only by the engine's pause, which says why.
-                Decision::Ended(_) if person => Now::paused(kept.work)?,
-                decision => Now::of(kept, decision, outage.as_ref())?,
+            // A work resting for the engine's pause is shown by the pause, which says why, whatever else it waits for.
+            let now = if person && of::rests_for_the_engines_pause(&kept) {
+                Now::paused(kept.work)?
+            } else {
+                Now::of(kept, &view.decision, outage.as_ref())?
             };
             Ok((of, now))
         };
