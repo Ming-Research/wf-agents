@@ -42,6 +42,9 @@ export type Shown = {
   asks: number;
   /// The questions that wait for the owner's answer and do not stop its work yet (mock: `mock.ts`).
   questions: number;
+  /// It is a deliverable: an item that says what is to be delivered and is made of the items under it, with no work
+  /// of its own to show. Its flow says so (`deliver`); until the engine has that flow, the page's rule above does.
+  deliver: boolean;
   /// How many items it depends on are not merged yet.
   blocked: number;
   /// New to the owner, or changed since they last read it (mock: `mock.ts`).
@@ -138,6 +141,7 @@ export function shownTree(data: Items): Shown[] {
       standing: standing(id),
       asks: w === undefined ? 0 : asksOf(w.now),
       questions: mock?.openQuestions ?? 0,
+      deliver: deliverable || w?.flow === 'deliver',
       blocked: (i?.dependsOn ?? []).filter((d) => byId.has(d) && standing(d) !== 'done').length,
       // New to the owner exactly when something is unread: one fact, not two.
       unseen: (mock?.unread ?? 0) > 0,
@@ -145,7 +149,7 @@ export function shownTree(data: Items): Shown[] {
       begun: w !== undefined && started(w),
       shadow: false,
       work:
-        w !== undefined && drawn(w) && !deliverable
+        w !== undefined && drawn(w) && !deliverable && w.flow !== 'deliver'
           ? {
               number: w.number,
               now: w.now,
@@ -178,6 +182,7 @@ export function shownTree(data: Items): Shown[] {
     standing: standing(id),
     asks: 0,
     questions: 0,
+    deliver: false,
     blocked: 0,
     unseen: false,
     unread: 0,

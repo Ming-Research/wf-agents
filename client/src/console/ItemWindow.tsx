@@ -798,7 +798,10 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
   ];
   const targets = cells.map((t) => ({
     ...t,
-    block: blocks.find((b) => b.readBy.cells.includes(t.cell)),
+    // The block that is the owner's words to this cell alone: one people write that this cell reads and no other cell
+    // does. A block several cells read, such as the background, is no message to one of them and is never written
+    // from here.
+    block: blocks.find((b) => b.readBy.cells.length === 1 && b.readBy.cells[0] === t.cell),
     off: t.cell === 'D1' && !went(work, 'D1'),
   }));
   const usable = targets.filter((t) => t.block !== undefined && !t.off);

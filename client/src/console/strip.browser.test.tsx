@@ -34,6 +34,7 @@ const working = (id: number, cells: CellNow[]): Shown => ({
   standing: 'open',
   asks: 0,
   questions: 0,
+  deliver: false,
   blocked: 0,
   unseen: false,
   unread: 0,

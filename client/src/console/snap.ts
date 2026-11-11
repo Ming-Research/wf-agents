@@ -726,8 +726,10 @@ export class SnapScene {
     // edge of its grey and no fill, so that the filled ones stand out among them.
     const state = mood !== null ? WORK()[mood] : null;
     const filled = state !== null && (mood === 'owner' || mood === 'halted' || mood === 'running');
+    // A deliverable is no card of work: it lies flat on the ground, in the ground's own colour, with its edge alone
+    // around it, so that the white cards of the items that are worked on stand out from it.
     view.addChild(
-      card.fill(filled ? mix(PALETTE.card, state, FILL) : PALETTE.card).stroke({
+      card.fill(filled ? mix(PALETTE.card, state, FILL) : item.deliver ? PALETTE.page : PALETTE.card).stroke({
         color:
           state !== null ? mix(PALETTE.card, state, EDGE_TINT) : this.lit[k] === 1 ? PALETTE.branch : PALETTE.edge,
         width: EDGE_WIDTH,
