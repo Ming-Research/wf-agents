@@ -53,7 +53,7 @@ async fn an_item_is_added_with_its_work_paused_and_what_it_depends_on() {
                 "kind": "precondition",
                 "test": "ready",
                 "words": "Every item this one depends on has merged",
-                "who": "owner",
+                "by": [{ "kind": "outside", "source": "dependencies" }],
             }],
         })
     );

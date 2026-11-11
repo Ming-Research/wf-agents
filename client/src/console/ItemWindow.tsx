@@ -15,16 +15,36 @@
 import { Fragment, type ReactNode, useState } from 'react';
 
 import { Button, Panel, PanelPart } from '../parts';
-import type { Act, Item, Summary, Waited, WorkPage } from '../works-api';
+import type { Act, Item, Maker, Summary, Waited, WorkPage } from '../works-api';
 import { StateLegend, Strip } from '../works/marks';
-import { type ItemStanding, standingOf } from './items';
+import { type ItemStanding, standingOf, whoGives } from './items';
 import { age, dollars, type Mood, moodOf } from './snap';
 
 const ago = (at: number) => age(Date.now() - at).label;
 
 /// The words for who gives what a work waits for.
 const WHO = { owner: 'you', architect: 'the architect' } as const;
-const whom = (w: Waited): string => (w.kind === 'limit' ? WHO.owner : w.who === null ? 'the engine' : WHO[w.who]);
+
+/// Who gives what a work waits for, in words: the person a call names or the engine, you for a run let on at its
+/// limit, and for a precondition each who the engine says can make it hold.
+function whom(w: Waited, page: WorkPage | null): string {
+  switch (w.kind) {
+    case 'limit':
+      return WHO.owner;
+    case 'precondition':
+      return makersWords(w.by, page);
+    case 'call':
+      return w.who === null ? 'the engine' : WHO[w.who];
+  }
+}
+
+/// The words for each who can make a precondition hold, joined: you, a source outside the work, or a cell by its title.
+function makersWords(by: Maker[], page: WorkPage | null): string {
+  const words = by.map((m) =>
+    m.kind === 'owner' ? WHO.owner : m.kind === 'outside' ? `the outside (${m.source})` : titleOf(page, m.cell),
+  );
+  return words.join(' or ');
+}
 
 /// What a work's state is to the panel, as its card colours it.
 const MOOD_WORDS: Record<Mood, string> = {
@@ -56,17 +76,19 @@ export function waitedWords(w: Waited, page: WorkPage | null, at: string): strin
     case 'call':
       switch (w.what.kind) {
         case 'question':
-          return `${capital(whom(w))} to answer: ${w.what.question}`;
+          return `${capital(whom(w, page))} to answer: ${w.what.question}`;
         case 'tool':
           return `The engine to run ${w.what.name}`;
         case 'atLimit':
           return w.what.limit.of === 'returns'
-            ? `${capital(whom(w))} to let the run go on after ${w.what.limit.sentBack} returns sent back`
-            : `${capital(whom(w))} to let the run go on after ${w.what.limit.made} calls`;
+            ? `${capital(whom(w, page))} to let the run go on after ${w.what.limit.sentBack} returns sent back`
+            : `${capital(whom(w, page))} to let the run go on after ${w.what.limit.made} calls`;
       }
       return '';
-    case 'precondition':
-      return `${w.words}, which ${whom(w)} make${w.who === 'owner' ? '' : 's'} hold`;
+    case 'precondition': {
+      const one = w.by.length === 1 && w.by[0].kind !== 'owner';
+      return `${w.words}, which ${whom(w, page)} make${one ? 's' : ''} hold`;
+    }
     case 'limit':
       return `You to let ${titleOf(page, at)} run again after ${w.runs} runs in a row for what a cell after it wrote`;
   }
@@ -84,7 +106,7 @@ export function nowWords(s: Summary, page: WorkPage | null): { word: string; fac
     case 'next':
       return { word: MOOD_WORDS.running, facts: `next ${titleOf(page, now.cell)}` };
     case 'waits': {
-      const who = [...new Set(now.on.map(whom))];
+      const who = [...new Set(now.on.map((w) => whom(w, page)))];
       return { word: `Waiting for ${who.join(' and ')}`, facts: `at ${titleOf(page, now.at)}` };
     }
     case 'paused':
@@ -284,7 +306,7 @@ function Waits({ on, page, at }: { on: Waited[]; page: WorkPage | null; at: stri
     <PanelPart label={`Waits at ${titleOf(page, at)}`} count={on.length}>
       <ul>
         {on.map((x, i) => (
-          <li key={i} className={x.kind === 'limit' || x.who === 'owner' ? 'cw-wait cw-wait-owner' : 'cw-wait'}>
+          <li key={i} className={whoGives(x) === 'owner' ? 'cw-wait cw-wait-owner' : 'cw-wait'}>
             {waitedWords(x, page, at)}
           </li>
         ))}

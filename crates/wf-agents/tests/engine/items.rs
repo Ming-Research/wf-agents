@@ -89,8 +89,9 @@ fn a_work_is_paused_written_let_go_and_cancelled_from_the_command_line() {
         ]),
         "Added item 2 with its work 2, paused: let it on with `wf-agents resume 2`.\n"
     );
-    // A precondition holds the work before its cell whether or not it is paused.
-    let waits = "waits at plan for the owner: Every item this one depends on has merged";
+    // A precondition holds the work before its cell whether or not it is paused, and the items it depends on, not the
+    // owner, can make it hold.
+    let waits = "waits at plan for the outside (dependencies): Every item this one depends on has merged";
     let list = engine.says(&["list"]);
     assert!(
         list.ends_with(&format!("Item 2 \"Say goodbye\", work 2 on trial, after 1: {waits}\n")),

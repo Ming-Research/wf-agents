@@ -1,6 +1,6 @@
 //! A small work taken through the loop: what the engine gives to be done at each thing that happens.
 
-use decide::{Cause, Decision, Outsider, Waited, Who, decide};
+use decide::{Cause, Decision, Maker, Outsider, Waited, decide};
 use engine::{Came, Effect, Event, Given, Handed, Spent, Time, Work, handle, pending};
 use flow::{Compiled, Has, Source, compile};
 
@@ -140,7 +140,7 @@ fn a_work_goes_from_cell_to_cell_as_each_hands_in_and_rests_at_the_merge_for_the
     assert_eq!(pending(&work), vec![]);
     let word = Waited::Precondition {
         test: "may_merge".into(),
-        who: Who::Owner,
+        by: vec![Maker::Owner],
     };
     let rests = Decision::Wait {
         at: "merge".into(),

@@ -615,7 +615,7 @@ function long(start: number): Built {
   const page = h.page(41, 141, 'Show the cost of each round on the works page', {
     kind: 'waits',
     at: 'merge',
-    on: [{ kind: 'precondition', test: 'approved', words: 'The owner approved the merge', who: 'owner' }],
+    on: [{ kind: 'precondition', test: 'approved', words: 'The owner approved the merge', by: [{ kind: 'owner' }] }],
   });
   return { page, history: h };
 }

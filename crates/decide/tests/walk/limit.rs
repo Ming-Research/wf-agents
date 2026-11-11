@@ -170,7 +170,10 @@ fn an_abandoned_run_is_not_counted_toward_the_limit() {
 #[test]
 fn a_limit_of_zero_is_refused() {
     let cells = vec![with_limit(0, cell("a", &[], &[])), gate()];
-    assert_eq!(Flow::new(cells, BTreeMap::new()), Err(FlowFault::NoLimit("a".into())));
+    assert_eq!(
+        Flow::new(cells, BTreeMap::new(), BTreeMap::new()),
+        Err(FlowFault::NoLimit("a".into()))
+    );
 }
 
 #[test]

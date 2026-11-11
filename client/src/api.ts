@@ -120,7 +120,7 @@ export type What =
   | { kind: 'standingWrittenByTwo'; test: string; block: string; cell: string }
   | {
       kind: 'flowRefused';
-      reason: 'empty' | 'twice' | 'conditionOnOwnOutput' | 'lastHasCondition' | 'noLimit' | 'noSuchTest';
+      reason: 'empty' | 'twice' | 'conditionOnOwnOutput' | 'lastHasCondition' | 'noLimit' | 'noSuchTest' | 'unwritten';
       cell: string | null;
     };
 

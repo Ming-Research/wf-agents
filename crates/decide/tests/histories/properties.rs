@@ -6,8 +6,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use decide::{
-    Abandoning, BlockId, Cause, Decision, End, Flow, Pause, Pauser, Records, RunId, Seq, Started, TestKind, Waited,
-    decide,
+    Abandoning, BlockId, Cause, Decision, End, Flow, Maker, Pause, Pauser, Records, RunId, Seq, Started, TestKind,
+    Waited, decide,
 };
 
 use crate::reading::{Reading, Reason, Writer};
@@ -21,6 +21,7 @@ pub const REASONS: &str = "a run starts for exactly what changed";
 pub const SETTLED: &str = "the merge rests on what is current and settled";
 pub const REST: &str = "a run at rest goes on only while nothing it started from has changed";
 pub const HELD: &str = "a work is held only by a precondition that does not hold";
+pub const MAKERS: &str = "a precondition's wait names only those who write a block keeping it from holding";
 
 /// What the histories reached, each of which some history must reach: a property about a situation no history
 /// reaches checks nothing.
@@ -46,6 +47,7 @@ pub const REACHED: &[&str] = &[
     MERGE_ROUNDS,
     ABANDONS,
     GOING_ON,
+    MAKERS_CHECKED,
     STANDING_NO_HOLDS,
     PERSON_NO_HOLDS,
     SKIPPED_NO_PASSES,
@@ -78,6 +80,7 @@ const OWN_WRITE_KNOWN: &str = "a run starts of a cell whose record wrote one of 
 const MERGE_ROUNDS: &str = "a round of the merge begins";
 const ABANDONS: &str = "a run is abandoned";
 const GOING_ON: &str = "a run at rest goes on";
+const MAKERS_CHECKED: &str = "a work waits on a precondition";
 const STANDING_NO_HOLDS: &str = "the merge waits on a judge's no while the judge is not skipped";
 const PERSON_NO_HOLDS: &str = "the merge waits on a person's no";
 const SKIPPED_NO_PASSES: &str = "a round of the merge begins over the no of a judge that is skipped";
@@ -444,7 +447,10 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, p
             for o in on {
                 match o {
                     Waited::Limit { runs } => limit(v, flow, reading, at, *runs),
-                    Waited::Precondition { test, .. } => held(v, flow, reading, i, test),
+                    Waited::Precondition { test, by } => {
+                        held(v, flow, reading, i, test);
+                        made_by(v, flow, reading, at, test, by);
+                    }
                     Waited::Call { .. } => {}
                 }
             }
@@ -497,6 +503,51 @@ fn held(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, test: &decide
         } else {
             v.count(STANDING_NO_HOLDS);
         }
+    }
+}
+
+/// A further property, of who a precondition waits for (principle decide-purely: a wait says who can give it; entry
+/// conditions-and-preconditions): a work waits on a precondition for someone, each named once, and each it names writes,
+/// by the flow, a block the test reads that keeps it from holding by the histories' own reading: one without the value
+/// for a test that every block has it, any for a test that one has it, and one with the value for the others.
+fn made_by(
+    v: &mut Verdict,
+    flow: &Flow,
+    reading: &Reading,
+    at: &decide::CellId,
+    test: &decide::TestName,
+    by: &[Maker],
+) {
+    v.count(MAKERS_CHECKED);
+    let named = &flow.tests()[test];
+    let has = |b: &BlockId| {
+        reading
+            .current(b)
+            .is_some_and(|x| x.value.as_deref() == Some(named.is.as_str()))
+    };
+    let holding: Vec<&BlockId> = (named.reads.iter())
+        .filter(|b| match named.kind {
+            TestKind::All => !has(b),
+            TestKind::Any => true,
+            TestKind::None | TestKind::NoneStanding => has(b),
+        })
+        .collect();
+    let writes = |m: &Maker, b: &BlockId| {
+        let outsiders = flow.outsiders(b);
+        match m {
+            Maker::Owner => outsiders.is_some_and(|o| o.people),
+            Maker::Outside { source } => outsiders.is_some_and(|o| o.outside.as_ref() == Some(source)),
+            Maker::Cell { cell } => flow.writers(b).any(|c| &c.id == cell),
+        }
+    };
+    let once = by.windows(2).all(|w| w[0] < w[1]);
+    if by.is_empty() || !once || !by.iter().all(|m| holding.iter().any(|b| writes(m, b))) {
+        v.fail(
+            MAKERS,
+            format!(
+                "the work waits at {at} on {test} for {by:?}, though the blocks keeping it from holding are {holding:?}"
+            ),
+        );
     }
 }
 

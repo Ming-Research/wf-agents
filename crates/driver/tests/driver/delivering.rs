@@ -36,7 +36,7 @@ fn waits_to_be_delivered() -> Decision {
         at: "V1".into(),
         on: vec![Waited::Precondition {
             test: "all_delivered".into(),
-            who: Who::Owner,
+            by: vec![dependencies()],
         }],
     }
 }
@@ -98,7 +98,8 @@ fn an_engineers_item_that_depends_on_a_deliverable_starts_only_once_the_delivera
         at: "S1".into(),
         on: vec![Waited::Precondition {
             test: "may_start".into(),
-            who: Who::Owner,
+            // The engineer's item waits for the items it depends on to merge, not for the owner.
+            by: vec![dependencies()],
         }],
     };
     assert_eq!(h.decision(we), waits_to_start);

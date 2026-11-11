@@ -61,13 +61,17 @@ fn a_deliverable_made_of_an_engineers_item_is_delivered_once_it_merges_and_lets_
     let list = engine.says(&["list"]);
     assert!(
         list.contains(
-            "\nItem 2 \"Deliver it\", work 2 on deliver, after 1: waits at V1 for the owner: The items it is made of are \
-             merged\n"
+            "\nItem 2 \"Deliver it\", work 2 on deliver, after 1: waits at V1 for the outside (dependencies): The items \
+             it is made of are merged\n"
         ),
         "{list}"
     );
+    // The items it depends on merging, not the owner, let it start.
     assert!(
-        list.contains("\nItem 3 \"Build on it\", work 3 on engineer, after 2: waits at S1 for the owner: "),
+        list.contains(
+            "\nItem 3 \"Build on it\", work 3 on engineer, after 2: waits at S1 for the outside (dependencies): The \
+             items it depends on are merged\n"
+        ),
         "{list}"
     );
 

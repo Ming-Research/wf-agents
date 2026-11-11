@@ -10,6 +10,7 @@ import type {
   CellState,
   Given,
   Limit,
+  Maker,
   Now,
   Pauser,
   Person,
@@ -97,6 +98,18 @@ export function personWords(person: Person): string {
   return `the ${person}`;
 }
 
+/// Who can make a precondition hold.
+export function makerWords(maker: Maker): string {
+  switch (maker.kind) {
+    case 'owner':
+      return 'the owner';
+    case 'outside':
+      return `the outside (${maker.source})`;
+    case 'cell':
+      return `cell ${maker.cell}`;
+  }
+}
+
 /// A limit a run reached.
 export function limitWords(limit: Limit): string {
   return limit.of === 'returns' ? `${plural(limit.sentBack, 'return')} sent back` : `${plural(limit.made, 'call')} made`;
@@ -125,7 +138,7 @@ export function waitsForOwner(waited: Waited): boolean {
     case 'call':
       return waited.who === 'owner' || waited.what.kind === 'atLimit';
     case 'precondition':
-      return waited.who === 'owner';
+      return waited.by.some((m) => m.kind === 'owner');
     case 'limit':
       return true;
   }
@@ -141,7 +154,7 @@ export function waitedWords(waited: Waited): string {
       return `the result of the tool ${what.name}${waited.who ? ` from ${personWords(waited.who)}` : ''}`;
     }
     case 'precondition':
-      return `${waited.words}, which ${personWords(waited.who)} can make hold`;
+      return `${waited.words}, which ${waited.by.map(makerWords).join(' or ')} can make hold`;
     case 'limit':
       return `the owner to let the cell go on: ${
         waited.runs === 1 ? 'its last run was a way round' : `its last ${waited.runs} runs in a row were each a way round`

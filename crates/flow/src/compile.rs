@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use decide::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Test, TestKind, TestName};
+use decide::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Outsiders, Test, TestKind, TestName};
 
 use crate::source::{BlockFile, CellFile, FLOW_FILE, FlowFile, Kind, Source, When, WhenIs, WhenTest};
 
@@ -246,11 +246,18 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
             (TestName(name.clone()), test)
         })
         .collect();
-    let flow = Flow::new(cells, tests).map_err(|f| vec![fault(FLOW_FILE, "order", FaultKind::Flow(f))])?;
-    let notes = (flow_file.blocks.iter())
-        .filter(|(_, b)| b.note)
-        .map(|(name, _)| BlockId(name.clone()));
-    let flow = flow.with_notes(notes);
+    let outsiders = (flow_file.blocks.iter())
+        .filter(|(_, b)| b.people || b.outside.is_some())
+        .map(|(name, b)| {
+            let outsiders = Outsiders {
+                people: b.people,
+                note: b.note,
+                outside: b.outside.clone(),
+            };
+            (BlockId(name.clone()), outsiders)
+        })
+        .collect();
+    let flow = Flow::new(cells, tests, outsiders).map_err(|f| vec![fault(FLOW_FILE, "order", FaultKind::Flow(f))])?;
     Ok(Compiled {
         name: flow_file.name.clone(),
         flow,
