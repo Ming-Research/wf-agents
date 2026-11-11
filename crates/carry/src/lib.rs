@@ -12,6 +12,7 @@
 //! - [`read`]: the tool `read`, the blocks of a work as an agent reads them.
 //! - [`returns`]: the one form of every agent's return, and what came back read from it.
 //! - [`cli`]: the command line of a round, and what it printed read into what came back and what it took.
+//! - [`permissions`]: what the agents of a line may run, and what they are told of it.
 //! - `agents`: the agents' rounds, run with the command line, a few at a time.
 //! - `kept`: what each round of an agent was told and returned, where it is kept and how it is read back.
 //! - `tools`: the tools, `read`, `check` and `check_before`.
@@ -26,6 +27,7 @@ mod held;
 mod host;
 mod kept;
 pub mod message;
+pub mod permissions;
 mod process;
 pub mod read;
 pub mod returns;

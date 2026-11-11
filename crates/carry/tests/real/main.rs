@@ -11,6 +11,7 @@ mod delivering;
 mod failing;
 mod going;
 mod left;
+mod permissions;
 mod stopping;
 
 use std::collections::BTreeSet;
@@ -253,6 +254,7 @@ impl Real {
                 env: Vec::new(),
                 setting_sources: "user".to_string(),
                 config_dir: None,
+                permissions: Default::default(),
                 owner_language: "Chinese".to_string(),
                 work_budget_usd: budget,
             },

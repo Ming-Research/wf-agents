@@ -77,6 +77,11 @@ pub enum CellChange {
         before: Option<String>,
         after: Option<String>,
     },
+    /// Whether the agents of the cell's line only read, as its line says.
+    ReadsOnly {
+        before: bool,
+        after: bool,
+    },
     /// What an agent cell's agent is told to do; none for an engine cell.
     Task {
         before: Option<String>,
@@ -339,6 +344,12 @@ fn cell_changes(before: &Placed, after: &Placed, flow_limits: &[(Limit, u32, u32
         changes.push(CellChange::Line {
             before: b.line.clone(),
             after: a.line.clone(),
+        });
+    }
+    if b.reads_only != a.reads_only {
+        changes.push(CellChange::ReadsOnly {
+            before: b.reads_only,
+            after: a.reads_only,
         });
     }
     if b.task != a.task {

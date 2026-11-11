@@ -80,6 +80,35 @@ fn a_cell_s_title_kind_line_task_and_act_are_each_a_change_with_both_values() {
 }
 
 #[test]
+fn a_line_that_comes_to_only_read_is_a_change_of_each_cell_on_it() {
+    let after = edit(
+        valid(),
+        FLOW_FILE,
+        "[lines.review]",
+        "[lines.review]\nreads_only = true",
+    );
+    let only_reads = CellChange::ReadsOnly {
+        before: false,
+        after: true,
+    };
+    assert_eq!(from_valid(&after), [of("judge", only_reads)]);
+    // A cell moved to a line that writes from one that only reads is a change of its line and of what it may do.
+    let moved = edit(after.clone(), "judge.toml", "line = \"review\"", "line = \"engineer\"");
+    let line = CellChange::Line {
+        before: Some("review".to_string()),
+        after: Some("engineer".to_string()),
+    };
+    let writes = CellChange::ReadsOnly {
+        before: true,
+        after: false,
+    };
+    assert_eq!(
+        flow::compare(&compiled(&after), &compiled(&moved)),
+        [of("judge", line), of("judge", writes)]
+    );
+}
+
+#[test]
 fn a_task_reworded_and_an_act_renamed_are_each_a_change_of_their_cell() {
     let after = edit(
         valid(),

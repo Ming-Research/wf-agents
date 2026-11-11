@@ -57,6 +57,8 @@ pub struct CellSpec {
     pub kind: Kind,
     /// The line whose session an agent cell runs in; an engine cell has none.
     pub line: Option<String>,
+    /// The agents of the cell's line only read, as the line says; an engine cell's do not.
+    pub reads_only: bool,
     /// What an agent cell's agent is told to do; an engine cell has none.
     pub task: Option<String>,
     /// The act of the engine's own that carries out an engine cell; an agent cell has none.
@@ -697,6 +699,8 @@ impl<'a> Definition<'a> {
             title: file.title.clone(),
             kind: file.kind,
             line: file.line.clone(),
+            reads_only: (file.line.as_ref())
+                .is_some_and(|line| self.flow.lines.get(line).is_some_and(|l| l.reads_only)),
             task: file.task.clone(),
             act: file.act.clone(),
             must_write: file.must_write.iter().map(|b| BlockId(b.clone())).collect(),

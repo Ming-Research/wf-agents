@@ -28,8 +28,17 @@ model = "claude-haiku-5-5"
 slots = 2
 # What the program is given on every round after what the engine gives it.
 args = ["--permission-mode", "acceptEdits", "--tools", "Bash,Read,Edit,Write,Grep,Glob", "--strict-mcp-config", "--disable-slash-commands"]
+# The engine refuses every agent its heavy commands (builds, test suites, git push and the like) and lets an agent that
+# writes update a lock file with Cargo's and npm's commands that build nothing. Here the installation adds what its
+# toolchain counts as heavy, its own lock commands, which an agent that writes may run though a heavy command covers
+# them, and the uses of those that are refused all the same (`*` for any text). A lock command that a heavy command
+# falls under or that pushes, and a `*` or a parenthesis in a heavy or lock command, are refused. In `args`,
+# `--settings`, `--setting-sources`, `--permission-prompt-tool`, `--` and a last flag not known to take no value are
+# refused, since they would undo the engine's rules or take its own arguments after them.
+# permissions = { heavy = ["uv"], locks = ["uv lock"], locks_except = ["uv lock *--script*"] }
 # Which settings files the program reads, given as --setting-sources on every round. Left out, it is `user`, so that a
-# settings file the worktree holds, which an agent may write, is not read.
+# settings file the worktree holds, which an agent may write, is not read; `project` and `local`, which are such files,
+# are refused.
 # setting_sources = "user"
 # The program is given only these variables of the engine's environment: PATH, HOME, USER, LANG and LC_*, TMPDIR, TERM
 # and SHELL, and those named here, such as an API key.

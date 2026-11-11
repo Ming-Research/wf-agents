@@ -203,6 +203,8 @@ export function changeWords(change: Change): ChangeWords {
       return { what: 'Run by', before: kindWords(c.before), after: kindWords(c.after) };
     case 'line':
       return { what: 'Line', before: c.before ?? 'none', after: c.after ?? 'none' };
+    case 'readsOnly':
+      return { what: 'Only reads', before: yesNo(c.before), after: yesNo(c.after) };
     case 'task':
       return { what: 'Task', before: c.before ?? 'none', after: c.after ?? 'none' };
     case 'act':
