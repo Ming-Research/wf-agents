@@ -293,7 +293,8 @@ fn a_work_left_idle_by_the_merge_of_one_item_it_waited_for_is_a_line_since_that_
     h.let_on(ww);
     let mark = since(&h, None).mark;
     h.through(wa);
-    let merged = Time(h.clock);
+    // The merge is the call before the last: the last let go of what the merged work held.
+    let merged = Time(h.clock - 1000);
     assert_eq!(
         since(&h, Some(&mark)).lines,
         vec![
@@ -329,7 +330,8 @@ fn a_work_left_idle_by_the_merge_of_one_item_it_waited_for_is_a_line_when_the_ot
     h.let_on(ww);
     let mark = since(&h, None).mark;
     h.through(wa);
-    let merged = Time(h.clock);
+    // The merge is the call before the last: the last let go of what the merged work held.
+    let merged = Time(h.clock - 1000);
     assert_eq!(
         since(&h, Some(&mark)).lines,
         vec![
@@ -537,6 +539,7 @@ fn a_work_waiting_for_a_precondition_the_owner_makes_hold_is_a_line() {
         kind = "agent"
         line = "main"
         task = "Write the text the request asks for."
+        effort = "high"
         inputs = ["request"]
         outputs = ["text"]
     "#;
