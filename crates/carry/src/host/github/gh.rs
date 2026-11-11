@@ -8,6 +8,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::time::Duration;
 
 use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt;
@@ -23,7 +24,13 @@ pub struct Gh {
     /// The repository, as `owner/name`.
     repository: String,
     env: Vec<(String, String)>,
+    /// How long a call may take before it is given up.
+    limit: Duration,
 }
+
+/// How long a call of `gh` may take before it is given up: GitHub answers in seconds, and a job's log of some
+/// megabytes comes in well under this.
+pub const LIMIT: Duration = Duration::from_secs(120);
 
 impl std::fmt::Debug for Gh {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -50,7 +57,15 @@ impl Gh {
             command: command.to_string(),
             repository: repository.to_string(),
             env: environment(std::env::vars(), token, config_dir),
+            limit: LIMIT,
         }
+    }
+
+    /// `gh` giving a call up after this long.
+    #[cfg(test)]
+    pub(crate) fn within(mut self, limit: Duration) -> Gh {
+        self.limit = limit;
+        self
     }
 
     /// Asks GitHub, with this body where one is given, and gives what it answered whatever its status; or why `gh`
@@ -86,8 +101,16 @@ impl Gh {
                 let _ = pipe.write_all(&bytes).await;
             });
         }
-        let output =
-            (child.wait_with_output().await).map_err(|e| format!("{} could not be waited for: {e}", self.command))?;
+        let waited = tokio::time::timeout(self.limit, child.wait_with_output()).await;
+        // Given up, the child is dropped with the wait, and killed with it.
+        let waited = waited.map_err(|_| {
+            format!(
+                "{} api {method} {path} did not end within {} seconds, and was stopped",
+                self.command,
+                self.limit.as_secs()
+            )
+        })?;
+        let output = waited.map_err(|e| format!("{} could not be waited for: {e}", self.command))?;
         let out = String::from_utf8_lossy(&output.stdout);
         match included(&out) {
             Some(answer) => Ok(answer),

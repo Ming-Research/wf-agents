@@ -243,16 +243,36 @@ async fn signal(group: u32, name: &str) {
 }
 
 /// A shell command run in a directory, its standard error written where its standard output is, so that the two
-/// come in the order they were written.
-pub(crate) fn shell(command: &str, dir: &std::path::Path) -> Command {
+/// come in the order they were written. It is given of the engine's environment only what the agents are given of it
+/// (`cli::KEPT`, every `LC_*`, and the variables named, which are the settings' `agents.env`): what it prints goes to
+/// an agent and into the records, and the engine's credentials must reach neither.
+pub(crate) fn shell(command: &str, dir: &std::path::Path, named: &[String]) -> Command {
+    let kept =
+        |name: &str| crate::cli::KEPT.contains(&name) || name.starts_with("LC_") || named.iter().any(|n| n == name);
     let mut shell = Command::new("sh");
     shell
         .arg("-c")
         .arg("exec 2>&1; eval \"$1\"")
         .arg("sh")
         .arg(command)
-        .current_dir(dir);
+        .current_dir(dir)
+        .env_clear()
+        .envs(std::env::vars().filter(|(name, _)| kept(name)));
     shell
+}
+
+/// Runs the program to its end and gives what it printed; or, where it does not end within the limit, kills it and
+/// says so: a program the engine waits for, a network call above all, must not hold the engine for ever.
+pub(crate) async fn output(mut command: Command, limit: Duration) -> Result<std::process::Output, String> {
+    let program = command.as_std().get_program().to_string_lossy().into_owned();
+    command.kill_on_drop(true);
+    match tokio::time::timeout(limit, command.output()).await {
+        Ok(output) => output.map_err(|e| format!("{program} cannot be run: {e}")),
+        Err(_) => Err(format!(
+            "{program} did not end within {} seconds, and was stopped",
+            limit.as_secs()
+        )),
+    }
 }
 
 /// The last [`TAIL`] bytes of an output, as text, beginning at a whole character.

@@ -57,9 +57,10 @@ pub fn carriers(settings: Settings, data: &Path) -> Result<Carriers, String> {
     let installation = session::installation(&data)?;
     let project = settings.project.clone();
     let tag = git::tag(&installation);
+    let settings_env = settings.agents.env.clone();
     let acts: Arc<dyn Rounds> = match &settings.github {
         None => {
-            let host = host::Local::new(project.clone());
+            let host = host::Local::new(project.clone()).giving(settings.agents.env.clone());
             Arc::new(Acts::new(host, project.clone(), data.clone(), tag.clone()))
         }
         Some(github) => {
@@ -70,6 +71,6 @@ pub fn carriers(settings: Settings, data: &Path) -> Result<Carriers, String> {
     Ok(Carriers {
         agents: Arc::new(Agents::new(settings, data.clone(), installation)),
         acts,
-        tools: Arc::new(Tools::new(project, data, tag)),
+        tools: Arc::new(Tools::new(project, settings_env, data, tag)),
     })
 }

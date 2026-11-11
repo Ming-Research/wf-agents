@@ -11,11 +11,22 @@ use crate::settings::Project;
 #[derive(Clone, Debug)]
 pub struct Local {
     project: Project,
+    /// The variables of the engine's environment the check command is given beside those always given.
+    env: Vec<String>,
 }
 
 impl Local {
     pub fn new(project: Project) -> Local {
-        Local { project }
+        Local {
+            project,
+            env: Vec::new(),
+        }
+    }
+
+    /// The host whose check command is given these variables of the engine's environment, as the agents are.
+    pub fn giving(mut self, env: Vec<String>) -> Local {
+        self.env = env;
+        self
     }
 }
 
@@ -28,7 +39,7 @@ impl Host for Local {
     async fn verdict(&self, branch: &Branch<'_>, _: &str, stop: &mut Stop) -> Result<Option<Verdict>, String> {
         let dir = git::worktree(branch.place)?;
         let check = &self.project.check;
-        let failed = match process::run(process::shell(check, &dir), None, None, stop).await? {
+        let failed = match process::run(process::shell(check, &dir, &self.env), None, None, stop).await? {
             Ran::Ended { status, stdout, .. } if !status.success() => Some(format!(
                 "The check `{check}` failed ({status}). The end of what it said:\n{}",
                 process::tail(&stdout)

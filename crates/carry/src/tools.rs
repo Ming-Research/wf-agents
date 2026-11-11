@@ -27,6 +27,8 @@ pub struct Tools {
 
 struct Inner {
     project: Project,
+    /// The variables of the engine's environment the check is given beside those always given: the agents' own.
+    env: Vec<String>,
     data: PathBuf,
     /// The installation's part of the names of the works' worktrees.
     tag: String,
@@ -40,11 +42,13 @@ enum Answer {
 }
 
 impl Tools {
-    /// The tools in this project, with this data directory, which is an absolute path, and the installation's tag.
-    pub fn new(project: Project, data: PathBuf, tag: String) -> Self {
+    /// The tools in this project, with this data directory, which is an absolute path, and the installation's tag; the
+    /// check is given these variables of the engine's environment, as the agents are.
+    pub fn new(project: Project, env: Vec<String>, data: PathBuf, tag: String) -> Self {
         Tools {
             inner: Arc::new(Inner {
                 project,
+                env,
                 data,
                 tag,
                 held: Held::new(),
@@ -66,7 +70,7 @@ impl ToolsTrait for Tools {
                 Answer::Result(read::answer(&call.flow, &call.kept, &call.input))
             } else {
                 let place = git::place(&inner.data, &inner.tag, call.work);
-                answer(&inner.project, &place, &call.name, &mut stop).await
+                answer(&inner.project, &inner.env, &place, &call.name, &mut stop).await
             };
             let result = match answered {
                 Answer::Result(result) => result,
@@ -95,13 +99,13 @@ impl Tools {
 }
 
 /// Runs the tool named, other than `read`, in the work's worktree, and gives its result.
-async fn answer(project: &Project, place: &Place, name: &str, stop: &mut Stop) -> Answer {
+async fn answer(project: &Project, env: &[String], place: &Place, name: &str, stop: &mut Stop) -> Answer {
     if name != CHECK {
         return Answer::Result(format!("No such tool: {name}. The tools are: {READ}, {CHECK}."));
     }
     let check = &project.check;
     let ran = match git::worktree(place) {
-        Ok(dir) => process::run(process::shell(check, &dir), None, None, stop).await,
+        Ok(dir) => process::run(process::shell(check, &dir, env), None, None, stop).await,
         Err(why) => Err(why),
     };
     match ran {

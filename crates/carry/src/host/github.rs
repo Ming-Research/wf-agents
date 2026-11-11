@@ -114,8 +114,10 @@ impl<A: Api> GitHub<A> {
     /// What git is given to push and fetch: no credential helper of the owner's, and, with a token, one that gives it
     /// for GitHub alone, from the command's environment.
     fn credentials(&self) -> With {
+        // A connection slower than a kilobyte a second for a minute is given up, as a stalled one.
+        let settings = ["credential.helper=", "http.lowSpeedLimit=1000", "http.lowSpeedTime=60"];
         let mut with = With {
-            settings: vec!["credential.helper=".to_string()],
+            settings: settings.map(str::to_string).to_vec(),
             env: Vec::new(),
         };
         if let Some(token) = &self.config.token {
@@ -180,7 +182,10 @@ impl<A: Api> GitHub<A> {
     async fn wait(&self, commit: &str, stop: &mut Stop) -> Result<Option<Vec<Check>>, String> {
         let began = tokio::time::Instant::now();
         loop {
-            let checks = self.api.checks(commit).await?;
+            let checks = tokio::select! {
+                checks = self.api.checks(commit) => checks?,
+                () = stop.told() => return Ok(None),
+            };
             if let Some(done) = self.judge(commit, &checks, began.elapsed())? {
                 return Ok(Some(done));
             }

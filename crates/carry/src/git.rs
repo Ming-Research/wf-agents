@@ -82,6 +82,11 @@ pub(crate) async fn said(dir: &Path, args: &[&str]) -> Result<Said, String> {
     said_with(dir, &With::default(), args).await
 }
 
+/// How long a git command may take before it is given up: a fetch or a push of a large repository over a slow
+/// connection, at the most. A connection that stalls is given up sooner, by the low-speed limit pushes and fetches
+/// are given.
+pub const LIMIT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
 /// What a git command is given beside its arguments: settings before them, as `-c` pairs, and variables of its
 /// environment beside those [`said`] keeps. Neither is said where the command fails, so that a credential given in
 /// the environment is said nowhere.
@@ -96,7 +101,8 @@ pub(crate) async fn said_with(dir: &Path, with: &With, args: &[&str]) -> Result<
     let kept =
         std::env::vars().filter(|(name, _)| crate::cli::KEPT.contains(&name.as_str()) || name.starts_with("LC_"));
     let settings = (with.settings.iter()).flat_map(|setting| ["-c", setting.as_str()]);
-    let output = Command::new("git")
+    let mut command = Command::new("git");
+    command
         .arg("-C")
         .arg(dir)
         .args(SAFE)
@@ -106,10 +112,8 @@ pub(crate) async fn said_with(dir: &Path, with: &With, args: &[&str]) -> Result<
         .envs(kept)
         .envs(with.env.iter().cloned())
         .env("GIT_TERMINAL_PROMPT", "0")
-        .stdin(std::process::Stdio::null())
-        .output()
-        .await
-        .map_err(|e| format!("git cannot be started: {e}"))?;
+        .stdin(std::process::Stdio::null());
+    let output = crate::process::output(command, LIMIT).await?;
     Ok(Said {
         ok: output.status.success(),
         code: output.status.code(),
