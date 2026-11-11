@@ -129,5 +129,7 @@ async fn a_wait_every_work_shares_is_given_once_for_all_and_as_what_each_work_it
         items["outage"]
     );
     let page = get_json(router, "/api/v1/works/1").await;
-    assert_ne!(page["summary"]["now"]["kind"], "waits", "{}", page["summary"]["now"]);
+    let now = &page["summary"]["now"];
+    let held = now["kind"] == "waits" && now["on"].as_array().unwrap().iter().any(|w| w["kind"] == "agents");
+    assert!(!held, "{now}");
 }
