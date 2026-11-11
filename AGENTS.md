@@ -2,8 +2,6 @@
 
 What an agent needs to know for this repository, beyond the rules every agent is given.
 
-- wf-agents was built anew from nothing. The engine before it is on the branch `old-main`, and nothing here depends on
-  its code: what is taken from it is read, judged and brought over, the commit saying from where.
 - [design/README.md](design/README.md) says how the design tree is read and changed, and what to read before designing
   or changing code. [design/constitution.md](design/constitution.md) decides between designs.
 - When building needs code the design does not account for, stop and tell whoever gave you the task where, and do not
