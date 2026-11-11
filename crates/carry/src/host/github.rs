@@ -185,7 +185,14 @@ impl<A: Api> GitHub<A> {
     /// does not is refused. A commit the branch is at already is pushed as nothing.
     async fn push(&self, branch: &Branch<'_>, commit: &str) -> Result<(), String> {
         let target = format!("{commit}:{}", branch.place.reference());
-        let args = ["push", "--quiet", "--no-verify", &self.config.url, &target];
+        let args = [
+            "push",
+            "--quiet",
+            "--no-verify",
+            "--recurse-submodules=no",
+            &self.config.url,
+            &target,
+        ];
         let pushed = git::said_with(&self.project.repo, &self.network().await?, &args).await?;
         if pushed.ok {
             return Ok(());
@@ -337,7 +344,14 @@ impl<A: Api> Host for GitHub<A> {
         let main = &self.project.main;
         let tracking = format!("refs/remotes/{}/{main}", self.config.remote);
         let spec = format!("+refs/heads/{main}:{tracking}");
-        let args = ["fetch", "--quiet", "--no-tags", &self.config.url, &spec];
+        let args = [
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            "--no-recurse-submodules",
+            &self.config.url,
+            &spec,
+        ];
         let fetched = git::said_with(&self.project.repo, &self.network().await?, &args).await?;
         if !fetched.ok {
             return Err(format!(
@@ -373,7 +387,8 @@ impl<A: Api> Host for GitHub<A> {
         };
         let (main, name) = (&self.project.main, &branch.place.branch);
         let pulls = self.api.pulls(name).await?;
-        if let Some(merged) = pulls.iter().find(|p| p.state == State::Merged) {
+        // Only a pull request into main can be the work's merge: one merged into another branch put nothing on main.
+        if let Some(merged) = pulls.iter().find(|p| p.state == State::Merged && p.base == *main) {
             if merged.head != checked {
                 return Err(format!(
                     "the pull request {} was merged at {}, not at {checked}, the commit the check passed",

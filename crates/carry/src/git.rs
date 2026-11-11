@@ -60,11 +60,12 @@ pub(crate) struct Said {
     pub(crate) err: String,
 }
 
-/// What every git command of the engine's is given before its own arguments: no file-system monitor, no hook and
-/// no signing, so that nothing the repository's configuration names is run by these settings. A work's worktree
-/// shares that configuration with the owner's checkout, and an agent may write it; what else of it could run a
-/// program is refused before each act ([`configuration`]).
-pub const SAFE: [&str; 8] = [
+/// What every git command of the engine's is given before its own arguments: no file-system monitor, no hook, no
+/// signing, and no going into submodules, so that nothing the repository's configuration names is run by these
+/// settings, and nothing a submodule's own configuration names, which no check of the engine's reads. A work's
+/// worktree shares that configuration with the owner's checkout, and an agent may write it; what else of it could run
+/// a program is refused before each act ([`configuration`]).
+pub const SAFE: [&str; 14] = [
     "-c",
     "core.fsmonitor=false",
     "-c",
@@ -73,6 +74,12 @@ pub const SAFE: [&str; 8] = [
     "commit.gpgSign=false",
     "-c",
     "merge.verifySignatures=false",
+    "-c",
+    "submodule.recurse=false",
+    "-c",
+    "fetch.recurseSubmodules=false",
+    "-c",
+    "push.recurseSubmodules=no",
 ];
 
 /// Runs git in the directory; says why where it cannot be started. Git is given, of the engine's environment, only
