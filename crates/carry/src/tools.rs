@@ -207,13 +207,18 @@ mod tests {
     /// The tool's answer to this input, the check being given these variables of the engine's environment.
     async fn answered_with(repo: &Repo, name: &str, input: &str, env: &[String]) -> String {
         let host = Local::new(repo.project.clone()).giving(env.to_vec());
+        answered_on(&host, repo, name, input).await
+    }
+
+    /// The tool's answer to this input on this host.
+    async fn answered_on(host: &Local, repo: &Repo, name: &str, input: &str) -> String {
         let place = repo.place(WORK);
         let branch = Branch {
             work: WORK,
             title: "Greet the user",
             place: &place,
         };
-        match answer(&host, &repo.project, &branch, name, input, &mut Stop::never()).await {
+        match answer(host, &repo.project, &branch, name, input, &mut Stop::never()).await {
             Answer::Result(result) => result,
             Answer::Withdrawn => panic!("nothing withdrew it"),
         }
@@ -357,10 +362,12 @@ mod tests {
         // Each check is still running when the others begin: had they one worktree, a later one would take it from
         // under an earlier one, whose check would then fail on a tree no longer there.
         let (repo, _) = with_tests("sleep 1; test -f test.sh").await;
+        // One host, as the tools have.
+        let host = Local::new(repo.project.clone());
         let (one, same, other) = tokio::join!(
-            answered_with(&repo, CHECK_BEFORE, "test.sh", &[]),
-            answered_with(&repo, CHECK_BEFORE, "test.sh", &[]),
-            answered_with(&repo, CHECK_BEFORE, "test.sh other.sh", &[]),
+            answered_on(&host, &repo, CHECK_BEFORE, "test.sh"),
+            answered_on(&host, &repo, CHECK_BEFORE, "test.sh"),
+            answered_on(&host, &repo, CHECK_BEFORE, "test.sh other.sh"),
         );
         for said in [&one, &same, &other] {
             assert!(
