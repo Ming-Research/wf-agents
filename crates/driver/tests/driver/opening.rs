@@ -345,7 +345,7 @@ fn a_work_whose_records_are_at_fault_is_written_nothing_and_given_nothing_while_
     fault_behind_the_back(&h.db, wb, "draft");
     h.faulty.insert(wb);
     let stored = h.reader.load(wb).expect("the work loads");
-    let todos = h.reopen();
+    let todos = h.restart();
     // Opening wrote nothing to it and gives nothing for it; it shows that its records are at fault.
     assert_eq!(rounds(&todos), [(wa, "write".to_string(), 1)]);
     assert_eq!(h.reader.load(wb).expect("the work loads"), stored);

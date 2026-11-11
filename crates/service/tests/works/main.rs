@@ -160,6 +160,15 @@ impl Trial {
         self.check();
     }
 
+    /// Stops the process and starts it again, and the owner, having looked, lifts at once the pause of everything the
+    /// engine made as it started again on works going on, where it made one.
+    pub fn restart_and_lift(&mut self) {
+        self.restart();
+        if self.held_by_its_start() {
+            self.everything(false);
+        }
+    }
+
     /// Whether the engine holds everything since it started again with works going on, until the owner lifts it.
     pub fn held_by_its_start(&self) -> bool {
         (self.service.driver().everything_paused()).is_some_and(|paused| paused.by == decide::Pauser::Engine)

@@ -307,6 +307,20 @@ impl Driver {
         if let Some(item) = items.iter().find(|item| !driver.of_item.contains_key(&item.number)) {
             return Err(Fault::NotOneWork(item.number));
         }
+        // A work going on would begin its rounds again unseen: everything is paused, and kept so, before anything is
+        // looked at, so that a stop before the looks leaves it paused all the same. Where everything is paused, by the
+        // owner or by an opening before, it is left as it is.
+        let going_on =
+            (driver.works.values()).any(|held| held.standing == Standing::Going && !decide::paused(&held.work.records));
+        if going_on && driver.paused.is_none() {
+            (driver.store)
+                .pause_everything(true, Pauser::Engine, now)
+                .map_err(Fault::Store)?;
+            driver.paused = Some(EverythingPaused {
+                since: now,
+                by: Pauser::Engine,
+            });
+        }
         // What was to be done is worked out before the works are looked at: looking adds to it.
         let mut todos = driver.pending();
         // What each work's block is to say is worked out of the works as the store gave them, before any is written

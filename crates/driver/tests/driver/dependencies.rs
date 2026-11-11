@@ -175,7 +175,7 @@ fn opened_after_a_failure_between_the_merge_being_kept_and_the_dependents_block_
         matches!(outcome, Outcome::Stopped { kept: true }),
         "the merge was not said to be kept"
     );
-    let todos = h.reopen();
+    let todos = h.restart();
     assert_eq!(h.decision(wa), Decision::Ended(End::Merged));
     assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
     assert_eq!(rounds(&h.released(todos)), [(wb, "write".to_string(), 1)]);
@@ -189,7 +189,7 @@ fn opened_after_a_stop_right_after_the_merge_was_kept_the_block_is_brought_to_ag
         matches!(outcome, Outcome::Stopped { kept: true }),
         "the merge was not said to be kept"
     );
-    let todos = h.reopen();
+    let todos = h.restart();
     assert_eq!(h.decision(wa), Decision::Ended(End::Merged));
     assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
     assert_eq!(rounds(&h.released(todos)), [(wb, "write".to_string(), 1)]);
@@ -207,7 +207,7 @@ fn a_failure_of_the_merge_itself_keeps_nothing_and_it_is_told_again() {
         matches!(outcome, Outcome::Stopped { kept: false }),
         "the failed merge was said to be kept"
     );
-    let todos = h.reopen();
+    let todos = h.restart();
     assert_eq!(rounds(&todos), [(wa, "merge".to_string(), 1)]);
     assert_eq!(h.dependencies(wb).as_deref(), Some(WAITING));
     let todos = h.hands_in(wa, &[("merged", None)]);
@@ -328,15 +328,25 @@ fn a_block_left_to_bring_to_agree_on_a_store_that_fails_as_it_is_written_stops_t
         1,
         "a failed write was kept"
     );
-    // Opened on a store that works, it ends as the same history with no failure.
-    h.reopen();
+    // Opened on a store that works, and the pause of everything it made as it opened lifted at once by the owner, it
+    // ends as the same history with no failure: each entry added at the same time, the moments that the pause put
+    // apart aside, and the pause and its lifting kept beside.
+    h.restart();
     let (straight, _, _, outcome) = merging(Plan::Never);
     assert!(matches!(outcome, Outcome::Done(_)));
     h.check();
     straight.check();
+    let by_time_alone = |mut state: State| {
+        state.works = (state.works.into_iter())
+            .map(|(head, work)| (head, by_time(&work)))
+            .collect();
+        state.file.remove("moments");
+        state.file.remove("everything_paused");
+        state
+    };
     assert_eq!(
-        h.state(),
-        straight.state(),
+        by_time_alone(h.state()),
+        by_time_alone(straight.state()),
         "opened after the failure, the driver holds otherwise"
     );
 }
@@ -371,7 +381,7 @@ fn a_store_that_fails_at_the_second_dependents_write_keeps_the_merge_and_opening
     // dependent's write was kept, and no round of either began.
     assert_eq!(h.reader.load(wb).expect("the work loads").records.started.len(), 0);
     assert_eq!(h.reader.load(wc).expect("the work loads").records.started.len(), 0);
-    let todos = h.reopen();
+    let todos = h.restart();
     assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
     assert_eq!(h.dependencies(wc).as_deref(), Some(MERGED));
     // Opened again, the driver writes the second dependent's block, and gives the free slots in its order.

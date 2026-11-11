@@ -25,7 +25,7 @@ fn asks_the_owner(h: &mut H, work: WorkNumber) -> Time {
 }
 
 #[test]
-fn a_question_for_the_owner_comes_once_since_it_was_asked_and_a_restart_changes_no_answer() {
+fn a_question_for_the_owner_comes_once_since_it_was_asked_and_a_restart_adds_only_its_pause_of_everything() {
     let mut h = H::new();
     let (_, w) = h.add(new_item("a", &[], "plain"));
     h.let_on(w);
@@ -47,8 +47,17 @@ fn a_question_for_the_owner_comes_once_since_it_was_asked_and_a_restart_changes_
         vec![],
         "what was given is given again from the mark after it"
     );
-    // A mark is a place in the records: opened again, the driver gives the same answer to each mark.
+    // Opened again on a work going on, the driver paused everything until the owner lifts it: that is given first.
     h.reopen();
+    let held = Line {
+        heed: Heed::Everything { by: Pauser::Engine },
+        since: Time(h.clock),
+    };
+    let mut lines = vec![held];
+    lines.extend(answer.lines.clone());
+    assert_eq!(since(&h, Some(&first.mark)).lines, lines);
+    // A mark is a place in the records: once the pause is lifted, the driver gives the same answer to each mark.
+    h.lift_the_starts_pause();
     assert_eq!(since(&h, Some(&first.mark)), answer);
     assert_eq!(heeds(&since(&h, Some(&answer.mark))), vec![]);
     assert_eq!(
@@ -434,7 +443,7 @@ fn a_mark_is_written_and_read_back_and_one_not_of_these_records_is_refused() {
 }
 
 /// Makes the records of the work faulty behind the driver's back, an entry at the place of its first, and opens the
-/// driver again on them.
+/// driver again on them, the owner lifting at once the pause of everything it makes as it opens.
 fn at_fault(h: &mut H, work: WorkNumber) {
     let conn = Connection::open(&h.db.path).expect("the database opens");
     let changed = conn
@@ -445,7 +454,7 @@ fn at_fault(h: &mut H, work: WorkNumber) {
         .expect("an entry is added behind the driver's back");
     assert_eq!(changed, 1);
     h.faulty.insert(work);
-    h.reopen();
+    h.restart();
     assert!(matches!(h.decision(work), Decision::Fault(_)), "{:?}", h.decision(work));
 }
 
