@@ -42,7 +42,7 @@ pub const START: u64 = 1_800_000_000_000;
 pub fn has() -> Has {
     Has {
         sources: [DEPENDENCIES.to_string()].into(),
-        acts: ["merge".to_string()].into(),
+        acts: ["merge".to_string(), "start".to_string()].into(),
     }
 }
 
@@ -961,10 +961,25 @@ impl H {
             sorted(&self.outstanding),
             "what is pending is not what was given and not yet answered"
         );
-        let slots = d.slots();
-        let taking = (d.works())
-            .filter(|kept| decide::taking_slot(&kept.flow.flow, &kept.work.records))
+        // The rounds of agents given out and not yet answered, a round to be stopped among them until it has ended,
+        // counted from what was given and not by the driver's own count; a work at fault takes none.
+        let taking = (self.outstanding.iter())
+            .filter(|todo| {
+                let Some(kept) = d.work(todo.work) else {
+                    return false;
+                };
+                let cell = match &todo.effect {
+                    Effect::Round { cell, .. } => Some(cell.clone()),
+                    Effect::Stop { run } => (kept.work.records.started.iter())
+                        .find(|s| s.run == *run)
+                        .map(|s| s.cell.clone()),
+                    _ => None,
+                };
+                let at_fault = matches!(decide::decide(&kept.flow.flow, &kept.work.records), Decision::Fault(_));
+                cell.is_some_and(|cell| !engine_cell(kept.flow, cell.as_str())) && !at_fault
+            })
             .count();
+        let slots = d.slots();
         assert_eq!(slots.taken, taking, "the driver says {} slots are taken", slots.taken);
         assert_eq!(
             slots.slots, self.slots,

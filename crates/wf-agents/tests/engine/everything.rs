@@ -31,6 +31,11 @@ fn everything_is_paused_and_let_on_again_from_the_command_line() {
              everything\n"
         )
     );
+    // A work let on under the pause of everything is said to be held back still.
+    assert_eq!(
+        engine.says(&["resume", "1"]),
+        "Work 1 is let on, and held back by the pause of everything until `wf-agents resume --all`.\n"
+    );
     assert!(engine.says(&["resume", "--all"]).starts_with("Works go on; "));
     engine.until(&["list"], |line| {
         line.starts_with("Item 1 \"Greet the user\", work 1 on trial: waits at plan")

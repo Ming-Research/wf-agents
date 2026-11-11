@@ -45,7 +45,7 @@ async fn the_pause_of_everything_holds_back_a_work_added_and_lifted_lets_it_on()
     assert_eq!(post(router, "/api/v1/items", &item("First")).await.0, StatusCode::OK);
     assert_eq!(
         get_json(router, "/api/v1/works/1").await["summary"]["now"],
-        json!({ "kind": "paused", "by": "everything", "why": null })
+        json!({ "kind": "everything" })
     );
     pass(1000).await;
     assert_eq!(

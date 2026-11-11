@@ -70,11 +70,16 @@ fn a_work_whose_round_ends_keeps_its_slot_for_the_round_it_begins_next() {
     let mut h = H::with_slots(flows(), 1);
     let (_, first) = h.add(going_item("first", &[], "plain"));
     let (_, second) = h.add(going_item("second", &[], "plain"));
-    assert_eq!(h.decision(second), waits_for_a_slot());
-    // What the writer hands in is sent back, and its next round begins at once, in the slot it held.
-    let todos = h.returns(first, hands_in(&[("merged", None)]));
-    assert_eq!(rounds(&todos), [(first, "write".to_string(), 2)]);
-    assert_eq!(h.decision(second), waits_for_a_slot());
+    // The first work's round rests at a call, and the second takes the slot; the first's tool is done, and it waits.
+    let call = asks_a_tool(&mut h, first);
+    assert_eq!(h.round(second).1, "write");
+    h.answer(first, call);
+    assert_eq!(h.d().held(first), Some(Holder::Slot));
+    // What the second hands in is sent back, and its next round begins at once in the slot it held, though a work
+    // that began before it, and comes before it by number, waits for one.
+    let todos = h.returns(second, hands_in(&[("merged", None)]));
+    assert_eq!(rounds(&todos), [(second, "write".to_string(), 2)]);
+    assert_eq!(h.d().held(first), Some(Holder::Slot));
 }
 
 #[test]
@@ -105,6 +110,112 @@ fn a_slot_that_comes_free_goes_to_a_work_that_has_begun_before_one_that_has_not(
         "the merge, an act of the engine's own, takes no slot"
     );
     assert_eq!(h.decision(two), waits_for_a_slot());
+}
+
+/// A flow whose first cell is the engine's own act, which takes no slot: it makes the place the writer, an agent,
+/// writes in, once the items the work's item depends on have merged; then the merge.
+fn started() -> flow::Compiled {
+    let flow = r#"
+        name = "started"
+        order = ["start", "write", "merge"]
+        [limits]
+        runs = 2
+        returns = 2
+        calls = 3
+        [lines.main]
+        [blocks.request]
+        people = true
+        [blocks.place]
+        [blocks.text]
+        [blocks.merged]
+        shown = true
+        [blocks.deps]
+        values = ["waiting", "merged"]
+        outside = "dependencies"
+        [tests.ready]
+        says = "Every item this one depends on has merged"
+        kind = "all"
+        reads = ["deps"]
+        is = "merged"
+    "#;
+    let start = r#"
+        title = "Start"
+        kind = "engine"
+        act = "start"
+        requires = ["ready"]
+        outputs = ["place"]
+    "#;
+    let write = r#"
+        title = "Write"
+        kind = "agent"
+        line = "main"
+        task = "Write the text the request asks for."
+        inputs = ["place", "request"]
+        outputs = ["text"]
+    "#;
+    let merge = r#"
+        title = "Merge"
+        kind = "engine"
+        act = "merge"
+        inputs = ["text"]
+        outputs = ["merged"]
+    "#;
+    compiled(flow, &[("start", start), ("write", write), ("merge", merge)])
+}
+
+/// The work's act that makes its place hands it in.
+fn started_place(h: &mut H, work: WorkNumber) {
+    assert_eq!(h.round(work).1, "start");
+    h.hands_in(work, &[("place", None)]);
+}
+
+#[test]
+fn a_work_that_only_ran_the_engines_own_act_has_not_begun_and_waits_behind_one_whose_agent_did() {
+    let mut h = H::with_slots(vec![started()], 1);
+    let (_, one) = h.add(new_item("one", &[], "started"));
+    let (_, two) = h.add(going_item("two", &[], "started"));
+    started_place(&mut h, two);
+    let (_, three) = h.add(going_item("three", &[], "started"));
+    started_place(&mut h, three);
+    assert_eq!(h.d().held(three), Some(Holder::Slot));
+    let call = asks_a_tool(&mut h, two);
+    assert_eq!(h.round(three).1, "write");
+    // The first work is let on midway: its act runs at once, and it waits for a slot, with the second.
+    h.let_on(one);
+    started_place(&mut h, one);
+    h.answer(two, call);
+    assert_eq!(h.d().held(one), Some(Holder::Slot));
+    assert_eq!(h.d().held(two), Some(Holder::Slot));
+    // The slot the third frees goes to the second, whose agent began, before the first, which ran only the act.
+    let todos = h.hands_in(three, &[("text", None)]);
+    assert_eq!(
+        rounds(&todos),
+        [(three, "merge".to_string(), 1), (two, "write".to_string(), 2)]
+    );
+    assert_eq!(h.d().held(one), Some(Holder::Slot));
+}
+
+#[test]
+fn a_work_added_going_on_begins_on_what_people_write_for_it_as_it_is_added() {
+    let mut h = H::with_slots(flows(), 2);
+    let mut item = going_item("work", &[], "short");
+    item.writes = vec![first_write("request", None)];
+    let (_, work) = h.add(item);
+    let kept = h.d().work(work).expect("the work is there").work;
+    assert_eq!(
+        kept.records.abandoned,
+        [],
+        "a run was begun before the first writes were in"
+    );
+    assert_eq!(kept.records.started.len(), 1);
+    let request = kept
+        .records
+        .written
+        .iter()
+        .find(|w| w.block.as_str() == "request")
+        .expect("the request");
+    assert_eq!(kept.records.started[0].basis[&block("request")], Some(request.at));
+    assert_eq!(rounds(&h.d().pending()), [(work, "draft".to_string(), 1)]);
 }
 
 #[test]
