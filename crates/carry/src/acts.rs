@@ -309,6 +309,9 @@ fn passed(flow: &Compiled, work: &Work) -> Result<Option<String>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::git::tests::{Repo, commit, marking, run};
+    use crate::host::fake::{Asked, Fake};
+    use crate::host::{Local, Verdict};
 
     fn outputs() -> Vec<(BlockId, Option<Vec<String>>)> {
         vec![
@@ -323,7 +326,20 @@ mod tests {
             commit: "c0ffee".to_string(),
             main: "beef".to_string(),
             failed: failed.map(str::to_string),
+            by: None,
         }
+    }
+
+    #[test]
+    fn what_judged_the_work_is_said_with_what_it_was_checked_against() {
+        let mut by = checked(None);
+        by.by = Some("the CI of the pull request https://example.com/pull/7".to_string());
+        let handed = checked_in(&outputs(), &by, "main").unwrap();
+        assert_eq!(
+            handed[0].content,
+            "Checked commit c0ffee\n\nThe work's branch was checked against main at beef by the CI of the pull \
+             request https://example.com/pull/7: it passed."
+        );
     }
 
     #[test]
@@ -416,5 +432,219 @@ mod tests {
     fn a_check_with_no_choice_fails() {
         let none = vec![("opinions".into(), None)];
         assert!(checked_in(&none, &checked(None), "main").is_err());
+    }
+
+    const WORK: WorkNumber = WorkNumber(1);
+
+    /// Checks the work in the repository with the host.
+    async fn check_with(repo: &Repo, host: &impl Host, stop: &mut Stop) -> Result<Option<Checked>, String> {
+        let place = repo.place(WORK);
+        check(&repo.project, host, &place, &Mutex::new(()), stop).await
+    }
+
+    /// Checks the work in the repository with the local host, which must give a verdict.
+    async fn checked_locally(repo: &Repo) -> Checked {
+        let host = Local::new(repo.project.clone());
+        check_with(repo, &host, &mut Stop::never())
+            .await
+            .expect("the work is checked")
+            .expect("nothing stopped it")
+    }
+
+    /// Starts the work in the repository with the host.
+    async fn start_with(repo: &Repo, host: &impl Host) -> Result<git::Started, String> {
+        start(&repo.project, host, &repo.place(WORK), &Mutex::new(())).await
+    }
+
+    /// Commits a file on a branch of its own in the repository, leaving its checkout on main, and gives the commit.
+    fn aside(repo: &Repo, file: &str, text: &str) -> String {
+        let dir = &repo.project.repo;
+        run(dir, &["switch", "-q", "-c", "aside"]);
+        let made = commit(dir, file, text);
+        run(dir, &["switch", "-q", "main"]);
+        made
+    }
+
+    #[tokio::test]
+    async fn a_work_starts_from_the_main_its_host_gives() {
+        let repo = Repo::new("true");
+        let main = aside(&repo, "elsewhere.txt", "Elsewhere.\n");
+        let host = Fake::new(&main);
+        let started = start_with(&repo, &host).await.expect("the work starts");
+        assert_eq!(started.from, main);
+        assert!(started.place.dir.join("elsewhere.txt").is_file());
+        assert_eq!(host.asked(), [Asked::Main]);
+    }
+
+    #[tokio::test]
+    async fn the_hosts_verdict_on_the_branchs_head_is_what_the_check_found() {
+        let repo = Repo::new("true");
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let started = start_with(&repo, &Fake::new(&main)).await.unwrap();
+        let head = commit(&started.place.dir, "farewell.txt", "Bye.\n");
+        let verdict = Verdict {
+            failed: Some("The check lint failed.".to_string()),
+            by: Some("the CI of the pull request 7".to_string()),
+        };
+        let host = Fake::new(&main).judges(Ok(Some(verdict)));
+        let checked = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
+        assert_eq!(
+            checked,
+            Checked {
+                commit: head.clone(),
+                main,
+                failed: Some("The check lint failed.".to_string()),
+                by: Some("the CI of the pull request 7".to_string()),
+            }
+        );
+        assert_eq!(host.asked(), [Asked::Main, Asked::Verdict(head)]);
+    }
+
+    #[tokio::test]
+    async fn a_host_that_cannot_judge_the_work_fails_the_check_with_why() {
+        let repo = Repo::new("true");
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        start_with(&repo, &Fake::new(&main)).await.unwrap();
+        let host = Fake::new(&main).judges(Err("GitHub cannot be reached".to_string()));
+        let failed = check_with(&repo, &host, &mut Stop::never())
+            .await
+            .expect_err("it fails");
+        assert!(failed.contains("GitHub cannot be reached"), "{failed}");
+        let host = Fake::new(&main).judges(Ok(None));
+        assert_eq!(
+            check_with(&repo, &host, &mut Stop::never()).await,
+            Ok(None),
+            "a stop gives nothing"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_check_finds_a_conflict_with_the_main_its_host_gives_without_asking_for_a_verdict() {
+        let repo = Repo::new("true");
+        let local = run(&repo.project.repo, &["rev-parse", "main"]);
+        let started = start_with(&repo, &Fake::new(&local)).await.unwrap();
+        commit(&started.place.dir, "greeting.txt", "Hello, you.\n");
+        // The main the host gives changed the same line; the repository's own main did not.
+        let main = aside(&repo, "greeting.txt", "Good day.\n");
+        let host = Fake::new(&main);
+        let checked = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
+        assert_eq!(checked.main, main);
+        let failed = checked.failed.expect("the check fails");
+        assert!(
+            failed.contains("conflict") && failed.contains("greeting.txt"),
+            "{failed}"
+        );
+        assert_eq!(host.asked(), [Asked::Main]);
+    }
+
+    #[tokio::test]
+    async fn uncommitted_changes_are_found_without_asking_for_a_verdict() {
+        let repo = Repo::new("true");
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let started = start_with(&repo, &Fake::new(&main)).await.unwrap();
+        std::fs::write(started.place.dir.join("draft.txt"), "Not yet.\n").unwrap();
+        let host = Fake::new(&main);
+        let checked = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
+        let failed = checked.failed.expect("the check fails");
+        assert!(failed.contains("not committed"), "{failed}");
+        assert_eq!(host.asked(), [Asked::Main]);
+    }
+
+    #[tokio::test]
+    async fn a_work_with_no_worktree_is_not_checked() {
+        let repo = Repo::new("true");
+        let host = Local::new(repo.project.clone());
+        assert!(check_with(&repo, &host, &mut Stop::never()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn the_local_check_passes_a_committed_work_that_merges_and_passes_the_command() {
+        let repo = Repo::new("test -f greeting.txt");
+        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let head = commit(&started.place.dir, "farewell.txt", "Bye.\n");
+        let checked = checked_locally(&repo).await;
+        assert_eq!(checked.failed, None);
+        assert_eq!(checked.by, None);
+        assert_eq!(checked.commit, head);
+        assert_eq!(checked.main, run(&repo.project.repo, &["rev-parse", "main"]));
+    }
+
+    #[tokio::test]
+    async fn the_local_check_fails_a_failing_command_with_the_end_of_what_it_said() {
+        let repo = Repo::new("echo the greeting is wrong >&2; exit 3");
+        start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let failed = checked_locally(&repo).await.failed.expect("the check fails");
+        assert!(failed.contains("the greeting is wrong"), "{failed}");
+    }
+
+    #[tokio::test]
+    async fn the_local_check_fails_a_conflict_with_main_and_merges_nothing() {
+        let repo = Repo::new("true");
+        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        commit(&started.place.dir, "greeting.txt", "Hello, you.\n");
+        commit(&repo.project.repo, "greeting.txt", "Good day.\n");
+        let failed = checked_locally(&repo).await.failed.expect("the check fails");
+        assert!(failed.contains("conflict"), "{failed}");
+        assert_eq!(
+            std::fs::read_to_string(repo.project.repo.join("greeting.txt")).unwrap(),
+            "Good day.\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stopped_local_check_gives_nothing() {
+        let repo = Repo::new("sleep 30");
+        let host = Local::new(repo.project.clone());
+        start_with(&repo, &host).await.unwrap();
+        let held: Held<u8, ()> = Held::new();
+        let mut stop = held.hold(1, ()).expect("held");
+        let stopping = async {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            held.stop(1, ());
+        };
+        let (checked, ()) = tokio::join!(check_with(&repo, &host, &mut stop), stopping);
+        assert_eq!(checked, Ok(None));
+    }
+
+    #[tokio::test]
+    async fn the_check_runs_no_file_system_monitor_of_the_repository() {
+        let mut repo = Repo::new("true");
+        // Allowed, so that the check goes on to run its commands, none of which runs it.
+        repo.project.allowed_config = vec!["core.fsmonitor".to_string()];
+        start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let marked = repo.data.join("monitor-ran");
+        let monitor = repo.data.join("monitor");
+        marking(&monitor, &marked);
+        run(
+            &repo.project.repo,
+            &["config", "core.fsmonitor", &monitor.display().to_string()],
+        );
+        checked_locally(&repo).await;
+        assert!(!marked.exists(), "the repository's file-system monitor was run");
+    }
+
+    #[tokio::test]
+    async fn the_check_refuses_what_the_works_own_worktree_configuration_names() {
+        let mut repo = Repo::new("true");
+        start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        run(&repo.project.repo, &["config", "extensions.worktreeConfig", "true"]);
+        run(&repo.place(WORK).dir, &["config", "--worktree", "core.editor", "vim"]);
+        repo.project.allowed_config = vec!["extensions.worktreeconfig".to_string()];
+        let host = Local::new(repo.project.clone());
+        let refused = check_with(&repo, &host, &mut Stop::never()).await.expect_err("refused");
+        assert!(refused.contains("core.editor (worktree)"), "{refused}");
+        assert!(!refused.contains("extensions"), "an allowed key is let be: {refused}");
+    }
+
+    #[tokio::test]
+    async fn the_local_host_gives_the_repositorys_main_and_merges_there() {
+        let repo = Repo::new("true");
+        let host = Local::new(repo.project.clone());
+        assert_eq!(host.main().await, Ok(run(&repo.project.repo, &["rev-parse", "main"])));
+        let started = start_with(&repo, &host).await.unwrap();
+        let head = commit(&started.place.dir, "farewell.txt", "Bye.\n");
+        let merged = host.merge(&repo.place(WORK), Some(&head)).await.expect("it merges");
+        assert_eq!(merged, run(&repo.project.repo, &["rev-parse", "main"]));
+        assert!(repo.project.repo.join("farewell.txt").is_file());
     }
 }
