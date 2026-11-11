@@ -4,7 +4,9 @@
 //! a green run means. GitHub is the reference for the workflow syntax; the comments at the head of each workflow say
 //! what it must and must not hold.
 
+use std::io::Write;
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
 
 fn workflow(file: &str) -> String {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -53,6 +55,31 @@ fn under<'a>(lines: &[&'a str], key: &str) -> Vec<&'a str> {
     std::iter::once(lines[at]).chain(rest.copied()).collect()
 }
 
+/// Each script a workflow runs, with the line its `run:` stands on: what follows `run:` on that line, or the lines under
+/// `run: |` without their indentation, as GitHub gives them to the shell.
+fn scripts(text: &str) -> Vec<(usize, String)> {
+    let indent = |l: &str| l.len() - l.trim_start().len();
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out = Vec::new();
+    for (at, line) in lines.iter().enumerate() {
+        let Some(rest) = line.trim().trim_start_matches("- ").strip_prefix("run:") else {
+            continue;
+        };
+        if rest.trim() != "|" {
+            out.push((at + 1, rest.trim().to_string()));
+            continue;
+        }
+        let body: Vec<&str> = (lines[at + 1..].iter().copied())
+            .take_while(|l| l.trim().is_empty() || indent(l) > indent(line))
+            .collect();
+        let written = body.iter().filter(|l| !l.trim().is_empty());
+        let least = written.map(|l| indent(l)).min().unwrap_or(0);
+        let script: Vec<&str> = body.iter().map(|l| l.get(least..).unwrap_or("")).collect();
+        out.push((at + 1, script.join("\n")));
+    }
+    out
+}
+
 // The full workflow keeps the two checks the engine waits for, `page` and `check`, and `check` is red whenever the lint
 // or a job of the tests did not pass, cancelled ones included: a merge waits for that one job, not for the jobs it
 // gathers, so that how the tests are split can change without changing what the engine is told to wait for.
@@ -67,6 +94,7 @@ fn the_full_workflow_keeps_the_checks_a_merge_waits_for() {
     let check = under(&jobs, "check").join("\n");
     assert!(check.contains("needs: [lint, test]"), "{check}");
     assert!(check.contains("if: always()"), "{check}");
+    assert!(check.contains(r#"[ "$r" = success ] || red=true"#), "{check}");
     for (job, lines) in [("page", under(&jobs, "page")), ("check", under(&jobs, "check"))] {
         assert!(
             !lines.iter().any(|l| l.trim().starts_with("name:")),
@@ -110,4 +138,47 @@ fn the_fast_workflow_runs_only_by_hand_and_has_no_check_a_merge_waits_for() {
         block(&text, "concurrency").is_empty(),
         "fast.yml has a concurrency group"
     );
+}
+
+// What `check` gives of a job that did not pass is that job's own log, which the engine then reads in `check`'s. The
+// log of a job holds the escapes that colour cargo's output, and gh gives no answer that holds any unless told to: the
+// first time a job was red, `check` printed gh's refusal in place of each log, and the agent would have been told that
+// the lint and a job of the tests failed and nothing of which test or which line.
+#[test]
+fn check_reads_the_logs_of_the_other_jobs_with_the_escapes_that_colour_them() {
+    let text = workflow("ci.yml");
+    let check = under(&block(&text, "jobs"), "check").join("\n");
+    let reads: Vec<&str> = (check.lines())
+        .filter(|l| l.contains("gh api") && l.contains("/logs"))
+        .collect();
+    assert_eq!(reads.len(), 1, "{reads:?}");
+    assert!(reads[0].contains("gh api --allow-escape-sequences "), "{reads:?}");
+}
+
+// A part of a script that no green run reaches is run for the first time when something has failed. The first time a
+// job was red, the step of `check` that copies the failed jobs' logs ended in a syntax error of its last lines, where
+// an apostrophe inside `${names:-...}` began a quoted string: `check` was red, but by the shell's error and without the
+// line that names the jobs. So bash is given every script of both workflows to parse, which reads all of one and runs
+// none of it.
+#[test]
+fn every_script_of_the_workflows_parses() {
+    for file in ["ci.yml", "fast.yml"] {
+        let found = scripts(&workflow(file));
+        assert!(found.len() > 5, "{file}: only {} scripts found", found.len());
+        for (line, script) in found {
+            let mut bash = Command::new("bash")
+                .arg("-n")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn()
+                .expect("bash starts");
+            let mut stdin = bash.stdin.take().expect("its input is piped");
+            stdin.write_all(script.as_bytes()).expect("the script is written");
+            drop(stdin);
+            let ended = bash.wait_with_output().expect("bash ends");
+            let said = String::from_utf8_lossy(&ended.stderr);
+            assert!(ended.status.success(), "{file}:{line}: {said}");
+        }
+    }
 }

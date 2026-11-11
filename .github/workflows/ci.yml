@@ -169,8 +169,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'junit-*' --dir "$RUNNER_TEMP/junit"
-          python3 -I - "$RUNNER_TEMP/junit" <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          # Where no job of the tests kept its results (each was cancelled, say) or one kept them half written, there
+          # is nothing to list, and the step ends without an error all the same: the engine gives an agent every step
+          # of this log that holds one.
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'junit-*' --dir "$RUNNER_TEMP/junit" \
+            || { echo "No job of the tests kept its results."; exit 0; }
+          python3 -I - "$RUNNER_TEMP/junit" <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY" || echo "The tests' results could not be read."
           import pathlib, sys, xml.etree.ElementTree as ET
           rows = []
           for path in sorted(pathlib.Path(sys.argv[1]).rglob("*.xml")):
@@ -203,8 +207,10 @@ jobs:
             echo "##[endgroup]"
             echo "##[error]The job $name ended in $how; its steps follow."
             echo "::stop-commands::$stop"
-            # From its first step to the runner's clean-up, as the job printed it.
-            if gh api "repos/$GITHUB_REPOSITORY/actions/jobs/$id/logs" > "$RUNNER_TEMP/log" 2> "$RUNNER_TEMP/why"; then
+            # From its first step to the runner's clean-up, as the job printed it: with the escapes that colour it,
+            # which gh gives only when told to, and the engine reads a job's log with them.
+            if gh api --allow-escape-sequences "repos/$GITHUB_REPOSITORY/actions/jobs/$id/logs" \
+              > "$RUNNER_TEMP/log" 2> "$RUNNER_TEMP/why"; then
               sed -E 's/^\xEF\xBB\xBF//; s/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z ?//' "$RUNNER_TEMP/log" \
                 | awk '/^##\[group\]Run /{on=1} /^Post job cleanup/{on=0} on'
             else
@@ -215,5 +221,5 @@ jobs:
           echo "##[group]Run what check found"
           echo "##[endgroup]"
           names=$(printf '%s\n' "${not_passed[@]}" | cut -f2 | paste -sd ',' | sed 's/,/, /g')
-          echo "Did not pass: ${names:-no job found; the run's page says which}."
+          echo "Did not pass: ${names:-no job found; the page of the run says which}."
           exit 1
