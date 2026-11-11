@@ -76,16 +76,18 @@ pub enum Effect {
     Stop { run: RunId },
 }
 
-/// Whether the agents' rounds may begin, of this work as of every other: a round that failed for a cause every work
-/// shares, such as the account's usage limit, holds them all, as whatever drives the engine works out from the records
-/// of every work. It holds back nothing the engine does itself, nor anything of a run but the beginning of its rounds.
+/// Which rounds may begin, of this work as of every other: a round that failed for a cause every work shares, such as
+/// the account's usage limit, holds them, as whatever drives the engine works out from the records of every work. It
+/// holds back nothing of a run but the beginning of its rounds.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Gate {
-    /// They may begin.
+    /// Every round may begin.
     #[default]
     Open,
-    /// None begins.
-    Shut,
+    /// No round of an agent begins; the engine's own acts do.
+    Agents,
+    /// No round begins, the engine's own acts' included: they may reach the network, which cannot be reached.
+    Every,
 }
 
 /// Why what happened was not taken: it cannot have happened to this work.

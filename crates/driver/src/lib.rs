@@ -63,6 +63,9 @@ pub struct Driver {
     fault: Option<Fault>,
     /// The latest look at the network, while the agents' rounds wait for it: when, and whether it was reached.
     looked: Option<(Time, bool)>,
+    /// When the driver was last told the time it asked for: a wake at or before it has been acted on. Lost in a stop,
+    /// when a wake whose time has come is acted on again.
+    ticked: Option<Time>,
 }
 
 /// When the driver is to be told the time again: the agents' rounds may begin then, or, where `look`, the network is
@@ -213,6 +216,7 @@ impl Driver {
             of_item: BTreeMap::new(),
             fault: None,
             looked: None,
+            ticked: None,
         };
         let items = driver.store.items().map_err(Fault::Store)?;
         let heads = driver.store.works().map_err(Fault::Store)?;
@@ -337,9 +341,21 @@ impl Driver {
         }
         // A round that fails for a cause every work shares begins the wait as it is taken: its own work's next round
         // is held by it as every other's.
-        let begins_a_wait = matches!(&event, Event::Failed { failure, .. } if failure.shared());
+        let begins_a_wait = match &event {
+            Event::Failed { run, failure, .. } if failure.shared() => {
+                let r = &self.works[&work].work.records;
+                let open = r.started.iter().any(|s| s.run == *run)
+                    && !r.finished.iter().any(|f| f.run == *run)
+                    && !r.abandoned.iter().any(|a| a.run == *run);
+                open.then_some(*failure)
+            }
+            _ => None,
+        };
         let outage = self.outage();
-        let gate = if begins_a_wait { Gate::Shut } else { self.gate(now) };
+        let gate = match begins_a_wait {
+            Some(failure) => held_by(failure),
+            None => self.gate(now),
+        };
         let Some(held) = self.works.get_mut(&work) else {
             return Err(Failed::NoSuchWork(work));
         };
@@ -357,6 +373,12 @@ impl Driver {
             match self.look(now) {
                 Ok(more) => todos.extend(more),
                 Err(fault) => return Err(self.stop(fault, true)),
+            }
+        } else if begins_a_wait.is_some() {
+            // The wait it would have begun did not begin, or stood already as it was: the work is looked at again as
+            // things stand, so that nothing of it is left held for nothing.
+            if let Err(fault) = self.step_one(now, work, Event::Look, &mut todos) {
+                return Err(self.stop(fault, true));
             }
         }
         let held = &self.works[&work];
@@ -386,11 +408,13 @@ impl Driver {
         outage::outage((self.works.values()).map(|held| (held.head.number, &*held.flow, &held.work)))
     }
 
-    /// When, after `now`, the driver is to be told the time again, where the wait every work shares is over then by
-    /// itself, or the network is to be looked at; none where nothing waits for a later time. A time that has come
-    /// is no wake: the works were looked at as it came, and what still waits waits for a round to end.
-    pub fn wake(&self, now: Time) -> Option<Wake> {
-        self.next_wake().filter(|wake| wake.at > now)
+    /// When the driver is to be told the time again, where the wait every work shares is over then by itself, or the
+    /// network is to be looked at; none where nothing waits for a time. A wake whose time has come is given until the
+    /// driver is told that time, and none at or before the time it was last told: the works were looked at then, and
+    /// what still waits waits for a round to end.
+    pub fn wake(&self) -> Option<Wake> {
+        let ticked = self.ticked;
+        self.next_wake().filter(|wake| ticked.is_none_or(|at| wake.at > at))
     }
 
     /// When the driver is to be told the time next, as the wait every work shares says, whether or not it has come.
@@ -425,6 +449,7 @@ impl Driver {
         if let Some(reached) = reached {
             self.looked = Some((now, reached));
         }
+        self.ticked = Some(self.ticked.map_or(now, |at| at.max(now)));
         self.look(now).inspect_err(|fault| {
             self.stop(fault.clone(), true);
         })
@@ -435,11 +460,11 @@ impl Driver {
         self.gate(now) != Gate::Open
     }
 
-    /// Whether the agents' rounds may begin now, as the wait every work shares says.
+    /// Which rounds may begin now, as the wait every work shares says.
     fn gate(&self, now: Time) -> Gate {
         let reached = self.looked.filter(|(_, reached)| *reached).map(|(at, _)| at);
         match self.outage() {
-            Some(outage) if outage.holds(now, reached) => Gate::Shut,
+            Some(outage) if outage.holds(now, reached) => held_by(outage.failure),
             _ => Gate::Open,
         }
     }
@@ -669,6 +694,15 @@ fn step(store: &mut dyn Storage, held: &mut Held, now: Time, event: Event, gate:
         held.standing = standing_of(&held.flow, &held.work);
     }
     Ok(effects)
+}
+
+/// The rounds a wait for a cause of this kind holds: without the network every round, the engine's own acts' too, which
+/// may reach it; otherwise the agents'.
+fn held_by(failure: decide::run::Failure) -> Gate {
+    match failure {
+        decide::run::Failure::Offline => Gate::Every,
+        _ => Gate::Agents,
+    }
 }
 
 /// How the work stands.

@@ -199,9 +199,9 @@ pub fn stale(flow: &Flow, records: &Records, run: RunId) -> Option<Abandoning> {
 }
 
 /// What the pause of the work holds back of the run's rounds: nothing where the work is not paused; where it is, of a
-/// run one of whose reasons was a change of a note a person made, only the round after one that failed and paused the
-/// work, for the engine paused it as that round failed so that the owner sees why first, and nothing where no failure
-/// of the run paused it since its last round ended; and every round of any other run.
+/// run one of whose reasons was a change of a note a person made, only the round after one that failed for which the
+/// engine paused the work, so that the owner sees why first, and nothing where the engine paused it for none of the
+/// run's rounds since its last began; and every round of any other run.
 pub fn hold(flow: &Flow, records: &Records, run: RunId) -> Hold {
     if !paused(records) {
         return Hold::Nothing;
@@ -222,15 +222,18 @@ pub fn hold(flow: &Flow, records: &Records, run: RunId) -> Hold {
     }
 }
 
-/// Whether the engine paused the work after the run's last round ended, and the work was not let on since: as it does
-/// where the round's failure pauses it.
+/// Whether the engine paused the work since the run's last round, which has ended, began, and the work was not let on
+/// since: as it does where the round's failure pauses it, or where the round took the work over its budget, which its
+/// carrier says before the round's end.
 fn paused_by_its_failure(records: &Records, run: RunId) -> bool {
-    let ended = (records.returned.iter()).filter(|r| r.run == run).map(|r| r.at).max();
+    let began = (records.rounds.iter()).filter(|r| r.run == run).map(|r| r.at).max();
+    let ended = records.returned.iter().filter(|r| r.run == run).count();
+    let begun = records.rounds.iter().filter(|r| r.run == run).count();
     let let_on = (records.pauses.iter()).filter(|p| !p.paused).map(|p| p.at).max();
-    let Some(ended) = ended else {
+    let Some(began) = began.filter(|_| ended == begun) else {
         return false;
     };
-    let after = let_on.map_or(ended, |at| at.max(ended));
+    let after = let_on.map_or(began, |at| at.max(began));
     (records.pauses.iter()).any(|p| p.paused && p.by == Pauser::Engine && p.at > after)
 }
 

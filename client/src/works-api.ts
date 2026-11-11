@@ -66,6 +66,9 @@ export interface Outage {
   /// When it ended.
   since: number;
   until: Until;
+  /// Whether it holds rounds now: past its time it stands only until a round that began after it comes back, and
+  /// holds nothing meanwhile.
+  holds: boolean;
 }
 
 /// Who can make a precondition hold: the owner, a source outside the work (such as the items it depends on, as they

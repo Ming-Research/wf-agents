@@ -30,7 +30,7 @@ use std::sync::Arc;
 use decide::RunId;
 use decide::run::Failure;
 use engine::Came;
-use service::{Round, RoundReply, Rounds, Told};
+use service::{Clock, Round, RoundReply, Rounds, SystemClock, Told};
 use store::WorkNumber;
 use tokio::process::Command;
 use tokio::sync::Semaphore;
@@ -64,6 +64,8 @@ struct Inner {
     protocol: String,
     slots: Semaphore,
     held: Held<(WorkNumber, RunId, usize), RoundReply>,
+    /// The clock a usage limit's reset is read by, where the command line gives it as a time of day.
+    clock: Arc<dyn Clock>,
 }
 
 /// What came of running a round's program.
@@ -78,6 +80,11 @@ enum Carried {
 impl Agents {
     /// The agents of these settings, with this data directory, which is an absolute path, and the installation's id.
     pub fn new(settings: Settings, data: PathBuf, installation: Uuid) -> Self {
+        Self::with_clock(settings, data, installation, Arc::new(SystemClock))
+    }
+
+    /// The agents as [`Agents::new`] gives them, reading the time by this clock.
+    pub fn with_clock(settings: Settings, data: PathBuf, installation: Uuid, clock: Arc<dyn Clock>) -> Self {
         let protocol = (PROTOCOL.replace("{owner_language}", &settings.agents.owner_language))
             .replace("{check}", crate::tools::told(&settings));
         Agents {
@@ -88,6 +95,7 @@ impl Agents {
                 installation,
                 protocol,
                 held: Held::new(),
+                clock,
             }),
         }
     }
@@ -129,7 +137,7 @@ impl Rounds for Agents {
                 Ok(Carried::Failed(why, failure, spent)) => match inner.held.fail(key) {
                     // Where the round took the work over its budget, the work is paused for that whatever the kind.
                     Some(Failing::Fail(reply)) => {
-                        let resets = resets(failure, &why);
+                        let resets = resets(failure, &why, &*inner.clock);
                         match inner.over_budget(&round, &spent) {
                             Some(over) => {
                                 let pause = format!("{why}; and {over}");
@@ -200,10 +208,14 @@ impl Inner {
             let (told_at, result_at) = attempt(&base).await;
             write(&told_at, told.as_bytes()).await?;
             let command = self.command(&dir, &permissions, session, begin);
-            // A program that cannot be started cannot run, however the system words it.
+            // A program that cannot be started printed no result: its words say whether it is missing, which holds
+            // every work, and any other cause pauses the work.
             let ran = match process::run(command, Some(told.into_bytes()), Some(&group), stop).await {
                 Ok(ran) => ran,
-                Err(why) => return Ok(Carried::Failed(why, Failure::CannotRun, Spent::default())),
+                Err(why) => {
+                    let kind = failure::of(&why, None);
+                    return Ok(Carried::Failed(why, kind, Spent::default()));
+                }
             };
             let Ran::Ended { status, stdout, stderr } = ran else {
                 return Ok(Carried::Stopped);
@@ -221,9 +233,9 @@ impl Inner {
         };
         let read = cli::read(&stdout, begin, before);
         // A failure whose result was read took what the result says; one with none, what is not known. Its kind is
-        // told by what the program reported.
+        // told by what the program reported and what it took.
         let failed = |why: String, spent: Option<Spent>| {
-            let kind = failure::kind(&why);
+            let kind = failure::of(&why, spent.as_ref());
             Ok(Carried::Failed(why, kind, spent.unwrap_or_default()))
         };
         if !status.success() {
@@ -292,16 +304,14 @@ impl Inner {
     }
 }
 
-/// When the account's usage limit resets, where the failure is that limit and the program's report says when.
-fn resets(failure: Failure, why: &str) -> Option<work::Time> {
+/// When the account's usage limit resets, where the failure is that limit and the program's report says when, the time
+/// now read by the clock.
+fn resets(failure: Failure, why: &str, clock: &dyn Clock) -> Option<work::Time> {
     if failure != Failure::UsageLimit {
         return None;
     }
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?;
-    let now = u64::try_from(now.as_millis()).ok()?;
-    failure::resets_at(why, now, &failure::zone_offset).map(work::Time)
+    let now = clock.now().ok()?;
+    failure::resets_at(why, now.0, &failure::zone_offset).map(work::Time)
 }
 
 /// Where the next try of the round keeps what it is told and what it returns: the first that has kept nothing yet.

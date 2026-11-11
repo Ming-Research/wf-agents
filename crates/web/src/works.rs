@@ -25,7 +25,7 @@ use driver::{Driver, Kept, Until as UntilOf};
 use flow::Kind;
 use serde::{Deserialize, Serialize};
 use store::{ItemNumber, WorkNumber};
-use work::{Ask as AskOf, Back as BackOf, Call as CallOf, Given as GivenOf, Work};
+use work::{Ask as AskOf, Back as BackOf, Call as CallOf, Given as GivenOf, Time, Work};
 
 use crate::view::Flow;
 
@@ -55,6 +55,9 @@ pub struct Outage {
     pub since: u64,
     /// When the agents' rounds may begin again.
     pub until: Until,
+    /// Whether it holds rounds now: once its time has come, it stands only until a round that began after it comes
+    /// back, and holds nothing meanwhile.
+    pub holds: bool,
 }
 
 /// When the agents' rounds may begin again.
@@ -714,10 +717,10 @@ pub struct Refusal {
 pub struct Broken(pub String);
 
 impl Items {
-    /// Every item the driver holds, each with its work.
-    pub fn of(driver: &Driver) -> Result<Items, Broken> {
+    /// Every item the driver holds, each with its work, as they stand at this time.
+    pub fn of(driver: &Driver, now: Time) -> Result<Items, Broken> {
         let mut items = Vec::new();
-        let outage = driver.outage().map(|outage| Outage::of(&outage));
+        let outage = driver.outage().map(|outage| Outage::of(&outage, driver.holds(now)));
         for kept in driver.works() {
             let view = viewed(driver, kept.head.number)?;
             items.push(Item {
@@ -776,6 +779,9 @@ impl Now {
     fn of(kept: Kept<'_>, decision: &Decision, outage: Option<&Outage>) -> Result<Now, Broken> {
         let work = kept.work;
         let agents = |cell: &CellId| (kept.flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == Kind::Agent);
+        // The rounds of a cell the wait holds now: an agent's, and without the network every cell's.
+        let held =
+            |cell: &CellId| (outage.filter(|o| o.holds)).is_some_and(|o| o.failure == Failure::Offline || agents(cell));
         Ok(match decision {
             Decision::Fault(fault) => Now::Fault {
                 words: service::record_fault_words(fault),
@@ -801,17 +807,15 @@ impl Now {
             // A run at rest that goes on holds its next round while the work is paused: the engine leaves a work so
             // only when it is paused, as when the run's last round failed.
             Decision::GoOn { .. } if decide::paused(&work.records) => Now::paused(work)?,
-            // An agent's cell that would run or go on, and does not, is held by the wait every work shares, where one
-            // stands: the engine leaves a work so only then.
-            Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if agents(cell) && outage.is_some() => {
-                Now::Waits {
-                    at: cell.to_string(),
-                    on: outage
-                        .into_iter()
-                        .map(|outage| Waited::Agents { outage: outage.clone() })
-                        .collect(),
-                }
-            }
+            // A cell that would run or go on, and does not, is held by the wait every work shares, where it holds now
+            // and holds the cell's rounds: the engine leaves a work so only then.
+            Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if held(cell) => Now::Waits {
+                at: cell.to_string(),
+                on: outage
+                    .into_iter()
+                    .map(|outage| Waited::Agents { outage: outage.clone() })
+                    .collect(),
+            },
             Decision::Wait { at, on } => Now::Waits {
                 at: at.to_string(),
                 on: (on.iter())
@@ -892,7 +896,7 @@ impl Spent {
 
 impl WorkPage {
     /// The work of this number, as the driver holds it now; none where the driver has no such work.
-    pub fn of(driver: &Driver, number: WorkNumber) -> Result<Option<WorkPage>, Broken> {
+    pub fn of(driver: &Driver, number: WorkNumber, now: Time) -> Result<Option<WorkPage>, Broken> {
         let Some(kept) = driver.work(number) else {
             return Ok(None);
         };
@@ -989,7 +993,14 @@ impl WorkPage {
         }
         steps.sort_by_key(Step::at);
         Ok(Some(WorkPage {
-            summary: Summary::of(kept, &view, driver.outage().map(|outage| Outage::of(&outage)).as_ref())?,
+            summary: Summary::of(
+                kept,
+                &view,
+                driver
+                    .outage()
+                    .map(|outage| Outage::of(&outage, driver.holds(now)))
+                    .as_ref(),
+            )?,
             title: kept.item.title.clone(),
             flow: Flow::of(kept.flow),
             cells,
@@ -1396,7 +1407,7 @@ fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
 }
 
 impl Outage {
-    fn of(outage: &driver::Outage) -> Outage {
+    fn of(outage: &driver::Outage, holds: bool) -> Outage {
         Outage {
             failure: Failure::of(outage.failure),
             why: outage.why.clone(),
@@ -1413,6 +1424,7 @@ impl Outage {
                 },
                 UntilOf::Tried => Until::Tried,
             },
+            holds,
         }
     }
 }

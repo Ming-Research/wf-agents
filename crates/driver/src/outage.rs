@@ -1,6 +1,6 @@
 //! A wait every work shares: a round of an agent failed for a cause that is no one work's, the account's usage limit,
 //! a command line that cannot run or a network that cannot be reached, and no agent's round of any work begins while
-//! it stands. It is one fact, worked out from the records of every work, never written on each (principle
+//! it stands; without the network, no round of the engine's own acts either, which may reach it. It is one fact, worked out from the records of every work, never written on each (principle
 //! `state-from-records`), and the reason the page gives for every work it holds.
 //!
 //! The wait stands from the latest round of an agent, of any work, that failed so, until a round of an agent that

@@ -41,7 +41,8 @@ fn host(base: Option<&str>) -> String {
 
 /// The words that tell each kind apart in what the command line reports, in the order they are looked for: the first
 /// kind whose words the report holds, in any case, is the kind. A report that holds none of them is a failure in
-/// passing.
+/// passing: the service's passing errors are many and change their wording, and an unknown one taken so costs at most
+/// the few tries before the bound pauses the work.
 const KINDS: [(Failure, &[&str]); 6] = [
     // First, since what the command line reports of a return it gave up on may quote the return, which may hold any
     // words.
@@ -101,8 +102,21 @@ const KINDS: [(Failure, &[&str]); 6] = [
 /// The kind of cause of a failed round, by what the command line reported of it and what the round took: none where
 /// the program printed no result it could be read by.
 pub fn of(report: &str, spent: Option<&work::Spent>) -> Failure {
-    let _ = spent;
-    kind(report)
+    let kind = kind(report);
+    match spent {
+        // A crash with no result says nothing of what it took, and is not tried again unseen by the budget: it
+        // pauses its work, but where its words say a cause every work shares, or another its handling needs.
+        None if kind == Failure::Passing => Failure::Other,
+        // A round that spent tokens reached the service: whatever words it quotes, its command line runs and its
+        // network is there.
+        Some(spent)
+            if spent.input_tokens + spent.cached_tokens + spent.output_tokens > 0
+                && matches!(kind, Failure::CannotRun | Failure::Offline) =>
+        {
+            Failure::Passing
+        }
+        _ => kind,
+    }
 }
 
 /// The kind of cause of a failed round, by what the command line reported of it.

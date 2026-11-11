@@ -79,6 +79,9 @@ pub struct Service {
     wake: Option<(Wake, tokio::task::AbortHandle)>,
 }
 
+/// A read of the works as the driver holds them, at the time the loop's clock gives.
+pub type Reader = Box<dyn FnOnce(&Driver, Time) + Send>;
+
 /// What the loop takes, one at a time, in the order it came.
 pub enum Message {
     /// Something happened to a work: what came of a round or a call, said by what carried it out.
@@ -97,12 +100,12 @@ pub enum Message {
     /// A source outside the works says this now: the head of the project's main branch, for one.
     Outside { source: String, content: String },
     /// The works are read, as the driver holds them now.
-    Read(Box<dyn FnOnce(&Driver) + Send>),
+    Read(Reader),
     /// The time of the engine's wait, this call of this work, has come.
     Due { work: WorkNumber, call: CallId },
     /// The time the driver asked to be told has come; where it asked for a look at the network, the look found it
     /// reached or not.
-    Tick { reached: Option<bool> },
+    Tick { wake: Wake, reached: Option<bool> },
 }
 
 /// What the owner does to a work.
@@ -251,7 +254,8 @@ impl Service {
         let mut items = false;
         match message {
             Message::Read(read) => {
-                read(&self.driver);
+                let now = self.now()?;
+                read(&self.driver, now);
                 return Ok(());
             }
             Message::Happened { work, event } => {
@@ -283,8 +287,10 @@ impl Service {
                     self.hand(now, todos)?;
                 }
             }
-            Message::Tick { reached } => {
-                self.wake = None;
+            Message::Tick { wake, reached } => {
+                if self.wake.as_ref().is_some_and(|(set, _)| *set == wake) {
+                    self.wake = None;
+                }
                 let now = self.now()?;
                 let todos = self.driver.tick(now, reached).map_err(Fault::Driver)?;
                 self.hand(now, todos)?;
@@ -331,18 +337,19 @@ impl Service {
         Ok(())
     }
 
-    /// Sets the timer that tells the loop the time the driver asks to be told next, where that changed: the one set
-    /// before is dropped. Where the driver asks for a look at the network, the look is taken off the loop as the time
-    /// comes.
+    /// Sets the timer that tells the loop the time the driver asks to be told next, where that changed. The one set
+    /// before is stopped only where its time has not come: one whose time has come may be looking at the network, or
+    /// about to tell the loop, and tells it, which costs one look at the works more. Where the driver asks for a look at
+    /// the network, the look is taken off the loop as the time comes.
     fn set_wake(&mut self) {
-        let Ok(now) = self.clock.now() else {
-            return;
-        };
-        let wake = self.driver.wake(now);
+        let wake = self.driver.wake();
         if self.wake.as_ref().map(|(w, _)| *w) == wake {
             return;
         }
-        if let Some((_, timer)) = self.wake.take() {
+        let now = self.clock.now().ok();
+        if let Some((set, timer)) = self.wake.take()
+            && now.is_some_and(|now| set.at > now)
+        {
             timer.abort();
         }
         let Some(wake) = wake else {
@@ -356,7 +363,7 @@ impl Service {
                 true => tokio::task::spawn_blocking(move || network.reached()).await.ok(),
                 false => None,
             };
-            let _ = to.send(Message::Tick { reached });
+            let _ = to.send(Message::Tick { wake, reached });
         });
         self.wake = Some((wake, timer.abort_handle()));
     }
@@ -560,9 +567,18 @@ impl Handle {
         &self,
         read: impl FnOnce(&Driver) -> T + Send + 'static,
     ) -> Result<T, Refusal> {
+        self.read_at(move |driver, _| read(driver)).await
+    }
+
+    /// Reads the works as the driver holds them, between two things the loop takes, at the time the loop's clock
+    /// gives then: what holds now, such as the wait every work shares, is read by it.
+    pub async fn read_at<T: Send + 'static>(
+        &self,
+        read: impl FnOnce(&Driver, Time) -> T + Send + 'static,
+    ) -> Result<T, Refusal> {
         let (reply, answer) = oneshot::channel();
-        let read = Box::new(move |driver: &Driver| {
-            let _ = reply.send(read(driver));
+        let read = Box::new(move |driver: &Driver, now: Time| {
+            let _ = reply.send(read(driver, now));
         });
         self.to.send(Message::Read(read)).map_err(|_| Refusal::Gone)?;
         answer.await.map_err(|_| Refusal::Gone)

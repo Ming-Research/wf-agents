@@ -59,7 +59,7 @@ fn at_the_usage_limit_no_agents_round_of_any_work_begins_until_it_resets_and_no_
     );
     assert_eq!(outage.until(), Until::At(resets));
     assert_eq!(
-        h.d().wake(Time(h.clock)),
+        h.d().wake(),
         Some(Wake {
             at: resets,
             look: false
@@ -79,7 +79,7 @@ fn at_the_usage_limit_no_agents_round_of_any_work_begins_until_it_resets_and_no_
     // It comes back: the wait is over.
     h.hands_in(a, &[("text", None)]);
     assert_eq!(h.d().outage(), None);
-    assert_eq!(h.d().wake(Time(h.clock)), None);
+    assert_eq!(h.d().wake(), None);
 }
 
 #[test]
@@ -96,7 +96,7 @@ fn where_the_command_line_cannot_run_one_round_tries_every_half_minute_and_one_t
     fails(&mut h, a, Failure::CannotRun, None);
     let since = h.d().outage().expect("the wait stands").since;
     assert_eq!(
-        h.d().wake(Time(h.clock)),
+        h.d().wake(),
         Some(Wake {
             at: Time(since.0 + PROBE),
             look: false
@@ -110,7 +110,7 @@ fn where_the_command_line_cannot_run_one_round_tries_every_half_minute_and_one_t
     let todos = h.tick(Time(since.0 + PROBE), None);
     assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 2)]);
     assert_eq!(h.d().outage().unwrap().until(), Until::Tried);
-    assert_eq!(h.d().wake(Time(h.clock)), None);
+    assert_eq!(h.d().wake(), None);
     // It fails so again: the next tries half a minute after it.
     fails(&mut h, a, Failure::CannotRun, None);
     let since = h.d().outage().expect("the wait stands").since;
@@ -131,11 +131,11 @@ fn without_the_network_it_is_looked_at_every_half_minute_and_a_round_tries_once_
     fails(&mut h, a, Failure::Offline, None);
     let since = h.d().outage().expect("the wait stands").since;
     let first = Time(since.0 + PROBE);
-    assert_eq!(h.d().wake(Time(h.clock)), Some(Wake { at: first, look: true }));
+    assert_eq!(h.d().wake(), Some(Wake { at: first, look: true }));
     // A look that does not reach it begins nothing, and the next look is half a minute later.
     assert_eq!(h.tick(first, Some(false)), vec![]);
     assert_eq!(
-        h.d().wake(Time(h.clock)),
+        h.d().wake(),
         Some(Wake {
             at: Time(first.0 + PROBE),
             look: true
@@ -159,7 +159,7 @@ fn without_the_network_a_round_tries_every_five_minutes_whatever_the_looks_find(
         at = Time(at.0 + PROBE);
     }
     assert_eq!(
-        h.d().wake(Time(h.clock)),
+        h.d().wake(),
         Some(Wake {
             at: latest,
             look: false

@@ -11,6 +11,7 @@ const outage = (o: Partial<Outage>): Outage => ({
   round: 1,
   since: 0,
   until: { kind: 'at', at: 0 },
+  holds: true,
   ...o,
 });
 

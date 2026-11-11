@@ -121,7 +121,7 @@ fn a_prompt_too_long_pauses_the_work_saying_so() {
 fn a_cause_every_work_shares_pauses_nothing_and_the_shut_gate_holds_only_agents_rounds() {
     let (mut w, write, _) = W::requested();
     let now = w.tick();
-    let shut = |w: &mut W, now, event| handle_with(&w.flow, &mut w.work, now, event, Gate::Shut).unwrap();
+    let shut = |w: &mut W, now, event| handle_with(&w.flow, &mut w.work, now, event, Gate::Agents).unwrap();
     assert_eq!(shut(&mut w, now, failed_as(write, Failure::UsageLimit)), vec![]);
     assert!(!decide::paused(&w.work.records), "the limit is no pause of the work");
     // While the gate is shut, the round is not given again, and nothing is started: an agent's run waits.

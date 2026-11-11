@@ -20,9 +20,9 @@ pub fn handle(flow: &Compiled, work: &mut Work, now: Time, event: Event) -> Resu
     handle_with(flow, work, now, event, Gate::Open)
 }
 
-/// Takes one thing that happened to the work as [`handle`] does, the agents' rounds of every work being free to begin
-/// or held as the gate says: while it is shut no run of a cell an agent carries out starts, and no round of one
-/// begins, and everything else goes on.
+/// Takes one thing that happened to the work as [`handle`] does, the rounds of every work being free to begin or held
+/// as the gate says: no run of a cell whose rounds it holds starts, no round of one begins, and everything else goes
+/// on.
 pub fn handle_with(
     flow: &Compiled,
     work: &mut Work,
@@ -264,13 +264,14 @@ impl At {
         work.time_of(place).unwrap_or(self.now)
     }
 
-    /// Whether the gate holds the rounds of the cell: it is shut, and the cell is one an agent carries out.
+    /// Whether the gate holds the rounds of the cell: it holds every round, or an agent's and the cell is one an agent
+    /// carries out.
     fn holds(self, flow: &Compiled, cell: &CellId) -> bool {
-        self.gate == Gate::Shut
-            && flow
-                .cells
-                .iter()
-                .any(|spec| spec.id == *cell && spec.kind == Kind::Agent)
+        match self.gate {
+            Gate::Open => false,
+            Gate::Every => true,
+            Gate::Agents => (flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == Kind::Agent),
+        }
     }
 }
 
@@ -279,8 +280,7 @@ fn advance(flow: &Compiled, work: &mut Work, at: At, effects: &mut Vec<Effect>) 
     loop {
         let decision = decide(&flow.flow, &work.records);
         let run = match decision {
-            // A run of an agent's cell is not started while the agents' rounds are held: its first round could not
-            // begin.
+            // A run of a cell whose rounds are held is not started: its first round could not begin.
             Decision::Run { cell, .. } if at.holds(flow, &cell) => return,
             Decision::Run { cell, because, basis } => {
                 let run = RunId(work.name());
@@ -331,7 +331,7 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At, effects: &mut Vec<
     };
     let cell = started.cell.clone();
     let next = run::next(&log(work, run), requires, hold(&flow.flow, &work.records, run));
-    // While the agents' rounds are held, none of an agent's cell begins; the run rests until they may.
+    // While the cell's rounds are held, none begins; the run rests until they may.
     let begins = matches!(next, Step::Begin | Step::Resume | Step::Retry | Step::SendBack { .. });
     if begins && at.holds(flow, &cell) {
         return false;
