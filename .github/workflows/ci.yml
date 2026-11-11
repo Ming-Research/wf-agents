@@ -1,9 +1,10 @@
 name: ci
 
 # Every check of the code: the page's types, lint, tests and build, then the Rust format, clippy with warnings as
-# errors, and the tests. It runs on each pull request into `next`, on each push to `next`, and on each push to a branch
-# where the engine puts the code before a work's change with the work's tests (`wf-agents-before/`), on GitHub's
-# machines from a clean start.
+# errors, and the tests. It runs on each pull request into `next` and on each push to `next`, on GitHub's machines from
+# a clean start: this is the CI the check before a work's merge waits for. What an agent names to its check while it
+# works, and the tests it runs on the code before its change, the fast CI runs instead (fast.yml), on the owner's
+# machine; so a push to a branch of the code before a change (`wf-agents-before/`) runs nothing here.
 on:
   pull_request:
     branches:
@@ -11,7 +12,6 @@ on:
   push:
     branches:
       - next
-      - 'wf-agents-before/**'
 
 permissions:
   contents: read
@@ -38,9 +38,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.21.0
-          # No cache on a branch of the code before a change: it could restore none, and what it saved would take
-          # the room of `next`'s.
-          cache: ${{ !startsWith(github.ref, 'refs/heads/wf-agents-before/') && 'npm' || '' }}
+          cache: npm
           cache-dependency-path: client/package-lock.json
       - run: npm ci
       - name: Type-check the page
@@ -69,10 +67,6 @@ jobs:
       # Installs the toolchain rust-toolchain.toml pins, with its components.
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          # A branch of the code before a change saves no cache: no later run restores it, and it would take the room
-          # of `next`'s.
-          save-if: ${{ !startsWith(github.ref, 'refs/heads/wf-agents-before/') }}
       # Formatting first: it needs no build, so a misformatted push fails in seconds.
       - name: Format
         run: cargo fmt --all --check
@@ -80,9 +74,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.21.0
-          # No cache on a branch of the code before a change: it could restore none, and what it saved would take
-          # the room of `next`'s.
-          cache: ${{ !startsWith(github.ref, 'refs/heads/wf-agents-before/') && 'npm' || '' }}
+          cache: npm
           cache-dependency-path: client/package-lock.json
       - name: Build the page
         working-directory: client

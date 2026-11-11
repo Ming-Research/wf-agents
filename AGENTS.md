@@ -20,4 +20,10 @@ What an agent needs to know for this repository, beyond the rules every agent is
   for the processor: push the branch of the pull request and read its run. `cargo check` and
   `cargo clippy --all-targets -- -D warnings` of a crate are light enough to run there. Before pushing, run `rustfmt`
   on each Rust file you changed or added, naming each file: CI checks the format first.
+- An agent the engine runs names to its `check` and `check_before` a test by the name its results give it, ending at
+  the test's own name: a Rust test by its function's name, or with its module path and its test binary before it
+  (`tests::a_row`, `carry tools::tests::a_row`); a page test by its own title, or with the titles of its describes
+  before it, joined by ` > `, its file counted from `client/` (`src/x.test.ts > a describe > its title`). A binary, a
+  module, a file or a describe alone names no test. The page's browser tests (`*.browser.test.tsx`) start Chromium
+  only in a run that names one.
 - A change reaches `next` through a pull request whose CI is green and which a session other than its writer reviewed.

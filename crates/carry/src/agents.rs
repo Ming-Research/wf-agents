@@ -88,7 +88,7 @@ impl Agents {
     /// The agents as [`Agents::new`] gives them, reading the time by this clock.
     pub fn with_clock(settings: Settings, data: PathBuf, installation: Uuid, clock: Arc<dyn Clock>) -> Self {
         let protocol = (PROTOCOL.replace("{owner_language}", &settings.agents.owner_language))
-            .replace("{check}", crate::tools::told(&settings));
+            .replace("{check}", &crate::tools::told(&settings));
         Agents {
             inner: Arc::new(Inner {
                 settings,

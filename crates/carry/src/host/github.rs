@@ -23,8 +23,11 @@
 //! - `fake`: GitHub for the tests, with a bare repository on disk to push to.
 
 mod api;
+mod fast;
 mod gh;
 mod log;
+mod results;
+mod test_name;
 
 #[cfg(test)]
 mod fake;
@@ -37,7 +40,7 @@ use std::time::Duration;
 pub use api::{Api, Check, Outcome, Pull, State};
 pub use gh::Gh;
 
-use super::{Branch, Host, InUse, Verdict};
+use super::{Branch, Host, InUse, Named, Verdict, WHOLE};
 use crate::git::{self, Before, With};
 use crate::held::Stop;
 use crate::process;
@@ -46,6 +49,10 @@ use crate::settings::{self, Project};
 /// How often GitHub is asked how a CI goes: two calls a time, so a few hundred an hour for each work whose check
 /// waits, of the 5,000 GitHub allows a token; and a CI of minutes is seen done half a minute late at most.
 pub const POLL: Duration = Duration::from_secs(30);
+
+/// How often GitHub is asked how a run of the fast CI goes: a run takes from half a minute to a minute or so, and is
+/// waited for while an agent waits, so it is seen done within a few seconds, for a call a time.
+pub const FAST_POLL: Duration = Duration::from_secs(5);
 
 /// How the GitHub host reaches the repository and judges its CI.
 #[derive(Clone, PartialEq, Eq)]
@@ -70,6 +77,10 @@ pub struct Config {
     pub delete_branch: bool,
     /// Whether the project's CI runs on a push to a branch under [`BEFORE`], which the check before the change needs.
     pub before_branches: bool,
+    /// The project's fast CI, which runs the tests and checks an agent names; none where it has none.
+    pub fast: Option<settings::Fast>,
+    /// How often GitHub is asked how a run of the fast CI goes.
+    pub fast_poll: Duration,
     /// The engine's token, which git's pushes and fetches are given in their environment; none where the address
     /// needs none.
     pub token: Option<String>,
@@ -91,6 +102,8 @@ impl std::fmt::Debug for Config {
             .field("merge_method", &self.merge_method)
             .field("delete_branch", &self.delete_branch)
             .field("before_branches", &self.before_branches)
+            .field("fast", &self.fast)
+            .field("fast_poll", &self.fast_poll)
             .field("token", &self.token.as_ref().map(|_| "(given)"))
             .field("withheld", &self.withheld)
             .finish()
@@ -144,6 +157,8 @@ impl GitHub<Gh> {
             merge_method: github.merge_method.clone(),
             delete_branch: github.delete_branch,
             before_branches: github.runs_on_before_branches,
+            fast: github.fast.clone(),
+            fast_poll: FAST_POLL,
             token: Some(token.clone()),
             withheld: withheld(data, &project.repo, env("HOME")),
         };
@@ -591,7 +606,7 @@ impl<A: Api> Host for GitHub<A> {
         format!("refs/remotes/{}/{}", self.config.remote, self.project.main)
     }
 
-    async fn check(&self, branch: &Branch<'_>, stop: &mut Stop) -> Result<Option<String>, String> {
+    async fn check(&self, branch: &Branch<'_>, named: &Named, stop: &mut Stop) -> Result<Option<String>, String> {
         // What the check before the merge refuses, this refuses the same way: the repository's configuration, a
         // worktree off the work's branch, and in the push, connections sent elsewhere and submodules.
         let place = branch.place;
@@ -612,6 +627,10 @@ impl<A: Api> Host for GitHub<A> {
                  and ask again. Nothing was pushed.\n{changes}"
             )));
         }
+        let fast = self.config.fast.as_ref().filter(|_| !named.is_empty());
+        if let Some(why) = fast.and_then(|fast| fast::refused(fast, named)) {
+            return Ok(Some(why));
+        }
         let repo = &self.project.repo;
         let commit = git::git(repo, &["rev-parse", &place.reference()]).await?;
         // GitHub opens no pull request for a branch with nothing of its own.
@@ -628,20 +647,40 @@ impl<A: Api> Host for GitHub<A> {
         }
         self.push(branch, &commit).await?;
         let pull = self.pull_request(branch).await?;
+        if let Some(fast) = fast {
+            return self.fast(fast, &commit, named, stop).await;
+        }
         let Some(judged) = self.judged(&commit, stop).await? else {
             return Ok(None);
         };
         let through = format!("through the pull request {}", pull.url);
-        Ok(Some(self.told(&commit, &through, &judged).await))
+        Ok(Some(whole(named, self.told(&commit, &through, &judged).await)))
     }
 
     async fn check_before(
         &self,
         branch: &Branch<'_>,
         before: &Before,
+        named: &Named,
         stop: &mut Stop,
     ) -> Result<Option<String>, String> {
-        if !self.config.before_branches {
+        let fast = self.config.fast.as_ref().filter(|_| !named.tests.is_empty());
+        if let Some(fast) = fast {
+            if !named.checks.is_empty() {
+                return Ok(Some(format!(
+                    "Nothing was checked: the check before the change runs the tests named alone, and no check ({}): \
+                     a check would judge the code before the change, which is not yours.",
+                    named.checks.join(", ")
+                )));
+            }
+            if let Some(why) = fast::refused(fast, named) {
+                return Ok(Some(why));
+            }
+        } else if self.config.fast.is_some() && !self.config.before_branches {
+            // The whole CI does not run where the code before the change is pushed: only tests named are run, by the
+            // fast CI. Said as a result, as what the agent can mend.
+            return Ok(Some(NO_TESTS_BEFORE.to_string()));
+        } else if !self.config.before_branches {
             return Err(format!(
                 "the installation's settings do not say that the project's CI runs on a push to the branches under \
                  {BEFORE}/ (github.runs_on_before_branches), so nothing was pushed: the CI would never start there"
@@ -650,31 +689,36 @@ impl<A: Api> Host for GitHub<A> {
         // A branch of its own for each commit, taken away once its CI is read: the commit is no commit of the work's
         // branch, and is the same commit whenever it is made of the same files.
         let commit = &before.commit;
-        let mine = format!("{}{}", self.befores(branch), &commit[..commit.len().min(12)]);
+        let mine = format!("refs/heads/{BEFORE}/{}-{}", branch.place.branch, short(commit));
+        let name = mine.trim_start_matches("refs/heads/");
         let _held = self.in_use.hold(&mine).await;
         self.sweep(branch).await?;
-        // A commit checked already is answered from its CI, and pushed again to no branch, where a new run would start.
-        // One GitHub has not been given has no checks, and GitHub answers so with a refusal.
-        let now = match self.api.checks(commit).await {
-            Ok(now) => now,
-            Err(why) if why.starts_with("HTTP 422") => Vec::new(),
-            Err(why) => return Err(why),
-        };
-        if let Ok(Some(done)) = self.judge(commit, &now, Duration::ZERO) {
-            let name = mine.trim_start_matches("refs/heads/");
-            let done = Judged::as_they_are(done);
-            return Ok(Some(self.told(commit, &format!("on the branch {name}"), &done).await));
+        if fast.is_none() {
+            // A commit checked already is answered from its CI, and pushed again to no branch, where a new run would
+            // start. One GitHub has not been given has no checks, and GitHub answers so with a refusal.
+            let now = match self.api.checks(commit).await {
+                Ok(now) => now,
+                Err(why) if why.starts_with("HTTP 422") => Vec::new(),
+                Err(why) => return Err(why),
+            };
+            if let Ok(Some(done)) = self.judge(commit, &now, Duration::ZERO) {
+                let done = Judged::as_they_are(done);
+                let said = self.told(commit, &format!("on the branch {name}"), &done).await;
+                return Ok(Some(whole(named, said)));
+            }
         }
         self.push_to(commit, &mine, true).await?;
         // The code before the change is to fail where its tests do: what fails is said as it is.
-        let waited = self.wait(commit, stop).await;
-        let name = mine.trim_start_matches("refs/heads/");
-        let said = match waited {
-            Ok(Some(checks)) => {
-                let checks = Judged::as_they_are(checks);
-                Ok(Some(self.told(commit, &format!("on the branch {name}"), &checks).await))
-            }
-            other => other.map(|_| None),
+        let said = match fast {
+            Some(fast) => self.fast(fast, commit, named, stop).await,
+            None => match self.wait(commit, stop).await {
+                Ok(Some(checks)) => {
+                    let checks = Judged::as_they_are(checks);
+                    let said = self.told(commit, &format!("on the branch {name}"), &checks).await;
+                    Ok(Some(whole(named, said)))
+                }
+                other => other.map(|_| None),
+            },
         };
         let taken = self.push_to("", &mine, false).await;
         let said = said?;
@@ -698,12 +742,6 @@ impl<A: Api> Host for GitHub<A> {
 }
 
 impl<A: Api> GitHub<A> {
-    /// The beginning of the references of the branches of the work's checks before the change, the commit's beginning
-    /// following it.
-    fn befores(&self, branch: &Branch<'_>) -> String {
-        format!("refs/heads/{BEFORE}/{}-", branch.place.branch)
-    }
-
     /// Deletes on GitHub the branches of the work's checks before the change that no check of this process holds: an
     /// engine that ended while such a check waited left them.
     async fn sweep(&self, branch: &Branch<'_>) -> Result<(), String> {
@@ -712,7 +750,7 @@ impl<A: Api> GitHub<A> {
         if !listed.ok {
             return Err(format!("the branches on GitHub could not be listed: {}", listed.err));
         }
-        let beginning = self.befores(branch);
+        let beginning = format!("refs/heads/{BEFORE}/{}-", branch.place.branch);
         let left: Vec<&str> = (listed.out.lines())
             .filter_map(|line| line.split_once('\t').map(|(_, reference)| reference))
             .filter(|reference| reference.starts_with(&beginning) && !self.in_use.held(reference))
@@ -721,6 +759,27 @@ impl<A: Api> GitHub<A> {
             self.push_to("", reference, false).await?;
         }
         Ok(())
+    }
+}
+
+/// What the check before the change says where it names no test and only the project's fast CI runs on the code before
+/// the change.
+pub(super) const NO_TESTS_BEFORE: &str = "Nothing was checked: the check before the change runs the tests you name on \
+                                          the project's fast CI, and its whole CI does not run on the code before the \
+                                          change. Name the tests to run, a line `test: <name>` each, beside the \
+                                          `file: <path>` lines.";
+
+/// The beginning of a commit by which a branch of one is named.
+fn short(commit: &str) -> &str {
+    &commit[..commit.len().min(12)]
+}
+
+/// What a check that ran whole found, said after [`WHOLE`] where the agent named what it does not run apart.
+fn whole(named: &Named, said: String) -> String {
+    if named.is_empty() {
+        said
+    } else {
+        format!("{WHOLE}\n\n{said}")
     }
 }
 

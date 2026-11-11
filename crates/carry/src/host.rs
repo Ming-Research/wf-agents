@@ -93,20 +93,24 @@ pub trait Host: Send + Sync + 'static {
     /// the host again: where a work's change begins is worked out from it.
     fn kept_main(&self) -> String;
 
-    /// What the agents' tool `check` finds of the work, in words for the agent that asked; none where it was told to
-    /// stop. An `Err` is why it could not check, for the agent too. What failed is said as [`Host::verdict`] says it.
+    /// What the agents' tool `check` finds of the work, with the tests and checks the agent named, in words for the
+    /// agent that asked; none where it was told to stop. An `Err` is why it could not check, for the agent too. What
+    /// failed is said as [`Host::verdict`] says it.
     fn check(
         &self,
         branch: &Branch<'_>,
+        named: &Named,
         stop: &mut Stop,
     ) -> impl Future<Output = Result<Option<String>, String>> + Send;
 
     /// What the agents' tool `check_before` finds of the commit made of the code before the work's change with some
-    /// of its files put on it, in words for the agent that asked, as [`Host::check`] gives them.
+    /// of its files put on it, with the tests the agent named, in words for the agent that asked, as [`Host::check`]
+    /// gives them.
     fn check_before(
         &self,
         branch: &Branch<'_>,
         before: &Before,
+        named: &Named,
         stop: &mut Stop,
     ) -> impl Future<Output = Result<Option<String>, String>> + Send;
 
@@ -115,6 +119,24 @@ pub trait Host: Send + Sync + 'static {
     /// ([`CLOSED`]). What is gone, closed or merged already is left as it is, and the work's own branch stays.
     fn end(&self, branch: &Branch<'_>, merged: bool) -> impl Future<Output = Result<(), String>> + Send;
 }
+
+/// The tests and the checks an agent names to its check, each as it wrote it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Named {
+    pub tests: Vec<String>,
+    pub checks: Vec<String>,
+}
+
+impl Named {
+    /// Whether nothing is named.
+    pub fn is_empty(&self) -> bool {
+        self.tests.is_empty() && self.checks.is_empty()
+    }
+}
+
+/// What a check that runs whole says before what it found, where the agent named tests or checks it does not run
+/// apart.
+pub(crate) const WHOLE: &str = "This check runs whole: the tests and checks you named are not run apart.";
 
 /// What the host says on the pull request of a work that ended without merging. It says not why: why is the owner's,
 /// in the owner's language, and on the owner's page.
@@ -168,8 +190,8 @@ impl<H: Host> Host for Arc<H> {
         (**self).kept_main()
     }
 
-    async fn check(&self, branch: &Branch<'_>, stop: &mut Stop) -> Result<Option<String>, String> {
-        (**self).check(branch, stop).await
+    async fn check(&self, branch: &Branch<'_>, named: &Named, stop: &mut Stop) -> Result<Option<String>, String> {
+        (**self).check(branch, named, stop).await
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {
@@ -180,8 +202,9 @@ impl<H: Host> Host for Arc<H> {
         &self,
         branch: &Branch<'_>,
         before: &Before,
+        named: &Named,
         stop: &mut Stop,
     ) -> Result<Option<String>, String> {
-        (**self).check_before(branch, before, stop).await
+        (**self).check_before(branch, before, named, stop).await
     }
 }
