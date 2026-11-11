@@ -716,3 +716,97 @@ async fn a_tick_during_a_running_step_starts_no_second_one() {
     assert_eq!(e.rows().copies.len(), 1);
     task.abort();
 }
+
+// ---- Adversarial tests (cell T2). ----
+
+/// The fake, with removals that can be made to fail on their own.
+struct Removal {
+    inner: Arc<Fake>,
+    fail: std::sync::atomic::AtomicBool,
+}
+
+impl Offsite for Removal {
+    fn private(&self) -> Result<bool, String> {
+        self.inner.private()
+    }
+
+    fn upload(&self, file: &Path) -> Result<(), String> {
+        self.inner.upload(file)
+    }
+
+    fn list(&self) -> Result<Vec<String>, String> {
+        self.inner.list()
+    }
+
+    fn remove(&self, name: &str) -> Result<(), String> {
+        if self.fail.load(Ordering::SeqCst) {
+            return Err("the removal is refused".to_string());
+        }
+        self.inner.remove(name)
+    }
+}
+
+fn with_removal(e: &Env) -> (Plan, Arc<Removal>) {
+    let removal = Arc::new(Removal {
+        inner: e.fake.clone(),
+        fail: false.into(),
+    });
+    let mut plan = e.plan.clone();
+    plan.offsite = Some(removal.clone());
+    (plan, removal)
+}
+
+fn failed_step(state: &State) -> Option<&str> {
+    match state {
+        State::Failed { step, .. } => Some(step.as_str()),
+        _ => None,
+    }
+}
+
+// Reference: acceptance 5 (the uploaded assets are pruned to the `keep` newest rows recorded; a missing local file is
+// no error). A copy whose local file is gone is still a row past keeping: its asset is to be pruned.
+#[test]
+fn an_asset_whose_local_file_is_gone_is_still_pruned_when_it_falls_past_keeping() {
+    let e = env(1, true);
+    e.step(T0);
+    let first = e.rows().copies[0].name.clone();
+    std::fs::remove_file(e.plan.dir.join(&first)).expect("the file is removed");
+    let out = e.step(T0 + DAY + 1);
+    assert_eq!(out.failed, None);
+    let second = e.rows().copies[1].name.clone();
+    assert_eq!(e.fake.names(), vec![second], "the first copy's asset is pruned with its row");
+}
+
+// Reference: acceptance 14 (the report gives the last failure with its step and reason). A prune that fails in the
+// step that took and uploaded a copy is a failure the owner is to see.
+#[test]
+fn a_failed_prune_in_the_step_that_took_a_copy_is_shown() {
+    let e = env(1, true);
+    let (plan, removal) = with_removal(&e);
+    step_with(Time(T0), &e.records, &plan, &mut || false);
+    removal.fail.store(true, Ordering::SeqCst);
+    let out = step_with(Time(T0 + DAY + 1), &e.records, &plan, &mut || false);
+    assert_eq!(out.failed.as_ref().map(|f| f.0.as_str()), Some("prune"));
+    let state = e.report(T0 + DAY + 2).state;
+    assert_eq!(failed_step(&state), Some("prune"), "{state:?}");
+}
+
+// Reference: acceptance 11 (a failure older than the newest success is not shown). A prune that failed and was done
+// at the next step is a success after the failure: the state returns to Ok within the day.
+#[test]
+fn a_prune_failed_and_then_done_is_no_longer_shown() {
+    let e = env(1, true);
+    let (plan, removal) = with_removal(&e);
+    step_with(Time(T0), &e.records, &plan, &mut || false);
+    removal.fail.store(true, Ordering::SeqCst);
+    // The first copy is past keeping and its removal is refused, at a later step than the copy was taken in.
+    step_with(Time(T0 + DAY + 1), &e.records, &plan, &mut || false);
+    let out = step_with(Time(T0 + DAY + HOUR), &e.records, &plan, &mut || false);
+    assert_eq!(out.failed.as_ref().map(|f| f.0.as_str()), Some("prune"), "{out:?}");
+    removal.fail.store(false, Ordering::SeqCst);
+    let out = step_with(Time(T0 + DAY + 2 * HOUR), &e.records, &plan, &mut || false);
+    assert_eq!(out.failed, None);
+    assert_eq!(e.files().len(), 1, "the prune was done");
+    let state = e.report(T0 + DAY + 2 * HOUR).state;
+    assert_eq!(state, State::Ok, "the failure was mended by the prune");
+}
