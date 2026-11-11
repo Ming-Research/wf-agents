@@ -1,6 +1,7 @@
 //! A test of what was confirmed (entry opinions-are-inputs: a confirmation changes no meaning and only meets the
 //! precondition that waits for it): the merge waits for the owner's confirmation of what a block says, only while it
-//! says something, and again once its meaning changed after the confirmation.
+//! says something, and again once what it holds changed after the confirmation, whatever its writer says of the
+//! change.
 
 use decide::{Outsiders, Test, TestKind, TestName};
 
@@ -67,20 +68,34 @@ fn a_confirmation_given_before_the_block_said_what_it_says_now_does_not_count() 
 }
 
 #[test]
-fn a_change_of_meaning_after_the_confirmation_is_asked_again_and_one_that_does_not_matter_is_not() {
+fn a_question_added_after_the_confirmation_holds_the_merge_again_though_its_writer_says_it_does_not_matter() {
     let mut w = asking();
     w.person_writes("brief");
     w.run("plan", &[(ASKED, Matters), ("code", Matters)]);
     w.person_sets(BY, "yes");
-    // Reworded, its writer saying the change does not matter: the confirmation still holds.
+    assert_eq!(w.decide(), merges());
+    // The plan runs again and adds a question, saying the change does not matter: the owner has not seen it.
     w.person_writes("brief");
     w.run("plan", &[(ASKED, DoesNotMatter), ("code", Matters)]);
-    assert_eq!(w.decide(), merges());
-    // Changed in meaning: the owner is asked again, and the same yes written again confirms it.
+    assert_eq!(w.decide(), waits());
+    // Changed again, saying it matters: asked again, and the same yes written again confirms it.
     w.person_writes("brief");
     w.run("plan", &[(ASKED, Matters), ("code", Matters)]);
     assert_eq!(w.decide(), waits());
     w.person_sets(BY, "yes");
+    assert_eq!(w.decide(), merges());
+}
+
+#[test]
+fn the_same_questions_written_again_keep_the_confirmation_though_their_writer_says_the_change_matters() {
+    let mut w = asking();
+    w.person_writes("brief");
+    w.run("plan", &[(ASKED, Matters), ("code", Matters)]);
+    w.person_sets(BY, "yes");
+    w.person_writes("brief");
+    let at = w.run("plan", &[(ASKED, Matters), ("code", Matters)]);
+    // The engine tells that the version holds what the one before it held.
+    w.records.unchanged.insert((ASKED.into(), at));
     assert_eq!(w.decide(), merges());
 }
 

@@ -184,6 +184,7 @@ pub fn as_of(r: &Records, upto: Seq) -> Records {
         cancelled: r.cancelled.filter(|at| *at <= upto),
         released: r.released.filter(|at| *at <= upto),
         blank: r.blank.iter().filter(|(_, at)| *at <= upto).cloned().collect(),
+        unchanged: r.unchanged.iter().filter(|(_, at)| *at <= upto).cloned().collect(),
     }
 }
 

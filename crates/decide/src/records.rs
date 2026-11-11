@@ -57,6 +57,12 @@ pub struct Records {
     /// deciding code is not given; records kept before it was told read as having none.
     #[serde(default)]
     pub blank: BTreeSet<(BlockId, Seq)>,
+    /// The versions written with the same content as the version of their block before them, each by its block and
+    /// the place of the entry that wrote it: what the block holds did not change, whatever its writer says of the
+    /// change. It is told by the contents, which the deciding code is not given; records kept before it was told read
+    /// as having none, every version holding something new.
+    #[serde(default)]
+    pub unchanged: BTreeSet<(BlockId, Seq)>,
 }
 
 impl Records {
@@ -80,6 +86,7 @@ impl Records {
             cancelled: self.cancelled.filter(|at| *at < place),
             released: self.released.filter(|at| *at < place),
             blank: (self.blank.iter()).filter(|(_, at)| *at < place).cloned().collect(),
+            unchanged: (self.unchanged.iter()).filter(|(_, at)| *at < place).cloned().collect(),
         }
     }
 }

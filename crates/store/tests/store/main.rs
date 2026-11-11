@@ -11,6 +11,7 @@ mod items;
 mod only_added;
 mod opening;
 mod round_trip;
+mod unchanged;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
