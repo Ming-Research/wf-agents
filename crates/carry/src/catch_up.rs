@@ -161,8 +161,8 @@ mod tests {
         );
         let parents = run(&place.dir, &["rev-list", "--parents", "-n", "1", "HEAD"]);
         assert_eq!(parents.split(' ').nth(2), Some(main.as_str()), "it merges main's head");
-        // Taken in again, main is held, and nothing more is merged.
-        let again = take_in(&repo.project, &place, "refs/heads/main", RUN).await;
+        // Taken in again by a later run, main is held, and nothing more is merged.
+        let again = take_in(&repo.project, &place, "refs/heads/main", RunId(8)).await;
         assert_eq!(again.outcome, Outcome::Holds { main });
         assert_eq!(run(&place.dir, &["rev-parse", "HEAD"]), merge);
     }
