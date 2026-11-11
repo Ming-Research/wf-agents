@@ -272,6 +272,9 @@ fn every_key_that_could_run_a_program_is_named() {
         "core.editor",
         "sequence.editor",
         "core.pager",
+        "remote.https://github.com/o/r.git.uploadpack",
+        "remote.origin.receivepack",
+        "remote.origin.vcs",
     ] {
         assert!(runs_code(key), "{key}");
     }

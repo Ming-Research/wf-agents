@@ -4,8 +4,7 @@
 use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use super::{Host, Verdict};
-use crate::git::Place;
+use super::{Branch, Host, Verdict};
 use crate::held::Stop;
 
 /// The host's answers, and what it was asked.
@@ -58,13 +57,13 @@ impl Host for Fake {
         Ok(lock(&self.main).clone())
     }
 
-    async fn verdict(&self, _: &Place, commit: &str, _: &mut Stop) -> Result<Option<Verdict>, String> {
+    async fn verdict(&self, _: &Branch<'_>, commit: &str, _: &mut Stop) -> Result<Option<Verdict>, String> {
         lock(&self.asked).push(Asked::Verdict(commit.to_string()));
         let next = lock(&self.verdicts).pop_front();
         next.unwrap_or_else(|| Err("the fake host has no verdict to give".to_string()))
     }
 
-    async fn merge(&self, _: &Place, checked: Option<&str>) -> Result<String, String> {
+    async fn merge(&self, _: &Branch<'_>, checked: Option<&str>) -> Result<String, String> {
         lock(&self.asked).push(Asked::Merge(checked.map(str::to_string)));
         Ok(lock(&self.main).clone())
     }

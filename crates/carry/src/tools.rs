@@ -27,6 +27,8 @@ pub struct Tools {
 
 struct Inner {
     project: Project,
+    /// The variables of the engine's environment the check is given beside those always given: the agents' own.
+    env: Vec<String>,
     data: PathBuf,
     /// The installation's part of the names of the works' worktrees.
     tag: String,
@@ -40,11 +42,13 @@ enum Answer {
 }
 
 impl Tools {
-    /// The tools in this project, with this data directory, which is an absolute path, and the installation's tag.
-    pub fn new(project: Project, data: PathBuf, tag: String) -> Self {
+    /// The tools in this project, with this data directory, which is an absolute path, and the installation's tag; the
+    /// check is given these variables of the engine's environment, as the agents are.
+    pub fn new(project: Project, env: Vec<String>, data: PathBuf, tag: String) -> Self {
         Tools {
             inner: Arc::new(Inner {
                 project,
+                env,
                 data,
                 tag,
                 held: Held::new(),
@@ -66,7 +70,7 @@ impl ToolsTrait for Tools {
                 Answer::Result(read::answer(&call.flow, &call.kept, &call.input))
             } else {
                 let place = git::place(&inner.data, &inner.tag, call.work);
-                answer(&inner.project, &place, &call.name, &mut stop).await
+                answer(&inner.project, &inner.env, &place, &call.name, &mut stop).await
             };
             let result = match answered {
                 Answer::Result(result) => result,
@@ -95,13 +99,13 @@ impl Tools {
 }
 
 /// Runs the tool named, other than `read`, in the work's worktree, and gives its result.
-async fn answer(project: &Project, place: &Place, name: &str, stop: &mut Stop) -> Answer {
+async fn answer(project: &Project, env: &[String], place: &Place, name: &str, stop: &mut Stop) -> Answer {
     if name != CHECK {
         return Answer::Result(format!("No such tool: {name}. The tools are: {READ}, {CHECK}."));
     }
     let check = &project.check;
     let ran = match git::worktree(place) {
-        Ok(dir) => process::run(process::shell(check, &dir), None, None, stop).await,
+        Ok(dir) => process::run(process::shell(check, &dir, env), None, None, stop).await,
         Err(why) => Err(why),
     };
     match ran {
@@ -131,7 +135,12 @@ mod tests {
     const WORK: WorkNumber = WorkNumber(1);
 
     async fn answered(repo: &Repo, name: &str) -> String {
-        match answer(&repo.project, &repo.place(WORK), name, &mut Stop::never()).await {
+        answered_with(repo, name, &[]).await
+    }
+
+    /// The tool's answer, the agents being given these variables of the engine's environment.
+    async fn answered_with(repo: &Repo, name: &str, env: &[String]) -> String {
+        match answer(&repo.project, env, &repo.place(WORK), name, &mut Stop::never()).await {
             Answer::Result(result) => result,
             Answer::Withdrawn => panic!("nothing withdrew it"),
         }
@@ -152,6 +161,20 @@ mod tests {
         let said = answered(&failing, CHECK).await;
         assert!(said.starts_with("The check `echo it broke; exit 2` failed ("), "{said}");
         assert!(said.ends_with("it broke\n"), "{said}");
+    }
+
+    #[tokio::test]
+    async fn the_check_is_given_of_the_engines_environment_only_what_the_agents_are() {
+        // Cargo gives the tests' process this variable, which no agent is given unless the settings name it: the
+        // token for GitHub is one such.
+        assert!(std::env::var("CARGO_PKG_NAME").is_ok(), "cargo runs the tests");
+        let repo = Repo::new("env");
+        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        let said = answered(&repo, CHECK).await;
+        assert!(said.contains("\nHOME=") || said.contains(":\nHOME="), "{said}");
+        assert!(!said.contains("CARGO_PKG_NAME="), "{said}");
+        let named = answered_with(&repo, CHECK, &["CARGO_PKG_NAME".to_string()]).await;
+        assert!(named.contains("CARGO_PKG_NAME=carry"), "{named}");
     }
 
     #[tokio::test]
@@ -185,7 +208,7 @@ mod tests {
             assert!(held.stop(1, ()).is_none(), "what runs it is told to stop");
         };
         let place = repo.place(WORK);
-        let (answer, ()) = tokio::join!(answer(&repo.project, &place, CHECK, &mut stop), withdrawing);
+        let (answer, ()) = tokio::join!(answer(&repo.project, &[], &place, CHECK, &mut stop), withdrawing);
         assert!(matches!(answer, Answer::Withdrawn));
         assert!(began.elapsed() < Duration::from_secs(20), "the command was stopped");
     }

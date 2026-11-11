@@ -60,11 +60,12 @@ pub(crate) struct Said {
     pub(crate) err: String,
 }
 
-/// What every git command of the engine's is given before its own arguments: no file-system monitor, no hook and
-/// no signing, so that nothing the repository's configuration names is run by these settings. A work's worktree
-/// shares that configuration with the owner's checkout, and an agent may write it; what else of it could run a
-/// program is refused before each act ([`configuration`]).
-pub const SAFE: [&str; 8] = [
+/// What every git command of the engine's is given before its own arguments: no file-system monitor, no hook, no
+/// signing, and no going into submodules, so that nothing the repository's configuration names is run by these
+/// settings, and nothing a submodule's own configuration names, which no check of the engine's reads. A work's
+/// worktree shares that configuration with the owner's checkout, and an agent may write it; what else of it could run
+/// a program is refused before each act ([`configuration`]).
+pub const SAFE: [&str; 14] = [
     "-c",
     "core.fsmonitor=false",
     "-c",
@@ -73,26 +74,53 @@ pub const SAFE: [&str; 8] = [
     "commit.gpgSign=false",
     "-c",
     "merge.verifySignatures=false",
+    "-c",
+    "submodule.recurse=false",
+    "-c",
+    "fetch.recurseSubmodules=false",
+    "-c",
+    "push.recurseSubmodules=no",
 ];
 
 /// Runs git in the directory; says why where it cannot be started. Git is given, of the engine's environment, only
 /// what the agents are given of it (`cli::KEPT` and every `LC_*`), so that no `GIT_*` variable of the engine's
 /// reaches it but the one set here.
 pub(crate) async fn said(dir: &Path, args: &[&str]) -> Result<Said, String> {
+    said_with(dir, &With::default(), args).await
+}
+
+/// How long a git command may take before it is given up: a fetch or a push of a large repository over a slow
+/// connection, at the most. A connection that stalls is given up sooner, by the low-speed limit pushes and fetches
+/// are given.
+pub const LIMIT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// What a git command is given beside its arguments: settings before them, as `-c` pairs, and variables of its
+/// environment beside those [`said`] keeps. Neither is said where the command fails, so that a credential given in
+/// the environment is said nowhere.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct With {
+    pub(crate) settings: Vec<String>,
+    pub(crate) env: Vec<(String, String)>,
+}
+
+/// Runs git in the directory as [`said`] does, with what is given beside its arguments.
+pub(crate) async fn said_with(dir: &Path, with: &With, args: &[&str]) -> Result<Said, String> {
     let kept =
         std::env::vars().filter(|(name, _)| crate::cli::KEPT.contains(&name.as_str()) || name.starts_with("LC_"));
-    let output = Command::new("git")
+    let settings = (with.settings.iter()).flat_map(|setting| ["-c", setting.as_str()]);
+    let mut command = Command::new("git");
+    command
         .arg("-C")
         .arg(dir)
         .args(SAFE)
+        .args(settings)
         .args(args)
         .env_clear()
         .envs(kept)
+        .envs(with.env.iter().cloned())
         .env("GIT_TERMINAL_PROMPT", "0")
-        .stdin(std::process::Stdio::null())
-        .output()
-        .await
-        .map_err(|e| format!("git cannot be started: {e}"))?;
+        .stdin(std::process::Stdio::null());
+    let output = crate::process::output(command, LIMIT).await?;
     Ok(Said {
         ok: output.status.success(),
         code: output.status.code(),
@@ -103,7 +131,12 @@ pub(crate) async fn said(dir: &Path, args: &[&str]) -> Result<Said, String> {
 
 /// Runs git in the directory and gives its standard output; or says what failed, with what git said.
 pub(crate) async fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let said = said(dir, args).await?;
+    git_with(dir, &With::default(), args).await
+}
+
+/// Runs git in the directory as [`git`] does, with what is given beside its arguments.
+pub(crate) async fn git_with(dir: &Path, with: &With, args: &[&str]) -> Result<String, String> {
+    let said = said_with(dir, with, args).await?;
     if said.ok {
         Ok(said.out)
     } else {
@@ -320,6 +353,9 @@ fn runs_code(key: &str) -> bool {
         || within("diff.", ".command")
         || within("gpg.", ".program")
         || within("credential.", ".helper")
+        || within("remote.", ".uploadpack")
+        || within("remote.", ".receivepack")
+        || within("remote.", ".vcs")
 }
 
 /// Whether the key matches one of the patterns: the whole key, or, for a pattern ending in `*`, its beginning.
