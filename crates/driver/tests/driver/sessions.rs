@@ -2,6 +2,8 @@
 //! installation's policy, and writes the block of the source `session` where a cell of the line reads it, so that the
 //! cell runs again before the line's next round.
 
+use std::sync::{Arc, Mutex};
+
 use decide::BlockId;
 use driver::Policy;
 use driver::{FirstWrite, NewItem, SESSION};
@@ -82,6 +84,28 @@ fn policy(model: &str) -> Policy {
     }
 }
 
+/// The account rounds run under, as the installation's settings say it each time the policy is asked: none for the
+/// program's own default directory.
+type Account = Arc<Mutex<Option<String>>>;
+
+fn account(dir: Option<&str>) -> Account {
+    Arc::new(Mutex::new(dir.map(str::to_string)))
+}
+
+/// The policy where every round runs on this model, under the account as it is when asked, with a limit of 500 tokens.
+fn policy_under(model: &str, account: Account) -> Policy {
+    let model = model.to_string();
+    Policy {
+        limit: 500,
+        on: Box::new(move |_, _| {
+            Some(RanOn {
+                account: account.lock().unwrap().clone(),
+                ..on(&model)
+            })
+        }),
+    }
+}
+
 /// A driver on its own store, with the flow and the policy, and a work on the flow let on.
 struct S {
     db: Db,
@@ -91,19 +115,20 @@ struct S {
     clock: u64,
     /// The model the rounds run on.
     model: String,
+    /// The account the rounds' tries begin under.
+    account: Option<String>,
 }
 
 impl S {
     fn new() -> S {
+        S::with(policy("opus"), None)
+    }
+
+    /// A driver with the policy, whose rounds' tries begin under the account.
+    fn with(policy: Policy, account: Option<&str>) -> S {
         let db = Db::new();
         let flow = flow();
-        let (mut driver, _) = Driver::open(
-            Box::new(db.open()),
-            vec![flow.clone()],
-            Some(policy("opus")),
-            Time(START),
-        )
-        .unwrap();
+        let (mut driver, _) = Driver::open(Box::new(db.open()), vec![flow.clone()], Some(policy), Time(START)).unwrap();
         let new = NewItem {
             title: "Greet".to_string(),
             level: "1".to_string(),
@@ -124,6 +149,7 @@ impl S {
             work,
             clock: START,
             model: "opus".to_string(),
+            account: account.map(str::to_string),
         }
     }
 
@@ -152,15 +178,24 @@ impl S {
     /// this context.
     fn ends(&mut self, context: u64, came: Came) {
         let (run, _) = self.round();
-        // The round's one try began on the model, as its carrier says.
-        let ran = on(&self.model);
-        self.on(Event::Ran { run, on: ran });
+        // The round's one try began on the model, under the account, as its carrier says.
+        self.began();
         let spent = Spent {
             input_tokens: 10,
             context_tokens: Some(context),
             ..Default::default()
         };
         self.on(Event::Returned { run, came, spent });
+    }
+
+    /// The one try of the round under way begins on the model, under the account, as its carrier says.
+    fn began(&mut self) {
+        let (run, _) = self.round();
+        let ran = RanOn {
+            account: self.account.clone(),
+            ..on(&self.model)
+        };
+        self.on(Event::Ran { run, on: ran });
     }
 
     fn hands_in(&mut self, context: u64, matters: bool) {
@@ -373,4 +408,94 @@ fn a_line_whose_rounds_now_run_on_another_model_begins_a_new_session_as_the_engi
     s.model = "sonnet".to_string();
     s.hands_in(100, false);
     assert_eq!(s.sessions().len(), 1);
+}
+
+#[test]
+fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_as_the_engine_opens() {
+    // The session was begun under the program's own default directory, and the engine opens under a directory set.
+    let mut s = S::new();
+    s.hands_in(100, true);
+    let (build, _) = s.round();
+    s.asks(100);
+    let (driver, todos) = Driver::open(
+        Box::new(s.db.open()),
+        vec![s.flow.clone()],
+        Some(policy_under("opus", account(Some("second")))),
+        Time(s.clock),
+    )
+    .unwrap();
+    s.driver = driver;
+    s.account = Some("second".to_string());
+    assert_eq!(
+        s.sessions(),
+        [("engineer".to_string(), Why::Account { was: None })],
+        "the review's line, which has begun no session, begins none"
+    );
+    assert_eq!(s.session_block().len(), 1);
+    let loads = todos
+        .iter()
+        .any(|todo| matches!(&todo.effect, Effect::Round { cell, .. } if cell.as_str() == "load"));
+    assert!(loads, "the load runs again before the build goes on: {todos:?}");
+    // The load's round runs under the new account, and nothing more begins anew.
+    s.hands_in(100, false);
+    let call = s.kept().records.called.last().expect("the build's call").call;
+    s.on(Event::Done {
+        call,
+        result: "the request".to_string(),
+    });
+    assert_eq!(s.round(), (build, "build".to_string()));
+    assert!(moved(s.kept(), "engineer", build, 2));
+    assert_eq!(s.sessions().len(), 1);
+}
+
+#[test]
+fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_at_the_next_event() {
+    let under = account(Some("first"));
+    let mut s = S::with(policy_under("opus", under.clone()), Some("first"));
+    s.hands_in(100, true);
+    s.asks(100);
+    assert!(s.sessions().is_empty());
+    // The account is changed while the build waits on its tool's result; the result is the next thing to happen.
+    *under.lock().unwrap() = Some("second".to_string());
+    s.account = Some("second".to_string());
+    let call = s.kept().records.called.last().expect("the build's call").call;
+    s.on(Event::Done {
+        call,
+        result: "the request".to_string(),
+    });
+    let was = Why::Account {
+        was: Some("first".to_string()),
+    };
+    assert_eq!(s.sessions(), [("engineer".to_string(), was)]);
+    assert_eq!(s.session_block().len(), 1);
+}
+
+#[test]
+fn another_account_begins_the_new_session_before_a_context_past_the_limit_does() {
+    let under = account(None);
+    let mut s = S::with(policy_under("opus", under.clone()), None);
+    s.hands_in(100, true);
+    let (run, cell) = s.round();
+    assert_eq!(cell, "build");
+    // The build's try began under the account before; it is changed as the try runs, and the round ends past the
+    // limit, its run ending: both would begin a new session, and the account says why.
+    s.began();
+    *under.lock().unwrap() = Some("second".to_string());
+    let handed = Handed {
+        block: "code".into(),
+        content: "the code".to_string(),
+        matters: true,
+        value: None,
+    };
+    let spent = Spent {
+        input_tokens: 10,
+        context_tokens: Some(600),
+        ..Default::default()
+    };
+    s.on(Event::Returned {
+        run,
+        came: Came::HandsIn(vec![handed]),
+        spent,
+    });
+    assert_eq!(s.sessions(), [("engineer".to_string(), Why::Account { was: None })]);
 }
