@@ -3855,11 +3855,6 @@ fn numbers(e: &Engine, project: &str, main: Option<&str>) -> Result<Value, Strin
             }
             if let Some(by) = m.by.name() {
                 let mut split = health::series_by_subject(conn, m, &scope, from, now, week)?;
-                for (subject, s) in &split {
-                    if let Some(why) = s.not_measured {
-                        not_measured.insert(format!("{} for {by} {subject}", m.name), json!(why));
-                    }
-                }
                 // Of the cells, those with the largest values in the latest week; a cell with none there comes last.
                 let by_cell = m.by == health::By::Cell;
                 let mut others = 0;
@@ -3964,10 +3959,10 @@ fn policy(e: &Engine, project: &str) -> Result<Option<Value>, String> {
 /// The signals of the policy in force for a project that the engine measures, each with its numbers: a signal whose
 /// words name a measure of the numbers by its name (`merged`, `items made` for `items_made`, or `ci wait` for the
 /// health number `ci.wait`), with that measure week by week, the latest first; or now, a week ago and a month ago. A
-/// health number comes as the numbers give it, with what it is, its unit and why a week has no value, and with why it or
-/// a part of it is not measured (`not_measured`, by the names the numbers list it under): whoever reads only the signals
-/// can tell a number nothing records from a week with nothing to count. None when the engine measures none of them, or
-/// before the first policy takes effect.
+/// health number comes as the numbers give it, with what it is, its unit and why a week has no value, and with why it is
+/// not measured (`not_measured`, by the name the numbers list it under): whoever reads only the signals can tell a
+/// number nothing records from a week with nothing to count. None when the engine measures none of them, or before the
+/// first policy takes effect.
 fn policy_signals(e: &Engine, project: &str, main: Option<&str>) -> Result<Option<Value>, String> {
     let Some(policy) = policy(e, project)? else {
         return Ok(None);
@@ -3988,7 +3983,7 @@ fn policy_signals(e: &Engine, project: &str, main: Option<&str>) -> Result<Optio
             let why: Map<String, Value> = unmeasured
                 .into_iter()
                 .flatten()
-                .filter(|(name, _)| *name == k || name.starts_with(&format!("{k} for ")))
+                .filter(|(name, _)| *name == k)
                 .map(|(name, why)| (name.clone(), why.clone()))
                 .collect();
             if !why.is_empty() {

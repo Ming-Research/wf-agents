@@ -194,6 +194,15 @@ impl Seed {
         );
     }
 
+    /// A wait of a work for a free slot, begun at a time, ended at another or still going on.
+    fn slot_wait(&mut self, work: i64, since: i64, until: Option<i64>) {
+        self.sql(
+            "INSERT INTO slot_waits (work, since, until, ended)
+             VALUES (?1, ?2, ?3, CASE WHEN ?3 IS NOT NULL THEN 'granted' END)",
+            params![work, since, until],
+        );
+    }
+
     /// A matter for a project's architect that came at a time, handled by a round or not yet.
     fn matter(&mut self, project: &str, kind: &str, at: i64, handled: Option<(i64, i64)>) {
         self.sql(
@@ -335,7 +344,8 @@ fn a_merge_reverted_counts_where_its_revert_merged() {
     assert_eq!(s.whole("merge.reverted", all()), Some(3.0));
 }
 
-// A measure nothing records yet has no values, and says why; so does a subject of a measure not recorded yet.
+// A measure nothing records yet has no values, and says why, whatever subject is read; a measure the records hold does
+// not, the stops by the reason `slot` included.
 #[test]
 fn a_number_nothing_records_says_why_and_has_no_values() {
     let s = Seed::new();
@@ -345,8 +355,7 @@ fn a_number_nothing_records_says_why_and_has_no_values() {
     assert!(got.points.iter().all(|x| x.value.is_none() && x.n == 0));
     let stops = measure("work.stops").unwrap();
     let slot = series(s.conn(), stops, &of("slot"), T0, T0 + 10 * M, M).unwrap();
-    assert!(slot.not_measured.is_some(), "{slot:?}");
-    assert!(slot.points.iter().all(|x| x.value.is_none()));
+    assert_eq!(slot.not_measured, None, "{slot:?}");
     // A count the records hold is a zero where nothing happened.
     let made = series(s.conn(), measure("items.made").unwrap(), &p(), T0, T0 + 10 * M, M).unwrap();
     assert_eq!(made.not_measured, None);
@@ -489,6 +498,87 @@ fn the_owner_s_words_wait_until_the_round_that_handled_them_ended() {
     );
     assert_eq!(s.whole("owner.reply", p()), Some(155_000.0));
     assert_eq!(s.whole("owner.reply", all()), Some(180_000.0));
+}
+
+// A work's wait for a free slot, its answer come, is a stop like a blocker's, of the reason `slot`: it counts once, in
+// the minute it began, and lasts in each minute for the part of it there, one still going on until now; it is of the
+// project of its work, and adds to the stops of every reason together. A wait that ended before the period or began
+// at its end is left out; one that began before the period lasts in it without counting.
+#[test]
+fn a_wait_for_a_slot_is_a_stop_of_the_reason_slot() {
+    let mut s = Seed::new();
+    let (i, j) = (s.item("p", false, T0 - 60 * M), s.item("q", false, T0 - 60 * M));
+    let w = s.work(Some(i), "engineer", None);
+    let u = s.work(Some(i), "engineer", None);
+    let q = s.work(Some(j), "engineer", None);
+    s.blocker(w, "question", T0 + M, Some(T0 + 2 * M));
+    // The wait for a slot follows the blocker that ended as its answer came.
+    s.slot_wait(w, T0 + 2 * M, Some(T0 + 2 * M + 30_000));
+    s.slot_wait(w, T0 + 4 * M + 30_000, Some(T0 + 5 * M + 10_000));
+    // Began before the period and ended in it; ended before it; began as it ended.
+    s.slot_wait(u, T0 - 3 * M, Some(T0 + M + 30_000));
+    s.slot_wait(w, T0 - 5 * M, Some(T0 - 4 * M));
+    s.slot_wait(w, T0 + 10 * M, Some(T0 + 11 * M));
+    // Still going on, from half a minute into the last minute of the period.
+    s.slot_wait(u, T0 + 9 * M + 30_000, None);
+    s.slot_wait(q, T0 + 3 * M, Some(T0 + 3 * M + 30_000));
+    assert_eq!(
+        s.minutes("work.stops", of("slot")),
+        ten(&[(2, 1.0), (4, 1.0), (9, 1.0)], Some(0.0))
+    );
+    assert_eq!(
+        s.minutes(
+            "work.stops",
+            Scope {
+                subject: Some("slot"),
+                ..all()
+            }
+        ),
+        ten(&[(2, 1.0), (3, 1.0), (4, 1.0), (9, 1.0)], Some(0.0))
+    );
+    let slot_ms = [
+        (0, 60_000.0),
+        (1, 30_000.0),
+        (2, 30_000.0),
+        (4, 30_000.0),
+        (5, 10_000.0),
+        (9, 30_000.0),
+    ];
+    assert_eq!(s.minutes("work.stopped", of("slot")), ten(&slot_ms, Some(0.0)));
+    // Beside the blocker's stop, which a wait for a slot does not change.
+    assert_eq!(
+        s.minutes("work.stops", p()),
+        ten(&[(1, 1.0), (2, 1.0), (4, 1.0), (9, 1.0)], Some(0.0))
+    );
+    assert_eq!(s.minutes("work.stops", of("question")), ten(&[(1, 1.0)], Some(0.0)));
+    assert_eq!(
+        s.minutes("work.stopped", p()),
+        ten(
+            &[
+                (0, 60_000.0),
+                (1, 90_000.0),
+                (2, 30_000.0),
+                (4, 30_000.0),
+                (5, 10_000.0),
+                (9, 30_000.0)
+            ],
+            Some(0.0)
+        )
+    );
+    // From 90 s to 450 s: the waits from 120 s to 150 s and from 270 s to 310 s, and, of every project, from 180 s to
+    // 210 s; the one that ended at 90 s is not in it.
+    assert_eq!(s.whole("work.stops", of("slot")), Some(2.0));
+    assert_eq!(s.whole("work.stopped", of("slot")), Some(70_000.0));
+    assert_eq!(
+        s.whole(
+            "work.stopped",
+            Scope {
+                subject: Some("slot"),
+                ..all()
+            }
+        ),
+        Some(100_000.0)
+    );
 }
 
 // A stop counts once, in the minute it started, and lasts in each minute for the part of it there: a blocker until it
