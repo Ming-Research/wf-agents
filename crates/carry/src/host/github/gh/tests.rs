@@ -95,6 +95,10 @@ fn a_pull_request_is_read_with_its_merge_commit_only_once_merged() {
         "head": { "sha": "c0ffee", "ref": "work-1-0a1b2c3d" },
         "base": { "ref": "next" },
         "merge_commit_sha": "test-merge",
+        "title": "Greet the user",
+        "body": null,
+        "draft": true,
+        "node_id": "PR_kwDO",
     });
     let open = pull(&value).unwrap();
     assert_eq!(
@@ -106,6 +110,10 @@ fn a_pull_request_is_read_with_its_merge_commit_only_once_merged() {
             head: "c0ffee".to_string(),
             base: "next".to_string(),
             merge_commit: None,
+            title: "Greet the user".to_string(),
+            body: String::new(),
+            draft: true,
+            node: "PR_kwDO".to_string(),
         }
     );
     value["state"] = json!("closed");

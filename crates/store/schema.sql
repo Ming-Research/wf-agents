@@ -182,6 +182,13 @@ CREATE TABLE cancelled (
     at INTEGER NOT NULL
 );
 
+-- What the work held outside the engine was let go, once it had ended and nothing of it was under way: one row for a
+-- work that did.
+CREATE TABLE released (
+    work INTEGER PRIMARY KEY REFERENCES works (number),
+    at INTEGER NOT NULL
+);
+
 -- The content of a version of a block, the version named by the place of the entry that wrote it.
 CREATE TABLE contents (
     work INTEGER NOT NULL REFERENCES works (number),

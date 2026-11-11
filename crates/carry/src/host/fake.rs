@@ -12,6 +12,8 @@ use crate::held::Stop;
 pub(crate) struct Fake {
     main: Mutex<String>,
     verdicts: Mutex<VecDeque<Result<Option<Verdict>, String>>>,
+    /// Why letting go fails, where it does.
+    ending: Mutex<Option<String>>,
     asked: Mutex<Vec<Asked>>,
 }
 
@@ -24,6 +26,10 @@ pub(crate) enum Asked {
     Verdict(String),
     /// To merge, the check having passed this commit.
     Merge(Option<String>),
+    /// To let go of what it holds for the branch, the work having merged or not.
+    End(String, bool),
+    /// The verdict on this commit, told of this failure before.
+    Seen(String, String),
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -36,8 +42,14 @@ impl Fake {
         Fake {
             main: Mutex::new(main.to_string()),
             verdicts: Mutex::new(VecDeque::new()),
+            ending: Mutex::new(None),
             asked: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Fails to let go, with these words, until it is told otherwise.
+    pub(crate) fn ending(&self, refused: Option<&str>) {
+        *lock(&self.ending) = refused.map(str::to_string);
     }
 
     /// Gives this verdict when it is next asked for one.
@@ -58,8 +70,18 @@ impl Host for Fake {
         Ok(lock(&self.main).clone())
     }
 
-    async fn verdict(&self, _: &Branch<'_>, commit: &str, _: &mut Stop) -> Result<Option<Verdict>, String> {
-        lock(&self.asked).push(Asked::Verdict(commit.to_string()));
+    async fn verdict(
+        &self,
+        _: &Branch<'_>,
+        commit: &str,
+        seen: Option<&str>,
+        _: &mut Stop,
+    ) -> Result<Option<Verdict>, String> {
+        let asked = match seen {
+            Some(seen) => Asked::Seen(commit.to_string(), seen.to_string()),
+            None => Asked::Verdict(commit.to_string()),
+        };
+        lock(&self.asked).push(asked);
         let next = lock(&self.verdicts).pop_front();
         next.unwrap_or_else(|| Err("the fake host has no verdict to give".to_string()))
     }
@@ -73,12 +95,18 @@ impl Host for Fake {
         "refs/heads/main".to_string()
     }
 
-    async fn check(&self, _: &Branch<'_>, _: &mut Stop) -> Result<Option<String>, String> {
+    async fn check(&self, _: &Branch<'_>, _: Option<&str>, _: &mut Stop) -> Result<Option<String>, String> {
         Err(NO_TOOLS.to_string())
     }
 
     async fn check_before(&self, _: &Branch<'_>, _: &Before, _: &mut Stop) -> Result<Option<String>, String> {
         Err(NO_TOOLS.to_string())
+    }
+
+    async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {
+        let refused = lock(&self.ending).clone();
+        lock(&self.asked).push(Asked::End(branch.place.branch.clone(), merged));
+        refused.map_or(Ok(()), Err)
     }
 }
 

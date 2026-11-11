@@ -189,7 +189,7 @@ fn a_work_waits_at_its_cell_until_its_items_have_merged_then_runs_it_once_and_ha
             spent: Spent::default(),
         },
     );
-    assert_eq!(effects, vec![]);
+    assert_eq!(effects, vec![Effect::Release { end: End::Merged }]);
     assert_eq!(decide(&flow.flow, &work.records), Decision::Ended(End::Merged));
     assert_eq!(work.records.started.len(), 1);
     assert_eq!(work.records.finished.len(), 1);
@@ -412,7 +412,7 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
             seen.merged += 1;
         }
         assert_eq!(
-            engine::pending(&d.work),
+            engine::pending(&d.flow, &d.work),
             vec![],
             "the work ended with something pending"
         );

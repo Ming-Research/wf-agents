@@ -62,18 +62,39 @@ impl Host for Local {
         git::git(&self.project.repo, &["rev-parse", "--verify", &self.kept_main()]).await
     }
 
-    async fn verdict(&self, branch: &Branch<'_>, _: &str, stop: &mut Stop) -> Result<Option<Verdict>, String> {
+    /// The project's check command, run in the worktree each time it is asked: a failure seen before on the same
+    /// commit is run again by that alone, and passing now it is told apart.
+    async fn verdict(
+        &self,
+        branch: &Branch<'_>,
+        _: &str,
+        seen: Option<&str>,
+        stop: &mut Stop,
+    ) -> Result<Option<Verdict>, String> {
         let dir = git::worktree(branch.place)?;
         let check = &self.project.check;
         let failed = match process::run(process::shell(check, &dir, &self.env), None, None, stop).await? {
             Ran::Ended { status, stdout, .. } if !status.success() => Some(format!(
-                "The check `{check}` failed ({status}). The end of what it said:\n{}",
+                "The check `{check}` failed ({status}){}. The end of what it said:\n{}",
+                if seen.is_some() {
+                    ", as it failed on this same commit before"
+                } else {
+                    ""
+                },
                 process::tail(&stdout)
             )),
             Ran::Ended { .. } => None,
             Ran::Stopped => return Ok(None),
         };
-        Ok(Some(Verdict { failed, by: None }))
+        let passed_over = match (&failed, seen) {
+            (None, Some(_)) => vec![super::now_and_then(&format!("The check `{check}`"), "", "")],
+            _ => Vec::new(),
+        };
+        Ok(Some(Verdict {
+            failed,
+            by: None,
+            passed_over,
+        }))
     }
 
     async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, String> {
@@ -84,7 +105,8 @@ impl Host for Local {
         format!("refs/heads/{}", self.project.main)
     }
 
-    async fn check(&self, branch: &Branch<'_>, stop: &mut Stop) -> Result<Option<String>, String> {
+    /// The command runs again each time it is asked, so what was seen before changes nothing of it.
+    async fn check(&self, branch: &Branch<'_>, _: Option<&str>, stop: &mut Stop) -> Result<Option<String>, String> {
         let ran = match git::worktree(branch.place) {
             Ok(dir) => self.run(&dir, "", stop).await,
             Err(why) => Err(why),
@@ -114,5 +136,10 @@ impl Host for Local {
         let said = ran?;
         taken?;
         Ok(said)
+    }
+
+    /// The local repository holds nothing for a work beside its branch and its worktrees, which the acts let go.
+    async fn end(&self, _: &Branch<'_>, _: bool) -> Result<(), String> {
+        Ok(())
     }
 }

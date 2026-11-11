@@ -27,8 +27,8 @@ use driver::{FirstWrite, NewItem, Todo};
 use engine::{Effect, Event};
 use flow::Compiled;
 use service::{
-    Act, CallReply, Carriers, Inbox, Message, Refusal, Round, RoundReply, Rounds, Script, Scripted, Service,
-    TokioClock, ToolCall, Tools,
+    Act, CallReply, Carriers, Inbox, Message, Refusal, Release, ReleaseReply, Round, RoundReply, Rounds, Script,
+    Scripted, Service, TokioClock, ToolCall, Tools,
 };
 use store::{ItemNumber, Storage, Store, WorkNumber};
 use tokio::sync::oneshot;
@@ -96,6 +96,8 @@ pub fn trial_script() -> Script {
 pub enum Unit {
     Round(WorkNumber, RunId, usize),
     Call(WorkNumber, CallId),
+    /// What the work held, let go once it ended.
+    Release(WorkNumber),
 }
 
 /// The loop over a store in a directory of its own, with carriers that record what they are handed.
@@ -168,6 +170,7 @@ impl Trial {
                 Some(Unit::Round(work, *run, self.began(work, *run)))
             }
             Event::Done { call, .. } => Some(Unit::Call(work, *call)),
+            Event::Released => Some(Unit::Release(work)),
             _ => None,
         };
         if let Some(unit) = unit {
@@ -345,6 +348,7 @@ fn carried(driver: &driver::Driver, todo: &Todo) -> Option<Unit> {
         } => Some(Unit::Call(work, *call)),
         Effect::Call { .. } => None,
         Effect::Withdraw { call } => Some(Unit::Call(work, *call)),
+        Effect::Release { .. } => Some(Unit::Release(work)),
     }
 }
 
@@ -385,7 +389,7 @@ impl Recording {
         let store = Store::open(&self.path).expect("the store opens beside the loop's");
         let kept = store.load(work).expect("the store has the work");
         assert!(
-            engine::pending(&kept).contains(&effect),
+            engine::pending(&trial_flow(), &kept).contains(&effect),
             "{effect:?} of work {} is handed out, and the store does not hold it as to be done",
             work.0
         );
@@ -411,6 +415,12 @@ impl Rounds for Recording {
         let unit = Unit::Round(round.work, round.run, round.number);
         self.hand(round.work, Effect::Stop { run: round.run }, unit);
         self.scripted.stop(round, reply);
+    }
+
+    fn release(&self, release: Release, reply: ReleaseReply) {
+        let effect = Effect::Release { end: release.end };
+        self.hand(release.work, effect, Unit::Release(release.work));
+        self.scripted.release(release, reply);
     }
 }
 

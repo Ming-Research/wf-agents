@@ -524,6 +524,7 @@ mod tests {
             task: Some("Research.".to_string()),
             act: None,
             must_write: Vec::new(),
+            describes: Vec::new(),
             returns: 3,
             calls: 40,
             effort,

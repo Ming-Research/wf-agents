@@ -11,6 +11,10 @@
 //! One act at a time works in the project's repository: two at once would race over its worktrees and its main branch.
 //! The host's verdict is waited for beside what other acts do. `deliver` does nothing outside the engine: the items it
 //! is made of were each merged by their own works, and what it writes is said from its item.
+//!
+//! Once a work has ended and nothing of it is under way, the acts let go of what they made for it: its worktree is
+//! taken away, and the host closes what it holds open for a work that did not merge, its pull request; the branch
+//! stays, with the work's commits. What fails is tried again, waiting longer each time, until it is done.
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -18,13 +22,16 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
-use decide::{BlockId, RunId};
+use decide::{BlockId, End, Finished, RunId};
 use engine::Came;
 use flow::Compiled;
-use service::{Round, RoundReply, Rounds};
+use service::{Release, ReleaseReply, Round, RoundReply, Rounds};
 use store::{ItemNumber, WorkNumber};
 use tokio::sync::{Mutex, Notify};
-use work::{Handed, Spent, Work};
+use work::{Ask, Call, Handed, Spent, Work};
+
+#[cfg(test)]
+mod ends;
 
 use crate::git::{self, Place, Started};
 use crate::held::{Failing, Held, Stop};
@@ -53,6 +60,8 @@ pub struct Checked {
     pub by: Option<String>,
     /// Whether the engine made the commit, merging main into the branch for the check.
     pub took_in: bool,
+    /// What failed and was found not to be the change's, where the host says.
+    pub passed_over: Vec<String>,
 }
 
 /// The acts, done in the project's repository with the works' worktrees in the data directory, on this host.
@@ -71,7 +80,18 @@ struct Inner<H> {
     held: Held<(WorkNumber, RunId, usize), RoundReply>,
     /// Told after each merge, so that the watch of main looks at once.
     merged: Notify,
+    /// How long the first wait is before letting go of what a work held is tried again; each wait after it is twice
+    /// the one before, up to [`RELEASE_WAIT_MOST`].
+    release_wait: Duration,
 }
+
+/// How long letting go of what a work held waits first before it is tried again, where it failed: a host that cannot
+/// be reached is seldom back within seconds.
+pub const RELEASE_WAIT: Duration = Duration::from_secs(60);
+
+/// The longest wait before letting go of what a work held is tried again: an hour, so that a host back after a long
+/// outage is found within the hour, and a failure that lasts costs a call or two an hour.
+pub const RELEASE_WAIT_MOST: Duration = Duration::from_secs(3600);
 
 /// What came of an act.
 enum Done {
@@ -92,6 +112,7 @@ impl<H: Host> Acts<H> {
                 repository: Mutex::new(()),
                 held: Held::new(),
                 merged: Notify::new(),
+                release_wait: RELEASE_WAIT,
             }),
         }
     }
@@ -178,6 +199,14 @@ impl<H: Host> Rounds for Acts<H> {
             reply.ended(Came::HandsIn(Vec::new()), Spent::default());
         }
     }
+
+    fn release(&self, release: Release, reply: ReleaseReply) {
+        let inner = self.inner.clone();
+        tokio::spawn(async move {
+            inner.release(&release).await;
+            reply.released();
+        });
+    }
 }
 
 impl<H: Host> Inner<H> {
@@ -187,9 +216,11 @@ impl<H: Host> Inner<H> {
         let outputs = outputs(&round.flow, round);
         let project = &self.project;
         let place = git::place(&self.data, &self.tag, round.work);
+        let about = about(&round.flow, &round.kept);
         let branch = Branch {
             work: round.work,
             title: &round.item.title,
+            about: &about,
             place: &place,
         };
         match act {
@@ -204,7 +235,16 @@ impl<H: Host> Inner<H> {
                 );
                 Ok(Done::HandsIn(prose(&outputs, &content)))
             }
-            "check" => match check(project, &self.host, &branch, &self.repository, stop).await? {
+            "check" => match check(
+                project,
+                &self.host,
+                &branch,
+                seen(&round.flow, &round.kept).as_deref(),
+                &self.repository,
+                stop,
+            )
+            .await?
+            {
                 Some(checked) => checked_in(&outputs, &checked, &project.main).map(Done::HandsIn),
                 None => Ok(Done::Stopped),
             },
@@ -224,6 +264,41 @@ impl<H: Host> Inner<H> {
             "deliver" => Ok(Done::HandsIn(prose(&outputs, &delivered(&round.item.depends_on)))),
             other => Err(format!("the engine has no act named {other}")),
         }
+    }
+}
+
+impl<H: Host> Inner<H> {
+    /// Lets go of what the acts made for the work, which has ended, trying again until it is done: each new reason it
+    /// fails for is said on the standard error.
+    async fn release(&self, release: &Release) {
+        let mut wait = self.release_wait;
+        let mut said: Option<String> = None;
+        while let Err(why) = self.release_once(release).await {
+            if said.as_ref() != Some(&why) {
+                eprintln!(
+                    "What work {} held could not be let go, and is tried again: {why}",
+                    release.work.0
+                );
+                said = Some(why);
+            }
+            tokio::time::sleep(wait).await;
+            wait = (wait * 2).min(RELEASE_WAIT_MOST);
+        }
+    }
+
+    /// Lets go of what the acts made for the work, holding the repository: what the host holds open for a work that
+    /// did not merge is closed, and its worktree is taken away.
+    async fn release_once(&self, release: &Release) -> Result<(), String> {
+        let place = git::place(&self.data, &self.tag, release.work);
+        let branch = Branch {
+            work: release.work,
+            title: &release.item.title,
+            about: "",
+            place: &place,
+        };
+        let _held = self.repository.lock().await;
+        self.host.end(&branch, release.end == End::Merged).await?;
+        git::remove(&self.project, &place).await
     }
 }
 
@@ -287,12 +362,13 @@ pub(crate) async fn start(
 /// head of main the host gives with no conflict (worked out without changing anything), both found holding the
 /// repository; then main's head is merged into the branch, where it does not hold it, as a commit of the engine's, so
 /// that what is judged is what a merge would land; then the host's verdict on the branch's head, waited for without
-/// the repository. Says why where it could not
-/// check, and gives none where it was stopped; what failed is what was found, not a reason to fail.
+/// the repository, `seen` being what the work was told before of failures of its checks ([`seen`]). Says why where it could not check, and gives none
+/// where it was stopped; what failed is what was found, not a reason to fail.
 pub(crate) async fn check(
     project: &Project,
     host: &impl Host,
     branch: &Branch<'_>,
+    seen: Option<&str>,
     repository: &Mutex<()>,
     stop: &mut Stop,
 ) -> Result<Option<Checked>, String> {
@@ -310,6 +386,7 @@ pub(crate) async fn check(
             failed: Some(failed),
             by: None,
             took_in: false,
+            passed_over: Vec::new(),
         };
         if git::merging(&dir).await? {
             let changes = git::uncommitted(&dir).await?;
@@ -334,7 +411,7 @@ pub(crate) async fn check(
         let (commit, took_in) = git::take_in(&dir, &main, &project.main).await?;
         (commit, took_in, main)
     };
-    let Some(verdict) = host.verdict(branch, &commit, stop).await? else {
+    let Some(verdict) = host.verdict(branch, &commit, seen, stop).await? else {
         return Ok(None);
     };
     Ok(Some(Checked {
@@ -343,6 +420,7 @@ pub(crate) async fn check(
         failed: verdict.failed,
         by: verdict.by,
         took_in,
+        passed_over: verdict.passed_over,
     }))
 }
 
@@ -444,6 +522,14 @@ fn checked_in(
     } else {
         String::new()
     };
+    let took = if checked.passed_over.is_empty() {
+        took
+    } else {
+        format!(
+            "{took}\n\nFailed, and not the change's:\n- {}",
+            checked.passed_over.join("\n- ")
+        )
+    };
     let (value, outcome) = match checked.failed {
         None => (PASSED, "it passed"),
         Some(_) => (FAILED, "it did not pass"),
@@ -468,29 +554,81 @@ fn checked_in(
     Ok(handed)
 }
 
+/// The latest finished run of the flow's check, where it has one and it ran.
+fn latest_check<'a>(flow: &Compiled, work: &'a Work) -> Option<&'a Finished> {
+    let records = &work.records;
+    (records.finished.iter())
+        .filter(|f| {
+            let started = records.started.iter().find(|s| s.run == f.run);
+            started.is_some_and(|s| {
+                flow.cells
+                    .iter()
+                    .any(|c| c.id == s.cell && c.act.as_deref() == Some("check"))
+            })
+        })
+        .max_by_key(|f| f.at)
+}
+
+/// The commit the latest check wrote in its choice, where it wrote this value there.
+fn checked_with(work: &Work, check: &Finished, value: &str) -> Option<String> {
+    let write = check.writes.iter().find(|w| w.value.as_deref() == Some(value))?;
+    let content = work.contents.get(&(write.block.clone(), check.at))?;
+    let line = content.lines().next()?;
+    line.strip_prefix(CHECKED).map(|commit| commit.trim().to_string())
+}
+
+/// What the work was told before of failures of its checks: everything its latest check before the merge wrote where
+/// it failed, and the latest answer of the agents' tool `check`; none where it was told neither. A host that finds
+/// there the link of the very run that failed reads that failure a second time ([`Host::verdict`]). The acts and the
+/// tools read it alike.
+pub(crate) fn seen(flow: &Compiled, work: &Work) -> Option<String> {
+    let mut told = Vec::new();
+    if let Some(check) = latest_check(flow, work)
+        && checked_with(work, check, FAILED).is_some()
+    {
+        told.extend((check.writes.iter()).filter_map(|w| work.contents.get(&(w.block.clone(), check.at))));
+    }
+    let tool = (work.calls.iter())
+        .filter(|(_, call)| matches!(call, Call::Asked(Ask::Tool { name, .. }) if name == crate::tools::CHECK))
+        .filter_map(|(id, _)| work.results.get(id))
+        .next_back();
+    told.extend(tool);
+    let told: Vec<&str> = told.into_iter().map(String::as_str).collect();
+    (!told.is_empty()).then(|| told.join("\n\n"))
+}
+
+/// What the work says of itself where the host shows it: what it wrote in the blocks the flow's check names to
+/// describe it ([`described`]). The acts and the tools work it out alike.
+pub(crate) fn about(flow: &Compiled, work: &Work) -> String {
+    let named: Vec<BlockId> = (flow.cells.iter())
+        .filter(|cell| cell.act.as_deref() == Some("check"))
+        .flat_map(|cell| cell.describes.iter().cloned())
+        .collect();
+    described(&named, work)
+}
+
+/// What the work wrote of itself in these blocks, which a cell names to describe it, each at its current version, in
+/// the order named; the blocks not written yet are left out.
+fn described(describes: &[BlockId], work: &Work) -> String {
+    let versions = decide::versions(&work.records);
+    let written: Vec<&str> = (describes.iter())
+        .filter_map(|block| {
+            let at = versions.get(block)?.last()?.at;
+            work.contents.get(&(block.clone(), at))
+        })
+        .map(|content| content.trim())
+        .filter(|content| !content.is_empty())
+        .collect();
+    written.join("\n\n")
+}
+
 /// The commit the work's latest check passed, read from what it wrote in its choice; none where the flow has no
 /// check, so that what the branch holds is merged. Where the flow has one and no check passed, the work cannot merge.
 fn passed(flow: &Compiled, work: &Work) -> Result<Option<String>, String> {
-    let checks: Vec<&str> = (flow.cells.iter())
-        .filter(|cell| cell.act.as_deref() == Some("check"))
-        .map(|cell| cell.id.as_str())
-        .collect();
-    if checks.is_empty() {
+    if !flow.cells.iter().any(|cell| cell.act.as_deref() == Some("check")) {
         return Ok(None);
     }
-    let records = &work.records;
-    let latest = (records.finished.iter())
-        .filter(|f| {
-            let started = records.started.iter().find(|s| s.run == f.run);
-            started.is_some_and(|s| checks.contains(&s.cell.as_str()))
-        })
-        .max_by_key(|f| f.at);
-    let commit = latest.and_then(|f| {
-        let write = f.writes.iter().find(|w| w.value.as_deref() == Some(PASSED))?;
-        let content = work.contents.get(&(write.block.clone(), f.at))?;
-        let line = content.lines().next()?;
-        line.strip_prefix(CHECKED).map(|commit| commit.trim().to_string())
-    });
+    let commit = latest_check(flow, work).and_then(|check| checked_with(work, check, PASSED));
     match commit {
         Some(commit) => Ok(Some(commit)),
         None => Err(
@@ -521,6 +659,7 @@ mod tests {
             failed: failed.map(str::to_string),
             by: None,
             took_in: false,
+            passed_over: Vec::new(),
         }
     }
 
@@ -645,6 +784,7 @@ mod tests {
         Branch {
             work: WORK,
             title: "Greet the user",
+            about: "",
             place,
         }
     }
@@ -652,7 +792,7 @@ mod tests {
     /// Checks the work in the repository with the host.
     async fn check_with(repo: &Repo, host: &impl Host, stop: &mut Stop) -> Result<Option<Checked>, String> {
         let place = repo.place(WORK);
-        check(&repo.project, host, &branch(&place), &Mutex::new(()), stop).await
+        check(&repo.project, host, &branch(&place), None, &Mutex::new(()), stop).await
     }
 
     /// Checks the work in the repository with the local host, which must give a verdict.
@@ -698,6 +838,7 @@ mod tests {
         let verdict = Verdict {
             failed: Some("The check lint failed.".to_string()),
             by: Some("the CI of the pull request 7".to_string()),
+            passed_over: Vec::new(),
         };
         let host = Fake::new(&main).judges(Ok(Some(verdict)));
         let checked = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
@@ -709,6 +850,7 @@ mod tests {
                 failed: Some("The check lint failed.".to_string()),
                 by: Some("the CI of the pull request 7".to_string()),
                 took_in: false,
+                passed_over: Vec::new(),
             }
         );
         assert_eq!(host.asked(), [Asked::Main, Asked::Verdict(head)]);
@@ -758,7 +900,11 @@ mod tests {
         let started = start_with(&repo, &Fake::new(&local)).await.unwrap();
         let built = commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let main = commit(&repo.project.repo, "weather.txt", "Sunny.\n");
-        let host = Fake::new(&main).judges(Ok(Some(Verdict { failed: None, by: None })));
+        let host = Fake::new(&main).judges(Ok(Some(Verdict {
+            failed: None,
+            by: None,
+            passed_over: Vec::new(),
+        })));
         let checked = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
         // The commit judged is the branch's new head, which merges main into what was built.
         let head = run(&repo.project.repo, &["rev-parse", &repo.place(WORK).reference()]);
@@ -817,7 +963,13 @@ mod tests {
         let started = start_with(&repo, &Fake::new(&local)).await.unwrap();
         commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let main = commit(&repo.project.repo, "weather.txt", "Sunny.\n");
-        let judged = || Ok(Some(Verdict { failed: None, by: None }));
+        let judged = || {
+            Ok(Some(Verdict {
+                failed: None,
+                by: None,
+                passed_over: Vec::new(),
+            }))
+        };
         let host = Fake::new(&main).judges(judged()).judges(judged());
         let first = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
         let again = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
@@ -834,7 +986,11 @@ mod tests {
         let main = run(&repo.project.repo, &["rev-parse", "main"]);
         let started = start_with(&repo, &Fake::new(&main)).await.unwrap();
         let built = commit(&started.place.dir, "farewell.txt", "Bye.\n");
-        let host = Fake::new(&main).judges(Ok(Some(Verdict { failed: None, by: None })));
+        let host = Fake::new(&main).judges(Ok(Some(Verdict {
+            failed: None,
+            by: None,
+            passed_over: Vec::new(),
+        })));
         let checked = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
         assert_eq!(checked.commit, built, "no commit is made");
     }

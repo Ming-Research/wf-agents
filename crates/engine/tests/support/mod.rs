@@ -69,6 +69,8 @@ pub struct Seen {
     pub lacking: usize,
     /// Finished runs of cells that must write a block each time.
     pub bound_finished: usize,
+    /// Releases given of what a work that ended held.
+    pub released: usize,
 }
 
 /// The first finished run of the records that lacks a write of a block its cell must write, read from the records of
@@ -266,6 +268,13 @@ impl Driver {
                             what: Call::AtLimit(_), ..
                         } => self.seen.limits += 1,
                         Effect::Call { .. } => {}
+                        Effect::Release { .. } => {
+                            assert!(
+                                !self.held.iter().any(|e| matches!(e, Effect::Release { .. })),
+                                "the release is given while it is held already"
+                            );
+                            self.seen.released += 1;
+                        }
                     }
                     self.held.push(effect);
                 }
@@ -284,7 +293,7 @@ impl Driver {
     /// What must hold of the engine after every step.
     pub fn check(&self) {
         let r = &self.work.records;
-        let mut pending = pending(&self.work);
+        let mut pending = pending(&self.flow, &self.work);
         pending.sort_by_key(key);
         assert_eq!(pending, self.held, "what is pending is not what the driver holds");
         // A round that ended, as a failed one has, is not under way: none is to be done again.
@@ -355,7 +364,31 @@ impl Driver {
                     assert!(r.called.iter().any(|c| c.call == *call), "an unknown call withdrawn");
                 }
                 Effect::Stop { run } => assert!(r.started.iter().any(|s| s.run == *run), "an unknown run stopped"),
+                // Nothing of a work is under way as it lets go of what it holds: no round, and no call, which a tool
+                // may be working at in the worktree.
+                Effect::Release { end } => {
+                    assert_eq!(
+                        decide(&self.flow.flow, r),
+                        Decision::Ended(*end),
+                        "what the work holds is let go though it has not ended so"
+                    );
+                    let nothing = (self.held.iter()).all(|e| matches!(e, Effect::Release { .. }));
+                    assert!(
+                        nothing,
+                        "what the work holds is let go while something of it is to be done"
+                    );
+                }
             }
+        }
+        // A work that ended with nothing under way has let go of what it holds, or is to.
+        let ended = matches!(decide(&self.flow.flow, r), Decision::Ended(_));
+        if ended && r.released.is_none() && (self.held.iter()).all(|e| matches!(e, Effect::Release { .. })) {
+            assert_eq!(
+                self.held.len(),
+                1,
+                "a work that ended is not to let go of what it holds: {:?}",
+                self.held
+            );
         }
     }
 
@@ -399,7 +432,7 @@ impl Driver {
     /// The driver forgets what it held and takes what is pending instead.
     pub fn stop(&mut self) {
         self.note("the engine stops".into());
-        let mut held = pending(&self.work);
+        let mut held = pending(&self.flow, &self.work);
         held.sort_by_key(key);
         self.held = held;
         self.seen.stops += 1;
@@ -425,7 +458,7 @@ impl Driver {
             .filter(|e| match e {
                 Effect::Round { .. } => true,
                 Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool { .. })),
-                Effect::Withdraw { .. } | Effect::Stop { .. } => true,
+                Effect::Withdraw { .. } | Effect::Stop { .. } | Effect::Release { .. } => true,
             })
             .cloned()
             .collect()
@@ -485,6 +518,12 @@ impl Driver {
                     }
                 };
                 assert!(self.take(end), "the end of a stopped round was refused");
+            }
+            Effect::Release { .. } => {
+                assert!(
+                    self.take(Event::Released),
+                    "the release of a work that ended was refused"
+                );
             }
         }
     }

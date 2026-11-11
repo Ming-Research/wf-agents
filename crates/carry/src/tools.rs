@@ -92,12 +92,22 @@ impl<H: Host> ToolsTrait for Tools<H> {
                 Answer::Result(read::answer(&call.flow, &call.kept, &call.input))
             } else {
                 let place = git::place(&inner.data, &inner.tag, call.work);
+                // What the work says of itself and was told before, as the acts work them out, so that the pull
+                // request the tool brings up to date says what the check before the merge has it say.
+                let about = crate::acts::about(&call.flow, &call.kept);
+                let seen = crate::acts::seen(&call.flow, &call.kept);
                 let branch = Branch {
                     work: call.work,
                     title: &call.item.title,
+                    about: &about,
                     place: &place,
                 };
-                answer(&inner.host, &inner.project, &branch, &call.name, &call.input, &mut stop).await
+                let asked = Asked {
+                    name: &call.name,
+                    input: &call.input,
+                    seen: seen.as_deref(),
+                };
+                answer(&inner.host, &inner.project, &branch, &asked, &mut stop).await
             };
             let result = match answered {
                 Answer::Result(result) => result,
@@ -125,17 +135,27 @@ impl<H> Tools<H> {
     }
 }
 
-/// Runs the tool named, other than `read`, on the work's branch, with this input, and gives its result.
+/// A tool asked for, other than `read`: its name, its input, and what the work was told before of failures of its
+/// checks ([`crate::acts::seen`]).
+struct Asked<'a> {
+    name: &'a str,
+    input: &'a str,
+    seen: Option<&'a str>,
+}
+
+/// Runs the tool asked for on the work's branch, and gives its result.
 async fn answer(
     host: &impl Host,
     project: &Project,
     branch: &Branch<'_>,
-    name: &str,
-    input: &str,
+    asked: &Asked<'_>,
     stop: &mut Stop,
 ) -> Answer {
+    let (name, input) = (asked.name, asked.input);
     let checked = match name {
-        CHECK => (host.check(branch, stop).await).map_err(|why| format!("The check could not be run: {why}")),
+        CHECK => {
+            (host.check(branch, asked.seen, stop).await).map_err(|why| format!("The check could not be run: {why}"))
+        }
         CHECK_BEFORE => before(host, project, branch, input, stop).await,
         _ => {
             return Answer::Result(format!(
@@ -216,9 +236,15 @@ mod tests {
         let branch = Branch {
             work: WORK,
             title: "Greet the user",
+            about: "",
             place: &place,
         };
-        match answer(host, &repo.project, &branch, name, input, &mut Stop::never()).await {
+        let asked = Asked {
+            name,
+            input,
+            seen: None,
+        };
+        match answer(host, &repo.project, &branch, &asked, &mut Stop::never()).await {
             Answer::Result(result) => result,
             Answer::Withdrawn => panic!("nothing withdrew it"),
         }
@@ -290,9 +316,15 @@ mod tests {
         let branch = Branch {
             work: WORK,
             title: "Greet the user",
+            about: "",
             place: &place,
         };
-        let asked = answer(&host, &repo.project, &branch, CHECK, "", &mut stop);
+        let check = Asked {
+            name: CHECK,
+            input: "",
+            seen: None,
+        };
+        let asked = answer(&host, &repo.project, &branch, &check, &mut stop);
         let (answer, ()) = tokio::join!(asked, withdrawing);
         assert!(matches!(answer, Answer::Withdrawn));
         assert!(began.elapsed() < Duration::from_secs(20), "the command was stopped");

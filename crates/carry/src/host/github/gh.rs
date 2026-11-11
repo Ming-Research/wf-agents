@@ -162,7 +162,7 @@ impl Api for Gh {
 
     async fn open(&self, branch: &str, base: &str, title: &str, body: &str) -> Result<Pull, String> {
         let path = format!("repos/{}/pulls", self.repository);
-        let asked = json!({ "title": title, "body": body, "head": branch, "base": base });
+        let asked = json!({ "title": title, "body": body, "head": branch, "base": base, "draft": true });
         pull(&self.json("POST", &path, Some(asked), &[201]).await?)
     }
 
@@ -213,6 +213,45 @@ impl Api for Gh {
         let path = format!("repos/{}/git/refs/heads/{branch}", self.repository);
         // A branch that is not there is answered 422, "Reference does not exist".
         self.want("DELETE", &path, None, &[204, 404, 422]).await.map(|_| ())
+    }
+
+    async fn edit(&self, number: u64, title: &str, body: &str) -> Result<(), String> {
+        let path = format!("repos/{}/pulls/{number}", self.repository);
+        let asked = json!({ "title": title, "body": body });
+        self.want("PATCH", &path, Some(asked), &[200]).await.map(|_| ())
+    }
+
+    async fn ready(&self, node: &str) -> Result<(), String> {
+        // The REST API cannot make a draft ready; GitHub's GraphQL API can.
+        let query = "mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { \
+                     pullRequest { isDraft } } }";
+        let asked = json!({ "query": query, "variables": { "id": node } });
+        let answer = self.json("POST", "graphql", Some(asked), &[200]).await?;
+        // GraphQL says what it refused with a status of 200.
+        match answer["errors"].as_array() {
+            Some(errors) if !errors.is_empty() => {
+                let words: Vec<&str> = errors.iter().filter_map(|e| e["message"].as_str()).collect();
+                Err(format!(
+                    "GitHub did not make the pull request ready: {}",
+                    words.join("; ")
+                ))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    async fn close(&self, number: u64, comment: &str) -> Result<(), String> {
+        let path = format!("repos/{}/issues/{number}/comments", self.repository);
+        self.want("POST", &path, Some(json!({ "body": comment })), &[201])
+            .await?;
+        let path = format!("repos/{}/pulls/{number}", self.repository);
+        let asked = json!({ "state": "closed" });
+        self.want("PATCH", &path, Some(asked), &[200]).await.map(|_| ())
+    }
+
+    async fn rerun(&self, job: u64) -> Result<(), String> {
+        let path = format!("repos/{}/actions/jobs/{job}/rerun", self.repository);
+        self.want("POST", &path, Some(json!({})), &[201]).await.map(|_| ())
     }
 }
 
@@ -288,6 +327,11 @@ fn pull(value: &Value) -> Result<Pull, String> {
         } else {
             None
         },
+        title: text(&value["title"], "title")?,
+        // A pull request that says nothing has a body of null.
+        body: value["body"].as_str().unwrap_or_default().to_string(),
+        draft: value["draft"].as_bool().unwrap_or(false),
+        node: text(&value["node_id"], "id")?,
     })
 }
 

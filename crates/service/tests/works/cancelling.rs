@@ -1,6 +1,8 @@
-//! A cancelled work: its round under way is stopped, and the calls it rests at are withdrawn, each answered once.
+//! A cancelled work: its round under way is stopped, and the calls it rests at are withdrawn, each answered once; then
+//! what it held is let go.
 
 use decide::{CallId, Decision, End};
+use engine::Event;
 use service::{Act, WITHDRAWN};
 
 use crate::Trial;
@@ -17,6 +19,11 @@ async fn cancelling_in_a_round_stops_it() {
     let kept = trial.work(work);
     assert_eq!(kept.records.returned.len(), 1);
     assert!(kept.back.is_empty(), "what came back from a stopped round is dropped");
+    assert_eq!(
+        trial.step().await,
+        Some(Event::Released),
+        "what the work held is let go"
+    );
     assert!(trial.step().await.is_none());
 }
 
@@ -29,6 +36,11 @@ async fn cancelling_at_a_question_withdraws_it() {
     trial.act(work, Act::Cancel).unwrap();
     assert_eq!(trial.decision(work), Decision::Ended(End::Cancelled));
     assert_eq!(trial.work(work).results[&CallId(2)], WITHDRAWN);
+    assert_eq!(
+        trial.step().await,
+        Some(Event::Released),
+        "what the work held is let go"
+    );
     assert!(trial.step().await.is_none());
 }
 
@@ -49,6 +61,11 @@ async fn cancelling_at_a_tool_withdraws_it() {
     assert_eq!(trial.decision(work), Decision::Ended(End::Cancelled));
     trial.step().await.unwrap();
     assert_eq!(trial.work(work).results[&CallId(4)], WITHDRAWN);
+    assert_eq!(
+        trial.step().await,
+        Some(Event::Released),
+        "what the work held is let go"
+    );
     assert!(trial.step().await.is_none());
 }
 
@@ -62,5 +79,10 @@ async fn a_stop_after_a_cancel_stops_the_round_again() {
     trial.restart();
     trial.step().await.unwrap();
     assert_eq!(trial.work(work).records.returned.len(), 1);
+    assert_eq!(
+        trial.step().await,
+        Some(Event::Released),
+        "what the work held is let go"
+    );
     assert!(trial.step().await.is_none());
 }

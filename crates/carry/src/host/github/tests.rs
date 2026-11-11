@@ -1,4 +1,8 @@
 //! The GitHub host against a fake of GitHub: a bare repository on disk and pull requests and checks in memory.
+//!
+//! - `ends`: the pull request's text and draft, the checks that hold no work, main red, and the end of a work.
+
+mod ends;
 
 use std::time::Duration;
 
@@ -70,7 +74,9 @@ impl Hub {
 
     async fn verdict(&self, commit: &str) -> Result<Option<Verdict>, String> {
         let place = self.place();
-        self.host.verdict(&branch(&place), commit, &mut Stop::never()).await
+        self.host
+            .verdict(&branch(&place), commit, None, &mut Stop::never())
+            .await
     }
 
     async fn merge(&self, checked: &str) -> Result<String, String> {
@@ -82,6 +88,14 @@ impl Hub {
     fn pushed(&self) -> String {
         let reference = self.place().reference();
         run(&self.github().bare, &["rev-parse", &reference])
+    }
+
+    /// The work's head, checked once, its pull request open.
+    async fn pushed_and_checked(&self) -> String {
+        let head = run(&self.place().dir, &["rev-parse", "HEAD"]);
+        self.github().checks(&head, vec![vec![passed("lint"), passed("test")]]);
+        self.verdict(&head).await.unwrap().unwrap();
+        head
     }
 
     /// How many pull requests were opened.
@@ -96,6 +110,7 @@ fn branch(place: &Place) -> Branch<'_> {
     Branch {
         work: WORK,
         title: "Greet the user",
+        about: "Greets the user by name.",
         place,
     }
 }
@@ -200,6 +215,7 @@ async fn the_check_pushes_the_head_opens_a_pull_request_into_main_and_passes_onc
         Verdict {
             failed: None,
             by: Some("the CI of the pull request https://github.example/pull/1".to_string()),
+            passed_over: Vec::new(),
         }
     );
     assert_eq!(hub.pushed(), head);
@@ -460,7 +476,7 @@ async fn a_stopped_wait_gives_nothing() {
         held.stop(1, ());
     };
     let branch = branch(&place);
-    let (verdict, ()) = tokio::join!(hub.host.verdict(&branch, &head, &mut stop), stopping);
+    let (verdict, ()) = tokio::join!(hub.host.verdict(&branch, &head, None, &mut stop), stopping);
     assert_eq!(verdict, Ok(None));
 }
 

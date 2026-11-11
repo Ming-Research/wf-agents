@@ -17,7 +17,7 @@
 
 use std::sync::Arc;
 
-use decide::{CallId, Pauser, RunId};
+use decide::{CallId, End, Pauser, RunId};
 use engine::{Came, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{Item, WorkNumber};
@@ -51,6 +51,51 @@ pub trait Rounds: Send + Sync {
     fn told(&self, work: WorkNumber, run: RunId, round: usize) -> Result<Told, String> {
         let _ = (work, run, round);
         Ok(Told::default())
+    }
+
+    /// Lets go of what the rounds of this kind made for the work outside the engine, the work having ended and nothing
+    /// of it being under way; the reply says once that it is let go. Given again after the process started again, it is
+    /// the same letting go, and what was let go already is found let go. Rounds that make nothing outside the engine
+    /// let go of nothing, as by default.
+    fn release(&self, release: Release, reply: ReleaseReply) {
+        let _ = release;
+        reply.released();
+    }
+}
+
+/// A work that has ended, whose rounds' carriers let go of what they made for it outside the engine.
+#[derive(Clone, Debug)]
+pub struct Release {
+    pub work: WorkNumber,
+    /// How it ended.
+    pub end: End,
+    /// The flow the work runs on.
+    pub flow: Arc<Compiled>,
+    /// The item the work is done for.
+    pub item: Item,
+    /// The work as it was kept when its release was handed out.
+    pub kept: Arc<Work>,
+}
+
+/// The way to say once that what a work held is let go.
+#[derive(Debug)]
+pub struct ReleaseReply {
+    work: WorkNumber,
+    to: mpsc::UnboundedSender<Message>,
+}
+
+impl ReleaseReply {
+    pub(crate) fn new(work: WorkNumber, to: mpsc::UnboundedSender<Message>) -> Self {
+        ReleaseReply { work, to }
+    }
+
+    /// What the work held is let go.
+    pub fn released(self) {
+        // Where the loop has ended, the process is stopping: the release is handed out again when it starts again.
+        let _ = self.to.send(Message::Happened {
+            work: self.work,
+            event: Event::Released,
+        });
     }
 }
 

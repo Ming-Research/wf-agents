@@ -281,7 +281,8 @@ fn check(records: &Records) -> Result<(), RecordFault> {
         .chain(records.written.iter().map(|e| e.at))
         .chain(records.let_go.iter().map(|e| e.at))
         .chain(records.pauses.iter().map(|e| e.at))
-        .chain(records.cancelled);
+        .chain(records.cancelled)
+        .chain(records.released);
     let mut seen = BTreeSet::new();
     for at in places {
         if !seen.insert(at) {

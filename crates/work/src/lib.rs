@@ -47,7 +47,8 @@ impl Work {
             .chain(r.written.iter().map(|e| e.at))
             .chain(r.let_go.iter().map(|e| e.at))
             .chain(r.pauses.iter().map(|e| e.at))
-            .chain(r.cancelled);
+            .chain(r.cancelled)
+            .chain(r.released);
         Seq(places.map(|at| at.0).max().unwrap_or(0) + 1)
     }
 

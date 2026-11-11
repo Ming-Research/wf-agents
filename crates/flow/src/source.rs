@@ -156,6 +156,10 @@ pub struct CellFile {
     /// The blocks among its outputs that every hand-in of the cell includes.
     #[serde(default)]
     pub must_write: Vec<String>,
+    /// The blocks among its inputs that say what the work is where the host of the project's repository shows the
+    /// work, as the body of its pull request; an engine cell's act reads them.
+    #[serde(default)]
+    pub describes: Vec<String>,
     /// How many runs of the cell in a row may be ways round, if not the flow's limit.
     pub limit: Option<i64>,
     /// The reasoning effort an agent cell's rounds run at, whatever the model; every agent cell sets one.

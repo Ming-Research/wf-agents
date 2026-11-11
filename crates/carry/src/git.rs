@@ -321,6 +321,36 @@ pub(crate) async fn take_away(project: &Project, dir: &Path) -> Result<(), Strin
     git(&project.repo, &["worktree", "prune"]).await.map(drop)
 }
 
+/// Takes the work's worktree away, uncommitted changes and all, with the worktrees its checks before the change left,
+/// and keeps its branch, whose commits are the work's: a worktree is a place to work in, and the work has ended. One
+/// taken away already is nothing to do; a directory at its place that is no worktree of the repository was not made by
+/// the engine, and is left as it is. Refused, as every act is, while the repository's configuration names a program git
+/// could run ([`configuration`]).
+pub async fn remove(project: &Project, place: &Place) -> Result<(), String> {
+    configuration(project, place).await?;
+    let repo = &project.repo;
+    for left in befores(place) {
+        take_away(project, &left).await?;
+    }
+    if place.dir.exists() {
+        let dir = tokio::fs::canonicalize(&place.dir)
+            .await
+            .map_err(|e| format!("{}: {e}", place.dir.display()))?;
+        // Asked of git's list rather than read from what it answers, which is in the language of the machine's locale.
+        let listed = git(repo, &["worktree", "list", "--porcelain"]).await?;
+        let mut ours = false;
+        for listed in listed.lines().filter_map(|line| line.strip_prefix("worktree ")) {
+            ours |= tokio::fs::canonicalize(listed).await.is_ok_and(|listed| listed == dir);
+        }
+        if ours {
+            git(repo, &["worktree", "remove", "--force", &text(&place.dir)]).await?;
+        }
+    }
+    // A worktree whose directory was taken away by hand is named by the repository until it is pruned.
+    git(repo, &["worktree", "prune"]).await?;
+    Ok(())
+}
+
 /// Where the check before the change of the work runs at the commit, beside its worktree, while it runs: named by the
 /// work and the commit, so that checks of other commits asked at once have each their own.
 pub fn before_dir(place: &Place, commit: &str) -> PathBuf {

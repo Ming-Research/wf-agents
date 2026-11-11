@@ -72,6 +72,11 @@ describe('the words of the page', () => {
       before: '0',
       after: '1',
     });
+    expect(changeWords({ kind: 'describesAdded', cell: 'a', block: 'x' })).toEqual({
+      what: 'Says what the work is by',
+      before: '',
+      after: 'x',
+    });
     expect(changeWords({ kind: 'values', block: 'x', before: null, after: ['yes', 'no'] })).toEqual({
       what: 'Values',
       before: 'not a choice',
@@ -151,6 +156,9 @@ describe('the words of the page', () => {
     );
     expect(faultWords({ file: 'judge.toml', field: 'must_write[1]', what: { kind: 'notAnOutput', block: 'plan' } })).toBe(
       'The cell must write plan every time, but plan is not among the blocks it may write.',
+    );
+    expect(faultWords({ file: 'check.toml', field: 'describes[0]', what: { kind: 'notAnInput', block: 'ci' } })).toBe(
+      'The cell says what the work is by ci, but ci is not among the blocks it reads.',
     );
     expect(
       faultWords({
