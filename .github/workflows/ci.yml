@@ -1,8 +1,9 @@
 name: ci
 
 # Every check of the code: the page's types, lint, tests and build, then the Rust format, clippy with warnings as
-# errors, and the tests. It runs on each pull request into `next` and on each push to `next`, on GitHub's machines from
-# a clean start.
+# errors, and the tests. It runs on each pull request into `next`, on each push to `next`, and on each push to a branch
+# where the engine puts the code before a work's change with the work's tests (`wf-agents-before/`), on GitHub's
+# machines from a clean start.
 on:
   pull_request:
     branches:
@@ -10,6 +11,7 @@ on:
   push:
     branches:
       - next
+      - 'wf-agents-before/**'
 
 permissions:
   contents: read

@@ -212,8 +212,97 @@ pub(crate) async fn before(
     main: &str,
     files: &[String],
 ) -> Result<Result<Before, String>, String> {
-    let _ = (project, place, main, files);
-    Err("not built yet".to_string())
+    let dir = worktree(place)?;
+    configuration(project, place).await?;
+    let repo = &project.repo;
+    let head = git(repo, &["rev-parse", &place.reference()]).await?;
+    let base = git(repo, &["merge-base", &head, main]).await?;
+    let mut wrong = Vec::new();
+    let mut entries = Vec::new();
+    for file in files {
+        // `<mode> blob <id>\t<path>` for a file the head holds at that path, and nothing else.
+        let listed = git(repo, &["ls-tree", "-z", &head, "--", file]).await?;
+        let entry = listed.trim_end_matches('\0').split_once('\t');
+        match entry.map(|(meta, path)| (meta.split(' ').collect::<Vec<_>>(), path)) {
+            Some((meta, path)) if path == file && meta.len() == 3 && meta[1] == "blob" => {
+                entries.push(format!("{},{},{file}", meta[0], meta[2]));
+            }
+            _ => wrong.push(format!("{file} is not a file of your last commit {head}")),
+        }
+    }
+    let mut args = vec!["status", "--porcelain", "--"];
+    args.extend(files.iter().map(String::as_str));
+    let changed = git(&dir, &args).await?;
+    if !changed.is_empty() {
+        wrong.push(format!(
+            "the worktree holds changes to these that are not committed, and the files are taken as your last commit \
+             holds them: commit them first\n{changed}"
+        ));
+    }
+    if !wrong.is_empty() {
+        return Ok(Err(format!("Nothing was checked: {}.", wrong.join("; "))));
+    }
+    // The tree is made in an index of its own, so that neither the worktree nor its index changes.
+    let index = std::env::temp_dir().join(format!("wf-agents-before-{}.index", Uuid::new_v4().simple()));
+    let own = With {
+        settings: Vec::new(),
+        env: vec![("GIT_INDEX_FILE".to_string(), text(&index))],
+    };
+    let tree = async {
+        git_with(repo, &own, &["read-tree", &base]).await?;
+        for entry in &entries {
+            git_with(repo, &own, &["update-index", "--add", "--cacheinfo", entry]).await?;
+        }
+        git_with(repo, &own, &["write-tree"]).await
+    }
+    .await;
+    let _ = tokio::fs::remove_file(&index).await;
+    let tree = tree?;
+    // By the engine, at the time of the base, so that the same files on the same base make the same commit, whose CI
+    // is then read and not run again.
+    let date = git(repo, &["log", "-1", "--format=%cI", &base]).await?;
+    let mut env = Vec::new();
+    for who in ["AUTHOR", "COMMITTER"] {
+        env.push((format!("GIT_{who}_NAME"), "wf-agents".to_string()));
+        env.push((format!("GIT_{who}_EMAIL"), ENGINE_EMAIL.to_string()));
+        env.push((format!("GIT_{who}_DATE"), date.clone()));
+    }
+    let made = With {
+        settings: Vec::new(),
+        env,
+    };
+    let message = format!("The code before the change of {}, with its tests", place.branch);
+    let commit = git_with(repo, &made, &["commit-tree", &tree, "-p", &base, "-m", &message]).await?;
+    Ok(Ok(Before {
+        head,
+        base,
+        files: files.to_vec(),
+        commit,
+    }))
+}
+
+/// Makes the worktree where the check before the change runs ([`before_dir`]), at the commit, taking away one left
+/// there, as by a process of the engine's that ended while the check ran.
+pub(crate) async fn check_out_before(project: &Project, place: &Place, commit: &str) -> Result<PathBuf, String> {
+    let repo = &project.repo;
+    let dir = before_dir(place);
+    if dir.exists() {
+        take_away(project, &dir).await?;
+    }
+    git(repo, &["worktree", "prune"]).await?;
+    git(repo, &["worktree", "add", "--quiet", "--detach", &text(&dir), commit]).await?;
+    Ok(dir)
+}
+
+/// Takes away the worktree of a check before the change, with what it holds.
+pub(crate) async fn take_away(project: &Project, dir: &Path) -> Result<(), String> {
+    let removed = said(&project.repo, &["worktree", "remove", "--force", &text(dir)]).await?;
+    if !removed.ok && dir.exists() {
+        tokio::fs::remove_dir_all(dir)
+            .await
+            .map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    git(&project.repo, &["worktree", "prune"]).await.map(drop)
 }
 
 /// Where the check before the change of the work is run, beside its worktree, while it runs.

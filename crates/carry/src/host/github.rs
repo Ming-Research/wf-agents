@@ -195,7 +195,13 @@ impl<A: Api> GitHub<A> {
     /// Pushes the commit to the work's branch on GitHub, never forcing it: a branch there that holds a commit this one
     /// does not is refused. A commit the branch is at already is pushed as nothing.
     async fn push(&self, branch: &Branch<'_>, commit: &str) -> Result<(), String> {
-        let target = format!("{commit}:{}", branch.place.reference());
+        self.push_to(commit, &branch.place.reference(), false).await
+    }
+
+    /// Pushes the commit to the branch on GitHub that the reference names, forcing it where `force` says so, or, with
+    /// no commit, deletes that branch.
+    async fn push_to(&self, commit: &str, reference: &str, force: bool) -> Result<(), String> {
+        let target = format!("{}{commit}:{reference}", if force { "+" } else { "" });
         let args = [
             "push",
             "--quiet",
@@ -208,11 +214,39 @@ impl<A: Api> GitHub<A> {
         if pushed.ok {
             return Ok(());
         }
+        let name = reference.strip_prefix("refs/heads/").unwrap_or(reference);
+        let what = if commit.is_empty() {
+            format!("the deletion of the branch {name}")
+        } else {
+            format!("the push of {commit} to the branch {name}")
+        };
         Err(format!(
-            "the push of {commit} to the branch {} on GitHub was refused: {}",
-            branch.place.branch,
+            "{what} on GitHub was refused: {}",
             if pushed.err.is_empty() { pushed.out } else { pushed.err }
         ))
+    }
+
+    /// The CI of the commit in words for the agent that asked, `through` saying where it was read: each named check
+    /// that passed by its name, and what failed as the check before the merge says it.
+    async fn told(&self, commit: &str, through: &str, checks: &[Check]) -> String {
+        let passed: Vec<&str> = (checks.iter())
+            .filter(|c| c.outcome == Outcome::Passed)
+            .map(|c| c.name.as_str())
+            .collect();
+        match self.failures(checks).await {
+            None => format!(
+                "The CI passed on the commit {commit}, {through}: {}.",
+                passed.join(", ")
+            ),
+            Some(failed) => {
+                let also = if passed.is_empty() {
+                    String::new()
+                } else {
+                    format!(" It passed {}.", passed.join(", "))
+                };
+                format!("The CI of the commit {commit}, {through}, did not pass.{also}\n\n{failed}")
+            }
+        }
     }
 
     /// The work's open pull request into main, opened where the branch has none; or why the work cannot be checked
@@ -355,7 +389,7 @@ impl<A: Api> GitHub<A> {
 impl<A: Api> Host for GitHub<A> {
     async fn main(&self) -> Result<String, String> {
         let main = &self.project.main;
-        let tracking = format!("refs/remotes/{}/{main}", self.config.remote);
+        let tracking = self.kept_main();
         let spec = format!("+refs/heads/{main}:{tracking}");
         let args = [
             "fetch",
@@ -451,8 +485,47 @@ impl<A: Api> Host for GitHub<A> {
     }
 
     async fn check(&self, branch: &Branch<'_>, stop: &mut Stop) -> Result<Option<String>, String> {
-        let _ = (branch, stop);
-        Err("not built yet".to_string())
+        // What the check before the merge refuses, this refuses the same way: the repository's configuration, a
+        // worktree off the work's branch, and in the push, connections sent elsewhere and submodules.
+        let place = branch.place;
+        let dir = git::worktree(place)?;
+        git::configuration(&self.project, place).await?;
+        git::on_branch(place).await?;
+        if git::merging(&dir).await? {
+            let changes = git::uncommitted(&dir).await?;
+            return Ok(Some(format!(
+                "A merge is under way in the worktree and is not committed: finish it and commit it, or take it back. \
+                 Nothing was pushed.\n{changes}"
+            )));
+        }
+        let changes = git::uncommitted(&dir).await?;
+        if !changes.is_empty() {
+            return Ok(Some(format!(
+                "The worktree has changes that are not committed, and only what is committed is checked: commit them, \
+                 and ask again. Nothing was pushed.\n{changes}"
+            )));
+        }
+        let repo = &self.project.repo;
+        let commit = git::git(repo, &["rev-parse", &place.reference()]).await?;
+        // GitHub opens no pull request for a branch with nothing of its own.
+        let main = self.kept_main();
+        if git::said(repo, &["merge-base", "--is-ancestor", &commit, &main])
+            .await?
+            .ok
+        {
+            return Ok(Some(format!(
+                "The work's branch has no commit of its own beyond {}: commit your change, and ask again. Nothing was \
+                 pushed.",
+                self.project.main
+            )));
+        }
+        self.push(branch, &commit).await?;
+        let pull = self.pull_request(branch).await?;
+        let Some(checks) = self.wait(&commit, stop).await? else {
+            return Ok(None);
+        };
+        let through = format!("through the pull request {}", pull.url);
+        Ok(Some(self.told(&commit, &through, &checks).await))
     }
 
     async fn check_before(
@@ -461,8 +534,21 @@ impl<A: Api> Host for GitHub<A> {
         before: &Before,
         stop: &mut Stop,
     ) -> Result<Option<String>, String> {
-        let _ = (branch, before, stop, BEFORE);
-        Err("not built yet".to_string())
+        // A branch of its own for each commit, taken away once its CI is read: the commit is no commit of the work's
+        // branch, and is the same commit whenever it is made of the same files.
+        let commit = &before.commit;
+        let name = format!("{BEFORE}/{}-{}", branch.place.branch, &commit[..commit.len().min(12)]);
+        let reference = format!("refs/heads/{name}");
+        self.push_to(commit, &reference, true).await?;
+        let waited = self.wait(commit, stop).await;
+        let said = match waited {
+            Ok(Some(checks)) => Ok(Some(self.told(commit, &format!("on the branch {name}"), &checks).await)),
+            other => other.map(|_| None),
+        };
+        let taken = self.push_to("", &reference, false).await;
+        let said = said?;
+        taken?;
+        Ok(said)
     }
 }
 

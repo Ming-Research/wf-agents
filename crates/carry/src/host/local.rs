@@ -96,7 +96,11 @@ impl Host for Local {
         before: &Before,
         stop: &mut Stop,
     ) -> Result<Option<String>, String> {
-        let _ = (branch, before, stop);
-        Err("not built yet".to_string())
+        let dir = git::check_out_before(&self.project, branch.place, &before.commit).await?;
+        let ran = self.run(&dir, " on it", stop).await;
+        let taken = git::take_away(&self.project, &dir).await;
+        let said = ran?;
+        taken?;
+        Ok(said)
     }
 }
