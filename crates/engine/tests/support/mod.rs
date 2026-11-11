@@ -6,6 +6,7 @@
 
 use std::collections::BTreeSet;
 
+use decide::run::Failure;
 use decide::{CallId, Cause, Decision, Outsider, Pauser, Records, RunId, decide};
 use engine::{Ask, Back, Call, Came, Effect, Event, Spent, Time, Work, handle, pending};
 use flow::Compiled;
@@ -129,15 +130,17 @@ pub fn for_a_note(flow: &decide::Flow, records: &Records, run: RunId) -> bool {
 
 /// Why the round of the run that has this number may not be given while the work is paused, if it may not: a paused
 /// work gives a round only of a run started for a note a person wrote ([`for_a_note`]), and never the round after
-/// one that failed, which waits for the owner to let the work on.
+/// one whose failure paused the work, which waits for the owner to let the work on.
 pub fn held_back(flow: &Compiled, work: &Work, run: RunId, number: usize) -> Option<String> {
     if !for_a_note(&flow.flow, &work.records, run) {
         return Some(format!(
             "round {number} of {run:?}, which started for no note a person wrote"
         ));
     }
-    if matches!(work.back.get(&(run, number - 1)), Some(Back::Failed { .. })) {
-        return Some(format!("round {number} of {run:?}, given again after it failed"));
+    if failure_paused(work, run, number - 1) {
+        return Some(format!(
+            "round {number} of {run:?}, given again after its failure paused the work"
+        ));
     }
     None
 }
@@ -475,7 +478,13 @@ impl Driver {
                 if part.fails(self, false, people) {
                     let spent = self.spent(run);
                     let why = format!("the agent of {cell} could not start");
-                    let taken = self.take(Event::Failed { run, why, spent });
+                    let taken = self.take(Event::Failed {
+                        run,
+                        why,
+                        failure: Failure::Other,
+                        resets: None,
+                        spent,
+                    });
                     assert!(taken, "the failure of a round under way was refused");
                     return;
                 }
@@ -508,6 +517,8 @@ impl Driver {
                     Event::Failed {
                         run,
                         why: "stopped".to_string(),
+                        failure: Failure::Other,
+                        resets: None,
                         spent,
                     }
                 } else {
@@ -549,4 +560,20 @@ impl Driver {
         self.carry_out(effect, part, people);
         true
     }
+}
+
+/// Whether the run's round of this number failed and the engine paused the work for it, which was not let on since:
+/// the engine paused it after the round began, as for its failure or its going over the budget, and no letting on came
+/// after the round's beginning.
+pub fn failure_paused(work: &Work, run: RunId, number: usize) -> bool {
+    if number == 0 || !matches!(work.back.get(&(run, number)), Some(Back::Failed { .. })) {
+        return false;
+    }
+    let r = &work.records;
+    let Some(began) = r.rounds.iter().filter(|e| e.run == run).map(|e| e.at).nth(number - 1) else {
+        return false;
+    };
+    let paused = (r.pauses.iter()).any(|p| p.paused && p.by == Pauser::Engine && p.at > began);
+    let let_on = (r.pauses.iter()).any(|p| !p.paused && p.at > began);
+    paused && !let_on
 }

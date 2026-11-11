@@ -654,7 +654,12 @@ impl<A: Api> Host for GitHub<A> {
         let _held = self.in_use.hold(&mine).await;
         self.sweep(branch).await?;
         // A commit checked already is answered from its CI, and pushed again to no branch, where a new run would start.
-        let now = self.api.checks(commit).await?;
+        // One GitHub has not been given has no checks, and GitHub answers so with a refusal.
+        let now = match self.api.checks(commit).await {
+            Ok(now) => now,
+            Err(why) if why.starts_with("HTTP 422") => Vec::new(),
+            Err(why) => return Err(why),
+        };
         if let Ok(Some(done)) = self.judge(commit, &now, Duration::ZERO) {
             let name = mine.trim_start_matches("refs/heads/");
             let done = Judged::as_they_are(done);

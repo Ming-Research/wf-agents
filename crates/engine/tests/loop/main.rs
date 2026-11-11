@@ -9,6 +9,7 @@ mod cancelling;
 mod ending;
 mod events;
 mod failing;
+mod failing_kinds;
 mod given;
 mod limits;
 mod must_write;

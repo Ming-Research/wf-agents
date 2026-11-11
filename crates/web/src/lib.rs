@@ -10,7 +10,11 @@
 //! - `GET /api/v1/flow/changes`: what changed from the definition compared against ([`view::Comparison`]).
 //! - With the engine running, the items and the works ([`interface`], whose types are in [`works`]).
 //! - Any other path that is not under `/api/` is a file of the page, `index.html` when there is no such file.
+//!
+//! Wherever they are served, a request that could come from a page of another site is refused before it reaches a
+//! route, by the module `guard`.
 
+mod guard;
 pub mod interface;
 pub mod view;
 pub mod works;
@@ -21,6 +25,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::extract::State;
 use axum::http::{HeaderValue, Method, StatusCode, Uri, header};
+use axum::middleware;
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{any, get};
 use flow::{Compiled, Source};
@@ -122,9 +127,15 @@ pub fn router(flows: Flows) -> Router {
         .with_state(Arc::new(flows))
 }
 
-/// Serves the interface and the page on this listener, until the process ends.
+/// Serves the interface and the page on this listener, until the process ends. Every request passes the guard first,
+/// whatever route it is for, so that no route has to remember it.
 pub async fn serve(listener: tokio::net::TcpListener, router: Router) -> std::io::Result<()> {
-    axum::serve(listener, router).await
+    let own = guard::Own::at(listener.local_addr()?.port());
+    axum::serve(
+        listener,
+        router.layer(middleware::from_fn_with_state(own, guard::guard)),
+    )
+    .await
 }
 
 async fn definition(State(flows): State<Arc<Flows>>) -> Response {

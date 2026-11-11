@@ -266,7 +266,8 @@ fn calls_and_results(work: &Work, calls: &[CallId], earlier: bool, parts: &mut V
             Some(Call::Asked(Ask::Tool { name, input })) => tool(name, input),
             Some(Call::Asked(Ask::Person { question: q, .. })) => question(q),
             Some(Call::AtLimit(_)) => AT_LIMIT.to_string(),
-            None => unknown_call(*call),
+            // The engine's wait before a round is tried again is no result a round is given.
+            Some(Call::Wait { .. }) | None => unknown_call(*call),
         };
         parts.push(head);
         let result = work.results.get(call).map(|r| r.trim_end().to_string());

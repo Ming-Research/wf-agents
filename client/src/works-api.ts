@@ -31,11 +31,48 @@ export type Pauser = 'owner' | 'engine';
 /// The limit a run reached.
 export type Limit = { of: 'returns'; sentBack: number } | { of: 'calls'; made: number };
 
-/// What a call is: a tool the engine runs, a question for a person, or a run at a limit that the owner lets go on.
+/// What a call is: a tool the engine runs, a question for a person, a run at a limit that the owner lets go on, or
+/// the engine's wait until a time before a round that failed in passing, the `failed`th in a row, is tried again.
 export type Call =
   | { kind: 'tool'; name: string; input: string }
   | { kind: 'question'; who: Person; question: string }
-  | { kind: 'atLimit'; limit: Limit };
+  | { kind: 'atLimit'; limit: Limit }
+  | { kind: 'wait'; until: number; failed: number };
+
+/// The kind of cause of a round that failed, as what carried it out told it apart.
+export type Failure =
+  | 'passing'
+  | 'unread'
+  | 'flagged'
+  | 'usageLimit'
+  | 'cannotRun'
+  | 'offline'
+  | 'promptTooLong'
+  | 'other';
+
+/// When the agents' rounds may begin again: at a time, every work's; or one round tries at a time, where `look` once
+/// a look at the network every half minute reaches it, at the latest at `latest`; or once the round trying now ends.
+export type Until =
+  | { kind: 'at'; at: number }
+  | { kind: 'trial'; at: number; look: boolean; latest: number }
+  | { kind: 'tried' };
+
+/// A wait every work shares: a round of an agent failed for a cause no one work has, and no agent's round of any work
+/// begins while it stands.
+export interface Outage {
+  failure: Failure;
+  why: string;
+  /// The round that failed so, the latest that did.
+  work: number;
+  run: number;
+  round: number;
+  /// When it ended.
+  since: number;
+  until: Until;
+  /// Whether it holds rounds now: past its time it stands only until a round that began after it comes back, and
+  /// holds nothing meanwhile.
+  holds: boolean;
+}
 
 /// Who can make a precondition hold: the owner, a source outside the work (such as the items it depends on, as they
 /// merge), or a cell, by what its next run writes.
@@ -49,7 +86,9 @@ export type Waited =
   /// by writing a block that keeps it from holding.
   | { kind: 'precondition'; test: string; words: string; by: Maker[] }
   /// The cell's last runs, this many in a row, were each for what a cell after it wrote.
-  | { kind: 'limit'; runs: number };
+  | { kind: 'limit'; runs: number }
+  /// The wait every work shares: the cell's agent's round does not begin until it is over.
+  | { kind: 'agents'; outage: Outage };
 
 /// What a work does now.
 export type Now =
@@ -125,6 +164,9 @@ export interface Item {
 
 export interface Items {
   items: Item[];
+  /// A wait every work shares, where one stands; the interface always says, as none where none stands, and a page's own
+  /// made-up items may leave it out.
+  outage?: Outage | null;
 }
 
 /// Why a cell runs: it has no record, or a block has another meaning than the one its record knows (`was`), which a
@@ -172,7 +214,8 @@ export type Unmet =
   | { kind: 'noValue'; block: string }
   | { kind: 'notAValue'; block: string; value: string }
   | { kind: 'notAChoice'; block: string }
-  | { kind: 'notHandedIn'; block: string };
+  | { kind: 'notHandedIn'; block: string }
+  | { kind: 'unreadable'; why: string };
 
 /// What a round is given: the cell's task, the results of the calls the round before asked for, or why what the
 /// round before handed in was sent back.
@@ -190,8 +233,11 @@ export interface Handed {
 }
 
 /// What came back at the end of a round: calls asked for, blocks handed in, or nothing, the round having failed for
-/// this reason.
-export type Back = { kind: 'asked'; asks: Ask[] } | { kind: 'handedIn'; blocks: Handed[] } | { kind: 'failed'; why: string };
+/// this reason, of this kind of cause; `resets` says when the usage limit it reached resets, where its report said.
+export type Back =
+  | { kind: 'asked'; asks: Ask[] }
+  | { kind: 'handedIn'; blocks: Handed[] }
+  | { kind: 'failed'; why: string; failure: Failure; resets: number | null };
 
 export interface Round {
   /// The first being one.

@@ -9,11 +9,13 @@
 //! session whose id is taken says on the standard error `Session ID <id> is already in use.`, and going on in one
 //! there is none of says `No conversation found with session ID: <id>`; both print nothing on the standard output.
 
+use decide::RunId;
+use decide::run::Failure;
 use flow::Compiled;
 use serde::Deserialize;
 use service::RanOn;
 use uuid::Uuid;
-use work::{Spent, Work};
+use work::{Back, Spent, Work};
 
 use crate::permissions::Permissions;
 use crate::settings::Agents;
@@ -129,33 +131,77 @@ pub fn environment(agents: &Agents, engine: impl IntoIterator<Item = (String, St
 }
 
 /// Whether the round of this number of the run begins the session of the line or goes on in it: it goes on where an
-/// earlier round of the line in this work ended having spent tokens, which a round that never reached the model has
-/// not.
+/// earlier round of the line's session in this work ended having spent tokens, which a round that never reached the
+/// model has not.
 pub fn begin(flow: &Compiled, work: &Work, line: &str) -> Begin {
-    let spent =
-        line_rounds(flow, work, line).any(|spent| spent.input_tokens + spent.cached_tokens + spent.output_tokens > 0);
+    let spent = (session_rounds(flow, work, line))
+        .any(|spent| spent.input_tokens + spent.cached_tokens + spent.output_tokens > 0);
     if spent { Begin::Resume } else { Begin::New }
 }
 
-/// What the line's rounds in this work cost before, in millionths of a dollar: what the session cost before the round.
+/// What the rounds of the line's session in this work cost before, in millionths of a dollar: what the session cost
+/// before the round.
 pub fn spent_before(flow: &Compiled, work: &Work, line: &str) -> u64 {
-    line_rounds(flow, work, line).map(|spent| spent.usd_micros).sum()
+    session_rounds(flow, work, line).map(|spent| spent.usd_micros).sum()
 }
 
-/// What each round of the line in this work that ended took.
-fn line_rounds<'a>(flow: &'a Compiled, work: &'a Work, line: &'a str) -> impl Iterator<Item = &'a Spent> {
-    (work.spent.iter())
-        .filter(move |((run, _), _)| {
-            let cell = work.records.started.iter().find(|s| s.run == *run).map(|s| &s.cell);
-            let spec = cell.and_then(|cell| flow.cells.iter().find(|spec| spec.id == *cell));
-            spec.and_then(|spec| spec.line.as_deref()) == Some(line)
+/// How many times the line's session in this work was begun anew: once after each of its rounds the service's safety
+/// check flagged, so that the round is tried again in a session that does not give the check the same context.
+pub fn anew(flow: &Compiled, work: &Work, line: &str) -> usize {
+    (line_rounds(flow, work, line))
+        .filter(|(key, _)| flagged(work, **key))
+        .count()
+}
+
+/// Whether the round, by its run and number, failed as one the service's safety check flagged.
+fn flagged(work: &Work, key: (RunId, usize)) -> bool {
+    matches!(
+        work.back.get(&key),
+        Some(Back::Failed {
+            failure: Failure::Flagged,
+            ..
         })
+    )
+}
+
+/// What each round of the line's session in this work that ended took: those after the line's last flagged round.
+fn session_rounds<'a>(flow: &'a Compiled, work: &'a Work, line: &'a str) -> impl Iterator<Item = &'a Spent> {
+    let rounds: Vec<_> = line_rounds(flow, work, line).collect();
+    // A round ended later than another where its end is later in the records.
+    let ended = |(run, number): (RunId, usize)| {
+        (work.records.returned.iter())
+            .filter(|r| r.run == run)
+            .nth(number.saturating_sub(1))
+            .map(|r| r.at)
+    };
+    let last_flagged = (rounds.iter())
+        .filter(|(key, _)| flagged(work, **key))
+        .filter_map(|(key, _)| ended(**key))
+        .max();
+    (rounds.into_iter())
+        .filter(move |(key, _)| last_flagged.is_none_or(|flagged| ended(**key).is_some_and(|at| at > flagged)))
         .map(|(_, spent)| spent)
+}
+
+/// Each round of the line in this work that ended, by its run and number, with what it took.
+fn line_rounds<'a>(
+    flow: &'a Compiled,
+    work: &'a Work,
+    line: &'a str,
+) -> impl Iterator<Item = (&'a (RunId, usize), &'a Spent)> {
+    (work.spent.iter()).filter(move |((run, _), _)| {
+        let cell = work.records.started.iter().find(|s| s.run == *run).map(|s| &s.cell);
+        let spec = cell.and_then(|cell| flow.cells.iter().find(|spec| spec.id == *cell));
+        spec.and_then(|spec| spec.line.as_deref()) == Some(line)
+    })
 }
 
 /// The command line's result, as much of it as is read.
 #[derive(Debug, Deserialize)]
 struct Result {
+    /// What kind of end it is, as the command line names it: `success`, or the error it ended in.
+    #[serde(default)]
+    subtype: Option<String>,
     #[serde(default)]
     is_error: bool,
     #[serde(default)]
@@ -211,7 +257,12 @@ pub fn read(stdout: &[u8], begin: Begin, before: u64) -> std::result::Result<Rea
     let spent = spent(&result, begin, before);
     if result.is_error {
         let why = result.result.unwrap_or_default();
-        let why = format!("the command line's result is an error: {why}");
+        let why = match result.subtype.as_deref() {
+            Some(subtype) if subtype != "success" => {
+                format!("the command line's result is an error ({subtype}): {why}")
+            }
+            _ => format!("the command line's result is an error: {why}"),
+        };
         return Err(NoResult {
             why,
             spent: Some(spent),

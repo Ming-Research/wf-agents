@@ -409,7 +409,14 @@ pub(crate) fn checks(runs: &[Value], statuses: &[Value]) -> Vec<Check> {
 fn check_run(name: &str, run: &Value) -> Check {
     let outcome = match (run["status"].as_str(), run["conclusion"].as_str()) {
         (Some("completed"), Some("success" | "neutral" | "skipped")) => Outcome::Passed,
-        (Some("completed"), Some(how @ ("failure" | "timed_out"))) => Outcome::Failed(how.to_string()),
+        // A job stopped at its time limit, or cancelled, judged the code as far as it ran: its log says what ran and
+        // what was still running, which a check asked again on the same commit would not run again to say.
+        (Some("completed"), Some(how @ ("failure" | "timed_out" | "cancelled"))) => {
+            match (how, lasted(&run["started_at"], &run["completed_at"])) {
+                ("failure", _) | (_, None) => Outcome::Failed(how.to_string()),
+                (_, Some(lasted)) => Outcome::Failed(format!("{how} after {lasted}")),
+            }
+        }
         (Some("completed"), Some(how)) => Outcome::Broken(how.to_string()),
         (Some("completed"), None) => Outcome::Broken("no conclusion".to_string()),
         _ => Outcome::Pending,
@@ -430,6 +437,42 @@ fn check_run(name: &str, run: &Value) -> Check {
         job: if actions { run["id"].as_u64() } else { None },
         earlier: Vec::new(),
     }
+}
+
+/// How long a check ran, in words, from the times GitHub gives as `2026-11-11T07:48:56Z`; none where it gives none.
+fn lasted(started: &Value, completed: &Value) -> Option<String> {
+    let seconds = seconds_of(completed.as_str()?)? - seconds_of(started.as_str()?)?;
+    let (minutes, seconds) = (seconds / 60, seconds % 60);
+    let unit = |n: i64, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
+    Some(match (minutes, seconds) {
+        (0, s) => unit(s, "second"),
+        (m, 0) => unit(m, "minute"),
+        (m, s) => format!("{} and {}", unit(m, "minute"), unit(s, "second")),
+    })
+}
+
+/// The seconds since 1970 of a time as GitHub writes one, in UTC: `2026-11-11T07:48:56Z`, fractions of a second left
+/// out; none for anything else.
+fn seconds_of(time: &str) -> Option<i64> {
+    let time = time.strip_suffix('Z')?;
+    let (date, clock) = time.split_once('T')?;
+    let clock = clock.split('.').next()?;
+    let numbers = |text: &str, sep: char| -> Option<Vec<i64>> { text.split(sep).map(|n| n.parse().ok()).collect() };
+    let (d, c) = (numbers(date, '-')?, numbers(clock, ':')?);
+    let [year, month, day] = <[i64; 3]>::try_from(d).ok()?;
+    let [hour, minute, second] = <[i64; 3]>::try_from(c).ok()?;
+    // Days from the civil date, by the proleptic Gregorian calendar.
+    let (y, m) = if month <= 2 {
+        (year - 1, month + 9)
+    } else {
+        (year, month - 3)
+    };
+    let era = y.div_euclid(400);
+    let of_era = y - era * 400;
+    let of_year = (153 * m + 2) / 5 + day - 1;
+    let of_cycle = of_era * 365 + of_era / 4 - of_era / 100 + of_year;
+    let days = era * 146_097 + of_cycle - 719_468;
+    Some(days * 86_400 + hour * 3600 + minute * 60 + second)
 }
 
 /// A commit status as a check.

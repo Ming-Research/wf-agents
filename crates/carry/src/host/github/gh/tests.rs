@@ -40,16 +40,18 @@ fn the_latest_run_of_each_check_counts() {
     assert!(checks[1].earlier.is_empty());
 }
 
+// A job stopped at its time limit, or cancelled, judged the code as far as it ran: what it ran and what was still
+// running when it ended are what the agent needs, and a run of the same commit asked again gives the same.
 #[test]
-fn only_a_failure_or_a_timeout_judges_the_code() {
+fn a_failure_a_timeout_or_a_cancel_judges_the_code() {
     let outcome = |conclusion| check_run("c", &run(1, "c", "completed", conclusion)).outcome;
     for passed in ["success", "neutral", "skipped"] {
         assert_eq!(outcome(Some(passed)), Outcome::Passed, "{passed}");
     }
-    for failed in ["failure", "timed_out"] {
+    for failed in ["failure", "timed_out", "cancelled"] {
         assert_eq!(outcome(Some(failed)), Outcome::Failed(failed.to_string()));
     }
-    for broken in ["cancelled", "action_required", "stale", "startup_failure"] {
+    for broken in ["action_required", "stale", "startup_failure"] {
         assert_eq!(outcome(Some(broken)), Outcome::Broken(broken.to_string()));
     }
     assert_eq!(outcome(None), Outcome::Broken("no conclusion".to_string()));
@@ -62,6 +64,29 @@ fn only_a_failure_or_a_timeout_judges_the_code() {
         None,
         "only a job of GitHub Actions has a log GitHub keeps"
     );
+}
+
+// The check run GitHub gave for a job of a work's CI that a hung test held until the job's time limit, as GitHub's
+// REST API answered it (`commits/<sha>/check-runs`), but for the fields the host does not read.
+#[test]
+fn a_job_cancelled_at_its_time_limit_is_a_failure_after_how_long_it_ran() {
+    let real = json!({
+        "id": 130395109590_u64,
+        "name": "check",
+        "status": "completed",
+        "conclusion": "cancelled",
+        "started_at": "2026-11-11T07:48:56Z",
+        "completed_at": "2026-11-11T08:04:11Z",
+        "html_url": "https://github.com/Ming-Research/wf-agents/actions/runs/42982244461/job/130395109590",
+        "output": { "title": null, "summary": null },
+        "app": { "slug": "github-actions" },
+    });
+    let check = check_run("check", &real);
+    assert_eq!(
+        check.outcome,
+        Outcome::Failed("cancelled after 15 minutes and 15 seconds".to_string())
+    );
+    assert_eq!(check.job, Some(130395109590));
 }
 
 #[test]

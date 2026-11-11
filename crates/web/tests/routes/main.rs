@@ -9,6 +9,7 @@ mod definition;
 mod directories;
 mod failing;
 mod items;
+mod other_sites;
 mod page;
 mod stopped;
 mod stream;
