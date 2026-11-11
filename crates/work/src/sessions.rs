@@ -3,7 +3,8 @@
 //! A line's rounds run in one session of the agents' program, its first, until something makes the line begin a new
 //! one; each such beginning is an entry of the work, [`Session`], with why it began. A session the program lost is
 //! begun again under the same id; every other new session has an id of its own, so that a round finds its session by
-//! counting the line's new sessions recorded before it began ([`of_round`]), and needs nothing stored but the records.
+//! counting the line's new sessions recorded before its first try began ([`start`], [`of_round`]), and needs nothing
+//! stored but the records.
 //! What each try of a round ran on is recorded as the try begins ([`RanOn`]), so that what a session was begun on is
 //! the records' too ([`began_on`]).
 
@@ -96,6 +97,22 @@ pub fn began_at(work: &Work, run: RunId, number: usize) -> Option<Seq> {
     rounds.nth(number.checked_sub(1)?).map(|r| r.at)
 }
 
+/// Where the round of this number of the run takes its session from: the line's sessions recorded before this place
+/// are the ones it counts. A round runs in the session its line is in as its first try begins, so this is where its
+/// first try's record is; where it has none and has ended (a round kept before tries were recorded, or one that failed
+/// before its program ran), where it began; and where it has none and has not ended, or has not begun, the next place,
+/// since its first try is yet to begin. A round under way as the engine opens and records a new session of its line
+/// before giving it again, as for a flag of a store kept before sessions were recorded, so runs in that session.
+pub fn start(work: &Work, run: RunId, number: usize) -> Seq {
+    let first = (work.ran.iter()).find(|r| r.run == run && r.round == number);
+    let ended = work.records.returned.iter().filter(|r| r.run == run).count() >= number;
+    match (first, began_at(work, run, number)) {
+        (Some(first), _) => first.at,
+        (None, Some(began)) if ended => began,
+        _ => work.tick(),
+    }
+}
+
 /// The line's sessions, in the order they were recorded.
 pub fn of_line<'a>(work: &'a Work, line: &'a str) -> impl Iterator<Item = &'a Session> {
     work.sessions.iter().filter(move |s| s.line == line)
@@ -108,16 +125,20 @@ pub fn number_at(work: &Work, line: &str, at: Seq) -> u32 {
     u32::try_from(own).unwrap_or(u32::MAX)
 }
 
+/// Whether the round took tokens: it reached the model.
+fn spent(s: &Spent) -> bool {
+    s.input_tokens + s.cached_tokens + s.output_tokens > 0
+}
+
 /// Of the round of this number of the run, on the line whose runs `on_line` tells: which of the line's sessions it runs
-/// in, and whether it begins that session, which it does where no round of the line that began before it in the same
-/// session spent tokens, as a round that never reached the model has not.
+/// in, and whether it begins that session, which it does where no round of the line that took its session before it,
+/// from the same session, spent tokens, as a round that never reached the model has not.
 pub fn of_round(work: &Work, line: &str, on_line: impl Fn(RunId) -> bool, run: RunId, number: usize) -> (u32, bool) {
-    let at = began_at(work, run, number).unwrap_or_else(|| work.tick());
+    let at = start(work, run, number);
     let session = number_at(work, line, at);
-    let spent = |s: &Spent| s.input_tokens + s.cached_tokens + s.output_tokens > 0;
     let went_on = (work.spent.iter())
         .filter(|((r, _), s)| on_line(*r) && spent(s))
-        .filter_map(|((r, n), _)| began_at(work, *r, *n))
+        .map(|((r, n), _)| start(work, *r, *n))
         .any(|b| b < at && number_at(work, line, b) == session);
     (session, !went_on)
 }
@@ -128,11 +149,9 @@ pub fn of_round(work: &Work, line: &str, on_line: impl Fn(RunId) -> bool, run: R
 /// goes on in a session another cell's round began; once a round of the run has been told so in the session, the
 /// session holds the run. A session begun again under the id of the one the program lost is the same session.
 pub fn moved(work: &Work, line: &str, run: RunId, number: usize) -> bool {
-    let at = began_at(work, run, number).unwrap_or_else(|| work.tick());
-    let session = number_at(work, line, at);
-    let spent = |s: &Spent| s.input_tokens + s.cached_tokens + s.output_tokens > 0;
+    let session = number_at(work, line, start(work, run, number));
     let held = (1..number).any(|earlier| {
-        let here = began_at(work, run, earlier).is_some_and(|b| number_at(work, line, b) == session);
+        let here = number_at(work, line, start(work, run, earlier)) == session;
         here && work.spent.get(&(run, earlier)).is_some_and(spent)
     });
     number > 1 && !held
@@ -141,14 +160,14 @@ pub fn moved(work: &Work, line: &str, run: RunId, number: usize) -> bool {
 /// What the line's session of this number was begun on: what the first try of its first round recorded ran on; none
 /// where none of its rounds recorded it.
 pub fn began_on<'a>(work: &'a Work, line: &str, on_line: impl Fn(RunId) -> bool, session: u32) -> Option<&'a RanOn> {
-    let mut rounds: Vec<(Seq, RunId, usize)> = Vec::new();
+    let mut rounds: Vec<(RunId, usize)> = Vec::new();
     for round in &work.records.rounds {
-        let number = rounds.iter().filter(|(_, run, _)| *run == round.run).count() + 1;
-        rounds.push((round.at, round.run, number));
+        let number = rounds.iter().filter(|(run, _)| *run == round.run).count() + 1;
+        rounds.push((round.run, number));
     }
     (rounds.into_iter())
-        .filter(|(at, run, _)| on_line(*run) && number_at(work, line, *at) == session)
-        .find_map(|(_, run, number)| work.ran.iter().find(|r| r.run == run && r.round == number))
+        .filter(|&(run, number)| on_line(run) && number_at(work, line, start(work, run, number)) == session)
+        .find_map(|(run, number)| work.ran.iter().find(|r| r.run == run && r.round == number))
         .map(|r| &r.on)
 }
 
@@ -257,12 +276,13 @@ mod tests {
             effort: None,
             account: None,
         };
-        for (at, round, model) in [(10, 1, "a"), (11, 2, "b"), (12, 2, "c"), (13, 3, "d")] {
+        // Each try is put at the place of its round, the fixture leaving no place between a round and its end.
+        for (at, round, attempt, model) in [(1, 1, 1, "a"), (4, 2, 1, "b"), (4, 2, 2, "c"), (7, 3, 1, "d")] {
             w.ran.push(Ran {
                 at: Seq(at),
                 run: RunId(1),
                 round,
-                attempt: 1,
+                attempt,
                 on: on(model),
             });
         }

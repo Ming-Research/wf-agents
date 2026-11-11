@@ -176,11 +176,12 @@ pub fn in_session(flow: &Compiled, work: &Work, line: &str, run: RunId, number: 
         spec.and_then(|spec| spec.line.as_deref()) == Some(line)
     };
     let (session, begins) = sessions::of_round(work, line, on_line, run, number);
-    let at = sessions::began_at(work, run, number).unwrap_or_else(|| work.tick());
+    let at = sessions::start(work, run, number);
     let before = (work.spent.iter())
         .filter(|((r, _), _)| on_line(*r))
         .filter(|((r, n), _)| {
-            sessions::began_at(work, *r, *n).is_some_and(|b| b < at && sessions::number_at(work, line, b) == session)
+            let b = sessions::start(work, *r, *n);
+            b < at && sessions::number_at(work, line, b) == session
         })
         .map(|(_, spent)| spent.usd_micros)
         .sum();

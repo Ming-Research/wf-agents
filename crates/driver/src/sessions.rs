@@ -25,7 +25,7 @@ use engine::Event;
 use flow::CellSpec;
 use flow::Compiled;
 use store::Item;
-use work::sessions::{began_at, began_on, number_at, of_line};
+use work::sessions::{began_on, number_at, of_line, start};
 use work::{Back, RanOn, Why, Work};
 
 /// When a line begins a new session, as the installation sets it.
@@ -162,11 +162,11 @@ fn last_ended(flow: &Compiled, work: &Work, line: &str) -> Option<(RunId, usize)
     (ended.into_iter().rev()).find(|(run, _)| line_of_run(flow, work, *run) == Some(line))
 }
 
-/// Whether a session of the line with an id of its own was recorded after the round of this number of the run began:
-/// the session the round ran in has ended already.
+/// Whether a session of the line with an id of its own was recorded after the round of this number of the run took its
+/// session: the session the round ran in has ended already.
 fn begun_since(work: &Work, line: &str, run: RunId, number: usize) -> bool {
-    let began = began_at(work, run, number);
-    began.is_some_and(|began| of_line(work, line).any(|s| s.why.own_id() && s.at > began))
+    let took = start(work, run, number);
+    of_line(work, line).any(|s| s.why.own_id() && s.at > took)
 }
 
 /// Whether a round of the line failed as one the service's safety check flagged, in the session the line is in. A

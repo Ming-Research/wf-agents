@@ -8,7 +8,7 @@ Why: That cell's whole job is to read into the session what the line's later cel
 
 ### decision a-lost-session-keeps-its-id
 A session the agents' program no longer has is begun again under the same id; only a new session for another reason takes an id of its own.
-Why: Which session a round runs in is counted from the new sessions recorded before the round began, and the round that finds its session lost began before that is recorded: under an id of its own, the session that round begins would be another than the one the rounds after it count.
+Why: Which session a round runs in is counted from the new sessions recorded before its first try began, and the round that finds its session lost began its first try before that is recorded: under an id of its own, the session that round begins would be another than the one the rounds after it count.
 
 ### decision no-new-session-when-the-cache-expired
 A line does not begin a new session because its prompt cache expired while it waited.

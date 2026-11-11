@@ -433,6 +433,59 @@ fn a_flagged_round_of_a_store_kept_before_sessions_were_recorded_has_its_line_be
 }
 
 #[test]
+fn a_round_under_way_as_a_store_kept_before_sessions_were_recorded_opens_runs_in_the_session_its_flag_begins() {
+    let mut s = S::new();
+    s.hands_in(100, true);
+    s.hands_in(100, true);
+    let (review, _) = s.round();
+    s.began();
+    let spent = Spent {
+        input_tokens: 10,
+        context_tokens: Some(100),
+        ..Default::default()
+    };
+    s.on(Event::Failed {
+        run: review,
+        why: "the safeguards flagged this message".to_string(),
+        failure: decide::run::Failure::Flagged,
+        resets: None,
+        spent,
+    });
+    // The review is tried again in the session that followed its flag, asks for a tool there, and its next round has
+    // begun and not ended as the engine stops.
+    s.asks(100);
+    let call = s.kept().records.called.last().expect("the review's call").call;
+    s.on(Event::Done {
+        call,
+        result: "the code".to_string(),
+    });
+    assert_eq!(s.round().0, review);
+    s.began();
+    // As a store kept before sessions were recorded holds it, and the engine opens on it.
+    let db = rusqlite::Connection::open(&s.db.path).unwrap();
+    db.execute_batch("DELETE FROM sessions; DELETE FROM ran;").unwrap();
+    drop(db);
+    let (driver, todos) = Driver::open(
+        Box::new(s.db.open()),
+        vec![s.flow.clone()],
+        SLOTS,
+        Some(policy("opus")),
+        Time(s.clock),
+    )
+    .unwrap();
+    s.driver = driver;
+    let again = todos
+        .iter()
+        .any(|todo| matches!(&todo.effect, Effect::Round { run, number: 3, .. } if *run == review));
+    assert!(again, "the round under way is given again: {todos:?}");
+    assert_eq!(s.sessions(), [("review".to_string(), Why::Flagged)]);
+    // Given again, it does not go on in the session its run's first round was flagged in: it begins the new one, and
+    // is told what its run was doing.
+    assert_eq!(of_round(s.kept(), "review", |r| r == review, review, 3), (1, true));
+    assert!(moved(s.kept(), "review", review, 3));
+}
+
+#[test]
 fn a_line_with_no_cell_that_reads_the_block_begins_its_new_session_with_no_write() {
     let mut s = S::new();
     s.hands_in(100, true);
