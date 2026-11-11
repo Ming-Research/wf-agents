@@ -5,7 +5,7 @@
 use service::Act;
 use work::Why;
 
-use crate::{Fake, Real, ended};
+use crate::{Fake, On, Real, ended};
 
 #[tokio::test]
 async fn a_round_ending_past_the_context_limit_has_the_lines_next_round_begin_a_session_of_its_own() {
@@ -80,4 +80,53 @@ async fn a_compaction_within_a_round_is_counted_and_given_the_rounds_whole_messa
         !base.with_extension("again.md").exists(),
         "what was given again is not kept beside the round"
     );
+}
+
+#[tokio::test]
+async fn a_run_waiting_as_its_line_begins_a_new_session_is_told_its_task_and_its_rounds_again_in_the_session_it_goes_on_in()
+ {
+    let fake = Fake {
+        question_first: true,
+        plan_again_unchanged: true,
+        ..Fake::default()
+    };
+    let mut real = Real::open(On::Loading, fake, None, "true");
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| real.owners_call(work).is_some()).await;
+    // The settings give level 1 another model while the build waits for the owner's answer: the engineer's line
+    // begins a new session, and the plan, which loads it, runs again in it first.
+    let level = real.settings.agents.levels.get_mut("1").expect("level 1");
+    level.model = "claude-opus-5-5".to_string();
+    real.restart();
+    let planned = |real: &Real| real.finished(work).iter().filter(|cell| *cell == "plan").count();
+    real.until(|real| planned(real) == 2).await;
+    let call = real.owners_call(work).expect("the build still waits");
+    let result = "By their first name.".to_string();
+    real.act(work, Act::Answer { call, result });
+    real.until(|real| ended(&real.decision(work))).await;
+    let calls = real.calls();
+    let of = |heading: &str| {
+        (calls.iter())
+            .find(|c| c.stdin.starts_with(heading))
+            .unwrap_or_else(|| panic!("no call is told {heading}"))
+    };
+    let first = of("# Build (cell `build`), round 1\n");
+    let again = (calls.iter())
+        .filter(|c| c.stdin.contains("cell `plan`"))
+        .nth(1)
+        .expect("the plan ran again");
+    let second = of("# Build (cell `build`), round 2\n");
+    assert_eq!(again.session().0, "--session-id", "the plan begins the new session");
+    assert_ne!(again.session().1, first.session().1);
+    // The build's next round goes on in the session the plan began, which never saw the build: it is told its task
+    // and what it is answered, as a round that begins a session is.
+    assert_eq!(second.session(), ("--resume", again.session().1));
+    for part in ["## Your task", "## What it reads", "By their first name."] {
+        assert!(second.stdin.contains(part), "{part} is missing from:\n{}", second.stdin);
+    }
+    // Its next round goes on in the same session, which saw its last: it is told only its results.
+    let third = of("# Build (cell `build`), round 3\n");
+    assert_eq!(third.session(), ("--resume", again.session().1));
+    assert!(!third.stdin.contains("## Your task"), "{}", third.stdin);
 }

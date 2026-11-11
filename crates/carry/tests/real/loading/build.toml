@@ -1,0 +1,7 @@
+title = "Build"
+kind = "agent"
+effort = "high"
+line = "engineer"
+task = "Build what the plan says."
+inputs = ["plan", "opinions"]
+outputs = ["code"]

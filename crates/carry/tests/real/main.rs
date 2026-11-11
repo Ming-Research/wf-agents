@@ -60,6 +60,8 @@ pub struct Fake {
     /// Whether every call compacts its session once: it runs the hook the command line was given for a compaction,
     /// keeping what the hook printed in `<n>.again`.
     pub compacts: bool,
+    /// Whether the plan, run again, hands in what it wrote before, saying it changes nothing of what it means.
+    pub plan_again_unchanged: bool,
 }
 
 impl Default for Fake {
@@ -74,6 +76,7 @@ impl Default for Fake {
             plan_sleeps: 0,
             context: None,
             compacts: false,
+            plan_again_unchanged: false,
         }
     }
 }
@@ -87,6 +90,8 @@ pub enum On {
     Acts,
     /// The deliver flow, whose one cell delivers the item once the items it is made of have merged.
     Deliver,
+    /// The trial flow with a plan that loads the engineer's session (`loading` here).
+    Loading,
 }
 
 /// What the fake was given in one call.
@@ -139,11 +144,12 @@ fn compiled(on: On) -> Compiled {
         On::Trial => Path::new(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial/flow"),
         On::Acts => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow"),
         On::Deliver => Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/deliver"),
+        On::Loading => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/loading"),
     };
     let source = flow::read(&dir).expect("the flow is read");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = Has {
-        sources: names(&[driver::DEPENDENCIES]),
+        sources: names(&[driver::DEPENDENCIES, driver::SESSION]),
         acts: names(&["start", "check", "merge", "deliver"]),
     };
     flow::compile(&source, &has).expect("the flow compiles")
@@ -188,7 +194,12 @@ case "$first" in
             touch "$log/slept"
             sleep '{sleeps}'
         fi
-        out='{{"block":"plan","content":"Greet by name.","matters":true}}' ;;
+        matters=true
+        if [ '{unchanged}' = yes ] && [ -f "$log/planned" ]; then
+            matters=false
+        fi
+        touch "$log/planned"
+        out="{{\"block\":\"plan\",\"content\":\"Greet by name.\",\"matters\":$matters}}" ;;
     *'cell `build`'*)
         round=${{first##*, round }}
         if [ "$round" = 1 ] && [ '{question}' = yes ]; then
@@ -217,6 +228,7 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         sleeps = fake.plan_sleeps,
         cost = fake.cost,
         compacts = yes(fake.compacts),
+        unchanged = yes(fake.plan_again_unchanged),
         iterations = fake.context.map_or_else(String::new, |context| {
             format!(r#","iterations":[{{"input_tokens":{context},"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}]"#)
         }),
