@@ -335,7 +335,11 @@ impl Driver {
         if !self.works.contains_key(&work) {
             return Err(Failed::NoSuchWork(work));
         }
-        let (outage, gate) = (self.outage(), self.gate(now));
+        // A round that fails for a cause every work shares begins the wait as it is taken: its own work's next round
+        // is held by it as every other's.
+        let begins_a_wait = matches!(&event, Event::Failed { failure, .. } if failure.shared());
+        let outage = self.outage();
+        let gate = if begins_a_wait { Gate::Shut } else { self.gate(now) };
         let Some(held) = self.works.get_mut(&work) else {
             return Err(Failed::NoSuchWork(work));
         };
