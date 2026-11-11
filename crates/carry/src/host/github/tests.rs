@@ -114,10 +114,38 @@ fn passed(name: &str) -> Check {
 #[tokio::test]
 async fn main_is_fetched_from_github() {
     let hub = Hub::new();
-    let on_github = run(&hub.github().bare, &["rev-parse", "main"]);
-    assert_eq!(hub.host.main().await, Ok(on_github.clone()));
+    let local = run(&hub.repo.project.repo, &["rev-parse", "main"]);
+    // Main moves on GitHub, and not in the local repository.
+    let other = hub.repo.data.join("other");
+    run(
+        &hub.repo.data,
+        &["clone", "-q", &hub.github().bare.display().to_string(), "other"],
+    );
+    run(&other, &["config", "user.name", "Someone"]);
+    run(&other, &["config", "user.email", "someone@example.com"]);
+    let moved = commit(&other, "weather.txt", "Sunny.\n");
+    run(&other, &["push", "-q", "origin", "main"]);
+    assert_eq!(hub.host.main().await, Ok(moved.clone()));
     let tracked = run(&hub.repo.project.repo, &["rev-parse", "refs/remotes/origin/main"]);
-    assert_eq!(tracked, on_github);
+    assert_eq!(tracked, moved);
+    assert_eq!(
+        run(&hub.repo.project.repo, &["rev-parse", "main"]),
+        local,
+        "the local main is let be"
+    );
+}
+
+#[tokio::test]
+async fn a_repository_whose_configuration_sends_connections_elsewhere_is_not_pushed_from() {
+    for (key, value) in [
+        ("url.https://elsewhere.example/.insteadOf", "https://github.com/"),
+        ("http.proxy", "x"),
+    ] {
+        let hub = Hub::new();
+        run(&hub.repo.project.repo, &["config", key, value]);
+        let refused = hub.host.main().await.expect_err(key);
+        assert!(refused.contains(&key.to_ascii_lowercase()), "{key}: {refused}");
+    }
 }
 
 #[tokio::test]
@@ -165,6 +193,43 @@ async fn a_check_given_again_pushes_nothing_new_and_opens_no_second_pull_request
     assert_eq!(again.failed, None);
     assert_eq!(hub.opened(), 1);
     assert_eq!(hub.pushed(), head);
+}
+
+#[tokio::test]
+async fn the_ci_read_is_that_of_the_commit_checked() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.github().checks(&head, vec![vec![passed("lint"), passed("test")]]);
+    hub.verdict(&head).await.unwrap().unwrap();
+    let read: Vec<Asked> = (hub.github().asked().into_iter())
+        .filter(|a| matches!(a, Asked::Checks(_)))
+        .collect();
+    assert_eq!(read, [Asked::Checks(head)]);
+}
+
+#[tokio::test]
+async fn a_pull_request_into_another_branch_fails_the_round() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.github().checks(&head, vec![vec![passed("lint"), passed("test")]]);
+    hub.verdict(&head).await.unwrap().unwrap();
+    hub.github().set_base(1, "elsewhere");
+    let failed = hub.verdict(&head).await.expect_err("the check fails");
+    assert!(failed.contains("goes into elsewhere, not into main"), "{failed}");
+    let failed = hub.merge(&head).await.expect_err("the merge fails");
+    assert!(failed.contains("goes into elsewhere, not into main"), "{failed}");
+}
+
+#[tokio::test]
+async fn a_pull_request_a_person_merged_at_another_head_is_not_taken_for_the_works_merge() {
+    let hub = Hub::new();
+    let checked = hub.committed().await;
+    hub.github()
+        .checks(&checked, vec![vec![passed("lint"), passed("test")]]);
+    hub.verdict(&checked).await.unwrap().unwrap();
+    hub.github().merged_by_a_person(1, "c0ffee");
+    let failed = hub.merge(&checked).await.expect_err("refused");
+    assert!(failed.contains("was merged at c0ffee, not at"), "{failed}");
 }
 
 #[tokio::test]
@@ -378,8 +443,30 @@ async fn a_merge_with_no_pull_request_or_no_check_fails_the_round() {
     assert!(failed.contains("the flow has no check"), "{failed}");
 }
 
+/// What git's credential helpers give, with what the host gives git, for this protocol and host; offline.
+fn filled(with: &With, protocol: &str, host: &str) -> String {
+    let settings = with.settings.iter().flat_map(|s| ["-c", s.as_str()]);
+    let mut child = std::process::Command::new("git")
+        .args(settings)
+        .args(["credential", "fill"])
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .envs(with.env.iter().cloned())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("git runs");
+    use std::io::Write;
+    let asked = format!("protocol={protocol}\nhost={host}\n\n");
+    child.stdin.take().unwrap().write_all(asked.as_bytes()).unwrap();
+    let output = child.wait_with_output().unwrap();
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
 #[test]
-fn the_token_goes_to_git_in_its_environment_for_github_alone() {
+fn the_token_goes_to_git_in_its_environment_for_github_over_https_alone() {
     let hub = Hub::new().with(|config| config.token = Some("the-token".to_string()));
     let with = hub.host.credentials();
     assert_eq!(
@@ -387,15 +474,30 @@ fn the_token_goes_to_git_in_its_environment_for_github_alone() {
         "the owner's own helpers are not asked"
     );
     assert!(
+        with.settings.iter().any(|s| s == "http.lowSpeedLimit=1000")
+            && with.settings.iter().any(|s| s == "http.lowSpeedTime=60"),
+        "a connection that stalls is given up: {:?}",
+        with.settings
+    );
+    assert!(
         with.settings.iter().all(|s| !s.contains("the-token")),
         "{:?}",
         with.settings
     );
-    assert!(with.settings[1].contains("host=github.com"), "{}", with.settings[1]);
-    assert_eq!(with.env, [(TOKEN.to_string(), "the-token".to_string())]);
+    assert!(with.env.contains(&(TOKEN.to_string(), "the-token".to_string())));
+    assert!(
+        with.env
+            .contains(&("GIT_CONFIG_GLOBAL".to_string(), "/dev/null".to_string()))
+    );
+    assert!(filled(&with, "https", "github.com").contains("password=the-token\n"));
+    assert!(!filled(&with, "https", "elsewhere.example").contains("the-token"));
+    assert!(!filled(&with, "http", "github.com").contains("the-token"));
     let none = Hub::new().host.credentials();
-    assert_eq!(none.settings, ["credential.helper="]);
-    assert!(none.env.is_empty());
+    assert!(none.env.iter().all(|(name, _)| name != TOKEN));
+    assert!(
+        !format!("{:?}", hub.host.config).contains("the-token"),
+        "the token is not shown"
+    );
 }
 
 #[test]

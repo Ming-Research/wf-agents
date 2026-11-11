@@ -83,6 +83,26 @@ impl Fake {
         }
     }
 
+    /// Makes the pull request go into another branch, as a person may.
+    pub(crate) fn set_base(&self, number: u64, base: &str) {
+        for (_, pull) in &mut self.kept().pulls {
+            if pull.number == number {
+                pull.base = base.to_string();
+            }
+        }
+    }
+
+    /// Merges the pull request at this head, as a person may.
+    pub(crate) fn merged_by_a_person(&self, number: u64, head: &str) {
+        for (_, pull) in &mut self.kept().pulls {
+            if pull.number == number {
+                pull.state = State::Merged;
+                pull.head = head.to_string();
+                pull.merge_commit = Some(format!("theirs-{head}"));
+            }
+        }
+    }
+
     /// What it was asked, in order.
     pub(crate) fn asked(&self) -> Vec<Asked> {
         self.kept().asked.clone()

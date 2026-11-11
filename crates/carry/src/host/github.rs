@@ -34,7 +34,7 @@ use crate::settings::{self, Project};
 pub const POLL: Duration = Duration::from_secs(30);
 
 /// How the GitHub host reaches the repository and judges its CI.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Config {
     /// Where git pushes the works' branches and fetches main from: the repository's address on GitHub. It is given
     /// here, never read from the local repository's configuration, which an agent can write.
@@ -57,6 +57,23 @@ pub struct Config {
     /// The engine's token, which git's pushes and fetches are given in their environment; none where the address
     /// needs none.
     pub token: Option<String>,
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The token is not shown.
+        f.debug_struct("Config")
+            .field("url", &self.url)
+            .field("remote", &self.remote)
+            .field("checks", &self.checks)
+            .field("start", &self.start)
+            .field("timeout", &self.timeout)
+            .field("poll", &self.poll)
+            .field("merge_method", &self.merge_method)
+            .field("delete_branch", &self.delete_branch)
+            .field("token", &self.token.as_ref().map(|_| "(given)"))
+            .finish()
+    }
 }
 
 /// GitHub, reached through the API given.
@@ -111,24 +128,55 @@ impl<A: Api> GitHub<A> {
         GitHub { api, project, config }
     }
 
-    /// What git is given to push and fetch: no credential helper of the owner's, and, with a token, one that gives it
-    /// for GitHub alone, from the command's environment.
+    /// What git is given to push and fetch: neither the user's nor the system's configuration, no credential helper of
+    /// the owner's, a connection that stalls given up, and, with a token, a helper that gives it for GitHub alone over
+    /// HTTPS, from the command's environment.
     fn credentials(&self) -> With {
         // A connection slower than a kilobyte a second for a minute is given up, as a stalled one.
         let settings = ["credential.helper=", "http.lowSpeedLimit=1000", "http.lowSpeedTime=60"];
         let mut with = With {
             settings: settings.map(str::to_string).to_vec(),
-            env: Vec::new(),
+            env: vec![
+                ("GIT_CONFIG_GLOBAL".to_string(), "/dev/null".to_string()),
+                ("GIT_CONFIG_NOSYSTEM".to_string(), "1".to_string()),
+            ],
         };
         if let Some(token) = &self.config.token {
             with.settings.push(format!(
-                "credential.helper=!f() {{ test \"$1\" = get || exit 0; ok=; while IFS= read -r line && test -n \
-                 \"$line\"; do test \"$line\" = host={GITHUB} && ok=1; done; if test -n \"$ok\"; then printf \
-                 'username=x-access-token\\npassword=%s\\n' \"${TOKEN}\"; fi; }}; f"
+                "credential.helper=!f() {{ test \"$1\" = get || exit 0; host=; https=; while IFS= read -r line && test \
+                 -n \"$line\"; do case \"$line\" in host={GITHUB}) host=1 ;; protocol=https) https=1 ;; esac; done; if \
+                 test -n \"$host\" && test -n \"$https\"; then printf 'username=x-access-token\\npassword=%s\\n' \
+                 \"${TOKEN}\"; fi; }}; f"
             ));
             with.env.push((TOKEN.to_string(), token.clone()));
         }
         with
+    }
+
+    /// What git is given to push to and fetch from GitHub, once the local repository's configuration is found to send
+    /// nothing elsewhere: a key of its own that rewrites an address (`url.*`) or sets how HTTP goes (`http.*`: a
+    /// proxy, the checking of certificates) could send the token to another server, and is refused.
+    async fn network(&self) -> Result<With, String> {
+        let listed = git::git(&self.project.repo, &["config", "--list", "--show-scope"]).await?;
+        let found: Vec<String> = (listed.lines())
+            .filter_map(|line| line.split_once('\t'))
+            .filter(|(scope, _)| *scope == "local" || *scope == "worktree")
+            .map(|(scope, entry)| {
+                let key = entry.split_once('=').map_or(entry, |(key, _)| key).to_ascii_lowercase();
+                (scope, key)
+            })
+            .filter(|(_, key)| key.starts_with("url.") || key.starts_with("http."))
+            .map(|(scope, key)| format!("{key} ({scope})"))
+            .collect();
+        if !found.is_empty() {
+            return Err(format!(
+                "the configuration of {} says where git's connections to GitHub go, which could send the engine's \
+                 token elsewhere: {}. Take each out",
+                self.project.repo.display(),
+                found.join(", ")
+            ));
+        }
+        Ok(self.credentials())
     }
 
     /// Pushes the commit to the work's branch on GitHub, never forcing it: a branch there that holds a commit this one
@@ -136,7 +184,7 @@ impl<A: Api> GitHub<A> {
     async fn push(&self, branch: &Branch<'_>, commit: &str) -> Result<(), String> {
         let target = format!("{commit}:{}", branch.place.reference());
         let args = ["push", "--quiet", "--no-verify", &self.config.url, &target];
-        let pushed = git::said_with(&self.project.repo, &self.credentials(), &args).await?;
+        let pushed = git::said_with(&self.project.repo, &self.network().await?, &args).await?;
         if pushed.ok {
             return Ok(());
         }
@@ -288,7 +336,7 @@ impl<A: Api> Host for GitHub<A> {
         let tracking = format!("refs/remotes/{}/{main}", self.config.remote);
         let spec = format!("+refs/heads/{main}:{tracking}");
         let args = ["fetch", "--quiet", "--no-tags", &self.config.url, &spec];
-        let fetched = git::said_with(&self.project.repo, &self.credentials(), &args).await?;
+        let fetched = git::said_with(&self.project.repo, &self.network().await?, &args).await?;
         if !fetched.ok {
             return Err(format!(
                 "{main} could not be fetched from GitHub: {}",
