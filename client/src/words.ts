@@ -130,6 +130,7 @@ export function faultWords(fault: Fault): string {
         lastHasCondition: 'The last cell has a condition.',
         noLimit: "A cell's limit is zero.",
         noSuchTest: "A cell names a test the flow does not have.",
+        unwritten: 'A test a cell uses reads a block that nothing writes.',
       }[w.reason];
       return `${why}${at}`;
     }

@@ -30,7 +30,7 @@ export type Shown = {
   id: number;
   title: string;
   standing: ItemStanding;
-  /// The things its work waits for that the owner gives: answers, preconditions only they can make hold, a run let on.
+  /// The things its work waits for that the owner gives: answers, preconditions they can make hold, a run let on.
   asks: number;
   /// How many items it depends on are not merged yet.
   blocked: number;
@@ -50,10 +50,11 @@ export function standingOf(i: Item | undefined): ItemStanding {
   return now?.kind === 'merged' ? 'done' : now?.kind === 'cancelled' ? 'cancelled' : 'open';
 }
 
-/// Who gives what a work waits for: the person a call or a precondition names, the owner for a run let on at its
-/// limit, none where the engine gives it.
+/// Who gives what a work waits for: the person a call names, the owner for a run let on at its limit or a precondition
+/// the engine says the owner can make hold, none where the engine, a source outside the work or a cell gives it.
 export function whoGives(w: Waited): 'owner' | 'architect' | null {
   if (w.kind === 'limit') return 'owner';
+  if (w.kind === 'precondition') return w.by.some((m) => m.kind === 'owner') ? 'owner' : null;
   return w.who;
 }
 

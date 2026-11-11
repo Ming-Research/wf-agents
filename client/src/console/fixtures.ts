@@ -92,7 +92,7 @@ const REQUEST_READ = test('request_read', 'The owner read what the item asks for
 const MAY_MERGE = test('may_merge', 'The reviews are content and the owner lets it merge', ['content', 'merge_allowed']);
 
 /// A precondition not met that the owner makes hold.
-const owners = (t: Test): Waited => ({ kind: 'precondition', test: t.name, words: t.words, who: 'owner' });
+const owners = (t: Test): Waited => ({ kind: 'precondition', test: t.name, words: t.words, by: [{ kind: 'owner' }] });
 
 /// A made-up flow of an engineer's work: the initial research, deep research when it asks for it, the review of its
 /// plan, the implementation once the owner confirmed the plan, the tests, the review of the code, a check with the

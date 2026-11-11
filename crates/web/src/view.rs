@@ -310,6 +310,7 @@ pub enum FlowRefusal {
     LastHasCondition,
     NoLimit,
     NoSuchTest,
+    Unwritten,
 }
 
 /// One change from the definition compared against to the one shown.
@@ -662,6 +663,7 @@ impl What {
                     FlowFault::LastHasCondition(c) => (FlowRefusal::LastHasCondition, Some(c)),
                     FlowFault::NoLimit(c) => (FlowRefusal::NoLimit, Some(c)),
                     FlowFault::NoSuchTest(c, _) => (FlowRefusal::NoSuchTest, Some(c)),
+                    FlowFault::Unwritten(..) => (FlowRefusal::Unwritten, None),
                 };
                 What::FlowRefused {
                     reason,

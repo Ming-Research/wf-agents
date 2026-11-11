@@ -19,10 +19,10 @@ pub mod run;
 pub mod view;
 pub mod walk;
 
-pub use flow::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Test, TestKind, TestName};
+pub use flow::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Outsiders, Test, TestKind, TestName};
 pub use records::{
     Abandoned, CallId, Called, Cause, Done, Finished, LetGo, Outsider, Pause, Pauser, RecordFault, Records, Returned,
     Round, RunId, Seq, Started, Who, Write, Written,
 };
 pub use view::{CellView, InputView, OpenRun, VersionView, View, Writer, versions, view};
-pub use walk::{Abandoning, Decision, End, Waited, decide, hold, pause, paused, stale};
+pub use walk::{Abandoning, Decision, End, Maker, Waited, decide, hold, pause, paused, stale};

@@ -83,11 +83,23 @@ pub enum Abandoning {
 pub enum Waited {
     /// The result of a call the cell's run rests at: from this person, or from the engine where `on` is `None`.
     Call { call: CallId, on: Option<Who> },
-    /// A precondition of the cell, a named test of the flow, does not hold: this person can make it hold.
-    Precondition { test: TestName, who: Who },
+    /// A precondition of the cell, a named test of the flow, does not hold: each of these writes a block that keeps it
+    /// from holding, and none other can make it hold.
+    Precondition { test: TestName, by: Vec<Maker> },
     /// The cell's last runs, this many in a row, were each for what a cell after it wrote, and so would the next be:
     /// the owner lets it go on or cancels the work.
     Limit { runs: u32 },
+}
+
+/// Who can make a precondition hold, by writing a block its test reads: the flow says who writes each block.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Maker {
+    /// The owner, as people write the block.
+    Owner,
+    /// This source outside the work, such as the items the work depends on as they merge.
+    Outside { source: String },
+    /// The cell, by what its next run writes.
+    Cell { cell: CellId },
 }
 
 /// What the work does next.
@@ -360,19 +372,26 @@ impl<'a> Walk<'a> {
         }
     }
 
-    /// Whether the named test holds, for the cell at this place, by the value each block it reads has now. The flow
-    /// has every test its cells name.
+    /// Whether the named test holds, for the cell at this place: when no block it reads keeps it from holding.
     fn holds(&self, name: &TestName, i: usize) -> bool {
+        self.holding(name, i).is_empty()
+    }
+
+    /// The blocks the named test reads that keep it from holding, for the cell at this place, by the value each has
+    /// now: a write of any of them can change whether it holds. The flow has every test its cells name.
+    fn holding(&self, name: &TestName, i: usize) -> Vec<&'a BlockId> {
         let test = &self.flow.tests()[name];
-        let mut has = (test.reads.iter()).map(|block| {
+        let has = |block: &BlockId| {
             self.current(block).is_some_and(|v| {
                 v.value == Some(test.is.as_str()) && (test.kind != TestKind::NoneStanding || self.stands(v, i))
             })
-        });
+        };
+        let reads = test.reads.iter();
         match test.kind {
-            TestKind::All => has.all(|h| h),
-            TestKind::Any => has.any(|h| h),
-            TestKind::None | TestKind::NoneStanding => !has.any(|h| h),
+            TestKind::All => reads.filter(|b| !has(b)).collect(),
+            TestKind::Any if test.reads.iter().any(has) => Vec::new(),
+            TestKind::Any => reads.collect(),
+            TestKind::None | TestKind::NoneStanding => reads.filter(|b| has(b)).collect(),
         }
     }
 
@@ -470,15 +489,38 @@ impl<'a> Walk<'a> {
             .collect()
     }
 
-    /// The preconditions of the cell at this place that do not hold, each for the owner.
+    /// The preconditions of the cell at this place that do not hold, each with who writes a block that keeps it from
+    /// holding.
     fn unmet(&self, i: usize) -> Vec<Waited> {
         (self.flow.cells()[i].requires.iter())
-            .filter(|test| !self.holds(test, i))
-            .map(|test| Waited::Precondition {
-                test: test.clone(),
-                who: Who::Owner,
+            .filter_map(|test| {
+                let holding = self.holding(test, i);
+                (!holding.is_empty()).then(|| Waited::Precondition {
+                    test: test.clone(),
+                    by: self.makers(&holding),
+                })
             })
             .collect()
+    }
+
+    /// Who writes any of these blocks, each once, in the order of [`Maker`]: the owner where people write one, the
+    /// source outside the work where one does, and each cell that has one among its outputs.
+    fn makers(&self, blocks: &[&BlockId]) -> Vec<Maker> {
+        let mut makers = BTreeSet::new();
+        for block in blocks {
+            if let Some(outsiders) = self.flow.outsiders(block) {
+                if outsiders.people {
+                    makers.insert(Maker::Owner);
+                }
+                if let Some(source) = &outsiders.outside {
+                    makers.insert(Maker::Outside { source: source.clone() });
+                }
+            }
+            for cell in self.flow.writers(block) {
+                makers.insert(Maker::Cell { cell: cell.id.clone() });
+            }
+        }
+        makers.into_iter().collect()
     }
 
     /// Why the cell at this place needs to run; empty when its record still holds.

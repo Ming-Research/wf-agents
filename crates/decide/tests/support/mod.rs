@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 
 use decide::{
     Abandoned, Abandoning, BlockId, CallId, Called, Cell, CellId, Condition, Decision, Done, Finished, Flow, LetGo,
-    Outsider, Pause, Pauser, Records, Returned, Round, RunId, Seq, Started, Test, TestKind, TestName, Waited, Who,
-    Write, Written, decide,
+    Maker, Outsider, Outsiders, Pause, Pauser, Records, Returned, Round, RunId, Seq, Started, Test, TestKind, TestName,
+    Waited, Who, Write, Written, decide,
 };
 
 /// The owner's word of this name: a named test of the choice of the same name, which people write, that holds unless
@@ -48,6 +48,29 @@ fn tests_for(cells: &[Cell], given: &BTreeMap<TestName, Test>) -> BTreeMap<TestN
     tests
 }
 
+/// The flow of these cells, with these named tests and the owner's word for each other test a cell names, and these
+/// writers of blocks besides the cells: people write each other block a named test reads, and the notes.
+fn flow_of(
+    cells: Vec<Cell>,
+    tests: &BTreeMap<TestName, Test>,
+    notes: &[BlockId],
+    declared: &BTreeMap<BlockId, Outsiders>,
+) -> Flow {
+    let tests = tests_for(&cells, tests);
+    let mut outsiders = declared.clone();
+    for block in tests.values().flat_map(|t| &t.reads) {
+        if !declared.contains_key(block) {
+            outsiders.entry(block.clone()).or_default().people = true;
+        }
+    }
+    for block in notes {
+        let o = outsiders.entry(block.clone()).or_default();
+        o.people = true;
+        o.note = true;
+    }
+    Flow::new(cells, tests, outsiders).expect("the cells make a flow")
+}
+
 /// What a run writes of a block: a change that matters to the cells that read it, one that does not, or a value a
 /// condition reads (which matters).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -64,6 +87,9 @@ pub struct World {
     tests: BTreeMap<TestName, Test>,
     /// The blocks that are notes, which [`World::install`] keeps.
     notes: Vec<BlockId>,
+    /// Who besides the cells writes these blocks, which [`World::install`] keeps. Every other block a named test reads
+    /// people write, as the owner's word.
+    outsiders: BTreeMap<BlockId, Outsiders>,
     seq: u64,
     ids: u64,
 }
@@ -79,7 +105,7 @@ pub fn gate() -> Cell {
 pub fn merge_word() -> Waited {
     Waited::Precondition {
         test: GATE.into(),
-        who: Who::Owner,
+        by: vec![Maker::Owner],
     }
 }
 
@@ -110,12 +136,13 @@ impl World {
     pub fn with_tests(cells: Vec<Cell>, tests: BTreeMap<TestName, Test>) -> Self {
         let mut tests = tests;
         tests.entry(GATE.into()).or_insert_with(gate_word);
-        let flow = Flow::new(cells.clone(), tests_for(&cells, &tests)).expect("the cells make a flow");
+        let flow = flow_of(cells, &tests, &[], &BTreeMap::new());
         Self {
             flow,
             records: Records::default(),
             tests,
             notes: Vec::new(),
+            outsiders: BTreeMap::new(),
             seq: 0,
             ids: 0,
         }
@@ -128,17 +155,33 @@ impl World {
         Self::new(cells)
     }
 
-    /// Installs a changed flow over the same records, with the same named tests and notes.
+    /// Installs a changed flow over the same records, with the same named tests, notes and writers of blocks.
     pub fn install(&mut self, cells: Vec<Cell>) {
-        let flow = Flow::new(cells.clone(), tests_for(&cells, &self.tests)).expect("the cells make a flow");
-        self.flow = flow.with_notes(self.notes.clone());
+        self.flow = flow_of(cells, &self.tests, &self.notes, &self.outsiders);
     }
 
     /// Makes these blocks notes: what a person writes in them are their words to the cells that read them, which a
     /// paused work still answers.
     pub fn notes(&mut self, blocks: &[&str]) {
         self.notes = blocks.iter().map(|b| (*b).into()).collect();
-        self.flow = self.flow.clone().with_notes(self.notes.clone());
+        self.install(self.flow.cells().to_vec());
+    }
+
+    /// Makes this source outside the work the writer of the block, in place of people: as the items a work depends on
+    /// write whether they merged.
+    pub fn written_outside(&mut self, block: &str, source: &str) {
+        let outsiders = Outsiders {
+            outside: Some(source.to_string()),
+            ..Outsiders::default()
+        };
+        self.outsiders.insert(block.into(), outsiders);
+        self.install(self.flow.cells().to_vec());
+    }
+
+    /// Makes the cells that have the block among their outputs its only writers: people write it no longer.
+    pub fn written_by_cells(&mut self, block: &str) {
+        self.outsiders.insert(block.into(), Outsiders::default());
+        self.install(self.flow.cells().to_vec());
     }
 
     pub fn tick(&mut self) -> Seq {
@@ -289,6 +332,11 @@ impl World {
     /// A person sets the block to a value a condition reads.
     pub fn person_sets(&mut self, block: &str, value: &str) -> Seq {
         self.outsider_writes(block, Outsider::Person, Some(value.to_string()))
+    }
+
+    /// Something outside the work sets the block to a value a condition reads.
+    pub fn outside_sets(&mut self, block: &str, value: &str) -> Seq {
+        self.outsider_writes(block, Outsider::Outside, Some(value.to_string()))
     }
 
     /// Something outside the work writes the block.

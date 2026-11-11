@@ -23,7 +23,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use decide::{BlockId, CallId, Cause, Decision, End, Outsider, RunId, Seq, Waited, Who};
+use decide::{BlockId, CallId, Cause, Decision, End, Maker, Outsider, RunId, Seq, Waited, Who};
 use driver::{DEPENDENCIES, Driver, Failed, Fault, FirstWrite, MERGED, NewItem, Todo, WAITING};
 use engine::{Ask, Back, Came, Effect, Event, Given, Handed, Spent, Time, Work};
 use flow::{Compiled, Has, Kind, Source, compile};
@@ -1241,8 +1241,16 @@ pub fn waits_for_dependencies(cell: &str) -> Decision {
         at: cell.into(),
         on: vec![Waited::Precondition {
             test: "ready".into(),
-            who: Who::Owner,
+            by: vec![dependencies()],
         }],
+    }
+}
+
+/// The source outside the work that writes whether the items a work depends on merged: the only one that can make a
+/// test of them hold.
+pub fn dependencies() -> Maker {
+    Maker::Outside {
+        source: DEPENDENCIES.to_string(),
     }
 }
 

@@ -18,8 +18,8 @@
 
 use decide::run::{Limit as LimitOf, Unmet as UnmetOf};
 use decide::{
-    BlockId, CallId, Cause as CauseOf, CellId, Decision, End, Pauser as PauserOf, RunId, Seq, View, Waited as WaitedOf,
-    Who, Writer as WriterOf,
+    BlockId, CallId, Cause as CauseOf, CellId, Decision, End, Maker as MakerOf, Pauser as PauserOf, RunId, Seq, View,
+    Waited as WaitedOf, Who, Writer as WriterOf,
 };
 use driver::{Driver, Kept};
 use serde::{Deserialize, Serialize};
@@ -104,8 +104,13 @@ pub enum Now {
 pub enum Waited {
     /// The result of a call a run rests at: from this person, or from the engine where there is none.
     Call { call: u64, who: Option<Person>, what: Call },
-    /// A precondition of the cell does not hold: the named test, the words shown for it, and who can make it hold.
-    Precondition { test: String, words: String, who: Person },
+    /// A precondition of the cell does not hold: the named test, the words shown for it, and each who can make it
+    /// hold, by writing a block that keeps it from holding.
+    Precondition {
+        test: String,
+        words: String,
+        by: Vec<Maker>,
+    },
     /// The cell's last runs, this many in a row, were each for what a cell after it wrote, and so would the next be:
     /// the owner lets it go on or cancels the work.
     Limit { runs: u32 },
@@ -117,6 +122,18 @@ pub enum Waited {
 pub enum Person {
     Owner,
     Architect,
+}
+
+/// Who can make a precondition hold, by writing a block its test reads.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Maker {
+    /// The owner, as people write the block.
+    Owner,
+    /// This source outside the work, such as the items the work depends on as they merge.
+    Outside { source: String },
+    /// The cell, by what its next run writes.
+    Cell { cell: String },
 }
 
 /// Who paused a work: the owner, or the engine itself.
@@ -722,11 +739,11 @@ impl Now {
                                 who: on.as_ref().map(Person::of),
                                 what: call_of(work, *call)?,
                             },
-                            WaitedOf::Precondition { test, who } => Waited::Precondition {
+                            WaitedOf::Precondition { test, by } => Waited::Precondition {
                                 test: test.to_string(),
                                 words: (kept.flow.tests.get(test).cloned())
                                     .ok_or_else(|| Broken(format!("the flow has no test {test}")))?,
-                                who: Person::of(who),
+                                by: by.iter().map(Maker::of).collect(),
                             },
                             WaitedOf::Limit { runs } => Waited::Limit { runs: *runs },
                         })
@@ -763,6 +780,16 @@ impl Person {
         match who {
             Who::Owner => Person::Owner,
             Who::Architect => Person::Architect,
+        }
+    }
+}
+
+impl Maker {
+    fn of(maker: &MakerOf) -> Maker {
+        match maker {
+            MakerOf::Owner => Maker::Owner,
+            MakerOf::Outside { source } => Maker::Outside { source: source.clone() },
+            MakerOf::Cell { cell } => Maker::Cell { cell: cell.to_string() },
         }
     }
 }

@@ -34,12 +34,17 @@ export type Call =
   | { kind: 'question'; who: Person; question: string }
   | { kind: 'atLimit'; limit: Limit };
 
+/// Who can make a precondition hold: the owner, a source outside the work (such as the items it depends on, as they
+/// merge), or a cell, by what its next run writes.
+export type Maker = { kind: 'owner' } | { kind: 'outside'; source: string } | { kind: 'cell'; cell: string };
+
 /// What a work waits for.
 export type Waited =
   /// The result of a call a run rests at: from this person, or from the engine where there is none.
   | { kind: 'call'; call: number; who: Person | null; what: Call }
-  /// A precondition of the cell does not hold: the named test, the words shown for it, and who can make it hold.
-  | { kind: 'precondition'; test: string; words: string; who: Person }
+  /// A precondition of the cell does not hold: the named test, the words shown for it, and each who can make it hold,
+  /// by writing a block that keeps it from holding.
+  | { kind: 'precondition'; test: string; words: string; by: Maker[] }
   /// The cell's last runs, this many in a row, were each for what a cell after it wrote.
   | { kind: 'limit'; runs: number };
 

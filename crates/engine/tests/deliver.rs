@@ -38,7 +38,7 @@ mod support;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 
-use decide::{BlockId, Cause, Decision, End, Outsider, Pauser, RunId, TestKind, Waited, Who, decide};
+use decide::{BlockId, Cause, Decision, End, Maker, Outsider, Pauser, RunId, TestKind, Waited, decide};
 use engine::{Call, Came, Effect, Event, Given, Handed, Spent, Time, Work, handle};
 use flow::{Compiled, Has, Kind, compile, read};
 use support::{Driver, Part, Rng};
@@ -154,7 +154,10 @@ fn a_work_waits_at_its_cell_until_its_items_have_merged_then_runs_it_once_and_ha
         at: "V1".into(),
         on: vec![Waited::Precondition {
             test: "all_delivered".into(),
-            who: Who::Owner,
+            // The items it is made of merging is what makes it hold: no person can.
+            by: vec![Maker::Outside {
+                source: "dependencies".to_string(),
+            }],
         }],
     };
     assert_eq!(decide(&flow.flow, &work.records), waits);

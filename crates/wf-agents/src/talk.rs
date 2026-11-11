@@ -13,8 +13,8 @@ use hyper_util::rt::TokioIo;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use web::works::{
-    Act, Added, Back, Call, CellState, Items, Limit, NewItem, NewWrite, Now, Pauser, Person, Refusal, Run, Spent, Step,
-    Waited, WorkPage, Writer,
+    Act, Added, Back, Call, CellState, Items, Limit, Maker, NewItem, NewWrite, Now, Pauser, Person, Refusal, Run,
+    Spent, Step, Waited, WorkPage, Writer,
 };
 
 /// What a command asks of the engine.
@@ -361,7 +361,10 @@ fn waited(waited: &Waited) -> String {
             what,
         } => format!("the {} to answer call {call}: {}", person(*who), called(what)),
         Waited::Call { call, who: None, what } => format!("call {call}, {}", called(what)),
-        Waited::Precondition { words, who, .. } => format!("the {}: {words}", person(*who)),
+        Waited::Precondition { words, by, .. } => {
+            let by: Vec<String> = by.iter().map(maker).collect();
+            format!("{}: {words}", by.join(" or "))
+        }
         Waited::Limit { runs } => {
             format!("the owner to let it go on, its last {runs} runs having each been for what a cell after it wrote")
         }
@@ -379,6 +382,15 @@ fn called(call: &Call) -> String {
         Call::AtLimit {
             limit: Limit::Calls { made },
         } => format!("its run reached its limit, {made} calls having been made"),
+    }
+}
+
+/// Who can make a precondition hold, as a noun.
+fn maker(maker: &Maker) -> String {
+    match maker {
+        Maker::Owner => "the owner".to_string(),
+        Maker::Outside { source } => format!("the outside ({source})"),
+        Maker::Cell { cell } => format!("cell {cell}"),
     }
 }
 

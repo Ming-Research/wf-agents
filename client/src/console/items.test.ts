@@ -89,12 +89,19 @@ describe('what a card shows of an item', () => {
       { kind: 'call', call: 1, who: 'owner', what: { kind: 'question', who: 'owner', question: 'Which?' } },
       { kind: 'call', call: 2, who: 'architect', what: { kind: 'question', who: 'architect', question: 'Where?' } },
       { kind: 'call', call: 3, who: null, what: { kind: 'tool', name: 'ci', input: '' } },
-      { kind: 'precondition', test: 'confirmed', words: 'The owner confirmed it', who: 'owner' },
+      { kind: 'precondition', test: 'confirmed', words: 'The owner confirmed it', by: [{ kind: 'owner' }] },
+      {
+        kind: 'precondition',
+        test: 'may_start',
+        words: 'The items it depends on are merged',
+        by: [{ kind: 'outside', source: 'dependencies' }],
+      },
+      { kind: 'precondition', test: 'checked', words: 'The check before the merge passed', by: [{ kind: 'cell', cell: 'M1' }] },
       { kind: 'limit', runs: 3 },
     ],
   };
 
-  it('counts the things a work waits for that the owner gives: their questions, their preconditions, a run let on', () => {
+  it('counts the things a work waits for that the owner gives, as the engine says: their questions, the preconditions they can make hold, a run let on', () => {
     expect(asksOf(waits)).toBe(3);
     expect(asksOf({ kind: 'paused', by: 'owner', why: null })).toBe(0);
   });
@@ -119,7 +126,7 @@ describe('what a card shows of an item', () => {
     const owner: Now = {
       kind: 'waits',
       at: 'plan',
-      on: [{ kind: 'precondition', test: 'read', words: 'The owner read it', who: 'owner' }],
+      on: [{ kind: 'precondition', test: 'read', words: 'The owner read it', by: [{ kind: 'owner' }] }],
     };
     const waiting: Item = { ...item(3, 'open'), work: work(3, owner) };
     const shown = shownTree({ items: [paused, fault, waiting, item(4, 'open')] });
