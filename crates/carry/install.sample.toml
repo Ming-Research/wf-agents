@@ -32,9 +32,9 @@ args = ["--permission-mode", "acceptEdits", "--tools", "Bash,Read,Edit,Write,Gre
 # writes update a lock file with Cargo's and npm's commands that build nothing. Here the installation adds what its
 # toolchain counts as heavy, its own lock commands, which an agent that writes may run though a heavy command covers
 # them, and the uses of those that are refused all the same (`*` for any text). A lock command that a heavy command
-# falls under, and a `*` or a parenthesis in a heavy or lock command, are refused: none can take a refusal away. In
-# `args`, `--settings`, `--setting-sources`, `--` and a last flag not known to take no value are refused, since they
-# would undo or take the engine's own arguments after them.
+# falls under or that pushes, and a `*` or a parenthesis in a heavy or lock command, are refused. In `args`,
+# `--settings`, `--setting-sources`, `--permission-prompt-tool`, `--` and a last flag not known to take no value are
+# refused, since they would undo the engine's rules or take its own arguments after them.
 # permissions = { heavy = ["uv"], locks = ["uv lock"], locks_except = ["uv lock *--script*"] }
 # Which settings files the program reads, given as --setting-sources on every round. Left out, it is `user`, so that a
 # settings file the worktree holds, which an agent may write, is not read; `project` and `local`, which are such files,

@@ -18,7 +18,7 @@
 use crate::settings::PermissionsAdded;
 
 /// The heavy commands, each a command with the start of its arguments: no agent runs them.
-pub const HEAVY: [&str; 44] = [
+pub const HEAVY: [&str; 29] = [
     "cargo",
     "rustc",
     "rustup",
@@ -32,22 +32,7 @@ pub const HEAVY: [&str; 44] = [
     "yarn",
     "bun",
     "deno",
-    "npm run",
-    "npm run-script",
-    "npm start",
-    "npm test",
-    "npm t",
-    "npm ci",
-    "npm clean-install",
-    "npm install",
-    "npm i",
-    "npm add",
-    "npm install-test",
-    "npm it",
-    "npm cit",
-    "npm rebuild",
-    "npm exec",
-    "npm x",
+    "npm",
     "node --test",
     "vitest",
     "jest",
@@ -64,6 +49,10 @@ pub const HEAVY: [&str; 44] = [
     "hyperfine",
     "git push",
 ];
+
+/// The heavy commands that no lock command may fall under, as an installation may add one under another heavy
+/// command: pushing is the engine's alone.
+pub const NEVER_A_LOCK: [&str; 1] = ["git push"];
 
 /// The commands that update a lock file and build, run and install nothing, each a command with the start of its
 /// arguments: Cargo's and npm's. `cargo update` and `cargo add` resolve the dependencies and write Cargo.lock without

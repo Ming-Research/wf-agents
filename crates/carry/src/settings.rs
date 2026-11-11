@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::permissions::{HEAVY, falls_under};
+use crate::permissions::{HEAVY, NEVER_A_LOCK, falls_under};
 
 /// The settings as their file is written.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -208,6 +208,11 @@ impl Agents {
                     .to_string(),
             );
         }
+        if given("--permission-prompt-tool") {
+            wrong.push(
+                "agents.args: --permission-prompt-tool would have a tool approve what no rule refuses".to_string(),
+            );
+        }
         if given("--setting-sources") {
             wrong.push("agents.args: --setting-sources is set by agents.setting_sources".to_string());
         }
@@ -258,6 +263,11 @@ impl Agents {
             .chain(added.heavy.iter().map(String::as_str))
             .collect();
         for lock in &added.locks {
+            if let Some(h) = NEVER_A_LOCK.iter().find(|h| falls_under(lock, h)) {
+                wrong.push(format!(
+                    "agents.permissions.locks: {lock:?} would push, which is the engine's alone ({h:?})"
+                ));
+            }
             if let Some(h) = heavy.iter().find(|h| falls_under(h, lock)) {
                 wrong.push(format!(
                     "agents.permissions.locks: {lock:?} would allow all of the heavy command {h:?}"
