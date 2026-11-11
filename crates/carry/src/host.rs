@@ -10,6 +10,7 @@
 //! Each operation can be asked again after the engine started again, and finds what it did already rather than doing
 //! it a second time.
 
+mod github;
 mod local;
 
 #[cfg(test)]

@@ -514,10 +514,19 @@ mod tests {
 
     const WORK: WorkNumber = WorkNumber(1);
 
+    /// The work's branch in the repository, as a host is given it.
+    fn branch(place: &Place) -> Branch<'_> {
+        Branch {
+            work: WORK,
+            title: "Greet the user",
+            place,
+        }
+    }
+
     /// Checks the work in the repository with the host.
     async fn check_with(repo: &Repo, host: &impl Host, stop: &mut Stop) -> Result<Option<Checked>, String> {
         let place = repo.place(WORK);
-        check(&repo.project, host, &place, &Mutex::new(()), stop).await
+        check(&repo.project, host, &branch(&place), &Mutex::new(()), stop).await
     }
 
     /// Checks the work in the repository with the local host, which must give a verdict.
@@ -721,7 +730,8 @@ mod tests {
         assert_eq!(host.main().await, Ok(run(&repo.project.repo, &["rev-parse", "main"])));
         let started = start_with(&repo, &host).await.unwrap();
         let head = commit(&started.place.dir, "farewell.txt", "Bye.\n");
-        let merged = host.merge(&repo.place(WORK), Some(&head)).await.expect("it merges");
+        let place = repo.place(WORK);
+        let merged = host.merge(&branch(&place), Some(&head)).await.expect("it merges");
         assert_eq!(merged, run(&repo.project.repo, &["rev-parse", "main"]));
         assert!(repo.project.repo.join("farewell.txt").is_file());
     }

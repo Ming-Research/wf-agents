@@ -256,6 +256,7 @@ impl Real {
                 owner_language: "Chinese".to_string(),
                 work_budget_usd: budget,
             },
+            github: None,
         };
         let flow = compiled(on);
         let (service, inbox) = open(&settings, &data, &flow, false);

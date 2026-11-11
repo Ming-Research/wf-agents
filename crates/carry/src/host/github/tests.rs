@@ -1,0 +1,442 @@
+//! The GitHub host against a fake of GitHub: a bare repository on disk and pull requests and checks in memory.
+
+use std::time::Duration;
+
+use store::WorkNumber;
+use tokio::sync::Mutex;
+
+use super::fake::{Asked, Fake};
+use super::*;
+use crate::git::Place;
+use crate::git::tests::{Repo, commit, run};
+use crate::held::Held;
+
+const WORK: WorkNumber = WorkNumber(1);
+
+/// A local repository, its bare repository on GitHub holding its main branch, and the GitHub host over both.
+struct Hub {
+    repo: Repo,
+    host: GitHub<Fake>,
+}
+
+/// How the tests' host judges the CI: the checks `lint` and `test`, and short waits.
+fn config(bare: &std::path::Path) -> Config {
+    Config {
+        url: bare.display().to_string(),
+        remote: "origin".to_string(),
+        checks: vec!["lint".to_string(), "test".to_string()],
+        start: Duration::from_millis(300),
+        timeout: Duration::from_secs(2),
+        poll: Duration::from_millis(10),
+        merge_method: "squash".to_string(),
+        delete_branch: false,
+        token: None,
+    }
+}
+
+impl Hub {
+    fn new() -> Hub {
+        let repo = Repo::new("false");
+        let bare = repo.data.join("github.git");
+        run(&repo.data, &["init", "-q", "--bare", "-b", "main", "github.git"]);
+        run(&repo.project.repo, &["push", "-q", &bare.display().to_string(), "main"]);
+        let host = GitHub::new(Fake::new(bare.clone()), repo.project.clone(), config(&bare));
+        Hub { repo, host }
+    }
+
+    fn with(mut self, change: impl FnOnce(&mut Config)) -> Hub {
+        change(&mut self.host.config);
+        self
+    }
+
+    fn place(&self) -> Place {
+        self.repo.place(WORK)
+    }
+
+    fn github(&self) -> &Fake {
+        &self.host.api
+    }
+
+    /// Starts the work and commits a file on its branch, giving the commit.
+    async fn committed(&self) -> String {
+        let started = crate::acts::start(&self.repo.project, &self.host, &self.place(), &Mutex::new(()))
+            .await
+            .expect("the work starts");
+        commit(&started.place.dir, "farewell.txt", "Bye.\n")
+    }
+
+    async fn verdict(&self, commit: &str) -> Result<Option<Verdict>, String> {
+        let place = self.place();
+        self.host.verdict(&branch(&place), commit, &mut Stop::never()).await
+    }
+
+    async fn merge(&self, checked: &str) -> Result<String, String> {
+        let place = self.place();
+        self.host.merge(&branch(&place), Some(checked)).await
+    }
+
+    /// The commit the branch is at on GitHub.
+    fn pushed(&self) -> String {
+        let reference = self.place().reference();
+        run(&self.github().bare, &["rev-parse", &reference])
+    }
+
+    /// How many pull requests were opened.
+    fn opened(&self) -> usize {
+        (self.github().asked().iter())
+            .filter(|a| matches!(a, Asked::Open { .. }))
+            .count()
+    }
+}
+
+fn branch(place: &Place) -> Branch<'_> {
+    Branch {
+        work: WORK,
+        title: "Greet the user",
+        place,
+    }
+}
+
+fn check(name: &str, outcome: Outcome) -> Check {
+    Check {
+        name: name.to_string(),
+        outcome,
+        url: Some(format!("https://github.example/checks/{name}")),
+        summary: None,
+        job: None,
+    }
+}
+
+fn passed(name: &str) -> Check {
+    check(name, Outcome::Passed)
+}
+
+#[tokio::test]
+async fn main_is_fetched_from_github() {
+    let hub = Hub::new();
+    let on_github = run(&hub.github().bare, &["rev-parse", "main"]);
+    assert_eq!(hub.host.main().await, Ok(on_github.clone()));
+    let tracked = run(&hub.repo.project.repo, &["rev-parse", "refs/remotes/origin/main"]);
+    assert_eq!(tracked, on_github);
+}
+
+#[tokio::test]
+async fn the_check_pushes_the_head_opens_a_pull_request_into_main_and_passes_once_every_named_check_has() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    let pending = vec![passed("lint"), check("test", Outcome::Pending)];
+    // A check that is not named counts for nothing, red or not.
+    let done = vec![
+        passed("lint"),
+        passed("test"),
+        check("coverage", Outcome::Failed("failure".into())),
+    ];
+    hub.github().checks(&head, vec![Vec::new(), pending, done]);
+    let verdict = hub.verdict(&head).await.unwrap().expect("nothing stopped it");
+    assert_eq!(
+        verdict,
+        Verdict {
+            failed: None,
+            by: Some("the CI of the pull request https://github.example/pull/1".to_string()),
+        }
+    );
+    assert_eq!(hub.pushed(), head);
+    let opened: Vec<Asked> = (hub.github().asked().into_iter())
+        .filter(|a| matches!(a, Asked::Open { .. }))
+        .collect();
+    assert_eq!(
+        opened,
+        [Asked::Open {
+            branch: hub.place().branch,
+            base: "main".to_string(),
+            title: "Greet the user".to_string(),
+        }]
+    );
+}
+
+#[tokio::test]
+async fn a_check_given_again_pushes_nothing_new_and_opens_no_second_pull_request() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.github().checks(&head, vec![vec![passed("lint"), passed("test")]]);
+    hub.verdict(&head).await.unwrap().unwrap();
+    // As after the engine started again in the middle of the check.
+    let again = hub.verdict(&head).await.unwrap().unwrap();
+    assert_eq!(again.failed, None);
+    assert_eq!(hub.opened(), 1);
+    assert_eq!(hub.pushed(), head);
+}
+
+#[tokio::test]
+async fn a_red_check_is_said_with_its_link_what_it_said_and_its_log_up_to_its_error() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    let mut lint = check("lint", Outcome::Failed("failure".into()));
+    lint.summary = Some("Clippy found 2 warnings".to_string());
+    lint.job = Some(41);
+    let mut test = check("test", Outcome::Failed("timed_out".into()));
+    test.job = Some(42);
+    hub.github().checks(&head, vec![vec![lint, test]]);
+    hub.github().log(
+        41,
+        "2026-11-10T04:23:10.5612382Z \u{1b}[1m\u{1b}[91merror[E0405]\u{1b}[0m: cannot find trait `Host`\n\
+         2026-11-10T04:23:11.4945252Z ##[error]Process completed with exit code 101.\n\
+         2026-11-10T04:23:12.0000000Z Post job cleanup.\n",
+    );
+    let failed = hub.verdict(&head).await.unwrap().unwrap().failed.expect("it failed");
+    assert_eq!(
+        failed,
+        "The CI failed on this commit, in 2 of its checks.\n\n\
+         lint (failure) https://github.example/checks/lint\n\
+         Clippy found 2 warnings\n\
+         The end of its log, up to its error:\n\
+         error[E0405]: cannot find trait `Host`\n\
+         ##[error]Process completed with exit code 101.\n\n\
+         test (timed_out) https://github.example/checks/test\n\
+         Its log could not be read: HTTP 410: the log has expired"
+    );
+}
+
+#[tokio::test]
+async fn a_named_check_with_no_run_fails_the_round_once_the_ci_should_have_started() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.github().checks(&head, vec![vec![passed("lint")]]);
+    let failed = hub.verdict(&head).await.expect_err("the round fails");
+    assert!(
+        failed.starts_with(&format!("the CI never started on {head}: no run of test after")),
+        "{failed}"
+    );
+}
+
+#[tokio::test]
+async fn a_ci_not_complete_in_time_fails_the_round() {
+    let hub = Hub::new().with(|config| config.timeout = Duration::from_millis(400));
+    let head = hub.committed().await;
+    hub.github()
+        .checks(&head, vec![vec![passed("lint"), check("test", Outcome::Pending)]]);
+    let failed = hub.verdict(&head).await.expect_err("the round fails");
+    assert!(
+        failed.contains("is not complete after") && failed.ends_with("test not done"),
+        "{failed}"
+    );
+}
+
+#[tokio::test]
+async fn a_check_that_ended_without_judging_the_code_fails_the_round_and_is_no_verdict() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.github().checks(
+        &head,
+        vec![vec![passed("lint"), check("test", Outcome::Broken("cancelled".into()))]],
+    );
+    let failed = hub.verdict(&head).await.expect_err("the round fails");
+    assert_eq!(
+        failed,
+        format!("the CI of {head} ended without judging it: test (cancelled) https://github.example/checks/test")
+    );
+}
+
+#[tokio::test]
+async fn a_push_github_refuses_fails_the_round_and_overwrites_nothing() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    // Someone else's commit on the work's branch on GitHub.
+    let other = hub.repo.data.join("other");
+    let bare = hub.github().bare.display().to_string();
+    run(&hub.repo.data, &["clone", "-q", &bare, "other"]);
+    run(&other, &["config", "user.name", "Someone"]);
+    run(&other, &["config", "user.email", "someone@example.com"]);
+    let theirs = commit(&other, "theirs.txt", "Theirs.\n");
+    run(
+        &other,
+        &["push", "-q", "origin", &format!("HEAD:{}", hub.place().reference())],
+    );
+    let failed = hub.verdict(&head).await.expect_err("the round fails");
+    assert!(
+        failed.starts_with(&format!("the push of {head} to the branch")),
+        "{failed}"
+    );
+    assert!(failed.contains("refused"), "{failed}");
+    assert_eq!(hub.pushed(), theirs);
+    assert_eq!(hub.opened(), 0);
+}
+
+#[tokio::test]
+async fn a_pull_request_closed_on_github_fails_the_round() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.github().checks(&head, vec![vec![passed("lint"), passed("test")]]);
+    hub.verdict(&head).await.unwrap().unwrap();
+    hub.github().close(1);
+    let failed = hub.verdict(&head).await.expect_err("the round fails");
+    assert!(
+        failed.contains("https://github.example/pull/1") && failed.contains("was closed"),
+        "{failed}"
+    );
+    assert_eq!(hub.opened(), 1, "no second pull request is opened");
+}
+
+#[tokio::test]
+async fn a_stopped_wait_gives_nothing() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.github().checks(&head, vec![vec![check("lint", Outcome::Pending)]]);
+    let held: Held<u8, ()> = Held::new();
+    let mut stop = held.hold(1, ()).expect("held");
+    let place = hub.place();
+    let stopping = async {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        held.stop(1, ());
+    };
+    let branch = branch(&place);
+    let (verdict, ()) = tokio::join!(hub.host.verdict(&branch, &head, &mut stop), stopping);
+    assert_eq!(verdict, Ok(None));
+}
+
+#[tokio::test]
+async fn the_merge_merges_the_pull_request_only_at_the_commit_the_check_passed_and_once() {
+    let hub = Hub::new();
+    let checked = hub.committed().await;
+    hub.github()
+        .checks(&checked, vec![vec![passed("lint"), passed("test")]]);
+    hub.verdict(&checked).await.unwrap().unwrap();
+    // The branch on GitHub moved on from what was checked.
+    let later = commit(&hub.place().dir, "later.txt", "Later.\n");
+    let target = format!("{later}:{}", hub.place().reference());
+    run(
+        &hub.repo.project.repo,
+        &["push", "-q", &hub.github().bare.display().to_string(), &target],
+    );
+    let refused = hub.merge(&checked).await.expect_err("refused");
+    assert!(
+        refused.contains("not at") && refused.contains("checked again"),
+        "{refused}"
+    );
+    let merges = |hub: &Hub| {
+        (hub.github().asked().into_iter())
+            .filter(|a| matches!(a, Asked::Merge { .. }))
+            .collect::<Vec<_>>()
+    };
+    assert!(merges(&hub).is_empty(), "nothing was merged");
+    // At what was checked, it merges, by the method set; merged already, it is not merged again.
+    assert_eq!(hub.merge(&later).await, Ok(format!("squashed-{later}")));
+    assert_eq!(hub.merge(&later).await, Ok(format!("squashed-{later}")));
+    assert_eq!(
+        merges(&hub),
+        [Asked::Merge {
+            number: 1,
+            head: later,
+            method: "squash".to_string(),
+        }]
+    );
+    assert!(
+        !hub.github().asked().iter().any(|a| matches!(a, Asked::Delete(_))),
+        "no branch is deleted unless the settings say so"
+    );
+}
+
+#[tokio::test]
+async fn a_merge_github_refuses_fails_the_round_in_githubs_words() {
+    let hub = Hub::new();
+    let checked = hub.committed().await;
+    hub.github()
+        .checks(&checked, vec![vec![passed("lint"), passed("test")]]);
+    hub.verdict(&checked).await.unwrap().unwrap();
+    hub.github()
+        .refuse_merges("HTTP 405: At least 1 approving review is required");
+    let refused = hub.merge(&checked).await.expect_err("refused");
+    assert_eq!(
+        refused,
+        "GitHub did not merge the pull request https://github.example/pull/1: HTTP 405: At least 1 approving review \
+         is required"
+    );
+}
+
+#[tokio::test]
+async fn the_branch_is_deleted_after_its_merge_where_the_settings_say_so() {
+    let hub = Hub::new().with(|config| config.delete_branch = true);
+    let checked = hub.committed().await;
+    hub.github()
+        .checks(&checked, vec![vec![passed("lint"), passed("test")]]);
+    hub.verdict(&checked).await.unwrap().unwrap();
+    hub.merge(&checked).await.unwrap();
+    let deleted: Vec<Asked> = (hub.github().asked().into_iter())
+        .filter(|a| matches!(a, Asked::Delete(_)))
+        .collect();
+    assert_eq!(deleted, [Asked::Delete(hub.place().branch)]);
+}
+
+#[tokio::test]
+async fn a_merge_with_no_pull_request_or_no_check_fails_the_round() {
+    let hub = Hub::new();
+    let checked = hub.committed().await;
+    let failed = hub.merge(&checked).await.expect_err("no pull request");
+    assert!(failed.contains("has no open pull request"), "{failed}");
+    let place = hub.place();
+    let failed = hub.host.merge(&branch(&place), None).await.expect_err("no check");
+    assert!(failed.contains("the flow has no check"), "{failed}");
+}
+
+#[test]
+fn the_token_goes_to_git_in_its_environment_for_github_alone() {
+    let hub = Hub::new().with(|config| config.token = Some("the-token".to_string()));
+    let with = hub.host.credentials();
+    assert_eq!(
+        with.settings[0], "credential.helper=",
+        "the owner's own helpers are not asked"
+    );
+    assert!(
+        with.settings.iter().all(|s| !s.contains("the-token")),
+        "{:?}",
+        with.settings
+    );
+    assert!(with.settings[1].contains("host=github.com"), "{}", with.settings[1]);
+    assert_eq!(with.env, [(TOKEN.to_string(), "the-token".to_string())]);
+    let none = Hub::new().host.credentials();
+    assert_eq!(none.settings, ["credential.helper="]);
+    assert!(none.env.is_empty());
+}
+
+#[test]
+fn a_jobs_log_is_cut_after_its_last_error_without_times_or_colours() {
+    let log = "\u{feff}2026-11-10T04:23:10.1Z Compiling\n2026-11-10T04:23:10.2Z \u{1b}[31mfailed\u{1b}[0m\n\
+               2026-11-10T04:23:10.3Z ##[error]Process completed with exit code 1.\n2026-11-10T04:23:10.4Z Cleaning up";
+    assert_eq!(
+        tail_of_log(log),
+        "Compiling\nfailed\n##[error]Process completed with exit code 1.\n"
+    );
+    assert_eq!(tail_of_log("no error at all\n"), "no error at all\n");
+    assert_eq!(span(Duration::from_secs(600)), "10 minutes");
+    assert_eq!(span(Duration::from_millis(300)), "0 seconds");
+}
+
+#[test]
+fn github_as_the_settings_say_needs_the_engines_token() {
+    let repo = Repo::new("true");
+    let text = "repository = \"owner/name\"\nchecks = [\"page\", \"check\"]\n";
+    let github: settings::GitHub = toml::from_str(text).unwrap();
+    let none = GitHub::from_settings(&github, &repo.project, &repo.data, |_| None);
+    let refused = none.err().expect("refused");
+    assert!(refused.contains("no WF_GITHUB_TOKEN"), "{refused}");
+    let given = |name: &str| (name == "WF_GITHUB_TOKEN").then(|| "the-token".to_string());
+    let host = GitHub::from_settings(&github, &repo.project, &repo.data, given).expect("made");
+    assert_eq!(
+        host.config,
+        Config {
+            url: "https://github.com/owner/name.git".to_string(),
+            remote: "origin".to_string(),
+            checks: vec!["page".to_string(), "check".to_string()],
+            start: Duration::from_secs(600),
+            timeout: Duration::from_secs(7200),
+            poll: POLL,
+            merge_method: "squash".to_string(),
+            delete_branch: false,
+            token: Some("the-token".to_string()),
+        }
+    );
+    assert!(
+        repo.data.join("gh").is_dir(),
+        "gh keeps its configuration in the data directory"
+    );
+}

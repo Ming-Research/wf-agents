@@ -158,6 +158,59 @@ mod tests {
         assert!(refused.contains("slot"), "{refused}");
     }
 
+    /// The sample with its table for GitHub written in.
+    fn on_github() -> String {
+        let table = (SAMPLE.lines())
+            .skip_while(|line| *line != "# [github]")
+            .take_while(|line| line.starts_with('#'))
+            .map(|line| line.strip_prefix("# ").unwrap_or(line))
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!("{SAMPLE}\n{table}\n")
+    }
+
+    #[test]
+    fn the_local_repository_is_the_host_where_no_github_is_given() {
+        assert_eq!(Settings::read(SAMPLE).unwrap().github, None);
+    }
+
+    #[test]
+    fn the_samples_table_for_github_reads() {
+        let github = Settings::read(&on_github())
+            .expect("it reads")
+            .github
+            .expect("GitHub is the host");
+        assert_eq!(github.repository, "owner/name");
+        assert_eq!(github.url(), "https://github.com/owner/name.git");
+        assert_eq!(github.remote, "origin");
+        assert_eq!(github.token_env, "WF_GITHUB_TOKEN");
+        assert_eq!(github.checks, ["check"]);
+        assert_eq!((github.start_minutes, github.timeout_minutes), (10, 120));
+        assert_eq!(github.merge_method, "squash");
+        assert!(!github.delete_branch);
+        assert_eq!(github.gh, "gh");
+    }
+
+    #[test]
+    fn what_github_cannot_be_given_is_refused_all_at_once() {
+        let text = (on_github().replace("repository = \"owner/name\"", "repository = \"name\""))
+            .replace("checks = [\"check\"]", "checks = []")
+            .replace("merge_method = \"squash\"", "merge_method = \"fast-forward\"")
+            .replace("# env = [\"ANTHROPIC_API_KEY\"]", "env = [\"WF_GITHUB_TOKEN\"]");
+        let refused = Settings::read(&text).expect_err("refused");
+        assert_eq!(refused.lines().count(), 4, "{refused}");
+        assert!(refused.contains("github.repository"), "{refused}");
+        assert!(refused.contains("github.checks"), "{refused}");
+        assert!(refused.contains("github.merge_method"), "{refused}");
+        assert!(refused.contains("agents.env: WF_GITHUB_TOKEN"), "{refused}");
+        let unknown = on_github().replace("delete_branch = false", "delete_branches = false");
+        assert!(
+            Settings::read(&unknown)
+                .expect_err("refused")
+                .contains("delete_branches")
+        );
+    }
+
     #[test]
     fn no_slots_and_a_budget_below_nothing_are_refused() {
         let text =
