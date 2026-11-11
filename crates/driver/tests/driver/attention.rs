@@ -94,38 +94,30 @@ fn a_work_going_on_from_cell_to_cell_is_nothing_and_its_merge_is_a_line() {
 }
 
 #[test]
-fn the_engine_pausing_a_work_whose_round_failed_is_a_line_and_the_owner_pausing_one_is_not() {
+fn the_engine_pausing_a_work_for_its_reason_is_a_line_and_the_owner_pausing_one_is_not() {
     let mut h = H::new();
-    let (_, failing) = h.add(new_item("a", &[], "plain"));
-    let (_, paused) = h.add(new_item("b", &[], "plain"));
+    let (_, by_engine) = h.add(new_item("a", &[], "plain"));
+    let (_, by_owner) = h.add(new_item("b", &[], "plain"));
     let mark = since(&h, None).mark;
-    h.let_on(failing);
-    h.let_on(paused);
-    let (run, ..) = h.round(failing);
-    let spent = h.spent();
-    h.on(
-        failing,
-        Event::Failed {
-            run,
-            why: "the agent's program could not start".to_string(),
-            spent,
-        },
-    );
-    let failed = Time(h.clock);
-    h.on(
-        paused,
-        Event::Paused {
-            by: Pauser::Owner,
-            why: None,
-        },
-    );
-    h.hands_in(paused, &[("text", None)]);
-    assert_eq!(h.decision(paused), Decision::Paused);
+    let mut rested = Vec::new();
+    for (work, by, why) in [
+        (by_engine, Pauser::Engine, Some("it spent more than it may".to_string())),
+        (by_owner, Pauser::Owner, None),
+    ] {
+        h.let_on(work);
+        h.on(work, Event::Paused { by, why });
+        // Its round under way, the work goes on until the round ends.
+        let heeds = heeds(&since(&h, Some(&mark)));
+        assert!(!heeds.contains(&Heed::ForAPerson { work }), "{heeds:?}");
+        h.hands_in(work, &[("text", None)]);
+        assert_eq!(h.decision(work), Decision::Paused);
+        rested.push(Time(h.clock));
+    }
     assert_eq!(
         since(&h, Some(&mark)).lines,
         vec![Line {
-            heed: Heed::ForAPerson { work: failing },
-            since: failed,
+            heed: Heed::ForAPerson { work: by_engine },
+            since: rested[0],
         }]
     );
 }
