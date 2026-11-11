@@ -1,8 +1,8 @@
-// One work: the view's line with its item's title, what it does now, what it has taken and the owner's buttons; what
-// it waits for, in full, with what the owner can do about it; its history as a chart; and the panel docked at the
-// chart's right with what the owner chose, and at the panel's foot the box to write a block. The work is read again
-// each time the interface says it changed and whenever the stream of changes opens again, keeping what the owner has
-// chosen, opened and typed; a read that fails keeps what is shown and says so.
+// One work: the view's line with its item's title, what it does now, what it has taken and the owner's buttons; its
+// history as a chart; and the panel docked at the chart's right with what the owner chose. What the work waits for,
+// and what the owner writes to it, are in the console's item window. The work is read again each time the interface
+// says it changed and whenever the stream of changes opens again, keeping what the owner has chosen and opened; a read
+// that fails keeps what is shown and says so.
 
 import { type CSSProperties, useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -10,10 +10,9 @@ import { Edge } from '../parts';
 import type { Fold } from '../Side';
 import { PANEL, WIDTH_KEYS, useKeptWidth } from '../sizes';
 import type { Act, RoundPage, ToldPage, WorkPage } from '../works-api';
-import { ActButtons, type Draft, EMPTY_DRAFT, type Send, WaitsBand, WriteBox } from './Boxes';
+import { ActButtons, type Send } from './Boxes';
 import { type Chosen, HistoryChart } from './History';
 import { NowLine } from './marks';
-import { cellAt, defaultBlock } from './placing';
 import { type Source, useChanges, useReading, useSource } from './source';
 import { ChosenPanel, type Reader } from './StepPanel';
 import { spentWords, tokensWords } from './words';
@@ -75,7 +74,6 @@ export function WorkScreen({ page, failed = null, onActed }: {
   const [chosen, setChosen] = useState<Chosen>(null);
   // The panel is open at first, unless the window is too narrow to show the history beside it.
   const [folded, setFolded] = useState(() => window.innerWidth < 2 * PANEL.first);
-  const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [panelWidth, setPanelWidth] = useKeptWidth(WIDTH_KEYS.panel, PANEL.min, PANEL.max);
 
   const send: Send = useCallback(
@@ -103,18 +101,6 @@ export function WorkScreen({ page, failed = null, onActed }: {
     return () => window.removeEventListener('keydown', close);
   }, []);
 
-  // The box follows the cell chosen, the cell of the step chosen, or the cell the work is at.
-  const step = chosen && 'step' in chosen ? page.steps[chosen.step] : undefined;
-  const followed =
-    chosen && 'cell' in chosen
-      ? chosen.cell
-      : step?.kind === 'run'
-        ? step.cell
-        : step?.kind === 'letGo'
-          ? step.cell
-          : cellAt(summary);
-  const fallback = defaultBlock(page.flow, followed);
-
   const edge = (
     <Edge
       side="left"
@@ -125,10 +111,6 @@ export function WorkScreen({ page, failed = null, onActed }: {
     />
   );
   const fold: Fold = { folded, onFold: () => setFolded((f) => !f), edge };
-  const foot = (
-    <WriteBox flow={page.flow} summary={summary} fallback={fallback} draft={draft} onDraft={setDraft} send={send} />
-  );
-
   return (
     <>
       <div className="view-line">
@@ -152,13 +134,12 @@ export function WorkScreen({ page, failed = null, onActed }: {
           The work could not be read again: {failed}. What is shown is from before.
         </p>
       )}
-      <WaitsBand summary={summary} send={send} />
       <main
         className={`view-body with-panel ${folded ? 'panel-folded' : ''}`}
         style={panelWidth !== null ? ({ '--panel-width': `${panelWidth}px` } as CSSProperties) : undefined}
       >
         <HistoryChart page={page} chosen={chosen} onChoose={choose} />
-        <ChosenPanel page={page} reader={reader} fold={fold} foot={foot} onChoose={choose} chosen={chosen} />
+        <ChosenPanel page={page} reader={reader} fold={fold} onChoose={choose} chosen={chosen} />
       </main>
     </>
   );

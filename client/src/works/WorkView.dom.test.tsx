@@ -5,7 +5,7 @@ import { type ReactNode, act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { Act, Changed, Waited, WorkPage } from '../works-api';
+import type { Act, Changed, WorkPage } from '../works-api';
 import { fixtureCall, fixtureItems, fixtureRound, fixtureTold, fixtureVersion, fixtureWork } from './fixtures';
 import { pauseDiffers } from './marks';
 import { type Source, SourceContext } from './source';
@@ -119,25 +119,6 @@ async function click(element: Element | null | undefined) {
 const button = (root: ParentNode, words: string) =>
   [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === words) as HTMLButtonElement | undefined;
 
-/// Sets what a box holds, as typing or choosing would.
-function type(element: Element | null | undefined, value: string) {
-  if (!element) throw new Error('nothing to type in');
-  const field = element as HTMLTextAreaElement | HTMLSelectElement;
-  const proto = field instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLTextAreaElement.prototype;
-  act(() => {
-    Object.getOwnPropertyDescriptor(proto, 'value')?.set?.call(field, value);
-    field.dispatchEvent(new Event(field instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));
-  });
-}
-
-async function submit(form: Element | null | undefined) {
-  if (!form) throw new Error('no form');
-  await act(async () => {
-    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-}
-
 /// Chooses the step at this place by its row's words at the left.
 async function chooseStep(page: HTMLElement, index: number) {
   await click(page.querySelectorAll('tbody tr.step-row')[index]?.querySelector('.step-lead button'));
@@ -147,15 +128,6 @@ async function chooseCell(page: HTMLElement, cell: string) {
   await click(page.querySelector(`thead [data-key="cell:${cell}"] .head-button`));
 }
 
-function escape() {
-  act(() => {
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-  });
-}
-
-const writeBox = (page: HTMLElement) => page.querySelector('form.write-box') as HTMLFormElement;
-const blockOf = (page: HTMLElement) => (writeBox(page).querySelector('#write-block') as HTMLSelectElement).value;
-const typed = (page: HTMLElement) => (writeBox(page).querySelector('textarea') as HTMLTextAreaElement).value;
 
 describe('the list of works', () => {
   it('lists the work of every item, those waiting for the owner first and edged, and a row opens its work', async () => {
@@ -212,31 +184,28 @@ describe('the list of works', () => {
 });
 
 describe('a work as it is read', () => {
-  it('says it is reading, then shows the work, and keeps what is typed when it is read again', async () => {
+  it('says it is reading, then shows the work, and reads it again when it changed', async () => {
     const source = fixtureSource();
     const page = draw(<WorkView work={41} />, source);
     expect(page.textContent).toContain('Reading work 41');
     await settle();
     expect(page.querySelector('.view-name')?.textContent).toBe('Show the cost of each round on the works page');
-    type(writeBox(page).querySelector('textarea'), 'Not yet');
     act(() => source.changed({ works: [41], items: false }));
     await settle();
     expect(source.reads.work).toBe(2);
-    expect(typed(page)).toBe('Not yet');
     // A change to another work does not read this one again.
     act(() => source.changed({ works: [42], items: false }));
     await settle();
     expect(source.reads.work).toBe(2);
   });
 
-  it('keeps what is shown and typed when a read fails, says so, and reads again when the stream opens again', async () => {
+  it('keeps what is shown when a read fails, says so, and reads again when the stream opens again', async () => {
     let fail = false;
     const source = fixtureSource();
     const base = source.loadWork;
     source.loadWork = (n) => (fail ? Promise.reject(new Error('the server went away')) : base(n));
     const page = draw(<WorkView work={41} />, source);
     await settle();
-    type(writeBox(page).querySelector('textarea'), 'Not yet');
     fail = true;
     act(() => source.changed({ works: [41], items: false }));
     await settle();
@@ -244,7 +213,6 @@ describe('a work as it is read', () => {
       'The work could not be read again: the server went away. What is shown is from before.',
     );
     expect(page.querySelectorAll('tbody tr.step-row')).toHaveLength(fixtureWork(41).steps.length);
-    expect(typed(page)).toBe('Not yet');
     fail = false;
     act(() => source.opened());
     await settle();
@@ -423,23 +391,13 @@ describe('the panel of a step', () => {
 });
 
 describe('what the owner does', () => {
-  it('answers a question the work waits for', async () => {
-    const { page, source } = drawWork(43);
-    const box = page.querySelector('form.answer') as HTMLElement;
-    expect(box.textContent).toContain('Should the list show the works of cancelled items');
-    type(box.querySelector('textarea'), 'Leave them out');
-    await submit(box);
-    expect(source.acts).toEqual([{ work: 43, what: { kind: 'answer', call: 1, result: 'Leave them out' } }]);
-    expect((box.querySelector('textarea') as HTMLTextAreaElement).value).toBe('');
-  });
-
-  it('lets a run go on at its limit, and a cell at its limit of ways round', async () => {
-    const run = drawWork(44);
-    await click(button(run.page, 'Let the run go on'));
-    expect(run.source.acts).toEqual([{ work: 44, what: { kind: 'answer', call: 1, result: 'go on' } }]);
-    const cell = drawWork(45);
-    await click(button(cell.page, 'Let implement go on'));
-    expect(cell.source.acts).toEqual([{ work: 45, what: { kind: 'letGo', cell: 'implement' } }]);
+  it("leaves what the work waits for, and writing to it, to the console's item window", () => {
+    for (const n of [41, 43, 44, 45]) {
+      const { page } = drawWork(n);
+      expect(page.querySelector('.waits')).toBeNull();
+      expect(page.querySelector('form')).toBeNull();
+      expect(page.querySelector('textarea')).toBeNull();
+    }
   });
 
   it('sends an act once, its control disabled until the answer comes', async () => {
@@ -449,22 +407,22 @@ describe('what the owner does', () => {
       source.acts.push({ work, what });
       return answer.promise;
     };
-    const { page } = drawWork(45, source);
-    const go = button(page, 'Let implement go on');
-    await click(go);
-    await click(go);
+    const { page } = drawWork(42, source);
+    const pause = button(page, 'Pause');
+    await click(pause);
+    await click(pause);
     expect(source.acts).toHaveLength(1);
-    expect(button(page, 'Let implement go on')?.disabled).toBe(true);
+    expect(button(page, 'Pause')?.disabled).toBe(true);
     answer.resolve(null);
     await settle();
-    expect(button(page, 'Let implement go on')?.disabled).toBe(false);
+    expect(button(page, 'Pause')?.disabled).toBe(false);
   });
 
   it('shows why the interface refused an act', async () => {
-    const source = fixtureSource({ act: () => Promise.reject(new Error('the run is no longer at its limit')) });
-    const { page } = drawWork(45, source);
-    await click(button(page, 'Let implement go on'));
-    expect(page.querySelector('.wait [role="alert"]')?.textContent).toBe('Refused: the run is no longer at its limit');
+    const source = fixtureSource({ act: () => Promise.reject(new Error('the work has ended')) });
+    const { page } = drawWork(42, source);
+    await click(button(page, 'Pause'));
+    expect(page.querySelector('.acts [role="alert"]')?.textContent).toBe('Refused: the work has ended');
   });
 
   it('pauses, and cancels only once asked again', async () => {
@@ -475,103 +433,5 @@ describe('what the owner does', () => {
     expect(page.textContent).toContain('Cancel the work? It cannot be taken back');
     await click(button(page, 'Yes, cancel it'));
     expect(source.acts.map((a) => a.what.kind)).toEqual(['pause', 'cancel']);
-  });
-
-  it('keeps what is typed for a question with that question as the list of what the work waits for changes', () => {
-    const source = fixtureSource();
-    const work = fixtureWork(43);
-    const container = document.createElement('div');
-    document.body.append(container);
-    const root = createRoot(container);
-    const render = (page: WorkPage) =>
-      act(() =>
-        root.render(
-          <SourceContext.Provider value={source}>
-            <WorkScreen page={page} onActed={() => undefined} />
-          </SourceContext.Provider>,
-        ),
-      );
-    unmounts.push(() => act(() => root.unmount()));
-    render(work);
-    type(container.querySelector('form.answer textarea'), 'Leave them out');
-    const now = work.summary.now;
-    if (now.kind !== 'waits') throw new Error('the fixture waits');
-    const other: Waited = { kind: 'precondition', test: 'reviewed', words: 'The plan was reviewed', by: [{ kind: 'owner' }] };
-    render({ ...work, summary: { ...work.summary, now: { ...now, on: [other, ...now.on] } } });
-    expect((container.querySelector('form.answer textarea') as HTMLTextAreaElement).value).toBe('Leave them out');
-  });
-});
-
-describe('the box to write a block', () => {
-  it('starts at the block of the cell the work is at, a choice unset, and writes nothing until a value is picked', async () => {
-    const { page, source } = drawWork(41);
-    // The work is at the merge, which reads the owner's approval, a choice.
-    expect(blockOf(page)).toBe('approval');
-    expect((writeBox(page).querySelector('[aria-label="Value"]') as HTMLSelectElement).value).toBe('');
-    expect(button(writeBox(page), 'Write')?.disabled).toBe(true);
-    expect(writeBox(page).querySelector('.write-readers')?.textContent).toBe('Read by merge: each runs again if the value changes');
-    await submit(writeBox(page));
-    expect(source.acts).toEqual([]);
-    type(writeBox(page).querySelector('[aria-label="Value"]'), 'yes');
-    expect(button(writeBox(page), 'Write')?.disabled).toBe(false);
-    await submit(writeBox(page));
-    expect(source.acts).toEqual([{ work: 41, what: { kind: 'write', block: 'approval', content: '', value: 'yes' } }]);
-  });
-
-  it('follows the step chosen until the owner types, then holds its block whatever is chosen', async () => {
-    const { page, source } = drawWork(41);
-    // Choosing a run of the implementation, the box follows it to its opinions.
-    await chooseStep(page, 7);
-    expect(blockOf(page)).toBe('opinions_implement');
-    expect(writeBox(page).querySelector('.write-readers')?.textContent).toBe('Read by implement: each runs again for it');
-    type(writeBox(page).querySelector('textarea'), 'Keep the totals on one line.');
-    // Another step, and Escape, leave it where it is.
-    await chooseStep(page, 1);
-    expect(blockOf(page)).toBe('opinions_implement');
-    escape();
-    expect(blockOf(page)).toBe('opinions_implement');
-    expect(typed(page)).toBe('Keep the totals on one line.');
-    await submit(writeBox(page));
-    expect(source.acts.at(-1)).toEqual({
-      work: 41,
-      what: { kind: 'write', block: 'opinions_implement', content: 'Keep the totals on one line.', value: null },
-    });
-    // Written, the box is empty and follows again.
-    expect(typed(page)).toBe('');
-    expect(blockOf(page)).toBe('approval');
-  });
-
-  it('preselects no block where the cell reads none people write, and the owner picks', async () => {
-    const { page, source } = drawWork(41);
-    await chooseCell(page, 'review');
-    expect(blockOf(page)).toBe('');
-    expect(writeBox(page).querySelector('.write-readers')?.textContent).toBe('Pick the block to write');
-    type(writeBox(page).querySelector('textarea'), 'Look at the narrow window too.');
-    expect(button(writeBox(page), 'Write')?.disabled).toBe(true);
-    type(writeBox(page).querySelector('#write-block'), 'opinions_deep_research');
-    await submit(writeBox(page));
-    expect(source.acts).toEqual([
-      { work: 41, what: { kind: 'write', block: 'opinions_deep_research', content: 'Look at the narrow window too.', value: null } },
-    ]);
-  });
-
-  it('sends a write once, and shows why it was refused, keeping what was typed', async () => {
-    const answer = deferred<null>();
-    const source = fixtureSource();
-    source.act = (work, what) => {
-      source.acts.push({ work, what });
-      return answer.promise;
-    };
-    const { page } = drawWork(41, source);
-    await chooseStep(page, 7);
-    type(writeBox(page).querySelector('textarea'), 'Once');
-    await submit(writeBox(page));
-    await submit(writeBox(page));
-    expect(source.acts).toHaveLength(1);
-    expect(button(writeBox(page), 'Write')?.disabled).toBe(true);
-    answer.reject(new Error('the work has ended'));
-    await settle();
-    expect(writeBox(page).querySelector('[role="alert"]')?.textContent).toBe('Refused: the work has ended');
-    expect(typed(page)).toBe('Once');
   });
 });
