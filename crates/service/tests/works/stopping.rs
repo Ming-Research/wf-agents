@@ -1,5 +1,5 @@
-//! The process stopped and started again: at every step of a work, the work ends as it would have without the stop
-//! (entry `a-stop-changes-nothing`), with what was under way given again and answered again by the script.
+//! The process stopped and started again: at every step of a work, the work ends as it would have without the stop,
+//! with what was under way given again and answered again by the script.
 
 use decide::{Decision, End};
 use service::Act;

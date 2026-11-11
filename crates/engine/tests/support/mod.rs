@@ -75,7 +75,7 @@ pub struct Seen {
 }
 
 /// The first finished run of the records that lacks a write of a block its cell must write, read from the records of
-/// the finishes and the cells' definitions (entry a-run-is-one-mechanism), said in words; none where there is none.
+/// the finishes and the cells' definitions, said in words; none where there is none.
 pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String> {
     for finished in &records.finished {
         let started = (records.started.iter())

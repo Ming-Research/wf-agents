@@ -12,8 +12,8 @@
 //!
 //! Once people stop, the works left paused are let on as their last act, and the rounds, the tools' calls, the
 //! withdrawals and the stops are answered until nothing more is given: within a bound each work then waits, saying for
-//! what and for whom, or has ended, and what is pending is only what people are to answer (entry
-//! a-work-comes-to-rest). A history with stops and failures ends as the same history with none.
+//! what and for whom, or has ended, and what is pending is only what people are to answer. A history with stops and
+//! failures ends as the same history with none.
 //!
 //! What a step is, roughly. In the first 0 to 79 steps people act at a step with a chance of one in four; otherwise,
 //! and always once they stop, one of the things given to be done is answered, each with an equal chance:
@@ -587,8 +587,8 @@ impl History {
         self.seen.refused += 1;
     }
 
-    /// How many steps, once people stop, the works may take before they rest (entry a-work-comes-to-rest): for each
-    /// work, the bound the engine's own histories state for a work alone, from its flow's limits and cells.
+    /// How many steps, once people stop, the works may take before they rest: for each work, the bound the engine's own
+    /// histories state for a work alone, from its flow's limits and cells.
     fn bound(&self) -> u64 {
         (self.h.d().works())
             .map(|k| {

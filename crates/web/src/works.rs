@@ -1,7 +1,7 @@
-//! The items and the works as the pages read them: their own types, named for what the owner reads, made from what
-//! the driver holds, and read back by the command line. Nothing here is decided: what a work does now is the deciding
-//! code's own account of it ([`decide::view`]), so that what is shown and what is decided cannot differ (entry
-//! `records-give-the-same-walk`). `client/src/works-api.ts` gives the same types to the pages, field for field.
+//! The items and the works as the pages read them: their own types, named for what the owner reads, made from what the
+//! driver holds, and read back by the command line. Nothing here is decided: what a work does now is the deciding
+//! code's own account of it ([`decide::view`]), so that what is shown and what is decided cannot differ (principle
+//! `decide-purely`). `client/src/works-api.ts` gives the same types to the pages, field for field.
 //!
 //! The pages are given a work's history without the content of what was written: each write says how long its
 //! content is, and the content of a version, of what a round handed in and of a call's result is asked for by itself,

@@ -1,10 +1,10 @@
 //! What the engine as a whole leaves a work room for, beside the work's own records.
 //!
-//! Two things hold back every work at once, and neither is a cell or a block (entry `stops-from-outside-are-no-cells`):
-//! the owner's pause of everything, and the slots, which bound how many rounds of agents go on at once. The scheduler
-//! works out both, from the records it keeps of the installation, the settings and the records of every work, and the
-//! walk reads them as given ([`Room`]), so that what a work does next is still a function of what it is given alone
-//! (principle `decide-purely`).
+//! Two things hold back every work at once: the owner's pause of everything, and the slots, which bound how many rounds
+//! of agents go on at once. Neither is a cell or a block, since each holds a work wherever it is, which a cell, with
+//! its one place in the order, cannot. The scheduler works out both, from the records it keeps of the installation, the
+//! settings and the records of every work, and the walk reads them as given ([`Room`]), so that what a work does next
+//! is still a function of what it is given alone (principle `decide-purely`).
 //!
 //! The pause of everything holds back what the work's own pause holds back, and nothing else: a run that answers a note,
 //! a person's words to its cell, still has its rounds. A slot is wanted by every round of a cell that takes one, a

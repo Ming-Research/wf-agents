@@ -1,10 +1,9 @@
-//! A stop changes nothing (entries a-stop-changes-nothing, engine-holds-no-state): one history of six items, some
-//! depending on others, is played to its end with no stop; then again once for every call it makes of the store, the
-//! store failing at that call, and once more for every call, the process stopping right after it. Each time the driver
-//! is opened anew on the same file; what it said was not kept is told again, what it gives is answered, and the
-//! history goes on. Each ends with the same works, the same decisions, and the same rounds and calls given and
-//! answered, each once, as the history with no stop; and the driver says it kept what it was told exactly when the
-//! store holds it.
+//! A stop changes nothing: one history of six items, some depending on others, is played to its end with no stop; then
+//! again once for every call it makes of the store, the store failing at that call, and once more for every call, the
+//! process stopping right after it. Each time the driver is opened anew on the same file; what it said was not kept is
+//! told again, what it gives is answered, and the history goes on. Each ends with the same works, the same decisions,
+//! and the same rounds and calls given and answered, each once, as the history with no stop; and the driver says it
+//! kept what it was told exactly when the store holds it.
 //!
 //! The history: six items are added (one with a first write), five let on and one later; the work of one is cancelled
 //! with its round under way; one rests at a question for the owner when a person writes what its run started from, so

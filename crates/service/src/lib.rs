@@ -1,12 +1,12 @@
 //! The engine as a process: one loop that drives every work, the interfaces of what carries out what is to be done,
 //! and the test implementations of those, which follow a script.
 //!
-//! One task owns the [`Driver`] and takes what happens in order, from one channel (entry `one-loop-decides`): what
-//! came of a round or a call, an act of the owner, an item to add, a read for the pages. It reads the clock and gives
-//! the time to the driver; nothing else reads it. After each thing it hands each [`Todo`] to what carries it out, and
-//! tells whoever listens which works changed. It holds nothing of a work between two things that happen (entry
-//! `engine-holds-no-state`): what a carrier is given is read from the driver as it is handed out, and what was to be
-//! done is given again by the driver when the process starts again (entry `a-stop-changes-nothing`).
+//! One task owns the [`Driver`] and takes what happens in order, from one channel: what came of a round or a call, an
+//! act of the owner, an item to add, a read for the pages. It reads the clock and gives the time to the driver; nothing
+//! else reads it. After each thing it hands each [`Todo`] to what carries it out, and tells whoever listens which works
+//! changed. It holds nothing of a work between two things that happen: what a carrier is given is read from the driver
+//! as it is handed out, and what was to be done is given again by the driver when the process starts again, so that a
+//! stop loses and repeats nothing.
 //!
 //! What carries a todo out is reached through interfaces (principle `outside-behind-interfaces`): [`Rounds`] for the
 //! rounds of the cells an agent carries out and for those that are the engine's own acts, and [`Tools`] for the calls

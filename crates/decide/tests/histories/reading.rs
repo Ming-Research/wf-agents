@@ -36,8 +36,8 @@ impl Version {
     }
 }
 
-/// Why a run of a cell would start, as the entries say: it has no record, or these inputs have another meaning than
-/// the version its record knows (`was`).
+/// Why a run of a cell would start, as principle state-is-blocks says: it has no record, or these inputs have another
+/// meaning than the version its record knows (`was`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Reason {
     NoRecord,
@@ -53,13 +53,12 @@ pub struct Reading<'a> {
 }
 
 impl<'a> Reading<'a> {
-    /// The reading of these records. The meaning of each version follows entry meaning-told-by-the-writer: the first
+    /// The reading of these records. The meaning of each version follows decision meaning-told-by-the-writer: the first
     /// version of a block has its own. A version that has a value, or follows one that has, is a choice: it changes the
-    /// meaning when the value differs from the one before, and only then, whoever writes it. Otherwise a person's
-    /// prose always changes the meaning; what the outside writes does unless it was approved as not mattering; a
-    /// cell's write does when the cell says so, and when it says not, it is taken at its word only if the version it
-    /// started from has the meaning of the version it writes over: a cell that did not see what it writes over is not
-    /// taken at its word.
+    /// meaning when the value differs from the one before, and only then, whoever writes it. Otherwise a person's prose
+    /// always changes the meaning; what the outside writes does unless it says it does not; a cell's write does when
+    /// the cell says so, and when it says not, it is taken at its word only if the version it started from has the
+    /// meaning of the version it writes over: a cell that did not see what it writes over is not taken at its word.
     pub fn new(records: &'a Records) -> Self {
         let started: BTreeMap<RunId, &Started> = records.started.iter().map(|s| (s.run, s)).collect();
         let finished: BTreeMap<RunId, &Finished> = records.finished.iter().map(|f| (f.run, f)).collect();
@@ -183,7 +182,7 @@ impl<'a> Reading<'a> {
         }
     }
 
-    /// Why the cell would start a run at this place (entry state-is-blocks): no record, or each input whose current
+    /// Why the cell would start a run at this place (principle state-is-blocks): no record, or each input whose current
     /// meaning differs from the meaning of the version its record knows; empty when it needs no run.
     pub fn reasons(&self, cell: &Cell, place: Seq) -> Vec<Reason> {
         let Some(record) = self.record(&cell.id, place) else {

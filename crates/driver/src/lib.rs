@@ -1,11 +1,12 @@
 //! The loop of the engine, for every work.
 //!
 //! The engine's own loop takes one thing that happened to one work and holds nothing (crate `engine`). The driver is
-//! what takes the things that happen, in order, for all the works (entry `one-loop-decides`): it gives each to the
-//! engine's loop for the work it happened to, keeps what the loop added in the store before anything is done about it,
-//! and gives back what is to be done outside, as data. Whatever carries those out (the agents, the engine's own acts,
-//! the tools) says what came of each by calling the driver again; the driver calls nothing outside but the store, and
-//! reads no clock (principle `outside-behind-interfaces`).
+//! what takes the things that happen, in order, for all the works, so that the same things in the same order give the
+//! same decisions, which is what lets a history be simulated and played again: it gives each to the engine's loop for
+//! the work it happened to, keeps what the loop added in the store before anything is done about it, and gives back
+//! what is to be done outside, as data. Whatever carries those out (the agents, the engine's own acts, the tools) says
+//! what came of each by calling the driver again; the driver calls nothing outside but the store, and reads no clock
+//! (principle `outside-behind-interfaces`).
 //!
 //! What happens to one work reaches another only as a write of a block of the other. The driver is itself what writes
 //! one such block: the block of a flow whose source is [`DEPENDENCIES`] says whether the items the work's item
