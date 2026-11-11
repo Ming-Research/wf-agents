@@ -340,14 +340,17 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
                 .filter(|w| w.block == part.deps)
                 .max_by_key(|w| w.at)
                 .is_some_and(|w| w.value.as_deref() == Some(part.merged.as_str()));
-            let at_limit = (d.held.iter()).find_map(|e| match e {
-                Effect::Call {
-                    call,
-                    what: Call::AtLimit(_),
-                    ..
-                } => Some(*call),
-                _ => None,
-            });
+            let at_limit = (d.held.iter())
+                .find(|e| {
+                    matches!(
+                        e,
+                        Effect::Call {
+                            what: Call::AtLimit(_),
+                            ..
+                        }
+                    )
+                })
+                .cloned();
             if matches!(decide(&d.flow.flow, r), Decision::Ended(_)) {
                 // What is left to undo, a round to stop or a call to withdraw, is done.
                 if !d.step(&mut part, false) {
@@ -357,8 +360,9 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
                 d.take(Event::Resumed);
             } else if !deps_merged && r.cancelled.is_none() {
                 d.take(wrote(&part.deps, Outsider::Outside, Some(&part.merged)));
-            } else if let Some(call) = at_limit {
-                d.give_result(call);
+            } else if let Some(effect) = at_limit {
+                // The owner lets the run go on at its limit.
+                d.carry_out(effect, &mut part, false);
             } else if !d.step(&mut part, false) {
                 break;
             }

@@ -1,10 +1,10 @@
 //! What carries out what the engine gives to be done, as the loop reaches it.
 //!
 //! A carrier is given what it needs to do its thing without reaching into the driver: the work's number, its flow,
-//! the cell's specification, the run, the round and what it is given, and the work as it is kept when the todo is
-//! handed out. It does the thing on its own time, and says once what came of it through the reply it was handed with
-//! it, which takes that into the loop's channel. A carrier gives no answer to the loop otherwise: what it does is
-//! known only by what it says came of it.
+//! the cell's specification, the run, the round and what it is given, the item the work is done for, and the work as
+//! it is kept when the todo is handed out. It does the thing on its own time, and says once what came of it through
+//! the reply it was handed with it, which takes that into the loop's channel. A carrier gives no answer to the loop
+//! otherwise: what it does is known only by what it says came of it.
 //!
 //! What was to be done and is not known as done is handed out again when the process starts again, with the same
 //! work, run, round and call: a carrier recognises by those what it began before the stop (principle
@@ -20,7 +20,7 @@ use std::sync::Arc;
 use decide::{CallId, Pauser, RunId};
 use engine::{Came, Event};
 use flow::{CellSpec, Compiled, Kind};
-use store::WorkNumber;
+use store::{Item, WorkNumber};
 use tokio::sync::mpsc;
 use work::{Given, Spent, Work};
 
@@ -164,6 +164,8 @@ pub struct Round {
     /// Which round of the run it is, the first being one.
     pub number: usize,
     pub given: Given,
+    /// The item the work is done for: its title and the items it depends on, which do not change once it is added.
+    pub item: Item,
     /// The work as it was kept when the round was handed out.
     pub kept: Arc<Work>,
 }

@@ -25,11 +25,12 @@
 //! - a call has its result: always for a tool, and for a person or at a limit only while people act;
 //! - a call withdrawn is said to be; a round stopped ends.
 //!
-//! A person's act is, about: a write of a block people may write; a pause or a letting on; a cancel; letting a cell go
-//! on, at its limit where a work waits at one; the result of a question or of a limit; adding an item, depending on
-//! some of those there; or something the driver must refuse, which must change nothing. An item is added on one of the
-//! small flows of the tests or on the deliver flow as the repository defines it, whose items are made of the items they
-//! depend on and wait for them at their one cell, so that items depending on a deliverable wait for it in turn.
+//! A person's act is, about: a write of a block people may write, or a look where they may write none; a pause or a
+//! letting on; a cancel; letting a cell go on, at its limit where a work waits at one; the result of a question or of
+//! a limit; adding an item, depending on some of those there; or something the driver must refuse, which must change
+//! nothing. An item is added on one of the small flows of the tests or on the deliver flow as the repository defines
+//! it, whose items are made of the items they depend on and wait for them at their one cell, so that items depending on
+//! a deliverable wait for it in turn.
 //!
 //! The process stops before a step with a chance of one in sixteen; with one in twenty-five the store is set to fail
 //! at one of its next three calls, and with one in fifty the process to stop right after one of them.
@@ -428,6 +429,11 @@ impl History {
                     .filter(|(_, b)| b.writers.people)
                     .map(|(id, _)| id.0.clone())
                     .collect();
+                // A flow people write nothing of, as the deliver flow, is only looked at.
+                if people.is_empty() {
+                    self.act(Act::On(work, Event::Look));
+                    return;
+                }
                 let block = self.pick(&people);
                 let value = (flow.blocks.get(&block.as_str().into()))
                     .and_then(|b| b.values.clone())

@@ -1,0 +1,27 @@
+# The flow of a deliverable item: an item with nothing to do of its own, made of the items it depends on, and done when
+# they are all done. It waits for them at its one cell, before it ends, which is all it does.
+name = "deliver"
+
+# The order of the walk: the one cell, which is the last.
+order = ["V1"]
+
+# The cell is an act of the engine's, which makes no call, is no way round and hands in what the flow requires.
+[limits]
+runs = 1
+returns = 1
+calls = 1
+
+[tests.all_delivered]
+says = "The items it is made of are merged"
+kind = "all"
+reads = ["dependencies"]
+is = "merged"
+
+# What the outside writes: whether the items it is made of have merged.
+[blocks.dependencies]
+values = ["waiting", "merged"]
+outside = "dependencies"
+
+# What the cell writes: that the item is delivered, and the items it was made of.
+[blocks.delivered]
+shown = true

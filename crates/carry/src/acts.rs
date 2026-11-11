@@ -1,11 +1,13 @@
 //! The engine's own acts, as the rounds of the cells they carry out (`CellSpec.act`): `start` makes the work's branch
-//! and worktree, `check` checks the work before its merge, and `merge` merges the commit the check passed. An act
-//! hands in the cell's outputs with what it did, and only the check writes a choice ([`faults`] says what a flow needs
-//! for them); where git fails, or the act cannot be done, the round fails and hands
-//! in nothing. A stopped act ends its round with nothing handed in. An act takes no cost and no tokens.
+//! and worktree, `check` checks the work before its merge, `merge` merges the commit the check passed, and `deliver`
+//! says that a deliverable item, made of the items it depends on, is delivered. An act hands in the cell's outputs with
+//! what it did, and only the check writes a choice ([`faults`] says what a flow needs for them); where git fails, or
+//! the act cannot be done, the round fails and hands in nothing. A stopped act ends its round with nothing handed in.
+//! An act takes no cost and no tokens.
 //!
 //! One act at a time works in the project's repository: two at once would race over its worktrees and its main branch.
-//! The check's own command runs in the work's worktree, beside what other acts do.
+//! The check's own command runs in the work's worktree, beside what other acts do. `deliver` does nothing outside the
+//! engine: the items it is made of were each merged by their own works, and what it writes is said from its item.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,7 +16,7 @@ use decide::{BlockId, RunId};
 use engine::Came;
 use flow::Compiled;
 use service::{Round, RoundReply, Rounds};
-use store::WorkNumber;
+use store::{ItemNumber, WorkNumber};
 use tokio::sync::Mutex;
 use work::{Handed, Spent, Work};
 
@@ -155,14 +157,16 @@ impl Inner {
                 );
                 Ok(Done::HandsIn(prose(&outputs, &content)))
             }
+            "deliver" => Ok(Done::HandsIn(prose(&outputs, &delivered(&round.item.depends_on)))),
             other => Err(format!("the engine has no act named {other}")),
         }
     }
 }
 
 /// What is wrong with the flow for the acts, each in words with the cell: the cell of `check` has one choice among
-/// its outputs, and it offers [`PASSED`] and [`FAILED`]; the cells of `start` and `merge` have no choice among their
-/// outputs, since they have no outcome to choose. A flow with any of these is not run with the real carriers.
+/// its outputs, and it offers [`PASSED`] and [`FAILED`]; the cells of `start`, `merge` and `deliver` have no choice
+/// among their outputs, since they have no outcome to choose. A flow with any of these is not run with the real
+/// carriers.
 pub fn faults(flow: &Compiled) -> Vec<String> {
     let mut faults = Vec::new();
     for cell in &flow.cells {
@@ -199,6 +203,16 @@ pub fn faults(flow: &Compiled) -> Vec<String> {
         }
     }
     faults
+}
+
+/// What `deliver` writes: that the item is delivered, and the items it was made of, by their numbers in order.
+fn delivered(made_of: &[ItemNumber]) -> String {
+    let numbers: Vec<String> = made_of.iter().map(|item| item.0.to_string()).collect();
+    match numbers.as_slice() {
+        [] => "Delivered, made of no other item.".to_string(),
+        [one] => format!("Delivered, made of the item {one}."),
+        [first @ .., last] => format!("Delivered, made of the items {} and {last}.", first.join(", ")),
+    }
 }
 
 /// The cell's outputs, each with its values where it is a choice.
@@ -384,6 +398,18 @@ mod tests {
         let mut none = acts_flow();
         none.blocks.get_mut(&BlockId::from("passed")).unwrap().values = None;
         assert!(self::faults(&none)[0].contains("has 0"));
+    }
+
+    #[test]
+    fn a_deliverable_says_the_items_it_was_made_of_in_order() {
+        let items = |numbers: &[u64]| numbers.iter().copied().map(ItemNumber).collect::<Vec<_>>();
+        assert_eq!(delivered(&items(&[])), "Delivered, made of no other item.");
+        assert_eq!(delivered(&items(&[4])), "Delivered, made of the item 4.");
+        assert_eq!(delivered(&items(&[2, 4])), "Delivered, made of the items 2 and 4.");
+        assert_eq!(
+            delivered(&items(&[2, 4, 7])),
+            "Delivered, made of the items 2, 4 and 7."
+        );
     }
 
     #[test]
