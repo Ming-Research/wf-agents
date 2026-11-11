@@ -149,6 +149,37 @@ async fn a_repository_whose_configuration_sends_connections_elsewhere_is_not_pus
 }
 
 #[tokio::test]
+async fn keys_of_the_clone_for_githubs_address_itself_are_refused() {
+    for name in ["url", "pushurl", "receivepack", "uploadpack", "vcs", "proxy"] {
+        let hub = Hub::new();
+        let key = format!("remote.{}.{name}", hub.host.config.url);
+        run(&hub.repo.project.repo, &["config", &key, "elsewhere"]);
+        let refused = hub.host.main().await.expect_err(&key);
+        assert!(refused.contains(&format!(".{name} (local)")), "{key}: {refused}");
+    }
+}
+
+#[tokio::test]
+async fn what_an_included_file_of_the_clone_says_of_connections_is_refused() {
+    let hub = Hub::new();
+    let included = hub.repo.data.join("included.config");
+    std::fs::write(
+        &included,
+        "[url \"https://elsewhere.example/\"]\n\tinsteadOf = https://github.com/\n",
+    )
+    .unwrap();
+    run(
+        &hub.repo.project.repo,
+        &["config", "include.path", &included.display().to_string()],
+    );
+    let refused = hub.host.main().await.expect_err("refused");
+    assert!(
+        refused.contains("url.https://elsewhere.example/.insteadof"),
+        "{refused}"
+    );
+}
+
+#[tokio::test]
 async fn the_check_pushes_the_head_opens_a_pull_request_into_main_and_passes_once_every_named_check_has() {
     let hub = Hub::new();
     let head = hub.committed().await;
