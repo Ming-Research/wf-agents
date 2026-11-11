@@ -139,13 +139,13 @@ fn a_slot_holds_back_every_round_of_a_cell_that_takes_one_and_the_pause_of_every
     assert_eq!(hold_in(&w.flow, &w.records, run, Room::FREE), Hold::Nothing);
     assert_eq!(hold_in(&w.flow, &w.records, run, FULL), Hold::Rounds);
     assert_eq!(hold_in(&w.flow, &w.records, run, PAUSED), Hold::Rounds);
-    // Of a run for a note, the pause of everything holds back only a round given again after one that failed, as the
-    // work's own pause does; a slot, every round.
+    // Of a run for a note, the pause of everything holds back what the work's own pause does: only a round given again
+    // after one that failed for which the engine paused the work, and so, with none, nothing; a slot, every round.
     w.finish("research", &[("plan", Matters)]);
     w.person_writes("to research");
     let note = w.start("research");
     w.returns("research");
-    assert_eq!(hold_in(&w.flow, &w.records, note, PAUSED), Hold::Retry);
+    assert_eq!(hold_in(&w.flow, &w.records, note, PAUSED), Hold::Nothing);
     assert_eq!(
         hold_in(&w.flow, &w.records, note, PAUSED),
         decide::hold(&w.flow, &paused_itself(&w), note)

@@ -292,7 +292,7 @@ impl Driver {
             .collect();
         for (number, write) in wanted {
             for event in write.into_iter().chain([Event::Look]) {
-                let (room, gate) = (driver.room(None, false), driver.gate(now));
+                let (room, gate) = (driver.room(Some(number), driver.trial(now)), driver.gate(now));
                 let Driver { store, works, .. } = &mut driver;
                 let Some(held) = works.get_mut(&number).filter(|held| held.standing == Standing::Going) else {
                     continue;
@@ -573,8 +573,8 @@ impl Driver {
     }
 
     /// Looks at every work that has not ended, in the order of their numbers, each with the gate as it is then and
-    /// given no slot, so that the free slots go to the works in the engine's order once all have been looked at: of a
-    /// wait that lets one round try, the first work to begin one takes it, as the slots are given.
+    /// given no slot, so that the free slots go to the works in the engine's order once all have been looked at; but of
+    /// a wait that lets one round try, the first work to begin one takes it ([`Driver::trial`]).
     fn look(&mut self, now: Time) -> Result<Vec<Todo>, Fault> {
         let mut todos = Vec::new();
         let numbers: Vec<WorkNumber> = (self.works.iter())
@@ -582,9 +582,19 @@ impl Driver {
             .map(|(number, _)| *number)
             .collect();
         for number in numbers {
-            self.step_one(now, number, Event::Look, false, &mut todos)?;
+            let trial = self.trial(now);
+            self.step_one(now, number, Event::Look, trial, &mut todos)?;
         }
         Ok(todos)
+    }
+
+    /// Whether the wait every work shares lets one round try now and none has taken it: the first work looked at that
+    /// begins a round takes it, with a slot where its round takes one and one is free, so that a work that needs none,
+    /// or comes after, does not take it in that work's stead.
+    fn trial(&self, now: Time) -> bool {
+        self.outage()
+            .is_some_and(|outage| matches!(outage.until(), Until::Trial { .. }))
+            && !self.holds(now)
     }
 
     /// Gives one thing that happened to a work that has not ended to the engine's loop, with the gate as it is now, in
