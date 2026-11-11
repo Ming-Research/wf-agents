@@ -15,6 +15,7 @@ engine on `main`; [AGENTS.md](AGENTS.md) says how the two stand to each other.
   `wf-agents run --data <an empty directory> --flow flow --script script.toml`; then
   `wf-agents add --title "Greet the user" --flow trial --write "request=Greet the user."` and `wf-agents resume 1`,
   and `wf-agents list` or the pages to follow it;
-  `wf-agents pause --all` and `wf-agents resume --all` pause everything and lift it.
+  `wf-agents pause --all` and `wf-agents resume --all` pause everything and lift it. Whoever plans the work waits
+  with `wf-agents wait` for what needs them, each answer ending with the mark to give the next.
 - `client/`: the owner's page, which the `wf-agents` binary carries: build it with `npm ci` and `npm run build` in
   `client/` before building the Rust.

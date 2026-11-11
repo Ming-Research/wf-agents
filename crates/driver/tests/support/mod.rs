@@ -831,7 +831,7 @@ impl H {
                     (Event::Done { call, .. }, Effect::Call { call: c, .. } | Effect::Withdraw { call: c }) => {
                         c == call
                     }
-                    (Event::Released, Effect::Release { .. }) => true,
+                    (Event::Released | Event::NotReleased { .. }, Effect::Release { .. }) => true,
                     _ => false,
                 }
         };
