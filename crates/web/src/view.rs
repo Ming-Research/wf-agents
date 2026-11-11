@@ -68,6 +68,8 @@ pub struct Limits {
 pub struct Line {
     pub name: String,
     pub cells: Vec<String>,
+    /// How many levels above its item's its rounds run at, never above the highest an item may be at.
+    pub levels_above: u32,
 }
 
 /// A named test: the words shown for it, and what it holds on.
@@ -108,6 +110,8 @@ pub struct Cell {
     pub task: Option<String>,
     /// The act of the engine's own that carries out an engine's cell; an agent's cell has none.
     pub act: Option<String>,
+    /// The reasoning effort an agent's cell's rounds run at; an engine's cell has none.
+    pub effort: Option<String>,
     /// When the cell runs at all; none is always.
     pub condition: Option<Condition>,
     /// What the work waits for before the cell.
@@ -221,6 +225,10 @@ pub enum What {
     AgentHasAct {
         act: String,
     },
+    /// An engine cell names a reasoning effort: no agent runs it.
+    EngineHasEffort,
+    /// An agent cell names no reasoning effort.
+    NoEffort,
     UnknownAct {
         act: String,
     },
@@ -434,6 +442,18 @@ pub enum Change {
         before: u32,
         after: u32,
     },
+    /// The reasoning effort an agent cell's rounds run at; an engine cell has none.
+    Effort {
+        cell: String,
+        before: Option<String>,
+        after: Option<String>,
+    },
+    /// How many levels above its item's the cell's rounds run at, as its line says.
+    LevelsAbove {
+        cell: String,
+        before: u32,
+        after: u32,
+    },
     BlockAdded {
         block: String,
     },
@@ -492,6 +512,7 @@ impl Flow {
                 None => lines.push(Line {
                     name: name.clone(),
                     cells: vec![spec.id.to_string()],
+                    levels_above: spec.levels_above,
                 }),
             }
         }
@@ -508,6 +529,7 @@ impl Flow {
                 line: spec.line.clone(),
                 task: spec.task.clone(),
                 act: spec.act.clone(),
+                effort: spec.effort.map(|effort| effort.name().to_string()),
                 condition: cell.applies.as_ref().map(|c| Condition::of(c, compiled)),
                 preconditions: cell.requires.iter().map(|t| Test::of(t, compiled)).collect(),
                 inputs: names(&cell.inputs),
@@ -640,6 +662,8 @@ impl What {
             F::EngineHasTask => What::EngineHasTask,
             F::NoAct => What::NoAct,
             F::AgentHasAct { act } => What::AgentHasAct { act },
+            F::EngineHasEffort => What::EngineHasEffort,
+            F::NoEffort => What::NoEffort,
             F::UnknownAct { act } => What::UnknownAct { act },
             F::ValuesEmpty => What::ValuesEmpty,
             F::NoteNotByPeople { block } => What::NoteNotByPeople { block },
@@ -817,6 +841,15 @@ impl Change {
                 before: *from,
                 after: *to,
             },
+            CellChange::Effort {
+                before: from,
+                after: to,
+            } => Change::Effort {
+                cell,
+                before: from.map(|e| e.name().to_string()),
+                after: to.map(|e| e.name().to_string()),
+            },
+            &CellChange::LevelsAbove { before, after } => Change::LevelsAbove { cell, before, after },
         }
     }
 

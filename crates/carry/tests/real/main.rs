@@ -11,6 +11,7 @@ mod delivering;
 mod failing;
 mod going;
 mod left;
+mod levels;
 mod permissions;
 mod stopping;
 
@@ -21,7 +22,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use carry::git::{self, Place};
-use carry::settings::{Agents, Project};
+use carry::settings::{Agents, Items, Level, Project};
 use carry::{Settings, session};
 use decide::{CallId, Decision, Pauser, RunId, Who};
 use driver::{FirstWrite, NewItem};
@@ -99,6 +100,8 @@ pub struct Real {
     /// How many rounds the carriers said failed, and how often they said a work is to wait for the owner.
     pub failures: usize,
     pub holds: usize,
+    /// The level the items added from now on are given.
+    pub level: String,
 }
 
 /// Runs git in the directory, which must pass, and gives its output.
@@ -248,7 +251,15 @@ impl Real {
             },
             agents: Agents {
                 command: command.display().to_string(),
-                model: "claude-haiku-5-5".to_string(),
+                levels: [("1", "claude-haiku-5-5"), ("2", "claude-sonnet-5-5")]
+                    .map(|(name, model)| {
+                        let level = Level {
+                            desc: format!("Work of level {name}"),
+                            model: model.to_string(),
+                        };
+                        (name.to_string(), level)
+                    })
+                    .into(),
                 slots: 2,
                 args: Vec::new(),
                 env: Vec::new(),
@@ -257,6 +268,10 @@ impl Real {
                 permissions: Default::default(),
                 owner_language: "Chinese".to_string(),
                 work_budget_usd: budget,
+            },
+            items: Items {
+                default_level: "1".to_string(),
+                highest_level: None,
             },
             github: None,
         };
@@ -273,6 +288,7 @@ impl Real {
             inbox,
             failures: 0,
             holds: 0,
+            level: "1".to_string(),
         }
     }
 
@@ -325,6 +341,7 @@ impl Real {
         });
         let item = NewItem {
             title: "Greet the user".to_string(),
+            level: self.level.clone(),
             depends_on: depends_on.to_vec(),
             flow: self.flow.name.clone(),
             writes: request.into_iter().collect(),

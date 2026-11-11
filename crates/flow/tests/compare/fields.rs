@@ -1,7 +1,7 @@
 //! What changed of a cell that both definitions have.
 
 use decide::Condition;
-use flow::{CellChange, Change, FLOW_FILE, Kind, Limit};
+use flow::{CellChange, Change, Effort, FLOW_FILE, Kind, Limit};
 
 use crate::support::{edit, valid};
 use crate::{compiled, from_valid};
@@ -28,7 +28,7 @@ fn a_cell_s_title_kind_line_task_and_act_are_each_a_change_with_both_values() {
         after,
         "check.toml",
         "kind = \"engine\"\nact = \"check\"",
-        "kind = \"agent\"\nline = \"engineer\"\ntask = \"Check the work with the latest main.\"",
+        "kind = \"agent\"\neffort = \"high\"\nline = \"engineer\"\ntask = \"Check the work with the latest main.\"",
     );
     assert_eq!(
         from_valid(&after),
@@ -73,6 +73,13 @@ fn a_cell_s_title_kind_line_task_and_act_are_each_a_change_with_both_values() {
                 CellChange::Act {
                     before: Some("check".to_string()),
                     after: None,
+                },
+            ),
+            of(
+                "check",
+                CellChange::Effort {
+                    before: None,
+                    after: Some(Effort::High),
                 },
             ),
         ]

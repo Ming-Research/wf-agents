@@ -106,9 +106,10 @@ impl Flows {
     }
 }
 
-/// The interface and the page, over these definitions, with the items and the works of the engine's loop.
-pub fn with_works(flows: Flows, handle: service::Handle) -> Router {
-    router(flows).merge(interface::router(handle))
+/// The interface and the page, over these definitions, with the items and the works of the engine's loop, whose items
+/// are added at these levels.
+pub fn with_works(flows: Flows, handle: service::Handle, levels: service::Levels) -> Router {
+    router(flows).merge(interface::router(handle, levels))
 }
 
 /// The interface and the page, over these definitions.

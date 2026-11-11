@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use decide::{BlockId, Cell, CellId, Condition, Test, TestName};
 
 use crate::compile::{Block, CellSpec, Compiled, Limits};
-use crate::source::Kind;
+use crate::source::{Effort, Kind};
 
 /// One difference between two definitions of a flow.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -111,6 +111,16 @@ pub enum CellChange {
     /// flow's.
     Limit {
         limit: Limit,
+        before: u32,
+        after: u32,
+    },
+    /// The reasoning effort an agent cell's rounds run at; an engine cell has none.
+    Effort {
+        before: Option<Effort>,
+        after: Option<Effort>,
+    },
+    /// How many levels above its item's the cell's rounds run at, as its line says.
+    LevelsAbove {
         before: u32,
         after: u32,
     },
@@ -409,6 +419,18 @@ fn cell_changes(before: &Placed, after: &Placed, flow_limits: &[(Limit, u32, u32
         if before != after && !followed_the_flow {
             changes.push(CellChange::Limit { limit, before, after });
         }
+    }
+    if b.effort != a.effort {
+        changes.push(CellChange::Effort {
+            before: b.effort,
+            after: a.effort,
+        });
+    }
+    if b.levels_above != a.levels_above {
+        changes.push(CellChange::LevelsAbove {
+            before: b.levels_above,
+            after: a.levels_above,
+        });
     }
     changes
 }

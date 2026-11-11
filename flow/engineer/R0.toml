@@ -1,6 +1,7 @@
 title = "Understand the problem and the design tree"
 kind = "agent"
 line = "engineer"
+effort = "high"
 task = '''
 First understand the problem the item's `background` asks to solve, as far as you need to know where in the design
 tree to look. Then read the tree as main has it: the constitution and `design/principles/` whole, then whole each file

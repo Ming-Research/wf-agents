@@ -48,6 +48,7 @@ const CELLS: [(&str, &str); 4] = [
         r#"
 title = "Plan"
 kind = "agent"
+effort = "high"
 line = "engineer"
 task = "Write a plan for the request."
 inputs = ["request"]
@@ -59,6 +60,7 @@ outputs = ["plan"]
         r#"
 title = "Build"
 kind = "agent"
+effort = "high"
 line = "engineer"
 task = "Build what the plan says."
 inputs = ["request", "plan", "opinions"]
@@ -70,6 +72,7 @@ outputs = ["code"]
         r#"
 title = "Review"
 kind = "agent"
+effort = "high"
 line = "reviewer"
 task = "Review the code."
 inputs = ["code"]

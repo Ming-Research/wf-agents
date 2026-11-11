@@ -77,6 +77,7 @@ export const FLOW: Flow = flowOf(
       line: null,
       task: null,
       act: 'check',
+      effort: null,
       inputs: ['code', 'main'],
       outputs: ['ci', 'opinions_implement'],
     }),
@@ -86,6 +87,7 @@ export const FLOW: Flow = flowOf(
       line: null,
       task: null,
       act: 'merge',
+      effort: null,
       preconditions: [test('approved', 'The owner approved the merge', 'all', ['approval'])],
       inputs: ['ci', 'content', 'approval'],
     }),
@@ -437,6 +439,7 @@ class History {
         last: this.steps.length > 0 ? this.time : null,
       },
       title,
+      level: '2',
       flow: FLOW,
       cells: details,
       blocks,
@@ -519,6 +522,7 @@ const PLAN_TOLD: ToldPage = {
         durationMs: 118_000,
         models: ['claude-haiku-5-5'],
       },
+      ran: { kind: 'on', level: '1', model: 'claude-haiku-5-5', effort: 'high' },
     },
   ],
   leftOut: 0,
@@ -628,7 +632,7 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
   const keep = (built: Built) => {
     works.set(built.page.summary.number, built);
     const s = built.page.summary;
-    items.push({ number: s.item, title: built.page.title, added: s.added, dependsOn: [], work: s });
+    items.push({ number: s.item, title: built.page.title, level: built.page.level, added: s.added, dependsOn: [], work: s });
   };
 
   keep(long(hours(30)));
