@@ -713,7 +713,10 @@ impl H {
         let answers = |todo: &Todo| {
             todo.work == work
                 && match (event, &todo.effect) {
-                    (Event::Returned { run, .. }, Effect::Round { run: r, .. } | Effect::Stop { run: r }) => r == run,
+                    (
+                        Event::Returned { run, .. } | Event::Failed { run, .. },
+                        Effect::Round { run: r, .. } | Effect::Stop { run: r },
+                    ) => r == run,
                     (Event::Done { call, .. }, Effect::Call { call: c, .. } | Effect::Withdraw { call: c }) => {
                         c == call
                     }
