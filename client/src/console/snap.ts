@@ -59,6 +59,14 @@ const EDGE_LINE = 6;
 /// How quickly the blue rings and ribbons of the item under the pointer come in, and fade out once it leaves: the
 /// milliseconds in which each goes about two thirds of the way.
 const GLOW_IN = 30;
+/// How bright the items not lit are drawn while the pointer lights some, and while only the selection does; how much
+/// of the links' own strength is left when the items are fully dimmed; and how long the dimming takes to come and
+/// to go, in milliseconds.
+const DIM_POINTED = 0.35;
+const DIM_SELECTED = 0.6;
+const DIM_LINKS = 0.4;
+const DIM_IN = 180;
+const DIM_OUT = 120;
 const GLOW_OUT = 160;
 /// The ring round an item lit, the one selected or under the pointer or one above them: its edge's width, and the halo
 /// outside it, how wide and how strong, within the room between two items.
@@ -382,6 +390,13 @@ const EDGE_TINT = 0.45;
 const NOT_BEGUN = 0.7;
 /// How far a card's number and strip stand in from its left edge.
 const CARD_INSET = 10;
+/// The glow of a card that needs the owner or runs: how far out each ring stands and how strong it is.
+const CARD_GLOW: [number, number][] = [
+  [1, 0.34],
+  [2.5, 0.2],
+  [4, 0.11],
+  [5.5, 0.05],
+];
 /// A card's corners: the page's corner (`--corner`), as its buttons and tags have.
 const CARD_CORNER = 3;
 /// The height of the line under a deliverable, which has no card.
@@ -499,6 +514,9 @@ export class SnapScene {
   /// How far each item ringed in blue, the one under the pointer and those above it, has come in, from 0 to 1; one
   /// the pointer has left stays until it has faded out.
   private glowing = new Map<number, number>();
+  /// How bright the items that the pointer and the selection do not light are drawn: all of them fully while nothing
+  /// is lit, dimmed while something is, so that what is lit and what joins it stand alone; eased from frame to frame.
+  private dim = 1;
   /// The same for the glow around the item under the pointer itself, which those lit with it do not have.
   private haloed = new Map<number, number>();
   /// The column last scrolled, or whose item was last brought to the middle, which the others follow.
@@ -733,7 +751,17 @@ export class SnapScene {
     // A deliverable is no card of work: it has no box and no fill, only its number and title over a line, as a heading
     // of the items under it, so that the cards of the items that are worked on stand out from it.
     if (item.deliver) view.addChild(new Graphics().rect(0, top + h - DELIVER_LINE, NODE_W, DELIVER_LINE).fill(PALETTE.faint));
-    else
+    else {
+      // A card that needs the owner or whose work is running glows in its colour: a few rings fading outward, which
+      // on the dark ground make it the first thing seen.
+      if (filled && state !== null) {
+        const glow = new Graphics();
+        for (const [out, alpha] of CARD_GLOW)
+          glow
+            .roundRect(-out, top - out, NODE_W + 2 * out, h + 2 * out, CARD_CORNER + out)
+            .stroke({ color: state, width: 2, alpha });
+        view.addChild(glow);
+      }
       view.addChild(
         card.fill(filled ? mix(PALETTE.card, state, FILL) : PALETTE.card).stroke({
           color:
@@ -741,6 +769,7 @@ export class SnapScene {
           width: EDGE_WIDTH,
         }),
       );
+    }
     // What is new to the owner is said once, by the number at the card's right; no line at its left.
     const x = CARD_INSET;
     const number = new BitmapText({
@@ -1353,6 +1382,7 @@ export class SnapScene {
     this.links.clear();
     this.marks.clear();
     const nowShown = new Set<Container>();
+    const drawn: number[] = [];
     const rows = Math.ceil(height / ROW / 2) + 2;
     for (let d = 0; d < t.columns.length; d += 1) {
       const cx = x(d);
@@ -1370,6 +1400,7 @@ export class SnapScene {
         if (p !== undefined) p.alpha = pulse;
         this.age(item);
         nowShown.add(view);
+        drawn.push(item);
         if (!this.shown.has(view)) this.layer.addChild(view);
       }
       if (d === 0) continue;
@@ -1390,7 +1421,7 @@ export class SnapScene {
         this.funnel(px, py - ph, py + ph, cx, top, bottom);
       }
     }
-    this.links.fill({ color: PALETTE.other, alpha: PALETTE.otherAlpha });
+    this.links.fill({ color: PALETTE.other, alpha: PALETTE.otherAlpha * (DIM_LINKS + (1 - DIM_LINKS) * this.dim) });
     // The item under the pointer and those above it up to its root, each joined to the one above by a ribbon of light
     // blue and ringed in blue, over everything else, the item itself glowing too; each comes in quickly, and fades out
     // once the pointer has left.
@@ -1423,6 +1454,12 @@ export class SnapScene {
     // only ringed, so that it stands out among them.
     const picked = this.selected === null ? -1 : (this.real.get(this.selected) ?? -1);
     const chosen = lit(picked);
+    // While the pointer or the selection lights something, every other item drawn is dimmed, more under the pointer
+    // than for the selection alone, so that the lit items and what joins them stand out; it comes and goes over a
+    // moment, so that a pointer passing over the tree does not make it flicker.
+    const aim = chain.size > 0 ? DIM_POINTED : chosen.size > 0 ? DIM_SELECTED : 1;
+    this.dim += (aim - this.dim) * (1 - Math.exp(-step / (aim < this.dim ? DIM_IN : DIM_OUT)));
+    for (const i of drawn) this.views[i].alpha = chain.has(i) || chosen.has(i) ? 1 : this.dim;
     for (const i of chosen) {
       const p = t.parent[i];
       if (p < 0) continue;
