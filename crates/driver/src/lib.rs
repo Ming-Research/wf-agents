@@ -41,6 +41,10 @@
 //! (principle `effects-known-as-done`). When the store fails the driver stops: it gives the fault to every later call
 //! and shows nothing more of the works, which it may hold otherwise than the store does, and is to be opened again
 //! (principle `nothing-passes-for-normal`).
+//!
+//! What needs whoever plans the work since a mark they keep, read from the records of every work, is [`attention`].
+
+pub mod attention;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;

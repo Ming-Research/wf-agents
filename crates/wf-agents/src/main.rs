@@ -149,6 +149,22 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
+    /// Waits for what needs whoever plans the work and says it, a line each, most pressing first: a work that ended,
+    /// one that rests for a person (a cell's question, a ruling only a person can give, a limit, a pause the engine made
+    /// with its reason), one that waits for items none of which is going on. It answers as soon as there is something
+    /// since the mark, and says the mark to give next time; nothing that happens between two calls is lost. With no
+    /// mark, it gives what stands now, the works that ended being taken as read.
+    Wait {
+        /// The mark the last call gave.
+        #[arg(long)]
+        since: Option<String>,
+        /// The longest time to wait, in seconds; it then says that nothing came. With none, it waits as long as it
+        /// takes.
+        #[arg(long = "for", value_name = "SECONDS")]
+        longest: Option<u64>,
+        #[command(flatten)]
+        at: At,
+    },
     /// Lets a cell that reached its limit go on.
     LetGo {
         work: u64,
@@ -262,6 +278,7 @@ fn main() -> ExitCode {
         Command::Answer { work, call, result, at } => {
             talk::ask(at.port, Asked::Act(work, Act::Answer { call, result }))
         }
+        Command::Wait { since, longest, at } => talk::ask(at.port, Asked::Wait { since, longest }),
         Command::LetGo { work, cell, at } => talk::ask(at.port, Asked::Act(work, Act::LetGo { cell })),
     }
 }

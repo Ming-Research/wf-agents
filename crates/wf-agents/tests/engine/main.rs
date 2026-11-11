@@ -8,6 +8,7 @@ mod everything;
 mod failing;
 mod items;
 mod starting;
+mod waiting;
 
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
