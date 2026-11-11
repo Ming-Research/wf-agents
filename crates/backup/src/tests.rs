@@ -543,6 +543,45 @@ fn the_state_is_worked_out_from_the_records_and_the_time_now() {
     assert_eq!(report(&taking, Time(T0 + DAY + 10), true, 7).state, State::Ok);
 }
 
+/// A `gh` that keeps one release in a directory: it is not there until made, and every call fails while the file
+/// `down` is there.
+#[cfg(unix)]
+const FAKE_GH: &str = r#"#!/bin/sh
+d='DIR'
+if [ -f "$d/down" ]; then echo "network is down" >&2; exit 1; fi
+case "$1 $2" in
+"release view")
+  if [ ! -f "$d/release" ]; then echo "release not found" >&2; exit 1; fi
+  case "$*" in *assets*) cat "$d/assets" ;; esac ;;
+"release create") touch "$d/release"; : > "$d/assets" ;;
+"release upload") basename "$4" >> "$d/assets" ;;
+*) echo "unexpected: $*" >&2; exit 2 ;;
+esac
+"#;
+
+// The first upload to a place with no release made yet works, and a listing that fails for a real reason is an error,
+// never an empty place.
+#[cfg(unix)]
+#[test]
+fn the_first_upload_to_a_place_with_no_release_works_and_a_failing_listing_is_no_empty_place() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().expect("a directory");
+    let script = dir.path().join("gh");
+    std::fs::write(&script, FAKE_GH.replace("DIR", &dir.path().display().to_string())).expect("written");
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("made runnable");
+    let gh = Gh::new("owner/name", "token", &script.display().to_string());
+    std::fs::write(dir.path().join("down"), "").expect("written");
+    assert!(gh.list().is_err(), "a place that cannot be reached is no empty place");
+    std::fs::remove_file(dir.path().join("down")).expect("removed");
+    assert_eq!(gh.list(), Ok(vec![]), "no release is an empty place");
+    // A copy is looked for, not found, and uploaded.
+    let name = name_at(Time(T0));
+    let copy = dir.path().join(&name);
+    std::fs::write(&copy, "copy").expect("written");
+    gh.upload(&copy).expect("the first upload");
+    assert_eq!(gh.list(), Ok(vec![name]));
+}
+
 #[test]
 fn the_arguments_of_gh_name_the_release_the_repository_and_the_file() {
     let gh = Gh::new("owner/name", "token", "gh");

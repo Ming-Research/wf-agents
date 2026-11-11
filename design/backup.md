@@ -8,9 +8,9 @@ A copy is made by SQLite's `VACUUM INTO` on a read-only connection of its own, n
 Why: The store runs in WAL mode while the engine writes, so a copied file can lack what is still in the log or be torn; `VACUUM INTO` reads one snapshot and does not hold up the loop's writes.
 
 ### decision taken-and-uploaded-are-two-records
-That a copy was taken and that it was uploaded are two records, and an upload is never started inside the step that takes the copy but by the check that finds a copy not uploaded, after a look at what the place holds. The copies kept are the newest by the order they were recorded in, not by the time in a name or a row; a copy past keeping is taken from the place first and its file last, because the file is what says its removal is not done.
-Why: The engine may stop at any step (principle effects-known-as-done). The old engine started the upload once, on a thread after the copy, so a stop between the two lost that day's copy off the machine, and a failed upload waited for the next day's. A look first means a stop between the upload and its record does not upload it twice. A clock that jumped ahead and came back gives a copy a time later than every copy taken since, so ordering by time would keep it and remove the newest.
-Not: Uploading in the step that copies; keeping the newest by time.
+That a copy was taken and that it was uploaded are two records, and an upload is never started inside the step that takes the copy but by the check that finds a copy not uploaded.
+Why: The engine may stop at any step (principle effects-known-as-done). The old engine started the upload once, on a thread after the copy, so a stop between the two lost that day's copy off the machine, and a failed upload waited for the next day's.
+Not: Uploading in the step that copies.
 
 ### decision backup-destination-is-settings-and-private
 Where the copies go is the installation's `[backup]` settings with its own token, not the data directory's git remote nor the project's repository, and the repository is checked to be private at every upload.

@@ -115,6 +115,14 @@ impl Gh {
         ])
     }
 
+    /// Makes the release where it is not there. Where it cannot be seen and cannot be made, that is the error.
+    fn ensure_release(&self) -> Result<(), String> {
+        if self.run(&self.view_args()).is_err() {
+            self.run(&self.create_args())?;
+        }
+        Ok(())
+    }
+
     /// Runs `gh` with these arguments, with the environment it needs and the token, and gives what it printed.
     fn run(&self, args: &[String]) -> Result<String, String> {
         let mut command = Command::new(&self.command);
@@ -152,13 +160,14 @@ impl Offsite for Gh {
     }
 
     fn upload(&self, file: &Path) -> Result<(), String> {
-        if self.run(&self.view_args()).is_err() {
-            self.run(&self.create_args())?;
-        }
+        self.ensure_release()?;
         self.run(&self.upload_args(file)).map(|_| ())
     }
 
     fn list(&self) -> Result<Vec<String>, String> {
+        // The release is there before it is listed, so that a place with none is an empty one, and a listing that
+        // fails for any reason is an error and never looks like an empty place.
+        self.ensure_release()?;
         Ok(self.run(&self.list_args())?.lines().map(str::to_string).collect())
     }
 
