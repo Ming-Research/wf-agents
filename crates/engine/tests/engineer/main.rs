@@ -1045,7 +1045,7 @@ impl History {
             Waited::Precondition { test, .. } => {
                 (make_hold(&self.d, test).map(|e| (e, false))).or_else(|| ask_a_cell(&self.d, test).map(|e| (e, true)))
             }
-            Waited::Call { .. } => None,
+            Waited::Call { .. } | Waited::Slot => None,
         })
     }
 

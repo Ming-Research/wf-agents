@@ -46,12 +46,13 @@ impl Scripted {
         }
     }
 
-    /// The carriers of every kind, all following the script.
+    /// The carriers of every kind, all following the script, with as many slots as it says.
     pub fn carriers(&self) -> Carriers {
         Carriers {
             agents: Arc::new(self.clone()),
             acts: Arc::new(self.clone()),
             tools: Arc::new(self.clone()),
+            slots: self.inner.script.slots.unwrap_or(crate::script::SLOTS),
         }
     }
 

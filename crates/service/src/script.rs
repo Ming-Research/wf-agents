@@ -2,6 +2,9 @@
 //! by run and round by round, and what each tool answers.
 //!
 //! ```toml
+//! # How many rounds of agents go on at once; two where it is left out, as the installation's sample settings give.
+//! slots = 3
+//!
 //! # What a round takes where its entry says nothing; each is optional.
 //! [took]
 //! ms = 1500
@@ -80,11 +83,17 @@ pub const CACHED_TOKENS: u64 = 0;
 pub const OUTPUT_TOKENS: u64 = 100;
 /// How long a tool takes where the script says nothing, in milliseconds.
 pub const TOOL_MS: u64 = 100;
+/// How many rounds of agents go on at once where the script says nothing: as many as the installation's sample
+/// settings give.
+pub const SLOTS: usize = 2;
 
 /// A script, as its file is written.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Script {
+    /// How many rounds of agents go on at once; [`SLOTS`] where the script says none.
+    #[serde(default)]
+    pub slots: Option<usize>,
     /// What a round takes where its entry says nothing.
     #[serde(default)]
     pub took: Took,
@@ -236,6 +245,9 @@ impl Script {
     /// not write, or a value a choice does not have, is not wrong: what it hands in is sent back.
     pub fn check(&self, flows: &[Compiled]) -> Vec<String> {
         let mut faults = Vec::new();
+        if self.slots == Some(0) {
+            faults.push("slots: at least one round must be able to go on".to_string());
+        }
         for (name, script) in &self.flows {
             let Some(flow) = flows.iter().find(|flow| flow.name == *name) else {
                 faults.push(format!("flows.{name}: no flow is named {name}"));

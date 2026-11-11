@@ -15,6 +15,7 @@ mod events;
 mod kept;
 mod opening;
 mod outside;
+mod scheduling;
 mod stopped;
 mod stops;
 

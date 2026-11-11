@@ -35,6 +35,8 @@ function whom(w: Waited, page: WorkPage | null): string {
       return makersWords(w.by, page);
     case 'call':
       return w.who === null ? 'the engine' : WHO[w.who];
+    case 'slot':
+      return 'the engine';
   }
 }
 
@@ -91,6 +93,8 @@ export function waitedWords(w: Waited, page: WorkPage | null, at: string): strin
     }
     case 'limit':
       return `You to let ${titleOf(page, at)} run again after ${w.runs} runs in a row for what a cell after it wrote`;
+    case 'slot':
+      return 'A free slot, which the engine gives in its order';
   }
 }
 

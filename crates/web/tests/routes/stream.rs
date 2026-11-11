@@ -29,6 +29,7 @@ async fn the_stream_says_as_it_opens_that_everything_may_have_changed_and_then_e
             "dependsOn": [],
             "flow": "trial",
             "writes": [{ "block": "request", "content": "Please.", "value": null }],
+            "held": true,
         })
     };
     assert_eq!(post(router, "/api/v1/items", &item("First")).await.0, StatusCode::OK);

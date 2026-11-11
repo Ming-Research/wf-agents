@@ -706,6 +706,7 @@ impl<'a> Definition<'a> {
             inputs: file.inputs.iter().map(|b| BlockId(b.clone())).collect(),
             outputs: file.outputs.iter().map(|b| BlockId(b.clone())).collect(),
             limit: runs,
+            slot: file.kind == Kind::Agent,
         };
         let spec = CellSpec {
             id: CellId(id.to_string()),

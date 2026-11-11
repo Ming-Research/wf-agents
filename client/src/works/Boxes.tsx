@@ -43,7 +43,7 @@ function Refused({ why }: { why: string | null }) {
 }
 
 /// What a waiting thing is, so that what the owner typed for it stays with it as the list changes: a call by its number,
-/// a precondition by its test, a limit by its cell.
+/// a precondition by its test, a limit or a slot by its cell.
 export function waitedKey(at: string, waited: Waited): string {
   switch (waited.kind) {
     case 'call':
@@ -52,6 +52,8 @@ export function waitedKey(at: string, waited: Waited): string {
       return `test:${waited.test}`;
     case 'limit':
       return `limit:${at}`;
+    case 'slot':
+      return `slot:${at}`;
   }
 }
 

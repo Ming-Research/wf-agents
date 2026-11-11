@@ -99,7 +99,7 @@ const SCHEMA_1: &str = include_str!("schema-1.sql");
 
 /// The columns of each table of the database, with their types, whether they may be null, their defaults and their
 /// places in the keys.
-fn columns(path: &Path) -> BTreeMap<String, Vec<Vec<String>>> {
+pub(crate) fn columns(path: &Path) -> BTreeMap<String, Vec<Vec<String>>> {
     let db = Connection::open(path).expect("the database opens");
     let mut out = BTreeMap::new();
     for table in dump(path).into_keys() {
@@ -120,7 +120,7 @@ fn columns(path: &Path) -> BTreeMap<String, Vec<Vec<String>>> {
 }
 
 /// Every row of the table of the schema's version.
-fn versions(path: &Path) -> Vec<u32> {
+pub(crate) fn versions(path: &Path) -> Vec<u32> {
     let file = Connection::open(path).expect("the database opens");
     let mut query = file
         .prepare("SELECT version FROM schema_version")

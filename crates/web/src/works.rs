@@ -12,14 +12,16 @@
 //! - [`RoundPage`], [`VersionPage`], [`CallPage`]: the content the history leaves out.
 //! - [`ToldPage`]: what a round was told and what came back of it, as its carrier kept them.
 //! - [`Act`], [`NewItem`]: what the owner does on the pages.
+//! - [`Engine`], [`EngineAct`]: the engine as a whole, its slots and the owner's pause of everything, and what the owner
+//!   does to it.
 //!
 //! A work whose records name what it does not hold, which the engine never writes, is not shown as something it is
 //! not: making its view gives [`Broken`], saying what is missing.
 
 use decide::run::{Limit as LimitOf, Unmet as UnmetOf};
 use decide::{
-    BlockId, CallId, Cause as CauseOf, CellId, Decision, End, Maker as MakerOf, Pauser as PauserOf, RunId, Seq, View,
-    Waited as WaitedOf, Who, Writer as WriterOf,
+    BlockId, CallId, Cause as CauseOf, CellId, Decision, End, Holder, Maker as MakerOf, Pauser as PauserOf, RunId, Seq,
+    View, Waited as WaitedOf, Who, Writer as WriterOf,
 };
 use driver::{Driver, Kept};
 use serde::{Deserialize, Serialize};
@@ -94,7 +96,7 @@ pub enum Now {
         since: u64,
     },
     /// It is paused, and what it would do next is begin a round: by the owner, or by the engine itself for this
-    /// reason, as when a round failed.
+    /// reason, as when a round failed; or it is held back by the owner's pause of everything.
     Paused { by: Pauser, why: Option<String> },
     /// It waits at this cell, for each of these.
     Waits { at: String, on: Vec<Waited> },
@@ -118,6 +120,9 @@ pub enum Waited {
     /// The cell's last runs, this many in a row, were each for what a cell after it wrote, and so would the next be:
     /// the owner lets it go on or cancels the work.
     Limit { runs: u32 },
+    /// A free slot: as many rounds of agents are under way as the engine has slots, and the engine gives it the first
+    /// that comes free, in its order.
+    Slot {},
 }
 
 /// A person who can give what a work waits for.
@@ -140,12 +145,14 @@ pub enum Maker {
     Cell { cell: String },
 }
 
-/// Who paused a work: the owner, or the engine itself.
+/// Who paused a work: the owner, or the engine itself; or, of what a work does now, the owner's pause of everything,
+/// which the owner lifts for every work at once.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Pauser {
     Owner,
     Engine,
+    Everything,
 }
 
 /// What a call is.
@@ -663,7 +670,7 @@ pub enum Act {
     Answer { call: u64, result: String },
 }
 
-/// An item the owner adds, with its work, which is added paused and begins no round until it is let on.
+/// An item the owner adds, with its work, which begins by itself when it may.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NewItem {
@@ -676,6 +683,36 @@ pub struct NewItem {
     pub flow: String,
     /// What is written for it as it is added, each a block people write.
     pub writes: Vec<NewWrite>,
+    /// Whether its work is added paused, beginning no round until it is let on; it is not where this is left out.
+    #[serde(default)]
+    pub held: bool,
+}
+
+/// The engine as a whole: its slots, and the owner's pause of everything.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Engine {
+    /// How many rounds of agents may go on at once.
+    pub slots: u64,
+    /// How many are under way; more than there are slots where the slots were fewer when the engine started again.
+    pub taken: u64,
+    /// When the owner's pause of everything began, while it holds; none while works go on.
+    pub paused: Option<u64>,
+}
+
+/// What the owner does to the engine as a whole on the pages, each kind a struct as an [`Act`] is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum EngineAct {
+    /// Pauses everything: no work begins a round but those of a run that answers a note, until it is lifted.
+    Pause {},
+    /// Lifts the pause of everything: every work goes on that its own pause does not hold.
+    Resume {},
 }
 
 /// A block written as an item is added.
@@ -730,7 +767,7 @@ impl Items {
                 level: kept.item.level.clone(),
                 added: kept.item.added.0,
                 depends_on: kept.item.depends_on.iter().map(|on| on.0).collect(),
-                work: Summary::of(kept, &view)?,
+                work: Summary::of(kept, &view, driver.held(kept.head.number))?,
             });
         }
         items.sort_by_key(|item| item.number);
@@ -739,8 +776,9 @@ impl Items {
 }
 
 impl Summary {
-    /// The work in brief, from what the driver holds of it and the deciding code's view of it.
-    pub fn of(kept: Kept<'_>, view: &View) -> Result<Summary, Broken> {
+    /// The work in brief, from what the driver holds of it, the deciding code's view of it, and what holds back the
+    /// round it would begin next.
+    pub fn of(kept: Kept<'_>, view: &View, held: Option<Holder>) -> Result<Summary, Broken> {
         let work = kept.work;
         let runs = runs(kept)?;
         let cells = (view.cells.iter())
@@ -768,7 +806,7 @@ impl Summary {
             flow: kept.head.flow.clone(),
             added: kept.head.added.0,
             paused: decide::paused(&work.records),
-            now: Now::of(kept, &view.decision)?,
+            now: Now::of(kept, &view.decision, held)?,
             cells,
             spent: runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)),
             last: work.moments.last().map(|moment| moment.at.0),
@@ -777,8 +815,12 @@ impl Summary {
 }
 
 impl Now {
-    fn of(kept: Kept<'_>, decision: &Decision) -> Result<Now, Broken> {
+    fn of(kept: Kept<'_>, decision: &Decision, held: Option<Holder>) -> Result<Now, Broken> {
         let work = kept.work;
+        let everything = Now::Paused {
+            by: Pauser::Everything,
+            why: None,
+        };
         Ok(match decision {
             Decision::Fault(fault) => Now::Fault {
                 words: service::record_fault_words(fault),
@@ -800,10 +842,18 @@ impl Now {
                     since: time(work, *last)?,
                 }
             }
+            Decision::Paused if held == Some(Holder::Everything) => everything,
             Decision::Paused => Now::paused(work)?,
-            // A run at rest that goes on holds its next round while the work is paused: the engine leaves a work so
-            // only when it is paused, as when the run's last round failed.
-            Decision::GoOn { .. } if decide::paused(&work.records) => Now::paused(work)?,
+            // A run at rest that goes on holds its next round while something holds it back: the engine leaves a work
+            // so only then, as when the run's last round failed and the work was paused.
+            Decision::GoOn { cell, .. } if held.is_some() => match held {
+                Some(Holder::Everything) => everything,
+                Some(Holder::Slot) => Now::Waits {
+                    at: cell.to_string(),
+                    on: vec![Waited::Slot {}],
+                },
+                _ => Now::paused(work)?,
+            },
             Decision::Wait { at, on } => Now::Waits {
                 at: at.to_string(),
                 on: (on.iter())
@@ -821,6 +871,7 @@ impl Now {
                                 by: by.iter().map(Maker::of).collect(),
                             },
                             WaitedOf::Limit { runs } => Waited::Limit { runs: *runs },
+                            WaitedOf::Slot => Waited::Slot {},
                         })
                     })
                     .collect::<Result<_, Broken>>()?,
@@ -981,7 +1032,7 @@ impl WorkPage {
         }
         steps.sort_by_key(Step::at);
         Ok(Some(WorkPage {
-            summary: Summary::of(kept, &view)?,
+            summary: Summary::of(kept, &view, driver.held(number))?,
             title: kept.item.title.clone(),
             level: kept.item.level.clone(),
             flow: Flow::of(kept.flow),
@@ -1161,7 +1212,27 @@ impl NewItem {
                     value: write.value,
                 })
                 .collect(),
+            held: self.held,
         })
+    }
+}
+
+impl Engine {
+    /// The engine as the driver holds it.
+    pub fn of(driver: &Driver) -> Engine {
+        let slots = driver.slots();
+        Engine {
+            slots: slots.slots as u64,
+            taken: slots.taken as u64,
+            paused: driver.everything_paused().map(|since| since.0),
+        }
+    }
+}
+
+impl EngineAct {
+    /// Whether the act sets the pause of everything, rather than lifting it.
+    pub fn pauses(self) -> bool {
+        matches!(self, EngineAct::Pause {})
     }
 }
 

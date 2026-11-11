@@ -13,7 +13,8 @@ use hyper_util::rt::TokioIo;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use web::works::{
-    Act, Added, Back, Call, CellState, Items, LevelSet, Limit, Maker, NewItem, NewLevel, NewWrite, Now, Pauser, Person,
+    Act, Added, Back, Call, CellState, Engine, EngineAct, Items, LevelSet, Limit, Maker, NewItem, NewLevel, NewWrite,
+    Now, Pauser, Person,
     Refusal, Run, Spent, Step, Waited, WorkPage, Writer,
 };
 
@@ -23,6 +24,8 @@ pub enum Asked {
     List,
     Show(u64),
     Act(u64, Act),
+    /// The owner's pause of everything set, or lifted.
+    Everything(EngineAct),
     /// A cancel, which says afterwards what the work is: cancelled, or ended otherwise before it could be.
     Cancel(u64),
     /// An item put at another level.
@@ -42,15 +45,29 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
     let said: Result<String, String> = runtime.block_on(async move {
         match asked {
             Asked::Add(item) => {
+                let held = item.held;
                 let added: Added = send(address, Method::POST, "/api/v1/items", Some(&item)).await?;
-                Ok(format!(
-                    "Added item {} with its work {}, paused: let it on with `wf-agents resume {}`.",
-                    added.item, added.work, added.work
-                ))
+                Ok(if held {
+                    format!(
+                        "Added item {} with its work {}, paused: let it on with `wf-agents resume {}`.",
+                        added.item, added.work, added.work
+                    )
+                } else {
+                    format!(
+                        "Added item {} with its work {}, which goes on by itself when it may.",
+                        added.item, added.work
+                    )
+                })
             }
             Asked::List => {
+                let engine: Engine = send(address, Method::GET, "/api/v1/engine", None::<&()>).await?;
                 let items: Items = send(address, Method::GET, "/api/v1/items", None::<&()>).await?;
-                Ok(list(&items))
+                Ok(format!("{}\n{}", standing(&engine), list(&items)))
+            }
+            Asked::Everything(act) => {
+                send::<(), _>(address, Method::POST, "/api/v1/engine/acts", Some(&act)).await?;
+                let engine: Engine = send(address, Method::GET, "/api/v1/engine", None::<&()>).await?;
+                Ok(standing(&engine))
             }
             Asked::Show(work) => {
                 let page: WorkPage = send(address, Method::GET, &format!("/api/v1/works/{work}"), None::<&()>).await?;
@@ -109,6 +126,7 @@ pub fn new_item(
     texts: &[String],
     files: &[String],
     choices: &[String],
+    held: bool,
 ) -> Result<NewItem, String> {
     let mut writes = Vec::new();
     for text in texts {
@@ -142,6 +160,7 @@ pub fn new_item(
         depends_on,
         flow,
         writes,
+        held,
     })
 }
 
@@ -214,6 +233,16 @@ fn done(work: u64, act: &Act) -> String {
         Act::Cancel {} => format!("Work {work} is cancelled."),
         Act::Answer { call, .. } => format!("Call {call} of work {work} has its result."),
     }
+}
+
+/// The engine as a whole, in a line: whether everything is paused, and its slots.
+fn standing(engine: &Engine) -> String {
+    let paused = if engine.paused.is_some() {
+        "Every work is paused: none begins a round but to answer a note, until `wf-agents resume --all`"
+    } else {
+        "Works go on"
+    };
+    format!("{paused}; {} of {} slots taken.", engine.taken, engine.slots)
 }
 
 /// Every item, a line each, with what its work does now.
@@ -370,6 +399,9 @@ fn now(now: &Now) -> String {
             by: Pauser::Engine,
             why: None,
         } => "paused by the engine, which gave no reason".to_string(),
+        Now::Paused {
+            by: Pauser::Everything, ..
+        } => "held back by the pause of everything".to_string(),
         Now::Waits { at, on } => {
             let on: Vec<String> = on.iter().map(waited).collect();
             format!("waits at {at} for {}", on.join("; and for "))
@@ -394,6 +426,7 @@ fn waited(waited: &Waited) -> String {
         Waited::Limit { runs } => {
             format!("the owner to let it go on, its last {runs} runs having each been for what a cell after it wrote")
         }
+        Waited::Slot {} => "a free slot".to_string(),
     }
 }
 

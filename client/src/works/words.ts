@@ -141,6 +141,8 @@ export function waitsForOwner(waited: Waited): boolean {
       return waited.by.some((m) => m.kind === 'owner');
     case 'limit':
       return true;
+    case 'slot':
+      return false;
   }
 }
 
@@ -159,6 +161,8 @@ export function waitedWords(waited: Waited): string {
       return `the owner to let the cell go on: ${
         waited.runs === 1 ? 'its last run was a way round' : `its last ${waited.runs} runs in a row were each a way round`
       }`;
+    case 'slot':
+      return 'a free slot, which the engine gives in its order';
   }
 }
 
@@ -176,7 +180,9 @@ export function nowWords(now: Now): string {
     case 'paused':
       return now.by === 'engine'
         ? `Paused by the engine: ${now.why ?? 'it gave no reason'}`
-        : 'Paused: only a note to a cell is answered until it is let on';
+        : now.by === 'everything'
+          ? 'Paused with every work: only a note to a cell is answered until everything is let on'
+          : 'Paused: only a note to a cell is answered until it is let on';
     case 'waits':
       return `Waits at ${now.at} for ${now.on.map(waitedWords).join('; ')}`;
     case 'next':

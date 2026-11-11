@@ -40,6 +40,14 @@
 //!   from any pause, and once they stop the owner lets the work on, whoever paused it.
 //! - the engine: while the work is paused, a run at rest has its next round only where it started for a note a person
 //!   wrote, the brief, and its last round did not fail (`pausing`), as the engine's loop gives it by `decide::hold`.
+//! - the room the engine leaves the work (`room`): in half the histories of the first test that have neither a judge
+//!   nor rounds that fail, drawn apart from the rest, a cell before the merge takes no slot in three in ten, as an act
+//!   of the engine's own; the owner's pause of everything is set or lifted at a step with a chance of one in ten while
+//!   people act, and the slot the work would take comes and goes with one in seven, as other works take it and let it
+//!   go; and a work held back by either sees it lifted or freed, as people act, with a chance of one in two. Once
+//!   people stop, the pause of everything is lifted and a slot is free. In every history, whatever its room, the walk
+//!   is asked at each step what it would decide in every other room, and `room` judges that against what the work's
+//!   own pause and a slot are to hold back.
 //!
 //! A second test draws only the sixth shape, with people acting in the first 0 to 99 steps: its judge then runs while
 //! the cell it judges is skipped, over what a person wrote for that cell, and the cell runs again afterwards, which
@@ -58,6 +66,7 @@ mod support;
 mod pausing;
 mod properties;
 mod reading;
+mod room;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
@@ -65,7 +74,7 @@ use std::panic::{self, AssertUnwindSafe};
 use std::sync::{Mutex, PoisonError};
 
 use decide::{
-    Abandoned, BlockId, Cell, CellId, Condition, Decision, End, RunId, Seq, Test, TestKind, TestName, Waited, Who,
+    Abandoned, BlockId, Cell, CellId, Condition, Decision, End, Room, RunId, Seq, Test, TestKind, TestName, Waited, Who,
 };
 use properties::{Moment, Seen, Verdict};
 use reading::{Reading, Writer};
@@ -240,6 +249,10 @@ struct History {
     judged: Option<Rng>,
     /// Draws which rounds fail, apart from `rng`, in the histories where rounds fail.
     failing: Option<Rng>,
+    /// Draws the room the engine leaves the work, apart from `rng`, in the histories where it changes.
+    rooms: Option<Rng>,
+    /// The room the engine leaves the work: the owner's pause of everything, and whether a slot is free.
+    room: Room,
     /// The runs whose last round failed and that have neither gone on nor been abandoned since.
     failed: BTreeSet<RunId>,
     log: Vec<String>,
@@ -266,6 +279,15 @@ impl History {
         let mut failing = Rng::new(seed ^ 0x00FA_11ED_0F0F_0F0F);
         // Rounds fail only in histories with no judge, so that those with one go as they did before rounds failed.
         let failing = (shape.is_none() && judged.is_none() && failing.chance(50)).then_some(failing);
+        let mut rooms = Rng::new(seed ^ 0x0000_5107_5A0F_A11D);
+        // The room changes only in histories with neither a judge nor rounds that fail, so that those go as they did.
+        let mut rooms = (shape.is_none() && judged.is_none() && failing.is_none() && rooms.chance(50)).then_some(rooms);
+        // In those, a cell before the merge takes no slot in three in ten, as an act of the engine's own.
+        if let Some(rooms) = &mut rooms {
+            for c in &mut cells {
+                c.slot = !rooms.chance(30);
+            }
+        }
         let mut w = if judged.is_some() {
             let mut judge = when_flipped(cell("judge", &[BRIEF, "b0"], &[VERDICT]));
             judge.limit = 2;
@@ -302,6 +324,8 @@ impl History {
             rng,
             judged,
             failing,
+            rooms,
+            room: Room::FREE,
             failed: BTreeSet::new(),
             log,
             paused: false,
@@ -323,10 +347,20 @@ impl History {
         if people && self.rng.chance(16) {
             self.person_acts(None, &[]);
         }
-        let decision = self.w.decide();
+        if people && let Some(rooms) = &mut self.rooms {
+            let (everything, slot) = (rooms.chance(10), rooms.chance(15));
+            if everything {
+                self.toggle_everything();
+            }
+            if slot {
+                self.toggle_slot();
+            }
+        }
+        let decision = self.decide();
         self.note(format!("decision: {decision:?}"));
         self.moments.push(Moment {
             upto: properties::last_place(&self.w.records),
+            room: self.room,
             decision: decision.clone(),
         });
         self.check(&decision);
@@ -345,7 +379,7 @@ impl History {
                 // Nothing that happens after decides anything any more.
                 self.w.person_writes(BRIEF);
                 assert_eq!(
-                    self.w.decide(),
+                    self.decide(),
                     Decision::Ended(End::Cancelled),
                     "a cancelled work went on"
                 );
@@ -353,7 +387,7 @@ impl History {
             }
             Decision::Paused => {
                 if people {
-                    self.toggle_pause();
+                    self.lift();
                 }
                 people
             }
@@ -368,14 +402,14 @@ impl History {
             // A pause holds back the next round of a run that goes on, unless the run started for what a person wrote
             // and its last round did not fail: that is the run's to say, and the engine holds it until the work is let
             // on.
-            Decision::GoOn { run, .. } if decide::paused(&self.w.records) && !self.goes_on_paused(*run) => {
+            Decision::GoOn { run, .. } if !self.goes_on_held(*run) => {
                 if people {
-                    self.toggle_pause();
+                    self.lift();
                 }
                 people
             }
             Decision::GoOn { cell, run } => {
-                if decide::paused(&self.w.records) {
+                if self.paused_now() {
                     self.verdict.count(pausing::WENT_ON_PAUSED);
                 }
                 if self.failed.remove(run) {
@@ -390,6 +424,12 @@ impl History {
                 }
                 self.w.abandon();
                 true
+            }
+            Decision::Wait { on, .. } if on == &[Waited::Slot] => {
+                if people {
+                    self.toggle_slot();
+                }
+                people
             }
             Decision::Wait { at, on } => {
                 assert!(!on.is_empty(), "a wait names nothing waited for");
@@ -465,16 +505,61 @@ impl History {
         }
         self.looked_at = (r.started.len(), r.finished.len(), r.abandoned.len());
         let seed = properties::last_place(r).0;
-        properties::decision(v, flow, &reading, decision, decide::paused(r), seed);
-        pausing::decision(v, flow, &reading, decision, decide::paused(r));
+        let paused = decide::paused(r) || self.room.paused;
+        properties::decision(v, flow, &reading, decision, self.room, paused, seed);
+        pausing::decision(v, flow, &reading, decision, self.room, paused);
+        room::decision(v, flow, r);
     }
 
-    /// Whether the run at rest has its next round though the work is paused, as the engine gives it by `decide::hold`,
-    /// which `pausing` judges.
-    fn goes_on_paused(&mut self, run: RunId) -> bool {
+    /// What the walk decides, in the room the engine leaves the work.
+    fn decide(&self) -> Decision {
+        decide::decide_in(&self.w.flow, &self.w.records, self.room)
+    }
+
+    /// Whether the work is paused, by its own pause or by the owner's pause of everything.
+    fn paused_now(&self) -> bool {
+        decide::paused(&self.w.records) || self.room.paused
+    }
+
+    /// Whether the run at rest has its next round in the room the engine leaves the work, as the engine gives it by
+    /// `decide::hold_in`, which `pausing` and `room` judge.
+    fn goes_on_held(&mut self, run: RunId) -> bool {
         let reading = Reading::new(&self.w.records);
         let failed = self.failed.contains(&run);
-        pausing::goes_on(&mut self.verdict, &self.w.flow, &reading, run, failed)
+        pausing::goes_on(&mut self.verdict, &self.w.flow, &reading, run, failed, self.room)
+    }
+
+    /// People lift what holds the work back: the work's own pause, or, where the owner's pause of everything holds
+    /// or no slot is free, in half the acts drawn apart from the rest, that instead.
+    fn lift(&mut self) {
+        let other = (self.room.paused || !self.room.slot) && self.rooms.as_mut().is_some_and(|r| r.chance(50));
+        if !other {
+            self.toggle_pause();
+        } else if !self.room.slot {
+            self.toggle_slot();
+        } else {
+            self.toggle_everything();
+        }
+    }
+
+    fn toggle_everything(&mut self) {
+        self.room.paused = !self.room.paused;
+        let what = if self.room.paused {
+            "pauses"
+        } else {
+            "lifts the pause of"
+        };
+        self.note(format!("the owner {what} everything"));
+    }
+
+    fn toggle_slot(&mut self) {
+        self.room.slot = !self.room.slot;
+        let what = if self.room.slot {
+            "comes free"
+        } else {
+            "is taken by another work"
+        };
+        self.note(format!("the slot {what}"));
     }
 
     /// The round under way of the run ends as its agent returns: it finishes, returns with nothing, or rests at a call.
@@ -777,11 +862,15 @@ fn one_history(seed: u64, drawn: Drawn, log: &mut Vec<String>, verdict: &mut Ver
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
         for _ in 0..people_until {
             h.step(true);
-            if matches!(h.w.decide(), Decision::Ended(_)) {
+            if matches!(h.decide(), Decision::Ended(_)) {
                 break;
             }
         }
         h.note("people stop".into());
+        if h.room != Room::FREE {
+            h.note("the pause of everything is lifted, and a slot is free".into());
+            h.room = Room::FREE;
+        }
         // In a history whose rounds fail, the owner lets the work on, whoever paused it.
         if h.failing.is_some() && h.paused && !h.cancelled {
             h.toggle_pause();
@@ -793,7 +882,7 @@ fn one_history(seed: u64, drawn: Drawn, log: &mut Vec<String>, verdict: &mut Ver
                 steps += 1;
                 assert!(steps <= bound, "the work has not come to rest within {bound} steps");
             }
-            let rest = h.w.decide();
+            let rest = h.decide();
             properties::reaches(&mut h.verdict, &h.w.flow, &h.w.records, &rest, &h.moments);
         }
         properties::replay(&mut h.verdict, &h.w.flow, &h.w.records, &h.moments);
@@ -885,7 +974,11 @@ fn histories(drawn: Drawn, seeds: u64, reached: &[&str]) {
 
 #[test]
 fn random_works_keep_the_engines_properties_and_come_to_rest() {
-    histories(ANY, 800, &[properties::REACHED, pausing::REACHED].concat());
+    histories(
+        ANY,
+        800,
+        &[properties::REACHED, pausing::REACHED, room::REACHED].concat(),
+    );
 }
 
 #[test]

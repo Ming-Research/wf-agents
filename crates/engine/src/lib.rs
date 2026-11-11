@@ -14,12 +14,18 @@
 //! step, so that the owner sees the cause before the round is given again, of any run; who paused a work and why are
 //! in its records, and what is to be done is worked out from them alone, after a stop as before it.
 //!
+//! The owner's pause of everything and the slots hold back every work at once, and are the scheduler's: the loop is
+//! given them as they stand ([`decide::Room`]), and begins no round that they hold back.
+//!
 //! - [`event`]: what happens to a work, and what is to be done for it.
 //! - [`handle`](mod@handle): the loop.
+//! - [`held`](mod@held): what holds a work back, as the loop leaves it.
 
 pub mod event;
 pub mod handle;
+pub mod held;
 
 pub use event::{Came, Effect, Event, Refused};
-pub use handle::{handle, pending};
+pub use handle::{handle, handle_in, pending};
+pub use held::held;
 pub use work::{Ask, Back, Call, Given, Handed, Moment, Spent, Time, Work};

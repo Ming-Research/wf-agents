@@ -166,6 +166,7 @@ async fn a_round_that_ends_with_its_work_to_wait_is_taken_and_no_round_begins_af
         }),
         acts: Arc::new(scripted.clone()),
         tools: Arc::new(scripted),
+        slots: crate::SLOTS,
     };
     let clock = Arc::new(TokioClock::new(START));
     let (mut service, mut inbox) = Service::open(Box::new(store), vec![trial_flow()], carriers, clock).unwrap();

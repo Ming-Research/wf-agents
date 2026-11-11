@@ -13,6 +13,7 @@ fn a_failed_round_and_the_engines_pause_are_said_with_the_reason() {
     let engine = Engine::start(&place);
     engine.says(&[
         "add",
+        "--held",
         "--title",
         "Greet the user",
         "--flow",

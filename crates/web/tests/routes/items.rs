@@ -27,7 +27,7 @@ async fn the_items_are_given_each_with_its_work_in_brief() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn an_item_is_added_with_its_work_paused_and_what_it_depends_on() {
+async fn an_item_is_added_held_with_its_work_paused_and_what_it_depends_on() {
     let running = running();
     let router = &running.router;
     let item = |title: &str, on: Value| {
@@ -36,6 +36,7 @@ async fn an_item_is_added_with_its_work_paused_and_what_it_depends_on() {
             "dependsOn": on,
             "flow": "trial",
             "writes": [{ "block": "request", "content": "Please.", "value": null }],
+            "held": true,
         })
     };
     assert_eq!(

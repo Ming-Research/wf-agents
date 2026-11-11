@@ -50,6 +50,14 @@ impl Storage for Failing {
         }
         self.store.save(work, given)
     }
+
+    fn everything_paused(&self) -> Result<Option<Time>, store::Fault> {
+        self.store.everything_paused()
+    }
+
+    fn pause_everything(&mut self, paused: bool, at: Time) -> Result<(), store::Fault> {
+        self.store.pause_everything(paused, at)
+    }
 }
 
 #[tokio::test(start_paused = true)]
@@ -66,6 +74,7 @@ async fn an_act_the_engine_stopped_before_keeping_says_it_was_not_kept() {
         "dependsOn": [],
         "flow": "trial",
         "writes": [{ "block": "request", "content": "Please.", "value": null }],
+        "held": true,
     });
     assert_eq!(post(&running.router, "/api/v1/items", &item).await.0, StatusCode::OK);
     *failing.lock().unwrap() = true;

@@ -58,6 +58,7 @@ fn started_again_the_engine_goes_on_from_the_store() {
     let engine = Engine::start(&place);
     engine.says(&[
         "add",
+        "--held",
         "--title",
         "Greet the user",
         "--flow",
@@ -87,6 +88,7 @@ fn a_second_engine_on_a_data_directory_one_drives_does_not_start() {
     let engine = Engine::start(&place);
     engine.says(&[
         "add",
+        "--held",
         "--title",
         "Greet the user",
         "--flow",

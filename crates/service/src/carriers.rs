@@ -144,6 +144,9 @@ pub struct Carriers {
     /// The rounds of the cells that are the engine's own acts.
     pub acts: Arc<dyn Rounds>,
     pub tools: Arc<dyn Tools>,
+    /// How many rounds of agents may go on at once: the engine gives the agents no more than this, and the others wait
+    /// for a slot in the engine's order. The engine's own acts take none.
+    pub slots: usize,
 }
 
 impl Carriers {
@@ -324,6 +327,7 @@ mod tests {
             agents: Arc::new(Keeps(agents)),
             acts: Arc::new(Keeps(acts)),
             tools: Arc::new(NoTools),
+            slots: 1,
         }
     }
 

@@ -17,6 +17,8 @@
 //! version of it is brought to this one as it is opened, by the migrations of `migrations/`, each in its turn and all
 //! of them in one transaction with the opening, so that a database is either opened at this version or left as it was.
 //!
+//! The store also keeps what is the installation's and no work's: the owner's pause of everything, set and lifted.
+//!
 //! - `items`: the items and the works done for them.
 //! - `tables`: a work's entries, table by table.
 
@@ -44,6 +46,7 @@ pub const SCHEMA_VERSION: u32 = 3;
 const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/202611101530-say-who-paused-a-work-and-why.sql"),
     include_str!("../migrations/202611102304-give-items-a-level.sql"),
+    include_str!("../migrations/202611102311-keep-the-owners-pause-of-everything.sql"),
 ];
 
 // The migrations bring a database of every earlier version to this one.
@@ -141,6 +144,13 @@ pub trait Storage {
     /// be where the given work begins: where it holds an entry the work lacks or holds otherwise, nothing is kept and
     /// the fault says where. Saving a work the store holds whole keeps nothing.
     fn save(&mut self, work: WorkNumber, given: &Work) -> Result<(), Fault>;
+
+    /// When the owner's pause of everything began, where it holds; none where it does not, as in a store that never
+    /// kept one.
+    fn everything_paused(&self) -> Result<Option<Time>, Fault>;
+
+    /// Keeps that the owner paused everything, or lifted that pause, at this time.
+    fn pause_everything(&mut self, paused: bool, at: Time) -> Result<(), Fault>;
 }
 
 impl Store {
@@ -244,6 +254,25 @@ impl Storage for Store {
         items::known(&tx, work)?;
         tables::save(&tx, work, given)?;
         tx.commit()?;
+        Ok(())
+    }
+
+    fn everything_paused(&self) -> Result<Option<Time>, Fault> {
+        let latest = (self.db)
+            .query_row(
+                "SELECT paused, time FROM everything_paused ORDER BY n DESC LIMIT 1",
+                [],
+                |row| Ok((row.get::<_, bool>(0)?, row.get::<_, u64>(1)?)),
+            )
+            .optional()?;
+        Ok(latest.and_then(|(paused, time)| paused.then_some(Time(time))))
+    }
+
+    fn pause_everything(&mut self, paused: bool, at: Time) -> Result<(), Fault> {
+        (self.db).execute(
+            "INSERT INTO everything_paused (paused, time) VALUES (?1, ?2)",
+            rusqlite::params![paused, at.0],
+        )?;
         Ok(())
     }
 }

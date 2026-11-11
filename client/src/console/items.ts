@@ -55,6 +55,7 @@ export function standingOf(i: Item | undefined): ItemStanding {
 export function whoGives(w: Waited): 'owner' | 'architect' | null {
   if (w.kind === 'limit') return 'owner';
   if (w.kind === 'precondition') return w.by.some((m) => m.kind === 'owner') ? 'owner' : null;
+  if (w.kind === 'slot') return null;
   return w.who;
 }
 

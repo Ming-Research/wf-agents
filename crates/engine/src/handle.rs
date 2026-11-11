@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 
 use decide::run::{self, Requires, Step, Unmet};
 use decide::{
-    Abandoned, BlockId, CallId, Called, Decision, Done, Finished, LetGo, Outsider, Pause, Pauser, Returned, Round,
-    RunId, Started, Who, Write, Written, decide, hold, stale,
+    Abandoned, BlockId, CallId, Called, Decision, Done, Finished, LetGo, Outsider, Pause, Pauser, Returned, Room,
+    Round, RunId, Started, Who, Write, Written, decide, decide_in, hold_in, stale,
 };
 use flow::Compiled;
 
@@ -14,9 +14,22 @@ use crate::event::{Came, Effect, Event, Refused};
 use work::{Ask, Back, Call, Given, Moment, Time, Work};
 
 /// Takes one thing that happened to the work, at the time the driver's clock gives, and gives what is to be done for
-/// it outside the engine. Where the records cannot be those of a work nothing is given: the deciding code says so when
-/// asked.
+/// it outside the engine, were nothing outside the work to hold it back ([`Room::FREE`]). Where the records cannot be
+/// those of a work nothing is given: the deciding code says so when asked.
 pub fn handle(flow: &Compiled, work: &mut Work, now: Time, event: Event) -> Result<Vec<Effect>, Refused> {
+    handle_in(flow, work, now, event, Room::FREE)
+}
+
+/// Takes one thing that happened to the work as [`handle`] does, in the room the engine leaves the work: under the
+/// owner's pause of everything, and where no slot is free for a round that takes one, what would begin such a round
+/// waits, and everything else is done.
+pub fn handle_in(
+    flow: &Compiled,
+    work: &mut Work,
+    now: Time,
+    event: Event,
+    room: Room,
+) -> Result<Vec<Effect>, Refused> {
     let returned = match &event {
         Event::Returned { run, .. } => Some(*run),
         _ => None,
@@ -31,13 +44,14 @@ pub fn handle(flow: &Compiled, work: &mut Work, now: Time, event: Event) -> Resu
     {
         let choices = choices(flow);
         if let Some(requires) = requires(flow, &choices, work, run)
-            && let Step::Finish { writes } = run::next(&log(work, run), requires, hold(&flow.flow, &work.records, run))
+            && let Step::Finish { writes } =
+                run::next(&log(work, run), requires, hold_in(&flow.flow, &work.records, run, room))
         {
             finish(work, run, writes);
         }
     }
     let mut effects = Vec::new();
-    advance(flow, work, &mut effects);
+    advance(flow, work, room, &mut effects);
     // Everything added for this thing that happened was added now.
     if work.tick() > from {
         work.moments.push(Moment { from, at: now });
@@ -218,9 +232,9 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
 }
 
 /// Asks the deciding code what follows, and does it, until the work has a round under way, waits or has ended.
-fn advance(flow: &Compiled, work: &mut Work, effects: &mut Vec<Effect>) {
+fn advance(flow: &Compiled, work: &mut Work, room: Room, effects: &mut Vec<Effect>) {
     loop {
-        let decision = decide(&flow.flow, &work.records);
+        let decision = decide_in(&flow.flow, &work.records, room);
         let run = match decision {
             Decision::Run { cell, because, basis } => {
                 let run = RunId(work.name());
@@ -253,7 +267,7 @@ fn advance(flow: &Compiled, work: &mut Work, effects: &mut Vec<Effect>) {
                 return;
             }
         };
-        if !step(flow, work, run, effects) {
+        if !step(flow, work, run, room, effects) {
             return;
         }
     }
@@ -261,7 +275,7 @@ fn advance(flow: &Compiled, work: &mut Work, effects: &mut Vec<Effect>) {
 
 /// Does what the run does next. Says whether the deciding code is to be asked again: it is when the run finished,
 /// had its calls made or came to rest for the owner at a limit, and not when a round of it began or is held.
-fn step(flow: &Compiled, work: &mut Work, run: RunId, effects: &mut Vec<Effect>) -> bool {
+fn step(flow: &Compiled, work: &mut Work, run: RunId, room: Room, effects: &mut Vec<Effect>) -> bool {
     let choices = choices(flow);
     let Some(requires) = requires(flow, &choices, work, run) else {
         return false;
@@ -270,7 +284,7 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, effects: &mut Vec<Effect>)
         return false;
     };
     let cell = started.cell.clone();
-    let given = match run::next(&log(work, run), requires, hold(&flow.flow, &work.records, run)) {
+    let given = match run::next(&log(work, run), requires, hold_in(&flow.flow, &work.records, run, room)) {
         Step::Begin => Given::Task,
         Step::Resume => Given::Results(made(work, run, ended(work, run) - 1)),
         Step::Retry => {
@@ -337,14 +351,14 @@ fn call(work: &mut Work, run: RunId, on: Option<Who>, what: Call, effects: &mut 
 }
 
 /// The values of each block of the flow that is a choice.
-fn choices(flow: &Compiled) -> BTreeMap<BlockId, Vec<String>> {
+pub(crate) fn choices(flow: &Compiled) -> BTreeMap<BlockId, Vec<String>> {
     (flow.blocks.iter())
         .filter_map(|(block, declared)| declared.values.clone().map(|values| (block.clone(), values)))
         .collect()
 }
 
 /// What the flow requires of what the run's cell hands in; none where the run's cell is not in the flow.
-fn requires<'a>(
+pub(crate) fn requires<'a>(
     flow: &'a Compiled,
     choices: &'a BTreeMap<BlockId, Vec<String>>,
     work: &Work,
@@ -363,7 +377,7 @@ fn requires<'a>(
 }
 
 /// The run so far, as the deciding code reads it.
-fn log(work: &Work, run: RunId) -> run::Log {
+pub(crate) fn log(work: &Work, run: RunId) -> run::Log {
     let returned = |i: usize, b: &Back| match b {
         Back::Asked(asks) => run::Return::Asked {
             asked: asks.len(),

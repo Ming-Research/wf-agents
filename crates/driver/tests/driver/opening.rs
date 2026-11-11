@@ -9,7 +9,7 @@ use super::*;
 /// Opens a driver on the file with these flows, through a store that does not fail.
 fn open_with(db: &Db, flows: Vec<flow::Compiled>) -> Opened {
     let (store, _) = Failing::new(db.open());
-    Driver::open(Box::new(store), flows, Time(START))
+    Driver::open(Box::new(store), flows, SLOTS, Time(START))
 }
 
 #[test]
@@ -178,10 +178,10 @@ fn a_store_that_fails_as_the_driver_opens_is_the_fault_and_opening_again_gives_w
             n: at,
             on: false,
         };
-        let opened = Driver::open(Box::new(store), flows(), Time(h.clock));
+        let opened = Driver::open(Box::new(store), flows(), SLOTS, Time(h.clock));
         assert_eq!(opened.err(), Some(Fault::Store(failure())), "the call {at} failed");
         let (store, _) = Failing::new(h.db.open());
-        let (_, todos) = Driver::open(Box::new(store), flows(), Time(h.clock)).expect("the driver opens");
+        let (_, todos) = Driver::open(Box::new(store), flows(), SLOTS, Time(h.clock)).expect("the driver opens");
         assert_eq!(todos, pending, "opened after the call {at} failed");
     }
     h.check();

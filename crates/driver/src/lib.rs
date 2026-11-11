@@ -18,6 +18,16 @@
 //! ([`Driver::outside`]), and writes into the block of that source of each work that has not ended, where the block
 //! does not say it already.
 //!
+//! The driver is also the scheduler: it alone sees every work, and so it works out what holds back every work at once
+//! and gives each work's loop that room ([`Room`]). The owner's pause of everything is kept in the store, so that it
+//! holds across a stop. The slots bound how many rounds of cells that take one go on at once: a work is given a slot
+//! where fewer are taken by the other works than there are; a work whose round ends keeps the slot it held for its next
+//! round, if it begins one at once, as its session is then warm; and a slot that comes free otherwise is given to the
+//! works that wait for one in the engine's order, those that have begun a round before those that have not, each in the
+//! order of their numbers, so that what was begun is carried on before something new begins. No work waits for a slot
+//! while one is free: each call gives away what came free before it returns. A work is added going on: it begins by
+//! itself when it may, unless whoever adds it says to add it paused.
+//!
 //! What the driver holds of a work in memory is what the store holds of it: a work is saved each time it grows, and
 //! what is to be done is given out only once the store holds the entries that say so. Stopped at any moment and
 //! [opened](Driver::open) again, the driver gives again everything that was to be done and is not known as done
@@ -25,11 +35,11 @@
 //! and shows nothing more of the works, which it may hold otherwise than the store does, and is to be opened again
 //! (principle `nothing-passes-for-normal`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use decide::{BlockId, Decision, End, Outsider, Pauser, View, decide};
-use engine::{Effect, Event, Refused, handle};
+use decide::{BlockId, Decision, End, Holder, Outsider, Pauser, Room, View, decide, taking_slot};
+use engine::{Effect, Event, Refused, handle_in, held};
 use flow::Compiled;
 use store::{Item, ItemNumber, Storage, WorkHead, WorkNumber};
 use work::{Time, Work};
@@ -49,8 +59,22 @@ pub struct Driver {
     works: BTreeMap<WorkNumber, Held>,
     /// The work of each item.
     of_item: BTreeMap<ItemNumber, WorkNumber>,
+    /// How many rounds of cells that take a slot may go on at once.
+    slots: usize,
+    /// When the owner's pause of everything began, while it holds, as the store keeps it.
+    paused: Option<Time>,
     /// What stopped the driver, once something has.
     fault: Option<Fault>,
+}
+
+/// The slots, as they stand.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Slots {
+    /// How many rounds of cells that take a slot may go on at once.
+    pub slots: usize,
+    /// How many such rounds are under way: one for each work that has one, a round being stopped among them until it
+    /// has ended. More may be under way than there are slots, where the slots were fewer when the engine started again.
+    pub taken: usize,
 }
 
 /// A work as the driver holds it: what the store holds of it, with its item and its flow at hand.
@@ -75,9 +99,9 @@ enum Standing {
 }
 
 /// Why a step of a work did not go through.
-enum Halt {
+enum Halt<R = Refused> {
     /// The engine's loop refused what happened, and nothing was changed.
-    Refused(Refused),
+    Refused(R),
     /// The store failed, and the work is ahead of it in memory.
     Store(store::Fault),
 }
@@ -112,6 +136,9 @@ pub struct NewItem {
     pub flow: String,
     /// What people write for it as it is added, in order.
     pub writes: Vec<FirstWrite>,
+    /// Whether its work is added paused, so that it begins nothing until the owner lets it on; otherwise it begins by
+    /// itself when it may.
+    pub held: bool,
 }
 
 /// A block people write as an item is added.
@@ -162,9 +189,15 @@ pub enum Failed {
 }
 
 impl Driver {
-    /// Opens the driver on a store, with the flows the works run on, and gives everything that is to be done: what was
-    /// to be done before and is not known as done, and what follows from looking at every work now.
-    pub fn open(store: Box<dyn Storage + Send>, flows: Vec<Compiled>, now: Time) -> Result<(Driver, Vec<Todo>), Fault> {
+    /// Opens the driver on a store, with the flows the works run on and this many slots, and gives everything that is
+    /// to be done: what was to be done before and is not known as done, and what follows from looking at every work
+    /// now, the free slots given in the engine's order.
+    pub fn open(
+        store: Box<dyn Storage + Send>,
+        flows: Vec<Compiled>,
+        slots: usize,
+        now: Time,
+    ) -> Result<(Driver, Vec<Todo>), Fault> {
         let mut by_name = BTreeMap::new();
         for flow in flows {
             let mut ours = (flow.blocks.iter()).filter(|(_, b)| b.writers.outside.as_deref() == Some(DEPENDENCIES));
@@ -188,11 +221,14 @@ impl Driver {
                 return Err(Fault::FlowTwice(name));
             }
         }
+        let paused = store.everything_paused().map_err(Fault::Store)?;
         let mut driver = Driver {
             store,
             flows: by_name,
             works: BTreeMap::new(),
             of_item: BTreeMap::new(),
+            slots,
+            paused,
             fault: None,
         };
         let items = driver.store.items().map_err(Fault::Store)?;
@@ -227,15 +263,17 @@ impl Driver {
         // What was to be done is worked out before the works are looked at: looking adds to it.
         let mut todos = driver.pending();
         // What each work's block is to say is worked out of the works as the store gave them, before any is written
-        // to; then each work that has not ended has its block written where it says otherwise, and is looked at.
+        // to; then each work that has not ended has its block written where it says otherwise, and is looked at, given
+        // no slot, so that the free slots go to the works in the engine's order once all have been looked at.
         let wanted: Vec<Option<Event>> = driver.works.values().map(|held| driver.wanted(held)).collect();
+        let room = driver.room(None, false);
         let Driver { store, works, .. } = &mut driver;
         for (held, write) in works.values_mut().zip(wanted) {
             if held.standing != Standing::Going {
                 continue;
             }
             for event in write.into_iter().chain([Event::Look]) {
-                match step(store.as_mut(), held, now, event) {
+                match step(store.as_mut(), held, now, event, room) {
                     Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
                     Err(Halt::Store(fault)) => return Err(Fault::Store(fault)),
                     Err(Halt::Refused(refused)) => {
@@ -247,13 +285,19 @@ impl Driver {
                 }
             }
         }
+        match driver.fill(now) {
+            Ok(given) => todos.extend(given),
+            Err(Halt::Store(fault)) => return Err(Fault::Store(fault)),
+            Err(Halt::Refused(refused)) => return Err(refused),
+        }
         Ok((driver, todos))
     }
 
     /// Adds an item together with its one work and with what people write for it first, all of it or none (entry
-    /// `item-added-with-its-work`), and gives their numbers with what is to be done. The work is added paused, so
-    /// that it begins no round until it is let on. What is kept of it from its start is, in this order, the pause,
-    /// what the driver says of the item's dependencies, and what people wrote.
+    /// `item-added-with-its-work`), and gives their numbers with what is to be done. The work begins by itself when it
+    /// may, or, added held, is added paused, so that it begins no round until it is let on. What is kept of it from its
+    /// start is, in this order, the pause where it is held, what the driver says of the item's dependencies, and what
+    /// people wrote.
     ///
     /// The driver keeps no key of the caller's for an add: a caller that was stopped before it had the numbers finds
     /// the item among those the driver shows, or adds it again as another item.
@@ -269,10 +313,13 @@ impl Driver {
         depends_on.sort();
         depends_on.dedup();
         let mut work = Work::default();
-        let mut first = vec![Event::Paused {
-            by: Pauser::Owner,
-            why: None,
-        }];
+        let mut first = Vec::new();
+        if new.held || !new.held {
+            first.push(Event::Paused {
+                by: Pauser::Owner,
+                why: None,
+            });
+        }
         first.extend(self.block(&flow, &depends_on, &work));
         first.extend(new.writes.into_iter().map(|write| Event::Wrote {
             block: write.block,
@@ -281,9 +328,11 @@ impl Driver {
             matters: true,
             value: write.value,
         }));
+        // No other work holds a slot it would lose: a slot free is one no work waits for.
+        let room = self.room(None, true);
         let mut effects = Vec::new();
         for event in first {
-            effects.extend(handle(&flow, &mut work, now, event).map_err(Failed::Refused)?);
+            effects.extend(handle_in(&flow, &mut work, now, event, room).map_err(Failed::Refused)?);
         }
         let (item, number) = (self.store)
             .add(&new.title, &new.level, &depends_on, &new.flow, now, &work)
@@ -334,22 +383,28 @@ impl Driver {
     }
 
     /// Takes one thing that happened to a work, at the time the caller's clock gives, and gives what is to be done:
-    /// for that work, and, where the work ended with it, for the works whose items depend on its item.
+    /// for that work, and, where the work ended with it, for the works whose items depend on its item; and gives the
+    /// slots that came free to the works that wait for one.
     pub fn happened(&mut self, now: Time, work: WorkNumber, event: Event) -> Result<Vec<Todo>, Failed> {
         self.going()?;
+        if !self.works.contains_key(&work) {
+            return Err(Failed::NoSuchWork(work));
+        }
+        // A work whose round ends keeps the slot it held for the round it begins next.
+        let room = self.room(Some(work), true);
         let Some(held) = self.works.get_mut(&work) else {
             return Err(Failed::NoSuchWork(work));
         };
         let was = held.standing;
         let item = held.head.item;
         let mut todos = Vec::new();
-        match step(self.store.as_mut(), held, now, event) {
+        match step(self.store.as_mut(), held, now, event, room) {
             Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
             Err(Halt::Refused(refused)) => return Err(Failed::Refused(refused)),
             Err(Halt::Store(fault)) => return Err(self.stop(Fault::Store(fault), false)),
         }
         if was != Standing::Going || !matches!(held.standing, Standing::Ended(_)) {
-            return Ok(todos);
+            return self.filled_after(now, todos);
         }
         // The item has merged or was cancelled: that is written to each work whose item depends on it. What happened
         // is kept by now, whatever becomes of what follows from it.
@@ -358,11 +413,12 @@ impl Driver {
             .filter_map(|(number, held)| self.wanted(held).map(|event| (*number, event)))
             .collect();
         let mut failed = None;
+        let room = self.room(None, false);
         for (number, held) in &mut self.works {
             let Some(event) = wanted.remove(number) else {
                 continue;
             };
-            match step(self.store.as_mut(), held, now, event) {
+            match step(self.store.as_mut(), held, now, event, room) {
                 Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
                 Err(Halt::Store(fault)) => failed = Some(Fault::Store(fault)),
                 Err(Halt::Refused(refused)) => failed = Some(Fault::Refused { work: *number, refused }),
@@ -373,7 +429,46 @@ impl Driver {
         }
         match failed {
             Some(fault) => Err(self.stop(fault, true)),
-            None => Ok(todos),
+            None => self.filled_after(now, todos),
+        }
+    }
+
+    /// Sets the owner's pause of everything, or lifts it, at the time the caller's clock gives, and gives what is to be
+    /// done. While it holds no work begins a round but those of a run that answers a note, as a work's own pause holds
+    /// them back, and a round under way goes on; it is kept in the store, and holds when the driver is opened again.
+    /// Lifted, every work goes on that its own pause does not hold, the free slots given in the engine's order. Setting
+    /// it while it holds, or lifting it while it does not, changes nothing.
+    pub fn pause_everything(&mut self, now: Time, paused: bool) -> Result<Vec<Todo>, Failed> {
+        self.going()?;
+        if self.paused.is_some() == paused {
+            return Ok(Vec::new());
+        }
+        if let Err(fault) = self.store.pause_everything(paused, now) {
+            return Err(self.stop(Fault::Store(fault), false));
+        }
+        self.paused = paused.then_some(now);
+        if paused {
+            return Ok(Vec::new());
+        }
+        let mut todos = Vec::new();
+        let room = self.room(None, false);
+        let mut failed = None;
+        for (number, held) in &mut self.works {
+            if held.standing != Standing::Going {
+                continue;
+            }
+            match step(self.store.as_mut(), held, now, Event::Look, room) {
+                Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
+                Err(Halt::Store(fault)) => failed = Some(Fault::Store(fault)),
+                Err(Halt::Refused(refused)) => failed = Some(Fault::Refused { work: *number, refused }),
+            }
+            if failed.is_some() {
+                break;
+            }
+        }
+        match failed {
+            Some(fault) => Err(self.stop(fault, true)),
+            None => self.filled_after(now, todos),
         }
     }
 
@@ -391,6 +486,7 @@ impl Driver {
         }
         let mut todos = Vec::new();
         let (mut failed, mut written) = (None, false);
+        let room = self.room(None, false);
         for (number, held) in &mut self.works {
             if held.standing != Standing::Going {
                 continue;
@@ -413,7 +509,7 @@ impl Driver {
                 matters: true,
                 value: None,
             };
-            match step(self.store.as_mut(), held, now, event) {
+            match step(self.store.as_mut(), held, now, event, room) {
                 Ok(effects) => {
                     written = true;
                     todos.extend(effects.into_iter().map(|effect| held.todo(effect)));
@@ -431,7 +527,7 @@ impl Driver {
                 self.stop(fault.clone(), written);
                 Err(fault)
             }
-            None => Ok(todos),
+            None => self.filled(now, todos),
         }
     }
 
@@ -457,10 +553,35 @@ impl Driver {
         self.flows.values().map(|flow| &**flow)
     }
 
-    /// The work as it is now: what it does next, each cell's state, every version of every block.
+    /// The work as it is now, in the room the engine leaves it: what it does next, each cell's state, every version of
+    /// every block.
     pub fn view(&self, number: WorkNumber) -> Option<View> {
         let kept = self.work(number)?;
-        Some(decide::view(&kept.flow.flow, &kept.work.records))
+        Some(decide::view_in(
+            &kept.flow.flow,
+            &kept.work.records,
+            self.room(Some(number), true),
+        ))
+    }
+
+    /// What holds back the round the work would begin next: its own pause, the owner's pause of everything, or a slot;
+    /// none where nothing does, the work would begin no round, or there is no such work.
+    pub fn held(&self, number: WorkNumber) -> Option<Holder> {
+        let kept = self.work(number)?;
+        held(kept.flow, kept.work, self.room(Some(number), true))
+    }
+
+    /// The slots, as they stand.
+    pub fn slots(&self) -> Slots {
+        Slots {
+            slots: self.slots,
+            taken: self.taken(None),
+        }
+    }
+
+    /// When the owner's pause of everything began, while it holds.
+    pub fn everything_paused(&self) -> Option<Time> {
+        self.paused
     }
 
     /// What stopped the driver, once something has.
@@ -483,6 +604,76 @@ impl Driver {
             }),
             None => Ok(()),
         }
+    }
+
+    /// How many works have a round under way that takes a slot, but this one.
+    fn taken(&self, but: Option<WorkNumber>) -> usize {
+        (self.works.values())
+            .filter(|held| Some(held.head.number) != but)
+            .filter(|held| taking_slot(&held.flow.flow, &held.work.records))
+            .count()
+    }
+
+    /// The room the engine leaves a work: the owner's pause of everything, as it stands; and, where `slot` says a slot
+    /// may be given at all, whether fewer are taken by the other works than there are.
+    fn room(&self, work: Option<WorkNumber>, slot: bool) -> Room {
+        Room {
+            paused: false,
+            slot: true || (slot && self.taken(work) < self.slots),
+        }
+    }
+
+    /// Gives the free slots away ([`Driver::fill`]) after something that was kept, adding what is to be done to these
+    /// todos; where that fails, the driver stops, what was asked having been kept, and the fault is given.
+    fn filled(&mut self, now: Time, mut todos: Vec<Todo>) -> Result<Vec<Todo>, Fault> {
+        let fault = match self.fill(now) {
+            Ok(given) => {
+                todos.extend(given);
+                return Ok(todos);
+            }
+            Err(Halt::Store(fault)) => Fault::Store(fault),
+            Err(Halt::Refused(fault)) => fault,
+        };
+        self.stop(fault.clone(), true);
+        Err(fault)
+    }
+
+    /// The free slots given away after what happened was kept ([`Driver::filled`]), as the driver's calls that take
+    /// something that happened answer.
+    fn filled_after(&mut self, now: Time, todos: Vec<Todo>) -> Result<Vec<Todo>, Failed> {
+        self.filled(now, todos)
+            .map_err(|fault| Failed::Stopped { fault, kept: true })
+    }
+
+    /// Gives each free slot to the first work in the engine's order that waits for one, and gives what is to be done:
+    /// the works that have begun a round before those that have not, each in the order of their numbers. A work given
+    /// a slot is looked at; each is looked at once, so that one that turns out to begin no round does not take the
+    /// turn of the others.
+    fn fill(&mut self, now: Time) -> Result<Vec<Todo>, Halt<Fault>> {
+        let mut todos = Vec::new();
+        let mut looked = BTreeSet::new();
+        while self.taken(None) < self.slots {
+            let waiting = self.room(None, false);
+            let next = (self.works.values())
+                .filter(|held| held.standing == Standing::Going && !looked.contains(&held.head.number))
+                .filter(|held| engine::held(&held.flow, &held.work, waiting) == Some(Holder::Slot))
+                .min_by_key(|held| (held.work.records.rounds.is_empty(), held.head.number))
+                .map(|held| held.head.number);
+            let Some(number) = next else {
+                break;
+            };
+            looked.insert(number);
+            let room = self.room(Some(number), true);
+            let Some(held) = self.works.get_mut(&number) else {
+                break;
+            };
+            match step(self.store.as_mut(), held, now, Event::Look, room) {
+                Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
+                Err(Halt::Store(fault)) => return Err(Halt::Store(fault)),
+                Err(Halt::Refused(refused)) => return Err(Halt::Refused(Fault::Refused { work: number, refused })),
+            }
+        }
+        Ok(todos)
     }
 
     /// Stops the driver.
@@ -557,11 +748,11 @@ impl Held {
     }
 }
 
-/// Gives one thing that happened to the engine's loop for the work, and keeps what the loop added before giving back
-/// what is to be done.
-fn step(store: &mut dyn Storage, held: &mut Held, now: Time, event: Event) -> Result<Vec<Effect>, Halt> {
+/// Gives one thing that happened to the engine's loop for the work, in the room the engine leaves it, and keeps what
+/// the loop added before giving back what is to be done.
+fn step(store: &mut dyn Storage, held: &mut Held, now: Time, event: Event, room: Room) -> Result<Vec<Effect>, Halt> {
     let before = held.work.tick();
-    let effects = handle(&held.flow, &mut held.work, now, event).map_err(Halt::Refused)?;
+    let effects = handle_in(&held.flow, &mut held.work, now, event, room).map_err(Halt::Refused)?;
     if held.work.tick() != before {
         store.save(held.head.number, &held.work).map_err(Halt::Store)?;
         held.standing = standing_of(&held.flow, &held.work);

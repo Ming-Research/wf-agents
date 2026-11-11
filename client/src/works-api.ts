@@ -17,6 +17,8 @@
 // - `GET  /api/v1/works/{work}/calls/{call}`: a call with its result (`CallPage`).
 // - `POST /api/v1/works/{work}/acts`: what the owner does to a work (`Act`); answers with no content, or with why it
 //   was refused (`Refusal`) and a status of 4xx.
+// - `GET  /api/v1/engine`: the engine as a whole, its slots and the owner's pause of everything (`Engine`).
+// - `POST /api/v1/engine/acts`: what the owner does to the engine as a whole (`EngineAct`); answers as an act on a work.
 // - `GET  /api/v1/changes`: a stream of server-sent events, one each time something happened (`Changed`), on which a
 //   page reads again what it shows.
 
@@ -25,8 +27,9 @@ import type { Flow } from './api';
 
 export type Person = 'owner' | 'architect';
 
-/// Who paused a work: the owner, or the engine itself, as when a round failed or the work spent more than it may.
-export type Pauser = 'owner' | 'engine';
+/// Who paused a work: the owner, or the engine itself, as when a round failed or the work spent more than it may; or,
+/// of what a work does now, the owner's pause of everything, which the owner lifts for every work at once.
+export type Pauser = 'owner' | 'engine' | 'everything';
 
 /// The limit a run reached.
 export type Limit = { of: 'returns'; sentBack: number } | { of: 'calls'; made: number };
@@ -49,7 +52,10 @@ export type Waited =
   /// by writing a block that keeps it from holding.
   | { kind: 'precondition'; test: string; words: string; by: Maker[] }
   /// The cell's last runs, this many in a row, were each for what a cell after it wrote.
-  | { kind: 'limit'; runs: number };
+  | { kind: 'limit'; runs: number }
+  /// A free slot: as many rounds of agents are under way as the engine has slots, and it gives the next that comes free
+  /// in its order.
+  | { kind: 'slot' };
 
 /// What a work does now.
 export type Now =
@@ -364,11 +370,24 @@ export interface NewItem {
   /// The level it is given; with none, the level the installation adds an item at where it is given none.
   level?: string | null;
   dependsOn: number[];
-  /// The flow its work runs on. The work is added paused, and begins no round until it is let on.
+  /// The flow its work runs on.
   flow: string;
   /// What is written for it as it is added, each a block people write.
   writes: { block: string; content: string; value: string | null }[];
+  /// Whether its work is added paused, beginning no round until it is let on; it goes on by itself where this is left
+  /// out.
+  held?: boolean;
 }
+
+/// The engine as a whole: its slots, and when the owner's pause of everything began, while it holds.
+export interface Engine {
+  slots: number;
+  taken: number;
+  paused: number | null;
+}
+
+/// What the owner does to the engine as a whole: pauses everything, or lifts that pause.
+export type EngineAct = { kind: 'pause' } | { kind: 'resume' };
 
 export interface Added {
   item: number;
@@ -415,3 +434,5 @@ export const loadLevels = () => read<Levels>('/api/v1/levels');
 export const act = (work: number, what: Act) => send<null>(`/api/v1/works/${work}/acts`, what);
 export const addItem = (item: NewItem) => send<Added>('/api/v1/items', item);
 export const setLevel = (item: number, level: string) => send<LevelSet>(`/api/v1/items/${item}/level`, { level });
+export const loadEngine = () => read<Engine>('/api/v1/engine');
+export const actOnEngine = (what: EngineAct) => send<null>('/api/v1/engine/acts', what);

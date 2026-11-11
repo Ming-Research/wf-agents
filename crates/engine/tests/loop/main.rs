@@ -18,6 +18,7 @@ mod pausing;
 mod pending;
 mod rebuilt;
 mod refused;
+mod room;
 mod times;
 
 use std::collections::BTreeMap;
