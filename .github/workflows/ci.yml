@@ -162,6 +162,27 @@ jobs:
       # To read the logs of the run's other jobs.
       actions: read
     steps:
+      # The ten slowest tests of the run, read from the JUnit the jobs of the tests kept, in the run's summary and its
+      # log: what a test costs, for whoever adds one. It never makes the check red.
+      - name: The slowest tests
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'junit-*' --dir "$RUNNER_TEMP/junit"
+          python3 -I - "$RUNNER_TEMP/junit" <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          import pathlib, sys, xml.etree.ElementTree as ET
+          rows = []
+          for path in sorted(pathlib.Path(sys.argv[1]).rglob("*.xml")):
+              for case in ET.parse(path).iter("testcase"):
+                  rows.append((float(case.get("time") or 0), f"{case.get('classname')} {case.get('name')}"))
+          rows.sort(key=lambda r: -r[0])
+          print(f"### The ten slowest of the {len(rows)} Rust tests\n")
+          print("| Seconds | Test |")
+          print("|---:|---|")
+          for time, name in rows[:10]:
+              print(f"| {time:.1f} | `{name}` |")
+          EOF
       - name: Every other job passed
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
