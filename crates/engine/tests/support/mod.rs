@@ -96,8 +96,8 @@ pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String
 /// Whether the run started for what a person wrote: one of its reasons is a block that a person wrote since its cell
 /// last ran, after the version its cell's record knew, and before the run started; for a cell with no record, a block
 /// the run started from. A cell no run of which started before has not run. Read from the records alone; it does not
-/// ask whether the write changed the block's meaning, nor, with no record, whether the cell reads the block, so it is a
-/// little wider than the rule.
+/// ask whether the block is a note, whether the write changed its meaning, nor, with no record, whether the cell reads
+/// it, so it is wider than the rule.
 pub fn for_a_person(records: &Records, run: RunId) -> bool {
     let r = records;
     let Some(started) = r.started.iter().find(|s| s.run == run) else {

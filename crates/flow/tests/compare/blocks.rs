@@ -2,8 +2,8 @@
 
 use flow::{BlockChange, CellChange, Change, FLOW_FILE};
 
-use crate::from_valid;
 use crate::support::{edit, valid};
+use crate::{compiled, from_valid};
 
 fn of(block: &str, change: BlockChange) -> Change {
     Change::Block {
@@ -79,6 +79,22 @@ fn a_block_s_values_who_writes_it_besides_cells_and_whether_it_is_shown_are_each
                 },
             ),
         ]
+    );
+}
+
+#[test]
+fn a_block_that_becomes_a_note_or_stops_being_one_is_a_change() {
+    let noted = edit(
+        valid(),
+        FLOW_FILE,
+        "[blocks.opinions]\npeople = true\n",
+        "[blocks.opinions]\npeople = true\nnote = true\n",
+    );
+    let note = |before, after| of("opinions", BlockChange::Note { before, after });
+    assert_eq!(from_valid(&noted), [note(false, true)]);
+    assert_eq!(
+        flow::compare(&compiled(&noted), &compiled(&valid())),
+        [note(true, false)]
     );
 }
 

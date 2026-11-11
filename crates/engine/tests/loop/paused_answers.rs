@@ -1,4 +1,4 @@
-//! A paused work still answers what a person writes for a cell: the run that starts for it has every round it needs,
+//! A paused work still answers a note, a person's words to a cell: the run that starts for it has every round it needs,
 //! its calls made and its returns sent back, and finishes while the work stays paused; what it wrote then waits for
 //! the work to be let on. A round of it that fails is given again only once the work is let on.
 
@@ -60,6 +60,18 @@ fn a_run_for_what_a_person_wrote_during_a_pause_has_its_rounds_and_calls_and_fin
     let effects = w.on(Event::Resumed);
     let judge = w.work.records.started.last().expect("a run").run;
     assert_eq!(effects, vec![round_effect(judge, "judge", 1, Given::Task)]);
+}
+
+#[test]
+fn a_request_a_person_writes_during_a_pause_is_no_note_and_waits_for_the_work_to_be_let_on() {
+    let (mut w, ..) = ran_and_paused();
+    let (effects, request) = w.person_writes("request");
+    assert_eq!(effects, vec![]);
+    assert_eq!(w.decision(), decide::Decision::Paused);
+    let effects = w.on(Event::Resumed);
+    let again = w.work.records.started.last().expect("a run").run;
+    assert_eq!(effects, vec![round_effect(again, "write", 1, Given::Task)]);
+    assert_eq!(start_of(&w, again).1[&BlockId::from("request")], Some(request));
 }
 
 #[test]

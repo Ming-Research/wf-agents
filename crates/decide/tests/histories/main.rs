@@ -38,8 +38,8 @@
 //!   rest, a round before the third of a cell other than the merge fails in twelve in a hundred: it ends with nothing
 //!   come back and the engine pauses the work with the reason, as the engine's loop does; people let the work on as
 //!   from any pause, and once they stop the owner lets the work on, whoever paused it.
-//! - the engine: while the work is paused, a run at rest has its next round only where it started for what a person
-//!   wrote and its last round did not fail (`pausing`), as the engine's loop gives it.
+//! - the engine: while the work is paused, a run at rest has its next round only where it started for a note a person
+//!   wrote, the brief, and its last round did not fail (`pausing`), as the engine's loop gives it by `decide::hold`.
 //!
 //! A second test draws only the sixth shape, with people acting in the first 0 to 99 steps: its judge then runs while
 //! the cell it judges is skipped, over what a person wrote for that cell, and the cell runs again afterwards, which
@@ -94,7 +94,7 @@ const SKIPPED_JUDGED: Drawn = Drawn {
     people: 100,
 };
 
-/// The block only people write.
+/// The block only people write, a note: a person's words to the cells that read it.
 const BRIEF: &str = "brief";
 
 /// The block whose value a condition reads.
@@ -282,6 +282,7 @@ impl History {
         } else {
             World::with_gate(cells)
         };
+        w.notes(&[BRIEF]);
         if rng.chance(40) || judged.is_some() {
             w.says(GATE, true);
         }

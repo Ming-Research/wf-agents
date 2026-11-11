@@ -4,9 +4,9 @@
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoned, Abandoning, CallId, Called, Cell, CellId, Condition, Decision, Done, Finished, Flow, LetGo, Outsider,
-    Pause, Pauser, Records, Returned, Round, RunId, Seq, Started, Test, TestKind, TestName, Waited, Who, Write,
-    Written, decide,
+    Abandoned, Abandoning, BlockId, CallId, Called, Cell, CellId, Condition, Decision, Done, Finished, Flow, LetGo,
+    Outsider, Pause, Pauser, Records, Returned, Round, RunId, Seq, Started, Test, TestKind, TestName, Waited, Who,
+    Write, Written, decide,
 };
 
 /// The owner's word of this name: a named test of the choice of the same name, which people write, that holds unless
@@ -62,6 +62,8 @@ pub struct World {
     pub records: Records,
     /// The named tests given beside those of the owner's word, which [`World::install`] keeps.
     tests: BTreeMap<TestName, Test>,
+    /// The blocks that are notes, which [`World::install`] keeps.
+    notes: Vec<BlockId>,
     seq: u64,
     ids: u64,
 }
@@ -113,6 +115,7 @@ impl World {
             flow,
             records: Records::default(),
             tests,
+            notes: Vec::new(),
             seq: 0,
             ids: 0,
         }
@@ -125,9 +128,17 @@ impl World {
         Self::new(cells)
     }
 
-    /// Installs a changed flow over the same records, with the same named tests.
+    /// Installs a changed flow over the same records, with the same named tests and notes.
     pub fn install(&mut self, cells: Vec<Cell>) {
-        self.flow = Flow::new(cells.clone(), tests_for(&cells, &self.tests)).expect("the cells make a flow");
+        let flow = Flow::new(cells.clone(), tests_for(&cells, &self.tests)).expect("the cells make a flow");
+        self.flow = flow.with_notes(self.notes.clone());
+    }
+
+    /// Makes these blocks notes: what a person writes in them are their words to the cells that read them, which a
+    /// paused work still answers.
+    pub fn notes(&mut self, blocks: &[&str]) {
+        self.notes = blocks.iter().map(|b| (*b).into()).collect();
+        self.flow = self.flow.clone().with_notes(self.notes.clone());
     }
 
     pub fn tick(&mut self) -> Seq {

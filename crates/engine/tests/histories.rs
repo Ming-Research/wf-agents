@@ -79,7 +79,8 @@ fn flow_file(order: &[&str], blocks: &BTreeSet<&str>) -> String {
     let declared: String = (blocks.iter())
         .map(|b| {
             let who = match *b {
-                "request" | "opinions" => "people = true\n",
+                "request" => "people = true\n",
+                "opinions" => "people = true\nnote = true\n",
                 "choice" => "values = [\"yes\", \"no\"]\npeople = true\n",
                 "main" => "outside = \"main\"\n",
                 _ => "",

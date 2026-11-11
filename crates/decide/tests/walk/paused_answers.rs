@@ -1,20 +1,22 @@
-//! A paused work still answers what a person writes for a cell: while it is paused, a run starts only for a cell one
-//! of whose reasons is a change of a block it reads that a person made since the cell last ran: since the run of its
+//! A paused work still answers a note, a person's words to a cell: while it is paused, a run starts only for a cell
+//! one of whose reasons is a change of a note it reads that a person made since the cell last ran: since the run of its
 //! record started, or with no record since its latest run started; a cell no run of which has started waits. Nothing
-//! else starts, the order of the walk is kept, and what that run writes waits for the work to be let on.
+//! else starts, whatever else a person writes, the order of the walk is kept, and what that run writes waits for the
+//! work to be let on.
 
 use decide::run::Hold;
 
 use super::*;
 
-/// A research that reads the background, the outside's main and what a person says to it, and an implementation that
-/// reads the plan and what a person says to it; both ran once. Returns the plan and the code.
+/// A research that reads the background, which people write, the outside's main and a note to it, and an
+/// implementation that reads the plan and a note to it; both ran once. Returns the plan and the code.
 fn ran() -> (World, Seq, Seq) {
     let cells = vec![
         cell("research", &["background", "main", "to research"], &["plan"]),
         cell("implement", &["plan", "main", "to implement"], &["code"]),
     ];
     let mut w = World::with_gate(cells);
+    w.notes(&["to research", "to implement"]);
     w.person_writes("background");
     let plan = w.run("research", &[("plan", Matters)]);
     let code = w.run("implement", &[("code", Matters)]);
@@ -38,6 +40,23 @@ fn a_paused_work_runs_a_cell_for_what_a_person_wrote_to_it_since_it_last_ran() {
                 ("to implement", Some(to)),
                 ("code", Some(code))
             ]
+        )
+    );
+}
+
+#[test]
+fn a_paused_work_does_not_answer_what_a_person_wrote_that_is_no_note() {
+    let (mut w, ..) = ran();
+    w.pause();
+    w.person_writes("background");
+    assert_eq!(w.decide(), Decision::Paused);
+    // A note besides it is answered, and the run is for both.
+    w.person_writes("to research");
+    assert_eq!(
+        reasons(&w.decide()),
+        (
+            "research".into(),
+            vec![("background".into(), false), ("to research".into(), false)]
         )
     );
 }
@@ -103,21 +122,23 @@ fn a_cell_whose_reasons_include_what_a_person_wrote_and_more_runs_while_the_work
 }
 
 #[test]
-fn a_cell_that_never_ran_waits_for_the_work_to_be_let_on_though_a_person_wrote_what_it_reads() {
-    let mut w = World::with_gate(vec![cell("research", &["background"], &["plan"])]);
+fn a_cell_that_never_ran_waits_for_the_work_to_be_let_on_though_a_person_wrote_a_note_it_reads() {
+    let mut w = World::with_gate(vec![cell("research", &["to research"], &["plan"])]);
+    w.notes(&["to research"]);
     w.pause();
-    w.person_writes("background");
+    w.person_writes("to research");
     // It runs because it has no record: the work, added paused, begins nothing before it is let on.
     assert_eq!(w.decide(), Decision::Paused);
 }
 
-/// A research that ran once, and an implementation of the plan that reads what a person says to it, whose first run
-/// has started: the plan and that run.
+/// A research that ran once, and an implementation of the plan that reads a note to it, whose first run has started:
+/// the plan and that run.
 fn implementing() -> (World, Seq, RunId) {
     let mut w = World::with_gate(vec![
         cell("research", &["background"], &["plan"]),
         cell("implement", &["plan", "to implement"], &["code"]),
     ]);
+    w.notes(&["to implement"]);
     w.person_writes("background");
     let plan = w.run("research", &[("plan", Matters)]);
     let run = w.start("implement");
@@ -163,30 +184,32 @@ fn a_cell_whose_first_round_was_under_way_as_a_person_wrote_to_it_runs_again_whi
 }
 
 #[test]
-fn a_paused_work_does_not_answer_what_a_person_wrote_before_the_cell_last_ran_that_a_changed_flow_gives_it() {
+fn a_paused_work_does_not_answer_a_note_written_before_the_cell_last_ran_that_a_changed_flow_gives_it() {
     let mut w = World::with_gate(vec![cell("implement", &["plan"], &["code"])]);
-    w.person_writes("background");
+    w.notes(&["to implement"]);
+    w.person_writes("to implement");
     w.person_writes("plan");
     w.run("implement", &[("code", Matters)]);
     w.pause();
-    // The changed flow gives the implementation the background, which a person wrote before it last ran.
-    w.install(vec![cell("implement", &["plan", "background"], &["code"]), gate()]);
+    // The changed flow gives the implementation the note, which a person wrote before it last ran.
+    w.install(vec![cell("implement", &["plan", "to implement"], &["code"]), gate()]);
     assert_eq!(w.decide(), Decision::Paused);
     // Written again by a person, it is answered.
-    w.person_writes("background");
+    w.person_writes("to implement");
     assert_eq!(
         reasons(&w.decide()),
-        ("implement".into(), vec![("background".into(), false)])
+        ("implement".into(), vec![("to implement".into(), false)])
     );
 }
 
 #[test]
-fn a_pause_holds_back_the_rounds_of_a_run_started_for_what_a_person_wrote_before_the_cell_last_ran() {
+fn a_pause_holds_back_the_rounds_of_a_run_started_for_a_note_written_before_the_cell_last_ran() {
     let mut w = World::with_gate(vec![cell("implement", &["plan"], &["code"])]);
-    w.person_writes("background");
+    w.notes(&["to implement"]);
+    w.person_writes("to implement");
     w.person_writes("plan");
     w.run("implement", &[("code", Matters)]);
-    w.install(vec![cell("implement", &["plan", "background"], &["code"]), gate()]);
+    w.install(vec![cell("implement", &["plan", "to implement"], &["code"]), gate()]);
     let run = w.start("implement");
     w.returns("implement");
     w.pause();
@@ -221,8 +244,9 @@ fn a_pause_holds_back_every_round_of_a_run_for_what_no_person_wrote() {
     w.returns("research");
     w.pause();
     assert_eq!(decide::hold(&w.flow, &w.records, research), Hold::Rounds);
-    let mut first = World::with_gate(vec![cell("research", &["background"], &["plan"])]);
-    first.person_writes("background");
+    let mut first = World::with_gate(vec![cell("research", &["to research"], &["plan"])]);
+    first.notes(&["to research"]);
+    first.person_writes("to research");
     let run = first.start("research");
     first.returns("research");
     first.pause();
@@ -230,13 +254,15 @@ fn a_pause_holds_back_every_round_of_a_run_for_what_no_person_wrote() {
 }
 
 #[test]
-fn a_persons_confirmation_of_a_choice_runs_nothing_while_the_work_is_paused() {
+fn a_persons_choice_runs_nothing_while_the_work_is_paused() {
     let (mut w, _) = chosen();
     w.pause();
     // A person writes the choice as it stands: its meaning does not change, and no cell has a reason to run.
     w.person_confirms("choice", "yes");
     assert_eq!(w.decide(), resting());
-    // Changed by the person, the choice is a reason of the cell that reads it, which runs.
+    // Changed by the person, the choice is a reason of the cell that reads it, and no note: it waits.
     w.person_sets("choice", "no");
+    assert_eq!(w.decide(), Decision::Paused);
+    w.resume();
     assert_eq!(reasons(&w.decide()), ("use".into(), vec![("choice".into(), false)]));
 }
