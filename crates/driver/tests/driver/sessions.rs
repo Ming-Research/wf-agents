@@ -373,6 +373,66 @@ fn the_limit_ends_no_session_at_a_return_sent_back_nor_at_the_round_of_the_cell_
 }
 
 #[test]
+fn a_flagged_round_of_a_store_kept_before_sessions_were_recorded_has_its_line_begin_a_new_session_as_it_opens() {
+    let mut s = S::new();
+    s.hands_in(100, true);
+    s.hands_in(100, true);
+    let (review, cell) = s.round();
+    assert_eq!(cell, "review");
+    s.began();
+    let spent = Spent {
+        input_tokens: 10,
+        context_tokens: Some(100),
+        ..Default::default()
+    };
+    s.on(Event::Failed {
+        run: review,
+        why: "the safeguards flagged this message".to_string(),
+        failure: decide::run::Failure::Flagged,
+        resets: None,
+        spent,
+    });
+    assert_eq!(s.sessions(), [("review".to_string(), Why::Flagged)]);
+    // The review is tried again in the new session, and waits there on a tool's result.
+    assert_eq!(s.round().0, review);
+    s.asks(100);
+    let reopen = |s: &mut S| {
+        let (driver, _) = Driver::open(
+            Box::new(s.db.open()),
+            vec![s.flow.clone()],
+            SLOTS,
+            Some(policy("opus")),
+            Time(s.clock),
+        )
+        .unwrap();
+        s.driver = driver;
+    };
+    reopen(&mut s);
+    assert_eq!(
+        s.sessions().len(),
+        1,
+        "a flagged round a recorded session follows begins no other"
+    );
+    // As a store kept before sessions were recorded holds it: the session the review went on in after its flagged
+    // round was counted from the failures alone, and neither it nor what the rounds ran on is recorded.
+    let db = rusqlite::Connection::open(&s.db.path).unwrap();
+    db.execute_batch("DELETE FROM sessions; DELETE FROM ran;").unwrap();
+    drop(db);
+    reopen(&mut s);
+    assert_eq!(s.sessions(), [("review".to_string(), Why::Flagged)]);
+    let call = s.kept().records.called.last().expect("the review's call").call;
+    s.on(Event::Done {
+        call,
+        result: "the code".to_string(),
+    });
+    assert_eq!(s.round().0, review);
+    // The review's next round does not go on in the session its round was flagged in: it begins the new one, and is
+    // told what its run was doing.
+    assert_eq!(of_round(s.kept(), "review", |r| r == review, review, 3), (1, true));
+    assert!(moved(s.kept(), "review", review, 3));
+}
+
+#[test]
 fn a_line_with_no_cell_that_reads_the_block_begins_its_new_session_with_no_write() {
     let mut s = S::new();
     s.hands_in(100, true);

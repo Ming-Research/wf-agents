@@ -11,8 +11,8 @@
 //! size would load it again without end. A new session for any other reason begins at once, and a round whose run ran
 //! in the session before is told what the run was doing.
 //!
-//! Whatever the policy, a line whose last round the service's safety check flagged begins a new session, in which that
-//! round is tried again, so that the check is not given the same context.
+//! Whatever the policy, a line a round of whose session the service's safety check flagged begins a new session, in
+//! which that round is tried again, so that the check is not given the same context.
 //!
 //! Nothing follows for a work that has ended. Without a policy, nothing more is worked out, and only what others record
 //! is followed: whatever records a new session, the driver then writes the work's [`SESSION`] block, where the line has a
@@ -169,19 +169,22 @@ fn begun_since(work: &Work, line: &str, run: RunId, number: usize) -> bool {
     began.is_some_and(|began| of_line(work, line).any(|s| s.why.own_id() && s.at > began))
 }
 
-/// Whether the line's last round failed as one the service's safety check flagged, in the session the line is in.
+/// Whether a round of the line failed as one the service's safety check flagged, in the session the line is in. A
+/// new session follows each flagged round as soon as it is taken, so that round is the line's last; any of them is
+/// looked at, since a store kept before new sessions were recorded holds flagged rounds that no recorded session
+/// follows, the line having gone on in a session of its own that only the failures counted: its line begins a new
+/// session as the store is opened, which holds nothing of that one and is told what a session that begins is told.
 fn flagged(flow: &Compiled, work: &Work, line: &str) -> bool {
-    let Some((run, number)) = last_ended(flow, work, line) else {
-        return false;
-    };
-    let flagged = matches!(
-        work.back.get(&(run, number)),
-        Some(Back::Failed {
-            failure: Failure::Flagged,
-            ..
-        })
-    );
-    flagged && !begun_since(work, line, run, number)
+    (work.back.iter()).any(|(&(run, number), back)| {
+        let flagged = matches!(
+            back,
+            Back::Failed {
+                failure: Failure::Flagged,
+                ..
+            }
+        );
+        flagged && line_of_run(flow, work, run) == Some(line) && !begun_since(work, line, run, number)
+    })
 }
 
 /// The context the line's last round ended with, where it was past the limit in the session the line is in, and the
