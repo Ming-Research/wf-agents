@@ -205,6 +205,65 @@ pub(crate) async fn uncommitted(dir: &Path) -> Result<String, String> {
     git(dir, &["status", "--porcelain"]).await
 }
 
+/// Who the commits the engine makes are by: the merges of main into a work's branch that the check makes.
+const ENGINE: [&str; 2] = ["user.name=wf-agents", "user.email=wf-agents@localhost"];
+
+/// The address of the engine's identity, by which a commit of its own is known.
+const ENGINE_EMAIL: &str = "wf-agents@localhost";
+
+/// The words the engine's merge of main into a work's branch begins and ends with.
+fn taking_in(name: &str, main: &str) -> String {
+    format!("Merge {name} at {main} into the work's branch")
+}
+
+/// Merges main's head into the branch checked out in the worktree, which merges it without a conflict, as a commit
+/// of the engine's, and gives the branch's head after it and whether it made that commit; where the branch holds
+/// main's head already, its head as it is, so that a merge done before the engine stopped is not done again. `name`
+/// is the main branch's name.
+pub(crate) async fn take_in(dir: &Path, main: &str, name: &str) -> Result<(String, bool), String> {
+    if said(dir, &["merge-base", "--is-ancestor", main, "HEAD"]).await?.ok {
+        // The engine's own merge of this main, made by a check that stopped before it was recorded, is still the
+        // engine's: a merge of main by the engine's identity.
+        let head = git(dir, &["log", "-1", "--format=%H %ae %P", "HEAD"]).await?;
+        let words: Vec<&str> = head.split(' ').collect();
+        let ours = matches!(words.as_slice(), [_, email, _, merged] if *email == ENGINE_EMAIL && *merged == main);
+        return Ok((words[0].to_string(), ours));
+    }
+    let with = With {
+        settings: ENGINE.map(str::to_string).to_vec(),
+        env: Vec::new(),
+    };
+    let message = taking_in(name, main);
+    let args = ["merge", "--no-ff", "--no-edit", "-m", &message, main];
+    if let Err(why) = git_with(dir, &with, &args).await {
+        if said(dir, &["rev-parse", "--quiet", "--verify", "MERGE_HEAD"]).await?.ok {
+            let _ = git(dir, &["merge", "--abort"]).await;
+        }
+        return Err(why);
+    }
+    Ok((git(dir, &["rev-parse", "HEAD"]).await?, true))
+}
+
+/// Whether a merge is under way in the worktree, begun and not committed: by an agent, or by the engine before it
+/// stopped. Only whoever began it can tell what it holds, so the engine never takes one back.
+pub(crate) async fn merging(dir: &Path) -> Result<bool, String> {
+    Ok(said(dir, &["rev-parse", "--quiet", "--verify", "MERGE_HEAD"]).await?.ok)
+}
+
+/// That the worktree is on the work's branch, or why it is not: what the engine commits there must go on the branch.
+pub(crate) async fn on_branch(place: &Place) -> Result<(), String> {
+    let on = said(&place.dir, &["symbolic-ref", "--quiet", "HEAD"]).await?;
+    if on.ok && on.out == place.reference() {
+        return Ok(());
+    }
+    let at = if on.ok { on.out } else { "no branch".to_string() };
+    Err(format!(
+        "the worktree {} is on {at}, not on the work's branch {}: the check commits nothing there",
+        place.dir.display(),
+        place.reference()
+    ))
+}
+
 /// The files of a conflict between the commit and main's head, worked out without changing anything; none where the
 /// commit merges into main cleanly.
 pub(crate) async fn conflicts(project: &Project, main: &str, commit: &str) -> Result<Option<String>, String> {
