@@ -12,9 +12,10 @@
 //!
 //! A pause of the work changes none of this order. It holds back the run the walk comes to, unless one of that run's
 //! reasons is a change a person made, since the cell last ran (since its latest run started, the run of its record
-//! where it has one), of a block the cell reads: a paused work still answers what a person writes for a cell, and
-//! begins nothing else. Such a run has its rounds while the work is paused
-//! ([`hold`]), and once it has finished what it wrote waits, as anything else does, for the work to be let on.
+//! where it has one), of a note the cell reads: a paused work holds everything it would do by itself, still answers a
+//! note, a person's words to a cell, and lets nothing else a person writes pass. Such a run has its rounds while the
+//! work is paused ([`hold`]), and once it has finished what it wrote waits, as anything else does, for the work to be
+//! let on.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -31,9 +32,9 @@ pub enum Decision {
     Ended(End),
     /// A round of this run is under way: nothing is decided until it ends, unless the work is cancelled.
     Busy { cell: CellId, run: RunId },
-    /// The work is paused, and what it would do next is run a cell none of whose reasons is a change a person made:
-    /// that run waits for the work to be let on. A cell one of whose reasons is such a change runs as if the work were
-    /// not paused, and what begins no run is decided so too: a run at rest goes on, rests or is abandoned.
+    /// The work is paused, and what it would do next is run a cell none of whose reasons is a change of a note a person
+    /// made: that run waits for the work to be let on. A cell one of whose reasons is such a change runs as if the work
+    /// were not paused, and what begins no run is decided so too: a run at rest goes on, rests or is abandoned.
     Paused,
     /// The cell runs: why, and the version of each block it reads or may write that the run starts from. The engine
     /// records the run as started with exactly these.
@@ -161,9 +162,9 @@ pub fn decide(flow: &Flow, records: &Records) -> Decision {
         if !on.is_empty() {
             return wait(on);
         }
-        // A pause holds back the run, unless it is for what a person wrote: everything before this is decided whether
+        // A pause holds back the run, unless it is for a note a person wrote: everything before this is decided whether
         // or not the work is paused.
-        if paused(records) && !walk.for_a_person(i, &because, None) {
+        if paused(records) && !walk.for_a_note(i, &because, None) {
             return Decision::Paused;
         }
         return Decision::Run {
@@ -184,8 +185,8 @@ pub fn stale(flow: &Flow, records: &Records, run: RunId) -> Option<Abandoning> {
 }
 
 /// What the pause of the work holds back of the run's rounds: nothing where the work is not paused; where it is, only
-/// the round after one that failed, of a run one of whose reasons was a change a person made, for the engine paused the
-/// work as that round failed so that the owner sees why first; and every round of any other run.
+/// the round after one that failed, of a run one of whose reasons was a change of a note a person made, for the engine
+/// paused the work as that round failed so that the owner sees why first; and every round of any other run.
 pub fn hold(flow: &Flow, records: &Records, run: RunId) -> Hold {
     if !paused(records) {
         return Hold::Nothing;
@@ -195,7 +196,7 @@ pub fn hold(flow: &Flow, records: &Records, run: RunId) -> Hold {
         return Hold::Rounds;
     };
     match flow.place(&r.started.cell) {
-        Some(i) if walk.for_a_person(i, &r.started.because, Some(r.started.at)) => Hold::Retry,
+        Some(i) if walk.for_a_note(i, &r.started.because, Some(r.started.at)) => Hold::Retry,
         _ => Hold::Rounds,
     }
 }
@@ -511,11 +512,11 @@ impl<'a> Walk<'a> {
     }
 
     /// Whether one of these reasons of a run of the cell at this place, which starts at `before` (now where `None`), is
-    /// a change of meaning a person made since the cell last ran: of a block the cell reads, written after the start of
+    /// a change of meaning a person made since the cell last ran: of a note the cell reads, written after the start of
     /// the run of its record, or with no record after the start of its latest run, after the version the record knew,
     /// and before `before`. A cell no run of which has started has not run, and answers no one: a work added paused
     /// begins nothing.
-    fn for_a_person(&self, i: usize, because: &[Cause], before: Option<Seq>) -> bool {
+    fn for_a_note(&self, i: usize, because: &[Cause], before: Option<Seq>) -> bool {
         let cell = &self.flow.cells()[i];
         let earlier = |at: Seq| before.is_none_or(|before| at < before);
         let of_cell = || (self.runs.values()).filter(|r| r.started.cell == cell.id && earlier(r.started.at));
@@ -529,13 +530,14 @@ impl<'a> Walk<'a> {
             return false;
         };
         let by_person = |block: &BlockId, was: Option<Seq>| {
-            (self.versions(block).iter()).any(|v| {
-                v.meaning == v.at
-                    && v.outsider == Some(Outsider::Person)
-                    && v.at > since
-                    && Some(v.at) > was
-                    && earlier(v.at)
-            })
+            self.flow.is_note(block)
+                && (self.versions(block).iter()).any(|v| {
+                    v.meaning == v.at
+                        && v.outsider == Some(Outsider::Person)
+                        && v.at > since
+                        && Some(v.at) > was
+                        && earlier(v.at)
+                })
         };
         because.iter().any(|cause| match cause {
             Cause::NoRecord => cell.inputs.iter().any(|block| by_person(block, None)),

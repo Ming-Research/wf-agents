@@ -93,8 +93,8 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Pauses a work: no round of it begins but those of a run that answers what a person wrote for its cell, and the
-    /// one under way ends.
+    /// Pauses a work: no round of it begins but those of a run that answers a note, a person's words to its cell, and
+    /// the one under way ends.
     Pause {
         work: u64,
         #[command(flatten)]
@@ -317,6 +317,7 @@ fn words(what: &FaultKind) -> String {
         F::AgentHasAct { act } => format!("an agent carries the cell out, but the cell names the act \"{act}\""),
         F::UnknownAct { act } => format!("the engine has no act named \"{act}\""),
         F::ValuesEmpty => "a choice has no values to choose from".to_string(),
+        F::NoteNotByPeople { block } => format!("{block} is a note, but people do not write it"),
         F::NoSuchBlock { block } => format!("the block {block} is not declared in flow.toml"),
         F::NotAnOutput { block } => {
             format!("the cell must write {block} every time, but {block} is not among the blocks it may write")

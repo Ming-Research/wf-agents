@@ -102,20 +102,28 @@ shown = true
 # What the owner says to each cell on the page: blocks only people write.
 [blocks.opinions_context]
 people = true
+note = true
 [blocks.opinions_research]
 people = true
+note = true
 [blocks.opinions_deep_research]
 people = true
+note = true
 [blocks.opinions_plan_review]
 people = true
+note = true
 [blocks.opinions_implement]
 people = true
+note = true
 [blocks.opinions_review]
 people = true
+note = true
 [blocks.opinions_testing]
 people = true
+note = true
 [blocks.opinions_check]
 people = true
+note = true
 
 # What each cell answers to what the owner said to it, for the owner to read on the page: only that cell writes it, and
 # no cell reads it.

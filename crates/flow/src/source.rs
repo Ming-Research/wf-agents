@@ -94,6 +94,10 @@ pub struct BlockFile {
     /// People write the block.
     #[serde(default)]
     pub people: bool,
+    /// The block is a note: what people write in it are their words to the cells that read it, which a paused work
+    /// still answers. Only a block people write is one.
+    #[serde(default)]
+    pub note: bool,
     /// The source outside the work that writes the block, where one does: a name of a source the engine has.
     pub outside: Option<String>,
     /// The owner's page reads the block, so it needs no other reader.

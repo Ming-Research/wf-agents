@@ -32,7 +32,7 @@ export function test(name: string, words: string, kind: TestKind, reads: string[
 
 /// What a block is besides who of the cells and the tests writes and reads it; `outside` names the source outside
 /// the work that writes it.
-export type Declared = Partial<{ values: string[]; people: boolean; outside: string; shown: boolean }>;
+export type Declared = Partial<{ values: string[]; people: boolean; note: boolean; outside: string; shown: boolean }>;
 
 /// The flow of these cells in this order, with these blocks, and the named tests the cells use.
 export function flowOf(cells: Cell[], blocks: Record<string, Declared>, name = 'small'): Flow {
@@ -46,6 +46,7 @@ export function flowOf(cells: Cell[], blocks: Record<string, Declared>, name = '
       writtenBy: {
         cells: cells.filter((c) => c.outputs.includes(b)).map((c) => c.id),
         people: blocks[b].people ?? false,
+        note: blocks[b].note ?? false,
         outside: blocks[b].outside ?? null,
       },
       readBy: {

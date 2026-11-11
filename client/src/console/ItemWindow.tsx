@@ -226,7 +226,7 @@ function Acts({ paused, act }: { paused: boolean; act: (what: Act) => Promise<un
         </Button>
       ) : (
         <Button
-          title="Only what a person writes for a cell is answered; a round under way goes on"
+          title="Only a note to a cell is answered; a round under way goes on"
           disabled={waiting}
           onClick={() => void send({ kind: 'pause' })}
         >

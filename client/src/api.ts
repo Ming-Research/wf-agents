@@ -64,7 +64,8 @@ export interface Block {
   /// The values of a choice; none for a block that is not one.
   values: string[] | null;
   /// `outside`: the source outside the work that writes it; none where the outside does not.
-  writtenBy: { cells: string[]; people: boolean; outside: string | null };
+  /// `note`: what people write in it is a note, their words to the cells that read it.
+  writtenBy: { cells: string[]; people: boolean; note: boolean; outside: string | null };
   /// `tests`: the named tests that read its value, by name. `shown`: the owner's page reads it.
   readBy: { cells: string[]; conditions: string[]; tests: string[]; shown: boolean };
 }
@@ -97,6 +98,7 @@ export type What =
   | { kind: 'agentHasAct'; act: string }
   | { kind: 'unknownAct'; act: string }
   | { kind: 'valuesEmpty' }
+  | { kind: 'noteNotByPeople'; block: string }
   | { kind: 'noSuchBlock'; block: string }
   /// The cell must write the block each time, and it is not among its outputs.
   | { kind: 'notAnOutput'; block: string }
@@ -163,6 +165,7 @@ export type Change =
   | { kind: 'blockRemoved'; block: string }
   | { kind: 'values'; block: string; before: string[] | null; after: string[] | null }
   | { kind: 'people'; block: string; before: boolean; after: boolean }
+  | { kind: 'note'; block: string; before: boolean; after: boolean }
   | { kind: 'outside'; block: string; before: string | null; after: string | null }
   | { kind: 'shown'; block: string; before: boolean; after: boolean };
 

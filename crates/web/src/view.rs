@@ -157,6 +157,8 @@ pub struct WrittenBy {
     /// The cells that may write it, in the order of the walk.
     pub cells: Vec<String>,
     pub people: bool,
+    /// What people write in it is a note: their words to the cells that read it.
+    pub note: bool,
     /// The source outside the work that writes it; none where the outside does not.
     pub outside: Option<String>,
 }
@@ -223,6 +225,10 @@ pub enum What {
         act: String,
     },
     ValuesEmpty,
+    /// The block is a note, and people do not write it.
+    NoteNotByPeople {
+        block: String,
+    },
     NoSuchBlock {
         block: String,
     },
@@ -433,6 +439,11 @@ pub enum Change {
         before: bool,
         after: bool,
     },
+    Note {
+        block: String,
+        before: bool,
+        after: bool,
+    },
     Outside {
         block: String,
         before: Option<String>,
@@ -507,6 +518,7 @@ impl Flow {
                 written_by: WrittenBy {
                     cells: names(&block.writers.cells),
                     people: block.writers.people,
+                    note: block.writers.note,
                     outside: block.writers.outside.clone(),
                 },
                 read_by: ReadBy {
@@ -619,6 +631,7 @@ impl What {
             F::AgentHasAct { act } => What::AgentHasAct { act },
             F::UnknownAct { act } => What::UnknownAct { act },
             F::ValuesEmpty => What::ValuesEmpty,
+            F::NoteNotByPeople { block } => What::NoteNotByPeople { block },
             F::NoSuchBlock { block } => What::NoSuchBlock { block },
             F::NotAnOutput { block } => What::NotAnOutput { block },
             F::NoWriter { block } => What::NoWriter { block },
@@ -802,6 +815,7 @@ impl Change {
                 after: after.clone(),
             },
             &BlockChange::People { before, after } => Change::People { block, before, after },
+            &BlockChange::Note { before, after } => Change::Note { block, before, after },
             BlockChange::Outside { before, after } => Change::Outside {
                 block,
                 before: before.clone(),

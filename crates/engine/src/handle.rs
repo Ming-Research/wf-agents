@@ -182,7 +182,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
             }
             // The round has ended, failed, and what it took is kept. Of a run that goes on, the failure is kept as
             // what came of the round, and the work is paused with its reason in the same moment, so that the round is
-            // not given again before the owner has seen it, and nothing begins but what answers a person. Of a run
+            // not given again before the owner has seen it, and nothing begins but what answers a note. Of a run
             // that was abandoned it is dropped, as what came back is.
             let kept = open(work, run);
             let at = work.tick();

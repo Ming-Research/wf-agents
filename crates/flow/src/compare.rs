@@ -121,6 +121,8 @@ pub enum BlockChange {
     },
     /// Whether people write it.
     People { before: bool, after: bool },
+    /// Whether what people write in it is a note, their words to the cells that read it.
+    Note { before: bool, after: bool },
     /// The source outside the work that writes it; none where the outside does not.
     Outside {
         before: Option<String>,
@@ -437,6 +439,10 @@ fn blocks(before: &BTreeMap<BlockId, Block>, after: &BTreeMap<BlockId, Block>, c
         let (before, after) = (b.writers.people, a.writers.people);
         if before != after {
             found.push(BlockChange::People { before, after });
+        }
+        let (before, after) = (b.writers.note, a.writers.note);
+        if before != after {
+            found.push(BlockChange::Note { before, after });
         }
         let (before, after) = (&b.writers.outside, &a.writers.outside);
         if before != after {

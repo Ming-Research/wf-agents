@@ -8,8 +8,8 @@
 //! Doing those, and saying when they are done, is the work of whatever drives the engine; [`pending`] gives again what
 //! was to be done and is not yet known as done, for a driver that starts anew (principle `effects-known-as-done`).
 //!
-//! A pause of the work holds back only what would begin a round, and not the rounds of a run that answers what a person
-//! wrote for its cell: that run starts, and goes on to its end, while the work stays paused. A round may fail: it ends
+//! A pause of the work holds back only what would begin a round, and not the rounds of a run that answers a note, a
+//! person's words to its cell: that run starts, and goes on to its end, while the work stays paused. A round may fail: it ends
 //! as any round does, nothing having come back, and the engine pauses its work with the reason in the same step, so
 //! that the owner sees the cause before the round is given again, of any run; who paused a work and why are in its
 //! records, and what is to be done is worked out from them alone, after a stop as before it.

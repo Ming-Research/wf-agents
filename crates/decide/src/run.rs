@@ -11,7 +11,7 @@
 //! run has its next round, given what the failed round was given. A failure counts against no limit: only the owner's
 //! letting the work on repeats it.
 //!
-//! A pause of the work holds back the rounds of a run, unless the run started for what a person wrote: such a run has
+//! A pause of the work holds back the rounds of a run, unless the run started for a note a person wrote: such a run has
 //! every round it needs while the work is paused, but the round after one that failed, which still waits for the work
 //! to be let on.
 //!
@@ -138,9 +138,9 @@ pub enum Unmet {
 pub enum Hold {
     /// Nothing: the work is not paused.
     Nothing,
-    /// Only the round after one that failed: the work is paused, and the run started for what a person wrote.
+    /// Only the round after one that failed: the work is paused, and the run started for a note a person wrote.
     Retry,
-    /// Every round: the work is paused, and the run did not start for what a person wrote.
+    /// Every round: the work is paused, and the run did not start for a note a person wrote.
     Rounds,
 }
 

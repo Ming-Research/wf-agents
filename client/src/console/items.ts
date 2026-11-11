@@ -18,7 +18,7 @@ export type ItemStanding = 'open' | 'done' | 'cancelled';
 export type ShownWork = {
   number: number;
   now: Now;
-  /// Only what a person writes for a cell is answered; a round under way goes on.
+  /// Only a note to a cell is answered; a round under way goes on.
   paused: boolean;
   cells: CellNow[];
   from: number;
