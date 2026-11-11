@@ -21,7 +21,3 @@ Why: The whole CI took three to five minutes a check on GitHub's machines, and a
 ### decision before-the-change-without-a-fast-ci
 Where the project has no fast CI, the check before the change waits for the whole CI on its branch rather than being refused.
 Why: Refused, such a project's tests would have no evidence of red before the change and green after it, and the system would serve only projects with a fast CI (Article 1).
-
-### decision a-check-is-not-tried-again
-A check that could not be run, because its CI never started, took too long or the host could not be reached, says why in its result once and is not run again by the engine; the agent may ask again.
-Why: Its CI does not start because it is waited for again, and three tries of such a wait once spent half an hour for nothing; the agent who asked can tell whether to ask again, within the calls its run is allowed.

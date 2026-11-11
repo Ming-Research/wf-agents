@@ -280,7 +280,6 @@ pub const CI_FILES: &str = ".github";
 /// workflow GitHub refuses to run with the commit's own; none where they are the commit's already. Made by the engine,
 /// at the commit's time, so that it is the same commit each time it is made of the same; nothing changes in the
 /// worktree.
-#[allow(dead_code)]
 pub(crate) async fn with_main_ci(project: &Project, commit: &str, main: &str) -> Result<Option<String>, String> {
     let repo = &project.repo;
     let index = std::env::temp_dir().join(format!("wf-agents-main-ci-{}.index", Uuid::new_v4().simple()));

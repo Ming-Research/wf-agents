@@ -148,6 +148,47 @@ impl<H> Tools<H> {
     }
 }
 
+/// How many times a check that could not be run is tried before why is said: a host that could not be reached, a
+/// run that never started or never ended, may do better the next time, and each try that fails is said. What the
+/// host refused, it said as a result, and is not tried again.
+const ATTEMPTS: u32 = 3;
+
+/// The wait before the second try, and how much longer each next one waits; short in the tests.
+const BETWEEN: std::time::Duration = if cfg!(test) {
+    std::time::Duration::from_millis(10)
+} else {
+    std::time::Duration::from_secs(5)
+};
+
+/// The check `$call` makes with the stop given, tried up to [`ATTEMPTS`] times while it could not be run; none where
+/// it was told to stop. Brought over from the old engine's `attempts` (`crates/engine/src/tools.rs` on main).
+macro_rules! tried {
+    ($stop:ident, |$given:ident| $call:expr) => {{
+        let mut failed = Vec::new();
+        let mut done = None;
+        for n in 1..=ATTEMPTS {
+            let $given: &mut Stop = &mut *$stop;
+            match $call.await {
+                Err(why) => failed.push(format!("try {n}: {why}")),
+                other => {
+                    done = Some(other);
+                    break;
+                }
+            }
+            if n < ATTEMPTS {
+                tokio::select! {
+                    () = tokio::time::sleep(BETWEEN * n) => {}
+                    () = $stop.told() => {
+                        done = Some(Ok(None));
+                        break;
+                    }
+                }
+            }
+        }
+        done.unwrap_or_else(|| Err(format!("tried {ATTEMPTS} times; {}", failed.join("; "))))
+    }};
+}
+
 /// Runs the tool named, other than `read`, on the work's branch, with this input, and gives its result.
 async fn answer(
     host: &impl Host,
@@ -161,7 +202,7 @@ async fn answer(
         (CHECK | CHECK_BEFORE, Err(why)) => Ok(Some(why)),
         (CHECK, Ok(asked)) if !asked.files.is_empty() => Ok(Some(FILES_BEFORE.to_string())),
         (CHECK, Ok(asked)) => {
-            let said = host.check(branch, &asked.named, stop).await;
+            let said = tried!(stop, |stop| host.check(branch, &asked.named, stop));
             said.map_err(|why| format!("The check could not be run: {why}"))
         }
         (CHECK_BEFORE, Ok(asked)) => before(host, project, branch, &asked, stop).await,
@@ -242,7 +283,7 @@ async fn before(
         Err(why) => return Ok(Some(why)),
     };
     let what = made_of(project, &before);
-    let said = host.check_before(branch, &before, &asked.named, stop).await;
+    let said = tried!(stop, |stop| host.check_before(branch, &before, &asked.named, stop));
     let said = said.map_err(|why| format!("{what}\n\n{}", could_not(why)))?;
     Ok(said.map(|said| format!("{what}\n\n{said}")))
 }
@@ -518,6 +559,27 @@ mod tests {
             "{said}"
         );
         assert_eq!(answered_with(&repo, CHECK, "file: a.rs", &[]).await, FILES_BEFORE);
+    }
+
+    #[tokio::test]
+    async fn a_check_that_could_not_be_run_is_tried_three_times_and_each_try_is_said() {
+        let repo = Repo::new("true");
+        let host = crate::host::fake::Fake::new("main");
+        let place = repo.place(WORK);
+        let branch = Branch {
+            work: WORK,
+            title: "Greet the user",
+            place: &place,
+        };
+        let said = match answer(&host, &repo.project, &branch, CHECK, "", &mut Stop::never()).await {
+            Answer::Result(said) => said,
+            Answer::Withdrawn => panic!("nothing withdrew it"),
+        };
+        let why = "the fake host checks nothing for the agents' tools";
+        assert_eq!(
+            said,
+            format!("The check could not be run: tried 3 times; try 1: {why}; try 2: {why}; try 3: {why}")
+        );
     }
 
     #[test]

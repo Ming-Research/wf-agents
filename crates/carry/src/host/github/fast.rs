@@ -4,13 +4,9 @@
 //! the workflow's runs on the commit by being newer than those there were, each test's own result and time read from
 //! the run's JUnit, and main's CI files where GitHub refuses to run the workflow with the branch's own.
 //!
-//! Not built yet: the tests come first.
-//!
 //! What is said of a run: each test named, with what became of it and how long it ran, and what a failed one said;
 //! each check named; and, for a job that failed with nothing named to say why (a unit that did not compile, say), what
 //! its log says of the failure. What a test or a log said shares the bytes a check's output is given.
-
-#![allow(dead_code, unused_imports)]
 
 use super::api::{Api, Check, Outcome, Run};
 use super::results::{self, Became, Case};
@@ -73,8 +69,34 @@ impl<A: Api> GitHub<A> {
         named: &Named,
         stop: &mut Stop,
     ) -> Result<Option<String>, String> {
-        let _ = (branch, fast, on, commit, named, stop);
-        Err("not built yet".to_string())
+        let refused = match self.dispatched(fast, on, commit, named, stop).await? {
+            Ok(Some(ran)) => return Ok(Some(self.said(fast, commit, &ran, named, None).await)),
+            Ok(None) => return Ok(None),
+            Err(refused) => refused,
+        };
+        let main = self.kept_main();
+        let Some(with) = git::with_main_ci(&self.project, commit, &main).await? else {
+            return Err(format!("GitHub refused to run {}: {refused}", fast.workflow));
+        };
+        let reference = format!("refs/heads/{MAIN_CI}/{}-{}", branch.place.branch, short(&with));
+        let name = reference.trim_start_matches("refs/heads/").to_string();
+        let _held = self.in_use.hold(&reference).await;
+        self.sweep(branch).await?;
+        self.push_to(&with, &reference, true).await?;
+        let ran = self.dispatched(fast, &name, &with, named, stop).await;
+        let taken = self.push_to("", &reference, false).await;
+        let ran = ran?;
+        taken?;
+        let note = format!(
+            "GitHub refused to run {} with the CI files of {on} ({refused}), so it ran with main's: on the commit {with}, \
+             which is {commit} with main's CI files",
+            fast.workflow
+        );
+        match ran {
+            Ok(Some(ran)) => Ok(Some(self.said(fast, commit, &ran, named, Some(&note)).await)),
+            Ok(None) => Ok(None),
+            Err(again) => Err(format!("{note}, and GitHub refused that too: {again}")),
+        }
     }
 
     /// Runs the workflow by hand on the branch and waits for the run it made on the commit, with its jobs and its
