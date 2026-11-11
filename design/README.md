@@ -26,7 +26,7 @@
    to rule 3. A change that makes a decision untrue rewrites or deletes it in the same work, and an entry found to
    fail rule 3 is deleted by the work that finds it. The files of decisions hold only what the code on the branch the
    works merge into does. A direction for the whole system is a principle; a design for one component that the code
-   does not yet follow waits in `pending-design.md`.
+   does not yet follow waits in `pending.md`.
 
 5. A principle and a decision are each a few lines, in one form, a principle under `### principle <name>`:
 

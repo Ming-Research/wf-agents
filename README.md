@@ -4,8 +4,8 @@ wf-agents runs coding agents through a defined flow.
 
 - `design/`: the design tree. [design/README.md](design/README.md) says how it is read and changed; `constitution.md`
   holds what wf-agents is for and the values its decisions come from; `principles/` holds the principles each kind of
-  decision follows; `decisions/` holds the decisions of each ability or component, by area.
-- `pending-design.md`: designs not yet true of the code, each entering the tree with the change that makes it true.
+  decision follows; `decisions/` holds the decisions of each ability or component, by area; `pending.md` holds designs
+  not yet true of the code, each entering the tree with the change that makes it true.
 - `research/`: what a work's research made for its problem beside the tests: data, code, probes and notes, with what
   was measured and how to measure it again.
 - `crates/`: the engine's Rust crates. `crates/wf-agents` is the `wf-agents` command; `wf-agents flow page <dir>` serves
