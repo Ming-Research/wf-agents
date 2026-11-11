@@ -67,6 +67,9 @@ pub fn arguments(
         .iter()
         .map(|a| a.to_string())
         .collect();
+    if let Some(effort) = &ran.effort {
+        args.extend(["--effort".to_string(), effort.clone()]);
+    }
     args.extend(["--append-system-prompt".to_string(), protocol.to_string()]);
     args.extend(["--json-schema".to_string(), schema.to_string()]);
     args.extend(["--setting-sources".to_string(), agents.setting_sources.clone()]);

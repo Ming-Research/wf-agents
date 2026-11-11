@@ -94,8 +94,8 @@ impl Levels {
             None => self.default,
             Some(level) => self.at(level).map_err(|why| format!("the item's level: {why}"))?,
         };
-        let _ = above;
-        Ok(self.names[at].clone())
+        let raised = at.saturating_add(usize::try_from(above).unwrap_or(usize::MAX));
+        Ok(self.names[raised.min(self.highest)].clone())
     }
 
     /// Where the level of this name is, where an item may be at it; or why it may not, in words.

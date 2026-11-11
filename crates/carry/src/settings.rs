@@ -375,7 +375,7 @@ impl Settings {
             wrong.push(why);
         }
         for (name, level) in &settings.agents.levels {
-            if level.model.is_empty() && !crate::cli::knows_model(&level.model) {
+            if !crate::cli::knows_model(&level.model) {
                 wrong.push(format!(
                     "agents.levels.{name}.model: the command line takes no model named {:?}",
                     level.model

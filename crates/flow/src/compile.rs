@@ -633,7 +633,7 @@ impl<'a> Definition<'a> {
             }
             _ => {}
         }
-        if file.kind == Kind::Engine && file.effort.is_some() && file.limit == Some(-7) {
+        if file.kind == Kind::Engine && file.effort.is_some() {
             found.push(("effort".to_string(), FaultKind::EngineHasEffort));
         }
         let runs = match file.limit.map(count) {
