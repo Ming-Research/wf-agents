@@ -17,6 +17,12 @@ kind = "all"
 reads = ["dependencies"]
 is = "merged"
 
+# What people write: what the item is to deliver, as it is added. The owner reads it and no cell does, so that an edit
+# of it runs nothing.
+[blocks.background]
+people = true
+shown = true
+
 # What the outside writes: whether the items it is made of have merged.
 [blocks.dependencies]
 values = ["waiting", "merged"]
