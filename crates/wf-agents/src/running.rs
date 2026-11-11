@@ -1,7 +1,8 @@
 //! `wf-agents run`: the engine as a process. It drives every work the store in the data directory holds, on the flows
 //! it is given, and serves the owner's pages over it. What carries the works out is the real carriers, as the
 //! installation's settings say (the crate `carry`), or, given a script, agents, engine acts and tools that follow it.
-//! It stops when the engine's loop stops, saying why; started again, it goes on from the store. An item is added at one
+//! It stops when the engine's loop stops, saying why; started again, it goes on from the store, every work held where
+//! works were going on, until the owner lets them on (crate `driver`). An item is added at one
 //! of the levels the settings name; with a script, at the one level a script's engine has.
 //!
 //! Before it touches the store it holds the data directory and has its port, so that an engine that cannot serve
@@ -157,6 +158,13 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
             None => web::with_works(flows_shown, service.handle(), levels),
         };
         println!("The owner's pages are at {}", works_page(address));
+        let held = web::works::Engine::of(service.driver()).paused.map(|paused| paused.by);
+        if held == Some(web::works::Pauser::Engine) {
+            println!(
+                "Works were going on when the engine stopped: every work is held until the owner has looked and lets \
+                 them go on with `wf-agents resume --all`."
+            );
+        }
         tokio::select! {
             fault = service.run(inbox) => {
                 eprintln!("The engine stopped: {fault}. Started again, it goes on from the store.");

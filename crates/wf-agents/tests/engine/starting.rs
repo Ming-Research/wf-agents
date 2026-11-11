@@ -53,7 +53,7 @@ fn a_command_with_no_engine_to_talk_to_says_so() {
 }
 
 #[test]
-fn started_again_the_engine_goes_on_from_the_store() {
+fn started_again_on_a_work_going_on_the_engine_holds_everything_until_the_owner_lets_it_on() {
     let place = Place::new(SCRIPT);
     let engine = Engine::start(&place);
     engine.says(&[
@@ -72,12 +72,22 @@ fn started_again_the_engine_goes_on_from_the_store() {
     drop(engine);
 
     let engine = Engine::start(&place);
+    let held = "The engine started with works going on and holds every work until you have looked: none begins a \
+                round but to answer a note, until `wf-agents resume --all`";
     assert_eq!(
         engine.says(&["list"]),
-        "Works go on; 0 of 2 slots taken.\nItem 1 \"Greet the user\" at level 1, work 1 on trial: waits at plan for the \
-         owner to answer call 2: \"Should the greeting name the user?\"\n"
+        format!(
+            "{held}; 0 of 2 slots taken.\nItem 1 \"Greet the user\" at level 1, work 1 on trial: waits at plan for the \
+             owner to answer call 2: \"Should the greeting name the user?\"\n"
+        )
     );
+    // `wait` says first that the engine waits for the owner.
+    let said = engine.says(&["wait", "--for", "0"]);
+    assert!(said.starts_with(&format!("{held}, for ")), "{said}");
+    // The answer is taken, and the plan's next round waits for the owner to let everything on.
     engine.says(&["answer", "1", "2", "Yes."]);
+    engine.until(&["list"], |line| line.ends_with("held back by the pause of everything"));
+    assert!(engine.says(&["resume", "--all"]).starts_with("Works go on; "));
     engine.until(&["list"], |line| line.ends_with(": merged"));
 }
 

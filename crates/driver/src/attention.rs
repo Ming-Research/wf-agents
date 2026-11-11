@@ -7,8 +7,9 @@
 //! is one the owner paused, which shows only as the reason why a work waiting for it is idle. A work that ended and
 //! could not let go of what it held, which the engine paused saying why, rests for a person. One line is about no
 //! work: the wait every work shares, while no agent's round begins; a work whose round it holds is going on. So is the
-//! owner's pause of everything, its own line about no work, under which every work is read as if it did not hold: a
-//! work held by it alone goes on, and is no reason for another to be idle. A wait for a slot is going on.
+//! pause of everything, the owner's or the engine's as it started with works going on, its own line about no work,
+//! under which every work is read as if it did not hold: a work held by it alone goes on, and is no reason for another
+//! to be idle. A wait for a slot is going on.
 //!
 //! Everything here is read from the records (principle state-from-records). How a work stands is what the deciding
 //! code decides on its records; since when it stands so is the first of the moments after which it has stood so
@@ -51,9 +52,9 @@ pub struct Line {
 /// its decision, which its view gives.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Heed {
-    /// The owner paused everything: no work begins a round but to answer a person's words to its cell. It is about no
-    /// work.
-    Everything,
+    /// Everything is paused, by the owner or by the engine as it started with works going on: no work begins a round
+    /// but to answer a person's words to its cell, until the owner lifts it. It is about no work.
+    Everything { by: Pauser },
     /// No agent's round of any work begins: a round failed for a cause every work shares. It is about no work.
     Agents { outage: Outage },
     /// The work's records cannot be those of a work: nothing is decided on them.
@@ -91,8 +92,8 @@ pub enum Stuck {
 
 /// A place in the records of every work: the highest work there was, and for each that had not ended, the place up to
 /// which its records were read. A work up to the highest that is not named had ended, and its records were read whole;
-/// a work after it is unread from its start. Where the owner's pause of everything held and was read, the time it
-/// began, which tells that pause from any later one. Written as the highest work, then each work named with its place,
+/// a work after it is unread from its start. Where the pause of everything held and was read, the time it began, which
+/// tells that pause from any later one. Written as the highest work, then each work named with its place,
 /// then `e.` and the time of the pause read, such as `12,3.41,7.118,e.1800000000000`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Mark {
@@ -197,15 +198,15 @@ impl Driver {
             let idle = reader.idle_of(number);
             reader.idle.insert(number, idle);
         }
-        // The owner's pause of everything is read by the time it began: a pause is given once, and a later one again.
+        // The pause of everything is read by the time it began: a pause is given once, and a later one again.
         let everything = (self.everything_paused())
-            .filter(|began| since.is_none_or(|mark| mark.everything != Some(*began)))
-            .map(|began| {
+            .filter(|paused| since.is_none_or(|mark| mark.everything != Some(paused.since)))
+            .map(|paused| {
                 (
                     0,
                     Line {
-                        heed: Heed::Everything,
-                        since: began,
+                        heed: Heed::Everything { by: paused.by },
+                        since: paused.since,
                     },
                 )
             });
@@ -219,7 +220,7 @@ impl Driver {
         let left: Vec<WorkNumber> = (lines.iter().skip(LINES))
             .filter_map(|(_, line)| work_of(&line.heed))
             .collect();
-        let everything_left = (lines.iter().skip(LINES)).any(|(_, line)| line.heed == Heed::Everything);
+        let everything_left = (lines.iter().skip(LINES)).any(|(_, line)| matches!(line.heed, Heed::Everything { .. }));
         let lines: Vec<Line> = lines.into_iter().take(LINES).map(|(_, line)| line).collect();
         // A work whose line is left out is written unread from its start, so that whatever it stands in comes again;
         // a work that ended is left out of the mark once it is read; every other work is read up to its last entry.
@@ -234,7 +235,9 @@ impl Driver {
         let mark = Mark {
             highest: numbers.last().map_or(0, |number| number.0),
             read,
-            everything: self.everything_paused().filter(|_| !everything_left),
+            everything: (self.everything_paused())
+                .map(|paused| paused.since)
+                .filter(|_| !everything_left),
         };
         Ok(Attention {
             left_out: left.len() + usize::from(everything_left),
@@ -350,10 +353,10 @@ fn ended_at(records: &Records, end: End) -> Option<Seq> {
 }
 
 /// The work the line is of; for the wait every work shares, the work whose round began it, whose place in the next
-/// mark says whether it is given again; none for the owner's pause of everything.
+/// mark says whether it is given again; none for the pause of everything.
 fn work_of(heed: &Heed) -> Option<WorkNumber> {
     match heed {
-        Heed::Everything => None,
+        Heed::Everything { .. } => None,
         Heed::Agents { outage } => Some(outage.work),
         Heed::Fault { work } | Heed::ForAPerson { work } | Heed::Idle { work, .. } | Heed::Ended { work, .. } => {
             Some(*work)

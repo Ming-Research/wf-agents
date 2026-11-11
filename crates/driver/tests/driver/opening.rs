@@ -155,7 +155,20 @@ fn a_store_holding_works_gives_exactly_what_was_to_be_done_and_is_not_known_as_d
     assert_eq!(got, expected, "{pending:?}");
     let todos = h.reopen();
     assert_eq!(todos, pending);
-    assert_eq!(h.state(), before, "opened again, the driver holds otherwise");
+    // Works were going on: the driver paused everything as it opened, and holds otherwise nothing.
+    let held = EverythingPaused {
+        since: Time(h.clock),
+        by: Pauser::Engine,
+    };
+    assert_eq!(h.d().everything_paused(), Some(held));
+    let mut after = h.state();
+    let rows = after
+        .file
+        .get_mut("everything_paused")
+        .expect("the table of the pause of everything");
+    assert_eq!(rows.len(), 1, "the driver paused everything once: {rows:?}");
+    rows.clear();
+    assert_eq!(after, before, "opened again, the driver holds otherwise");
     assert_eq!(h.decision(e), Decision::Paused);
     assert_eq!(h.decision(f), Decision::Ended(End::Merged));
 }
@@ -168,11 +181,25 @@ fn a_store_that_fails_as_the_driver_opens_is_the_fault_and_opening_again_gives_w
     h.let_on(wa);
     h.let_on(wb);
     let pending = h.d().pending();
-    // How many calls a store is asked as the driver opens.
+    // Lifts, behind the driver's back, the pause of everything an opening made on these works going on, so that each
+    // opening finds the store as the first did.
+    let lift = |h: &mut H| {
+        let clock = Time(h.clock);
+        (h.reader)
+            .pause_everything(false, Pauser::Owner, clock)
+            .expect("the pause is lifted");
+    };
+    // How many calls a store is asked as the driver opens, the keeping of its pause of everything among them.
     let (opened, calls) = open_on(&h.db, Time(h.clock));
     assert!(opened.is_ok());
-    let n = calls.lock().expect("the calls are noted").ops.len();
+    let ops = calls.lock().expect("the calls are noted").ops.clone();
+    assert!(
+        ops.contains(&Op::PauseEverything),
+        "opening on works going on paused nothing: {ops:?}"
+    );
+    let n = ops.len();
     assert!(n >= 3, "opening asked the store only {n} times");
+    lift(&mut h);
     for at in 1..=n {
         let (store, calls) = Failing::new(h.db.open());
         calls.lock().expect("the calls are noted").plan = Plan::Fail {
@@ -183,9 +210,17 @@ fn a_store_that_fails_as_the_driver_opens_is_the_fault_and_opening_again_gives_w
         let opened = Driver::open(Box::new(store), flows(), SLOTS, None, Time(h.clock));
         assert_eq!(opened.err(), Some(Fault::Store(failure())), "the call {at} failed");
         let (store, _) = Failing::new(h.db.open());
-        let (_, todos) = Driver::open(Box::new(store), flows(), SLOTS, None, Time(h.clock)).expect("the driver opens");
+        let (driver, todos) =
+            Driver::open(Box::new(store), flows(), SLOTS, None, Time(h.clock)).expect("the driver opens");
         assert_eq!(todos, pending, "opened after the call {at} failed");
+        assert_eq!(
+            driver.everything_paused().map(|p| p.by),
+            Some(Pauser::Engine),
+            "opened after the call {at} failed"
+        );
+        lift(&mut h);
     }
+    h.reopen();
     h.check();
 }
 
@@ -310,7 +345,7 @@ fn a_work_whose_records_are_at_fault_is_written_nothing_and_given_nothing_while_
     fault_behind_the_back(&h.db, wb, "draft");
     h.faulty.insert(wb);
     let stored = h.reader.load(wb).expect("the work loads");
-    let todos = h.reopen();
+    let todos = h.restart();
     // Opening wrote nothing to it and gives nothing for it; it shows that its records are at fault.
     assert_eq!(rounds(&todos), [(wa, "write".to_string(), 1)]);
     assert_eq!(h.reader.load(wb).expect("the work loads"), stored);

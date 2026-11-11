@@ -584,7 +584,7 @@ fn parse<T: DeserializeOwned>(table: &'static str, text: &str) -> Result<T, Faul
 }
 
 /// The name of a variant that carries no data, such as a person or a writer.
-fn name<T: Serialize>(table: &'static str, value: &T) -> Result<String, Fault> {
+pub(crate) fn name<T: Serialize>(table: &'static str, value: &T) -> Result<String, Fault> {
     match serde_json::to_value(value) {
         Ok(serde_json::Value::String(name)) => Ok(name),
         Ok(other) => Err(Fault::Value {
@@ -599,7 +599,7 @@ fn name<T: Serialize>(table: &'static str, value: &T) -> Result<String, Fault> {
 }
 
 /// The variant of this name.
-fn from_name<T: DeserializeOwned>(table: &'static str, name: String) -> Result<T, Fault> {
+pub(crate) fn from_name<T: DeserializeOwned>(table: &'static str, name: String) -> Result<T, Fault> {
     serde_json::from_value(serde_json::Value::String(name)).map_err(|e| Fault::Value {
         table,
         message: e.to_string(),

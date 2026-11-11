@@ -29,8 +29,10 @@
 //! does not say it already.
 //!
 //! The driver is also the scheduler: it alone sees every work, and so it works out what holds back every work at once
-//! and gives each work's loop that room ([`Room`]). The owner's pause of everything is kept in the store, so that it
-//! holds across a stop. The slots bound how many rounds of cells that take one go on at once: a work is given a slot
+//! and gives each work's loop that room ([`Room`]). The pause of everything is kept in the store, so that it holds
+//! across a stop, with who set it: the owner, or the driver itself as it opens on works going on, so that after a stop
+//! nothing begins a round that the owner has not let on since they could see how things stand ([`Driver::open`]). The
+//! slots bound how many rounds of cells that take one go on at once: a work is given a slot
 //! where fewer are taken by the other works than there are; a work whose round ends keeps the slot it held for its next
 //! round, if it begins one at once, as its session is then warm; and a slot that comes free otherwise is given to the
 //! works that wait for one in the engine's order, those that have begun a round before those that have not, each in the
@@ -69,7 +71,7 @@ use decide::{BlockId, Decision, End, Holder, Outsider, Pauser, Room, View, begun
 use engine::{Effect, Event, Gate, Refused, handle_held, handle_then, held};
 use flow::Compiled;
 pub use outage::{Outage, Until};
-use store::{Change, First, Item, ItemChange, ItemNumber, Storage, WorkHead, WorkNumber};
+use store::{Change, EverythingPaused, First, Item, ItemChange, ItemNumber, Storage, WorkHead, WorkNumber};
 use work::{Time, Work};
 
 pub use changes::{Gone, Unchangeable};
@@ -92,8 +94,8 @@ pub struct Driver {
     of_item: BTreeMap<ItemNumber, WorkNumber>,
     /// How many rounds of cells that take a slot may go on at once.
     slots: usize,
-    /// When the owner's pause of everything began, while it holds, as the store keeps it.
-    paused: Option<Time>,
+    /// The pause of everything, while it holds, as the store keeps it.
+    paused: Option<EverythingPaused>,
     /// What stopped the driver, once something has.
     fault: Option<Fault>,
     /// When a line begins a new session; with none, only what others record of sessions is followed.
@@ -239,6 +241,13 @@ impl Driver {
     /// Opens the driver on a store, with the flows the works run on, this many slots and the policy of when a line
     /// begins a new session, and gives everything that is to be done: what was to be done before and is not known as
     /// done, and what follows from looking at every work now, the free slots given in the engine's order.
+    ///
+    /// Where a work is going on, one that has not ended and that its own pause does not hold, and nothing pauses
+    /// everything, the driver pauses everything itself before it looks at any work, and keeps that it did: nothing
+    /// begins a round then but what the owner's own pause of everything lets begin, until the owner lifts it as they
+    /// lift their own. What was to be done is given all the same, a round under way at the stop among it: the records
+    /// count that round as begun, and holding it back in its carrier until the lift would be the path the decision
+    /// slots-in-the-scheduler turned down.
     pub fn open(
         store: Box<dyn Storage + Send>,
         flows: Vec<Compiled>,
@@ -310,6 +319,20 @@ impl Driver {
         }
         if let Some(item) = items.iter().find(|item| !driver.of_item.contains_key(&item.number)) {
             return Err(Fault::NotOneWork(item.number));
+        }
+        // A work going on would begin its rounds again unseen: everything is paused, and kept so, before anything is
+        // looked at, so that a stop before the looks leaves it paused all the same. Where everything is paused, by the
+        // owner or by an opening before, it is left as it is.
+        let going_on =
+            (driver.works.values()).any(|held| held.standing == Standing::Going && !decide::paused(&held.work.records));
+        if going_on && driver.paused.is_none() {
+            (driver.store)
+                .pause_everything(true, Pauser::Engine, now)
+                .map_err(Fault::Store)?;
+            driver.paused = Some(EverythingPaused {
+                since: now,
+                by: Pauser::Engine,
+            });
         }
         // What was to be done is worked out before the works are looked at: looking adds to it.
         let mut todos = driver.pending();
@@ -543,20 +566,25 @@ impl Driver {
         self.filled_after(now, todos)
     }
 
-    /// Sets the owner's pause of everything, or lifts it, at the time the caller's clock gives, and gives what is to be
-    /// done. While it holds no work begins a round but those of a run that answers a note, as a work's own pause holds
-    /// them back, and a round under way goes on; it is kept in the store, and holds when the driver is opened again.
-    /// Lifted, every work goes on that its own pause does not hold, the free slots given in the engine's order. Setting
-    /// it while it holds, or lifting it while it does not, changes nothing.
+    /// Sets the owner's pause of everything, or lifts the pause of everything, the owner's or the driver's own, at the
+    /// time the caller's clock gives, and gives what is to be done. While it holds no work begins a round but those of a
+    /// run that answers a note, as a work's own pause holds them back, and a round under way goes on; it is kept in the
+    /// store, and holds when the driver is opened again. Lifted, every work goes on that its own pause does not hold,
+    /// the free slots given in the engine's order. Set while the driver's own holds, it is the owner's from then on.
+    /// Setting it while the owner's holds, or lifting it while none does, changes nothing.
     pub fn pause_everything(&mut self, now: Time, paused: bool) -> Result<Vec<Todo>, Failed> {
         self.going()?;
-        if self.paused.is_some() == paused {
+        let theirs = self.paused.is_some_and(|p| p.by == Pauser::Owner);
+        if (paused && theirs) || (!paused && self.paused.is_none()) {
             return Ok(Vec::new());
         }
-        if let Err(fault) = self.store.pause_everything(paused, now) {
+        if let Err(fault) = self.store.pause_everything(paused, Pauser::Owner, now) {
             return Err(self.stop(Fault::Store(fault), false));
         }
-        self.paused = paused.then_some(now);
+        self.paused = paused.then_some(EverythingPaused {
+            since: now,
+            by: Pauser::Owner,
+        });
         if paused {
             return Ok(Vec::new());
         }
@@ -796,8 +824,8 @@ impl Driver {
         }
     }
 
-    /// When the owner's pause of everything began, while it holds.
-    pub fn everything_paused(&self) -> Option<Time> {
+    /// The pause of everything, while it holds: when it began, and who set it.
+    pub fn everything_paused(&self) -> Option<EverythingPaused> {
         self.paused
     }
 
@@ -832,7 +860,7 @@ impl Driver {
             .count()
     }
 
-    /// The room the engine leaves a work: the owner's pause of everything, as it stands; and, where `slot` says a slot
+    /// The room the engine leaves a work: the pause of everything, as it stands; and, where `slot` says a slot
     /// may be given at all, whether fewer are taken by the other works than there are.
     fn room(&self, work: Option<WorkNumber>, slot: bool) -> Room {
         Room {

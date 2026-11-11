@@ -17,7 +17,8 @@
 //! version of it is brought to this one as it is opened, by the migrations of `db/migrations/`, each in its turn and all
 //! of them in one transaction with the opening, so that a database is either opened at this version or left as it was.
 //!
-//! The store also keeps what is the installation's and no work's: the owner's pause of everything, set and lifted.
+//! The store also keeps what is the installation's and no work's: the pause of everything, set and lifted, with who set
+//! it: the owner, or the engine as it started with works going on.
 //!
 //! - `items`: the items and the works done for them.
 //! - `tables`: a work's entries, table by table.
@@ -30,7 +31,7 @@ mod tables;
 
 use std::path::Path;
 
-use decide::{BlockId, CallId, RunId, Seq};
+use decide::{BlockId, CallId, Pauser, RunId, Seq};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 use work::{Time, Work};
 
@@ -42,7 +43,7 @@ pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 8;
+pub const SCHEMA_VERSION: u32 = 9;
 
 /// The migrations, in order: the first brings a database of version 1 of the schema to version 2, and each after it
 /// one version further, replacing the version's one row last. Each file is named by the minute it was written and
@@ -54,11 +55,20 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/202611111401-keep-the-owners-pause-of-everything.sql"),
     include_str!("../../../db/migrations/202611111600-record-the-sessions-of-lines-and-the-context-of-rounds.sql"),
     include_str!("../../../db/migrations/202611111830-keep-each-change-of-an-item-and-why-it-was-cancelled.sql"),
-    include_str!("../../../db/migrations/202611111900-record-backups.sql"),
+    include_str!("../../../db/migrations/202611112000-say-who-paused-everything.sql"),
+    include_str!("../../../db/migrations/202611112100-record-backups.sql"),
 ];
 
 // The migrations bring a database of every earlier version to this one.
 const _: () = assert!(MIGRATIONS.len() as u32 + 1 == SCHEMA_VERSION);
+
+/// The pause of everything, while it holds: when it began, and who set it, the owner or the engine as it started with
+/// works going on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EverythingPaused {
+    pub since: Time,
+    pub by: Pauser,
+}
 
 /// The items and the works, kept in one SQLite database.
 pub struct Store {
@@ -154,12 +164,12 @@ pub trait Storage {
     /// the fault says where. Saving a work the store holds whole keeps nothing.
     fn save(&mut self, work: WorkNumber, given: &Work) -> Result<(), Fault>;
 
-    /// When the owner's pause of everything began, where it holds; none where it does not, as in a store that never
-    /// kept one.
-    fn everything_paused(&self) -> Result<Option<Time>, Fault>;
+    /// The pause of everything, where it holds: when it began and who set it; none where it does not, as in a store
+    /// that never kept one.
+    fn everything_paused(&self) -> Result<Option<EverythingPaused>, Fault>;
 
-    /// Keeps that the owner paused everything, or lifted that pause, at this time.
-    fn pause_everything(&mut self, paused: bool, at: Time) -> Result<(), Fault>;
+    /// Keeps that everything was paused, or that pause lifted, by this pauser at this time.
+    fn pause_everything(&mut self, paused: bool, by: Pauser, at: Time) -> Result<(), Fault>;
 }
 
 impl Store {
@@ -266,21 +276,28 @@ impl Storage for Store {
         Ok(())
     }
 
-    fn everything_paused(&self) -> Result<Option<Time>, Fault> {
+    fn everything_paused(&self) -> Result<Option<EverythingPaused>, Fault> {
         let latest = (self.db)
             .query_row(
-                "SELECT paused, time FROM everything_paused ORDER BY n DESC LIMIT 1",
+                "SELECT paused, pauser, time FROM everything_paused ORDER BY n DESC LIMIT 1",
                 [],
-                |row| Ok((row.get::<_, bool>(0)?, row.get::<_, u64>(1)?)),
+                |row| Ok((row.get::<_, bool>(0)?, row.get::<_, String>(1)?, row.get::<_, u64>(2)?)),
             )
             .optional()?;
-        Ok(latest.and_then(|(paused, time)| paused.then_some(Time(time))))
+        let Some((true, pauser, time)) = latest else {
+            return Ok(None);
+        };
+        Ok(Some(EverythingPaused {
+            since: Time(time),
+            by: tables::from_name("everything_paused", pauser)?,
+        }))
     }
 
-    fn pause_everything(&mut self, paused: bool, at: Time) -> Result<(), Fault> {
+    fn pause_everything(&mut self, paused: bool, by: Pauser, at: Time) -> Result<(), Fault> {
+        let pauser = tables::name("everything_paused", &by)?;
         (self.db).execute(
-            "INSERT INTO everything_paused (paused, time) VALUES (?1, ?2)",
-            rusqlite::params![paused, at.0],
+            "INSERT INTO everything_paused (paused, pauser, time) VALUES (?1, ?2, ?3)",
+            rusqlite::params![paused, pauser, at.0],
         )?;
         Ok(())
     }

@@ -185,12 +185,14 @@ CREATE TABLE cancelled (
     why TEXT
 );
 
--- The owner paused every work (1) or lifted that pause (0), at `time`, `n` counting from one: the latest row says
--- whether the pause holds, and none that it does not. While it holds no work begins a round but those of a run that
--- answers a note, as the work's own pause holds them back. It is the installation's, not a work's.
+-- Every work was paused (1) or that pause lifted (0), by `pauser` (`Owner`, or `Engine` as it started with works going
+-- on), at `time`, `n` counting from one: the latest row says whether the pause holds and whose it is, and none that it
+-- does not hold. While it holds no work begins a round but those of a run that answers a note, as the work's own pause
+-- holds them back. It is the installation's, not a work's.
 CREATE TABLE everything_paused (
     n INTEGER PRIMARY KEY,
     paused INTEGER NOT NULL CHECK (paused IN (0, 1)),
+    pauser TEXT NOT NULL,
     time INTEGER NOT NULL
 );
 
