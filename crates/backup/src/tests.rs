@@ -857,3 +857,24 @@ fn a_prune_failed_and_then_done_is_no_longer_shown() {
     let state = e.report(T0 + DAY + 2 * HOUR).state;
     assert_eq!(state, State::Ok, "the failure was mended by the prune");
 }
+
+// Reference: acceptance 11 (only a success after a failure hides it) read with acceptance 12 (the order recorded, not
+// the time, is what counts once the clock has gone ahead and come back). A failure recorded after a clean step is
+// after it, whatever time the clock gave it.
+#[test]
+fn a_failure_after_a_clean_step_is_shown_when_the_clock_has_come_back() {
+    let e = env(1, true);
+    let future = T0 + 10 * DAY;
+    e.fake.inner().fail_uploads = true;
+    e.step(future);
+    e.fake.inner().fail_uploads = false;
+    let mended = e.step(future + HOUR);
+    assert_eq!(mended.failed, None);
+    assert!(!matches!(e.report(future + HOUR).state, State::Failed { .. }));
+    // The clock is back before them: a copy is taken and its upload fails.
+    e.fake.inner().fail_uploads = true;
+    let out = e.step(T0);
+    assert_eq!(out.failed.as_ref().map(|f| f.0.as_str()), Some("upload"), "{out:?}");
+    let state = e.report(T0 + 1000).state;
+    assert!(matches!(state, State::Failed { .. }), "{state:?}");
+}
