@@ -121,7 +121,7 @@ fn a_store_holding_works_gives_exactly_what_was_to_be_done_and_is_not_known_as_d
     // A cancelled work whose round is still to be stopped.
     let (_, c) = h.add(new_item("c", &[], "short"));
     h.let_on(c);
-    h.on(c, Event::Cancelled);
+    h.on(c, Event::Cancelled { why: None });
     // A work whose call, asked of a person, is to be withdrawn: a person wrote what its run started from; its cell
     // runs again.
     let (_, d) = h.add(new_item("d", &[], "plain"));

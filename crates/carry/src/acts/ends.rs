@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use decide::{Outsider, Written};
-use store::{Item, ItemNumber};
+use store::{First, Item, ItemNumber};
 use work::Time;
 
 use super::*;
@@ -25,13 +25,16 @@ fn release(end: End) -> Release {
         work: WORK,
         end,
         flow,
-        item: Item {
-            number: ItemNumber(1),
-            title: "Greet the user".to_string(),
-            added: Time(0),
-            depends_on: Vec::new(),
-            level: None,
-        },
+        item: Item::new(
+            ItemNumber(1),
+            Time(0),
+            First {
+                title: "Greet the user".to_string(),
+                level: None,
+                depends_on: Vec::new(),
+            },
+            Vec::new(),
+        ),
         kept: Arc::new(Work::default()),
     }
 }

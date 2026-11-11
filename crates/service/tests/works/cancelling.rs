@@ -12,7 +12,7 @@ async fn cancelling_in_a_round_stops_it() {
     let mut trial = Trial::open();
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
-    trial.act(work, Act::Cancel).unwrap();
+    trial.act(work, Act::Cancel { why: None }).unwrap();
     assert_eq!(trial.decision(work), Decision::Ended(End::Cancelled));
     // The round's end comes from its stop, and once.
     trial.step().await.unwrap();
@@ -33,7 +33,7 @@ async fn cancelling_at_a_question_withdraws_it() {
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
     trial.step().await.unwrap();
-    trial.act(work, Act::Cancel).unwrap();
+    trial.act(work, Act::Cancel { why: None }).unwrap();
     assert_eq!(trial.decision(work), Decision::Ended(End::Cancelled));
     assert_eq!(trial.work(work).results[&CallId(2)], WITHDRAWN);
     assert_eq!(
@@ -57,7 +57,7 @@ async fn cancelling_at_a_tool_withdraws_it() {
             |d| matches!(d, Decision::Wait { at, .. } if at.as_str() == "build"),
         )
         .await;
-    trial.act(work, Act::Cancel).unwrap();
+    trial.act(work, Act::Cancel { why: None }).unwrap();
     assert_eq!(trial.decision(work), Decision::Ended(End::Cancelled));
     trial.step().await.unwrap();
     assert_eq!(trial.work(work).results[&CallId(4)], WITHDRAWN);
@@ -74,7 +74,7 @@ async fn a_stop_after_a_cancel_stops_the_round_again() {
     let mut trial = Trial::open();
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
-    trial.act(work, Act::Cancel).unwrap();
+    trial.act(work, Act::Cancel { why: None }).unwrap();
     // The process stops before the round's end is taken: the round is stopped again when it starts.
     trial.restart();
     trial.step().await.unwrap();

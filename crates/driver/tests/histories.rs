@@ -52,7 +52,7 @@ use std::panic::{self, AssertUnwindSafe};
 use decide::{CallId, Decision, Outsider, Pauser, RunId, Waited, Who};
 use driver::{FirstWrite, NewItem, Todo};
 use engine::{Ask, Call, Came, Effect, Event, Handed, Spent, Time, Work};
-use store::{ItemNumber, WorkHead, WorkNumber};
+use store::{ItemChange, ItemNumber, WorkHead, WorkNumber};
 use support::*;
 
 /// How many histories are run: enough that each class of step is reached. With a deliverable among every five items,
@@ -128,6 +128,9 @@ struct Seen {
     rested_ended: usize,
     /// Rounds given again by an opening because they were pending across it.
     given_again: usize,
+    /// Changes of an item the driver made, and those it refused or that changed nothing.
+    changed: usize,
+    change_refused: usize,
 }
 
 /// A history: the harness, the draws of the history and, apart, of its stops.
@@ -142,6 +145,8 @@ struct History {
     /// Draws which items are added going on, and when the owner sets or lifts the pause of everything, alone, so
     /// that the other draws keep the order they had before.
     room: Rng,
+    /// Draws when an item is changed, and how, alone, so that the other draws keep the order they had before.
+    changes: Rng,
     step: usize,
     /// The calls that have their result, each with its work.
     done: Vec<(WorkNumber, CallId)>,
@@ -175,6 +180,7 @@ impl History {
             faults: faults.then(|| Rng::new(seed ^ 0x5DEE_CE66_D1CE_F00D)),
             delivers: Rng::new(seed ^ 0xDE11_7E2A_B1E5_0F00),
             room: Rng::new(seed ^ 0x0000_5107_5A0F_A11D),
+            changes: Rng::new(seed ^ 0x00C4_A93E_D17E_0000),
             step: 0,
             done: Vec::new(),
             log: Vec::new(),
@@ -266,6 +272,48 @@ impl History {
         }
     }
 
+    /// Whoever plans the work changes an item: its title or level, or what it depends on, which may be refused.
+    fn change(&mut self) {
+        let items: Vec<ItemNumber> = self.h.d().works().map(|k| k.head.item).collect();
+        if items.is_empty() {
+            return;
+        }
+        let item = items[self.changes.below(items.len())];
+        let on = items[self.changes.below(items.len())];
+        let depends_on = (self.h.d().works())
+            .find(|k| k.head.item == item)
+            .map(|k| k.item.depends_on.clone())
+            .unwrap_or_default();
+        let change = match self.changes.below(10) {
+            0..=2 => ItemChange::Title(format!("retitled at step {}", self.step)),
+            3 => ItemChange::Level(["1", "2"][self.changes.below(2)].to_string()),
+            4..=6 => ItemChange::DependsOn(on),
+            _ => ItemChange::NoLongerDependsOn(match depends_on.as_slice() {
+                [] => on,
+                some => some[self.changes.below(some.len())],
+            }),
+        };
+        let before = self
+            .h
+            .d()
+            .works()
+            .find(|k| k.head.item == item)
+            .map(|k| k.item.changes.len());
+        if self.act(Act::Change(item, change)).is_some() {
+            let after = self
+                .h
+                .d()
+                .works()
+                .find(|k| k.head.item == item)
+                .map(|k| k.item.changes.len());
+            if after > before {
+                self.seen.changed += 1;
+            } else {
+                self.seen.change_refused += 1;
+            }
+        }
+    }
+
     /// Before a step the process may stop, or the store be set to fail.
     fn maybe_fault(&mut self) {
         let Some(faults) = &mut self.faults else {
@@ -299,6 +347,9 @@ impl History {
         if people && self.room.chance(5) {
             let paused = self.h.d().everything_paused().is_none();
             self.act(Act::Everything(paused));
+        }
+        if people && self.changes.chance(8) {
+            self.change();
         }
         let done = if people && self.rng.chance(25) {
             self.person_acts();
@@ -495,7 +546,7 @@ impl History {
             }
             30..=32 => {
                 self.seen.cancels += 1;
-                Event::Cancelled
+                Event::Cancelled { why: None }
             }
             33..=41 => match self.h.decision(work) {
                 Decision::Wait { at, on } if on.iter().any(|w| matches!(w, Waited::Limit { .. })) => {
@@ -725,6 +776,8 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
                 seen.rested_waiting += s.rested_waiting;
                 seen.rested_ended += s.rested_ended;
                 seen.given_again += s.given_again;
+                seen.changed += s.changed;
+                seen.change_refused += s.change_refused;
             }
             Err(e) => {
                 let message = (e.downcast_ref::<String>().cloned())
@@ -764,6 +817,8 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
         ("works held back by the pause of everything", seen.held_by_everything),
         ("works waiting at rest", seen.rested_waiting),
         ("works ended at rest", seen.rested_ended),
+        ("items changed", seen.changed),
+        ("changes of items refused or changing nothing", seen.change_refused),
     ];
     let never: Vec<&str> = counts.iter().filter(|(_, n)| *n == 0).map(|(what, _)| *what).collect();
     assert!(never.is_empty(), "never put to the test: {never:?} ({seen:?})");

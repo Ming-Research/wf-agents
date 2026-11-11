@@ -158,7 +158,7 @@ fn the_engine_pausing_a_work_with_a_reason_as_its_round_ends_lets_the_return_be_
 #[test]
 fn the_engines_pause_of_a_work_that_has_ended_adds_nothing() {
     let (mut w, write, _) = W::requested();
-    assert_eq!(w.on(Event::Cancelled), vec![Effect::Stop { run: write }]);
+    assert_eq!(w.on(Event::Cancelled { why: None }), vec![Effect::Stop { run: write }]);
     // The carrier ends the stopped round, asking that the work wait for the owner: the pause comes first.
     let paused = Event::Paused {
         by: Pauser::Engine,

@@ -51,7 +51,7 @@ use decide::{BlockId, CallId, CellId, Outsider, Pauser, RunId};
 use driver::{Driver, Failed, NewItem, Todo, Wake};
 use engine::{Effect, Event};
 use flow::{CellSpec, Compiled, Kind};
-use store::{ItemNumber, Storage, WorkNumber};
+use store::{ItemChange, ItemNumber, Storage, WorkNumber};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use work::{Ask, Call, RanOn, Time, Why};
 
@@ -110,10 +110,11 @@ pub enum Message {
         item: NewItem,
         reply: oneshot::Sender<Result<(ItemNumber, WorkNumber), Refusal>>,
     },
-    /// The owner puts an item at another level, which whoever asks has checked; the reply says whether that changed it.
-    SetLevel {
+    /// Whoever plans the work changes an item: a level is one whoever asks has checked; the reply says whether that
+    /// changed it.
+    Change {
         item: ItemNumber,
-        level: String,
+        change: ItemChange,
         reply: oneshot::Sender<Result<bool, Refusal>>,
     },
     /// A source outside the works says this now: the head of the project's main branch, for one.
@@ -142,7 +143,10 @@ pub enum Act {
     },
     Pause,
     Resume,
-    Cancel,
+    /// Cancels the work's item, for this reason where one is given.
+    Cancel {
+        why: Option<String>,
+    },
     /// Gives a call that waits for a person its result.
     Answer {
         call: CallId,
@@ -376,12 +380,13 @@ impl Service {
                     }
                 }
             }
-            Message::SetLevel { item, level, reply } => {
+            Message::Change { item, change, reply } => {
                 let now = self.now()?;
-                match self.driver.set_level(now, item, &level) {
-                    Ok(changed) => {
+                match self.driver.change(now, item, change) {
+                    Ok((changed, todos)) => {
                         items = changed;
                         let _ = reply.send(Ok(changed));
+                        self.hand(now, todos)?;
                     }
                     Err(failed) => {
                         let refusal = Refusal::Failed(failed);
@@ -457,7 +462,7 @@ impl Service {
                 why: None,
             },
             Act::Resume => Event::Resumed,
-            Act::Cancel => Event::Cancelled,
+            Act::Cancel { why } => Event::Cancelled { why },
             Act::NewSession { line } => Event::Anew { line, why: Why::Owner },
             Act::Answer { call, result } => {
                 // A call the engine makes has its result from what makes it: a person's answer to it would be a
@@ -687,12 +692,11 @@ impl Handle {
         answer.await.map_err(|_| Refusal::Gone)?
     }
 
-    /// Puts an item at another level, which the caller has checked against the installation's levels, and says whether
-    /// that changed it.
-    pub async fn set_level(&self, item: ItemNumber, level: &str) -> Result<bool, Refusal> {
+    /// Changes an item, and says whether that changed it: a level is one the caller has checked against the
+    /// installation's levels.
+    pub async fn change(&self, item: ItemNumber, change: ItemChange) -> Result<bool, Refusal> {
         let (reply, answer) = oneshot::channel();
-        let level = level.to_string();
-        (self.to.send(Message::SetLevel { item, level, reply })).map_err(|_| Refusal::Gone)?;
+        (self.to.send(Message::Change { item, change, reply })).map_err(|_| Refusal::Gone)?;
         answer.await.map_err(|_| Refusal::Gone)?
     }
 

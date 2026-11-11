@@ -3,6 +3,7 @@
 //! a data directory of its own. The tests are kept in modules by subject, so that a new test goes into the module of
 //! what it tests.
 
+mod changing;
 mod delivering;
 mod everything;
 mod failing;

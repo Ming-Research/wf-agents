@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use driver::{Failed, Fault};
 use service::{Act, Refusal, Scripted, Service, TokioClock};
-use store::{Item, ItemNumber, Storage, Store, WorkHead, WorkNumber};
+use store::{Item, ItemChange, ItemNumber, Storage, Store, WorkHead, WorkNumber};
 use work::{Time, Work};
 
 use crate::{START, act_on, add_to, new_item, trial_flow};
@@ -33,8 +33,8 @@ impl Storage for Failing {
         self.store.add(title, level, depends_on, flow, at, first)
     }
 
-    fn set_level(&mut self, item: ItemNumber, level: &str, at: Time) -> Result<(), store::Fault> {
-        self.store.set_level(item, level, at)
+    fn change(&mut self, item: ItemNumber, change: &ItemChange, at: Time) -> Result<(), store::Fault> {
+        self.store.change(item, change, at)
     }
 
     fn items(&self) -> Result<Vec<Item>, store::Fault> {
@@ -112,7 +112,7 @@ async fn an_act_kept_before_the_engine_stopped_is_not_to_be_given_again() {
     add_to(&mut service, new_item("Say goodbye", &[first.0]));
     // The cancel is kept; what the driver writes for the item that depends on it is not.
     *saves.lock().unwrap() = Some(1);
-    let (answer, taken) = act_on(&mut service, work, Act::Cancel);
+    let (answer, taken) = act_on(&mut service, work, Act::Cancel { why: None });
     assert_eq!(answer, Err(stopped(true)));
     assert_eq!(taken, Err(service::Fault::Driver(Fault::Store(full()))));
     assert_eq!(

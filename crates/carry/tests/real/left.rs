@@ -71,7 +71,7 @@ async fn a_round_stopped_after_its_engine_ended_has_its_left_program_stopped() {
     let plan = real.run_of(work, "plan");
     let pgid = real.data.join(format!("rounds/1/{}-1.pgid", plan.0));
     real.wait(|_| pgid.exists()).await;
-    real.act(work, Act::Cancel);
+    real.act(work, Act::Cancel { why: None });
 
     // Started again, the stop finds nothing held, and stops the program left running before it ends the round.
     real.restart();

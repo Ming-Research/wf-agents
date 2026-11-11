@@ -198,7 +198,7 @@ fn without_the_network_the_engines_own_acts_wait_as_well_and_go_on_with_the_rest
 #[test]
 fn a_shared_failure_of_a_round_whose_work_was_cancelled_begins_no_wait() {
     let (mut h, a, b) = two();
-    let todos = h.on(a, Event::Cancelled);
+    let todos = h.on(a, Event::Cancelled { why: None });
     assert!(
         matches!(
             &todos[..],

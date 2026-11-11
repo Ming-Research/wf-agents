@@ -26,8 +26,8 @@ pub enum Event {
     Paused { by: Pauser, why: Option<String> },
     /// The work was let on again.
     Resumed,
-    /// The work's item was cancelled.
-    Cancelled,
+    /// The work's item was cancelled, for this reason where whoever cancelled it gave one.
+    Cancelled { why: Option<String> },
     /// The round of the run that was under way ended, having taken this.
     Returned { run: RunId, came: Came, spent: Spent },
     /// The round of the run that was under way failed, for this reason, having taken this: nothing came back. The

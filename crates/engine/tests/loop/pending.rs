@@ -46,7 +46,7 @@ fn nothing_is_pending_once_the_work_has_merged_and_let_go_of_what_it_held() {
 fn nothing_is_pending_once_the_work_is_cancelled_what_was_to_be_undone_is_done_and_what_it_held_let_go() {
     let (mut w, write, _) = W::requested();
     let call = calls_of(&w.returns(write, Came::Asks(vec![question(Who::Owner)])))[0].0;
-    w.on(Event::Cancelled);
+    w.on(Event::Cancelled { why: None });
     assert_eq!(pending(&w.flow, &w.work), vec![Effect::Withdraw { call }]);
     w.done(call);
     let release = Effect::Release {

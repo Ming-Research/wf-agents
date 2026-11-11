@@ -1,19 +1,18 @@
-//! The items, numbered by the store in the order they are added, each depending only on items added before it, and
-//! each added together with the work done for it and what is kept of that work from its start.
+//! The items, numbered by the store in the order they are added, each added depending only on items added before it,
+//! and each added together with the work done for it and what is kept of that work from its start.
 
 use decide::{Pause, Seq};
-use store::{Fault, Item, ItemNumber, WorkHead};
+use store::{Fault, First, Item, ItemChange, ItemNumber, WorkHead};
 
 use super::*;
 
 fn item(number: u64, title: &str, added: u64, depends_on: &[u64]) -> Item {
-    Item {
-        number: ItemNumber(number),
+    let first = First {
         title: title.to_string(),
         level: Some("2".to_string()),
-        added: Time(added),
         depends_on: depends_on.iter().map(|n| ItemNumber(*n)).collect(),
-    }
+    };
+    Item::new(ItemNumber(number), Time(added), first, Vec::new())
 }
 
 fn head(number: u64, item: u64, flow: &str, added: u64) -> WorkHead {
@@ -73,11 +72,15 @@ fn each_item_keeps_the_level_it_was_added_at() {
         |store: &Store| -> Vec<Option<String>> { store.items().unwrap().into_iter().map(|i| i.level).collect() };
     assert_eq!(levels(&store), [Some("1".to_string()), Some("3".to_string())]);
     // The owner puts an item at another level, and again: the latest holds, and each change is kept.
-    store.set_level(ItemNumber(1), "2", Time(30)).unwrap();
-    store.set_level(ItemNumber(1), "3", Time(40)).unwrap();
+    store
+        .change(ItemNumber(1), &ItemChange::Level("2".into()), Time(30))
+        .unwrap();
+    store
+        .change(ItemNumber(1), &ItemChange::Level("3".into()), Time(40))
+        .unwrap();
     assert_eq!(levels(&store), [Some("3".to_string()), Some("3".to_string())]);
     assert_eq!(
-        store.set_level(ItemNumber(5), "2", Time(50)),
+        store.change(ItemNumber(5), &ItemChange::Level("2".into()), Time(50)),
         Err(Fault::NoSuchItem(ItemNumber(5)))
     );
 }

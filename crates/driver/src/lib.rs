@@ -12,7 +12,11 @@
 //! depends on have merged. The driver writes it as the item is added, whenever one of those items merges or is
 //! cancelled, and, on opening, wherever the block and what it stands for have come apart; it writes no block of a
 //! work that has ended. A work whose flow has no such block waits for no item. An item that depends on a cancelled
-//! one waits for good, its block saying which: the owner cancels it or leaves it.
+//! one waits for good, its block saying which: the owner cancels it, takes that dependency away, or leaves it.
+//!
+//! Whoever plans the work changes an item after it was added: its title, its level, and, while its work has started no
+//! run, what it depends on ([`Driver::change`], module [`changes`]). Each change is kept as a record of the item's own;
+//! a change of what it depends on writes the work's block of [`DEPENDENCIES`] anew, as an add does.
 //!
 //! The driver writes one more block of a work: the block of a flow whose source is [`SESSION`], which a cell reads that
 //! loads into a line's session what the line's other cells work from. As a line of a work begins a new session, the
@@ -52,6 +56,8 @@
 
 pub mod attention;
 
+pub mod changes;
+
 pub mod sessions;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -63,9 +69,10 @@ use decide::{BlockId, Decision, End, Holder, Outsider, Pauser, Room, View, begun
 use engine::{Effect, Event, Gate, Refused, handle_held, handle_then, held};
 use flow::Compiled;
 pub use outage::{Outage, Until};
-use store::{Item, ItemNumber, Storage, WorkHead, WorkNumber};
+use store::{Change, First, Item, ItemChange, ItemNumber, Storage, WorkHead, WorkNumber};
 use work::{Time, Work};
 
+pub use changes::{Gone, Unchangeable};
 pub use sessions::{Policy, SESSION};
 
 /// The source of the blocks the driver writes: whether the items the work's item depends on have merged. Such a block
@@ -211,6 +218,10 @@ pub enum Fault {
 pub enum Failed {
     /// The driver has no such item. Nothing was changed.
     NoSuchItem(ItemNumber),
+    /// An item was to be added, or given a title, with a title of no words. Nothing was changed.
+    BlankTitle,
+    /// The item may not be changed so, for this reason. Nothing was changed.
+    Unchangeable { item: ItemNumber, why: Unchangeable },
     /// The driver has no such work. Nothing was changed.
     NoSuchWork(WorkNumber),
     /// The driver was given no flow of this name. Nothing was changed.
@@ -341,6 +352,9 @@ impl Driver {
     /// the item among those the driver shows, or adds it again as another item.
     pub fn add(&mut self, now: Time, new: NewItem) -> Result<(ItemNumber, WorkNumber, Vec<Todo>), Failed> {
         self.going()?;
+        if new.title.trim().is_empty() {
+            return Err(Failed::BlankTitle);
+        }
         if let Some(on) = new.depends_on.iter().find(|on| !self.of_item.contains_key(*on)) {
             return Err(Failed::NoSuchItem(*on));
         }
@@ -387,13 +401,16 @@ impl Driver {
                 flow: new.flow,
                 added: now,
             },
-            item: Item {
-                number: item,
-                title: new.title,
-                level: Some(new.level),
-                added: now,
-                depends_on,
-            },
+            item: Item::new(
+                item,
+                now,
+                First {
+                    title: new.title,
+                    level: Some(new.level),
+                    depends_on,
+                },
+                Vec::new(),
+            ),
             standing: standing_of(&flow, &work),
             flow,
             work,
@@ -404,26 +421,52 @@ impl Driver {
         Ok((item, number, todos))
     }
 
-    /// Puts an item at another level, which whoever asks has checked against the installation's levels, and says whether
-    /// that changed it: an item at the level already is left as it is. Its work's rounds handed out from now on run on
-    /// the new level; a round under way goes on as it was given. Nothing is to be done for it now: where the new level
-    /// gives a line another model, the line begins a new session as the next thing that happens to the work is taken.
-    pub fn set_level(&mut self, now: Time, item: ItemNumber, level: &str) -> Result<bool, Failed> {
+    /// Changes an item, as whoever plans the work asks, and says whether that changed it, with what is to be done: a
+    /// change that leaves the item as it is keeps nothing. A change is refused where [`changes::judge`] refuses it,
+    /// and a level is one whoever asks has checked against the installation's levels. The change is kept as the item's
+    /// own record before anything follows from it. Where the item comes to depend on another or no longer does, its
+    /// work's block of [`DEPENDENCIES`] is written to say what it now waits for, and the work is looked at; a level or
+    /// a title decides nothing now: the work's rounds handed out from now on run on the new level, and where it gives a
+    /// line another model, the line begins a new session as the next thing that happens to the work is taken.
+    pub fn change(&mut self, now: Time, item: ItemNumber, change: ItemChange) -> Result<(bool, Vec<Todo>), Failed> {
         self.going()?;
         let Some(work) = self.of_item.get(&item).copied() else {
             return Err(Failed::NoSuchItem(item));
         };
         let held = self.works.get(&work).ok_or(Failed::NoSuchItem(item))?;
-        if held.item.level.as_deref() == Some(level) {
-            return Ok(false);
+        let gone = match held.standing {
+            Standing::Ended(end) => Gone::Ended(end),
+            _ if held.work.records.started.is_empty() => Gone::NotStarted,
+            _ => Gone::Started,
+        };
+        let depends_on = |on: ItemNumber| {
+            let work = self.of_item.get(&on)?;
+            self.works.get(work).map(|held| held.item.depends_on.clone())
+        };
+        let changes = changes::judge(&held.item, gone, &change, depends_on).map_err(|refused| match refused {
+            changes::Refused::NoSuchItem(on) => Failed::NoSuchItem(on),
+            changes::Refused::BlankTitle => Failed::BlankTitle,
+            changes::Refused::Unchangeable(why) => Failed::Unchangeable { item, why },
+        })?;
+        if !changes {
+            return Ok((false, Vec::new()));
         }
-        if let Err(fault) = self.store.set_level(item, level, now) {
+        if let Err(fault) = self.store.change(item, &change, now) {
             return Err(self.stop(Fault::Store(fault), false));
         }
-        if let Some(held) = self.works.get_mut(&work) {
-            held.item.level = Some(level.to_string());
+        let dependencies = matches!(change, ItemChange::DependsOn(_) | ItemChange::NoLongerDependsOn(_));
+        let Some(held) = self.works.get_mut(&work) else {
+            return Err(Failed::NoSuchItem(item));
+        };
+        held.item.changed(Change { at: now, what: change });
+        let mut todos = Vec::new();
+        if dependencies && let Some(event) = self.wanted(&self.works[&work]) {
+            // The change is kept by now, whatever becomes of what follows from it.
+            if let Err(fault) = self.step_one(now, work, event, false, &mut todos) {
+                return Err(self.stop(fault, true));
+            }
         }
-        Ok(true)
+        self.filled_after(now, todos).map(|todos| (true, todos))
     }
 
     /// Takes one thing that happened to a work, at the time the caller's clock gives, and gives what is to be done:
