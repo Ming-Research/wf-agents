@@ -38,7 +38,19 @@ import { Markdown } from './markdown';
 import { bodyMock, itemMock, markRead, workTierMock } from './mock';
 import { age, dollars, type Mood, moodOf } from './snap';
 import { barOf, barSpans, TimeTrack } from './track';
-import { type Body, changedIn, named, type Note, type Part, picks, type Who } from './window';
+import {
+  type Body,
+  changedIn,
+  type Choice,
+  named,
+  type Note,
+  type NoteCell,
+  notesAbout,
+  type Part,
+  picks,
+  quoteOf,
+  type Who,
+} from './window';
 
 const ago = (at: number) => age(Date.now() - at).label;
 
@@ -170,13 +182,22 @@ function useSending(act: (what: Act) => Promise<unknown>) {
   return { waiting, refused, send };
 }
 
-/// The words for who writes a note or is named in one.
-const WRITER: Record<Who, string> = {
+/// The words for who writes a note or is named in one: a cell by the name the owner calls it.
+const WRITER: Record<Who | NoteCell, string> = {
   owner: 'You',
   engineer: 'Engineer',
   architect: 'Architect',
   assistant: 'Assistant',
+  R1: 'Research',
+  D1: 'Deep research',
+  I1: 'Implementation',
 };
+
+/// Whether a work went through a cell: it finished a round of it, or has one open.
+const went = (w: Summary, cell: string) => w.cells.some((c) => c.cell === cell && (c.finished > 0 || c.open !== null));
+
+/// Where a note of a work stands in the window, to jump to it.
+const noteId = (work: number, at: number) => `cw-note-${work}-${at}`;
 
 /// A button's words with the letter of its key underlined: the first that begins a word.
 function keyed(words: string, key: string): ReactNode {
@@ -226,8 +247,27 @@ function ItemView({ item, page, act, waitsFor, goal = false, open = true, onRead
   const [quote, setQuote] = useState<string | null>(null);
   const [offer, setOffer] = useState<{ x: number; y: number; text: string } | null>(null);
   const [confirmed, setConfirmed] = useState(false);
+  // Whom the note being written goes to, where the owner chose; and how many times a question was taken to the notes,
+  // to bring the box into view once it is drawn for the cell chosen.
+  const [noteTo, setNoteTo] = useState<NoteCell | null>(null);
+  const [discussed, setDiscussed] = useState(0);
   const inner = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (discussed === 0) return;
+    box.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    box.current?.focus({ preventScroll: true });
+  }, [discussed]);
+  // A question taken to the notes: quoted into the box, which goes to the cell that wrote the plan. Nothing else
+  // changes: the work is not paused.
+  const discuss = (c: Choice) => {
+    setQuote(quoteOf(c));
+    setNoteTo(went(work, 'D1') ? 'D1' : 'R1');
+    setDiscussed((n) => n + 1);
+  };
+  const jump = (at: number) =>
+    document.getElementById(noteId(work.number, at))?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  const about = (c: Choice) => notesAbout(body.notes, c);
   const markAsRead = useCallback(() => {
     const clear = (ps: Part[]) => ps.map((p) => ({ ...p, changed: false }));
     markRead(item.number);
@@ -237,6 +277,7 @@ function ItemView({ item, page, act, waitsFor, goal = false, open = true, onRead
       background: clear(was.background),
       problem: clear(was.problem),
       plan: clear(was.plan),
+      decisions: was.decisions.map((p) => ({ ...p, changed: false })),
     }));
     onRead?.();
   }, [item.number, onRead]);
@@ -322,14 +363,21 @@ function ItemView({ item, page, act, waitsFor, goal = false, open = true, onRead
           </div>
         ) : null}
         {tab === 'work' ? (
-          <WorkFacts w={work} page={read} />
+          <WorkFacts w={work} page={read} verdicts={mock.verdicts} />
         ) : (
           <>
             {work.now.kind === 'waits' && <Waits on={work.now.on} page={read} at={work.now.at} />}
             <div className="cw-body" onMouseUp={selected}>
               <Section title="Background" parts={body.background} />
               <Section title="Problem" parts={body.problem} />
-              <Section title="Plan" parts={body.plan} choose={body.planWaits ? choose : undefined} />
+              <Section
+                title="Plan"
+                parts={body.plan}
+                choose={body.planWaits ? choose : undefined}
+                discuss={discuss}
+                about={about}
+                jump={jump}
+              />
               {body.planWaits ? (
                 <button
                   type="button"
@@ -344,6 +392,7 @@ function ItemView({ item, page, act, waitsFor, goal = false, open = true, onRead
                 </button>
               ) : null}
               {confirmed ? <p className="cw-done">You confirmed the plan.</p> : null}
+              <Section title="Decisions" parts={body.decisions} />
             </div>
             {offer !== null ? (
               <button
@@ -366,6 +415,8 @@ function ItemView({ item, page, act, waitsFor, goal = false, open = true, onRead
               work={work}
               page={page}
               notes={body.notes}
+              noteTo={noteTo}
+              setNoteTo={setNoteTo}
               quote={quote}
               unquote={() => setQuote(null)}
               box={box}
@@ -447,7 +498,7 @@ function Acts({ paused, act }: { paused: boolean; act: (what: Act) => Promise<un
         </Button>
       ) : (
         <Button
-          title="No round of it begins; a round under way goes on"
+          title="Nothing of the work goes on by itself; what you write to it is still answered"
           disabled={waiting}
           onClick={() => void send({ kind: 'pause' })}
         >
@@ -516,11 +567,20 @@ function Section({
   title,
   parts,
   choose,
+  discuss,
+  about,
+  jump,
 }: {
   title: string;
   parts: Part[];
   /// Picks an option of a choice, while the plan waits to be confirmed.
   choose?: (at: number, option: number) => void;
+  /// Takes a choice to the notes.
+  discuss?: (c: Choice) => void;
+  /// The notes about a choice, by where they stand.
+  about?: (c: Choice) => number[];
+  /// Brings a note into view.
+  jump?: (at: number) => void;
 }) {
   if (parts.length === 0) return null;
   return (
@@ -530,7 +590,13 @@ function Section({
           {p.kind === 'text' ? (
             <Markdown text={p.text} />
           ) : (
-            <Choice p={p} pick={choose === undefined ? undefined : (o) => choose(i, o)} />
+            <ChoiceBox
+              p={p}
+              pick={choose === undefined || p.confirmed === true ? undefined : (o) => choose(i, o)}
+              discuss={discuss === undefined ? undefined : () => discuss(p)}
+              notes={about?.(p) ?? []}
+              jump={jump}
+            />
           )}
         </div>
       ))}
@@ -539,8 +605,15 @@ function Section({
 }
 
 /// A choice of the plan: a press on an option picks it, on another changes the pick, and on the one picked lets it go,
-/// until the plan is confirmed.
-function Choice({ p, pick }: { p: Extract<Part, { kind: 'choice' }>; pick?: (option: number) => void }) {
+/// until it is confirmed. Discuss takes it to the notes, confirmed or not; under its options, how many notes are about
+/// it, which brings the first into view.
+function ChoiceBox({ p, pick, discuss, notes, jump }: {
+  p: Choice;
+  pick?: (option: number) => void;
+  discuss?: () => void;
+  notes: number[];
+  jump?: (at: number) => void;
+}) {
   return (
     <div className={pick === undefined ? 'cw-choice cw-choice-done' : 'cw-choice'}>
       <p className="cw-choice-q">{p.question}</p>
@@ -560,6 +633,22 @@ function Choice({ p, pick }: { p: Extract<Part, { kind: 'choice' }>; pick?: (opt
           <span className="cw-option-detail">{o.detail}</span>
         </button>
       ))}
+      {notes.length > 0 || discuss !== undefined ? (
+        <div className="cw-choice-foot">
+          {notes.length > 0 ? (
+            <button type="button" className="link muted small" onClick={() => jump?.(notes[0])}>
+              {notes.length === 1 ? '1 note about it' : `${notes.length} notes about it`}
+            </button>
+          ) : (
+            <span />
+          )}
+          {discuss !== undefined ? (
+            <Button title="Quote it in a note to the cell that wrote the plan; the work goes on" onClick={discuss}>
+              Discuss
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -575,10 +664,13 @@ const NOTE_TO = [
   { cell: 'I1', name: 'Implementation' },
 ] as const;
 
-function Notes({ work, page, notes, quote, unquote, box, act, sent }: {
+function Notes({ work, page, notes, noteTo, setNoteTo, quote, unquote, box, act, sent }: {
   work: Summary;
   page: PageState;
   notes: Note[];
+  /// Whom the owner chose the note goes to; none where they did not.
+  noteTo: NoteCell | null;
+  setNoteTo: (cell: NoteCell) => void;
   quote: string | null;
   unquote: () => void;
   box: RefObject<HTMLTextAreaElement | null>;
@@ -590,20 +682,18 @@ function Notes({ work, page, notes, quote, unquote, box, act, sent }: {
   // Whom a note goes to: the research, the deep research or the implementation, each by the block of the owner's
   // words its cell reads. The deep research cannot be chosen where the work did not go through it. Once the work has
   // come to the implementation, a note goes there unless the owner picks another; before that, to the research.
-  const went = (cell: string) => work.cells.some((c) => c.cell === cell && (c.finished > 0 || c.open !== null));
   const targets = NOTE_TO.map((t) => ({
     ...t,
     block: blocks.find((b) => b.readBy.cells.includes(t.cell)),
-    off: t.cell === 'D1' && !went('D1'),
+    off: t.cell === 'D1' && !went(work, 'D1'),
   }));
-  const [chosen, setChosen] = useState<string | null>(null);
   const usable = targets.filter((t) => t.block !== undefined && !t.off);
-  const target = usable.find((t) => t.cell === (chosen ?? (went('I1') ? 'I1' : 'R1'))) ?? usable[0];
+  const target = usable.find((t) => t.cell === (noteTo ?? (went(work, 'I1') ? 'I1' : 'R1'))) ?? usable[0];
   const block = target?.block;
   return (
     <PanelPart label="Notes">
       {notes.map((n, i) => (
-        <div key={i} className={n.who === 'owner' ? 'cw-note cw-note-owner' : 'cw-note'}>
+        <div key={i} id={noteId(work.number, i)} className={n.who === 'owner' ? 'cw-note cw-note-owner' : 'cw-note'}>
           <div className="status-line">
             <span className="status-word">{WRITER[n.who]}</span>
             <span className="muted">to {n.to.map((x) => WRITER[x]).join(', ')}</span>
@@ -632,7 +722,7 @@ function Notes({ work, page, notes, quote, unquote, box, act, sent }: {
                 aria-pressed={t.cell === target?.cell}
                 disabled={t.block === undefined || t.off}
                 title={t.off ? 'The work did not go through the deep research' : undefined}
-                onClick={() => setChosen(t.cell)}
+                onClick={() => setNoteTo(t.cell)}
               >
                 {t.name}
               </button>
@@ -642,6 +732,7 @@ function Notes({ work, page, notes, quote, unquote, box, act, sent }: {
             key={draftKey(work.number, block.name)}
             work={work}
             block={block.name}
+            to={target?.cell ?? 'R1'}
             readers={block.readBy.cells.map((c) => titleOf(read, c))}
             quote={quote}
             unquote={unquote}
@@ -657,9 +748,11 @@ function Notes({ work, page, notes, quote, unquote, box, act, sent }: {
 
 /// The box for one block of one work, its draft kept as it is typed, with the passage quoted into it over it, and the
 /// names one can write to offered when `@` is typed.
-function Compose({ work, block, readers, quote, unquote, box, act, sent }: {
+function Compose({ work, block, to: cell, readers, quote, unquote, box, act, sent }: {
   work: Summary;
   block: string;
+  /// The cell the note goes to.
+  to: NoteCell;
   readers: string[];
   quote: string | null;
   unquote: () => void;
@@ -696,7 +789,7 @@ function Compose({ work, block, readers, quote, unquote, box, act, sent }: {
       setText((now) => (now.trim() === words ? '' : now));
       setWritten(true);
       const at = named(words, working);
-      sent({ who: 'owner', at: Date.now(), to: at.length > 0 ? at : [working ? 'engineer' : 'assistant'], quote, text: words });
+      sent({ who: 'owner', at: Date.now(), to: [cell, ...at], quote, text: words });
     });
   };
   return (
@@ -749,7 +842,7 @@ function sentBackOf(w: Summary, page: WorkPage | null): number {
 }
 
 /// What of the work the lines do not say, and what the marks of the strip in its line mean.
-function WorkFacts({ w, page }: { w: Summary; page: WorkPage | null }) {
+function WorkFacts({ w, page, verdicts }: { w: Summary; page: WorkPage | null; verdicts: [string, string][] }) {
   const rows: [string, ReactNode][] = [
     ['Rounds', String(w.spent.rounds)],
     ['Cost', dollars(w.spent.usdMicros)],
@@ -757,6 +850,7 @@ function WorkFacts({ w, page }: { w: Summary; page: WorkPage | null }) {
     ['Tier', workTierMock()],
     ['Sent back', String(sentBackOf(w, page))],
     ['Flow', w.flow],
+    ...verdicts,
   ];
   return (
     <>

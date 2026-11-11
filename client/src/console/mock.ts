@@ -8,15 +8,17 @@
 // - On a card and in the window: `unseen` (the item is new to the owner, and the passages changed since they read it),
 //   `unread` (messages from others the owner has not read), and marking the item read (kept in this page only).
 // - In the window's head and item line: the item's `project`, its `tier`, and whether it is a `goal`.
-// - In the window's work tab: the work's `tier`.
-// - In the item tab: the body (Background, Problem, Plan), the plan's choices and its Confirm (kept in this page only),
-//   and the notes written before (who wrote them, to whom, and the replies).
+// - In the window's work tab: the work's `tier`, and the `verdicts` of its judges (item 262 only).
+// - In the item tab: the body (Background, Problem, Plan, Decisions), the plan's choices, which of them the owner
+//   already confirmed, and its Confirm (kept in this page only), and the notes written before (who wrote them, to whom,
+//   what they quote, and the replies). Item 262 has a whole made-up content of its own; the others take one of the
+//   bodies below by what their work does, or a short one.
 // Real, from the engine: everything else, such as the item's standing, when it was added and what it waits for; the
 // work's state, cells, rounds, cost, start, time bar and returns sent back; what it waits at; and the notes the owner
 // sends, which are written into a block of the work.
 
 import type { Item } from '../works-api';
-import type { Body, Note, Part } from './window';
+import { type Body, type Note, type Part, quoteOf } from './window';
 
 const HOUR = 3600000;
 
@@ -193,6 +195,205 @@ const notes263 = (now: number): Note[] => [
   },
 ];
 
+/// Item 262 of the demo data, whole, as its agents would write it for the owner: its work went through the deep
+/// research and the plan's review, was sent back by the review, and waits at the implementation; one question of the
+/// plan the owner confirmed, one is still open, and the notes discuss it. All of it is made up.
+const ITEM_262_OPEN: Extract<Part, { kind: 'choice' }> = {
+  kind: 'choice',
+  question:
+    "Is a failed try part of a cell's cost? `work.cost` is defined as what a cell spent to hand in its blocks, and a " +
+    'failed try handed in nothing.',
+  options: [
+    {
+      label: 'Yes: into work.cost, its reason kept as failed',
+      detail:
+        'The cost by cell is whole in one place, and its sum equals what was billed. Cost: the definition changes from ' +
+        '"spent to hand in" to "spent trying", and whoever reads it sees one reason more.',
+    },
+    {
+      label: 'A number of its own, work.failed_cost',
+      detail: 'work.cost keeps its definition. Cost: to see all a work spent, two numbers are added, and the System page gains a chart.',
+    },
+    {
+      label: 'Only the tries that ran past one minute',
+      detail:
+        'Leaves out the tries that failed at once. Cost: a constant to choose and explain; the short tries drop out of the ' +
+        'sum, and part of the gap comes back.',
+    },
+  ],
+  recommended: 0,
+  chosen: null,
+};
+
+const ITEM_262: Partial<Body> = {
+  background: [
+    {
+      kind: 'text',
+      text:
+        'Since 4 March each try of a round is kept: the table `round_tries`, one row for each try, with `started`, ' +
+        '`ended`, what it cost and how it ended (`returned`, `failed`, `timed_out`).',
+    },
+    {
+      kind: 'text',
+      text:
+        "The work's cost by cell counts only the try that returned. Item #118, which added the cost by cell, counts the " +
+        'tries that `returned` and says that the others are left to this item.',
+    },
+    {
+      kind: 'text',
+      text: 'With the failed tries left out, a work that fails often looks cheap, and the owner cannot tell which works cost the most.',
+    },
+  ],
+  problem: [
+    {
+      kind: 'text',
+      text:
+        'Bug. `work.cost` silently leaves out every try that failed: the cost summed by cell is less than what was ' +
+        'billed, and the gap belongs to no cell. Demo data, one whole day, three slots:',
+    },
+    {
+      kind: 'text',
+      text:
+        '```\n' +
+        'work.cost by cell        R1          $4.10\n' +
+        '                         I1          $9.30\n' +
+        '                         V1          $2.20\n' +
+        '                         sum        $15.60\n' +
+        'billed                              $21.90\n' +
+        'round_tries, 37 rows     no cell     $6.30\n' +
+        '```',
+    },
+    {
+      kind: 'text',
+      text:
+        'Cause: `totals::cost` reads only the tries that `returned`, and never the others; `failed` is named only in ' +
+        "the number's `missing` (`FAILED_UNCOUNTED`).",
+    },
+  ],
+  plan: [
+    {
+      kind: 'text',
+      text:
+        '`totals::cost` reads every row of `round_tries` that falls in the period, one amount for each, and a try still ' +
+        'open counts what it has used so far. A try belongs to one round only, so nothing is counted twice.',
+    },
+    ITEM_262_OPEN,
+    {
+      kind: 'text',
+      text: "The number's `missing` drops `failed`, and `FAILED_UNCOUNTED` is deleted with it.",
+    },
+    {
+      kind: 'choice',
+      question: 'Before 4 March (migration 0042) there is no round_tries: how is the cost of a failed try before then counted?',
+      options: [
+        {
+          label: 'Marked unmeasured, with the day it starts',
+          detail: 'Keeps missing, with a start date; the chart shows that stretch empty rather than zero. Cost: missing must carry a date.',
+        },
+        {
+          label: "Worked out from the provider's bills",
+          detail: 'Gives the past numbers. Cost: a bill covers a day, not a try, so the split by cell would be a guess.',
+        },
+        {
+          label: 'Counted as zero',
+          detail: 'The least work. Cost: the chart looks as if failed tries began on 4 March.',
+        },
+      ],
+      recommended: 0,
+      chosen: 0,
+      confirmed: true,
+    },
+    {
+      kind: 'text',
+      text:
+        'Tests go in `crates/health/src/tests.rs`: a try inside the period, one across its start, one still open, and a ' +
+        'round tried three times counted once for each try. Changes `totals.rs`, `lib.rs` and `tests.rs`; the schema stays.',
+    },
+  ],
+  planWaits: true,
+  decisions: [
+    {
+      kind: 'text',
+      text: '**A try still open counts what it has used so far.** As an open round does: two ways of counting in one number would keep the sum from matching.',
+    },
+    {
+      kind: 'text',
+      text: '**A try that timed out counts as usual.** How it ended does not change what it spent.',
+    },
+    {
+      kind: 'text',
+      text: '**No index on round_tries.** A few dozen rows a day, and a scan by `started` takes 0.3 ms on the demo data.',
+    },
+  ],
+};
+
+/// The notes of item 262's work, in time order: the owner asks about the open question, the deep research that wrote
+/// the plan answers, and the implementation answers one about what it decided.
+const notes262 = (now: number): Note[] => [
+  {
+    who: 'owner',
+    at: now - 5 * HOUR,
+    to: ['D1'],
+    quote: quoteOf(ITEM_262_OPEN),
+    text: 'Explain why the first is recommended. I do not see what the second one changes.',
+  },
+  {
+    who: 'D1',
+    at: now - 4.6 * HOUR,
+    to: ['owner'],
+    quote: null,
+    text:
+      'The second changes no number there is, it only adds one: `work.cost` still counts the tries that returned, and ' +
+      'the failed ones go into `work.failed_cost`. The cost falls on whoever reads them: to know what a work spent, the ' +
+      'two are added, and the System page needs one chart more.\n\n' +
+      'The first is recommended because the gap is what this item is for. In one number, the sum by cell equals what ' +
+      'was billed ($21.90 in the example above), and the gap is plainly gone.',
+  },
+  {
+    who: 'owner',
+    at: now - 4.2 * HOUR,
+    to: ['D1'],
+    quote: null,
+    text: 'Once the definition changes, will anything written against `work.cost` raise a false alarm?',
+  },
+  {
+    who: 'D1',
+    at: now - 3.9 * HOUR,
+    to: ['owner'],
+    quote: null,
+    text:
+      "No. Only the System page and the architect's numbers read the two, both split by cell, with no threshold on the " +
+      'sum; a `failed` reason adds one row. I looked through the rules: none judges by the sum of `work.cost`.',
+  },
+  {
+    who: 'owner',
+    at: now - 2 * HOUR,
+    to: ['I1'],
+    quote: 'a try still open counts what it has used so far.',
+    text: 'What of the tries left open when the engine restarts? Do they keep growing?',
+  },
+  {
+    who: 'I1',
+    at: now - 1.6 * HOUR,
+    to: ['owner'],
+    quote: null,
+    text:
+      'They do not keep growing: the new engine closes or takes up the open tries in its first round. Between the two ' +
+      'rounds a few seconds to a minute more is counted. I added a test: one try before the restart and one after, and ' +
+      'the sum equals the two.',
+  },
+];
+
+/// The verdicts of item 262's judges, as far as its work has come.
+const VERDICTS_262: [string, string][] = [
+  ['Review the plan', 'Settled'],
+  ['Review', 'Sent back to Implement, 1 finding'],
+  ['Adversarial testing', 'Skipped'],
+  ['Check before the merge', 'Not yet'],
+];
+
+const is262 = (item: Item) => item.number === 262;
+
 /// The bodies that show the window's parts, by what an item's work does (`richOf`).
 const RICH: { starts: string; make: (now: number) => Partial<Body> }[] = [
   {
@@ -306,6 +507,8 @@ export type ItemMock = {
   project: string;
   /// Its tier, none where it has none.
   tier: string | null;
+  /// The verdicts of its work's judges so far, each a row of the work's facts: the judge, and what it said.
+  verdicts: [string, string][];
 };
 
 export function itemMock(item: Item): ItemMock {
@@ -318,6 +521,7 @@ export function itemMock(item: Item): ItemMock {
     openQuestions: (item.work.now.kind === 'round' || item.work.now.kind === 'next') && item.number % 3 !== 0 ? 1 : 0,
     project: 'wf-agents',
     tier: '2',
+    verdicts: is262(item) ? VERDICTS_262 : [],
   };
 }
 
@@ -342,18 +546,27 @@ function richOf(item: Item): string | null {
 export function bodyMock(item: Item): Body {
   const now = Date.now();
   const which = richOf(item);
-  const rich = RICH.find((r) => r.starts === which)?.make(now) ?? {};
+  const rich = is262(item)
+    ? { ...ITEM_262, notes: notes262(now) }
+    : (RICH.find((r) => r.starts === which)?.make(now) ?? {});
   const plain = (text: string): Part[] => [{ kind: 'text', text }];
   const body: Body = {
     background: plain('Made by the architect from a matter it was handling.'),
     problem: plain('What the item fixes or adds, in a few sentences.'),
     plan: plain('How it is to be done, once researched.'),
     planWaits: false,
+    decisions: [],
     notes: [],
     ...rich,
   };
   if (!read.has(item.number) && itemMock(item).unseen) return body;
   // Read, or never new: no passage is marked changed.
-  const clear = (ps: Part[]) => ps.map((p) => ({ ...p, changed: false }));
-  return { ...body, background: clear(body.background), problem: clear(body.problem), plan: clear(body.plan) };
+  const clear = <P extends Part>(ps: P[]): P[] => ps.map((p) => ({ ...p, changed: false }));
+  return {
+    ...body,
+    background: clear(body.background),
+    problem: clear(body.problem),
+    plan: clear(body.plan),
+    decisions: clear(body.decisions),
+  };
 }

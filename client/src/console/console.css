@@ -368,6 +368,15 @@
   user-select: text;
 }
 
+/* Under a choice's options: how many notes are about it, a muted link at the left, and Discuss at the right. */
+.cw-choice-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+  margin-top: var(--space-8);
+}
+
 /* The plan's Confirm: the primary button, as wide as the body. */
 .cw-confirm {
   justify-content: center;
@@ -415,8 +424,10 @@
   padding-top: var(--space-8);
 }
 
-/* A passage quoted, in a note or over the box: muted, a hairline at its left. */
+/* A passage quoted, in a note or over the box: muted, a hairline at its left, its lines kept, as a question quoted
+   has its options each on a line. */
 .cw-quote {
+  white-space: pre-line;
   margin: var(--space-4) 0;
   padding-left: var(--space-8);
   border-left: var(--focus) solid var(--line);
