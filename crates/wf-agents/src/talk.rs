@@ -273,15 +273,21 @@ fn done(work: u64, act: &Act) -> String {
     }
 }
 
-/// The engine as a whole, in a line: whether everything is paused, and its slots.
+/// The engine as a whole, in a line: whether everything is paused and by whom, and its slots.
 fn standing(engine: &Engine) -> String {
-    let paused = if engine.paused.is_some() {
-        "Every work is paused: none begins a round but to answer a note, until `wf-agents resume --all`"
-    } else {
-        "Works go on"
+    let paused = match engine.paused.map(|paused| paused.by) {
+        Some(Pauser::Owner) => {
+            "Every work is paused: none begins a round but to answer a note, until `wf-agents resume --all`"
+        }
+        Some(Pauser::Engine) => STARTED_HELD,
+        None => "Works go on",
     };
     format!("{paused}; {} of {} slots taken.", engine.taken, engine.slots)
 }
+
+/// What the engine's own pause of everything, as it started with works going on, is, in words.
+const STARTED_HELD: &str = "The engine started with works going on and holds every work until you have looked: none \
+                            begins a round but to answer a note, until `wf-agents resume --all`";
 
 /// Every item, a line each, with what its work does now.
 fn list(items: &Items) -> String {
@@ -476,11 +482,20 @@ fn attention(answer: &Attention, marked: bool, now: u64) -> String {
 /// One thing for the planner: the item and its work, what it does, and since when.
 fn heed(line: &Line, now: u64) -> String {
     let (of, said) = match line {
-        Line::Everything { since } => {
+        Line::Everything {
+            since,
+            by: Pauser::Owner,
+        } => {
             return format!(
                 "The owner paused everything: no work begins a round but to answer a person's words to its cell, for {}.",
                 duration(now.saturating_sub(*since))
             );
+        }
+        Line::Everything {
+            since,
+            by: Pauser::Engine,
+        } => {
+            return format!("{STARTED_HELD}, for {}.", duration(now.saturating_sub(*since)));
         }
         Line::Agents { since, outage: o } => {
             return format!(

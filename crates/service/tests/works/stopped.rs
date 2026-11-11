@@ -49,12 +49,12 @@ impl Storage for Failing {
         self.store.load(work)
     }
 
-    fn everything_paused(&self) -> Result<Option<Time>, store::Fault> {
+    fn everything_paused(&self) -> Result<Option<store::EverythingPaused>, store::Fault> {
         self.store.everything_paused()
     }
 
-    fn pause_everything(&mut self, paused: bool, at: Time) -> Result<(), store::Fault> {
-        self.store.pause_everything(paused, at)
+    fn pause_everything(&mut self, paused: bool, by: decide::Pauser, at: Time) -> Result<(), store::Fault> {
+        self.store.pause_everything(paused, by, at)
     }
 
     fn save(&mut self, work: WorkNumber, given: &Work) -> Result<(), store::Fault> {

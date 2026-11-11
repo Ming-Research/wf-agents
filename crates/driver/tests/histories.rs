@@ -13,7 +13,8 @@
 //! Once people stop, the works left paused are let on as their last act, and the rounds, the tools' calls, the
 //! withdrawals and the stops are answered until nothing more is given: within a bound each work then waits, saying for
 //! what and for whom, or has ended, and what is pending is only what people are to answer (entry
-//! a-work-comes-to-rest). A history with stops and failures ends as the same history with none.
+//! a-work-comes-to-rest). A history with stops and failures, the owner lifting at once the pause of everything the
+//! driver makes as it opens on works going on, ends as the same history with none, each entry added at the same time.
 //!
 //! What a step is, roughly. In the first 0 to 79 steps people act at a step with a chance of one in four; otherwise,
 //! and always once they stop, one of the things given to be done is answered, each with an equal chance:
@@ -128,6 +129,8 @@ struct Seen {
     rested_ended: usize,
     /// Rounds given again by an opening because they were pending across it.
     given_again: usize,
+    /// Openings on works going on, at which the driver paused everything until the owner lifted it.
+    held_at_start: usize,
 }
 
 /// A history: the harness, the draws of the history and, apart, of its stops.
@@ -278,6 +281,12 @@ impl History {
             self.h.check();
             self.seen.reopens += 1;
             self.seen.given_again += todos.len();
+            if self.h.d().everything_paused().is_some_and(|p| p.by == Pauser::Engine) {
+                self.log
+                    .push("the owner lifts the pause of everything the driver made as it opened".into());
+                self.seen.held_at_start += 1;
+                self.h.lift_the_starts_pause();
+            }
         } else if faults.chance(4) {
             let plan = Plan::Fail {
                 op: None,
@@ -608,7 +617,7 @@ impl History {
 
     fn ending(&self) -> Ending {
         let works = (self.h.d().works())
-            .map(|k| (k.head.clone(), k.work.clone(), self.h.decision(k.head.number)))
+            .map(|k| (k.head.clone(), by_time(k.work), self.h.decision(k.head.number)))
             .collect();
         Ending {
             works,
@@ -725,6 +734,7 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
                 seen.rested_waiting += s.rested_waiting;
                 seen.rested_ended += s.rested_ended;
                 seen.given_again += s.given_again;
+                seen.held_at_start += s.held_at_start;
             }
             Err(e) => {
                 let message = (e.downcast_ref::<String>().cloned())
@@ -750,6 +760,7 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
         ("the process stopped after a call", seen.stops.deaths),
         ("opened anew between steps", seen.reopens),
         ("given again by an opening", seen.given_again),
+        ("openings that paused everything for works going on", seen.held_at_start),
         ("refused", seen.refused),
         ("added while people acted", seen.added),
         ("cancelled", seen.cancels),

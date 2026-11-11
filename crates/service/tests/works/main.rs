@@ -160,6 +160,21 @@ impl Trial {
         self.check();
     }
 
+    /// Whether the engine holds everything since it started again with works going on, until the owner lifts it.
+    pub fn held_by_its_start(&self) -> bool {
+        (self.service.driver().everything_paused()).is_some_and(|paused| paused.by == decide::Pauser::Engine)
+    }
+
+    /// The owner sets the pause of everything, or lifts it, the owner's or the engine's own.
+    pub fn everything(&mut self, paused: bool) {
+        let (reply, mut answer) = oneshot::channel();
+        self.take(Message::Everything { paused, reply });
+        self.steps += 1;
+        (answer.try_recv())
+            .expect("the loop answers at once")
+            .expect("the pause of everything is taken");
+    }
+
     /// Takes the next thing that comes, once it comes, and checks what must always hold; says what it was, or none
     /// where nothing more comes.
     pub async fn step(&mut self) -> Option<Event> {

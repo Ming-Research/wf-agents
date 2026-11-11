@@ -259,14 +259,23 @@ fn a_round_under_way_goes_on_under_the_pause_of_everything_and_what_it_hands_in_
 fn the_pause_of_everything_holds_across_a_stop_and_the_store_keeps_it() {
     let mut h = H::with_slots(flows(), 2);
     h.pause_everything(true);
+    let paused = h.d().everything_paused();
     let (_, work) = h.add_let_on(new_item("work", &[], "plain"));
     assert_eq!(h.reopen(), []);
-    assert!(h.d().everything_paused().is_some());
+    assert_eq!(h.d().everything_paused(), paused, "the owner's pause is kept as it was");
     assert_eq!(h.decision(work), Decision::Paused);
     let todos = h.pause_everything(false);
     assert_eq!(rounds(&todos), [(work, "write".to_string(), 1)]);
+    // Opened again with no work going on, the driver pauses nothing.
+    h.on(
+        work,
+        Event::Paused {
+            by: Pauser::Owner,
+            why: None,
+        },
+    );
     h.reopen();
-    assert!(h.d().everything_paused().is_none());
+    assert_eq!(h.d().everything_paused(), None);
 }
 
 #[test]

@@ -668,7 +668,7 @@ fn the_owners_pause_of_everything_is_one_line_about_no_work_and_leaves_no_work_i
     assert_eq!(
         answer.lines,
         vec![Line {
-            heed: Heed::Everything,
+            heed: Heed::Everything { by: Pauser::Owner },
             since: paused,
         }]
     );
@@ -678,7 +678,7 @@ fn the_owners_pause_of_everything_is_one_line_about_no_work_and_leaves_no_work_i
     h.pause_everything(true);
     assert_eq!(
         heeds(&since(&h, Some(&answer.mark))),
-        vec![Heed::Everything],
+        vec![Heed::Everything { by: Pauser::Owner }],
         "a later pause is given again"
     );
 }

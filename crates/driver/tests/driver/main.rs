@@ -19,11 +19,12 @@ mod outage;
 mod outside;
 mod scheduling;
 mod sessions;
+mod starting;
 mod stopped;
 mod stops;
 
 use decide::{CallId, Decision, End, Outsider, Pauser, RunId, Waited, Who};
 use driver::{Driver, Failed, Fault, Todo};
 use engine::{Call, Came, Effect, Event, Given, Spent, Time};
-use store::{ItemNumber, WorkNumber};
+use store::{EverythingPaused, ItemNumber, WorkNumber};
 use support::*;

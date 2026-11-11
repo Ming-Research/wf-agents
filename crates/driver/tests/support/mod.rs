@@ -17,8 +17,9 @@
 //!   not written after it ended; no work whose dependencies have not all merged has started a run where its flow
 //!   holds it for them; and a work never let on has started no run;
 //! - no more rounds that take a slot are under way than the driver has slots, as the driver says; no work waits for a
-//!   slot while one is free; and while the owner's pause of everything holds, no work began a round after it was set
-//!   but of a run for a note a person wrote, and none given again after it failed.
+//!   slot while one is free; and while the pause of everything holds, the owner's or the driver's own as it opened on
+//!   works going on, no work began a round after it was set but of a run for a note a person wrote, and none given
+//!   again after it failed; the driver holds the pause of everything the store holds.
 //!
 //! When the driver says it stopped, the harness checks that what it says was kept is what the store holds.
 
@@ -26,13 +27,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use decide::{BlockId, CallId, Cause, Decision, End, Holder, Maker, Outsider, RunId, Seq, Waited, Who};
+use decide::{BlockId, CallId, Cause, Decision, End, Holder, Maker, Outsider, Pauser, RunId, Seq, Waited, Who};
 use driver::{DEPENDENCIES, Driver, Failed, Fault, FirstWrite, MERGED, NewItem, Todo, WAITING};
-use engine::{Ask, Back, Came, Effect, Event, Given, Handed, Spent, Time, Work};
+use engine::{Ask, Back, Came, Effect, Event, Given, Handed, Moment, Spent, Time, Work};
 use flow::{Compiled, Has, Kind, Source, compile};
 use rusqlite::Connection;
 use rusqlite::types::Value;
-use store::{Item, ItemNumber, Storage, Store, WorkHead, WorkNumber};
+use store::{EverythingPaused, Item, ItemNumber, Storage, Store, WorkHead, WorkNumber};
 use tempfile::TempDir;
 
 /// The time of the first thing a test does.
@@ -397,14 +398,14 @@ impl Storage for Failing {
         self.store.save(work, given)
     }
 
-    fn everything_paused(&self) -> Result<Option<Time>, store::Fault> {
+    fn everything_paused(&self) -> Result<Option<EverythingPaused>, store::Fault> {
         self.call(Op::Everything)?;
         self.store.everything_paused()
     }
 
-    fn pause_everything(&mut self, paused: bool, at: Time) -> Result<(), store::Fault> {
+    fn pause_everything(&mut self, paused: bool, by: Pauser, at: Time) -> Result<(), store::Fault> {
         self.call(Op::PauseEverything)?;
-        self.store.pause_everything(paused, at)
+        self.store.pause_everything(paused, by, at)
     }
 }
 
@@ -754,12 +755,47 @@ impl H {
         }
     }
 
+    /// The process stops and starts again, and the owner, having looked, lifts at once, at the time it opened, the
+    /// pause of everything the driver made as it opened, where it made one ([`H::reopen`]): gives what opening gave,
+    /// then what lifting it gave.
+    pub fn restart(&mut self) -> Vec<Todo> {
+        let mut todos = self.reopen();
+        todos.extend(self.lift_the_starts_pause());
+        todos
+    }
+
+    /// The owner lifts, at the time the driver opened, the pause of everything the driver made as it opened, where that
+    /// pause holds; gives what lifting it gave.
+    pub fn lift_the_starts_pause(&mut self) -> Vec<Todo> {
+        if !self.d().everything_paused().is_some_and(|p| p.by == Pauser::Engine) {
+            return Vec::new();
+        }
+        match self.try_pause_everything(Time(self.clock), false) {
+            Outcome::Done(todos) => todos,
+            Outcome::Stopped { .. } => panic!("the driver stopped"),
+        }
+    }
+
     /// The process stops and starts again: the driver is dropped and opened anew on a new store on the same file. It
     /// gives what was given and not yet answered, and nothing answered; opened after a stop at which nothing was
-    /// left half done, it gives exactly what it said was pending.
+    /// left half done, it gives exactly what it said was pending. Opened while a work is going on and nothing pauses
+    /// everything, it pauses everything itself, as it opens, and gives nothing more than what was pending: no work
+    /// began a round after it was set, which the checks hold.
     pub fn reopen(&mut self) -> Vec<Todo> {
         let whole = self.d().fault().is_none() && !self.dead();
         let before = self.d().pending();
+        let paused = self
+            .reader
+            .everything_paused()
+            .expect("the pause of everything is read");
+        let going_on = (self.reader.works().expect("the works are read").into_iter()).any(|head| {
+            let work = self.reader.load(head.number).expect("the work loads");
+            let flow = (self.flows.iter())
+                .find(|f| f.name == head.flow)
+                .expect("the work's flow");
+            let decision = decide::decide(&flow.flow, &work.records);
+            !matches!(decision, Decision::Ended(_) | Decision::Fault(_)) && !decide::paused(&work.records)
+        });
         self.driver = None;
         let (opened, calls) = open_on_slots(&self.db, Plan::Never, self.flows.clone(), self.slots, Time(self.clock));
         let (driver, todos) = opened.expect("the driver opens again");
@@ -771,6 +807,22 @@ impl H {
                 "opened again, the driver gives other than what was pending"
             );
         }
+        // Where works were going on and nothing paused everything, the driver paused everything as it opened, and
+        // nothing else; otherwise the pause of everything is as it was.
+        let held = EverythingPaused {
+            since: Time(self.clock),
+            by: Pauser::Engine,
+        };
+        let expected = if paused.is_none() && going_on {
+            Some(held)
+        } else {
+            paused
+        };
+        assert_eq!(
+            self.d().everything_paused(),
+            expected,
+            "opened again, the driver holds another pause of everything than it is to"
+        );
         for todo in &self.outstanding {
             // A round or a call given before may be to be stopped or withdrawn now, by what was kept as it stopped.
             let undone = todos.iter().any(|t| {
@@ -876,6 +928,13 @@ impl H {
     /// What must hold after every call the driver took.
     pub fn check(&self) {
         let d = self.d();
+        assert_eq!(
+            self.reader
+                .everything_paused()
+                .expect("the pause of everything is read"),
+            d.everything_paused(),
+            "the store holds another pause of everything than the driver"
+        );
         let heads: Vec<WorkHead> = d.works().map(|k| k.head.clone()).collect();
         assert_eq!(
             self.reader.works().expect("the works are read"),
@@ -907,8 +966,8 @@ impl H {
                 number.0
             );
             assert!(under_way(kept.work) <= 1, "work {} has two rounds under way", number.0);
-            if let Some(since) = d.everything_paused() {
-                self.held_by_everything(number, kept.flow, kept.work, since);
+            if let Some(paused) = d.everything_paused() {
+                self.held_by_everything(number, kept.flow, kept.work, paused.since);
             }
             let shown = d.view(number).expect("the work is shown").decision;
             if !self.faulty.contains(&number) {
@@ -1013,8 +1072,8 @@ impl H {
         }
     }
 
-    /// While the owner's pause of everything holds, since this time, the work began no round after it but of a run
-    /// for a note a person wrote ([`for_a_note`]), and none given again after it failed.
+    /// While the pause of everything holds, since this time, the work began no round after it but of a run for a note
+    /// a person wrote ([`for_a_note`]), and none given again after it failed.
     fn held_by_everything(&self, number: WorkNumber, flow: &Compiled, work: &Work, since: Time) {
         for (i, round) in work.records.rounds.iter().enumerate() {
             if work.time_of(round.at).is_none_or(|time| time <= since) {
@@ -1240,8 +1299,9 @@ pub struct Stops {
 }
 
 /// Does the act at this time, which the driver must take unless its store stops it. Where the driver stops, or the
-/// process stops, it is opened anew, and what it said was not kept is told again; gives what the driver gave where it
-/// did what it was asked and the process went on.
+/// process stops, it is opened anew, the owner lifting at once the pause of everything it made as it opened
+/// ([`H::restart`]), and what it said was not kept is told again; gives what the driver gave where it did what it was
+/// asked and the process went on.
 pub fn perform(h: &mut H, now: Time, act: &Act, stops: &mut Stops) -> Option<Vec<Todo>> {
     h.clock = now.0;
     loop {
@@ -1266,7 +1326,7 @@ pub fn perform(h: &mut H, now: Time, act: &Act, stops: &mut Stops) -> Option<Vec
         match stopped {
             None => {
                 if dead {
-                    h.reopen();
+                    h.restart();
                     h.check();
                     return None;
                 }
@@ -1278,7 +1338,7 @@ pub fn perform(h: &mut H, now: Time, act: &Act, stops: &mut Stops) -> Option<Vec
                 } else {
                     stops.not_kept += 1;
                 }
-                h.reopen();
+                h.restart();
                 h.check();
                 if kept {
                     return None;
@@ -1509,4 +1569,20 @@ pub fn failure_paused(work: &Work, run: RunId, number: usize) -> bool {
     let paused = (r.pauses.iter()).any(|p| p.paused && p.by == decide::Pauser::Engine && p.at > began);
     let let_on = (r.pauses.iter()).any(|p| !p.paused && p.at > began);
     paused && !let_on
+}
+
+/// The work with its moments joined where one follows another at the same time: what was added to it, and when each
+/// entry was added, however the calls that added them were cut. A stop puts the pause of everything between two
+/// things a call would have added at once, and lifting it adds the second at the same time, as a moment of its own.
+pub fn by_time(work: &Work) -> Work {
+    let mut moments: Vec<Moment> = Vec::new();
+    for moment in &work.moments {
+        if moments.last().is_none_or(|last| last.at != moment.at) {
+            moments.push(moment.clone());
+        }
+    }
+    Work {
+        moments,
+        ..work.clone()
+    }
 }

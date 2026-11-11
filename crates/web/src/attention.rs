@@ -26,7 +26,7 @@ use tokio::time::Instant;
 use work::Time;
 
 use crate::interface::{fail, refused};
-use crate::works::{Broken, Now, Outage};
+use crate::works::{Broken, Now, Outage, Pauser};
 
 /// What needs the planner since the mark it gave, most pressing first.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,9 +45,9 @@ pub struct Attention {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Line {
-    /// The owner paused everything, at this time: no work begins a round but to answer a person's words to its cell.
-    /// It is about no work.
-    Everything { since: u64 },
+    /// Everything was paused, at this time, by the owner or by the engine as it started with works going on: no work
+    /// begins a round but to answer a person's words to its cell, until the owner lifts it. It is about no work.
+    Everything { since: u64, by: Pauser },
     /// No agent's round of any work begins: a round failed for a cause every work shares. It is about no work.
     Agents { since: u64, outage: Outage },
     /// The work's records cannot be those of a work.
@@ -132,7 +132,10 @@ impl Attention {
             .map(|line| {
                 let since = line.since.0;
                 Ok(match &line.heed {
-                    Heed::Everything => Line::Everything { since },
+                    Heed::Everything { by } => Line::Everything {
+                        since,
+                        by: Pauser::of(*by),
+                    },
                     Heed::Agents { outage } => Line::Agents {
                         since,
                         outage: Outage::of(outage, driver.holds(at)),

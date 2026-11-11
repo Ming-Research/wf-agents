@@ -1,5 +1,6 @@
-//! `GET /api/v1/engine` and `POST /api/v1/engine/acts`: the engine's slots and the owner's pause of everything, which
-//! holds every work back and is lifted for all at once; and a work that waits for a slot says so.
+//! `GET /api/v1/engine` and `POST /api/v1/engine/acts`: the engine's slots and the pause of everything, the owner's or
+//! the engine's own as it starts with works going on, which holds every work back and is lifted for all at once; and a
+//! work that waits for a slot says so.
 
 use axum::http::StatusCode;
 use serde_json::{Value, json};
@@ -61,7 +62,9 @@ async fn the_pause_of_everything_holds_back_a_work_added_and_lifted_lets_it_on()
         post(router, "/api/v1/engine/acts", &json!({ "kind": "pause" })).await,
         (StatusCode::NO_CONTENT, Value::Null)
     );
-    assert!(get_json(router, "/api/v1/engine").await["paused"].as_u64() >= Some(START));
+    let paused = get_json(router, "/api/v1/engine").await["paused"].clone();
+    assert!(paused["since"].as_u64() >= Some(START), "{paused}");
+    assert_eq!(paused["by"], "owner");
     add_let_on(router, "First", 1).await;
     assert_eq!(
         get_json(router, "/api/v1/works/1").await["summary"]["now"],
@@ -104,4 +107,52 @@ async fn an_act_on_the_engine_that_cannot_be_read_is_refused() {
         json["error"].as_str().unwrap().starts_with("The act cannot be read: "),
         "{json}"
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn started_on_a_work_going_on_the_engine_says_it_holds_everything_until_the_owner_lifts_it() {
+    // A store with a work let on, its round under way when the engine before stopped.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("store.sqlite");
+    {
+        let flow = flow::compile(
+            &flow::read(&crate::trial_dir().join("flow")).unwrap(),
+            &crate::trial_has(&flow::Source::default()),
+        )
+        .unwrap();
+        let store = store::Store::open(&path).unwrap();
+        let (mut driver, _) = driver::Driver::open(Box::new(store), vec![flow], 2, None, work::Time(START)).unwrap();
+        let new = driver::NewItem {
+            title: "First".to_string(),
+            level: "2".to_string(),
+            depends_on: Vec::new(),
+            flow: "trial".to_string(),
+            writes: vec![driver::FirstWrite {
+                block: decide::BlockId("request".to_string()),
+                content: "Please.".to_string(),
+                value: None,
+            }],
+        };
+        let (_, work, _) = driver.add(work::Time(START), new).unwrap();
+        driver
+            .happened(work::Time(START), work, engine::Event::Resumed)
+            .unwrap();
+    }
+    let running = crate::running_on(Box::new(store::Store::open(&path).unwrap()), dir);
+    let router = &running.router;
+    assert_eq!(
+        get_json(router, "/api/v1/engine").await["paused"],
+        json!({ "since": START, "by": "engine" })
+    );
+    let attention = get_json(router, "/api/v1/attention").await;
+    assert_eq!(
+        attention["lines"][0],
+        json!({ "kind": "everything", "since": START, "by": "engine" }),
+        "{attention}"
+    );
+    assert_eq!(
+        post(router, "/api/v1/engine/acts", &json!({ "kind": "resume" })).await,
+        (StatusCode::NO_CONTENT, Value::Null)
+    );
+    assert_eq!(get_json(router, "/api/v1/engine").await["paused"], Value::Null);
 }
