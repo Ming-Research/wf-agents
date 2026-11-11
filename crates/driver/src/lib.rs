@@ -430,6 +430,11 @@ impl Driver {
         })
     }
 
+    /// Whether the wait every work shares holds rounds now.
+    pub fn holds(&self, now: Time) -> bool {
+        self.gate(now) != Gate::Open
+    }
+
     /// Whether the agents' rounds may begin now, as the wait every work shares says.
     fn gate(&self, now: Time) -> Gate {
         let reached = self.looked.filter(|(_, reached)| *reached).map(|(at, _)| at);

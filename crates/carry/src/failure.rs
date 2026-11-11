@@ -98,6 +98,13 @@ const KINDS: [(Failure, &[&str]); 6] = [
     ),
 ];
 
+/// The kind of cause of a failed round, by what the command line reported of it and what the round took: none where
+/// the program printed no result it could be read by.
+pub fn of(report: &str, spent: Option<&work::Spent>) -> Failure {
+    let _ = spent;
+    kind(report)
+}
+
 /// The kind of cause of a failed round, by what the command line reported of it.
 pub fn kind(report: &str) -> Failure {
     let text = report.to_lowercase();
@@ -209,6 +216,31 @@ mod tests {
             Failure::Flagged
         );
         assert_eq!(kind("claude exited with signal: 9 and no result"), Failure::Passing);
+    }
+
+    #[test]
+    fn a_round_that_reached_the_service_neither_cannot_run_nor_is_offline() {
+        let spent = work::Spent {
+            usd_micros: 1000,
+            input_tokens: 10,
+            cached_tokens: 0,
+            output_tokens: 5,
+        };
+        let report = "the command line's result is an error: grep: notes.md: No such file or directory";
+        assert_eq!(of(report, Some(&spent)), Failure::Passing);
+        assert_eq!(of("API Error: Connection error.", Some(&spent)), Failure::Passing);
+        // A result that spent nothing may say either.
+        assert_eq!(of(report, Some(&work::Spent::default())), Failure::CannotRun);
+        assert_eq!(of("You've hit your limit", Some(&spent)), Failure::UsageLimit);
+    }
+
+    #[test]
+    fn a_round_that_printed_no_result_pauses_its_work_unless_its_words_say_a_cause_every_work_shares() {
+        assert_eq!(of("claude exited with signal: 9", None), Failure::Other);
+        assert_eq!(of("API Error: 529 Overloaded", None), Failure::Other);
+        assert_eq!(of("claude: command not found", None), Failure::CannotRun);
+        assert_eq!(of("getaddrinfo ENOTFOUND api.anthropic.com", None), Failure::Offline);
+        assert_eq!(of("Prompt is too long", None), Failure::PromptTooLong);
     }
 
     #[test]

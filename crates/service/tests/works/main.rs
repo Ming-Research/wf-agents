@@ -14,6 +14,7 @@ mod dependencies;
 mod failing;
 mod going;
 mod pausing;
+mod shared_wait;
 mod stopped;
 mod stopping;
 

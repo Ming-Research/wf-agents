@@ -77,18 +77,30 @@ use reading::{Reading, Writer};
 use support::Says::{DoesNotMatter, Matters, Value};
 use support::{GATE, Says, World, cell, gate};
 
-/// What the histories of a test are drawn from: the shape of the flow, or any; and the number of steps below which
-/// people stop acting.
+/// What the histories of a test are drawn from: the shape of the flow, or any; the number of steps below which
+/// people stop acting; and whether rounds fail in every history, and in a quarter of the rounds before the third, or
+/// as `ANY` draws it.
 #[derive(Clone, Copy)]
 struct Drawn {
     shape: Option<usize>,
     people: usize,
+    failing: bool,
 }
 
 /// Any flow, people acting in the first 0 to 39 steps.
 const ANY: Drawn = Drawn {
     shape: None,
     people: 40,
+    failing: false,
+};
+
+/// Any flow with no judge, people acting in the first 0 to 99 steps and rounds failing in every history, more often:
+/// that a run answering a note while the owner's pause holds has a round fail without pausing the work, and goes on
+/// under the pause, takes a row of acts that histories of any flow all but never reach.
+const FAILING: Drawn = Drawn {
+    shape: None,
+    people: 100,
+    failing: true,
 };
 
 /// The sixth shape only, people acting in the first 0 to 99 steps: that a judge runs while the cell it judges is
@@ -97,6 +109,7 @@ const ANY: Drawn = Drawn {
 const SKIPPED_JUDGED: Drawn = Drawn {
     shape: Some(5),
     people: 100,
+    failing: false,
 };
 
 /// The block only people write, a note: a person's words to the cells that read it.
@@ -245,6 +258,8 @@ struct History {
     judged: Option<Rng>,
     /// Draws which rounds fail, apart from `rng`, in the histories where rounds fail.
     failing: Option<Rng>,
+    /// Whether rounds fail more often than `ANY` draws them.
+    often: bool,
     /// The runs whose last round failed, pausing the work, and that have neither gone on nor been abandoned since.
     failed: BTreeSet<RunId>,
     /// The runs whose last round failed, pausing the work, and that the work was not let on since.
@@ -268,14 +283,16 @@ struct History {
 }
 
 impl History {
-    fn new(seed: u64, shape: Option<usize>) -> Self {
+    fn new(seed: u64, drawn: Drawn) -> Self {
+        let shape = drawn.shape;
         let mut rng = Rng::new(seed);
         let mut cells = draw_cells(&mut rng, shape);
         let mut extra = Rng::new(seed ^ 0x0BAD_5EED_CAFE_F00D);
-        let judged = (shape.is_none() && extra.chance(50)).then_some(extra);
+        let judged = (shape.is_none() && !drawn.failing && extra.chance(50)).then_some(extra);
         let mut failing = Rng::new(seed ^ 0x00FA_11ED_0F0F_0F0F);
         // Rounds fail only in histories with no judge, so that those with one go as they did before rounds failed.
-        let failing = (shape.is_none() && judged.is_none() && failing.chance(50)).then_some(failing);
+        let fails = drawn.failing || failing.chance(50);
+        let failing = (shape.is_none() && judged.is_none() && fails).then_some(failing);
         let mut w = if judged.is_some() {
             let mut judge = when_flipped(cell("judge", &[BRIEF, "b0"], &[VERDICT]));
             judge.limit = 2;
@@ -312,6 +329,7 @@ impl History {
             rng,
             judged,
             failing,
+            often: drawn.failing,
             failed: BTreeSet::new(),
             unpaused: BTreeSet::new(),
             unseen: BTreeSet::new(),
@@ -517,7 +535,7 @@ impl History {
         if !is_merge
             && rounds < ROUNDS
             && let Some(failing) = &mut self.failing
-            && failing.chance(12)
+            && failing.chance(if self.often { 25 } else { 12 })
         {
             match failing.below(4) {
                 0 | 1 => {
@@ -811,7 +829,7 @@ impl History {
 /// One history: people act in its first part, then the work is driven until it rests, and what must hold of the whole
 /// history is checked.
 fn one_history(seed: u64, drawn: Drawn, log: &mut Vec<String>, verdict: &mut Verdict) {
-    let mut h = History::new(seed, drawn.shape);
+    let mut h = History::new(seed, drawn);
     let people_until = h.rng.below(drawn.people);
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
         for _ in 0..people_until {
@@ -929,6 +947,11 @@ fn histories(drawn: Drawn, seeds: u64, reached: &[&str]) {
 #[test]
 fn random_works_keep_the_engines_properties_and_come_to_rest() {
     histories(ANY, 800, &[properties::REACHED, pausing::REACHED].concat());
+}
+
+#[test]
+fn rounds_failing_often_while_people_pause_and_write_keep_the_engines_properties() {
+    histories(FAILING, 600, &[pausing::UNPAUSED_ANSWERS]);
 }
 
 #[test]

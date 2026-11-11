@@ -150,3 +150,29 @@ fn a_cause_every_work_shares_pauses_nothing_and_the_shut_gate_holds_only_agents_
     let (_, cell, ..) = round(&shut(&mut w, now, go));
     assert_eq!(cell, "merge");
 }
+
+#[test]
+fn a_notes_round_that_failed_in_passing_over_its_budget_waits_and_is_then_held_for_the_owner() {
+    let (mut w, write, _) = W::requested();
+    let (judge, ..) = round(&w.returns(write, hands_in(&[("text", None)])));
+    assert_eq!(w.returns(judge, hands_in(&[("verdict", Some("yes"))])), vec![]);
+    w.on(Event::Paused {
+        by: Pauser::Owner,
+        why: None,
+    });
+    // A note to the writer is answered while the work is paused.
+    let (effects, _) = w.person_writes("opinions");
+    let (note, ..) = round(&effects);
+    // Its round takes the work over its budget, which its carrier says before the round's end, and fails in passing.
+    w.on(Event::Paused {
+        by: Pauser::Engine,
+        why: Some("over its budget".to_string()),
+    });
+    let (call, ..) = wait_of(&w.on(failed_as(note, Failure::Passing)));
+    assert_eq!(
+        w.done(call),
+        vec![],
+        "the round after it was given though the engine paused the work for it"
+    );
+    assert_eq!(w.on(Event::Resumed), vec![round_effect(note, "write", 2, Given::Task)]);
+}

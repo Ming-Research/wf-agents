@@ -177,3 +177,49 @@ fn a_cause_one_work_has_holds_no_other_work() {
     let todos = h.hands_in(b, &[("text", None)]);
     assert!(!todos.is_empty());
 }
+
+#[test]
+fn without_the_network_the_engines_own_acts_wait_as_well_and_go_on_with_the_rest() {
+    let (mut h, a, b) = two();
+    fails(&mut h, a, Failure::Offline, None);
+    // The other work's round, under way as the network went, ends: its merge, which reaches the network on a host,
+    // waits with every agent's round.
+    let todos = h.hands_in(b, &[("text", None)]);
+    assert_eq!(todos, vec![], "an act began while the network could not be reached");
+    let since = h.d().outage().expect("the wait stands").since;
+    let todos = h.tick(Time(since.0 + PROBE), Some(true));
+    assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 2)]);
+    // The round that tried comes back: every work goes on, the merge among them.
+    let todos = h.hands_in(a, &[("text", None)]);
+    let merges = (todos.iter()).filter(|t| matches!(&t.effect, Effect::Round { cell, .. } if cell.as_str() == "merge"));
+    assert_eq!(merges.map(|t| t.work).collect::<Vec<_>>(), vec![a, b]);
+}
+
+#[test]
+fn a_shared_failure_of_a_round_whose_work_was_cancelled_begins_no_wait() {
+    let (mut h, a, b) = two();
+    let todos = h.on(a, Event::Cancelled);
+    assert!(
+        matches!(
+            &todos[..],
+            [Todo {
+                effect: Effect::Stop { .. },
+                ..
+            }]
+        ),
+        "{todos:?}"
+    );
+    // The carrier's failure comes after the stop: what came of the round is dropped.
+    let run = h.d().work(a).unwrap().work.records.started[0].run;
+    let spent = h.spent();
+    let failed = Event::Failed {
+        run,
+        why: "You've hit your limit".to_string(),
+        failure: Failure::UsageLimit,
+        resets: None,
+        spent,
+    };
+    h.on(a, failed);
+    assert_eq!(h.d().outage(), None);
+    assert!(!h.hands_in(b, &[("text", None)]).is_empty(), "the other work was held");
+}

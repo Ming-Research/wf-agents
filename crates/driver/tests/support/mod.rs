@@ -871,10 +871,15 @@ impl H {
                 _ => None,
             })
             .collect();
-        // The wait every work shares holds the rounds of an agent's cell, and leaves its run to start or go on.
+        // The wait every work shares, where it holds rounds now, leaves the run of a cell whose rounds it holds to start
+        // or go on: an agent's, and without the network the engine's own acts too.
         let agents = |cell: &decide::CellId| {
-            self.d().outage().is_some()
-                && (flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == flow::Kind::Agent)
+            let kind = (flow.cells.iter()).find(|spec| spec.id == *cell).map(|spec| spec.kind);
+            let offline = self
+                .d()
+                .outage()
+                .is_some_and(|o| o.failure == decide::run::Failure::Offline);
+            self.d().holds(Time(self.clock)) && (kind == Some(flow::Kind::Agent) || offline)
         };
         match shown {
             Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if agents(cell) => {}

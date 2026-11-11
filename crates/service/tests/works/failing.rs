@@ -155,7 +155,7 @@ async fn a_stop_at_any_step_of_a_work_whose_round_fails_changes_nothing() {
 
 /// The trial's script, the plan's second round, the one given the owner's answer, failing for a cause of this kind;
 /// where `resets`, the usage limit resets that many milliseconds after the start.
-fn failing_as(failure: &str, resets: Option<u64>) -> Script {
+pub(crate) fn failing_as(failure: &str, resets: Option<u64>) -> Script {
     let text = std::fs::read_to_string(trial_dir().join("script.toml")).expect("the script is read");
     let resets = resets.map_or(String::new(), |ms| format!("resets = {}\n", START.0 + ms));
     let text = format!(

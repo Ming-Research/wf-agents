@@ -273,6 +273,21 @@ fn a_pause_holds_back_nothing_of_a_run_for_what_a_person_wrote_but_a_round_after
 }
 
 #[test]
+fn a_pause_the_engine_made_while_a_notes_round_was_under_way_holds_back_the_round_after_its_failure() {
+    let (mut w, ..) = ran();
+    w.pause();
+    w.person_writes("to implement");
+    let run = w.start("implement");
+    // The round takes the work over its budget: the engine pauses it before the round's end comes, and the round has
+    // failed.
+    w.engine_pauses("over its budget");
+    w.returns("implement");
+    assert_eq!(decide::hold(&w.flow, &w.records, run), Hold::Retry);
+    w.resume();
+    assert_eq!(decide::hold(&w.flow, &w.records, run), Hold::Nothing);
+}
+
+#[test]
 fn a_pause_holds_back_every_round_of_a_run_for_what_no_person_wrote() {
     let (mut w, ..) = ran();
     w.outside_writes("main");
