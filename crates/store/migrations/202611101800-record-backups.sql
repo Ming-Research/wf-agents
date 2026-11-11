@@ -11,13 +11,15 @@ CREATE TABLE backup_uploads (
     at INTEGER NOT NULL
 );
 CREATE TABLE backup_failures (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
     at INTEGER NOT NULL,
     name TEXT NOT NULL,
     step TEXT NOT NULL,
     why TEXT NOT NULL,
-    PRIMARY KEY (at, name, step)
+    UNIQUE (at, name, step)
 );
 CREATE TABLE backup_steps (
-    at INTEGER PRIMARY KEY
+    mended INTEGER PRIMARY KEY REFERENCES backup_failures (seq),
+    at INTEGER NOT NULL
 );
 UPDATE schema_version SET version = 3;

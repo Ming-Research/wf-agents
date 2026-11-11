@@ -255,17 +255,20 @@ CREATE TABLE backup_uploads (
 );
 
 -- A step of keeping a copy failed at `at`, for this reason: `step` says which (`snapshot`, `private`, `upload` or
--- `prune`), and `name` the copy it was about.
+-- `prune`), and `name` the copy it was about. `seq` is the order the failures were recorded in.
 CREATE TABLE backup_failures (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
     at INTEGER NOT NULL,
     name TEXT NOT NULL,
     step TEXT NOT NULL,
     why TEXT NOT NULL,
-    PRIMARY KEY (at, name, step)
+    UNIQUE (at, name, step)
 );
 
--- A step of keeping the copies ended at `at` with nothing failing, and so mended every failure before it. It is kept
--- only when there was a failure to mend.
+-- A step of keeping the copies ended at `at` with nothing failing, and so mended the failures up to the one numbered
+-- `mended`, the newest recorded when it ended. A failure is mended by the order they were recorded in, not by the
+-- time, which a clock that jumped makes wrong. It is kept only when there was a failure to mend.
 CREATE TABLE backup_steps (
-    at INTEGER PRIMARY KEY
+    mended INTEGER PRIMARY KEY REFERENCES backup_failures (seq),
+    at INTEGER NOT NULL
 );

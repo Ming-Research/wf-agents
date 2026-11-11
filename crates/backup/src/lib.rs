@@ -218,14 +218,16 @@ pub fn step_with(now: Time, records: &Backups, plan: &Plan, halt: &mut dyn FnMut
     }
     prune(now, records, plan, &seen, &mut out, halt);
     // A step that ends with nothing failing mends the failures before it; it is recorded only when there is one.
+    // What is before it is told by the order of recording, not by time, which a clock that jumped makes wrong.
     let to_mend = seen
         .failures
         .last()
-        .is_some_and(|f| seen.clean.is_none_or(|clean| f.at > clean));
+        .filter(|f| seen.mended.is_none_or(|mended| f.seq > mended))
+        .map(|f| f.seq);
     if out.failed.is_none()
         && !out.stopped
-        && to_mend
-        && let Err(e) = records.ended(now)
+        && let Some(seq) = to_mend
+        && let Err(e) = records.ended(now, seq)
     {
         out.failed = Some(("records".to_string(), format!("{e:?}")));
     }

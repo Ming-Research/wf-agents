@@ -33,6 +33,8 @@ pub struct Kept {
 /// A step of keeping a copy that failed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Failure {
+    /// The place in the order the failures were recorded in.
+    pub seq: u64,
     pub at: Time,
     /// The copy it was about.
     pub name: String,
@@ -50,8 +52,9 @@ pub struct Records {
     pub uploads: BTreeMap<String, Time>,
     /// The failures, oldest first.
     pub failures: Vec<Failure>,
-    /// When the newest step ended with nothing failing, kept as it mended failures: a failure before it is mended.
-    pub clean: Option<Time>,
+    /// The place of the newest failure that a step ending with nothing failing mended: the failures up to it are
+    /// mended, by the order they were recorded in and not by time, which a clock that jumped makes wrong.
+    pub mended: Option<u64>,
 }
 
 /// The records of the copies, on a connection of their own.
@@ -106,10 +109,13 @@ impl Backups {
         Ok(())
     }
 
-    /// Records that a step ended at `at` with nothing failing, which mends every failure before it.
-    pub fn ended(&self, at: Time) -> Result<(), Fault> {
-        self.db
-            .execute("INSERT OR IGNORE INTO backup_steps (at) VALUES (?1)", [at.0])?;
+    /// Records that a step ended at `at` with nothing failing, which mends the failures up to the one at the place
+    /// `mended`, the newest recorded when it ended.
+    pub fn ended(&self, at: Time, mended: u64) -> Result<(), Fault> {
+        self.db.execute(
+            "INSERT OR IGNORE INTO backup_steps (mended, at) VALUES (?1, ?2)",
+            rusqlite::params![mended, at.0],
+        )?;
         Ok(())
     }
 
@@ -131,25 +137,26 @@ impl Backups {
             .collect::<Result<BTreeMap<_, _>, _>>()?;
         let mut failures = self
             .db
-            .prepare("SELECT at, name, step, why FROM backup_failures ORDER BY at, name, step")?;
+            .prepare("SELECT seq, at, name, step, why FROM backup_failures ORDER BY seq")?;
         let failures = failures
             .query_map([], |row| {
                 Ok(Failure {
-                    at: Time(row.get(0)?),
-                    name: row.get(1)?,
-                    step: row.get(2)?,
-                    why: row.get(3)?,
+                    seq: row.get(0)?,
+                    at: Time(row.get(1)?),
+                    name: row.get(2)?,
+                    step: row.get(3)?,
+                    why: row.get(4)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
-        let clean: Option<u64> = self
+        let mended: Option<u64> = self
             .db
-            .query_row("SELECT max(at) FROM backup_steps", [], |row| row.get(0))?;
+            .query_row("SELECT max(mended) FROM backup_steps", [], |row| row.get(0))?;
         Ok(Records {
             copies,
             uploads,
             failures,
-            clean: clean.map(Time),
+            mended,
         })
     }
 }

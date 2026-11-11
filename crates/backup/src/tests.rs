@@ -521,8 +521,9 @@ fn kept(name: &str, seq: u64, taken: u64) -> store::Kept {
     }
 }
 
-fn failure(at: u64, name: &str, step: &str) -> store::Failure {
+fn failure(seq: u64, at: u64, name: &str, step: &str) -> store::Failure {
     store::Failure {
+        seq,
         at: Time(at),
         name: name.to_string(),
         step: step.to_string(),
@@ -558,7 +559,7 @@ fn the_state_is_worked_out_from_the_records_and_the_time_now() {
     assert_eq!(report(&one(true), Time(T0 - DAY - 1), true, 7).state, State::Clock);
     // A failure shows until a step ends with nothing failing after it.
     let mut r = one(true);
-    r.failures.push(failure(T0 + 10, &a, "upload"));
+    r.failures.push(failure(1, T0 + 10, &a, "upload"));
     let shown = report(&r, now, true, 7);
     assert_eq!(
         shown.state,
@@ -569,21 +570,25 @@ fn the_state_is_worked_out_from_the_records_and_the_time_now() {
         }
     );
     assert_eq!(shown.last_failure.map(|f| f.step), Some("upload".to_string()));
-    // An upload does not mend it, nor does a step that ended before it; a step that ended clean after it does.
+    // An upload does not mend it, nor does a step that mended the failures before it; a step that mended it does.
     r.uploads.insert("another".to_string(), Time(T0 + 20));
-    r.clean = Some(Time(T0 + 5));
+    r.mended = Some(0);
     assert!(matches!(report(&r, now, true, 7).state, State::Failed { .. }));
-    r.clean = Some(Time(T0 + 20));
+    r.mended = Some(1);
     assert_eq!(report(&r, now, true, 7).state, State::Ok);
     // A failure of any step is mended so, one about no copy as much as one about a copy.
     let mut taking = one(true);
-    taking.failures.push(failure(T0 + 10, "-", "snapshot"));
+    taking.failures.push(failure(1, T0 + 10, "-", "snapshot"));
     taking
         .failures
-        .push(failure(T0 + 12, "store-0000000000001.sqlite.gz", "prune"));
+        .push(failure(2, T0 + 12, "store-0000000000001.sqlite.gz", "prune"));
     assert!(matches!(report(&taking, now, true, 7).state, State::Failed { .. }));
-    taking.clean = Some(Time(T0 + 30));
+    taking.mended = Some(2);
     assert_eq!(report(&taking, now, true, 7).state, State::Ok);
+    // What is after is told by the order recorded in, not by time: a failure recorded after a clean step is shown
+    // though its time is before the time of the step.
+    taking.failures.push(failure(3, T0, "-", "snapshot"));
+    assert!(matches!(report(&taking, now, true, 7).state, State::Failed { .. }));
 }
 
 /// A `gh` that keeps one release in a directory: it is not there until made, and every call fails while the file

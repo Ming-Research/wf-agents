@@ -61,10 +61,14 @@ pub(crate) fn trusted(taken: Time, now: Time) -> bool {
 }
 
 /// The failure that is still to be shown: the newest one, if no step ended with nothing failing after it. A step that
-/// ends clean has done everything that was to be done, so it mends every failure before it, whatever step it was.
+/// ends clean has done everything that was to be done, so it mends every failure recorded before it, whatever step it
+/// was. What is before and after is told by the order of recording, not by time, which a clock that jumped makes wrong.
 fn failure(records: &Records) -> Option<&store::Failure> {
     let newest = records.failures.last()?;
-    records.clean.is_none_or(|clean| newest.at > clean).then_some(newest)
+    records
+        .mended
+        .is_none_or(|mended| newest.seq > mended)
+        .then_some(newest)
 }
 
 /// How the copies stand at `now`, with the copies kept being the `keep` newest and `configured` being whether a place
