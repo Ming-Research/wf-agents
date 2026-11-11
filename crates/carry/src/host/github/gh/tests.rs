@@ -131,6 +131,32 @@ fn a_pull_request_is_read_with_its_merge_commit_only_once_merged() {
 }
 
 #[test]
+fn the_requests_that_open_edit_ready_and_close_a_pull_request_are_as_githubs_api_takes_them() {
+    let (method, path, body) = opening("o/r", "work-1-x", "main", "Greet the user", "It greets.");
+    assert_eq!((method, path.as_str()), ("POST", "repos/o/r/pulls"));
+    assert_eq!(
+        body,
+        json!({ "title": "Greet the user", "body": "It greets.", "head": "work-1-x", "base": "main", "draft": true })
+    );
+    let (method, path, body) = editing("o/r", 12, "Greet the user", "It greets by name.");
+    assert_eq!((method, path.as_str()), ("PATCH", "repos/o/r/pulls/12"));
+    assert_eq!(body, json!({ "title": "Greet the user", "body": "It greets by name." }));
+    let (method, path, body) = readying("PR_kwDO");
+    assert_eq!((method, path.as_str()), ("POST", "graphql"));
+    assert_eq!(body["variables"], json!({ "id": "PR_kwDO" }));
+    let query = body["query"].as_str().unwrap();
+    assert!(
+        query.contains("markPullRequestReadyForReview(input: {pullRequestId: $id})"),
+        "{query}"
+    );
+    let [(said, at, comment), (close, pull, closed)] = closing("o/r", 12, "Its work ended without merging.");
+    assert_eq!((said, at.as_str()), ("POST", "repos/o/r/issues/12/comments"));
+    assert_eq!(comment, json!({ "body": "Its work ended without merging." }));
+    assert_eq!((close, pull.as_str()), ("PATCH", "repos/o/r/pulls/12"));
+    assert_eq!(closed, json!({ "state": "closed" }));
+}
+
+#[test]
 fn an_answer_is_read_with_its_status_and_a_refusal_in_githubs_words() {
     let out = "HTTP/2.0 409 Conflict\r\nContent-Type: application/json\r\n\r\n{\"message\":\"Head branch was \
                modified. Review and try the merge again.\"}";

@@ -61,9 +61,9 @@ pub struct Verdict {
     /// What judged the commit, as words that follow "checked by", where the host says it; with none, the check is told
     /// by what it was checked against alone.
     pub by: Option<String>,
-    /// What failed and was found not to be the change's, each in words: a check red on main as well, a check that
-    /// failed and passed when it was run again on the same commit. None of these holds the work.
-    pub passed_over: Vec<String>,
+    /// What the host says of the checks beside the verdict, each in words and with no judgment of its own: a check run
+    /// more than once on the commit, with each run's result.
+    pub notes: Vec<String>,
 }
 
 /// Where the project's repository is hosted. A failure of the host itself (it cannot be reached, it refuses, it does
@@ -74,15 +74,12 @@ pub trait Host: Send + Sync + 'static {
     fn main(&self) -> impl Future<Output = Result<String, String>> + Send;
 
     /// The verdict on the commit, the head of the work's branch, which is committed and merges into main without a
-    /// conflict; none where it was told to stop. `seen` is what the work was told before of failures of its checks:
-    /// a check that ran and failed, whose very run is named there, is run again where the host can, since reading the
-    /// same failure again tells nothing new, and one that then passes is told apart as failing now and then. A check
-    /// that could not run at all is not run again here.
+    /// conflict; none where it was told to stop. A named check red on the commit fails it, whatever else is red, and
+    /// nothing is run again.
     fn verdict(
         &self,
         branch: &Branch<'_>,
         commit: &str,
-        seen: Option<&str>,
         stop: &mut Stop,
     ) -> impl Future<Output = Result<Option<Verdict>, String>> + Send;
 
@@ -97,12 +94,10 @@ pub trait Host: Send + Sync + 'static {
     fn kept_main(&self) -> String;
 
     /// What the agents' tool `check` finds of the work, in words for the agent that asked; none where it was told to
-    /// stop. An `Err` is why it could not check, for the agent too. What failed is judged as [`Host::verdict`] judges
-    /// it, `seen` alike.
+    /// stop. An `Err` is why it could not check, for the agent too. What failed is said as [`Host::verdict`] says it.
     fn check(
         &self,
         branch: &Branch<'_>,
-        seen: Option<&str>,
         stop: &mut Stop,
     ) -> impl Future<Output = Result<Option<String>, String>> + Send;
 
@@ -124,14 +119,6 @@ pub trait Host: Send + Sync + 'static {
 /// What the host says on the pull request of a work that ended without merging. It says not why: why is the owner's,
 /// in the owner's language, and on the owner's page.
 pub const CLOSED: &str = "Its work ended without merging.";
-
-/// The words of a check that failed on this same commit before and passed now, run again.
-pub(crate) fn now_and_then(check: &str, before: &str, now: &str) -> String {
-    format!(
-        "{check} failed on this same commit before{before} and passed when run again{now}: it fails now and then, not \
-         for the change"
-    )
-}
 
 /// The names a host's checks before the change are running under in this process: a worktree or a branch each, named
 /// by the work and the commit. A check holds its name while it runs, so that another asked at once for the same commit
@@ -169,14 +156,8 @@ impl<H: Host> Host for Arc<H> {
         (**self).main().await
     }
 
-    async fn verdict(
-        &self,
-        branch: &Branch<'_>,
-        commit: &str,
-        seen: Option<&str>,
-        stop: &mut Stop,
-    ) -> Result<Option<Verdict>, String> {
-        (**self).verdict(branch, commit, seen, stop).await
+    async fn verdict(&self, branch: &Branch<'_>, commit: &str, stop: &mut Stop) -> Result<Option<Verdict>, String> {
+        (**self).verdict(branch, commit, stop).await
     }
 
     async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, String> {
@@ -187,8 +168,8 @@ impl<H: Host> Host for Arc<H> {
         (**self).kept_main()
     }
 
-    async fn check(&self, branch: &Branch<'_>, seen: Option<&str>, stop: &mut Stop) -> Result<Option<String>, String> {
-        (**self).check(branch, seen, stop).await
+    async fn check(&self, branch: &Branch<'_>, stop: &mut Stop) -> Result<Option<String>, String> {
+        (**self).check(branch, stop).await
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {

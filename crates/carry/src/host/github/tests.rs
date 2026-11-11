@@ -77,9 +77,7 @@ impl Hub {
 
     async fn verdict(&self, commit: &str) -> Result<Option<Verdict>, String> {
         let place = self.place();
-        self.host
-            .verdict(&branch(&place), commit, None, &mut Stop::never())
-            .await
+        self.host.verdict(&branch(&place), commit, &mut Stop::never()).await
     }
 
     async fn merge(&self, checked: &str) -> Result<String, String> {
@@ -227,7 +225,7 @@ async fn the_check_pushes_the_head_opens_a_pull_request_into_main_and_passes_onc
         Verdict {
             failed: None,
             by: Some("the CI of the pull request https://github.example/pull/1".to_string()),
-            passed_over: Vec::new(),
+            notes: Vec::new(),
         }
     );
     assert_eq!(hub.pushed(), head);
@@ -488,7 +486,7 @@ async fn a_stopped_wait_gives_nothing() {
         held.stop(1, ());
     };
     let branch = branch(&place);
-    let (verdict, ()) = tokio::join!(hub.host.verdict(&branch, &head, None, &mut stop), stopping);
+    let (verdict, ()) = tokio::join!(hub.host.verdict(&branch, &head, &mut stop), stopping);
     assert_eq!(verdict, Ok(None));
 }
 

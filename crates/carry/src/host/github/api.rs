@@ -1,5 +1,5 @@
 //! What the GitHub host asks of GitHub, apart from what `git` pushes and fetches: the pull requests of a branch and
-//! their text, the checks of a commit, a check's log and its running again, and the merge and the closing of a pull
+//! their text, the checks of a commit, a check's log, and the merge and the closing of a pull
 //! request. [`Gh`](super::gh::Gh) asks GitHub with the
 //! `gh` command line; the tests ask a fake.
 
@@ -100,7 +100,4 @@ pub trait Api: Send + Sync + 'static {
 
     /// Closes the pull request, saying this on it first.
     fn close(&self, number: u64, comment: &str) -> impl Future<Output = Result<(), String>> + Send;
-
-    /// Runs the job of GitHub Actions again, on the same commit: its check has a new run, which is the latest.
-    fn rerun(&self, job: u64) -> impl Future<Output = Result<(), String>> + Send;
 }

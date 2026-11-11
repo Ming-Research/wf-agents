@@ -56,7 +56,7 @@ async fn the_pull_request_is_opened_a_draft_saying_what_the_work_wrote_and_follo
     let place = hub.place();
     let branch = about(&place, "Greets the user by name, and by title where one is known.");
     hub.host
-        .verdict(&branch, &head, None, &mut Stop::never())
+        .verdict(&branch, &head, &mut Stop::never())
         .await
         .unwrap()
         .unwrap();
@@ -81,7 +81,7 @@ async fn what_the_work_wrote_is_published_with_no_mention_reference_closing_word
     );
     let place = hub.place();
     hub.host
-        .verdict(&about(&place, &wrote), &head, None, &mut Stop::never())
+        .verdict(&about(&place, &wrote), &head, &mut Stop::never())
         .await
         .unwrap()
         .unwrap();
@@ -108,7 +108,7 @@ async fn what_the_work_wrote_is_published_with_no_mention_reference_closing_word
     // A long text is cut, saying so.
     let long = "word ".repeat(10_000);
     hub.host
-        .verdict(&about(&place, &long), &head, None, &mut Stop::never())
+        .verdict(&about(&place, &long), &head, &mut Stop::never())
         .await
         .unwrap()
         .unwrap();
@@ -161,21 +161,14 @@ async fn a_check_red_on_main_as_well_holds_the_work_saying_so_with_what_its_log_
 }
 
 #[tokio::test]
-async fn a_failure_read_before_is_never_run_again() {
+async fn a_failure_read_before_is_read_as_it_is_again() {
     let hub = Hub::new();
     let head = hub.committed().await;
     hub.github()
         .checks(&head, vec![vec![passed("lint"), job("test", 7, red())]]);
-    let seen = hub.verdict(&head).await.unwrap().unwrap().failed.expect("it fails");
-    let place = hub.place();
-    let again = (hub
-        .host
-        .verdict(&branch(&place), &head, Some(&seen), &mut Stop::never())
-        .await)
-        .unwrap()
-        .unwrap();
-    assert!(again.failed.is_some(), "a failed run is a failed check");
-    assert!(!hub.github().asked().iter().any(|a| matches!(a, Asked::Rerun(_))));
+    let first = hub.verdict(&head).await.unwrap().unwrap();
+    let again = hub.verdict(&head).await.unwrap().unwrap();
+    assert_eq!(again, first, "a failed run is a failed check, each time it is read");
     let said = format!("{again:?}");
     assert!(
         !said.contains("now and then") && !said.contains("not the change's"),
@@ -195,9 +188,9 @@ async fn every_run_of_a_check_on_the_commit_is_said_as_it_is() {
     assert_eq!(verdict.failed, None, "the latest run counts");
     let said = "test: its latest run on this commit passed (https://github.example/actions/runs/1/job/8); its earlier \
                 runs on it: failure https://github.example/actions/runs/1/job/7.";
-    assert_eq!(verdict.passed_over, [said]);
+    assert_eq!(verdict.notes, [said]);
     let place = hub.place();
-    let told = (hub.host.check(&branch(&place), None, &mut Stop::never()).await)
+    let told = (hub.host.check(&branch(&place), &mut Stop::never()).await)
         .unwrap()
         .unwrap();
     assert!(told.contains(said), "{told}");
@@ -213,7 +206,7 @@ async fn an_agents_check_holds_a_check_red_on_main_as_well_as_the_check_before_t
     hub.github()
         .checks(&main, vec![vec![job("lint", 2, red()), passed("test")]]);
     let place = hub.place();
-    let told = (hub.host.check(&branch(&place), None, &mut Stop::never()).await)
+    let told = (hub.host.check(&branch(&place), &mut Stop::never()).await)
         .unwrap()
         .unwrap();
     assert!(told.contains("did not pass"), "{told}");

@@ -90,7 +90,8 @@ pub fn pending(flow: &Compiled, work: &Work) -> Vec<Effect> {
 }
 
 /// How the work ended, where it has and what it holds outside is to be let go: nothing of it is under way, no round
-/// and no call, since a round or a tool may be working in its worktree, and it is not let go already.
+/// and no call, since a round or a tool may be working in its worktree; it is not let go already; and no failure to
+/// let go waits for the owner, as the engine's pause of the work after its end that the owner has not let on from.
 fn release(flow: &Compiled, work: &Work) -> Option<End> {
     let r = &work.records;
     if r.released.is_some() {
@@ -99,6 +100,18 @@ fn release(flow: &Compiled, work: &Work) -> Option<End> {
     let Decision::Ended(end) = decide(&flow.flow, r) else {
         return None;
     };
+    // Where the work ended: its cancel, or its merge's finish, the last of all.
+    let end_at = match end {
+        End::Cancelled => r.cancelled,
+        End::Merged => r.finished.last().map(|f| f.at),
+    };
+    let failed =
+        (r.pauses.iter()).rposition(|p| p.paused && p.by == Pauser::Engine && end_at.is_some_and(|e| p.at > e));
+    if let Some(failed) = failed
+        && !r.pauses[failed + 1..].iter().any(|p| !p.paused)
+    {
+        return None;
+    }
     let quiet = (r.started.iter()).all(|s| began(work, s.run) == ended(work, s.run))
         && r.called.iter().all(|c| done(work, c.call).is_some());
     quiet.then_some(end)
@@ -235,7 +248,20 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
             work.records.done.push(Done { call, at });
             work.results.insert(call, result);
         }
-        Event::NotReleased { .. } => return Err(Refused::NotToRelease),
+        Event::NotReleased { why } => {
+            // The engine's pause of the ended work, with why: the owner sees it where the engine's other reasons are,
+            // and letting the work on tries again.
+            if release(flow, work).is_none() {
+                return Err(Refused::NotToRelease);
+            }
+            let at = work.tick();
+            work.records.pauses.push(Pause {
+                paused: true,
+                at,
+                by: Pauser::Engine,
+                why: Some(why),
+            });
+        }
         Event::Released => {
             // Said twice, as by a carrier that let go again after the engine started again, it was let go once.
             if work.records.released.is_some() {

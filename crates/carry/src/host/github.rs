@@ -250,96 +250,53 @@ impl<A: Api> GitHub<A> {
     }
 
     /// The CI of the commit in words for the agent that asked, `through` saying where it was read: each named check
-    /// that passed by its name, what failed as the check before the merge says it, and what failed and was found not
-    /// to be the change's.
+    /// that passed by its name, what failed as the check before the merge says it, and the runs of a check run more
+    /// than once on the commit.
     async fn told(&self, commit: &str, through: &str, judged: &Judged) -> String {
         let passed: Vec<&str> = (judged.checks.iter())
             .filter(|c| c.outcome == Outcome::Passed)
             .map(|c| c.name.as_str())
             .collect();
-        let over = if judged.passed_over.is_empty() {
+        let notes = judged.notes();
+        let also = if notes.is_empty() {
             String::new()
         } else {
-            format!(
-                "\n\nFailed, and not the change's:\n- {}",
-                judged.passed_over.join("\n- ")
-            )
+            format!("\n\nAlso:\n- {}", notes.join("\n- "))
         };
         match self.failures(judged).await {
             None => format!(
-                "The CI passed on the commit {commit}, {through}: {}.{over}",
+                "The CI passed on the commit {commit}, {through}: {}.{also}",
                 passed.join(", ")
             ),
             Some(failed) => {
-                let also = if passed.is_empty() {
+                let it_passed = if passed.is_empty() {
                     String::new()
                 } else {
                     format!(" It passed {}.", passed.join(", "))
                 };
-                format!("The CI of the commit {commit}, {through}, did not pass.{also}\n\n{failed}{over}")
+                format!("The CI of the commit {commit}, {through}, did not pass.{it_passed}\n\n{failed}{also}")
             }
         }
     }
 
-    /// The named checks of the commit once each has completed, judged: a check that failed on main's head as well is
-    /// not the change's, and one that failed in the very run `seen` names is run again, once, and waited for; none where
-    /// it was told to stop.
-    async fn judged(&self, commit: &str, seen: Option<&str>, stop: &mut Stop) -> Result<Option<Judged>, String> {
-        let Some(first) = self.wait(commit, &[], stop).await? else {
+    /// The named checks of the commit once each has completed, with main's head as last brought in and the runs there
+    /// of those that failed, so that what is red on main as well is said; none where it was told to stop. Nothing is
+    /// run again.
+    async fn judged(&self, commit: &str, stop: &mut Stop) -> Result<Option<Judged>, String> {
+        let Some(checks) = self.wait(commit, stop).await? else {
             return Ok(None);
         };
-        let mut passed_over = Vec::new();
-        let mut beside: Vec<String> = Vec::new();
-        if first.iter().any(failed) {
+        let mut on_main = Vec::new();
+        if checks.iter().any(failed) {
             let main = git::git(&self.project.repo, &["rev-parse", "--verify", &self.kept_main()]).await?;
-            let on_main = self.api.checks(&main).await?;
-            for check in first.iter().filter(|c| failed(c)) {
-                if let Some(there) = on_main.iter().find(|m| m.name == check.name && failed(m)) {
-                    passed_over.push(format!(
-                        "{} failed{}, as it fails on {} at {main}{}: it is not the change's",
-                        check.name,
-                        at(check),
-                        self.project.main,
-                        at(there)
-                    ));
-                    beside.push(check.name.clone());
+            let there = self.api.checks(&main).await?;
+            for check in checks.iter().filter(|c| failed(c)) {
+                if let Some(red) = there.iter().find(|m| m.name == check.name && failed(m)) {
+                    on_main.push((check.name.clone(), main.clone(), red.url.clone()));
                 }
             }
         }
-        // A failure read before tells nothing new read again: its job is run again.
-        let again: Vec<Check> = (first.iter())
-            .filter(|c| failed(c) && !beside.contains(&c.name) && c.job.is_some())
-            .filter(|c| (c.url.as_ref()).is_some_and(|url| seen.is_some_and(|seen| seen.contains(url.as_str()))))
-            .cloned()
-            .collect();
-        let mut checks = first;
-        if !again.is_empty() {
-            for check in &again {
-                if let Some(job) = check.job {
-                    (self.api.rerun(job).await)
-                        .map_err(|why| format!("GitHub did not run {} again: {why}", check.name))?;
-                }
-            }
-            let rerun: Vec<String> = again.iter().filter_map(|c| c.url.clone()).collect();
-            let Some(now) = self.wait(commit, &rerun, stop).await? else {
-                return Ok(None);
-            };
-            for check in &again {
-                if let Some(new) = now
-                    .iter()
-                    .find(|c| c.name == check.name && c.outcome == Outcome::Passed)
-                {
-                    passed_over.push(super::now_and_then(&check.name, &at(check), &at(new)));
-                }
-            }
-            checks = now;
-        }
-        Ok(Some(Judged {
-            checks,
-            beside,
-            again: again.into_iter().map(|c| c.name).collect(),
-            passed_over,
-        }))
+        Ok(Some(Judged { checks, on_main }))
     }
 
     /// The work's open pull request into main, opened where the branch has none; or why the work cannot be checked
@@ -355,7 +312,7 @@ impl<A: Api> GitHub<A> {
                     open.url, open.base
                 ));
             }
-            let body = body(branch);
+            let body = self.body(branch);
             if open.title != branch.title || open.body != body {
                 self.api.edit(open.number, branch.title, &body).await?;
             }
@@ -373,7 +330,7 @@ impl<A: Api> GitHub<A> {
                 ended.url
             ));
         }
-        let body = body(branch);
+        let body = self.body(branch);
         match self.api.open(name, main, branch.title, &body).await {
             Ok(opened) => Ok(opened),
             // Another check of the work, which found none either, opened it meanwhile: that one is the work's.
@@ -385,18 +342,14 @@ impl<A: Api> GitHub<A> {
         }
     }
 
-    /// Waits for every named check of the commit to complete, and gives them; none where it was told to stop. A run
-    /// at one of the links of `rerun` was asked to run again, and is waited for as a run not yet started.
-    async fn wait(&self, commit: &str, rerun: &[String], stop: &mut Stop) -> Result<Option<Vec<Check>>, String> {
+    /// Waits for every named check of the commit to complete, and gives them; none where it was told to stop.
+    async fn wait(&self, commit: &str, stop: &mut Stop) -> Result<Option<Vec<Check>>, String> {
         let began = tokio::time::Instant::now();
         loop {
             let checks = tokio::select! {
                 checks = self.api.checks(commit) => checks?,
                 () = stop.told() => return Ok(None),
             };
-            let checks: Vec<Check> = (checks.into_iter())
-                .filter(|c| c.url.as_ref().is_none_or(|url| !rerun.contains(url)))
-                .collect();
             if let Some(done) = self.judge(commit, &checks, began.elapsed())? {
                 return Ok(Some(done));
             }
@@ -451,14 +404,11 @@ impl<A: Api> GitHub<A> {
         Ok(None)
     }
 
-    /// What failed of the checks, for the implementing agent, those not the change's aside: each red check with its
-    /// link, what it said of itself, whether it failed again when run again,
-    /// and what its log says of the failure where GitHub keeps one, the logs sharing the bytes a check's output is
+    /// What failed of the checks, for the implementing agent: each red check with its link, what it said of itself,
+    /// whether it is red on main's head as well, and what its log says of the failure where GitHub keeps one, the logs sharing the bytes a check's output is
     /// given ([`process::TAIL`]); none where none failed.
     async fn failures(&self, judged: &Judged) -> Option<String> {
-        let failed: Vec<&Check> = (judged.checks.iter())
-            .filter(|c| failed(c) && !judged.beside.contains(&c.name))
-            .collect();
+        let failed: Vec<&Check> = (judged.checks.iter()).filter(|c| failed(c)).collect();
         if failed.is_empty() {
             return None;
         }
@@ -472,8 +422,12 @@ impl<A: Api> GitHub<A> {
                 continue;
             };
             let mut lines = vec![format!("{} ({how}){}", check.name, at(check))];
-            if judged.again.contains(&check.name) {
-                lines.push("It failed before on this same commit, and failed again when run again.".to_string());
+            if let Some((_, main, link)) = judged.on_main.iter().find(|(name, ..)| *name == check.name) {
+                let link = link.as_ref().map_or(String::new(), |link| format!(" ({link})"));
+                lines.push(format!(
+                    "It is also red on {} at {main}{link}; whether the change adds a failure of its own is not known.",
+                    self.project.main
+                ));
             }
             lines.extend(check.summary.clone());
             if let Some(job) = check.job {
@@ -545,22 +499,16 @@ impl<A: Api> Host for GitHub<A> {
         git::git(&self.project.repo, &["rev-parse", "--verify", &tracking]).await
     }
 
-    async fn verdict(
-        &self,
-        branch: &Branch<'_>,
-        commit: &str,
-        seen: Option<&str>,
-        stop: &mut Stop,
-    ) -> Result<Option<Verdict>, String> {
+    async fn verdict(&self, branch: &Branch<'_>, commit: &str, stop: &mut Stop) -> Result<Option<Verdict>, String> {
         self.push(branch, commit).await?;
         let pull = self.pull_request(branch).await?;
-        let Some(judged) = self.judged(commit, seen, stop).await? else {
+        let Some(judged) = self.judged(commit, stop).await? else {
             return Ok(None);
         };
         Ok(Some(Verdict {
             failed: self.failures(&judged).await,
             by: Some(format!("the CI of the pull request {}", pull.url)),
-            passed_over: judged.passed_over,
+            notes: judged.notes(),
         }))
     }
 
@@ -608,6 +556,19 @@ impl<A: Api> Host for GitHub<A> {
                 open.url, open.head
             ));
         }
+        // A named check red on the commit merges nothing, whatever made it red and whatever main is: as when it was run
+        // again on GitHub after the check passed it.
+        let red: Vec<String> = (self.api.checks(checked).await?.iter())
+            .filter(|c| self.config.checks.contains(&c.name) && failed(c))
+            .map(|c| format!("{} failed on {checked}{}", c.name, at(c)))
+            .collect();
+        if !red.is_empty() {
+            return Err(format!(
+                "{}, in its latest run since the check passed it: a commit with a named check red is not merged. Write \
+                 to the check before the merge to have it run again, or to the implementation to fix it",
+                red.join("; ")
+            ));
+        }
         let now = self.main().await?;
         let holds = git::said(&self.project.repo, &["merge-base", "--is-ancestor", &now, checked]).await?;
         if !holds.ok {
@@ -630,7 +591,7 @@ impl<A: Api> Host for GitHub<A> {
         format!("refs/remotes/{}/{}", self.config.remote, self.project.main)
     }
 
-    async fn check(&self, branch: &Branch<'_>, seen: Option<&str>, stop: &mut Stop) -> Result<Option<String>, String> {
+    async fn check(&self, branch: &Branch<'_>, stop: &mut Stop) -> Result<Option<String>, String> {
         // What the check before the merge refuses, this refuses the same way: the repository's configuration, a
         // worktree off the work's branch, and in the push, connections sent elsewhere and submodules.
         let place = branch.place;
@@ -667,7 +628,7 @@ impl<A: Api> Host for GitHub<A> {
         }
         self.push(branch, &commit).await?;
         let pull = self.pull_request(branch).await?;
-        let Some(judged) = self.judged(&commit, seen, stop).await? else {
+        let Some(judged) = self.judged(&commit, stop).await? else {
             return Ok(None);
         };
         let through = format!("through the pull request {}", pull.url);
@@ -700,8 +661,8 @@ impl<A: Api> Host for GitHub<A> {
             return Ok(Some(self.told(commit, &format!("on the branch {name}"), &done).await));
         }
         self.push_to(commit, &mine, true).await?;
-        // The code before the change is to fail where its tests do: what fails is judged as it is.
-        let waited = self.wait(commit, &[], stop).await;
+        // The code before the change is to fail where its tests do: what fails is said as it is.
+        let waited = self.wait(commit, stop).await;
         let name = mine.trim_start_matches("refs/heads/");
         let said = match waited {
             Ok(Some(checks)) => {
@@ -721,8 +682,9 @@ impl<A: Api> Host for GitHub<A> {
         if merged {
             return Ok(());
         }
+        // Only the work's pull request into main is the work's: one into another branch is a person's.
         let pulls = self.api.pulls(&branch.place.branch).await?;
-        for open in pulls.iter().filter(|p| p.state == State::Open) {
+        for open in (pulls.iter()).filter(|p| p.state == State::Open && p.base == self.project.main) {
             (self.api.close(open.number, super::CLOSED).await)
                 .map_err(|why| format!("GitHub did not close the pull request {}: {why}", open.url))?;
         }
@@ -769,44 +731,124 @@ fn for_an_address(key: &str) -> bool {
     sub.contains(':') || sub.starts_with('/') || sub.starts_with('.') || sub.starts_with('~')
 }
 
-/// What the pull request of the work says of itself: what the work wrote of itself, then what the pull request is.
-fn body(branch: &Branch<'_>) -> String {
-    let about = branch.about.trim();
-    let what = format!(
-        "This pull request carries work {} of wf-agents.\n\nThe engine pushes here each commit of the work's branch \
-         that it checks, and reads the CI of that commit. It merges the pull request once the check passed on the \
-         commit it merges and the work's flow lets it go. What was decided in the work, and why, is on the engine's \
-         page for the work.\n",
-        branch.work.0
-    );
-    if about.is_empty() {
-        what
-    } else {
-        format!("{about}\n\n---\n\n{what}")
+/// How much of what the work wrote of itself its pull request shows, in characters; the rest is on the engine's page.
+/// GitHub keeps a body of 65,536 characters, and a reader of the pull request needs far less than that.
+const ABOUT: usize = 16_000;
+
+/// The words that close an issue a pull request names once it merges, as GitHub reads them.
+const CLOSING: [&str; 9] = [
+    "close", "closes", "closed", "fix", "fixes", "fixed", "resolve", "resolves", "resolved",
+];
+
+/// What breaks a mention, a reference or a closing word as GitHub reads them, and shows as nothing.
+const UNSEEN: char = '\u{200B}';
+
+/// What an agent wrote, as it may be published on the repository: no mention notifies anyone, no reference names an
+/// issue or a pull request, and no closing word closes one, each broken by an unseen space after its first character
+/// (`@`, `#`, the word's first letter); every path withheld is said as what it is; and the text is cut to [`ABOUT`]
+/// characters, saying so. GitHub's own reading of a fenced block is not relied on for any of it.
+pub(crate) fn neutral(text: &str, withheld: &[(String, &'static str)]) -> String {
+    let mut text = text.to_string();
+    for (path, said) in withheld {
+        text = text.replace(path.as_str(), said);
+    }
+    if text.chars().count() > ABOUT {
+        text = text.chars().take(ABOUT).collect();
+        text.push_str("\n(cut: the whole is on the engine's page)");
+    }
+    let mut out = String::with_capacity(text.len() + 16);
+    let mut word = String::new();
+    let flush = |word: &mut String, out: &mut String| {
+        if CLOSING.contains(&word.to_ascii_lowercase().as_str()) {
+            let mut chars = word.chars();
+            out.extend(chars.next());
+            out.push(UNSEEN);
+            out.extend(chars);
+        } else {
+            out.push_str(word);
+        }
+        word.clear();
+    };
+    for c in text.chars() {
+        if c.is_alphanumeric() {
+            word.push(c);
+            continue;
+        }
+        flush(&mut word, &mut out);
+        out.push(c);
+        if c == '@' || c == '#' {
+            out.push(UNSEEN);
+        }
+    }
+    flush(&mut word, &mut out);
+    out
+}
+
+/// A fence of backticks longer than any run of them in the text, so that the text cannot end the block it is in.
+fn fence(text: &str) -> String {
+    let mut longest = 0;
+    let mut run = 0;
+    for c in text.chars() {
+        run = if c == '`' { run + 1 } else { 0 };
+        longest = longest.max(run);
+    }
+    "`".repeat((longest + 1).max(3))
+}
+
+impl<A: Api> GitHub<A> {
+    /// What the pull request of the work says of itself: what the work wrote of itself, as a block of plain text made
+    /// [`neutral`], then what the pull request is. A person's edit of the body is written over at the next check.
+    fn body(&self, branch: &Branch<'_>) -> String {
+        let about = neutral(branch.about.trim(), &self.config.withheld);
+        let what = format!(
+            "This pull request carries work {} of wf-agents.\n\nThe engine pushes here each commit of the work's \
+             branch that it checks, and reads the CI of that commit. It merges the pull request once the check passed \
+             on the commit it merges and the work's flow lets it go. What was decided in the work, and why, is on the \
+             engine's page for the work. The text above is written over at each check.\n",
+            branch.work.0
+        );
+        if about.is_empty() {
+            return what;
+        }
+        let fence = fence(&about);
+        format!("What the work's agents wrote of the change:\n\n{fence}text\n{about}\n{fence}\n\n---\n\n{what}")
     }
 }
 
-/// The named checks of a commit, judged.
+/// The named checks of a commit, each by its latest run, and of those that failed, the runs that failed on main's head
+/// as well, by the check's name, main's head and the run's link.
 struct Judged {
-    /// The latest run of each.
     checks: Vec<Check>,
-    /// The names of those that failed on main's head as well, which are not the change's.
-    beside: Vec<String>,
-    /// The names of those run again, having failed in a run read before.
-    again: Vec<String>,
-    /// What failed and is not the change's, in words.
-    passed_over: Vec<String>,
+    on_main: Vec<(String, String, Option<String>)>,
 }
 
 impl Judged {
-    /// The checks judged as they are, as the code before a change is, which is to fail where its tests do.
+    /// The checks as they are, with nothing looked for on main: the code before a change is to fail where its tests do.
     fn as_they_are(checks: Vec<Check>) -> Judged {
         Judged {
             checks,
-            beside: Vec::new(),
-            again: Vec::new(),
-            passed_over: Vec::new(),
+            on_main: Vec::new(),
         }
+    }
+
+    /// The runs of each check run more than once on the commit, said as they are.
+    fn notes(&self) -> Vec<String> {
+        (self.checks.iter())
+            .filter(|c| !c.earlier.is_empty())
+            .map(|c| {
+                let latest = match &c.outcome {
+                    Outcome::Passed => "passed".to_string(),
+                    Outcome::Failed(how) | Outcome::Broken(how) => format!("ended in {how}"),
+                    Outcome::Pending => "is not complete".to_string(),
+                };
+                let link = c.url.as_ref().map_or(String::new(), |url| format!(" ({url})"));
+                format!(
+                    "{}: its latest run on this commit {latest}{link}; its earlier runs on it: {}.",
+                    c.name,
+                    c.earlier.join(", ")
+                )
+            })
+            .collect()
     }
 }
 

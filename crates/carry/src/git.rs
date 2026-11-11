@@ -304,14 +304,25 @@ pub(crate) fn befores(place: &Place) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(parent) else {
         return Vec::new();
     };
+    // An entry that is a symbolic link is no worktree the engine made, and may lead to another work's: it is left.
     (entries.flatten())
+        .filter(|entry| entry.file_type().is_ok_and(|kind| !kind.is_symlink()))
         .map(|entry| entry.path())
         .filter(|path| path.display().to_string().starts_with(&beginning))
         .collect()
 }
 
-/// Takes away the worktree of a check before the change, with what it holds.
+/// Whether there is a symbolic link at the path itself, read by the link's own metadata and not its target's.
+fn a_link(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
+}
+
+/// Takes away the worktree of a check before the change, with what it holds. A symbolic link there is no worktree the
+/// engine made, and git would follow it to whatever it leads to: it is left.
 pub(crate) async fn take_away(project: &Project, dir: &Path) -> Result<(), String> {
+    if a_link(dir) {
+        return Ok(());
+    }
     let removed = said(&project.repo, &["worktree", "remove", "--force", &text(dir)]).await?;
     if !removed.ok && dir.exists() {
         tokio::fs::remove_dir_all(dir)
@@ -323,8 +334,9 @@ pub(crate) async fn take_away(project: &Project, dir: &Path) -> Result<(), Strin
 
 /// Takes the work's worktree away, uncommitted changes and all, with the worktrees its checks before the change left,
 /// and keeps its branch, whose commits are the work's: a worktree is a place to work in, and the work has ended. One
-/// taken away already is nothing to do; a directory at its place that is no worktree of the repository was not made by
-/// the engine, and is left as it is. Refused, as every act is, while the repository's configuration names a program git
+/// taken away already is nothing to do; what is at its place and is no worktree of the repository, or is a symbolic
+/// link, which git would follow to whatever it leads to, another work's worktree among them, was not made by the
+/// engine, and is left as it is. Refused, as every act is, while the repository's configuration names a program git
 /// could run ([`configuration`]).
 pub async fn remove(project: &Project, place: &Place) -> Result<(), String> {
     configuration(project, place).await?;
@@ -332,7 +344,7 @@ pub async fn remove(project: &Project, place: &Place) -> Result<(), String> {
     for left in befores(place) {
         take_away(project, &left).await?;
     }
-    if place.dir.exists() {
+    if place.dir.exists() && !a_link(&place.dir) {
         let dir = tokio::fs::canonicalize(&place.dir)
             .await
             .map_err(|e| format!("{}: {e}", place.dir.display()))?;

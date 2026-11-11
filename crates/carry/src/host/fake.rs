@@ -28,8 +28,6 @@ pub(crate) enum Asked {
     Merge(Option<String>),
     /// To let go of what it holds for the branch, the work having merged or not.
     End(String, bool),
-    /// The verdict on this commit, told of this failure before.
-    Seen(String, String),
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -70,18 +68,8 @@ impl Host for Fake {
         Ok(lock(&self.main).clone())
     }
 
-    async fn verdict(
-        &self,
-        _: &Branch<'_>,
-        commit: &str,
-        seen: Option<&str>,
-        _: &mut Stop,
-    ) -> Result<Option<Verdict>, String> {
-        let asked = match seen {
-            Some(seen) => Asked::Seen(commit.to_string(), seen.to_string()),
-            None => Asked::Verdict(commit.to_string()),
-        };
-        lock(&self.asked).push(asked);
+    async fn verdict(&self, _: &Branch<'_>, commit: &str, _: &mut Stop) -> Result<Option<Verdict>, String> {
+        lock(&self.asked).push(Asked::Verdict(commit.to_string()));
         let next = lock(&self.verdicts).pop_front();
         next.unwrap_or_else(|| Err("the fake host has no verdict to give".to_string()))
     }
@@ -95,7 +83,7 @@ impl Host for Fake {
         "refs/heads/main".to_string()
     }
 
-    async fn check(&self, _: &Branch<'_>, _: Option<&str>, _: &mut Stop) -> Result<Option<String>, String> {
+    async fn check(&self, _: &Branch<'_>, _: &mut Stop) -> Result<Option<String>, String> {
         Err(NO_TOOLS.to_string())
     }
 

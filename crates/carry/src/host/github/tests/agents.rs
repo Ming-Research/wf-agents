@@ -30,7 +30,7 @@ fn on_github(hub: &Hub, reference: &str) -> bool {
 impl Hub {
     async fn agents_check(&self) -> Result<Option<String>, String> {
         let place = self.place();
-        self.host.check(&branch(&place), None, &mut Stop::never()).await
+        self.host.check(&branch(&place), &mut Stop::never()).await
     }
 
     /// The commit of the code before the change with these files of the work's last commit put on it.

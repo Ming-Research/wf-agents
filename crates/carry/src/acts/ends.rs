@@ -1,26 +1,21 @@
 //! What the acts do around a work's end and its checks: letting go of what they made for a work that ended, what the
-//! work's pull request says of it, telling the host what an earlier check of the same commit found, and writing what
-//! failed and was not the change's.
+//! work's pull request says of it, and writing what the host says beside its verdict.
 
 use std::sync::Arc;
 
-use decide::{Finished, Outsider, Seq, Started, Write, Written};
+use decide::{Outsider, Written};
 use store::{Item, ItemNumber};
 use work::Time;
 
 use super::*;
 use crate::git::tests::{Repo, TAG, commit, run};
 use crate::host::fake::{Asked, Fake};
-use crate::host::{Local, Verdict};
 
 const WORK: WorkNumber = WorkNumber(1);
 
-/// The acts on the fake host in the repository, letting go again within milliseconds where it failed.
+/// The acts on the fake host in the repository.
 fn acts(repo: &Repo, host: Fake) -> Acts<Fake> {
-    let acts = Acts::new(host, repo.project.clone(), repo.data.clone(), TAG.to_string());
-    let mut inner = Arc::into_inner(acts.inner).expect("held once");
-    inner.release_wait = Duration::from_millis(20);
-    Acts { inner: Arc::new(inner) }
+    Acts::new(host, repo.project.clone(), repo.data.clone(), TAG.to_string())
 }
 
 /// The work, which ended so, as its release is given.
@@ -72,7 +67,7 @@ async fn a_merged_work_has_its_worktrees_taken_away_its_branch_kept_and_the_host
     let left = git::check_out_before(&repo.project, &place, &main).await.unwrap();
     let head = run(&repo.project.repo, &["rev-parse", &place.reference()]);
     let acts = acts(&repo, Fake::new(&main));
-    acts.inner.release(&release(End::Merged)).await;
+    acts.inner.release(&release(End::Merged)).await.expect("it lets go");
     assert!(!place.dir.exists(), "the worktree is taken away");
     assert!(
         !left.exists(),
@@ -91,7 +86,7 @@ async fn a_merged_work_has_its_worktrees_taken_away_its_branch_kept_and_the_host
         "the host lets go knowing the work merged, and closes no pull request"
     );
     // Given again, as after the engine started again, it finds it done.
-    acts.inner.release(&release(End::Merged)).await;
+    acts.inner.release(&release(End::Merged)).await.expect("it lets go");
 }
 
 #[tokio::test]
@@ -102,7 +97,7 @@ async fn a_cancelled_work_has_what_the_host_holds_closed_and_its_worktree_taken_
     std::fs::write(place.dir.join("draft.txt"), "Not yet.\n").unwrap();
     let main = run(&repo.project.repo, &["rev-parse", "main"]);
     let acts = acts(&repo, Fake::new(&main));
-    acts.inner.release(&release(End::Cancelled)).await;
+    acts.inner.release(&release(End::Cancelled)).await.expect("it lets go");
     assert_eq!(acts.inner.host.asked(), [Asked::End(place.branch.clone(), false)]);
     assert!(!place.dir.exists());
     run(&repo.project.repo, &["rev-parse", "--verify", &place.reference()]);
@@ -113,7 +108,7 @@ async fn a_work_that_never_started_has_nothing_to_take_away() {
     let repo = Repo::new("true");
     let main = run(&repo.project.repo, &["rev-parse", "main"]);
     let acts = acts(&repo, Fake::new(&main));
-    acts.inner.release(&release(End::Cancelled)).await;
+    acts.inner.release(&release(End::Cancelled)).await.expect("it lets go");
     assert_eq!(acts.inner.host.asked(), [Asked::End(repo.place(WORK).branch, false)]);
 }
 
@@ -125,8 +120,12 @@ async fn letting_go_that_fails_is_said_once_for_the_owner_and_not_tried_again() 
     let host = Fake::new(&main);
     host.ending(Some("GitHub cannot be reached"));
     let acts = acts(&repo, host);
-    let tried = tokio::time::timeout(Duration::from_secs(2), acts.inner.release(&release(End::Cancelled))).await;
-    assert!(tried.is_ok(), "it is not tried again unseen");
+    let tried = acts.inner.release(&release(End::Cancelled)).await;
+    assert_eq!(
+        tried,
+        Err("GitHub cannot be reached".to_string()),
+        "what failed is said"
+    );
     let tries = (acts.inner.host.asked().iter())
         .filter(|a| matches!(a, Asked::End(..)))
         .count();
@@ -213,128 +212,15 @@ fn the_work_says_of_itself_the_latest_of_each_block_the_cell_names_in_its_order(
     assert_eq!(described(&[], &work), "");
 }
 
-/// A work whose check finished once, writing this in its choice and this in its other output.
-fn checked_once(value: &str, choice: &str, other: &str) -> Work {
-    let mut work = Work::default();
-    let run = decide::RunId(1);
-    work.records.started.push(Started {
-        run,
-        cell: "check".into(),
-        at: Seq(1),
-        because: Vec::new(),
-        basis: Default::default(),
-    });
-    let writes = vec![
-        Write {
-            block: "passed".into(),
-            matters: true,
-            value: Some(value.to_string()),
-        },
-        Write {
-            block: "failures".into(),
-            matters: true,
-            value: None,
-        },
-    ];
-    work.records.finished.push(Finished {
-        run,
-        at: Seq(2),
-        writes,
-    });
-    work.contents.insert(("passed".into(), Seq(2)), choice.to_string());
-    work.contents.insert(("failures".into(), Seq(2)), other.to_string());
-    work
-}
-
 #[test]
-fn the_work_says_of_itself_what_the_flows_check_names_for_the_acts_and_the_tools_alike() {
-    let work = written(&[("code", "Greets the user by name."), ("request", "Greet them.")]);
-    assert_eq!(about(&acts_flow(), &work), "Greets the user by name.");
-}
-
-#[test]
-fn what_the_work_was_told_of_failures_is_its_latest_failed_check_and_its_tools_latest_check() {
-    let flow = acts_flow();
-    let failed = checked_once(
-        "no",
-        "Checked commit c0ffee\n\nIt did not pass.",
-        "test failed at job/7",
-    );
-    assert_eq!(
-        seen(&flow, &failed).as_deref(),
-        Some("Checked commit c0ffee\n\nIt did not pass.\n\ntest failed at job/7")
-    );
-    let passed = checked_once("yes", "Checked commit c0ffee\n\nIt passed.", "");
-    assert_eq!(seen(&flow, &passed), None);
-    assert_eq!(seen(&flow, &Work::default()), None);
-    // The agents' tool's latest answer, beside what the check before the merge wrote.
-    let mut told = failed;
-    for (call, name, result) in [
-        (1, "check", "lint failed at job/3"),
-        (2, "read", "blocks"),
-        (3, "check", "lint failed at job/4"),
-    ] {
-        let call = decide::CallId(call);
-        let ask = work::Ask::Tool {
-            name: name.to_string(),
-            input: String::new(),
-        };
-        told.calls.insert(call, work::Call::Asked(ask));
-        told.results.insert(call, result.to_string());
-    }
-    let said = seen(&flow, &told).expect("told");
-    assert!(said.ends_with("\n\nlint failed at job/4"), "{said}");
-    assert!(!said.contains("job/3") && !said.contains("blocks"), "{said}");
-}
-
-#[tokio::test]
-async fn the_host_is_told_what_the_work_was_told_of_failures_before() {
-    let repo = Repo::new("true");
-    started(&repo).await;
-    let place = repo.place(WORK);
-    let head = run(&repo.project.repo, &["rev-parse", &place.reference()]);
-    let main = run(&repo.project.repo, &["rev-parse", "main"]);
-    let passing = || {
-        Ok(Some(Verdict {
-            failed: None,
-            by: None,
-            passed_over: Vec::new(),
-        }))
-    };
-    let host = Fake::new(&main).judges(passing()).judges(passing());
-    let branch = Branch {
-        work: WORK,
-        title: "Greet the user",
-        about: "",
-        place: &place,
-    };
-    let seen = Some("test failed at job/7");
-    check(&repo.project, &host, &branch, seen, &Mutex::new(()), &mut Stop::never())
-        .await
-        .unwrap();
-    check(&repo.project, &host, &branch, None, &Mutex::new(()), &mut Stop::never())
-        .await
-        .unwrap();
-    assert_eq!(
-        host.asked(),
-        [
-            Asked::Main,
-            Asked::Seen(head.clone(), "test failed at job/7".to_string()),
-            Asked::Main,
-            Asked::Verdict(head)
-        ]
-    );
-}
-
-#[test]
-fn what_failed_and_was_not_the_changes_is_written_with_the_check() {
+fn what_the_host_says_beside_its_verdict_is_written_with_the_check() {
     let checked = Checked {
         commit: "c0ffee".to_string(),
         main: "beef".to_string(),
         failed: None,
         by: None,
         took_in: false,
-        passed_over: vec!["test failed, as it fails on main at beef: it is not the change's".to_string()],
+        notes: vec!["test: its latest run on this commit passed; its earlier runs on it: failure.".to_string()],
     };
     let outputs = vec![
         ("passed".into(), Some(vec!["yes".to_string(), "no".to_string()])),
@@ -343,48 +229,7 @@ fn what_failed_and_was_not_the_changes_is_written_with_the_check() {
     let handed = checked_in(&outputs, &checked, "main").unwrap();
     assert_eq!(
         handed[0].content,
-        "Checked commit c0ffee\n\nThe work's branch was checked against main at beef: it passed.\n\nFailed, and not the \
-         change's:\n- test failed, as it fails on main at beef: it is not the change's"
+        "Checked commit c0ffee\n\nThe work's branch was checked against main at beef: it passed.\n\nAlso:\n- test: \
+         its latest run on this commit passed; its earlier runs on it: failure."
     );
-}
-
-#[tokio::test]
-async fn the_local_check_that_passes_on_a_commit_it_failed_before_is_told_apart() {
-    let repo = Repo::new("true");
-    started(&repo).await;
-    let place = repo.place(WORK);
-    let branch = Branch {
-        work: WORK,
-        title: "Greet the user",
-        about: "",
-        place: &place,
-    };
-    let host = Local::new(repo.project.clone());
-    let verdict = (host
-        .verdict(&branch, "c0ffee", Some("it failed"), &mut Stop::never())
-        .await)
-        .unwrap()
-        .unwrap();
-    assert_eq!(verdict.failed, None);
-    assert_eq!(
-        verdict.passed_over,
-        [crate::host::now_and_then("The check `true`", "", "")]
-    );
-    let repo = Repo::new("false");
-    started(&repo).await;
-    let host = Local::new(repo.project.clone());
-    let place = repo.place(WORK);
-    let branch = Branch {
-        work: WORK,
-        title: "Greet the user",
-        about: "",
-        place: &place,
-    };
-    let verdict = (host
-        .verdict(&branch, "c0ffee", Some("it failed"), &mut Stop::never())
-        .await)
-        .unwrap()
-        .unwrap();
-    let failed = verdict.failed.expect("it fails");
-    assert!(failed.contains("as it failed on this same commit before"), "{failed}");
 }

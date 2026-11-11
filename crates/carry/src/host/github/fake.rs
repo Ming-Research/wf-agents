@@ -15,9 +15,6 @@ pub(crate) struct Fake {
     state: Mutex<Kept>,
 }
 
-/// What a commit's checks are at each ask: the first, then the next, the last staying.
-type Polls = Vec<Vec<Check>>;
-
 #[derive(Default)]
 struct Kept {
     /// The pull requests, each with its branch.
@@ -30,8 +27,6 @@ struct Kept {
     /// How many of the next lists of pull requests leave out those opened already, as a list read just before another
     /// opened one does.
     hidden: usize,
-    /// What the checks of commits are once a job is run again, by the job.
-    reruns: BTreeMap<u64, Vec<(String, Polls)>>,
     asked: Vec<Asked>,
 }
 
@@ -62,7 +57,6 @@ pub(crate) enum Asked {
         number: u64,
         comment: String,
     },
-    Rerun(u64),
 }
 
 impl Fake {
@@ -328,18 +322,6 @@ impl Api for Fake {
             .find(|(_, p)| p.number == number)
             .ok_or("HTTP 404: Not Found")?;
         pull.state = State::Closed;
-        Ok(())
-    }
-
-    async fn rerun(&self, job: u64) -> Result<(), String> {
-        let mut kept = self.kept();
-        kept.asked.push(Asked::Rerun(job));
-        // The checks of each commit that has the job run again move on to what they are given after it.
-        if let Some(after) = kept.reruns.remove(&job) {
-            for (commit, polls) in after {
-                kept.checks.insert(commit, polls.into());
-            }
-        }
         Ok(())
     }
 }
