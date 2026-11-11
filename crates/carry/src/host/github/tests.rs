@@ -16,6 +16,7 @@ use crate::git::tests::{Repo, commit, run};
 use crate::held::Held;
 
 mod agents;
+mod fast;
 
 const WORK: WorkNumber = WorkNumber(1);
 
@@ -37,6 +38,8 @@ fn config(bare: &std::path::Path) -> Config {
         merge_method: "squash".to_string(),
         delete_branch: false,
         before_branches: true,
+        fast: None,
+        fast_poll: Duration::from_millis(10),
         token: None,
         withheld: Vec::new(),
     }
@@ -706,6 +709,8 @@ fn github_as_the_settings_say_needs_the_engines_token() {
             merge_method: "squash".to_string(),
             delete_branch: false,
             before_branches: false,
+            fast: None,
+            fast_poll: FAST_POLL,
             token: Some("the-token".to_string()),
             withheld: withheld(&repo.data, &repo.project.repo, None),
         }

@@ -18,7 +18,7 @@ use store::WorkNumber;
 
 use crate::git::{self, Before};
 use crate::held::{Held, Stop};
-use crate::host::{Branch, Host};
+use crate::host::{Branch, Host, Named};
 use crate::read::{self, READ};
 use crate::settings::{Project, Settings};
 
@@ -37,13 +37,36 @@ const CHECK_ON_GITHUB: &str = "which pushes your last commit to the work's pull 
                                it: each check's result, and what the log of a red one says of the failure. Only what \
                                is committed is checked: with changes not committed, nothing is pushed.";
 
+/// What the agents are told `check` does where GitHub is the host and the project has a fast CI, before how a test is
+/// named.
+const CHECK_FAST: &str = "which pushes your last commit to the work's pull request; with tests or checks named, the \
+                          project's fast CI runs only those on it and says each test's own result, how long it ran \
+                          and what a failed one said, and with none named, the whole CI gives its verdict. Only what \
+                          is committed is checked: with changes not committed, nothing is pushed.";
+
 /// What the agents are told `check` does, on the host the settings say: put into their system prompt.
-pub(crate) fn told(settings: &Settings) -> &'static str {
-    if settings.github.is_some() {
-        CHECK_ON_GITHUB
+pub(crate) fn told(settings: &Settings) -> String {
+    let Some(github) = &settings.github else {
+        return CHECK_HERE.to_string();
+    };
+    let Some(fast) = &github.fast else {
+        return CHECK_ON_GITHUB.to_string();
+    };
+    let joined: Vec<String> = fast.separators.iter().map(|s| format!("`{s}`")).collect();
+    let by = if joined.is_empty() {
+        "a space".to_string()
     } else {
-        CHECK_HERE
-    }
+        format!("a space or {}", joined.join(" or "))
+    };
+    let checks = if fast.named_checks.is_empty() {
+        String::new()
+    } else {
+        format!(" The checks it runs by name are {}.", fast.named_checks.join(", "))
+    };
+    format!(
+        "{CHECK_FAST} A test is named by its own name, or by its unit and its name joined by {by}, or by what follows \
+         such a separator in these.{checks}"
+    )
 }
 
 /// The tools, run on this host, with the works' worktrees in the data directory.
@@ -141,9 +164,11 @@ async fn answer(
     input: &str,
     stop: &mut Stop,
 ) -> Answer {
-    let checked = match name {
-        CHECK => check(host, project, branch, stop).await,
-        CHECK_BEFORE => before(host, project, branch, input, stop).await,
+    let checked = match (name, asked(input)) {
+        (CHECK | CHECK_BEFORE, Err(why)) => Ok(Some(why)),
+        (CHECK, Ok(asked)) if !asked.files.is_empty() => Ok(Some(FILES_BEFORE.to_string())),
+        (CHECK, Ok(asked)) => check(host, project, branch, &asked.named, stop).await,
+        (CHECK_BEFORE, Ok(asked)) => before(host, project, branch, &asked, stop).await,
         _ => {
             return Answer::Result(format!(
                 "No such tool: {name}. The tools are: {READ}, {CHECK}, {CHECK_BEFORE}."
@@ -162,6 +187,7 @@ async fn check(
     host: &impl Host,
     project: &Project,
     branch: &Branch<'_>,
+    named: &Named,
     stop: &mut Stop,
 ) -> Result<Option<String>, String> {
     let could_not = |why: String| format!("The check could not be run: {why}");
@@ -169,34 +195,75 @@ async fn check(
     if let Some(said) = found.map_err(could_not)? {
         return Ok(Some(said));
     }
-    host.check(branch, stop).await.map_err(could_not)
+    host.check(branch, named, stop).await.map_err(could_not)
+}
+
+/// What a check's input asks for: the tests and checks named, and, for the check before the change, the files.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Asked {
+    named: Named,
+    files: Vec<String>,
+}
+
+/// What a check's input asks for, a line each: `test: <name>`, `check: <name>` or `file: <path>`, each trimmed and
+/// taken once, blank lines left out; or why it cannot be read, in words for the agent.
+fn asked(input: &str) -> Result<Asked, String> {
+    let mut asked = Asked::default();
+    let mut wrong = Vec::new();
+    for line in input.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        let into = match line.split_once(':') {
+            Some(("test", _)) => &mut asked.named.tests,
+            Some(("check", _)) => &mut asked.named.checks,
+            Some(("file", _)) => &mut asked.files,
+            _ => {
+                wrong.push(format!("{line:?}"));
+                continue;
+            }
+        };
+        let value = line.split_once(':').map_or("", |(_, v)| v.trim()).to_string();
+        if !value.is_empty() && !into.contains(&value) {
+            into.push(value);
+        }
+    }
+    if wrong.is_empty() {
+        Ok(asked)
+    } else {
+        Err(format!(
+            "Nothing was checked: each line of the input is `test: <name>`, `check: <name>` or `file: <path>`, and \
+             these are not: {}.",
+            wrong.join(", ")
+        ))
+    }
 }
 
 /// What `check_before` says when its input names no file.
-const NO_FILES: &str = "Nothing was checked: name in the input the files of the tests to put on the code before the \
-                        change, each apart from the next by a space.";
+const NO_FILES: &str = "Nothing was checked: name in the input, a line `file: <path>` each, the files of the tests to \
+                        put on the code before the change.";
 
-/// Checks the code before the work's change with the files the input names put on it, as the work's last commit holds
-/// them, and says what that is made of before what the host found; an `Err` says why it could not.
+/// What `check` says when its input names files, which only the check before the change takes.
+const FILES_BEFORE: &str = "Nothing was checked: files are put on the code before the change by check_before; check \
+                            checks your last commit as it is.";
+
+/// Checks the code before the work's change with the files asked for put on it, as the work's last commit holds them,
+/// running the tests named, and says what that is made of before what the host found; an `Err` says why it could not.
 async fn before(
     host: &impl Host,
     project: &Project,
     branch: &Branch<'_>,
-    input: &str,
+    asked: &Asked,
     stop: &mut Stop,
 ) -> Result<Option<String>, String> {
     let could_not = |why: String| format!("The check before the change could not be run: {why}");
-    let files: Vec<String> = input.split_whitespace().map(str::to_string).collect();
-    if files.is_empty() {
+    if asked.files.is_empty() {
         return Ok(Some(NO_FILES.to_string()));
     }
-    let made = git::before(project, branch.place, &host.kept_main(), &files).await;
+    let made = git::before(project, branch.place, &host.kept_main(), &asked.files).await;
     let before = match made.map_err(could_not)? {
         Ok(before) => before,
         Err(why) => return Ok(Some(why)),
     };
     let what = made_of(project, &before);
-    let said = host.check_before(branch, &before, stop).await;
+    let said = host.check_before(branch, &before, &asked.named, stop).await;
     let said = said.map_err(|why| format!("{what}\n\n{}", could_not(why)))?;
     Ok(said.map(|said| format!("{what}\n\n{said}")))
 }
@@ -333,7 +400,7 @@ mod tests {
         let head = commit(&started.place.dir, "test.sh", "grep Bye greeting.txt\n");
         let after = answered(&repo, CHECK).await;
         assert!(after.starts_with("The check `sh test.sh` passed."), "{after}");
-        let said = answered_with(&repo, CHECK_BEFORE, "test.sh", &[]).await;
+        let said = answered_with(&repo, CHECK_BEFORE, "file: test.sh", &[]).await;
         let made = format!(
             "The code before the change, main at {main}, with test.sh as your last commit {head} holds them, is the \
              commit "
@@ -354,7 +421,7 @@ mod tests {
         let started = git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
         assert_eq!(answered_with(&repo, CHECK_BEFORE, " ", &[]).await, NO_FILES);
         std::fs::write(started.place.dir.join("test.sh"), "true\n").unwrap();
-        let said = answered_with(&repo, CHECK_BEFORE, "test.sh", &[]).await;
+        let said = answered_with(&repo, CHECK_BEFORE, "file: test.sh", &[]).await;
         assert!(
             said.starts_with("Nothing was checked: test.sh is not a file of your last commit"),
             "{said}"
@@ -390,9 +457,9 @@ mod tests {
         // One host, as the tools have.
         let host = Local::new(repo.project.clone());
         let (one, same, other) = tokio::join!(
-            answered_on(&host, &repo, CHECK_BEFORE, "test.sh"),
-            answered_on(&host, &repo, CHECK_BEFORE, "test.sh"),
-            answered_on(&host, &repo, CHECK_BEFORE, "test.sh other.sh"),
+            answered_on(&host, &repo, CHECK_BEFORE, "file: test.sh"),
+            answered_on(&host, &repo, CHECK_BEFORE, "file: test.sh"),
+            answered_on(&host, &repo, CHECK_BEFORE, "file: test.sh\nfile: other.sh"),
         );
         for said in [&one, &same, &other] {
             assert!(
@@ -415,7 +482,7 @@ mod tests {
                 &["worktree", "add", "-q", "--detach", &dir.display().to_string(), "main"],
             );
         }
-        let said = answered_with(&repo, CHECK_BEFORE, "test.sh", &[]).await;
+        let said = answered_with(&repo, CHECK_BEFORE, "file: test.sh", &[]).await;
         assert!(said.contains("passed on it."), "{said}");
         assert!(befores(&place).is_empty(), "{:?}", befores(&place));
         assert!(others.is_dir(), "another work's is let be");
@@ -427,7 +494,7 @@ mod tests {
     async fn a_check_before_the_change_refuses_a_worktree_off_the_works_branch() {
         let (repo, place) = with_tests("true").await;
         run(&place.dir, &["checkout", "-q", "--detach"]);
-        let said = answered_with(&repo, CHECK_BEFORE, "test.sh", &[]).await;
+        let said = answered_with(&repo, CHECK_BEFORE, "file: test.sh", &[]).await;
         assert!(
             said.starts_with("The check before the change could not be run: the worktree")
                 && said.contains("not on the work's branch"),
@@ -436,10 +503,79 @@ mod tests {
     }
 
     #[test]
+    fn a_checks_input_is_read_a_line_each_of_tests_checks_and_files() {
+        let input = "test: tools::tests::a\n\n  test:  src/x.test.ts > a describe > its title \ncheck: lint\n\
+                     test: tools::tests::a\nfile: crates/carry/src/tools.rs\n";
+        let read = asked(input).expect("read");
+        assert_eq!(
+            read,
+            Asked {
+                named: Named {
+                    tests: vec![
+                        "tools::tests::a".to_string(),
+                        "src/x.test.ts > a describe > its title".to_string()
+                    ],
+                    checks: vec!["lint".to_string()],
+                },
+                files: vec!["crates/carry/src/tools.rs".to_string()],
+            }
+        );
+        assert_eq!(asked("").unwrap(), Asked::default());
+        let wrong = asked("test: a\ntools::tests::b\nlint").unwrap_err();
+        assert!(
+            wrong.ends_with("these are not: \"tools::tests::b\", \"lint\"."),
+            "{wrong}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_check_whose_project_runs_whole_says_the_names_are_not_run_apart() {
+        let repo = Repo::new("echo all is well");
+        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        let said = answered_with(&repo, CHECK, "test: tools::tests::a", &[]).await;
+        assert!(
+            said.starts_with(
+                "This check runs whole: the tests and checks you named are not run apart.\n\nThe check `echo all is \
+                 well` passed."
+            ),
+            "{said}"
+        );
+        assert_eq!(answered_with(&repo, CHECK, "file: a.rs", &[]).await, FILES_BEFORE);
+    }
+
+    #[tokio::test]
+    async fn a_check_that_could_not_be_run_says_why_once_and_is_not_tried_again() {
+        let repo = Repo::new("true");
+        let host = crate::host::fake::Fake::new("main");
+        let place = repo.place(WORK);
+        let branch = Branch {
+            work: WORK,
+            title: "Greet the user",
+            about: "",
+            place: &place,
+        };
+        let said = match answer(&host, &repo.project, &branch, CHECK, "", &mut Stop::never()).await {
+            Answer::Result(said) => said,
+            Answer::Withdrawn => panic!("nothing withdrew it"),
+        };
+        let why = "the fake host checks nothing for the agents' tools";
+        assert_eq!(said, format!("The check could not be run: {why}"));
+    }
+
+    #[test]
     fn the_agents_are_told_how_the_check_runs_on_their_host() {
         let mut settings = Settings::read(include_str!("../install.sample.toml")).expect("the sample reads");
         assert_eq!(told(&settings), CHECK_HERE);
         settings.github = Some(toml::from_str("repository = \"owner/name\"\nchecks = [\"check\"]\n").unwrap());
         assert_eq!(told(&settings), CHECK_ON_GITHUB);
+        let fast = "workflow = \"fast.yml\"\nnamed_checks = [\"lint\"]\nseparators = [\"::\", \" > \"]\n";
+        settings.github.as_mut().unwrap().fast = Some(toml::from_str(fast).unwrap());
+        assert_eq!(
+            told(&settings),
+            format!(
+                "{CHECK_FAST} A test is named by its own name, or by its unit and its name joined by a space or `::` \
+                 or ` > `, or by what follows such a separator in these. The checks it runs by name are lint."
+            )
+        );
     }
 }

@@ -81,10 +81,15 @@ highest_level = "3"
 # wait for the CI of the pushed commit; nothing is run on this machine. The agents' `check_before` pushes the code
 # before the change with the agent's tests to a branch `wf-agents-before/<the work's branch>-<commit>`, waits for its
 # CI and deletes the branch: the project's CI must run the checks named below on a push to those branches, and
-# `runs_on_before_branches` below must say it does. The merge merges the work's pull request. Without this table, the
+# `runs_on_before_branches` below must say it does. With [github.fast] below, a check that names tests or checks has
+# only those run, by the project's fast CI, and the check before the change runs the tests it names so. The merge
+# merges the work's pull request. Without this table, the
 # local repository is the host. The engine needs `git` and `gh`, and its own token for GitHub in its environment: a
-# fine-grained token for the one repository, with Contents and Pull requests read and write, and Checks, Commit
-# statuses and Actions read.
+# fine-grained token for the one repository, with Contents and Pull requests read and write, Checks and Commit
+# statuses read, and Actions read, or read and write with [github.fast], whose workflow it runs by hand. The engine
+# itself never pushes a change to the project's workflow files; a work's commit that changes them is pushed only with
+# Workflows read and write (the `workflow` scope of a classic token), and without it GitHub refuses that push, which
+# the agent is told.
 # [github]
 # # The repository on github.com, as owner/name.
 # repository = "owner/name"
@@ -109,3 +114,23 @@ highest_level = "3"
 # runs_on_before_branches = false
 # # The gh command line, or a path to it.
 # gh = "gh"
+# # The project's fast CI: a workflow run by hand, which runs only the tests and checks it is given on the commit it is
+# # given and uploads what became of each test as JUnit XML. Without it, an agent's check is the whole CI of its commit.
+# [github.fast]
+# # The workflow, by its file's name. It is always run by the file of it on the main branch, never by a work's own.
+# workflow = "fast.yml"
+# # The input that takes the commit to check out and test.
+# commit_input = "commit"
+# # The input that takes a value only that one request knows; the run's name (`run-name`) must hold it, by which the
+# # engine finds its run among the others.
+# call_input = "call"
+# # The input that takes the tests, each name followed by a line break.
+# tests_input = "tests"
+# # The input that takes the checks named, as a JSON array of the names of their jobs.
+# checks_input = "checks"
+# # The checks the workflow runs when named, each the name of its job.
+# named_checks = ["lint"]
+# # The artifact a run uploads its JUnit files in.
+# results = "test-results"
+# # What the project's test runners put between the parts of a test's name.
+# separators = ["::", " > "]

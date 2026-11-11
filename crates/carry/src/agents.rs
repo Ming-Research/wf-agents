@@ -103,7 +103,7 @@ impl Agents {
         clock: Arc<dyn Clock>,
     ) -> Self {
         let protocol = (PROTOCOL.replace("{owner_language}", &settings.agents.owner_language))
-            .replace("{check}", crate::tools::told(&settings));
+            .replace("{check}", &crate::tools::told(&settings));
         Agents {
             inner: Arc::new(Inner {
                 settings,

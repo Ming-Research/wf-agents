@@ -5,7 +5,7 @@
 use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use super::{Branch, Host, Verdict};
+use super::{Branch, Host, Named, Verdict};
 use crate::git::Before;
 use crate::held::Stop;
 
@@ -86,12 +86,18 @@ impl Host for Fake {
         "refs/heads/main".to_string()
     }
 
-    async fn check(&self, _: &Branch<'_>, _: &mut Stop) -> Result<Option<String>, String> {
+    async fn check(&self, _: &Branch<'_>, _: &Named, _: &mut Stop) -> Result<Option<String>, String> {
         lock(&self.asked).push(Asked::Check);
         Err(NO_TOOLS.to_string())
     }
 
-    async fn check_before(&self, _: &Branch<'_>, _: &Before, _: &mut Stop) -> Result<Option<String>, String> {
+    async fn check_before(
+        &self,
+        _: &Branch<'_>,
+        _: &Before,
+        _: &Named,
+        _: &mut Stop,
+    ) -> Result<Option<String>, String> {
         Err(NO_TOOLS.to_string())
     }
 
