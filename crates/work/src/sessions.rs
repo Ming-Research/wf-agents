@@ -122,16 +122,20 @@ pub fn of_round(work: &Work, line: &str, on_line: impl Fn(RunId) -> bool, run: R
     (session, !went_on)
 }
 
-/// Whether an earlier round of the run of this round ran in another of the line's sessions than the round does: the
-/// session the round runs in never saw what the run was doing, so the round is told its task and what each earlier
-/// round of the run was given, as a round that begins a session is, even where it goes on in a session another cell's
-/// round began. A session begun again under the id of the one the program lost is the same session.
+/// Whether the session the round runs in holds none of its run's earlier rounds: the run has earlier rounds, and none
+/// of them ran in this session and reached the model. The session never saw what the run was doing, so the round is
+/// told its task and what each earlier round of the run was given, as a round that begins a session is, even where it
+/// goes on in a session another cell's round began; once a round of the run has been told so in the session, the
+/// session holds the run. A session begun again under the id of the one the program lost is the same session.
 pub fn moved(work: &Work, line: &str, run: RunId, number: usize) -> bool {
     let at = began_at(work, run, number).unwrap_or_else(|| work.tick());
     let session = number_at(work, line, at);
-    (1..number)
-        .filter_map(|earlier| began_at(work, run, earlier))
-        .any(|b| number_at(work, line, b) != session)
+    let spent = |s: &Spent| s.input_tokens + s.cached_tokens + s.output_tokens > 0;
+    let held = (1..number).any(|earlier| {
+        let here = began_at(work, run, earlier).is_some_and(|b| number_at(work, line, b) == session);
+        here && work.spent.get(&(run, earlier)).is_some_and(spent)
+    });
+    number > 1 && !held
 }
 
 /// What the line's session of this number was begun on: what the first try of its first round recorded ran on; none
@@ -222,7 +226,7 @@ mod tests {
     #[test]
     fn a_round_whose_run_ran_in_another_session_before_is_told_what_the_run_was_doing() {
         let limit = Why::Limit { context: 9, limit: 5 };
-        let w = work(&[(1, 10), (3, 10), (6, 10)], &[(5, limit)]);
+        let w = work(&[(1, 10), (3, 10), (6, 10), (8, 10)], &[(5, limit)]);
         assert!(!moved(&w, "engineer", RunId(1), 1), "a run's first round");
         assert!(
             !moved(&w, "engineer", RunId(1), 2),
@@ -231,6 +235,10 @@ mod tests {
         assert!(
             moved(&w, "engineer", RunId(1), 3),
             "the round before ran in the session before"
+        );
+        assert!(
+            !moved(&w, "engineer", RunId(1), 4),
+            "the round before was told the run in this session"
         );
         let lost = work(&[(1, 10), (3, 10), (6, 10)], &[(5, Why::Lost)]);
         assert!(
