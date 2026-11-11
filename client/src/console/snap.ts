@@ -59,14 +59,17 @@ const EDGE_LINE = 6;
 /// How quickly the blue rings and ribbons of the item under the pointer come in, and fade out once it leaves: the
 /// milliseconds in which each goes about two thirds of the way.
 const GLOW_IN = 30;
-/// How bright the items not lit are drawn while the pointer lights some, and while only the selection does; how much
-/// of the links' own strength is left when the items are fully dimmed; and how long the dimming takes to come and
-/// to go, in milliseconds.
-const DIM_POINTED = 0.35;
-const DIM_SELECTED = 0.6;
+/// How bright the items not in focus are drawn while an item is in focus or selected; how much of the links' own
+/// strength is left when the items are fully dimmed; and how long an item takes to fade down and to come back up, in
+/// milliseconds.
+const DIM = 0.35;
 const DIM_LINKS = 0.4;
-const DIM_IN = 180;
-const DIM_OUT = 120;
+const FADE_DOWN = 420;
+const FADE_UP = 200;
+/// How long the pointer rests on an item before it is the one in focus, and how long it is off every item before the
+/// focus is let go, in milliseconds.
+const DWELL_ON = 150;
+const DWELL_OFF = 250;
 const GLOW_OUT = 160;
 /// The ring round an item lit, the one selected or under the pointer or one above them: its edge's width, and the halo
 /// outside it, how wide and how strong, within the room between two items.
@@ -397,6 +400,13 @@ const CARD_GLOW: [number, number][] = [
   [4, 0.11],
   [5.5, 0.05],
 ];
+/// How a glow moves: how long a breath of its rings takes and how faint they are at its low point; how long the
+/// light on a running card's edge takes to go round, and the light's length as so many parts of so many pixels.
+const BREATH_MS = 2600;
+const BREATH_LOW = 0.35;
+const TRAIL_MS = 3200;
+const TRAIL_PARTS = 16;
+const TRAIL_PART = 7;
 /// A card's corners: the page's corner (`--corner`), as its buttons and tags have.
 const CARD_CORNER = 3;
 /// The height of the line under a deliverable, which has no card.
@@ -517,6 +527,14 @@ export class SnapScene {
   /// How bright the items that the pointer and the selection do not light are drawn: all of them fully while nothing
   /// is lit, dimmed while something is, so that what is lit and what joins it stand alone; eased from frame to frame.
   private dim = 1;
+  /// The items in focus: the one the pointer last rested on with what joins it, kept while the pointer moves on.
+  private inFocus = new Set<number>();
+  /// The item the pointer was over at the last frame, and since when it has been over it (or over none).
+  private hoverWas = -1;
+  private hoverAt = 0;
+  /// The glow of each card that runs or needs the owner, to move it each frame: the rings that breathe, and for a
+  /// card whose work runs the light that goes round its edge.
+  private glows = new Map<number, { rings: Graphics; trail: Graphics | null; top: number; high: number; colour: string }>();
   /// The same for the glow around the item under the pointer itself, which those lit with it do not have.
   private haloed = new Map<number, number>();
   /// The column last scrolled, or whose item was last brought to the middle, which the others follow.
@@ -680,6 +698,7 @@ export class SnapScene {
       for (let p = k; p >= 0 && this.begun[p] === 0; p = tree.parent[p]) this.begun[p] = 1;
     });
     this.pulses = new Map();
+    this.glows = new Map();
     ({ measures: this.measures, looks: this.looks } = cellLooks());
     this.drawnStrips = new Map();
     this.glowing = new Map();
@@ -761,6 +780,7 @@ export class SnapScene {
             .roundRect(-out, top - out, NODE_W + 2 * out, h + 2 * out, CARD_CORNER + out)
             .stroke({ color: state, width: 2, alpha });
         view.addChild(glow);
+        this.glows.set(k, { rings: glow, trail: null, top, high: h, colour: state });
       }
       view.addChild(
         card.fill(filled ? mix(PALETTE.card, state, FILL) : PALETTE.card).stroke({
@@ -769,6 +789,12 @@ export class SnapScene {
           width: EDGE_WIDTH,
         }),
       );
+    }
+    // A card whose work runs has a light going round its edge, drawn anew each frame over the card.
+    const moving = this.glows.get(k);
+    if (moving !== undefined && mood === 'running') {
+      moving.trail = new Graphics();
+      view.addChild(moving.trail);
     }
     // What is new to the owner is said once, by the number at the card's right; no line at its left.
     const x = CARD_INSET;
@@ -985,6 +1011,43 @@ export class SnapScene {
       .stroke({ color: PALETTE.faint, width: 1.3 });
     view.addChild(ground, edge, number, title, arrow);
     return view;
+  }
+
+  /// Moves a card's glow on by a frame. Its rings breathe, slowly, each card a little out of step with the others. A
+  /// card whose work runs also has a short light going round its edge, bright at its head and fading behind it, so
+  /// that what is being worked on is seen moving; one that needs the owner only breathes.
+  private moveGlow(
+    glow: { rings: Graphics; trail: Graphics | null; top: number; high: number; colour: string },
+    now: number,
+    k: number,
+  ) {
+    const phase = (now / BREATH_MS + k * 0.37) % 1;
+    glow.rings.alpha = BREATH_LOW + (1 - BREATH_LOW) * Math.sin(Math.PI * phase) ** 2;
+    const trail = glow.trail;
+    if (trail === null) return;
+    const [w, h, top] = [NODE_W, glow.high, glow.top];
+    const round = 2 * (w + h);
+    // A point of the card's edge, by how far round it from its top left corner, clockwise.
+    const at = (far: number): [number, number] => {
+      const d = ((far % round) + round) % round;
+      if (d < w) return [d, top];
+      if (d < w + h) return [w, top + d - w];
+      if (d < 2 * w + h) return [w - (d - w - h), top + h];
+      return [0, top + h - (d - 2 * w - h)];
+    };
+    const head = ((now / TRAIL_MS + k * 0.61) % 1) * round;
+    trail.clear();
+    for (let j = 0; j < TRAIL_PARTS; j += 1) {
+      const [x1, y1] = at(head - j * TRAIL_PART);
+      const [x2, y2] = at(head - (j + 1) * TRAIL_PART);
+      // A part that turns a corner is drawn as its two straight ends meet, through the corner.
+      trail.moveTo(x1, y1);
+      if (x1 !== x2 && y1 !== y2) {
+        const corner: [number, number] = y1 === top || y1 === top + h ? [x2, y1] : [x1, y2];
+        trail.lineTo(corner[0], corner[1]);
+      }
+      trail.lineTo(x2, y2).stroke({ color: PALETTE.onTag, width: 2, alpha: 0.9 * (1 - j / TRAIL_PARTS) ** 2 });
+    }
   }
 
   /// Puts at the right of an item's second row how long its work has gone on, when the label has changed.
@@ -1398,6 +1461,8 @@ export class SnapScene {
         view.position.set(cx, yy);
         const p = this.pulses.get(item);
         if (p !== undefined) p.alpha = pulse;
+        const glow = this.glows.get(item);
+        if (glow !== undefined) this.moveGlow(glow, now, item);
         this.age(item);
         nowShown.add(view);
         drawn.push(item);
@@ -1457,9 +1522,25 @@ export class SnapScene {
     // While the pointer or the selection lights something, every other item drawn is dimmed, more under the pointer
     // than for the selection alone, so that the lit items and what joins them stand out; it comes and goes over a
     // moment, so that a pointer passing over the tree does not make it flicker.
-    const aim = chain.size > 0 ? DIM_POINTED : chosen.size > 0 ? DIM_SELECTED : 1;
-    this.dim += (aim - this.dim) * (1 - Math.exp(-step / (aim < this.dim ? DIM_IN : DIM_OUT)));
-    for (const i of drawn) this.views[i].alpha = chain.has(i) || chosen.has(i) ? 1 : this.dim;
+    // What the dimming goes by is not the pointer's every move: an item becomes the one in focus only once the
+    // pointer has rested on it a moment, and the focus is let go only once the pointer has been off every item a
+    // moment. So a pointer crossing many items changes nothing, and going from one item to the next fades one way
+    // into the other. Each item then fades to its own brightness, slowly down and a little faster up.
+    if (this.under !== this.hoverWas) {
+      this.hoverWas = this.under;
+      this.hoverAt = now;
+    }
+    const rested = now - this.hoverAt;
+    if (this.under >= 0 && rested > DWELL_ON) this.inFocus = chain;
+    else if (this.under < 0 && rested > DWELL_OFF) this.inFocus = new Set();
+    const focus = this.inFocus;
+    const aim = focus.size > 0 || chosen.size > 0 ? DIM : 1;
+    this.dim += (aim - this.dim) * (1 - Math.exp(-step / (aim < this.dim ? FADE_DOWN : FADE_UP)));
+    for (const i of drawn) {
+      const view = this.views[i];
+      const to = aim === 1 || focus.has(i) || chosen.has(i) ? 1 : DIM;
+      view.alpha += (to - view.alpha) * (1 - Math.exp(-step / (to < view.alpha ? FADE_DOWN : FADE_UP)));
+    }
     for (const i of chosen) {
       const p = t.parent[i];
       if (p < 0) continue;
