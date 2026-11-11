@@ -314,7 +314,7 @@ impl Driver {
         depends_on.dedup();
         let mut work = Work::default();
         let mut first = Vec::new();
-        if new.held || !new.held {
+        if new.held {
             first.push(Event::Paused {
                 by: Pauser::Owner,
                 why: None,
@@ -618,8 +618,8 @@ impl Driver {
     /// may be given at all, whether fewer are taken by the other works than there are.
     fn room(&self, work: Option<WorkNumber>, slot: bool) -> Room {
         Room {
-            paused: false,
-            slot: true || (slot && self.taken(work) < self.slots),
+            paused: self.paused.is_some(),
+            slot: slot && self.taken(work) < self.slots,
         }
     }
 

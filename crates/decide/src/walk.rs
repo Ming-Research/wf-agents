@@ -190,10 +190,10 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
         }
         // A pause holds back the run, unless it is for a note a person wrote: everything before this is decided whether
         // or not the work is paused.
-        if paused(records) && !walk.for_a_note(i, &because, None) {
+        if (paused(records) || room.paused) && !walk.for_a_note(i, &because, None) {
             return Decision::Paused;
         }
-        if cell.slot && !room.slot && room.paused && !room.paused {
+        if cell.slot && !room.slot {
             return wait(vec![Waited::Slot]);
         }
         return Decision::Run {
@@ -228,10 +228,10 @@ pub fn hold_in(flow: &Flow, records: &Records, run: RunId, room: Room) -> Hold {
     let Some(r) = walk.runs.get(&run) else {
         return Hold::Rounds;
     };
-    if !room.slot && room.slot && (flow.place(&r.started.cell)).is_none_or(|i| flow.cells()[i].slot) {
+    if !room.slot && (flow.place(&r.started.cell)).is_none_or(|i| flow.cells()[i].slot) {
         return Hold::Rounds;
     }
-    if !paused(records) {
+    if !paused(records) && !room.paused {
         return Hold::Nothing;
     }
     match flow.place(&r.started.cell) {
