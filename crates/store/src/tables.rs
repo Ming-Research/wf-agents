@@ -210,6 +210,11 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     )?
     .into_iter()
     .collect();
+    // The blank versions are told by the content each keeps, as the engine told them when it wrote them.
+    r.blank = (out.contents.iter())
+        .filter(|(_, content)| work::is_blank(content))
+        .map(|(version, _)| version.clone())
+        .collect();
 
     for (round, given) in rows(db, "SELECT run, round, given FROM given WHERE work = ?1", w, |row| {
         Ok(((RunId(row.get(0)?), row.get(1)?), row.get::<_, String>(2)?))

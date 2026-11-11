@@ -2,6 +2,7 @@
 //! by driving the engine's loop, so that what is saved is what the engine produces. The tests are kept in modules by
 //! subject, so that a new test goes into the module of what it tests.
 
+mod blank;
 mod diverged;
 mod everything;
 mod histories;

@@ -139,6 +139,12 @@ pub struct Handed {
     pub value: Option<String>,
 }
 
+/// Whether a content says nothing: a version written with it is one of the records' blank versions, which the
+/// deciding code reads as saying nothing. The engine tells it as it records a write, and the store as it loads one.
+pub fn is_blank(content: &str) -> bool {
+    content.trim().is_empty()
+}
+
 /// A call of a run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Call {

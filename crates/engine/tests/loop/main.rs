@@ -6,6 +6,7 @@
 mod abandoning;
 mod calls;
 mod cancelling;
+mod confirmations;
 mod ending;
 mod events;
 mod failing;
