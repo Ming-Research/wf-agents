@@ -51,8 +51,8 @@
 //!
 //! The histories must reach a failed round given again once the work is let on, a run whose round failed abandoned
 //! because what it started from changed before the work was let on, a round given while the work is paused, and works
-//! that came to rest not paused: each is
-//! counted, a test of no history reaching one fails, and what was reached is written to the standard error.
+//! that came to rest not paused: each is counted, a test of no history reaching one fails, and what was reached is
+//! written to the standard error.
 //!
 //! A failing case prints its seed and the steps it took; `one_history(seed, ..)` replays it.
 

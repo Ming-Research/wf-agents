@@ -1,6 +1,9 @@
 //! A paused work still answers what a person writes for a cell: while it is paused, a run starts only for a cell one
-//! of whose reasons is a change of a block it reads that a person made since the cell last ran. Nothing else starts,
-//! the order of the walk is kept, and what that run writes waits for the work to be let on.
+//! of whose reasons is a change of a block it reads that a person made since the cell last ran: since the run of its
+//! record started, or with no record since its latest run started; a cell no run of which has started waits. Nothing
+//! else starts, the order of the walk is kept, and what that run writes waits for the work to be let on.
+
+use decide::run::Hold;
 
 use super::*;
 
@@ -106,6 +109,124 @@ fn a_cell_that_never_ran_waits_for_the_work_to_be_let_on_though_a_person_wrote_w
     w.person_writes("background");
     // It runs because it has no record: the work, added paused, begins nothing before it is let on.
     assert_eq!(w.decide(), Decision::Paused);
+}
+
+/// A research that ran once, and an implementation of the plan that reads what a person says to it, whose first run
+/// has started: the plan and that run.
+fn implementing() -> (World, Seq, RunId) {
+    let mut w = World::with_gate(vec![
+        cell("research", &["background"], &["plan"]),
+        cell("implement", &["plan", "to implement"], &["code"]),
+    ]);
+    w.person_writes("background");
+    let plan = w.run("research", &[("plan", Matters)]);
+    let run = w.start("implement");
+    (w, plan, run)
+}
+
+#[test]
+fn a_cell_whose_first_run_was_abandoned_for_what_a_person_wrote_runs_again_while_the_work_is_paused() {
+    let (mut w, plan, run) = implementing();
+    w.returns("implement");
+    w.pause();
+    let to = w.person_writes("to implement");
+    assert_eq!(w.decide(), abandon("implement", run, outdated("to implement")));
+    w.abandon();
+    // The cell has no record, and it ran before the person wrote: it runs for what the person wrote.
+    assert_eq!(
+        w.decide(),
+        runs(
+            "implement",
+            vec![NO_RECORD],
+            &[("plan", Some(plan)), ("to implement", Some(to)), ("code", None)]
+        )
+    );
+}
+
+#[test]
+fn a_cell_whose_first_round_was_under_way_as_a_person_wrote_to_it_runs_again_while_the_work_is_paused() {
+    let (mut w, plan, run) = implementing();
+    w.pause();
+    let to = w.person_writes("to implement");
+    assert_eq!(w.decide(), busy("implement", run));
+    w.returns("implement");
+    assert_eq!(w.decide(), abandon("implement", run, outdated("to implement")));
+    w.abandon();
+    assert_eq!(
+        w.decide(),
+        runs(
+            "implement",
+            vec![NO_RECORD],
+            &[("plan", Some(plan)), ("to implement", Some(to)), ("code", None)]
+        )
+    );
+}
+
+#[test]
+fn a_paused_work_does_not_answer_what_a_person_wrote_before_the_cell_last_ran_that_a_changed_flow_gives_it() {
+    let mut w = World::with_gate(vec![cell("implement", &["plan"], &["code"])]);
+    w.person_writes("background");
+    w.person_writes("plan");
+    w.run("implement", &[("code", Matters)]);
+    w.pause();
+    // The changed flow gives the implementation the background, which a person wrote before it last ran.
+    w.install(vec![cell("implement", &["plan", "background"], &["code"]), gate()]);
+    assert_eq!(w.decide(), Decision::Paused);
+    // Written again by a person, it is answered.
+    w.person_writes("background");
+    assert_eq!(
+        reasons(&w.decide()),
+        ("implement".into(), vec![("background".into(), false)])
+    );
+}
+
+#[test]
+fn a_pause_holds_back_the_rounds_of_a_run_started_for_what_a_person_wrote_before_the_cell_last_ran() {
+    let mut w = World::with_gate(vec![cell("implement", &["plan"], &["code"])]);
+    w.person_writes("background");
+    w.person_writes("plan");
+    w.run("implement", &[("code", Matters)]);
+    w.install(vec![cell("implement", &["plan", "background"], &["code"]), gate()]);
+    let run = w.start("implement");
+    w.returns("implement");
+    w.pause();
+    assert_eq!(decide::hold(&w.flow, &w.records, run), Hold::Rounds);
+}
+
+#[test]
+fn a_pause_holds_back_nothing_of_a_run_for_what_a_person_wrote_but_a_failed_round() {
+    let (mut w, ..) = ran();
+    // Started before the pause.
+    w.person_writes("to implement");
+    let before = w.start("implement");
+    w.returns("implement");
+    assert_eq!(decide::hold(&w.flow, &w.records, before), Hold::Nothing);
+    w.pause();
+    assert_eq!(decide::hold(&w.flow, &w.records, before), Hold::Retry);
+    assert_eq!(w.decide(), go_on("implement", before));
+    w.go_on("implement");
+    w.finish("implement", &[("code", Matters)]);
+    // Started during the pause.
+    w.person_writes("to implement");
+    let during = w.start("implement");
+    w.returns("implement");
+    assert_eq!(decide::hold(&w.flow, &w.records, during), Hold::Retry);
+}
+
+#[test]
+fn a_pause_holds_back_every_round_of_a_run_for_what_no_person_wrote() {
+    let (mut w, ..) = ran();
+    w.outside_writes("main");
+    let research = w.start("research");
+    w.returns("research");
+    w.pause();
+    assert_eq!(decide::hold(&w.flow, &w.records, research), Hold::Rounds);
+    let mut first = World::with_gate(vec![cell("research", &["background"], &["plan"])]);
+    first.person_writes("background");
+    let run = first.start("research");
+    first.returns("research");
+    first.pause();
+    assert_eq!(decide::hold(&first.flow, &first.records, run), Hold::Rounds);
 }
 
 #[test]

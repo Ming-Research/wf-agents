@@ -79,6 +79,49 @@ fn a_failed_round_of_a_run_for_what_a_person_wrote_is_given_again_only_once_the_
 }
 
 #[test]
+fn a_first_run_abandoned_for_what_a_person_wrote_during_a_pause_is_run_again_at_once() {
+    let (mut w, write, request) = W::requested();
+    w.on(Event::Paused {
+        by: Pauser::Owner,
+        why: None,
+    });
+    let (effects, opinions) = w.person_writes("opinions");
+    assert_eq!(effects, vec![]);
+    // What the round hands in is dropped, the run stale; the writer has no record, and it ran before the person wrote.
+    let effects = w.returns(write, hands_in(&[("text", None)]));
+    assert!(w.work.records.abandoned.iter().any(|a| a.run == write));
+    let again = w.work.records.started.last().expect("a run").run;
+    assert_eq!(effects, vec![round_effect(again, "write", 1, Given::Task)]);
+    let start = started_with(
+        vec![Cause::NoRecord],
+        &[
+            ("request", Some(request)),
+            ("opinions", Some(opinions)),
+            ("main", None),
+            ("text", None),
+        ],
+    );
+    assert_eq!(start_of(&w, again), start);
+}
+
+#[test]
+fn a_run_for_what_a_person_wrote_that_started_before_the_pause_has_its_next_round_during_it() {
+    let (mut w, ..) = ran_and_paused();
+    w.on(Event::Resumed);
+    let (effects, _) = w.person_writes("opinions");
+    let (again, ..) = round(&effects);
+    let call = calls_of(&w.returns(again, Came::Asks(vec![tool("a")])))[0].0;
+    w.on(Event::Paused {
+        by: Pauser::Owner,
+        why: None,
+    });
+    assert_eq!(
+        w.done(call),
+        vec![round_effect(again, "write", 2, Given::Results(vec![call]))]
+    );
+}
+
+#[test]
 fn a_run_at_rest_for_what_no_person_wrote_is_held_while_a_later_cell_has_what_a_person_wrote() {
     let (mut w, write, _) = W::requested();
     let call = calls_of(&w.returns(write, Came::Asks(vec![tool("a")])))[0].0;

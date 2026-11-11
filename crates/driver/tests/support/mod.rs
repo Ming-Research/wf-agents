@@ -1109,17 +1109,33 @@ pub fn under_way(work: &Work) -> usize {
         .count()
 }
 
-/// Whether the run started for what a person wrote: one of its reasons is a block that a person wrote after the
-/// version its cell's record knew and before the run started, read from the records alone.
+/// Whether the run started for what a person wrote: one of its reasons is a block that a person wrote since its cell
+/// last ran, after the version its cell's record knew, and before the run started; for a cell with no record, a block
+/// the run started from. A cell no run of which started before has not run. Read from the records alone; it does not
+/// ask whether the write changed the block's meaning, nor, with no record, whether the cell reads the block, so it is a
+/// little wider than the rule.
 pub fn for_a_person(work: &Work, run: RunId) -> bool {
     let r = &work.records;
     let Some(started) = r.started.iter().find(|s| s.run == run) else {
         return false;
     };
+    // Since the cell last ran: since the start of the run of its record, or with no record of its latest run.
+    let of_cell = || (r.started.iter()).filter(|s| s.cell == started.cell && s.at < started.at);
+    let record = (r.finished.iter())
+        .filter(|f| f.at < started.at)
+        .filter_map(|f| of_cell().find(|s| s.run == f.run).map(|s| (f.at, s.at)))
+        .max();
+    let Some(since) = record.map(|(_, at)| at).or_else(|| of_cell().map(|s| s.at).max()) else {
+        return false;
+    };
+    let by_person = |block: &decide::BlockId, was: Option<decide::Seq>| {
+        (r.written.iter()).any(|w| {
+            w.by == Outsider::Person && w.block == *block && w.at > since && Some(w.at) > was && w.at < started.at
+        })
+    };
     started.because.iter().any(|c| match c {
-        Cause::NoRecord => false,
-        Cause::Changed { block, was, .. } => (r.written.iter())
-            .any(|w| w.by == Outsider::Person && w.block == *block && Some(w.at) > *was && w.at < started.at),
+        Cause::NoRecord => started.basis.keys().any(|block| by_person(block, None)),
+        Cause::Changed { block, was, .. } => by_person(block, *was),
     })
 }
 

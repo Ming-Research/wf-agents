@@ -1,10 +1,9 @@
 //! Random histories (principle simulated-histories): many works, each on a small flow of blocks drawn at random, driven
 //! step by step as an engine would drive them, agents returning at random and people acting at random in the first
 //! part of each history. After every step the properties the engine must always keep are checked (`properties`, and
-//! those of a pause in `pausing`),
-//! each stating what a rule of the entries protects and judged by the histories' own reading of the records
-//! (`reading`), not by the walk's; once people stop, the work must come to rest within a bound its limits give, and
-//! once it rests, what people wrote must have reached the cells that read it.
+//! those of a pause in `pausing`), each stating what a rule of the entries protects and judged by the histories' own
+//! reading of the records (`reading`), not by the walk's; once people stop, the work must come to rest within a bound
+//! its limits give, and once it rests, what people wrote must have reached the cells that read it.
 //!
 //! What the driver reaches, roughly:
 //! - the flow: each of the six shapes in a sixth of the histories, cut to its first two cells in a fifth and
@@ -469,14 +468,12 @@ impl History {
         pausing::decision(v, flow, &reading, decision, decide::paused(r));
     }
 
-    /// Whether the run at rest has its next round though the work is paused, as the engine gives it: the run started
-    /// for what a person wrote, by the histories' own reading of its reasons, and its last round did not fail.
-    fn goes_on_paused(&self, run: RunId) -> bool {
+    /// Whether the run at rest has its next round though the work is paused, as the engine gives it by `decide::hold`,
+    /// which `pausing` judges.
+    fn goes_on_paused(&mut self, run: RunId) -> bool {
         let reading = Reading::new(&self.w.records);
-        let s = reading.started[&run];
-        let flow = &self.w.flow;
-        let cell = &flow.cells()[flow.place(&s.cell).expect("the histories do not change the flow")];
-        !self.failed.contains(&run) && pausing::for_a_person(&reading, &reading.reasons(cell, s.at), s.at)
+        let failed = self.failed.contains(&run);
+        pausing::goes_on(&mut self.verdict, &self.w.flow, &reading, run, failed)
     }
 
     /// The round under way of the run ends as its agent returns: it finishes, returns with nothing, or rests at a call.
@@ -872,6 +869,12 @@ fn histories(drawn: Drawn, seeds: u64, reached: &[&str]) {
         "the deciding code's histories reached: {}",
         counts.join("; ")
     );
+    // And how often each of what they must reach was, so that a rare one shows how close it is to none.
+    let must: Vec<String> = reached
+        .iter()
+        .map(|what| format!("{what}: {}", seen.get(what)))
+        .collect();
+    let _ = writeln!(std::io::stderr(), "of what they must reach: {}", must.join("; "));
     let unreached: Vec<_> = reached.iter().filter(|what| seen.get(what) == 0).collect();
     assert!(
         unreached.is_empty(),
