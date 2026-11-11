@@ -62,6 +62,10 @@ pub struct GitHub {
     /// Whether a work's branch on GitHub is deleted once it is merged.
     #[serde(default)]
     pub delete_branch: bool,
+    /// Whether the project's CI runs on a push to the branches the agents' `check_before` pushes to; without it, the
+    /// tool is refused before anything is pushed.
+    #[serde(default)]
+    pub runs_on_before_branches: bool,
     /// The `gh` command line, or a path to it.
     #[serde(default = "gh")]
     pub gh: String,

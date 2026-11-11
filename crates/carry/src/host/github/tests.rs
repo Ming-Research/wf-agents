@@ -32,6 +32,7 @@ fn config(bare: &std::path::Path) -> Config {
         poll: Duration::from_millis(10),
         merge_method: "squash".to_string(),
         delete_branch: false,
+        before_branches: true,
         token: None,
     }
 }
@@ -356,9 +357,11 @@ async fn a_red_check_is_said_with_its_link_what_it_said_and_its_log_up_to_its_er
         "The CI failed on this commit, in 2 of its checks.\n\n\
          lint (failure) https://github.example/checks/lint\n\
          Clippy found 2 warnings\n\
-         What its log says of the failure:\n\
+         What its log says of the failure, as the CI printed it:\n\
+         ```\n\
          error[E0405]: cannot find trait `Host`\n\
-         ##[error]Process completed with exit code 101.\n\n\
+         ##[error]Process completed with exit code 101.\n\
+         ```\n\n\
          test (timed_out) https://github.example/checks/test\n\
          Its log could not be read: HTTP 410: the log has expired"
     );
@@ -676,6 +679,7 @@ fn github_as_the_settings_say_needs_the_engines_token() {
             poll: POLL,
             merge_method: "squash".to_string(),
             delete_branch: false,
+            before_branches: false,
             token: Some("the-token".to_string()),
         }
     );

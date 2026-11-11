@@ -61,6 +61,8 @@ pub struct Config {
     pub merge_method: String,
     /// Whether the work's branch on GitHub is deleted once it is merged.
     pub delete_branch: bool,
+    /// Whether the project's CI runs on a push to a branch under [`BEFORE`], which the check before the change needs.
+    pub before_branches: bool,
     /// The engine's token, which git's pushes and fetches are given in their environment; none where the address
     /// needs none.
     pub token: Option<String>,
@@ -78,6 +80,7 @@ impl std::fmt::Debug for Config {
             .field("poll", &self.poll)
             .field("merge_method", &self.merge_method)
             .field("delete_branch", &self.delete_branch)
+            .field("before_branches", &self.before_branches)
             .field("token", &self.token.as_ref().map(|_| "(given)"))
             .finish()
     }
@@ -127,6 +130,7 @@ impl GitHub<Gh> {
             poll: POLL,
             merge_method: github.merge_method.clone(),
             delete_branch: github.delete_branch,
+            before_branches: github.runs_on_before_branches,
             token: Some(token.clone()),
         };
         let gh = Gh::new(&github.gh, &github.repository, &token, &dir);
@@ -536,6 +540,7 @@ impl<A: Api> Host for GitHub<A> {
     ) -> Result<Option<String>, String> {
         // A branch of its own for each commit, taken away once its CI is read: the commit is no commit of the work's
         // branch, and is the same commit whenever it is made of the same files.
+        let _ = self.config.before_branches;
         let commit = &before.commit;
         let name = format!("{BEFORE}/{}-{}", branch.place.branch, &commit[..commit.len().min(12)]);
         let reference = format!("refs/heads/{name}");

@@ -337,12 +337,20 @@ mod tests {
     const ROOM: usize = 1 << 20;
 
     #[test]
-    fn a_line_loses_the_time_and_what_gh_puts_before_it_and_its_colours() {
-        let line = "2026-10-27T09:47:49.0473549Z \u{1b}[1m\u{1b}[91merror\u{1b}[0m: test failed";
+    fn a_line_loses_the_time_its_colours_and_every_other_control_character() {
+        let line = "\u{feff}2026-10-27T09:47:49.0473549Z \u{1b}[1m\u{1b}[91merror\u{1b}[0m: test failed";
         assert_eq!(clean_line(line), "error: test failed");
         assert_eq!(clean_line("2026-10-27T09:47:49.0475850Z"), "");
-        let through_gh = "\u{feff}check\tTest\t2026-10-30T00:57:30.8321137Z ^[[32;1m        PASS^[[0m [   0.007s]";
-        assert_eq!(clean_line(through_gh), "        PASS [   0.007s]");
+        // A bell, a carriage return, a backspace, a delete and the C1 introducer of a sequence with the sequence are
+        // taken out; a tab stays.
+        let controls = "2026-10-27T09:47:49.0475850Z a\u{7}b\rc\u{8}d\u{9b}31me\u{7f}f\tg";
+        assert_eq!(clean_line(controls), "abcdef\tg");
+        // What the text of a log says is kept as it is: a tab between its words, and the two characters `^[`.
+        assert_eq!(clean_line("2026-10-27T09:47:49.0475850Z a\tb\tc"), "a\tb\tc");
+        assert_eq!(
+            clean_line("2026-10-27T09:47:49.0475850Z press ^[[A to go up"),
+            "press ^[[A to go up"
+        );
         assert_eq!(clean_line("plain line"), "plain line");
     }
 

@@ -313,7 +313,7 @@ mod tests {
             said.contains("\n\nThe check `sh test.sh` failed (") && said.contains(") on it. The end of what it said:"),
             "{said}"
         );
-        assert!(!git::before_dir(&started.place).exists(), "its worktree is taken away");
+        assert!(befores(&started.place).is_empty(), "its worktree is taken away");
         let worktrees = run(&repo.project.repo, &["worktree", "list", "--porcelain"]);
         assert_eq!(worktrees.lines().filter(|l| l.starts_with("worktree ")).count(), 2);
     }
@@ -327,6 +327,78 @@ mod tests {
         let said = answered_with(&repo, CHECK_BEFORE, "test.sh", &[]).await;
         assert!(
             said.starts_with("Nothing was checked: test.sh is not a file of your last commit"),
+            "{said}"
+        );
+    }
+
+    /// The worktrees of checks before the change of the work's that are there beside its own.
+    fn befores(place: &git::Place) -> Vec<String> {
+        let name = place.dir.file_name().unwrap().to_string_lossy().into_owned();
+        let dir = place.dir.parent().unwrap();
+        let mut found: Vec<String> = (std::fs::read_dir(dir).unwrap())
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with(&format!("{name}-before")))
+            .collect();
+        found.sort();
+        found
+    }
+
+    /// A started work whose last commit holds `test.sh` and `other.sh`, with the check given.
+    async fn with_tests(check: &str) -> (Repo, git::Place) {
+        let repo = Repo::new(check);
+        let started = git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        commit(&started.place.dir, "other.sh", "true\n");
+        commit(&started.place.dir, "test.sh", "true\n");
+        (repo, started.place)
+    }
+
+    #[tokio::test]
+    async fn checks_before_the_change_asked_at_once_each_run_in_a_worktree_of_their_own() {
+        // Each check is still running when the others begin: had they one worktree, a later one would take it from
+        // under an earlier one, whose check would then fail on a tree no longer there.
+        let (repo, _) = with_tests("sleep 1; test -f test.sh").await;
+        let (one, same, other) = tokio::join!(
+            answered_with(&repo, CHECK_BEFORE, "test.sh", &[]),
+            answered_with(&repo, CHECK_BEFORE, "test.sh", &[]),
+            answered_with(&repo, CHECK_BEFORE, "test.sh other.sh", &[]),
+        );
+        for said in [&one, &same, &other] {
+            assert!(
+                said.contains("\n\nThe check `sleep 1; test -f test.sh` passed on it."),
+                "{said}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn what_an_earlier_check_before_the_change_of_this_work_left_is_taken_away() {
+        let (repo, place) = with_tests("true").await;
+        // As left by a process of the engine that ended while the check ran, and one of another work.
+        let name = place.dir.file_name().unwrap().to_string_lossy().into_owned();
+        let left = place.dir.with_file_name(format!("{name}-before-deadbeef0000"));
+        let others = place.dir.with_file_name("2-0a1b2c3d-before-deadbeef0000");
+        for dir in [&left, &others] {
+            run(
+                &repo.project.repo,
+                &["worktree", "add", "-q", "--detach", &dir.display().to_string(), "main"],
+            );
+        }
+        let said = answered_with(&repo, CHECK_BEFORE, "test.sh", &[]).await;
+        assert!(said.contains("passed on it."), "{said}");
+        assert!(befores(&place).is_empty(), "{:?}", befores(&place));
+        assert!(others.is_dir(), "another work's is let be");
+        let worktrees = run(&repo.project.repo, &["worktree", "list", "--porcelain"]);
+        assert_eq!(worktrees.lines().filter(|l| l.starts_with("worktree ")).count(), 3);
+    }
+
+    #[tokio::test]
+    async fn a_check_before_the_change_refuses_a_worktree_off_the_works_branch() {
+        let (repo, place) = with_tests("true").await;
+        run(&place.dir, &["checkout", "-q", "--detach"]);
+        let said = answered_with(&repo, CHECK_BEFORE, "test.sh", &[]).await;
+        assert!(
+            said.starts_with("The check before the change could not be run: the worktree")
+                && said.contains("not on the work's branch"),
             "{said}"
         );
     }
