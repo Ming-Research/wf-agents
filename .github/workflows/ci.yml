@@ -4,9 +4,10 @@ name: ci
 # and the Rust tests, which take most of the time, split across three jobs beside the others. The job `check` is red
 # whenever the lint or a job of the tests is, and it and `page` are the checks the engine waits for. It runs on each
 # pull request into `main` and on each push to `main`, on GitHub's machines from a clean start: this is the CI the check
-# before a work's merge waits for. `next` is the name `main` had, kept in the lists below while a pull request targets it. What an agent names to its check while it works, and the tests it runs on the code
-# before its change, the fast CI runs instead (fast.yml), on the owner's machine; so a push to a branch of the code
-# before a change (`wf-agents-before/`) runs nothing here.
+# before a work's merge waits for. `next` is the name `main` had, kept in the lists below while a pull request targets
+# it. What an agent names to its check while it works, and the tests it runs on the code before its change, the fast CI
+# runs instead (fast.yml), on the owner's machine; so a push to a branch of the code before a change
+# (`wf-agents-before/`) runs nothing here.
 on:
   pull_request:
     branches:
