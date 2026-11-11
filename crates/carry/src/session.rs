@@ -25,9 +25,14 @@ pub fn installation(data: &Path) -> Result<Uuid, String> {
     }
 }
 
-/// The id of the session of the line in the work.
-pub fn session(installation: Uuid, work: WorkNumber, line: &str) -> Uuid {
-    Uuid::new_v5(&installation, format!("work/{}/line/{line}", work.0).as_bytes())
+/// The id of the session of the line in the work: its first, or, where its line's session was begun anew this many
+/// times, as after a round the service's safety check flagged, the session begun last.
+pub fn session(installation: Uuid, work: WorkNumber, line: &str, anew: usize) -> Uuid {
+    let name = match anew {
+        0 => format!("work/{}/line/{line}", work.0),
+        n => format!("work/{}/line/{line}/anew/{n}", work.0),
+    };
+    Uuid::new_v5(&installation, name.as_bytes())
 }
 
 #[cfg(test)]
@@ -37,13 +42,18 @@ mod tests {
     #[test]
     fn a_session_id_is_the_same_whenever_it_is_worked_out() {
         let installation = Uuid::parse_str("6a1f3c2e-8d4b-4e7a-9c5f-2b8e1d0a7f43").unwrap();
-        let id = session(installation, WorkNumber(7), "engineer");
-        assert_eq!(id, session(installation, WorkNumber(7), "engineer"));
+        let id = session(installation, WorkNumber(7), "engineer", 0);
+        assert_eq!(id, session(installation, WorkNumber(7), "engineer", 0));
         assert_eq!(id.get_version_num(), 5);
-        assert_ne!(id, session(installation, WorkNumber(7), "reviewer"));
-        assert_ne!(id, session(installation, WorkNumber(8), "engineer"));
+        assert_ne!(id, session(installation, WorkNumber(7), "reviewer", 0));
+        assert_ne!(id, session(installation, WorkNumber(8), "engineer", 0));
         let other = Uuid::parse_str("0d9e4b61-3f2a-4c8d-b7e5-91a6c3f0d2b8").unwrap();
-        assert_ne!(id, session(other, WorkNumber(7), "engineer"));
+        assert_ne!(id, session(other, WorkNumber(7), "engineer", 0));
+        // A session begun anew is another, and the same whenever it is worked out.
+        let anew = session(installation, WorkNumber(7), "engineer", 1);
+        assert_ne!(id, anew);
+        assert_eq!(anew, session(installation, WorkNumber(7), "engineer", 1));
+        assert_ne!(anew, session(installation, WorkNumber(7), "engineer", 2));
     }
 
     #[test]

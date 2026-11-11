@@ -4,7 +4,9 @@
 //! the planner gives: it ended, merged or cancelled; it rests for a person, at a cell's question, a ruling only a person
 //! can give, a limit, or a pause the engine made with its reason; it waits for items none of which is going on; or its
 //! records cannot be those of a work. A work going on from one cell to the next is nothing for the planner, and neither
-//! is one the owner paused, which shows only as the reason why a work waiting for it is idle.
+//! is one the owner paused, which shows only as the reason why a work waiting for it is idle. A work that ended and
+//! could not let go of what it held, which the engine paused saying why, rests for a person. One line is about no
+//! work: the wait every work shares, while no agent's round begins; a work whose round it holds is going on.
 //!
 //! Everything here is read from the records (principle state-from-records). How a work stands is what the deciding
 //! code decides on its records; since when it stands so is the first of the moments after which it has stood so
@@ -20,7 +22,7 @@ use decide::{CellId, Decision, End, Maker, Pauser, RecordFault, Records, Seq, Wa
 use store::{ItemNumber, WorkNumber};
 use work::{Moment, Time};
 
-use crate::{DEPENDENCIES, Driver, Fault, Kept};
+use crate::{DEPENDENCIES, Driver, Fault, Kept, Outage};
 
 /// The most lines an answer holds; how many more there are is counted, and they come again at the next call.
 pub const LINES: usize = 20;
@@ -47,6 +49,8 @@ pub struct Line {
 /// its decision, which its view gives.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Heed {
+    /// No agent's round of any work begins: a round failed for a cause every work shares. It is about no work.
+    Agents { outage: Outage },
     /// The work's records cannot be those of a work: nothing is decided on them.
     Fault { work: WorkNumber },
     /// The work rests for a person: a call a person answers, a precondition a person can make hold, a limit, or a
@@ -172,7 +176,7 @@ impl Driver {
             let idle = reader.idle_of(number);
             reader.idle.insert(number, idle);
         }
-        let mut lines: Vec<(u8, Line)> = Vec::new();
+        let mut lines: Vec<(u8, Line)> = reader.shared(self.outage()).into_iter().collect();
         for number in &numbers {
             if let Some(line) = reader.line(*number) {
                 lines.push(line);
@@ -240,7 +244,14 @@ impl Standing {
         };
         match decide(&kept.flow.flow, records) {
             Decision::Fault(fault) => Standing::Fault(fault),
-            Decision::Ended(end) => Standing::Ended(end),
+            // What the work held outside the engine could not be let go, and the engine paused it with why: only the
+            // owner, letting it on, has it tried again.
+            Decision::Ended(end) => match decide::pause(records) {
+                Some(pause) if pause.by == Pauser::Engine && ended_at(records, end).is_some_and(|at| pause.at > at) => {
+                    Standing::PausedByEngine { at: pause.at }
+                }
+                _ => Standing::Ended(end),
+            },
             Decision::Paused => paused(),
             // A run at rest holds its next round while the work is paused, as the pages show it.
             Decision::GoOn { .. } if decide::paused(records) => paused(),
@@ -281,8 +292,19 @@ fn on_items(waited: &Waited) -> bool {
     }
 }
 
+/// The place at which the work ended: its merge's finish, or its cancel.
+fn ended_at(records: &Records, end: End) -> Option<Seq> {
+    match end {
+        End::Merged => records.finished.iter().map(|finished| finished.at).max(),
+        End::Cancelled => records.cancelled,
+    }
+}
+
+/// The work the line is of; for the wait every work shares, the work whose round began it, whose place in the next
+/// mark says whether it is given again.
 fn work_of(heed: &Heed) -> WorkNumber {
     match heed {
+        Heed::Agents { outage } => outage.work,
         Heed::Fault { work } | Heed::ForAPerson { work } | Heed::Idle { work, .. } | Heed::Ended { work, .. } => *work,
     }
 }
@@ -333,18 +355,41 @@ impl Reader<'_> {
         Ok(unread)
     }
 
+    /// The line of the wait every work shares, the most pressing, where one stands and came since the mark: the round
+    /// that began it ended at or after its work's place.
+    fn shared(&self, outage: Option<Outage>) -> Option<(u8, Line)> {
+        let outage = outage?;
+        let kept = self.works.get(&outage.work)?;
+        let records = &kept.work.records;
+        let ended = (records.returned.iter())
+            .filter(|returned| returned.run == outage.run)
+            .nth(outage.round.checked_sub(1)?)?
+            .at;
+        let from = self.unread.get(&outage.work).copied().flatten()?;
+        (ended >= from).then(|| {
+            let since = outage.since;
+            (
+                0,
+                Line {
+                    heed: Heed::Agents { outage },
+                    since,
+                },
+            )
+        })
+    }
+
     /// The work's line with how pressing it is, where it has one: it stands for the planner, and came to since the
     /// mark.
     fn line(&self, number: WorkNumber) -> Option<(u8, Line)> {
         let (rank, heed) = match &self.standing[&number] {
-            Standing::Fault(_) => (0, Heed::Fault { work: number }),
-            Standing::Asked { .. } | Standing::PausedByEngine { .. } => (1, Heed::ForAPerson { work: number }),
+            Standing::Fault(_) => (1, Heed::Fault { work: number }),
+            Standing::Asked { .. } | Standing::PausedByEngine { .. } => (2, Heed::ForAPerson { work: number }),
             Standing::Items { .. } => {
                 let items = self.idle[&number].clone()?;
-                (2, Heed::Idle { work: number, items })
+                (3, Heed::Idle { work: number, items })
             }
             Standing::Ended(end) => (
-                3,
+                4,
                 Heed::Ended {
                     work: number,
                     end: *end,

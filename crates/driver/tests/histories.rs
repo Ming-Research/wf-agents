@@ -342,6 +342,7 @@ impl History {
                 came: Came::Asks(vec![]),
                 spent: self.spent(run),
             },
+            Effect::Release { .. } => Event::Released,
         };
         self.act(Act::On(todo.work, event));
         true

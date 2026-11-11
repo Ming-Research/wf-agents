@@ -51,7 +51,7 @@ pub fn router(handle: Handle, levels: Levels) -> Router {
 }
 
 async fn items(State(handle): State<Handle>) -> Response {
-    match handle.read(Items::of).await {
+    match handle.read_at(Items::of).await {
         Ok(Ok(items)) => Json(items).into_response(),
         Ok(Err(broken)) => fail(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -112,7 +112,7 @@ async fn work(State(handle): State<Handle>, path: Result<Path<u64>, PathRejectio
     };
     let missing = format!("There is no work {}.", number.0);
     let page = handle
-        .read(move |driver| driver.work(number).map(|_| WorkPage::of(driver, number)))
+        .read_at(move |driver, now| driver.work(number).map(|_| WorkPage::of(driver, number, now)))
         .await;
     found(page, number, missing)
 }

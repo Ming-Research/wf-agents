@@ -1,5 +1,6 @@
-//! What the GitHub host asks of GitHub, apart from what `git` pushes and fetches: the pull requests of a branch, the
-//! checks of a commit, a check's log, and the merge of a pull request. [`Gh`](super::gh::Gh) asks GitHub with the
+//! What the GitHub host asks of GitHub, apart from what `git` pushes and fetches: the pull requests of a branch and
+//! their text, the checks of a commit, a check's log, and the merge and the closing of a pull
+//! request. [`Gh`](super::gh::Gh) asks GitHub with the
 //! `gh` command line; the tests ask a fake.
 
 use std::future::Future;
@@ -17,6 +18,13 @@ pub struct Pull {
     pub base: String,
     /// The commit its merge made, once it is merged.
     pub merge_commit: Option<String>,
+    pub title: String,
+    /// What it says of itself below its title; empty where it says nothing.
+    pub body: String,
+    /// Whether it is a draft, which is not yet for anyone to review or merge.
+    pub draft: bool,
+    /// GitHub's id of it among all its objects, by which a draft is made ready.
+    pub node: String,
 }
 
 /// Whether a pull request is open, or was closed with or without its merge.
@@ -38,6 +46,9 @@ pub struct Check {
     pub summary: Option<String>,
     /// The job whose log GitHub keeps, for a check that is a job of GitHub Actions.
     pub job: Option<u64>,
+    /// The earlier runs of the check on the same commit, oldest first, each as GitHub says how it ended and where a
+    /// person sees it.
+    pub earlier: Vec<String>,
 }
 
 /// What came of a check.
@@ -59,7 +70,7 @@ pub trait Api: Send + Sync + 'static {
     /// The pull requests whose head is this branch of the repository, open or not.
     fn pulls(&self, branch: &str) -> impl Future<Output = Result<Vec<Pull>, String>> + Send;
 
-    /// Opens a pull request of the branch into the base, with this title and body.
+    /// Opens a pull request of the branch into the base, with this title and body, as a draft.
     fn open(
         &self,
         branch: &str,
@@ -80,4 +91,13 @@ pub trait Api: Send + Sync + 'static {
 
     /// Deletes the branch of the repository; a branch that is not there is no fault.
     fn delete(&self, branch: &str) -> impl Future<Output = Result<(), String>> + Send;
+
+    /// Gives the pull request this title and body.
+    fn edit(&self, number: u64, title: &str, body: &str) -> impl Future<Output = Result<(), String>> + Send;
+
+    /// Makes the draft pull request of this id ready to be reviewed and merged.
+    fn ready(&self, node: &str) -> impl Future<Output = Result<(), String>> + Send;
+
+    /// Closes the pull request, saying this on it first.
+    fn close(&self, number: u64, comment: &str) -> impl Future<Output = Result<(), String>> + Send;
 }

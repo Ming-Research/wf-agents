@@ -568,3 +568,59 @@ fn a_work_waiting_for_a_precondition_the_owner_makes_hold_is_a_line() {
         }]
     );
 }
+
+#[test]
+fn the_wait_every_work_shares_is_one_line_about_no_work_and_the_works_it_holds_go_on() {
+    let mut h = H::new();
+    let (_, a) = h.add(new_item("a", &[], "plain"));
+    let (_, b) = h.add(new_item("b", &[], "plain"));
+    h.let_on(a);
+    h.let_on(b);
+    let mark = since(&h, None).mark;
+    let (run, ..) = h.round(a);
+    let spent = h.spent();
+    h.on(
+        a,
+        Event::Failed {
+            run,
+            why: "the account's usage limit was reached".to_string(),
+            failure: decide::run::Failure::UsageLimit,
+            resets: None,
+            spent,
+        },
+    );
+    let outage = h.d().outage().expect("the wait stands");
+    let answer = since(&h, Some(&mark));
+    assert_eq!(
+        answer.lines,
+        vec![Line {
+            heed: Heed::Agents { outage },
+            since: Time(h.clock),
+        }]
+    );
+    assert_eq!(heeds(&since(&h, Some(&answer.mark))), vec![], "the wait is given once");
+}
+
+#[test]
+fn a_work_that_ended_and_could_not_let_go_of_what_it_held_rests_for_a_person() {
+    let mut h = H::new();
+    let (_, w) = h.add(new_item("a", &[], "plain"));
+    h.let_on(w);
+    h.hands_in(w, &[("text", None)]);
+    let mark = since(&h, None).mark;
+    h.hands_in(w, &[("merged", None)]);
+    assert_eq!(h.decision(w), Decision::Ended(End::Merged));
+    h.on(
+        w,
+        Event::NotReleased {
+            why: "the worktree is locked".to_string(),
+        },
+    );
+    assert_eq!(
+        since(&h, Some(&mark)).lines,
+        vec![Line {
+            heed: Heed::ForAPerson { work: w },
+            since: Time(h.clock),
+        }]
+    );
+}

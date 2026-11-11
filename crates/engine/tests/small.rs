@@ -108,7 +108,7 @@ fn a_work_goes_from_cell_to_cell_as_each_hands_in_and_rests_at_the_merge_for_the
     assert_eq!(given, Given::Task);
     assert_eq!(work.records.started[0].because, [Cause::NoRecord]);
     // While the round is under way it is what a driver that starts anew is given again.
-    assert_eq!(round(&pending(&work)), (write, cell, given));
+    assert_eq!(round(&pending(&flow, &work)), (write, cell, given));
 
     let came = hands_in("text", None);
     let (judge, cell, _) = round(
@@ -139,7 +139,7 @@ fn a_work_goes_from_cell_to_cell_as_each_hands_in_and_rests_at_the_merge_for_the
     )
     .unwrap();
     assert_eq!(effects, vec![]);
-    assert_eq!(pending(&work), vec![]);
+    assert_eq!(pending(&flow, &work), vec![]);
     let word = Waited::Precondition {
         test: "may_merge".into(),
         by: vec![Maker::Owner],

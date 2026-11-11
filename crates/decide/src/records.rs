@@ -47,6 +47,11 @@ pub struct Records {
     pub pauses: Vec<Pause>,
     /// When the work's item was cancelled, if it was.
     pub cancelled: Option<Seq>,
+    /// When what the work held outside the engine was let go, once it had ended and nothing of it was under way: its
+    /// worktree, and its pull request where it did not merge. Records kept before the engine let go of anything have
+    /// none, and read so.
+    #[serde(default)]
+    pub released: Option<Seq>,
 }
 
 impl Records {
@@ -68,6 +73,7 @@ impl Records {
             let_go: kept(&self.let_go, |e| e.at, place),
             pauses: kept(&self.pauses, |e| e.at, place),
             cancelled: self.cancelled.filter(|at| *at < place),
+            released: self.released.filter(|at| *at < place),
         }
     }
 }

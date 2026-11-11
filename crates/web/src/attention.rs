@@ -16,15 +16,18 @@ use axum::extract::rejection::QueryRejection;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Json, Response};
+use decide::Decision;
 use driver::Driver;
 use driver::attention::{self as of, Heed, Mark};
 use serde::{Deserialize, Serialize};
 use service::Handle;
+use store::WorkNumber;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::time::Instant;
+use work::Time;
 
 use crate::interface::{fail, refused};
-use crate::works::{Broken, Now};
+use crate::works::{Broken, Now, Outage};
 
 /// What needs the planner since the mark it gave, most pressing first.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,9 +46,12 @@ pub struct Attention {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Line {
+    /// No agent's round of any work begins: a round failed for a cause every work shares. It is about no work.
+    Agents { since: u64, outage: Outage },
     /// The work's records cannot be those of a work.
     Fault { of: Of, since: u64, now: Now },
-    /// The work rests for a person: what it waits for, or why the engine paused it, is what it does now.
+    /// The work rests for a person: what it waits for, or why the engine paused it, is what it does now; for a work
+    /// that ended and could not let go of what it held, the engine's pause.
     ForAPerson { of: Of, since: u64, now: Now },
     /// The work waits for these items, none of which is going on.
     Idle {
@@ -100,42 +106,55 @@ pub struct Asked {
 }
 
 impl Attention {
-    /// The answer as the pages read it, each line with its work as it does now.
-    pub fn of(driver: &Driver, attention: &of::Attention) -> Result<Attention, Broken> {
+    /// The answer as the pages read it at this time, each line with its work as it does now.
+    pub fn of(driver: &Driver, attention: &of::Attention, at: Time) -> Result<Attention, Broken> {
+        let outage = driver.outage().map(|outage| Outage::of(&outage, driver.holds(at)));
+        // The work a line is of, with its item, and what it does now.
+        let of_work = |work: WorkNumber, person: bool| -> Result<(Of, Now), Broken> {
+            let kept = (driver.work(work)).ok_or_else(|| Broken(format!("there is no work {}", work.0)))?;
+            let view = (driver.view(work)).ok_or_else(|| Broken(format!("work {} has no view", work.0)))?;
+            let of = Of {
+                work: work.0,
+                item: kept.item.number.0,
+                title: kept.item.title.clone(),
+            };
+            let now = match &view.decision {
+                // A work that ended rests for a person only by the engine's pause, which says why.
+                Decision::Ended(_) if person => Now::paused(kept.work)?,
+                decision => Now::of(kept, decision, outage.as_ref())?,
+            };
+            Ok((of, now))
+        };
         let lines = (attention.lines.iter())
             .map(|line| {
-                let work = match &line.heed {
-                    Heed::Fault { work }
-                    | Heed::ForAPerson { work }
-                    | Heed::Idle { work, .. }
-                    | Heed::Ended { work, .. } => *work,
-                };
-                let kept = (driver.work(work)).ok_or_else(|| Broken(format!("there is no work {}", work.0)))?;
-                let view = (driver.view(work)).ok_or_else(|| Broken(format!("work {} has no view", work.0)))?;
-                let (of, since, now) = (
-                    Of {
-                        work: work.0,
-                        item: kept.item.number.0,
-                        title: kept.item.title.clone(),
-                    },
-                    line.since.0,
-                    Now::of(kept, &view.decision)?,
-                );
+                let since = line.since.0;
                 Ok(match &line.heed {
-                    Heed::Fault { .. } => Line::Fault { of, since, now },
-                    Heed::ForAPerson { .. } => Line::ForAPerson { of, since, now },
-                    Heed::Idle { items, .. } => Line::Idle {
-                        of,
+                    Heed::Agents { outage } => Line::Agents {
                         since,
-                        now,
-                        items: (items.iter())
+                        outage: Outage::of(outage, driver.holds(at)),
+                    },
+                    Heed::Fault { work } => {
+                        let (of, now) = of_work(*work, false)?;
+                        Line::Fault { of, since, now }
+                    }
+                    Heed::ForAPerson { work } => {
+                        let (of, now) = of_work(*work, true)?;
+                        Line::ForAPerson { of, since, now }
+                    }
+                    Heed::Idle { work, items } => {
+                        let (of, now) = of_work(*work, false)?;
+                        let items = (items.iter())
                             .map(|idle| Idle {
                                 item: idle.item.0,
                                 why: Stuck::of(idle.why),
                             })
-                            .collect(),
-                    },
-                    Heed::Ended { .. } => Line::Ended { of, since, now },
+                            .collect();
+                        Line::Idle { of, since, now, items }
+                    }
+                    Heed::Ended { work, .. } => {
+                        let (of, now) = of_work(*work, false)?;
+                        Line::Ended { of, since, now }
+                    }
                 })
             })
             .collect::<Result<_, Broken>>()?;
@@ -179,9 +198,9 @@ pub(crate) async fn attention(State(handle): State<Handle>, asked: Result<Query<
     let mut changes = handle.changes();
     loop {
         let since = mark.clone();
-        let read = handle.read(move |driver| {
+        let read = handle.read_at(move |driver, at| {
             (driver.attention(since.as_ref()))
-                .map(|attention| Attention::of(driver, &attention).map(|answer| (answer, attention.mark)))
+                .map(|attention| Attention::of(driver, &attention, at).map(|answer| (answer, attention.mark)))
         });
         let (answer, read_to) = match read.await {
             Ok(Ok(Ok(answer))) => answer,
