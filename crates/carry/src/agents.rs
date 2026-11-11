@@ -18,6 +18,11 @@
 //! The program is given an environment of its own, not the engine's (`cli::environment`). What a round is told depends
 //! on whether it begins its line's session, and is built again where the program is tried the other way.
 //!
+//! Before the first round of each run of a cell that takes main in, the work's branch takes in main's head as the host
+//! last gave it ([`catch_up`](crate::catch_up)), and what came of it is kept beside the run's rounds before the round
+//! is told it; a round of the run given again, or another of its rounds given its task, is told what was kept, and
+//! nothing is taken in again for the run.
+//!
 //! Each round runs on the model of its item's level, or of a level above it where its cell's line says so, and at the
 //! effort its cell sets (`Settings::ran_on`); a round whose item's level the settings no longer allow fails, saying so.
 //!
@@ -40,6 +45,7 @@ use tokio::process::Command;
 use uuid::Uuid;
 use work::Spent;
 
+use crate::catch_up::{self, CaughtUp};
 use crate::cli::{self, Begin};
 use crate::held::{Failing, Held, Stop};
 use crate::permissions::Permissions;
@@ -68,6 +74,8 @@ struct Inner {
     held: Held<(WorkNumber, RunId, usize), RoundReply>,
     /// The clock a usage limit's reset is read by, where the command line gives it as a time of day.
     clock: Arc<dyn Clock>,
+    /// The reference that holds main's head as the host last gave it, which a run that takes main in takes in.
+    main: String,
 }
 
 /// What came of running a round's program.
@@ -80,13 +88,20 @@ enum Carried {
 }
 
 impl Agents {
-    /// The agents of these settings, with this data directory, which is an absolute path, and the installation's id.
-    pub fn new(settings: Settings, data: PathBuf, installation: Uuid) -> Self {
-        Self::with_clock(settings, data, installation, Arc::new(SystemClock))
+    /// The agents of these settings, with this data directory, which is an absolute path, the installation's id, and
+    /// the reference of the project's repository that holds main's head as the host last gave it.
+    pub fn new(settings: Settings, data: PathBuf, installation: Uuid, main: String) -> Self {
+        Self::with_clock(settings, data, installation, main, Arc::new(SystemClock))
     }
 
     /// The agents as [`Agents::new`] gives them, reading the time by this clock.
-    pub fn with_clock(settings: Settings, data: PathBuf, installation: Uuid, clock: Arc<dyn Clock>) -> Self {
+    pub fn with_clock(
+        settings: Settings,
+        data: PathBuf,
+        installation: Uuid,
+        main: String,
+        clock: Arc<dyn Clock>,
+    ) -> Self {
         let protocol = (PROTOCOL.replace("{owner_language}", &settings.agents.owner_language))
             .replace("{check}", crate::tools::told(&settings));
         Agents {
@@ -97,6 +112,7 @@ impl Agents {
                 protocol,
                 held: Held::new(),
                 clock,
+                main,
             }),
         }
     }
@@ -188,6 +204,11 @@ impl Inner {
         let line = (round.cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", round.cell.id))?;
         let on = self.settings.ran_on(round.item.level.as_deref(), &round.cell)?;
         let dir = git::worktree(&place)?;
+        let main = if round.cell.takes_main {
+            self.caught_up(round, &place).await?
+        } else {
+            None
+        };
         if let Some(parent) = base.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
@@ -201,7 +222,11 @@ impl Inner {
         let mut tried = false;
         let (status, stdout, stderr) = loop {
             let begins = begin == Begin::New;
-            let told = message::message(flow, work, &round.cell, round.run, round.number, &round.given, begins);
+            let opening = message::Opening {
+                begins,
+                main: main.as_ref(),
+            };
+            let told = message::message(flow, work, &round.cell, round.run, round.number, &round.given, &opening);
             let (told_at, result_at, on_at) = attempt(&base).await;
             // What the try runs on is kept before its message, which is what makes the try be one that was kept.
             write(&on_at, &kept::ran_file(&on)).await?;
@@ -279,6 +304,28 @@ impl Inner {
             .envs(cli::environment(agents, std::env::vars()))
             .current_dir(dir);
         command
+    }
+
+    /// What came of taking main in as the round's run started, as it was kept; taken in and kept first at the run's
+    /// first round. None for a later round of a run that kept nothing, which started before its cell took main in.
+    async fn caught_up(&self, round: &Round, place: &git::Place) -> Result<Option<CaughtUp>, String> {
+        let at = catch_up::kept_at(&self.data, round.work, round.run);
+        let named = || at.display().to_string();
+        match tokio::fs::read(&at).await {
+            Ok(kept) => {
+                let caught = serde_json::from_slice(&kept).map_err(|e| format!("{}: {e}", named()))?;
+                return Ok(Some(caught));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("{}: {e}", named())),
+        }
+        if round.number != 1 {
+            return Ok(None);
+        }
+        let caught = catch_up::take_in(&self.settings.project, place, &self.main).await;
+        let kept = serde_json::to_vec_pretty(&caught).map_err(|e| format!("{}: {e}", named()))?;
+        write(&at, &kept).await?;
+        Ok(Some(caught))
     }
 
     /// Where what the round was told and returned are kept, without the extension.

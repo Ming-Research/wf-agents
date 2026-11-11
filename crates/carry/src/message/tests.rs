@@ -8,7 +8,9 @@ use engine::{Came, Effect, Event, handle};
 use flow::{Compiled, Has, Source};
 use work::{Ask, Given, Handed, Spent, Time, Work};
 
-use super::message;
+use super::{Opening, message};
+
+mod caught_up;
 
 const FLOW: &str = r#"
 name = "small"
@@ -161,7 +163,15 @@ impl Small {
     pub(crate) fn told_as(&self, begins: bool) -> String {
         let (run, cell, number, given) = self.round();
         let spec = self.flow.cells.iter().find(|spec| spec.id == cell).expect("the cell");
-        message(&self.flow, &self.work, spec, run, number, &given, begins)
+        message(
+            &self.flow,
+            &self.work,
+            spec,
+            run,
+            number,
+            &given,
+            &Opening { begins, main: None },
+        )
     }
 
     /// The round given hands these blocks in, each with its value where it has one.
@@ -487,7 +497,7 @@ fn a_call_the_work_does_not_hold_is_said_so() {
     let (run, cell, ..) = small.round();
     let spec = small.flow.cells.iter().find(|spec| spec.id == cell).unwrap();
     let given = Given::Results(vec![decide::CallId(99)]);
-    let told = message(&small.flow, &small.work, spec, run, 2, &given, false);
+    let told = message(&small.flow, &small.work, spec, run, 2, &given, &Opening::default());
     assert!(
         told.contains("### Call 99, which the work does not hold\n\n(It has no result.)"),
         "{told}"
