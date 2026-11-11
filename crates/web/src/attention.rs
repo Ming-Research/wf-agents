@@ -193,7 +193,19 @@ pub(crate) async fn attention(State(handle): State<Handle>, asked: Result<Query<
         Ok(mark) => mark,
         Err(unreadable) => return fail(StatusCode::BAD_REQUEST, format!("{}.", unreadable.0)),
     };
-    let until = asked.wait.map(|seconds| Instant::now() + Duration::from_secs(seconds));
+    let until = match asked
+        .wait
+        .map(|seconds| Instant::now().checked_add(Duration::from_secs(seconds)))
+    {
+        None => None,
+        Some(Some(until)) => Some(until),
+        Some(None) => {
+            return fail(
+                StatusCode::BAD_REQUEST,
+                "The time to wait is longer than this machine's clock can count.".to_string(),
+            );
+        }
+    };
     // Listened to before the works are read, so that nothing that happens between is missed.
     let mut changes = handle.changes();
     loop {
