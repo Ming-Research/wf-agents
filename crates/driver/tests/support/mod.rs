@@ -11,7 +11,7 @@
 //! - what each work does next, as the driver shows it, agrees with what is to be done for it: after a call no run is
 //!   left to start or to abandon, a run goes on with its round held only while the work is paused, a work is busy
 //!   with a run exactly when a round of that run is given to be done, and a work paused began no round after the
-//!   pause;
+//!   pause but of a run for what a person wrote, and none given again after it failed;
 //! - the dependencies block of every work that has not ended says whether the items its item depends on have merged,
 //!   and its text names those still waited for, saying which were cancelled; the block of a work that has ended was
 //!   not written after it ended; no work whose dependencies have not all merged has started a run where its flow
@@ -23,9 +23,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use decide::{BlockId, CallId, Decision, End, Outsider, RunId, Seq, Waited, Who};
+use decide::{BlockId, CallId, Cause, Decision, End, Outsider, RunId, Seq, Waited, Who};
 use driver::{DEPENDENCIES, Driver, Failed, Fault, FirstWrite, MERGED, NewItem, Todo, WAITING};
-use engine::{Ask, Came, Effect, Event, Given, Handed, Spent, Time, Work};
+use engine::{Ask, Back, Came, Effect, Event, Given, Handed, Spent, Time, Work};
 use flow::{Compiled, Has, Kind, Source, compile};
 use rusqlite::Connection;
 use rusqlite::types::Value;
@@ -829,7 +829,8 @@ impl H {
 
     /// What the work does next agrees with what is to be done for it: after a call, no run is left to start and none
     /// left to be abandoned; a run goes on with its round held only while the work is paused; a work is busy with a
-    /// run exactly when a round of that run is given to be done; and a work paused began no round after the pause.
+    /// run exactly when a round of that run is given to be done; and a work paused began no round after the pause but
+    /// of a run for what a person wrote ([`for_a_person`]), and none given again after it failed.
     fn agrees_with_what_is_pending(&self, number: WorkNumber, work: &Work, shown: &Decision) {
         let paused = decide::paused(&work.records);
         let rounds: Vec<RunId> = (self.d().pending().into_iter())
@@ -869,11 +870,19 @@ impl H {
             if let Some(since) = since
                 && resumed.is_none_or(|r| r < since)
             {
-                assert!(
-                    work.records.rounds.iter().all(|r| r.at < since),
-                    "work {} began a round after it was paused",
-                    number.0
-                );
+                for (i, round) in work.records.rounds.iter().enumerate() {
+                    if round.at < since {
+                        continue;
+                    }
+                    let run = round.run;
+                    let nth = work.records.rounds[..=i].iter().filter(|r| r.run == run).count();
+                    let again = matches!(work.back.get(&(run, nth - 1)), Some(Back::Failed { .. }));
+                    assert!(
+                        for_a_person(work, run) && !again,
+                        "work {} began round {nth} of {run:?} after it was paused",
+                        number.0
+                    );
+                }
             }
         }
     }
@@ -1098,6 +1107,20 @@ pub fn under_way(work: &Work) -> usize {
             began > ended
         })
         .count()
+}
+
+/// Whether the run started for what a person wrote: one of its reasons is a block that a person wrote after the
+/// version its cell's record knew and before the run started, read from the records alone.
+pub fn for_a_person(work: &Work, run: RunId) -> bool {
+    let r = &work.records;
+    let Some(started) = r.started.iter().find(|s| s.run == run) else {
+        return false;
+    };
+    started.because.iter().any(|c| match c {
+        Cause::NoRecord => false,
+        Cause::Changed { block, was, .. } => (r.written.iter())
+            .any(|w| w.by == Outsider::Person && w.block == *block && Some(w.at) > *was && w.at < started.at),
+    })
 }
 
 /// A write by a person or the outside, its content saying what was written.

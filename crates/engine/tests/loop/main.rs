@@ -13,6 +13,7 @@ mod given;
 mod limits;
 mod must_write;
 mod named_tests;
+mod paused_answers;
 mod pausing;
 mod pending;
 mod rebuilt;

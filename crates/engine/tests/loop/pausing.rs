@@ -1,5 +1,6 @@
 //! A pause holds back only what would begin a round: what a round hands in is taken, the calls it asks for are made,
-//! the owner is asked at a limit and a stale run is abandoned, while no round begins until the work is let on.
+//! the owner is asked at a limit and a stale run is abandoned, while no round begins until the work is let on but one
+//! of a run for what a person wrote (`paused_answers`).
 
 use super::*;
 
@@ -30,7 +31,7 @@ fn a_return_handed_in_during_a_pause_finishes_the_run_and_the_next_cells_round_w
 }
 
 #[test]
-fn a_judge_whose_round_ends_during_a_pause_finishes_and_once_let_on_the_writer_runs_for_both_changes() {
+fn a_judge_finishing_during_a_pause_lets_the_writer_run_at_once_for_a_persons_request_and_the_opinions() {
     let (mut w, write, r1) = W::requested();
     let judge = round(&w.returns(write, hands_in(&[("text", None)]))).0;
     let text = w.last_finished();
@@ -40,10 +41,10 @@ fn a_judge_whose_round_ends_during_a_pause_finishes_and_once_let_on_the_writer_r
     });
     let (effects, r2) = w.person_writes("request");
     assert_eq!(effects, vec![]);
-    assert_eq!(w.returns(judge, hands_in(&[("opinions", None)])), vec![]);
+    // The request a person wrote is among the writer's reasons: it runs though the work is paused.
+    let effects = w.returns(judge, hands_in(&[("opinions", None)]));
     let opinions = w.last_finished();
     assert!(w.work.records.finished.iter().any(|f| f.run == judge));
-    let effects = w.on(Event::Resumed);
     let again = w.work.records.started.last().expect("a run").run;
     let start = started_with(
         vec![changed("request", Some(r1), false), changed("opinions", None, true)],

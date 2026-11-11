@@ -120,15 +120,39 @@ fn a_pause_holds_back_no_decision_about_a_run_that_has_started() {
 
 #[test]
 fn a_paused_work_with_a_stale_run_at_rest_abandons_it() {
-    let (mut w, ..) = planned();
+    let (mut w, b1, plan, _) = planned();
     w.person_writes("background");
     let research = w.start("research");
     w.returns("research");
-    w.person_writes("background");
+    let b3 = w.person_writes("background");
     w.pause();
     assert_eq!(w.decide(), abandon("research", research, outdated("background")));
     w.abandon();
-    // The research would run again, and the pause holds it back.
+    // The research runs again for what a person wrote, which a pause does not hold back.
+    assert_eq!(
+        w.decide(),
+        runs(
+            "research",
+            vec![changed("background", Some(b1), false)],
+            &[("background", Some(b3)), ("plan", Some(plan))]
+        )
+    );
+}
+
+#[test]
+fn a_paused_work_with_a_stale_run_at_rest_abandons_it_and_holds_back_its_cell_run_for_what_no_person_wrote() {
+    let (mut w, ..) = reviewed();
+    w.person_writes("plan");
+    w.run("implement", &[("code", Matters)]);
+    let review = w.start("review");
+    w.returns("review");
+    // The implementation, before the review, writes new code: the review's run at rest is stale.
+    w.person_writes("plan");
+    w.run("implement", &[("code", Matters)]);
+    w.pause();
+    assert_eq!(w.decide(), abandon("review", review, outdated("code")));
+    w.abandon();
+    // The review would run again for the code a cell wrote, and the pause holds it back.
     assert_eq!(w.decide(), Decision::Paused);
 }
 

@@ -1,6 +1,7 @@
 //! Random histories (principle simulated-histories): many works, each on a small flow of blocks drawn at random, driven
 //! step by step as an engine would drive them, agents returning at random and people acting at random in the first
-//! part of each history. After every step the properties the engine must always keep are checked (`properties`),
+//! part of each history. After every step the properties the engine must always keep are checked (`properties`, and
+//! those of a pause in `pausing`),
 //! each stating what a rule of the entries protects and judged by the histories' own reading of the records
 //! (`reading`), not by the walk's; once people stop, the work must come to rest within a bound its limits give, and
 //! once it rests, what people wrote must have reached the cells that read it.
@@ -38,6 +39,8 @@
 //!   rest, a round before the third of a cell other than the merge fails in twelve in a hundred: it ends with nothing
 //!   come back and the engine pauses the work with the reason, as the engine's loop does; people let the work on as
 //!   from any pause, and once they stop the owner lets the work on, whoever paused it.
+//! - the engine: while the work is paused, a run at rest has its next round only where it started for what a person
+//!   wrote and its last round did not fail (`pausing`), as the engine's loop gives it.
 //!
 //! A second test draws only the sixth shape, with people acting in the first 0 to 99 steps: its judge then runs while
 //! the cell it judges is skipped, over what a person wrote for that cell, and the cell runs again afterwards, which
@@ -53,6 +56,7 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+mod pausing;
 mod properties;
 mod reading;
 
@@ -361,15 +365,19 @@ impl History {
                 self.w.start(cell.as_str());
                 true
             }
-            // A pause holds back the next round of a run that goes on: that is the run's to say, and the engine holds
-            // it until the work is let on.
-            Decision::GoOn { .. } if decide::paused(&self.w.records) => {
+            // A pause holds back the next round of a run that goes on, unless the run started for what a person wrote
+            // and its last round did not fail: that is the run's to say, and the engine holds it until the work is let
+            // on.
+            Decision::GoOn { run, .. } if decide::paused(&self.w.records) && !self.goes_on_paused(*run) => {
                 if people {
                     self.toggle_pause();
                 }
                 people
             }
             Decision::GoOn { cell, run } => {
+                if decide::paused(&self.w.records) {
+                    self.verdict.count(pausing::WENT_ON_PAUSED);
+                }
                 if self.failed.remove(run) {
                     self.verdict.count(properties::FAILED_GOES_ON);
                 }
@@ -458,6 +466,17 @@ impl History {
         self.looked_at = (r.started.len(), r.finished.len(), r.abandoned.len());
         let seed = properties::last_place(r).0;
         properties::decision(v, flow, &reading, decision, decide::paused(r), seed);
+        pausing::decision(v, flow, &reading, decision, decide::paused(r));
+    }
+
+    /// Whether the run at rest has its next round though the work is paused, as the engine gives it: the run started
+    /// for what a person wrote, by the histories' own reading of its reasons, and its last round did not fail.
+    fn goes_on_paused(&self, run: RunId) -> bool {
+        let reading = Reading::new(&self.w.records);
+        let s = reading.started[&run];
+        let flow = &self.w.flow;
+        let cell = &flow.cells()[flow.place(&s.cell).expect("the histories do not change the flow")];
+        !self.failed.contains(&run) && pausing::for_a_person(&reading, &reading.reasons(cell, s.at), s.at)
     }
 
     /// The round under way of the run ends as its agent returns: it finishes, returns with nothing, or rests at a call.
@@ -862,7 +881,7 @@ fn histories(drawn: Drawn, seeds: u64, reached: &[&str]) {
 
 #[test]
 fn random_works_keep_the_engines_properties_and_come_to_rest() {
-    histories(ANY, 800, properties::REACHED);
+    histories(ANY, 800, &[properties::REACHED, pausing::REACHED].concat());
 }
 
 #[test]

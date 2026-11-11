@@ -17,6 +17,7 @@ mod meaning;
 mod named_tests;
 mod opinions;
 mod order;
+mod paused_answers;
 mod preconditions;
 mod rounds;
 mod skipping;

@@ -6,7 +6,7 @@
 
 use std::collections::BTreeSet;
 
-use decide::{CallId, Decision, Pauser, Records, RunId, decide};
+use decide::{CallId, Cause, Decision, Outsider, Pauser, Records, RunId, decide};
 use engine::{Ask, Back, Call, Came, Effect, Event, Spent, Time, Work, handle, pending};
 use flow::Compiled;
 
@@ -62,6 +62,8 @@ pub struct Seen {
     pub failed_abandoned: usize,
     /// Histories whose work came to rest, once people stopped, not paused.
     pub rested_unpaused: usize,
+    /// Rounds given while the work was paused: of a run started for what a person wrote.
+    pub paused_rounds: usize,
     /// Hand-ins that lacked a block their cell must write, by a run still open after them: sent back, or resting at
     /// the limit of returns.
     pub lacking: usize,
@@ -87,6 +89,35 @@ pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String
                 ));
             }
         }
+    }
+    None
+}
+
+/// Whether the run started for what a person wrote: one of its reasons is a block that a person wrote after the
+/// version its cell's record knew and before the run started. Read from the records alone; it does not ask whether
+/// the write changed the block's meaning, so it is a little wider than the rule.
+pub fn for_a_person(records: &Records, run: RunId) -> bool {
+    let Some(started) = records.started.iter().find(|s| s.run == run) else {
+        return false;
+    };
+    started.because.iter().any(|c| match c {
+        Cause::NoRecord => false,
+        Cause::Changed { block, was, .. } => (records.written.iter())
+            .any(|w| w.by == Outsider::Person && w.block == *block && Some(w.at) > *was && w.at < started.at),
+    })
+}
+
+/// Why the round of the run that has this number may not be given while the work is paused, if it may not: a paused
+/// work gives a round only of a run started for what a person wrote ([`for_a_person`]), and never the round after
+/// one that failed, which waits for the owner to let the work on.
+pub fn held_back(work: &Work, run: RunId, number: usize) -> Option<String> {
+    if !for_a_person(&work.records, run) {
+        return Some(format!(
+            "round {number} of {run:?}, which started for what no person wrote"
+        ));
+    }
+    if matches!(work.back.get(&(run, number - 1)), Some(Back::Failed { .. })) {
+        return Some(format!("round {number} of {run:?}, given again after it failed"));
     }
     None
 }
@@ -188,6 +219,13 @@ impl Driver {
                             if matches!(self.work.back.get(&(*run, number - 1)), Some(Back::Failed { .. })) {
                                 self.seen.retried += 1;
                             }
+                            // A paused work begins a round only of a run for what a person wrote.
+                            if self.paused {
+                                if let Some(why) = held_back(&self.work, *run, *number) {
+                                    panic!("the work is paused and gives {why}");
+                                }
+                                self.seen.paused_rounds += 1;
+                            }
                         }
                         // What is withdrawn or stopped is no longer to be done as it was: it is to be undone.
                         Effect::Withdraw { call } => {
@@ -250,11 +288,16 @@ impl Driver {
                 );
             }
         }
+        // No round was under way as the engine paused the work for a failed round: while that pause holds, a round is
+        // pending only where it began since, of a run for what a person wrote.
         if decide::pause(r).is_some_and(|p| p.by == Pauser::Engine) {
-            assert!(
-                !pending.iter().any(|e| matches!(e, Effect::Round { .. })),
-                "a round is pending while the engine's pause for a failed round holds the work"
-            );
+            for effect in &pending {
+                if let Effect::Round { run, number, .. } = effect
+                    && let Some(why) = held_back(&self.work, *run, *number)
+                {
+                    panic!("{why} is pending while the engine's pause for a failed round holds the work");
+                }
+            }
         }
         let under_way = (r.started.iter())
             .filter(|s| {
