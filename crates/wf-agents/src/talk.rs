@@ -14,8 +14,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use web::works::{
     Act, Added, Back, Call, CellState, Engine, EngineAct, Items, LevelSet, Limit, Maker, NewItem, NewLevel, NewWrite,
-    Now, Pauser, Person,
-    Refusal, Run, Spent, Step, Waited, WorkPage, Writer,
+    Now, Pauser, Person, Refusal, Run, Spent, Step, Waited, WorkPage, Writer,
 };
 
 /// What a command asks of the engine.
@@ -128,7 +127,7 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
 }
 
 /// The new item, with what is written for it: each text, then each file's content, then each choice, in the order
-/// given. Each is `BLOCK=WHAT`.
+/// given. Each is `BLOCK=WHAT`. It is added paused.
 pub fn new_item(
     title: String,
     level: Option<String>,
@@ -137,7 +136,6 @@ pub fn new_item(
     texts: &[String],
     files: &[String],
     choices: &[String],
-    going: bool,
 ) -> Result<NewItem, String> {
     let mut writes = Vec::new();
     for text in texts {
@@ -171,7 +169,7 @@ pub fn new_item(
         depends_on,
         flow,
         writes,
-        going,
+        going: false,
     })
 }
 

@@ -220,8 +220,8 @@ fn main() -> ExitCode {
             choices,
             going,
             at,
-        } => match talk::new_item(title, level, flow, depends_on, &texts, &files, &choices, going) {
-            Ok(item) => talk::ask(at.port, Asked::Add(item)),
+        } => match talk::new_item(title, level, flow, depends_on, &texts, &files, &choices) {
+            Ok(item) => talk::ask(at.port, Asked::Add(web::works::NewItem { going, ..item })),
             Err(why) => {
                 eprintln!("{why}");
                 ExitCode::FAILURE

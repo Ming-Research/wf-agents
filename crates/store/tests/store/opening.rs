@@ -21,7 +21,7 @@ fn a_new_file_is_made_with_the_schema_its_version_and_a_write_ahead_log() {
     assert_eq!(store.works(), Ok(vec![]));
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, schema_tables());
-    assert_eq!(tables.len(), 25);
+    assert_eq!(tables.len(), 26);
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
     assert_eq!(version, SCHEMA_VERSION);
@@ -95,7 +95,7 @@ fn a_file_with_tables_and_no_version_is_refused() {
 }
 
 /// Version 1 of the schema, as databases were made with it before a pause said who paused the work and why.
-const SCHEMA_1: &str = include_str!("schema-1.sql");
+pub(crate) const SCHEMA_1: &str = include_str!("schema-1.sql");
 
 /// The columns of each table of the database, with their types, whether they may be null, their defaults and their
 /// places in the keys.
