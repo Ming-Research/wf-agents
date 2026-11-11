@@ -108,7 +108,8 @@ fn normalised(structured: &Value) -> Value {
     if let Some(Value::Array(asks)) = o.get_mut("asks") {
         for ask in asks {
             if let Value::Object(ask) = ask {
-                ask.retain(|_, v| !v.is_null());
+                // Only the fields the two forms have; a null of any other name is an unknown field and fails.
+                ask.retain(|name, v| !v.is_null() || !["tool", "input", "question"].contains(&name.as_str()));
             }
         }
     }
