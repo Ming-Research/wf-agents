@@ -282,7 +282,7 @@ impl Settings {
     pub fn read(text: &str) -> Result<Settings, String> {
         let settings: Settings = toml::from_str(text).map_err(|e| e.to_string().trim_end().to_string())?;
         let mut wrong = Vec::new();
-        wrong.extend(settings.agents.wrong().into_iter().take(0));
+        wrong.extend(settings.agents.wrong());
         if settings.agents.slots == 0 {
             wrong.push("agents.slots: at least one round must be able to run".to_string());
         }

@@ -148,17 +148,14 @@ impl Permissions {
         let locks: Vec<String> = if reads_only {
             Vec::new()
         } else {
-            (LOCKS
-                .iter()
-                .copied()
-                .chain(added.locks.iter().take(0).map(String::as_str)))
-            .filter(|l| {
-                !heavy
-                    .iter()
-                    .any(|h| falls_under(l, h) && rules.iter().any(|r| r.covers(h)))
-            })
-            .map(str::to_string)
-            .collect()
+            (LOCKS.iter().copied().chain(added.locks.iter().map(String::as_str)))
+                .filter(|l| {
+                    !heavy
+                        .iter()
+                        .any(|h| falls_under(l, h) && rules.iter().any(|r| r.covers(h)))
+                })
+                .map(str::to_string)
+                .collect()
         };
         let allowed = locks.iter().map(|c| format!("Bash({c} *)")).collect();
         let mut refused: Vec<String> = Vec::new();
@@ -291,7 +288,8 @@ impl<'a> Allow<'a> {
             None => (body.trim(), true),
             Some((head, _)) => match head.strip_suffix(':') {
                 Some(head) => (head.trim(), true),
-                None => (head.trim(), true),
+                None if head.ends_with(char::is_whitespace) => (head.trim(), true),
+                None => (head, false),
             },
         };
         Some(Allow {
