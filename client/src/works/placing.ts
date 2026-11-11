@@ -112,7 +112,7 @@ export function rank(summary: Summary): number {
   if (now.kind === 'waits' && now.on.some(waitsForOwner)) return 0;
   if (now.kind === 'fault' || (now.kind === 'paused' && now.by === 'engine')) return 1;
   if (now.kind === 'merged' || now.kind === 'cancelled') return 4;
-  if (summary.paused || now.kind === 'paused') return 3;
+  if (summary.paused || now.kind === 'paused' || now.kind === 'everything') return 3;
   return 2;
 }
 

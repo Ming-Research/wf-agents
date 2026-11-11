@@ -6,7 +6,8 @@ use std::collections::BTreeMap;
 
 use crate::flow::{BlockId, CellId, Flow};
 use crate::records::{Cause, Outsider, Records, RunId, Seq};
-use crate::walk::{Decision, Version, Walk, decide, read_runs, read_versions};
+use crate::room::Room;
+use crate::walk::{Decision, Version, Walk, decide_in, read_runs, read_versions};
 
 /// A work as it is now. On records that cannot be those of a work the decision says so, and the rest is what those
 /// records give: to be shown for the tracing of the fault, not relied on.
@@ -80,8 +81,13 @@ pub enum Writer {
     Run(RunId),
 }
 
-/// The work as it is now.
+/// The work as it is now, were nothing outside its records to hold it back ([`Room::FREE`]).
 pub fn view(flow: &Flow, records: &Records) -> View {
+    view_in(flow, records, Room::FREE)
+}
+
+/// The work as it is now, in the room the engine leaves it.
+pub fn view_in(flow: &Flow, records: &Records, room: Room) -> View {
     let walk = Walk::new(flow, records);
     let cells = (flow.cells().iter().enumerate())
         .map(|(i, cell)| {
@@ -114,7 +120,7 @@ pub fn view(flow: &Flow, records: &Records) -> View {
         })
         .collect();
     View {
-        decision: decide(flow, records),
+        decision: decide_in(flow, records, room),
         cells,
         blocks: shown(&walk.versions),
     }

@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use decide::run::{self, Failure, Pausing, Requires, Step, Unmet};
 use decide::{
     Abandoned, BlockId, CallId, Called, CellId, Decision, Done, End, Finished, LetGo, Outsider, Pause, Pauser,
-    Returned, Round, RunId, Seq, Started, Who, Write, Written, decide, hold, stale,
+    Returned, Room, Round, RunId, Seq, Started, Who, Write, Written, decide, decide_in, hold_in, stale,
 };
 use flow::{Compiled, Kind};
 
@@ -14,10 +14,23 @@ use crate::event::{Came, Effect, Event, Gate, Refused};
 use work::{Ask, Back, Call, Given, Moment, Time, Work};
 
 /// Takes one thing that happened to the work, at the time the driver's clock gives, and gives what is to be done for
-/// it outside the engine, the agents' rounds being free to begin. Where the records cannot be those of a work nothing
-/// is given: the deciding code says so when asked.
+/// it outside the engine, were nothing outside the work to hold it back ([`Room::FREE`], [`Gate::Open`]). Where the
+/// records cannot be those of a work nothing is given: the deciding code says so when asked.
 pub fn handle(flow: &Compiled, work: &mut Work, now: Time, event: Event) -> Result<Vec<Effect>, Refused> {
-    handle_with(flow, work, now, event, Gate::Open)
+    handle_held(flow, work, now, event, Room::FREE, Gate::Open)
+}
+
+/// Takes one thing that happened to the work as [`handle`] does, in the room the engine leaves the work: under the
+/// owner's pause of everything, and where no slot is free for a round that takes one, what would begin such a round
+/// waits, and everything else is done.
+pub fn handle_in(
+    flow: &Compiled,
+    work: &mut Work,
+    now: Time,
+    event: Event,
+    room: Room,
+) -> Result<Vec<Effect>, Refused> {
+    handle_held(flow, work, now, event, room, Gate::Open)
 }
 
 /// Takes one thing that happened to the work as [`handle`] does, the rounds of every work being free to begin or held
@@ -28,6 +41,20 @@ pub fn handle_with(
     work: &mut Work,
     now: Time,
     event: Event,
+    gate: Gate,
+) -> Result<Vec<Effect>, Refused> {
+    handle_held(flow, work, now, event, Room::FREE, gate)
+}
+
+/// Takes one thing that happened to the work as [`handle`] does, in the room the engine leaves it ([`handle_in`]) and
+/// with the rounds held as the gate of the wait every work shares says ([`handle_with`]): what either holds back
+/// waits, and everything else is done.
+pub fn handle_held(
+    flow: &Compiled,
+    work: &mut Work,
+    now: Time,
+    event: Event,
+    room: Room,
     gate: Gate,
 ) -> Result<Vec<Effect>, Refused> {
     let returned = match &event {
@@ -45,13 +72,14 @@ pub fn handle_with(
     {
         let choices = choices(flow);
         if let Some(requires) = requires(flow, &choices, work, run)
-            && let Step::Finish { writes } = run::next(&log(work, run), requires, hold(&flow.flow, &work.records, run))
+            && let Step::Finish { writes } =
+                run::next(&log(work, run), requires, hold_in(&flow.flow, &work.records, run, room))
         {
             finish(work, run, writes);
         }
     }
     let mut effects = Vec::new();
-    let at = At { from, now, gate };
+    let at = At { from, now, room, gate };
     advance(flow, work, at, &mut effects);
     // The work's end lets go of what it holds outside once, as the last of it comes to rest.
     if !releasing && let Some(end) = release(flow, work) {
@@ -305,12 +333,13 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
     Ok(())
 }
 
-/// When something that happened is taken: the first place given to its entries, the time, and whether the agents'
-/// rounds may begin.
+/// When something that happened is taken: the first place given to its entries, the time, the room the engine leaves
+/// the work, and whether the agents' rounds may begin.
 #[derive(Clone, Copy)]
 struct At {
     from: Seq,
     now: Time,
+    room: Room,
     gate: Gate,
 }
 
@@ -337,7 +366,7 @@ impl At {
 /// Asks the deciding code what follows, and does it, until the work has a round under way, waits or has ended.
 fn advance(flow: &Compiled, work: &mut Work, at: At, effects: &mut Vec<Effect>) {
     loop {
-        let decision = decide(&flow.flow, &work.records);
+        let decision = decide_in(&flow.flow, &work.records, at.room);
         let run = match decision {
             // A run of a cell whose rounds are held is not started: its first round could not begin.
             Decision::Run { cell, .. } if at.holds(flow, &cell) => return,
@@ -389,7 +418,11 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At, effects: &mut Vec<
         return false;
     };
     let cell = started.cell.clone();
-    let next = run::next(&log(work, run), requires, hold(&flow.flow, &work.records, run));
+    let next = run::next(
+        &log(work, run),
+        requires,
+        hold_in(&flow.flow, &work.records, run, at.room),
+    );
     // While the cell's rounds are held, none begins; the run rests until they may.
     let begins = matches!(next, Step::Begin | Step::Resume | Step::Retry | Step::SendBack { .. });
     if begins && at.holds(flow, &cell) {
@@ -475,14 +508,14 @@ fn call(work: &mut Work, run: RunId, on: Option<Who>, what: Call, effects: &mut 
 }
 
 /// The values of each block of the flow that is a choice.
-fn choices(flow: &Compiled) -> BTreeMap<BlockId, Vec<String>> {
+pub(crate) fn choices(flow: &Compiled) -> BTreeMap<BlockId, Vec<String>> {
     (flow.blocks.iter())
         .filter_map(|(block, declared)| declared.values.clone().map(|values| (block.clone(), values)))
         .collect()
 }
 
 /// What the flow requires of what the run's cell hands in; none where the run's cell is not in the flow.
-fn requires<'a>(
+pub(crate) fn requires<'a>(
     flow: &'a Compiled,
     choices: &'a BTreeMap<BlockId, Vec<String>>,
     work: &Work,
@@ -501,7 +534,7 @@ fn requires<'a>(
 }
 
 /// The run so far, as the deciding code reads it.
-fn log(work: &Work, run: RunId) -> run::Log {
+pub(crate) fn log(work: &Work, run: RunId) -> run::Log {
     let returned = |i: usize, b: &Back| match b {
         Back::Asked(asks) => run::Return::Asked {
             asked: asks.len(),

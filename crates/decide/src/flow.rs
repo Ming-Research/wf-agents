@@ -232,11 +232,14 @@ pub struct Cell {
     /// How many times in a row the cell may run only for what cells after it wrote, before the work waits for the
     /// owner. At least one.
     pub limit: u32,
+    /// Whether each round of the cell takes one of the slots, which bound how many such rounds go on at once: an
+    /// agent's rounds do, and the engine's own acts do not.
+    pub slot: bool,
 }
 
 impl Cell {
-    /// A cell of this name that always runs, reads nothing, writes nothing and has a limit of three: what a
-    /// definition starts from.
+    /// A cell of this name that always runs, reads nothing, writes nothing, has a limit of three and takes a slot for
+    /// each of its rounds: what a definition starts from.
     pub fn new(id: &str) -> Self {
         Self {
             id: id.into(),
@@ -245,6 +248,7 @@ impl Cell {
             inputs: Vec::new(),
             outputs: Vec::new(),
             limit: 3,
+            slot: true,
         }
     }
 }

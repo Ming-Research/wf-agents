@@ -21,7 +21,7 @@ fn a_new_file_is_made_with_the_schema_its_version_and_a_write_ahead_log() {
     assert_eq!(store.works(), Ok(vec![]));
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, schema_tables());
-    assert_eq!(tables.len(), 26);
+    assert_eq!(tables.len(), 27);
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
     assert_eq!(version, SCHEMA_VERSION);
@@ -95,11 +95,11 @@ fn a_file_with_tables_and_no_version_is_refused() {
 }
 
 /// Version 1 of the schema, as databases were made with it before a pause said who paused the work and why.
-const SCHEMA_1: &str = include_str!("schema-1.sql");
+pub(crate) const SCHEMA_1: &str = include_str!("schema-1.sql");
 
 /// The columns of each table of the database, with their types, whether they may be null, their defaults and their
 /// places in the keys.
-fn columns(path: &Path) -> BTreeMap<String, Vec<Vec<String>>> {
+pub(crate) fn columns(path: &Path) -> BTreeMap<String, Vec<Vec<String>>> {
     let db = Connection::open(path).expect("the database opens");
     let mut out = BTreeMap::new();
     for table in dump(path).into_keys() {
@@ -120,7 +120,7 @@ fn columns(path: &Path) -> BTreeMap<String, Vec<Vec<String>>> {
 }
 
 /// Every row of the table of the schema's version.
-fn versions(path: &Path) -> Vec<u32> {
+pub(crate) fn versions(path: &Path) -> Vec<u32> {
     let file = Connection::open(path).expect("the database opens");
     let mut query = file
         .prepare("SELECT version FROM schema_version")
@@ -204,10 +204,11 @@ fn a_file_made_with_the_first_version_of_the_schema_is_migrated_and_its_pauses_r
 }
 
 /// The migrations, in order, each bringing a file one version further, as the store's own list holds them.
-const MIGRATIONS: [&str; 3] = [
+const MIGRATIONS: [&str; 4] = [
     include_str!("../../migrations/202611101530-say-who-paused-a-work-and-why.sql"),
     include_str!("../../migrations/202611102304-give-items-a-level.sql"),
     include_str!("../../migrations/202611111400-say-when-a-work-let-go-of-what-it-held.sql"),
+    include_str!("../../migrations/202611111401-keep-the-owners-pause-of-everything.sql"),
 ];
 
 #[test]
