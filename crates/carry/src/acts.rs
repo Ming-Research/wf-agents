@@ -1,13 +1,16 @@
 //! The engine's own acts, as the rounds of the cells they carry out (`CellSpec.act`): `start` makes the work's branch
 //! and worktree, `check` checks the work before its merge, `merge` merges the commit the check passed, and `deliver`
 //! says that a deliverable item, made of the items it depends on, is delivered. An act hands in the cell's outputs with
-//! what it did, and only the check writes a choice ([`faults`] says what a flow needs for them); where git fails, or
-//! the act cannot be done, the round fails and hands in nothing. A stopped act ends its round with nothing handed in.
-//! An act takes no cost and no tokens.
+//! what it did, and only the check writes a choice ([`faults`] says what a flow needs for them); where git or the host
+//! fails, or the act cannot be done, the round fails and hands in nothing. A stopped act ends its round with nothing
+//! handed in. An act takes no cost and no tokens.
+//!
+//! What is done in the project's local repository is done the same whatever the host; the host gives the head of
+//! main, the verdict on the work's commit and the merge ([`Host`]).
 //!
 //! One act at a time works in the project's repository: two at once would race over its worktrees and its main branch.
-//! The check's own command runs in the work's worktree, beside what other acts do. `deliver` does nothing outside the
-//! engine: the items it is made of were each merged by their own works, and what it writes is said from its item.
+//! The host's verdict is waited for beside what other acts do. `deliver` does nothing outside the engine: the items it
+//! is made of were each merged by their own works, and what it writes is said from its item.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -20,8 +23,9 @@ use store::{ItemNumber, WorkNumber};
 use tokio::sync::Mutex;
 use work::{Handed, Spent, Work};
 
-use crate::git::{self, Checked};
+use crate::git::{self, Place, Started};
 use crate::held::{Failing, Held, Stop};
+use crate::host::Host;
 use crate::settings::Project;
 
 /// The values the check writes in its choice: that the work passed, and that it did not. They are written by name: a
@@ -33,13 +37,26 @@ pub const FAILED: &str = "no";
 /// back from there.
 const CHECKED: &str = "Checked commit ";
 
-/// The acts, done in the project's repository with the works' worktrees in the data directory.
-#[derive(Clone)]
-pub struct Acts {
-    inner: Arc<Inner>,
+/// What the check before the merge found.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Checked {
+    /// The commit checked: the head of the work's branch.
+    pub commit: String,
+    /// The head of the main branch it was checked against.
+    pub main: String,
+    /// What failed, with the end of what it said; none where everything passed.
+    pub failed: Option<String>,
+    /// What judged it, where the host says.
+    pub by: Option<String>,
 }
 
-struct Inner {
+/// The acts, done in the project's repository with the works' worktrees in the data directory, on this host.
+pub struct Acts<H> {
+    inner: Arc<Inner<H>>,
+}
+
+struct Inner<H> {
+    host: H,
     project: Project,
     data: PathBuf,
     /// The installation's part of the names of the works' branches and worktrees.
@@ -55,11 +72,13 @@ enum Done {
     Stopped,
 }
 
-impl Acts {
-    /// The acts in this project, with this data directory, which is an absolute path, and the installation's tag.
-    pub fn new(project: Project, data: PathBuf, tag: String) -> Self {
+impl<H: Host> Acts<H> {
+    /// The acts on this host in this project, with this data directory, which is an absolute path, and the
+    /// installation's tag.
+    pub fn new(host: H, project: Project, data: PathBuf, tag: String) -> Self {
         Acts {
             inner: Arc::new(Inner {
+                host,
                 project,
                 data,
                 tag,
@@ -78,7 +97,7 @@ pub(crate) fn prune(held: &Held<(WorkNumber, RunId, usize), RoundReply>, round: 
     });
 }
 
-impl Rounds for Acts {
+impl<H: Host> Rounds for Acts<H> {
     fn give(&self, round: Round, reply: RoundReply) {
         prune(&self.inner.held, &round);
         let key = (round.work, round.run, round.number);
@@ -118,7 +137,7 @@ impl Rounds for Acts {
     }
 }
 
-impl Inner {
+impl<H: Host> Inner<H> {
     /// Does the cell's act, and gives what it hands in.
     async fn act(&self, round: &Round, stop: &mut Stop) -> Result<Done, String> {
         let act = round.cell.act.as_deref().unwrap_or_default();
@@ -127,10 +146,7 @@ impl Inner {
         let place = git::place(&self.data, &self.tag, round.work);
         match act {
             "start" => {
-                let started = {
-                    let _held = self.repository.lock().await;
-                    git::start(project, &place).await?
-                };
+                let started = start(project, &self.host, &place, &self.repository).await?;
                 let content = format!(
                     "The work is done on the branch {} in the worktree {}, which started from the commit {} of {}.",
                     started.place.reference(),
@@ -140,7 +156,7 @@ impl Inner {
                 );
                 Ok(Done::HandsIn(prose(&outputs, &content)))
             }
-            "check" => match git::check(project, &place, &self.repository, stop).await? {
+            "check" => match check(project, &self.host, &place, &self.repository, stop).await? {
                 Some(checked) => checked_in(&outputs, &checked, &project.main).map(Done::HandsIn),
                 None => Ok(Done::Stopped),
             },
@@ -148,7 +164,7 @@ impl Inner {
                 let checked = passed(&round.flow, &round.kept)?;
                 let merged = {
                     let _held = self.repository.lock().await;
-                    git::merge(project, &place, checked.as_deref()).await?
+                    self.host.merge(&place, checked.as_deref()).await?
                 };
                 let content = format!(
                     "The branch {} is merged into {}, whose head is now {merged}.",
@@ -161,6 +177,67 @@ impl Inner {
             other => Err(format!("the engine has no act named {other}")),
         }
     }
+}
+
+/// Makes the work's branch from the head of main the host gives, and its worktree, holding the repository.
+pub(crate) async fn start(
+    project: &Project,
+    host: &impl Host,
+    place: &Place,
+    repository: &Mutex<()>,
+) -> Result<Started, String> {
+    let _held = repository.lock().await;
+    git::configuration(project, place).await?;
+    let main = host.main().await?;
+    git::start(project, place, &main).await
+}
+
+/// Checks the work before its merge: that its worktree holds nothing uncommitted and that its branch merges into the
+/// head of main the host gives with no conflict (worked out without changing anything), both found holding the
+/// repository; then the host's verdict on the branch's head, waited for without it. Says why where it could not
+/// check, and gives none where it was stopped; what failed is what was found, not a reason to fail.
+pub(crate) async fn check(
+    project: &Project,
+    host: &impl Host,
+    place: &Place,
+    repository: &Mutex<()>,
+    stop: &mut Stop,
+) -> Result<Option<Checked>, String> {
+    let dir = git::worktree(place)?;
+    let (commit, main) = {
+        let _held = repository.lock().await;
+        git::configuration(project, place).await?;
+        let main = host.main().await?;
+        let commit = git::git(&project.repo, &["rev-parse", &place.reference()]).await?;
+        let found = |failed: String| Checked {
+            commit: commit.clone(),
+            main: main.clone(),
+            failed: Some(failed),
+            by: None,
+        };
+        let changes = git::uncommitted(&dir).await?;
+        if !changes.is_empty() {
+            let failed = format!("The worktree has changes that are not committed:\n{changes}");
+            return Ok(Some(found(failed)));
+        }
+        if let Some(files) = git::conflicts(project, &main, &commit).await? {
+            let failed = format!(
+                "The branch does not merge into {} at {main} without a conflict:\n{files}",
+                project.main
+            );
+            return Ok(Some(found(failed)));
+        }
+        (commit, main)
+    };
+    let Some(verdict) = host.verdict(place, &commit, stop).await? else {
+        return Ok(None);
+    };
+    Ok(Some(Checked {
+        commit,
+        main,
+        failed: verdict.failed,
+        by: verdict.by,
+    }))
 }
 
 /// What is wrong with the flow for the acts, each in words with the cell: the cell of `check` has one choice among
@@ -250,7 +327,8 @@ fn checked_in(
     let Some(choice) = outputs.iter().find_map(|(b, v)| v.as_ref().map(|_| b)) else {
         return Err("the check's cell has no choice to hand in whether the work passed".to_string());
     };
-    let what = format!("The work's branch was checked against {main} at {}", checked.main);
+    let by = (checked.by.as_ref()).map_or(String::new(), |by| format!(" by {by}"));
+    let what = format!("The work's branch was checked against {main} at {}{by}", checked.main);
     let (value, outcome) = match checked.failed {
         None => (PASSED, "it passed"),
         Some(_) => (FAILED, "it did not pass"),
