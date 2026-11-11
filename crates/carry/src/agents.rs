@@ -249,9 +249,9 @@ impl Inner {
             let told = message::message(flow, work, &round.cell, round.run, round.number, &round.given, begins);
             let again = message::message(flow, work, &round.cell, round.run, round.number, &round.given, true);
             write(&compacted.again, format!("{COMPACTED}\n\n{again}").as_bytes()).await?;
-            let (told_at, result_at) = attempt(&base).await;
+            let (n, told_at, result_at) = attempt(&base).await;
             // What the try runs on is said before its message is written, which makes the try one that was kept.
-            teller.ran_on(on.clone());
+            teller.ran_on(n, on.clone());
             write(&told_at, told.as_bytes()).await?;
             let command = self.command(&dir, &on, &permissions, &compacted, session, begin);
             // A program that cannot be started printed no result: its words say whether it is missing, which holds
@@ -388,13 +388,15 @@ fn resets(failure: Failure, why: &str, clock: &dyn Clock) -> Option<work::Time> 
     failure::resets_at(why, now.0, &failure::zone_offset).map(work::Time)
 }
 
-/// Where the next try of the round keeps what it is told and what it returns: the first that has kept nothing yet.
-async fn attempt(base: &Path) -> (PathBuf, PathBuf) {
+/// The number of the next try of the round, and where it keeps what it is told and what it returns: the first that
+/// has kept nothing yet.
+async fn attempt(base: &Path) -> (usize, PathBuf, PathBuf) {
     let mut n = 1;
     while tokio::fs::try_exists(&kept::at(base, n).0).await.unwrap_or(false) {
         n += 1;
     }
-    kept::at(base, n)
+    let (told, result) = kept::at(base, n);
+    (n, told, result)
 }
 
 /// Writes the file, making its directory where there is none.

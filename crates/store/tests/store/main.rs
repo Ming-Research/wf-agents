@@ -383,7 +383,7 @@ fn history(d: &mut Driver) {
             effort: effort.map(str::to_string),
             account: account.map(str::to_string),
         };
-        d.on(Event::Ran { run, on });
+        d.on(Event::Ran { run, attempt: 1, on });
     }
     // Two more calls would pass the limit of calls: the owner is called, lets the run go on, and they are made.
     d.end(Came::Asks(vec![tool("b"), tool("c")]));

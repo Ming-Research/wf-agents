@@ -43,12 +43,19 @@ fn each_try_of_the_round_under_way_is_recorded_with_what_it_ran_on() {
         effort: None,
         account: None,
     };
-    assert_eq!(w.on(Event::Ran { run, on: on("a") }), []);
-    w.on(Event::Ran { run, on: on("b") });
-    let ran: Vec<(usize, &str)> = w.work.ran.iter().map(|r| (r.round, r.on.model.as_str())).collect();
-    assert_eq!(ran, [(1, "a"), (1, "b")]);
+    let ran = |attempt, model| Event::Ran {
+        run,
+        attempt,
+        on: on(model),
+    };
+    assert_eq!(w.on(ran(1, "a")), []);
+    w.on(ran(2, "b"));
+    let recorded: Vec<(usize, usize, &str)> = (w.work.ran.iter())
+        .map(|r| (r.round, r.attempt, r.on.model.as_str()))
+        .collect();
+    assert_eq!(recorded, [(1, 1, "a"), (1, 2, "b")]);
     w.returns(run, hands_in(&[("text", None)]));
-    let why = w.refused(Event::Ran { run, on: on("c") });
+    let why = w.refused(ran(1, "c"));
     assert_eq!(why, Refused::NoRoundUnderWay(run), "no round of the run is under way");
 }
 

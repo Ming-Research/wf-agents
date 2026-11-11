@@ -46,8 +46,9 @@ pub enum Event {
     Done { call: CallId, result: String },
     /// A new session of the line began, or is to begin with the line's next round, for this reason.
     Anew { line: String, why: Why },
-    /// A try of the round of the run that is under way began, on this.
-    Ran { run: RunId, on: RanOn },
+    /// A try of the round of the run that is under way began, on this: the try of this number in the round, the first
+    /// being one.
+    Ran { run: RunId, attempt: usize, on: RanOn },
     /// What the work held outside the engine was let go, as [`Effect::Release`] asked.
     Released,
     /// What the work held outside the engine could not be let go, for this reason, as whatever carried out

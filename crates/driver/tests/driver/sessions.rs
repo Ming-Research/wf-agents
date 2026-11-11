@@ -195,7 +195,11 @@ impl S {
             account: self.account.clone(),
             ..on(&self.model)
         };
-        self.on(Event::Ran { run, on: ran });
+        self.on(Event::Ran {
+            run,
+            attempt: 1,
+            on: ran,
+        });
     }
 
     fn hands_in(&mut self, context: u64, matters: bool) {

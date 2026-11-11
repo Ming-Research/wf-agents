@@ -262,13 +262,15 @@ CREATE TABLE sessions (
     PRIMARY KEY (work, at)
 );
 
--- A try of a round of a run began, the round's first being one, on this level, model, reasoning effort (NULL where the
--- program ran at its own) and account (NULL where it ran with its own default directory).
+-- A try of a round of a run began, the round's first being one and the try's first in its round being one, on this
+-- level, model, reasoning effort (NULL where the program ran at its own) and account (NULL where it ran with its own
+-- default directory).
 CREATE TABLE ran (
     work INTEGER NOT NULL,
     at INTEGER NOT NULL,
     run INTEGER NOT NULL,
     round INTEGER NOT NULL,
+    attempt INTEGER NOT NULL,
     level TEXT NOT NULL,
     model TEXT NOT NULL,
     effort TEXT,

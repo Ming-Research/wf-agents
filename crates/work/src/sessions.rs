@@ -21,7 +21,7 @@ pub struct Session {
     pub why: Why,
 }
 
-/// A try of an agent's round began, on this: the try of its round counted by the tries recorded before it.
+/// A try of an agent's round began, on this.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ran {
     /// The place of the entry in the order of what happened to the work.
@@ -29,6 +29,9 @@ pub struct Ran {
     pub run: RunId,
     /// The round's number in its run, the first being one.
     pub round: usize,
+    /// The try's number in its round, the first being one, as its carrier numbers what it keeps of it: a try kept
+    /// before tries were recorded has no record, so the records are not counted to find a try's.
+    pub attempt: usize,
     pub on: RanOn,
 }
 
@@ -251,6 +254,7 @@ mod tests {
                 at: Seq(at),
                 run: RunId(1),
                 round,
+                attempt: 1,
                 on: on(model),
             });
         }

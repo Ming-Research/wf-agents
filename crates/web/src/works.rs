@@ -655,7 +655,8 @@ pub struct TryPage {
     pub ran: Option<RanOn>,
 }
 
-/// What a try of an agent's round ran on, as the work's records say it was when the try began.
+/// What a try of an agent's round ran on, as the work's records say it was when the try began, or, for a try kept before
+/// tries were recorded, as its carrier kept it beside the try.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RanOn {

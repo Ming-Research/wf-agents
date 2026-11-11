@@ -690,10 +690,10 @@ impl Handle {
                 }
                 let started = kept.work.records.started.iter().find(|s| s.run == run);
                 let kind = (started.and_then(|s| cell_spec(kept.flow, &s.cell))).map(|spec| spec.kind);
-                // What each try ran on, as the records say, in the order the tries began.
-                let ran: Vec<RanOn> = (kept.work.ran.iter())
+                // What each try ran on, as the records say, by the try's number.
+                let ran: BTreeMap<usize, RanOn> = (kept.work.ran.iter())
                     .filter(|r| r.run == run && r.round == round)
-                    .map(|r| r.on.clone())
+                    .map(|r| (r.attempt, r.on.clone()))
                     .collect();
                 Some(Some((kind, ran)))
             })
@@ -707,8 +707,12 @@ impl Handle {
         let told = tokio::task::spawn_blocking(move || carriers.told(kind, work, run, round)).await;
         Ok(Some(match told {
             Ok(told) => told.map(|mut told| {
-                for (n, t) in told.tries.iter_mut().enumerate() {
-                    t.ran = ran.get(n).cloned();
+                // A try the records say nothing of keeps what its carrier read of it, as from the file a try kept
+                // before tries were recorded.
+                for (n, t) in (1..).zip(told.tries.iter_mut()) {
+                    if let Some(on) = ran.get(&n) {
+                        t.ran = Some(on.clone());
+                    }
                 }
                 Some(told)
             }),

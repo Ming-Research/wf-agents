@@ -305,7 +305,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
             let at = work.tick();
             work.sessions.push(Session { at, line, why });
         }
-        Event::Ran { run, on } => {
+        Event::Ran { run, attempt, on } => {
             let number = began(work, run);
             if number == ended(work, run) {
                 return Err(Refused::NoRoundUnderWay(run));
@@ -315,6 +315,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
                 at,
                 run,
                 round: number,
+                attempt,
                 on,
             });
         }

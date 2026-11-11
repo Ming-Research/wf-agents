@@ -17,6 +17,7 @@ CREATE TABLE ran (
     at INTEGER NOT NULL,
     run INTEGER NOT NULL,
     round INTEGER NOT NULL,
+    attempt INTEGER NOT NULL,
     level TEXT NOT NULL,
     model TEXT NOT NULL,
     effort TEXT,

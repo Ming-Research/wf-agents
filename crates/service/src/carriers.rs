@@ -136,8 +136,9 @@ pub struct Try {
     /// The message's whole length in bytes, where it was cut before its end.
     pub cut: Option<u64>,
     pub back: Back,
-    /// What it ran on, as the work's records say its carrier chose it as the try began; none where they say nothing
-    /// of it, as of a try that began before tries recorded it, or of an act of the engine's own.
+    /// What it ran on, as the work's records say its carrier chose it as the try began, or, for a try that began
+    /// before tries were recorded, as its carrier kept it beside the try; none where neither says, as of a try kept
+    /// before either, or of an act of the engine's own.
     pub ran: Option<RanOn>,
 }
 
@@ -372,9 +373,13 @@ pub struct Teller {
 }
 
 impl Teller {
-    /// A try of the round begins, on this.
-    pub fn ran_on(&self, on: RanOn) {
-        self.tell(Event::Ran { run: self.run, on });
+    /// The try of this number of the round, the first being one, begins on this.
+    pub fn ran_on(&self, attempt: usize, on: RanOn) {
+        self.tell(Event::Ran {
+            run: self.run,
+            attempt,
+            on,
+        });
     }
 
     /// The round began a new session of its line, for this reason: as when the agents' program had lost the one the

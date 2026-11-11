@@ -270,18 +270,19 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     .collect::<Result<_, Fault>>()?;
     out.ran = rows(
         db,
-        "SELECT at, run, round, level, model, effort, account FROM ran WHERE work = ?1 ORDER BY at",
+        "SELECT at, run, round, attempt, level, model, effort, account FROM ran WHERE work = ?1 ORDER BY at",
         w,
         |row| {
             Ok(Ran {
                 at: Seq(row.get(0)?),
                 run: RunId(row.get(1)?),
                 round: row.get(2)?,
+                attempt: row.get(3)?,
                 on: RanOn {
-                    level: row.get(3)?,
-                    model: row.get(4)?,
-                    effort: row.get(5)?,
-                    account: row.get(6)?,
+                    level: row.get(4)?,
+                    model: row.get(5)?,
+                    effort: row.get(6)?,
+                    account: row.get(7)?,
                 },
             })
         },
@@ -483,13 +484,14 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     }
     for r in ran {
         db.execute(
-            "INSERT INTO ran (work, at, run, round, level, model, effort, account) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO ran (work, at, run, round, attempt, level, model, effort, account) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 w,
                 r.at.0,
                 r.run.0,
                 r.round,
+                r.attempt,
                 r.on.level,
                 r.on.model,
                 r.on.effort,
