@@ -81,7 +81,9 @@ pub fn carry(settings: Settings, data: &Path) -> Result<(Carriers, Watch), Strin
             on(host, &project, &data, &tag)
         }
     };
+    let slots = settings.agents.slots;
     let carriers = Carriers {
+        slots,
         agents: Arc::new(Agents::new(settings, data.clone(), installation)),
         acts,
         tools,

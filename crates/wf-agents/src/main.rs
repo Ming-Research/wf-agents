@@ -12,7 +12,7 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 use flow::{Fault, FaultKind, Has, Source};
-use web::works::Act;
+use web::works::{Act, EngineAct};
 
 use crate::talk::Asked;
 
@@ -54,7 +54,8 @@ enum Command {
         #[arg(long, default_value_t = PORT)]
         port: u16,
     },
-    /// Adds an item with its work, which is added paused.
+    /// Adds an item with its work, which is added paused: it begins nothing until it is let on with `wf-agents
+    /// resume`.
     Add {
         #[arg(long)]
         title: String,
@@ -87,7 +88,8 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Lists the items, each with what its work does now.
+    /// Says whether everything is paused and how many slots are taken, and lists the items, each with what its work
+    /// does now.
     List {
         #[command(flatten)]
         at: At,
@@ -98,16 +100,24 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Lets a work on: its rounds begin again.
+    /// Lets a work on: its rounds begin again. With --all, lifts the pause of everything instead: every work goes on
+    /// that its own pause does not hold.
     Resume {
-        work: u64,
+        #[arg(required_unless_present = "all")]
+        work: Option<u64>,
+        #[arg(long, conflicts_with = "work")]
+        all: bool,
         #[command(flatten)]
         at: At,
     },
     /// Pauses a work: no round of it begins but those of a run that answers a note, a person's words to its cell, and
-    /// the one under way ends.
+    /// the one under way ends. With --all, pauses everything instead, until `wf-agents resume --all`; it holds across a
+    /// stop of the engine, and a work's own pause holds after it is lifted.
     Pause {
-        work: u64,
+        #[arg(required_unless_present = "all")]
+        work: Option<u64>,
+        #[arg(long, conflicts_with = "work")]
+        all: bool,
         #[command(flatten)]
         at: At,
     },
@@ -222,8 +232,14 @@ fn main() -> ExitCode {
         Command::SetLevel { item, level, at } => talk::ask(at.port, Asked::SetLevel(item, level)),
         Command::List { at } => talk::ask(at.port, Asked::List),
         Command::Show { work, at } => talk::ask(at.port, Asked::Show(work)),
-        Command::Resume { work, at } => talk::ask(at.port, Asked::Act(work, Act::Resume {})),
-        Command::Pause { work, at } => talk::ask(at.port, Asked::Act(work, Act::Pause {})),
+        Command::Resume { work, all, at } => match (work, all) {
+            (Some(work), false) => talk::ask(at.port, Asked::Act(work, Act::Resume {})),
+            _ => talk::ask(at.port, Asked::Everything(EngineAct::Resume {})),
+        },
+        Command::Pause { work, all, at } => match (work, all) {
+            (Some(work), false) => talk::ask(at.port, Asked::Act(work, Act::Pause {})),
+            _ => talk::ask(at.port, Asked::Everything(EngineAct::Pause {})),
+        },
         Command::Cancel { work, at } => talk::ask(at.port, Asked::Cancel(work)),
         Command::Write {
             work,

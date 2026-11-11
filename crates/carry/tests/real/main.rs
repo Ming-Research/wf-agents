@@ -358,8 +358,9 @@ impl Real {
         self.add_made_of(&[]).await
     }
 
-    /// Adds an item that depends on these items, with a request where its flow has one, and makes its work's place
-    /// where the flow has agents to run in it and no cell that makes it.
+    /// Adds an item that depends on these items, with a request where its flow has one, paused so that its work begins
+    /// once the test lets it on, and makes its work's place where the flow has agents to run in it and no cell that
+    /// makes it.
     pub async fn add_made_of(&mut self, depends_on: &[ItemNumber]) -> WorkNumber {
         let request = (self.flow.blocks.contains_key(&"request".into())).then(|| FirstWrite {
             block: "request".into(),

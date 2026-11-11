@@ -12,14 +12,16 @@
 //! - [`RoundPage`], [`VersionPage`], [`CallPage`]: the content the history leaves out.
 //! - [`ToldPage`]: what a round was told and what came back of it, as its carrier kept them.
 //! - [`Act`], [`NewItem`]: what the owner does on the pages.
+//! - [`Engine`], [`EngineAct`]: the engine as a whole, its slots and the owner's pause of everything, and what the owner
+//!   does to it.
 //!
 //! A work whose records name what it does not hold, which the engine never writes, is not shown as something it is
 //! not: making its view gives [`Broken`], saying what is missing.
 
 use decide::run::{Failure as FailureOf, Limit as LimitOf, Unmet as UnmetOf};
 use decide::{
-    BlockId, CallId, Cause as CauseOf, CellId, Decision, End, Maker as MakerOf, Pauser as PauserOf, RunId, Seq, View,
-    Waited as WaitedOf, Who, Writer as WriterOf,
+    BlockId, CallId, Cause as CauseOf, CellId, Decision, End, Holder, Maker as MakerOf, Pauser as PauserOf, RunId, Seq,
+    View, Waited as WaitedOf, Who, Writer as WriterOf,
 };
 use driver::{Driver, Kept, Until as UntilOf};
 use flow::Kind;
@@ -156,6 +158,9 @@ pub enum Now {
     /// It is paused, and what it would do next is begin a round: by the owner, or by the engine itself for this
     /// reason, as when a round failed.
     Paused { by: Pauser, why: Option<String> },
+    /// The owner's pause of everything holds it back, and what it would do next is begin a round; its own pause does
+    /// not hold it.
+    Everything {},
     /// It waits at this cell, for each of these.
     Waits { at: String, on: Vec<Waited> },
     /// It is about to do something at this cell. A work is never left so between two things that happen to it.
@@ -178,6 +183,9 @@ pub enum Waited {
     /// The cell's last runs, this many in a row, were each for what a cell after it wrote, and so would the next be:
     /// the owner lets it go on or cancels the work.
     Limit { runs: u32 },
+    /// A free slot: as many rounds of agents are under way as the engine has slots, and the engine gives it the first
+    /// that comes free, in its order.
+    Slot {},
     /// The wait every work shares: the cell's agent's round does not begin until it is over.
     Agents { outage: Outage },
 }
@@ -778,7 +786,7 @@ pub enum Act {
     NewSession { line: String },
 }
 
-/// An item the owner adds, with its work, which is added paused and begins no round until it is let on.
+/// An item the owner adds, with its work, which is added paused: it begins no round until the owner lets it on.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NewItem {
@@ -791,6 +799,33 @@ pub struct NewItem {
     pub flow: String,
     /// What is written for it as it is added, each a block people write.
     pub writes: Vec<NewWrite>,
+}
+
+/// The engine as a whole: its slots, and the owner's pause of everything.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Engine {
+    /// How many rounds of agents may go on at once.
+    pub slots: u64,
+    /// How many are under way; more than there are slots where the slots were fewer when the engine started again.
+    pub taken: u64,
+    /// When the owner's pause of everything began, while it holds; none while works go on.
+    pub paused: Option<u64>,
+}
+
+/// What the owner does to the engine as a whole on the pages, each kind a struct as an [`Act`] is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum EngineAct {
+    /// Pauses everything: no work begins a round but those of a run that answers a note, until it is lifted.
+    Pause {},
+    /// Lifts the pause of everything: every work goes on that its own pause does not hold.
+    Resume {},
 }
 
 /// A block written as an item is added.
@@ -846,7 +881,7 @@ impl Items {
                 level: kept.item.level.clone(),
                 added: kept.item.added.0,
                 depends_on: kept.item.depends_on.iter().map(|on| on.0).collect(),
-                work: Summary::of(kept, &view, outage.as_ref())?,
+                work: Summary::of(kept, &view, driver.held(kept.head.number), outage.as_ref())?,
             });
         }
         items.sort_by_key(|item| item.number);
@@ -855,9 +890,9 @@ impl Items {
 }
 
 impl Summary {
-    /// The work in brief, from what the driver holds of it, the deciding code's view of it, and the wait every work
-    /// shares, where one stands.
-    pub fn of(kept: Kept<'_>, view: &View, outage: Option<&Outage>) -> Result<Summary, Broken> {
+    /// The work in brief, from what the driver holds of it, the deciding code's view of it, what holds back the round
+    /// it would begin next, and the wait every work shares, where one stands.
+    pub fn of(kept: Kept<'_>, view: &View, held: Option<Holder>, outage: Option<&Outage>) -> Result<Summary, Broken> {
         let work = kept.work;
         let runs = runs(kept)?;
         let cells = (view.cells.iter())
@@ -885,7 +920,7 @@ impl Summary {
             flow: kept.head.flow.clone(),
             added: kept.head.added.0,
             paused: decide::paused(&work.records),
-            now: Now::of(kept, &view.decision, outage)?,
+            now: Now::of(kept, &view.decision, held, outage)?,
             cells,
             spent: runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)),
             last: work.moments.last().map(|moment| moment.at.0),
@@ -894,12 +929,22 @@ impl Summary {
 }
 
 impl Now {
-    fn of(kept: Kept<'_>, decision: &Decision, outage: Option<&Outage>) -> Result<Now, Broken> {
+    /// What the work does now. Of what holds it back, its own pause is said first, then the owner's pause of
+    /// everything, then the wait every work shares, then a slot.
+    fn of(kept: Kept<'_>, decision: &Decision, held: Option<Holder>, outage: Option<&Outage>) -> Result<Now, Broken> {
         let work = kept.work;
+        let everything = Now::Everything {};
         let agents = |cell: &CellId| (kept.flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == Kind::Agent);
         // The rounds of a cell the wait holds now: an agent's, and without the network every cell's.
-        let held =
+        let shared =
             |cell: &CellId| (outage.filter(|o| o.holds)).is_some_and(|o| o.failure == Failure::Offline || agents(cell));
+        let waits_shared = |cell: &CellId| Now::Waits {
+            at: cell.to_string(),
+            on: outage
+                .into_iter()
+                .map(|outage| Waited::Agents { outage: outage.clone() })
+                .collect(),
+        };
         Ok(match decision {
             Decision::Fault(fault) => Now::Fault {
                 words: service::record_fault_words(fault),
@@ -921,18 +966,19 @@ impl Now {
                     since: time(work, *last)?,
                 }
             }
+            Decision::Paused if held == Some(Holder::Everything) => everything,
             Decision::Paused => Now::paused(work)?,
-            // A run at rest that goes on holds its next round while the work is paused: the engine leaves a work so
-            // only when it is paused, as when the run's last round failed.
-            Decision::GoOn { .. } if decide::paused(&work.records) => Now::paused(work)?,
+            // A run at rest that goes on holds its next round while something holds it back: the engine leaves a work
+            // so only then, as when the run's last round failed and the work was paused.
+            Decision::GoOn { .. } if held == Some(Holder::Pause) => Now::paused(work)?,
+            Decision::GoOn { .. } if held == Some(Holder::Everything) => everything,
             // A cell that would run or go on, and does not, is held by the wait every work shares, where it holds now
-            // and holds the cell's rounds: the engine leaves a work so only then.
-            Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if held(cell) => Now::Waits {
+            // and holds the cell's rounds: the engine leaves a work so only then. It is said before a slot.
+            Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if shared(cell) => waits_shared(cell),
+            Decision::Wait { at, on } if on == &[WaitedOf::Slot] && shared(at) => waits_shared(at),
+            Decision::GoOn { cell, .. } if held == Some(Holder::Slot) => Now::Waits {
                 at: cell.to_string(),
-                on: outage
-                    .into_iter()
-                    .map(|outage| Waited::Agents { outage: outage.clone() })
-                    .collect(),
+                on: vec![Waited::Slot {}],
             },
             Decision::Wait { at, on } => Now::Waits {
                 at: at.to_string(),
@@ -951,6 +997,7 @@ impl Now {
                                 by: by.iter().map(Maker::of).collect(),
                             },
                             WaitedOf::Limit { runs } => Waited::Limit { runs: *runs },
+                            WaitedOf::Slot => Waited::Slot {},
                         })
                     })
                     .collect::<Result<_, Broken>>()?,
@@ -1122,6 +1169,7 @@ impl WorkPage {
             summary: Summary::of(
                 kept,
                 &view,
+                driver.held(number),
                 driver
                     .outage()
                     .map(|outage| Outage::of(&outage, driver.holds(now)))
@@ -1306,6 +1354,25 @@ impl NewItem {
                 })
                 .collect(),
         })
+    }
+}
+
+impl Engine {
+    /// The engine as the driver holds it.
+    pub fn of(driver: &Driver) -> Engine {
+        let slots = driver.slots();
+        Engine {
+            slots: slots.slots as u64,
+            taken: slots.taken as u64,
+            paused: driver.everything_paused().map(|since| since.0),
+        }
+    }
+}
+
+impl EngineAct {
+    /// Whether the act sets the pause of everything, rather than lifting it.
+    pub fn pauses(self) -> bool {
+        matches!(self, EngineAct::Pause {})
     }
 }
 

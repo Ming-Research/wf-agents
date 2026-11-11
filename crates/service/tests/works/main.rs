@@ -35,7 +35,8 @@ use store::{ItemNumber, Storage, Store, WorkNumber};
 use tokio::sync::oneshot;
 use work::{Ask, Call, Time, Work};
 
-/// An item of the trial flow with a request, depending on these items.
+/// An item of the trial flow with a request, depending on these items, added paused: its work begins nothing until it is
+/// let on.
 pub fn new_item(title: &str, depends_on: &[u64]) -> NewItem {
     NewItem {
         title: title.to_string(),
@@ -69,6 +70,9 @@ pub fn add_to(service: &mut Service, item: NewItem) -> (ItemNumber, WorkNumber) 
 
 /// When the tests' clock starts: 2026-11-10, at midnight.
 pub const START: Time = Time(1_794_268_800_000);
+
+/// The slots of the loops of the tests that do not count them: more than any of them has works.
+pub const SLOTS: usize = 1000;
 
 /// The directory of the trial flow, `flow`, and its script, `script.toml`.
 pub fn trial_dir() -> PathBuf {
@@ -380,6 +384,7 @@ fn open(
         acts: recording.clone(),
         tools: recording.clone(),
         network: Arc::new(recording.scripted.clone()),
+        slots: SLOTS,
     };
     let clock: Arc<dyn service::Clock> = clock.clone();
     Service::open(Box::new(store), vec![trial_flow()], carriers, clock).expect("the loop opens")

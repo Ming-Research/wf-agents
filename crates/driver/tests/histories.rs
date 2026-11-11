@@ -36,6 +36,10 @@
 //! The process stops before a step with a chance of one in sixteen; with one in twenty-five the store is set to fail
 //! at one of its next three calls, and with one in fifty the process to stop right after one of them.
 //!
+//! The driver has two slots. Every item is added paused; one in three is let on by the owner at once as it is added,
+//! drawn by a generator of its own, and the others are let on later, as before; and, drawn by another, the owner sets or lifts the pause of everything before a step with a chance
+//! of one in twenty while people act, and lifts it as people stop.
+//!
 //! A failing case prints its seed and the steps it took; `one_history(seed, ..)` replays it.
 
 #[allow(dead_code)]
@@ -114,6 +118,11 @@ struct Seen {
     waited: usize,
     /// Steps after which a work had never been let on.
     never_let_on: usize,
+    /// Items let on as they were added, steps after which a work waited for a slot, and steps after which one was held
+    /// back by the pause of everything.
+    let_on_as_added: usize,
+    waited_for_a_slot: usize,
+    held_by_everything: usize,
     /// Works found waiting at rest, and works found ended.
     rested_waiting: usize,
     rested_ended: usize,
@@ -130,6 +139,9 @@ struct History {
     /// Draws which items are deliverables alone, so that the other draws keep the order they had before the deliver
     /// flow was among the flows.
     delivers: Rng,
+    /// Draws which items are added going on, and when the owner sets or lifts the pause of everything, alone, so
+    /// that the other draws keep the order they had before.
+    room: Rng,
     step: usize,
     /// The calls that have their result, each with its work.
     done: Vec<(WorkNumber, CallId)>,
@@ -158,10 +170,11 @@ fn every_flow() -> Vec<flow::Compiled> {
 impl History {
     fn new(seed: u64, faults: bool) -> Self {
         Self {
-            h: H::with(every_flow()),
+            h: H::with_slots(every_flow(), 2),
             rng: Rng::new(seed),
             faults: faults.then(|| Rng::new(seed ^ 0x5DEE_CE66_D1CE_F00D)),
             delivers: Rng::new(seed ^ 0xDE11_7E2A_B1E5_0F00),
+            room: Rng::new(seed ^ 0x0000_5107_5A0F_A11D),
             step: 0,
             done: Vec::new(),
             log: Vec::new(),
@@ -241,7 +254,16 @@ impl History {
             flow: flow.to_string(),
             writes,
         };
+        let let_on = self.room.chance(33);
         self.act(Act::Add(new));
+        if let_on {
+            let work = (self.h.d().works())
+                .map(|kept| kept.head.number)
+                .max()
+                .expect("the work just added");
+            self.seen.let_on_as_added += 1;
+            self.act(Act::On(work, Event::Resumed));
+        }
     }
 
     /// Before a step the process may stop, or the store be set to fail.
@@ -274,6 +296,10 @@ impl History {
     /// One step. Says whether anything was done: once people stop, nothing is when nothing given can be answered.
     fn step(&mut self, people: bool) -> bool {
         self.maybe_fault();
+        if people && self.room.chance(5) {
+            let paused = self.h.d().everything_paused().is_none();
+            self.act(Act::Everything(paused));
+        }
         let done = if people && self.rng.chance(25) {
             self.person_acts();
             true
@@ -299,6 +325,11 @@ impl History {
             let number = kept.head.number;
             if matches!(self.h.decision(number), Decision::Ended(_)) {
                 continue;
+            }
+            match d.held(number) {
+                Some(decide::Holder::Slot) => self.seen.waited_for_a_slot += 1,
+                Some(decide::Holder::Everything) => self.seen.held_by_everything += 1,
+                _ => {}
             }
             if !self.h.let_on.contains(&number) {
                 self.seen.never_let_on += 1;
@@ -606,8 +637,11 @@ fn one_history(seed: u64, faults: bool, log: &mut Vec<String>) -> (Ending, Seen)
         for _ in 0..people {
             x.step(true);
         }
-        // The last acts of people: every work left paused is let on.
+        // The last acts of people: the pause of everything is lifted, and every work left paused is let on.
         x.log.push("people stop".into());
+        if x.h.d().everything_paused().is_some() {
+            x.act(Act::Everything(false));
+        }
         for work in x.going() {
             let kept = x.h.d().work(work).expect("the work is there");
             if decide::paused(&kept.work.records) {
@@ -685,6 +719,9 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
                 seen.started_at_merge += s.started_at_merge;
                 seen.waited += s.waited;
                 seen.never_let_on += s.never_let_on;
+                seen.let_on_as_added += s.let_on_as_added;
+                seen.waited_for_a_slot += s.waited_for_a_slot;
+                seen.held_by_everything += s.held_by_everything;
                 seen.rested_waiting += s.rested_waiting;
                 seen.rested_ended += s.rested_ended;
                 seen.given_again += s.given_again;
@@ -722,6 +759,9 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
         ("first rounds given by another work's merge", seen.started_at_merge),
         ("works waiting for their dependencies", seen.waited),
         ("works never let on", seen.never_let_on),
+        ("items let on as they were added", seen.let_on_as_added),
+        ("works waiting for a slot", seen.waited_for_a_slot),
+        ("works held back by the pause of everything", seen.held_by_everything),
         ("works waiting at rest", seen.rested_waiting),
         ("works ended at rest", seen.rested_ended),
     ];

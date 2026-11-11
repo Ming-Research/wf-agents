@@ -27,6 +27,9 @@
 //! ([`Driver::wake`]): the loop tells the driver the time then, looking at the network first where the driver asks it
 //! to ([`Network`]). Neither is held but as a timer, which is set again from the records when the process starts again.
 //!
+//! The owner's pause of everything comes to the loop as an act of its own, which the driver keeps; how many rounds of
+//! agents go on at once is what the carriers say ([`Carriers::slots`]), and the driver gives no more.
+//!
 //! - `carriers`: the interfaces, what each is given, and how it says what came of it.
 //! - `clock`: the clock, read by the loop alone.
 //! - `levels`: the levels of the items, which choose what their agents' rounds run on.
@@ -95,6 +98,11 @@ pub enum Message {
     Act {
         work: WorkNumber,
         act: Act,
+        reply: oneshot::Sender<Result<(), Refusal>>,
+    },
+    /// The owner sets the pause of everything, or lifts it.
+    Everything {
+        paused: bool,
         reply: oneshot::Sender<Result<(), Refusal>>,
     },
     /// An item is added, with its work.
@@ -223,7 +231,7 @@ impl Service {
             .map(|flow| (flow.name.clone(), Arc::new(flow.clone())))
             .collect();
         let policy = carriers.agents.policy();
-        let (driver, todos) = Driver::open(store, flows, policy, now).map_err(Fault::Driver)?;
+        let (driver, todos) = Driver::open(store, flows, carriers.slots, policy, now).map_err(Fault::Driver)?;
         let (to, inbox) = mpsc::unbounded_channel();
         let (changed, _) = broadcast::channel(CHANGES);
         let mut service = Service {
@@ -327,14 +335,35 @@ impl Service {
                     }
                 }
             }
+            Message::Everything { paused, reply } => {
+                let now = self.now()?;
+                match self.driver.pause_everything(now, paused) {
+                    Ok(todos) => {
+                        let _ = reply.send(Ok(()));
+                        self.hand(now, todos)?;
+                        // What every work does now may have changed, though no record of one grew.
+                        let _ = self.changed.send(Changed {
+                            works: self.driver.works().map(|kept| kept.head.number).collect(),
+                            items: false,
+                        });
+                        return Ok(());
+                    }
+                    Err(failed) => {
+                        let refusal = Refusal::Failed(failed);
+                        let stopped = stopped(&refusal);
+                        let _ = reply.send(Err(refusal));
+                        if let Some(fault) = stopped {
+                            return Err(fault);
+                        }
+                    }
+                }
+            }
             Message::Add { item, reply } => {
                 let now = self.now()?;
                 match self.driver.add(now, item) {
                     Ok((item, work, todos)) => {
                         items = true;
                         let _ = reply.send(Ok((item, work)));
-                        // The work is added paused, so nothing is to be done yet; whatever the driver gives is handed
-                        // out all the same.
                         self.hand(now, todos)?;
                     }
                     Err(failed) => {
@@ -641,7 +670,17 @@ impl Handle {
         let _ = self.to.send(message);
     }
 
-    /// Adds an item with its work, which is added paused, and gives their numbers.
+    /// Sets the owner's pause of everything, or lifts it.
+    pub async fn pause_everything(&self, paused: bool) -> Result<(), Refusal> {
+        let (reply, answer) = oneshot::channel();
+        (self.to)
+            .send(Message::Everything { paused, reply })
+            .map_err(|_| Refusal::Gone)?;
+        answer.await.map_err(|_| Refusal::Gone)?
+    }
+
+    /// Adds an item with its work, which is added paused unless it is added going on, and gives their
+    /// numbers.
     pub async fn add(&self, item: NewItem) -> Result<(ItemNumber, WorkNumber), Refusal> {
         let (reply, answer) = oneshot::channel();
         self.to.send(Message::Add { item, reply }).map_err(|_| Refusal::Gone)?;

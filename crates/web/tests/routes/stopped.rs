@@ -50,6 +50,14 @@ impl Storage for Failing {
         }
         self.store.save(work, given)
     }
+
+    fn everything_paused(&self) -> Result<Option<Time>, store::Fault> {
+        self.store.everything_paused()
+    }
+
+    fn pause_everything(&mut self, paused: bool, at: Time) -> Result<(), store::Fault> {
+        self.store.pause_everything(paused, at)
+    }
 }
 
 #[tokio::test(start_paused = true)]

@@ -182,6 +182,15 @@ CREATE TABLE cancelled (
     at INTEGER NOT NULL
 );
 
+-- The owner paused every work (1) or lifted that pause (0), at `time`, `n` counting from one: the latest row says
+-- whether the pause holds, and none that it does not. While it holds no work begins a round but those of a run that
+-- answers a note, as the work's own pause holds them back. It is the installation's, not a work's.
+CREATE TABLE everything_paused (
+    n INTEGER PRIMARY KEY,
+    paused INTEGER NOT NULL CHECK (paused IN (0, 1)),
+    time INTEGER NOT NULL
+);
+
 -- What the work held outside the engine was let go, once it had ended and nothing of it was under way: one row for a
 -- work that did.
 CREATE TABLE released (

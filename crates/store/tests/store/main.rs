@@ -3,6 +3,7 @@
 //! subject, so that a new test goes into the module of what it tests.
 
 mod diverged;
+mod everything;
 mod histories;
 mod incremental;
 mod items;

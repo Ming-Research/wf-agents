@@ -201,6 +201,8 @@ export function waitsForOwner(waited: Waited): boolean {
       return waited.by.some((m) => m.kind === 'owner');
     case 'limit':
       return true;
+    case 'slot':
+      return false;
     case 'agents':
       return waited.outage.failure === 'cannotRun';
   }
@@ -222,6 +224,8 @@ export function waitedWords(waited: Waited): string {
       return `the owner to let the cell go on: ${
         waited.runs === 1 ? 'its last run was a way round' : `its last ${waited.runs} runs in a row were each a way round`
       }`;
+    case 'slot':
+      return 'a free slot, which the engine gives in its order';
     case 'agents':
       return `the agents' rounds to begin again: ${outageWords(waited.outage)}`;
   }
@@ -242,6 +246,8 @@ export function nowWords(now: Now): string {
       return now.by === 'engine'
         ? `Paused by the engine: ${now.why ?? 'it gave no reason'}`
         : 'Paused: only a note to a cell is answered until it is let on';
+    case 'everything':
+      return 'Paused with every work: only a note to a cell is answered until everything is let on';
     case 'waits':
       return `Waits at ${now.at} for ${now.on.map(waitedWords).join('; ')}`;
     case 'next':
@@ -267,6 +273,7 @@ export function nowTone(now: Now): Tone {
     case 'waits':
       return now.on.some(waitsForOwner) ? 'owner' : 'quiet';
     case 'cancelled':
+    case 'everything':
     case 'next':
       return 'quiet';
   }

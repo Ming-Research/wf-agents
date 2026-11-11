@@ -128,7 +128,14 @@ impl S {
     fn with(policy: Policy, account: Option<&str>) -> S {
         let db = Db::new();
         let flow = flow();
-        let (mut driver, _) = Driver::open(Box::new(db.open()), vec![flow.clone()], Some(policy), Time(START)).unwrap();
+        let (mut driver, _) = Driver::open(
+            Box::new(db.open()),
+            vec![flow.clone()],
+            SLOTS,
+            Some(policy),
+            Time(START),
+        )
+        .unwrap();
         let new = NewItem {
             title: "Greet".to_string(),
             level: "1".to_string(),
@@ -316,6 +323,7 @@ fn a_run_waiting_on_a_tools_result_as_its_line_begins_a_new_session_is_told_what
     let (driver, _) = Driver::open(
         Box::new(s.db.open()),
         vec![s.flow.clone()],
+        SLOTS,
         Some(policy("sonnet")),
         Time(s.clock),
     )
@@ -393,6 +401,7 @@ fn a_line_whose_rounds_now_run_on_another_model_begins_a_new_session_as_the_engi
     let (driver, todos) = Driver::open(
         Box::new(s.db.open()),
         vec![s.flow.clone()],
+        SLOTS,
         Some(policy("sonnet")),
         Time(s.clock),
     )
@@ -424,6 +433,7 @@ fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_as_the
     let (driver, todos) = Driver::open(
         Box::new(s.db.open()),
         vec![s.flow.clone()],
+        SLOTS,
         Some(policy_under("opus", account(Some("second")))),
         Time(s.clock),
     )

@@ -49,6 +49,14 @@ impl Storage for Failing {
         self.store.load(work)
     }
 
+    fn everything_paused(&self) -> Result<Option<Time>, store::Fault> {
+        self.store.everything_paused()
+    }
+
+    fn pause_everything(&mut self, paused: bool, at: Time) -> Result<(), store::Fault> {
+        self.store.pause_everything(paused, at)
+    }
+
     fn save(&mut self, work: WorkNumber, given: &Work) -> Result<(), store::Fault> {
         let mut saves = self.saves.lock().expect("the count of saves");
         match saves.as_mut() {
