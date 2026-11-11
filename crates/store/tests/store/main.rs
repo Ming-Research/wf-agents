@@ -238,7 +238,13 @@ impl Driver {
         let (run, _) = self.under_way();
         let spent = self.spent();
         let why = why.to_string();
-        self.on(Event::Failed { run, why, spent })
+        self.on(Event::Failed {
+            run,
+            why,
+            failure: decide::run::Failure::Other,
+            resets: None,
+            spent,
+        })
     }
 
     /// What the next round to end took, told apart from every other.

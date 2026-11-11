@@ -8,10 +8,12 @@ import type {
   CallRow,
   Cause,
   CellState,
+  Failure,
   Given,
   Limit,
   Maker,
   Now,
+  Outage,
   Pauser,
   Person,
   Run,
@@ -124,7 +126,46 @@ export function callWords(call: Call): string {
       return `a question to ${personWords(call.who)}`;
     case 'atLimit':
       return `the owner letting the run go on at its limit (${limitWords(call.limit)})`;
+    case 'wait':
+      return `the engine's wait until ${clock(call.until)}, before a round that failed in passing is tried again (${call.failed} in a row)`;
   }
+}
+
+/// The kind of cause of a round that failed, as a clause.
+export function failureWords(failure: Failure): string {
+  switch (failure) {
+    case 'passing':
+      return 'in passing';
+    case 'unread':
+      return 'what came back could not be read';
+    case 'flagged':
+      return "the service's safety check flagged it";
+    case 'usageLimit':
+      return "the account's usage limit was reached";
+    case 'cannotRun':
+      return "the agents' command line cannot run";
+    case 'offline':
+      return 'the network cannot be reached';
+    case 'promptTooLong':
+      return 'the prompt is too long for the model';
+    case 'other':
+      return 'a cause no kind tells apart';
+  }
+}
+
+/// A wait every work shares, in a line: its cause, when it is over, and the round that met it.
+export function outageWords(outage: Outage): string {
+  const until = outage.until;
+  const when =
+    until.kind === 'at'
+      ? `until ${clock(until.at)}`
+      : until.kind === 'tried'
+        ? 'one round tries now'
+        : until.look
+          ? `one round tries once the network is reached, looked at from ${clock(until.at)}, at the latest at ${clock(until.latest)}`
+          : `one round tries at ${clock(until.at)}`;
+  const mend = outage.failure === 'cannotRun' ? ': sign the command line in again or install it' : '';
+  return `${failureWords(outage.failure)}${mend}; no agent's round of any work begins, ${when} (work ${outage.work}, round ${outage.round} of run ${outage.run}: ${outage.why})`;
 }
 
 /// What a round asked for.
@@ -141,6 +182,8 @@ export function waitsForOwner(waited: Waited): boolean {
       return waited.by.some((m) => m.kind === 'owner');
     case 'limit':
       return true;
+    case 'agents':
+      return waited.outage.failure === 'cannotRun';
   }
 }
 
@@ -151,6 +194,7 @@ export function waitedWords(waited: Waited): string {
       const what = waited.what;
       if (what.kind === 'question') return `${personWords(what.who)}'s answer to a question`;
       if (what.kind === 'atLimit') return `the owner to let the run go on: it reached its limit, ${limitWords(what.limit)}`;
+      if (what.kind === 'wait') return callWords(what);
       return `the result of the tool ${what.name}${waited.who ? ` from ${personWords(waited.who)}` : ''}`;
     }
     case 'precondition':
@@ -159,6 +203,8 @@ export function waitedWords(waited: Waited): string {
       return `the owner to let the cell go on: ${
         waited.runs === 1 ? 'its last run was a way round' : `its last ${waited.runs} runs in a row were each a way round`
       }`;
+    case 'agents':
+      return `the agents' rounds to begin again: ${outageWords(waited.outage)}`;
   }
 }
 
@@ -243,6 +289,8 @@ export function unmetWords(unmet: Unmet): string {
       return `it handed in ${unmet.block} with a value, but it is not a choice`;
     case 'notHandedIn':
       return `it did not hand in ${unmet.block}, which the cell must hand in every time`;
+    case 'unreadable':
+      return `what it returned could not be read: ${unmet.why}`;
   }
 }
 

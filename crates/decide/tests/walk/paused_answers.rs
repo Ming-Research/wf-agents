@@ -243,23 +243,48 @@ fn a_pause_holds_back_the_rounds_of_a_run_started_for_a_note_written_before_the_
 }
 
 #[test]
-fn a_pause_holds_back_nothing_of_a_run_for_what_a_person_wrote_but_a_failed_round() {
+fn a_pause_holds_back_nothing_of_a_run_for_what_a_person_wrote_but_a_round_after_one_whose_failure_paused_it() {
     let (mut w, ..) = ran();
-    // Started before the pause.
+    // Started before the owner's pause: nothing is held, a round that failed without pausing the work included.
     w.person_writes("to implement");
     let before = w.start("implement");
     w.returns("implement");
     assert_eq!(decide::hold(&w.flow, &w.records, before), Hold::Nothing);
     w.pause();
-    assert_eq!(decide::hold(&w.flow, &w.records, before), Hold::Retry);
+    assert_eq!(decide::hold(&w.flow, &w.records, before), Hold::Nothing);
     assert_eq!(w.decide(), go_on("implement", before));
     w.go_on("implement");
+    // Its round fails, and the engine pauses the work for it: the round after it waits for the work to be let on.
+    w.fails("implement", "it could not start");
+    assert_eq!(decide::hold(&w.flow, &w.records, before), Hold::Retry);
+    // Let on and paused again by the owner, nothing is held any more.
+    w.resume();
+    w.pause();
+    assert_eq!(decide::hold(&w.flow, &w.records, before), Hold::Nothing);
+    w.go_on("implement");
     w.finish("implement", &[("code", Matters)]);
-    // Started during the pause.
+    // Started during the pause, and its round failed so too.
     w.person_writes("to implement");
     let during = w.start("implement");
     w.returns("implement");
+    assert_eq!(decide::hold(&w.flow, &w.records, during), Hold::Nothing);
+    w.engine_pauses("the round failed");
     assert_eq!(decide::hold(&w.flow, &w.records, during), Hold::Retry);
+}
+
+#[test]
+fn a_pause_the_engine_made_while_a_notes_round_was_under_way_holds_back_the_round_after_its_failure() {
+    let (mut w, ..) = ran();
+    w.pause();
+    w.person_writes("to implement");
+    let run = w.start("implement");
+    // The round takes the work over its budget: the engine pauses it before the round's end comes, and the round has
+    // failed.
+    w.engine_pauses("over its budget");
+    w.returns("implement");
+    assert_eq!(decide::hold(&w.flow, &w.records, run), Hold::Retry);
+    w.resume();
+    assert_eq!(decide::hold(&w.flow, &w.records, run), Hold::Nothing);
 }
 
 #[test]
