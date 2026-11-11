@@ -424,6 +424,9 @@ async fn a_copy_holds_the_database_as_it_stood_while_another_connection_goes_on_
                 conn.execute("INSERT INTO items (title, added) VALUES (?1, 2)", [format!("more {n}")])
                     .expect("a write");
                 n += 1;
+                // A writer that takes the lock again the moment it lets go would starve the one write the step makes
+                // of its own, the record of the copy; the engine's loop writes between its rounds, not in a spin.
+                std::thread::sleep(Duration::from_millis(2));
             }
             n
         })
@@ -431,7 +434,7 @@ async fn a_copy_holds_the_database_as_it_stood_while_another_connection_goes_on_
     let out = e.step(T0).await;
     stop.store(1, Ordering::Relaxed);
     let written = writing.join().expect("the writer ends");
-    let name = out.taken.expect("a copy");
+    let name = out.taken.clone().unwrap_or_else(|| panic!("a copy was taken: {out:?}"));
     let held = e.items_in(&name);
     assert!(held >= 50 && held <= 50 + written, "{held} of {written}");
 }
