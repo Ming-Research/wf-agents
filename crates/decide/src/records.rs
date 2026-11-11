@@ -53,15 +53,14 @@ pub struct Records {
     #[serde(default)]
     pub released: Option<Seq>,
     /// The versions written with nothing in them, each by its block and the place of the entry that wrote it: a block
-    /// written blank says nothing, as one never written does. It is told by the content each entry names, which the
-    /// deciding code is not given; records kept before it was told read as having none.
-    #[serde(default)]
+    /// written blank says nothing, as one never written does. The deciding code is not given the contents: the engine
+    /// tells these as it records a write, and the store works them out of the contents it keeps each time it loads a
+    /// work, works written before they were told included, so no table holds them.
     pub blank: BTreeSet<(BlockId, Seq)>,
     /// The versions written with the same content as the version of their block before them, each by its block and
     /// the place of the entry that wrote it: what the block holds did not change, whatever its writer says of the
-    /// change. It is told by the contents, which the deciding code is not given; records kept before it was told read
-    /// as having none, every version holding something new.
-    #[serde(default)]
+    /// change. They are told as the blank versions are, by the engine as it records a write and by the store out of
+    /// the contents each time it loads a work, works written before they were told included.
     pub unchanged: BTreeSet<(BlockId, Seq)>,
 }
 
