@@ -295,3 +295,24 @@ async fn the_check_before_the_change_runs_the_tests_named_on_a_branch_of_its_own
         "{refused}"
     );
 }
+
+// With a fast CI and no whole CI on the branches of the code before the change, a check before the change that names
+// no test is told to name them, once, as its result; nothing is pushed or run.
+#[tokio::test]
+async fn a_check_before_the_change_naming_no_test_is_told_to_name_them() {
+    let hub = Hub::new().fast().with(|config| config.before_branches = false);
+    hub.committed().await;
+    let files = vec!["farewell.txt".to_string()];
+    let place = hub.place();
+    let before = git::before(&hub.repo.project, &place, &hub.host.kept_main(), &files)
+        .await
+        .unwrap()
+        .unwrap();
+    let said = (hub.host)
+        .check_before(&branch(&place), &before, &Named::default(), &mut Stop::never())
+        .await
+        .expect("a refusal the agent can mend is its result")
+        .expect("said");
+    assert_eq!(said, NO_TESTS_BEFORE);
+    assert!(hub.github().asked().is_empty(), "GitHub was asked nothing");
+}

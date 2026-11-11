@@ -681,6 +681,10 @@ impl<A: Api> Host for GitHub<A> {
             if let Some(why) = fast::refused(fast, named) {
                 return Ok(Some(why));
             }
+        } else if self.config.fast.is_some() && !self.config.before_branches {
+            // The whole CI does not run where the code before the change is pushed: only tests named are run, by the
+            // fast CI. Said as a result, as what the agent can mend.
+            return Ok(Some(NO_TESTS_BEFORE.to_string()));
         } else if !self.config.before_branches {
             return Err(format!(
                 "the installation's settings do not say that the project's CI runs on a push to the branches under \
@@ -763,6 +767,13 @@ impl<A: Api> GitHub<A> {
         Ok(())
     }
 }
+
+/// What the check before the change says where it names no test and only the project's fast CI runs on the code before
+/// the change.
+pub(super) const NO_TESTS_BEFORE: &str = "Nothing was checked: the check before the change runs the tests you name on \
+                                          the project's fast CI, and its whole CI does not run on the code before the \
+                                          change. Name the tests to run, a line `test: <name>` each, beside the \
+                                          `file: <path>` lines.";
 
 /// The beginning of a commit by which a branch of one is named.
 pub(super) fn short(commit: &str) -> &str {
