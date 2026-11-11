@@ -65,7 +65,7 @@
 }
 
 .now-running .now-dot {
-  background: var(--blue);
+  background: var(--running);
 }
 
 .now-owner .now-dot {
@@ -310,7 +310,7 @@
 
 .state-text-running,
 .state-text-resting {
-  color: var(--blue-text);
+  color: var(--running-text);
 }
 
 .state-text-failed {
@@ -375,17 +375,17 @@
 }
 
 .run-running {
-  border-left-color: var(--blue);
-  background: var(--blue-tint);
+  border-left-color: var(--running);
+  background: var(--running-tint);
 }
 
 .run-running .run-word,
 .run-resting .run-word {
-  color: var(--blue-text);
+  color: var(--running-text);
 }
 
 .run-resting {
-  border-left-color: var(--blue);
+  border-left-color: var(--running);
   border-left-style: dotted;
 }
 

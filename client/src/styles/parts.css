@@ -323,10 +323,11 @@ textarea:disabled {
   background: var(--step);
 }
 
+/* The choice taken: on the accent's tint, in its text, ringed in it. */
 .switch-choice[aria-pressed='true'] {
-  background: var(--card);
-  color: var(--text);
-  box-shadow: 0 0 0 var(--hairline) var(--line);
+  background: var(--accent-tint);
+  color: var(--accent-text);
+  box-shadow: 0 0 0 var(--hairline) var(--accent);
 }
 
 /* A tag: a few words or a count of a state, filled in its colour, as the console's count tags on a card. */
@@ -512,7 +513,7 @@ textarea:disabled {
 }
 
 .dot-running {
-  background: var(--blue);
+  background: var(--running);
 }
 
 .dot-back {

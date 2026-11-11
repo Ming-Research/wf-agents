@@ -66,6 +66,9 @@
   --accent: #8b5cf6;
   --accent-text: #7c4ddb;
   --accent-tint: #f1ecfe;
+  /* The marks of a work's cells, in the accent's hue: a cell done a light step of it, the cell running a deep one. */
+  --mark-done: #c4b5fd;
+  --mark-running: #6d28d9;
   /* What a hover adds to the background under it: one step. */
   --step: rgb(0 0 0 / 4%);
 
@@ -74,12 +77,12 @@
      not read on white; a fill takes its tint. */
   --green: #2f9e6e;
   --orange: #f5840c;
-  --blue: #1a9fff;
+  --running: #8b5cf6;
   --red: #e5484d;
   /* The way back: the purple the flow chart has drawn it in, Primer's done colour. */
   --violet: #8250df;
   --green-text: #23795a;
-  --blue-text: #0969da;
+  --running-text: #7c4ddb;
   --orange-text: #b45309;
   --red-text: #c53030;
   --on-colour: #ffffff;
@@ -91,22 +94,25 @@
    own; these keep its relations (a card a step lighter than the ground, the colours lifted to read on it). */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --ground: #0f1012;
-    --card: #17181b;
-    --text: #e6e7ea;
+    --ground: #17191e;
+    --card: #1f2127;
+    --text: #c8ccd4;
     --muted: #8b8f98;
-    --line: #26272b;
+    --line: #30333b;
     --accent: #a78bfa;
     --accent-text: #a78bfa;
-    --accent-tint: #241d38;
+    --accent-tint: #2b2444;
+    /* On the dark ground the cell done stands back and the cell running is the bright one. */
+    --mark-done: #5f4fa6;
+    --mark-running: #b9a3ff;
     --step: rgb(255 255 255 / 5%);
     --green: #45c08a;
     --orange: #ff9a3c;
-    --blue: #4fb4ff;
+    --running: #a78bfa;
     --red: #ff6b70;
     --violet: #ab7df8;
     --green-text: #45c08a;
-    --blue-text: #4fb4ff;
+    --running-text: #a78bfa;
     --orange-text: #ff9a3c;
     --red-text: #ff6b70;
     --on-colour: #0f1012;
@@ -115,22 +121,24 @@
 }
 
 :root[data-theme='dark'] {
-  --ground: #0f1012;
-  --card: #17181b;
-  --text: #e6e7ea;
+  --ground: #17191e;
+  --card: #1f2127;
+  --text: #c8ccd4;
   --muted: #8b8f98;
-  --line: #26272b;
+  --line: #30333b;
   --accent: #a78bfa;
   --accent-text: #a78bfa;
-  --accent-tint: #241d38;
+  --accent-tint: #2b2444;
+  --mark-done: #5f4fa6;
+  --mark-running: #b9a3ff;
   --step: rgb(255 255 255 / 5%);
   --green: #45c08a;
   --orange: #ff9a3c;
-  --blue: #4fb4ff;
+  --running: #a78bfa;
   --red: #ff6b70;
   --violet: #ab7df8;
   --green-text: #45c08a;
-  --blue-text: #4fb4ff;
+  --running-text: #a78bfa;
   --orange-text: #ff9a3c;
   --red-text: #ff6b70;
   --on-colour: #0f1012;
@@ -143,5 +151,5 @@
   --green-tint: color-mix(in srgb, var(--green) 10%, var(--card));
   --orange-tint: color-mix(in srgb, var(--orange) 10%, var(--card));
   --red-tint: color-mix(in srgb, var(--red) 10%, var(--card));
-  --blue-tint: color-mix(in srgb, var(--blue) 10%, var(--card));
+  --running-tint: color-mix(in srgb, var(--running) 10%, var(--card));
 }

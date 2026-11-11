@@ -12,6 +12,9 @@
   --console-accent: var(--accent);
   --console-accent-strong: var(--accent-text);
   --console-accent-wash: var(--accent-tint);
+  /* The head of a section of the item's window, its name and the line after it: a deeper step of the accent than its
+     text step, so that the heads stand over the text. */
+  --console-head: #6a3fd0;
   /* The window's edge and the mark of a changed passage: thick enough to be seen at the screen's side. */
   --console-edge-width: 2px;
   --console-shadow: 0 0 0 1px #d1d9e040, 0 6px 12px -3px #25292e0a, 0 6px 18px 0 #25292e1f;
@@ -28,11 +31,13 @@
 }
 
 :root[data-theme='dark'] .console {
+  --console-head: #8b5cf6;
   --console-shadow: 0 0 0 1px #3d444d, 0 6px 12px -3px #01040966, 0 6px 18px 0 #01040966;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) .console {
+    --console-head: #8b5cf6;
     --console-shadow: 0 0 0 1px #3d444d, 0 6px 12px -3px #01040966, 0 6px 18px 0 #01040966;
   }
 }
@@ -167,11 +172,6 @@
   text-decoration: underline;
 }
 
-/* A work waiting for something that is not the owner: the status line's dot in the console's pale yellow. */
-.dot.cw-dot-waiting {
-  background: var(--console-waiting);
-}
-
 /* How far the work has come and what it has taken, together at the work's line's right end. */
 .cw-progress {
   display: flex;
@@ -184,7 +184,7 @@
    ground, as the page on `main` drew it from Primer's data colours. They have no token: no other view draws them. */
 .cw-track {
   --track-ground: #818b981f;
-  --track-model: #006edb;
+  --track-model: var(--accent);
   --track-tool: #eb670f;
   --track-gap: #e8ecf2;
 
@@ -194,7 +194,7 @@
 
 :root[data-theme='dark'] .cw-track {
   --track-ground: #656c7633;
-  --track-model: #0576ff;
+  --track-model: var(--accent);
   --track-tool: #984b10;
   --track-gap: #2a2d33;
 }
@@ -202,7 +202,7 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) .cw-track {
     --track-ground: #656c7633;
-    --track-model: #0576ff;
+    --track-model: var(--accent);
     --track-tool: #984b10;
     --track-gap: #2a2d33;
   }
@@ -251,16 +251,16 @@
   margin-bottom: var(--space-12);
 }
 
-/* What the work waits for from the owner, in the colour of what waits for them. */
+/* What the work waits for from the owner, in red, as a card stopped for the owner is. */
 .cw-wait-owner {
-  color: var(--orange-text);
+  color: var(--red-text);
 }
 
 /* The body ends a group of sections with a hairline, as the page's panel does (`.panel-part-last`), the messages under it.
    A passage changed since the owner read the item is marked in the margin at its left, as a card new to the owner is. */
+/* The item's text. No line closes it: the head of the messages under it has its own. */
 .cw-body {
-  margin-bottom: var(--space-16);
-  border-bottom: var(--hairline) solid var(--line);
+  margin-bottom: 0;
 }
 
 .cw-part {
@@ -415,8 +415,9 @@
   border-bottom: var(--hairline) solid var(--line);
 }
 
+/* The owner's own messages: on the accent's tint, as a question is, so that they stand apart from the answers. */
 .cw-message-owner {
-  background: var(--ground);
+  background: var(--accent-tint);
 }
 
 .cw-message .status-line {
@@ -481,4 +482,47 @@
 
 .cw-to .switch-choice:disabled:hover {
   background: transparent;
+}
+
+/* A section of the item's window: its head is its name in the accent, strong, with a line after it to the window's
+   edge, which folds the section away at a press; under it, what the section holds. */
+.cw-fold {
+  margin-bottom: var(--space-12);
+}
+
+.cw-fold-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+  margin: var(--space-16) 0 var(--space-8);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--console-head);
+  font-size: var(--size-body);
+  font-weight: var(--weight-strong);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cw-fold:first-child .cw-fold-head {
+  margin-top: 0;
+}
+
+/* The line after the name, to the edge. */
+.cw-fold-head::after {
+  content: '';
+  flex: 1;
+  height: var(--hairline);
+  background: var(--console-head);
+}
+
+.cw-fold-sign {
+  width: var(--space-8);
+}
+
+.cw-fold-count {
+  color: var(--muted);
+  font-weight: var(--weight);
 }

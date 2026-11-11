@@ -9,7 +9,7 @@
 //   `unread` (messages from others the owner has not read), and marking the item read (kept in this page only).
 // - In the window's head and item line: the item's `project`, its `tier`, and whether it is a `goal`.
 // - In the window's work tab: the work's `tier`, and the `verdicts` of its judges (item 262 only).
-// - In the item tab: the body (Background, Problem, Plan, Decisions), the plan's choices, which of them the owner
+// - In the item tab: the body (Background, Problem, Plan), the plan's choices, which of them the owner
 //   already confirmed, and its Confirm (kept in this page only), and the messages written before (who wrote them, to whom,
 //   what they quote, and the replies). Item 262 has a whole made-up content of its own; the others take one of the
 //   bodies below by what their work does, or a short one.
@@ -309,22 +309,15 @@ const ITEM_262: Partial<Body> = {
         'Tests go in `crates/health/src/tests.rs`: a try inside the period, one across its start, one still open, and a ' +
         'round tried three times counted once for each try. Changes `totals.rs`, `lib.rs` and `tests.rs`; the schema stays.',
     },
+    {
+      kind: 'text',
+      text:
+        'A try still open counts what it has used so far, as an open round does, or two ways of counting in one number ' +
+        'would keep the sum from matching. A try that timed out counts as usual: how it ended does not change what it ' +
+        'spent. No index on round_tries: a few dozen rows a day, and a scan by `started` takes 0.3 ms on the demo data.',
+    },
   ],
   planWaits: true,
-  decisions: [
-    {
-      kind: 'text',
-      text: '**A try still open counts what it has used so far.** As an open round does: two ways of counting in one number would keep the sum from matching.',
-    },
-    {
-      kind: 'text',
-      text: '**A try that timed out counts as usual.** How it ended does not change what it spent.',
-    },
-    {
-      kind: 'text',
-      text: '**No index on round_tries.** A few dozen rows a day, and a scan by `started` takes 0.3 ms on the demo data.',
-    },
-  ],
 };
 
 /// The messages of item 262's work, in time order: the owner asks about the open question, the deep research that wrote
@@ -555,7 +548,6 @@ export function bodyMock(item: Item): Body {
     problem: plain('What the item fixes or adds, in a few sentences.'),
     plan: plain('How it is to be done, once researched.'),
     planWaits: false,
-    decisions: [],
     messages: [],
     ...rich,
   };
@@ -567,6 +559,5 @@ export function bodyMock(item: Item): Body {
     background: clear(body.background),
     problem: clear(body.problem),
     plan: clear(body.plan),
-    decisions: clear(body.decisions),
   };
 }

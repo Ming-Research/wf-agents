@@ -119,7 +119,7 @@ const LIGHT = {
   /// The colours of works, which tint their cards: running a vivid sky blue, green being kept for what is done; waiting
   /// for the owner a vivid orange, the one that asks for them; waiting for something else a pale yellow, which asks
   /// nothing of them; paused grey; halted red.
-  running: '#1a9fff',
+  running: '#8b5cf6',
   asked: '#f5840c',
   paused: '#8b93a1',
   halted: '#e5484d',
@@ -137,7 +137,7 @@ const LIGHT = {
   accent: '#8b5cf6',
   /// Where a work's time went, in the colours of the track in the item's window (console.css): a model's, the
   /// tools', idle, and the ground they lie on with how far it lets the card through.
-  model: '#006edb',
+  model: '#8b5cf6',
   tools: '#eb670f',
   idle: '#e8ecf2',
   track: '#818b98',
@@ -171,7 +171,7 @@ export function themed(): typeof LIGHT {
     card: token('--card', LIGHT.card),
     page: token('--ground', LIGHT.page),
     chosen: token('--accent', LIGHT.chosen),
-    running: token('--blue', LIGHT.running),
+    running: token('--running', LIGHT.running),
     asked: token('--orange', LIGHT.asked),
     halted: token('--red', LIGHT.halted),
     red: token('--red', LIGHT.red),
@@ -196,7 +196,7 @@ export function themed(): typeof LIGHT {
     other: '#656c76',
     otherAlpha: 0.85 * (0x33 / 255),
     // Where a work's time went, as the track in the item's window has it in dark.
-    model: '#0576ff',
+    model: t.chosen,
     tools: '#984b10',
     idle: '#2a2d33',
     track: '#656c76',

@@ -41,14 +41,12 @@ export type Body = {
   plan: Part[];
   /// Whether the plan waits for the owner to confirm it.
   planWaits: boolean;
-  /// What the work decided by itself while working, each with its reason; after the plan, with no control.
-  decisions: Passage[];
   messages: Message[];
 };
 
 /// How many parts of the body changed since the owner last read the item.
 export const changedIn = (b: Body): number =>
-  [...b.background, ...b.problem, ...b.plan, ...b.decisions].filter((p) => p.changed === true).length;
+  [...b.background, ...b.problem, ...b.plan].filter((p) => p.changed === true).length;
 
 /// A question as a message quotes it to discuss it: its sentence, then each option's label, each on a line.
 export const quoteOf = (c: Choice): string => [c.question, ...c.options.map((o) => o.label)].join('\n');

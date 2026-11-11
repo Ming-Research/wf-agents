@@ -176,15 +176,15 @@ export function nowWords(s: Summary, page: WorkPage | null): { word: string; fac
 /// The tone of a dot: an item's standing, or what its work does.
 type Tone = ItemStanding | Mood | 'ended';
 
-/// The dot of each tone, as the look's status line colours it; a work waiting for anything but the owner takes the
-/// console's pale yellow, which the look has no tone for.
+/// The dot of each tone, as the look's status line colours it: red for a work stopped for the owner or by the engine,
+/// as its card is; grey for one stopped for anything else.
 const DOT: Record<Tone, string> = {
   open: 'dot dot-running',
   running: 'dot dot-running',
   done: 'dot dot-added',
-  owner: 'dot dot-changed',
+  owner: 'dot dot-removed',
   halted: 'dot dot-removed',
-  waiting: 'dot cw-dot-waiting',
+  waiting: 'dot',
   paused: 'dot',
   cancelled: 'dot',
   ended: 'dot',
@@ -320,7 +320,6 @@ function ItemView({ item, page, act, waitsFor, goal = false, open = true, onRead
       background: clear(was.background),
       problem: clear(was.problem),
       plan: clear(was.plan),
-      decisions: was.decisions.map((p) => ({ ...p, changed: false })),
     }));
     onRead?.();
   }, [item.number, onRead]);
@@ -422,22 +421,25 @@ function ItemView({ item, page, act, waitsFor, goal = false, open = true, onRead
                 discuss={discuss}
                 about={about}
                 jump={jump}
+                after={
+                  <>
+                    {body.planWaits ? (
+                      <button
+                        type="button"
+                        className="button button-primary cw-confirm"
+                        disabled={count.picked < count.all}
+                        onClick={() => {
+                          setBody((was) => ({ ...was, planWaits: false }));
+                          setConfirmed(true);
+                        }}
+                      >
+                        {count.all > 0 ? `Confirm (${count.picked}/${count.all})` : 'Confirm'}
+                      </button>
+                    ) : null}
+                    {confirmed ? <p className="cw-done">You confirmed the plan.</p> : null}
+                  </>
+                }
               />
-              {body.planWaits ? (
-                <button
-                  type="button"
-                  className="button button-primary cw-confirm"
-                  disabled={count.picked < count.all}
-                  onClick={() => {
-                    setBody((was) => ({ ...was, planWaits: false }));
-                    setConfirmed(true);
-                  }}
-                >
-                  {count.all > 0 ? `Confirm (${count.picked}/${count.all})` : 'Confirm'}
-                </button>
-              ) : null}
-              {confirmed ? <p className="cw-done">You confirmed the plan.</p> : null}
-              <Section title="Decisions" parts={body.decisions} />
             </div>
             {offer !== null ? (
               <button
@@ -616,6 +618,46 @@ function writeDraft(key: string, text: string) {
   }
 }
 
+/// Which sections of the item's text the owner folded away, kept in this browser, so that one folded stays folded
+/// from item to item.
+const FOLDED = 'console-window-folded';
+function foldedNow(): string[] {
+  try {
+    const kept = JSON.parse(localStorage.getItem(FOLDED) ?? '[]') as unknown;
+    return Array.isArray(kept) ? kept.filter((k): k is string => typeof k === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/// A section of the item's window: a whole row in the accent's colour that names it and folds it away at a press,
+/// and under it what it holds.
+function Fold({ title, count, children }: { title: string; count?: number; children: ReactNode }) {
+  const [folded, setFolded] = useState(() => foldedNow().includes(title));
+  const turn = () => {
+    const now = !folded;
+    setFolded(now);
+    try {
+      const kept = foldedNow().filter((k) => k !== title);
+      localStorage.setItem(FOLDED, JSON.stringify(now ? [...kept, title] : kept));
+    } catch {
+      // Kept only where the browser lets it be.
+    }
+  };
+  return (
+    <section className="cw-fold">
+      <button type="button" className="cw-fold-head" aria-expanded={!folded} onClick={turn}>
+        <span className="cw-fold-sign" aria-hidden="true">
+          {folded ? '▸' : '▾'}
+        </span>
+        <span>{title}</span>
+        {count !== undefined && <span className="cw-fold-count mono">{count}</span>}
+      </button>
+      {!folded && <div className="cw-fold-body">{children}</div>}
+    </section>
+  );
+}
+
 function Section({
   title,
   parts,
@@ -623,6 +665,7 @@ function Section({
   discuss,
   about,
   jump,
+  after,
 }: {
   title: string;
   parts: Part[];
@@ -634,10 +677,12 @@ function Section({
   about?: (c: Choice) => number[];
   /// Brings a message into view.
   jump?: (at: number) => void;
+  /// What stands under its parts, inside the section, and is folded away with it.
+  after?: ReactNode;
 }) {
   if (parts.length === 0) return null;
   return (
-    <PanelPart label={title}>
+    <Fold title={title}>
       {parts.map((p, i) => (
         <div key={i} className={p.changed === true ? 'cw-part cw-changed' : 'cw-part'}>
           {p.kind === 'text' ? (
@@ -653,7 +698,8 @@ function Section({
           )}
         </div>
       ))}
-    </PanelPart>
+      {after}
+    </Fold>
   );
 }
 
@@ -744,7 +790,7 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
   const target = usable.find((t) => t.cell === (messageTo ?? (went(work, 'I1') ? 'I1' : 'R1'))) ?? usable[0];
   const block = target?.block;
   return (
-    <PanelPart label="Discussion">
+    <Fold title="Discussion" count={messages.length}>
       {messages.map((n, i) => (
         <div key={i} id={messageId(work.number, i)} className={n.who === 'owner' ? 'cw-message cw-message-owner' : 'cw-message'}>
           <div className="status-line">
@@ -795,7 +841,7 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
           />
         </div>
       )}
-    </PanelPart>
+    </Fold>
   );
 }
 
