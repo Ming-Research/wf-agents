@@ -1,11 +1,12 @@
 # The design tree
 
-1. The design tree is `design/`: the constitution, `principles/`, and one file of decisions for each ability or
-   component of the system, named for it. It holds what an agent taking the work up in another session needs and the
-   code cannot tell it: the principles of rule 2 and the decisions of rule 3. What the code shows is not written here:
-   what a thing does, its names, its numbers, the order of its steps, a property a test holds. A comment is part of
-   what the code shows: a reason that concerns one place in the code and no other is a comment at that place, where
-   whoever would undo it must pass, and is not written here as well.
+1. The design tree is `design/`: the constitution, `principles/`, and `decisions/`, which holds one file of decisions
+   for each ability or component of the system, named for it, under the area it belongs to: `engine`, `flow` or
+   `frontend`. The tree holds what an agent taking the work up in another session needs and the code cannot tell it:
+   the principles of rule 2 and the decisions of rule 3. What the code shows is not written here: what a thing does,
+   its names, its numbers, the order of its steps, a property a test holds. A comment is part of what the code shows:
+   a reason that concerns one place in the code and no other is a comment at that place, where whoever would undo it
+   must pass, and is not written here as well.
 
 2. A principle is a standard that holds in many places: a way things are done, an idea the design rests on, a
    direction the system is to go in. What governs one place is no principle, however sound: whoever proposes one names
