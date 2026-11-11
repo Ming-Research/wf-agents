@@ -335,7 +335,10 @@ impl Service {
     /// before is dropped. Where the driver asks for a look at the network, the look is taken off the loop as the time
     /// comes.
     fn set_wake(&mut self) {
-        let wake = self.driver.wake();
+        let Ok(now) = self.clock.now() else {
+            return;
+        };
+        let wake = self.driver.wake(now);
         if self.wake.as_ref().map(|(w, _)| *w) == wake {
             return;
         }

@@ -386,9 +386,15 @@ impl Driver {
         outage::outage((self.works.values()).map(|held| (held.head.number, &*held.flow, &held.work)))
     }
 
-    /// When the driver is to be told the time again, where the wait every work shares is over then by itself, or the
-    /// network is to be looked at; none where nothing waits for a time.
-    pub fn wake(&self) -> Option<Wake> {
+    /// When, after `now`, the driver is to be told the time again, where the wait every work shares is over then by
+    /// itself, or the network is to be looked at; none where nothing waits for a later time. A time that has come
+    /// is no wake: the works were looked at as it came, and what still waits waits for a round to end.
+    pub fn wake(&self, now: Time) -> Option<Wake> {
+        self.next_wake().filter(|wake| wake.at > now)
+    }
+
+    /// When the driver is to be told the time next, as the wait every work shares says, whether or not it has come.
+    fn next_wake(&self) -> Option<Wake> {
         let outage = self.outage()?;
         match outage.until() {
             Until::At(at) => Some(Wake { at, look: false }),
