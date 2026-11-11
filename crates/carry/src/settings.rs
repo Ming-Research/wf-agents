@@ -444,6 +444,14 @@ mod tests {
             ("\"--permission-prompt-tool\"", "--permission-prompt-tool, last"),
             ("\"--setting-sources\", \"user,project\"", "--setting-sources"),
             ("\"--setting-sources=local\"", "--setting-sources"),
+            (
+                "\"--permission-prompt-tool\", \"mcp__ok__approve\"",
+                "--permission-prompt-tool would",
+            ),
+            (
+                "\"--permission-prompt-tool=mcp__ok__approve\"",
+                "--permission-prompt-tool would",
+            ),
         ] {
             let refused = Settings::read(&with(args)).expect_err(args);
             assert!(refused.contains(says), "{args}: {refused}");
@@ -484,14 +492,8 @@ mod tests {
                 "{ locks = [\"cargo\"] }",
                 "would allow all of the heavy command \"cargo\"",
             ),
-            (
-                "{ locks = [\"npm run\"] }",
-                "would allow all of the heavy command \"npm run\"",
-            ),
-            (
-                "{ locks = [\"npm\"] }",
-                "would allow all of the heavy command \"npm run\"",
-            ),
+            ("{ locks = [\"npm\"] }", "would allow all of the heavy command \"npm\""),
+            ("{ locks = [\"git push origin\"] }", "\"git push origin\" would push"),
             (
                 "{ heavy = [\"uv\"], locks = [\"uv\"] }",
                 "would allow all of the heavy command \"uv\"",

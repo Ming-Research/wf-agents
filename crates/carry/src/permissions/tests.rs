@@ -41,14 +41,11 @@ fn only_a_line_that_writes_may_update_a_lock_file() {
     ];
     assert_eq!(writes.allowed, locks);
     assert_eq!(writes.locks, LOCKS);
-    for gone in ["Bash(cargo *)", "Bash(npm install *)"] {
+    for gone in ["Bash(cargo *)", "Bash(npm *)"] {
         assert!(!writes.refused.iter().any(|r| r == gone), "{gone}");
     }
     for kept in [
         "Bash(rustc *)",
-        "Bash(npm run *)",
-        "Bash(npm test *)",
-        "Bash(npm ci *)",
         "Bash(npx *)",
         "Bash(vitest *)",
         "Bash(pytest *)",
@@ -127,7 +124,7 @@ fn what_the_installation_allows_under_a_heavy_command_stays_refused() {
         assert_eq!(permissions.locks, kept, "{given:?}");
         let allowed: Vec<String> = kept.iter().map(|k| format!("Bash({k} *)")).collect();
         assert_eq!(permissions.allowed, allowed, "{given:?}");
-        let npm_whole = permissions.refused.iter().any(|r| r == "Bash(npm install *)");
+        let npm_whole = permissions.refused.iter().any(|r| r == "Bash(npm *)");
         assert_eq!(npm_whole, kept.is_empty(), "{given:?}");
         assert!(permissions.refused.iter().any(|r| r == "Bash(git push *)"), "{given:?}");
     }
@@ -253,41 +250,65 @@ fn an_allow_without_a_word_s_end_reaches_the_heavy_commands_it_can_match() {
         lock.refused
     );
     // A `*` within a rule makes what comes before it a beginning of any text.
-    let within = of(false, &args(&["--allowedTools", "Bash(npm ins* --global)"]));
+    let within = of(false, &args(&["--allowedTools", "Bash(carg* --release)"]));
     assert!(
-        within.refused.iter().any(|r| r == "Bash(npm install *)"),
+        within.refused.iter().any(|r| r == "Bash(cargo *)"),
         "{:?}",
         within.refused
     );
-    assert_eq!(within.locks, ["cargo update", "cargo add"]);
+    assert_eq!(within.locks, ["npm install --package-lock-only --ignore-scripts"]);
 }
 
-// The other names npm takes for the commands it builds, runs or installs with are heavy as well, so that an
-// installation that allows all of npm lets none of them through; the lock command is no use of any of them.
+/// Whether the command line refuses `command` to a round with these permissions, run with the installation's
+/// arguments `given`: a refused rule matches it, or no rule allows it, which in the permission modes the installations
+/// run in is refused as well.
+fn refuses(permissions: &Permissions, given: &[String], command: &str) -> bool {
+    let rule = |r: &String| {
+        r.strip_prefix("Bash(")
+            .and_then(|r| r.strip_suffix(')'))
+            .map(str::to_string)
+    };
+    let pattern = |r: &String| rule(r).is_some_and(|p| matches(&p, command));
+    let installed = allows(given);
+    permissions.refused.iter().any(pattern) || !(permissions.allowed.iter().chain(&installed)).any(pattern)
+}
+
+// npm is heavy whole, as Cargo is: every use of it but its lock command is refused on every line, whatever names it
+// goes by and though the installation allows all of npm; the lock command stays allowed on a line that writes.
 #[test]
-fn npm_s_other_names_for_its_heavy_commands_are_refused() {
-    let names = [
-        "npm i",
-        "npm add",
+fn every_use_of_npm_but_its_lock_command_is_refused() {
+    let uses = [
+        "npm i left-pad",
+        "npm add left-pad",
+        "npm ic",
         "npm t",
-        "npm x",
-        "npm run-script",
+        "npm x vitest",
+        "npm rum build",
+        "npm run-script build",
         "npm rebuild",
         "npm start",
+        "npm init vite",
+        "npm update",
+        "npm install",
     ];
+    let lock = "npm install --package-lock-only --ignore-scripts left-pad";
     for (reads_only, given) in [
         (false, args(&[])),
         (false, args(&["--allowedTools", "Bash(npm *)"])),
+        (false, args(&["--allowedTools", "Bash(npm i*)"])),
         (true, args(&[])),
+        (true, args(&["--allowedTools", "Bash(npm *)"])),
     ] {
-        let refused = of(reads_only, &given).refused;
-        for name in names {
-            assert!(refused.contains(&format!("Bash({name} *)")), "{name}: {given:?}");
+        let permissions = of(reads_only, &given);
+        for command in uses {
+            assert!(
+                refuses(&permissions, &given, command),
+                "{command}: {reads_only} {given:?}"
+            );
         }
+        let open = !reads_only && given.is_empty();
+        assert_eq!(!refuses(&permissions, &given, lock), open, "{reads_only} {given:?}");
     }
-    let lock = "npm install --package-lock-only --ignore-scripts";
-    assert!(!names.iter().any(|name| falls_under(lock, name)));
-    assert!(of(false, &[]).locks.iter().any(|l| l == lock));
 }
 
 // The installation adds to the engine's lists: a heavy command of its toolchain is refused, its lock command is

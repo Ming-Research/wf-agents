@@ -35,7 +35,7 @@ async fn a_line_that_writes_and_one_that_only_reads_are_each_given_what_they_may
 
     // The engineer's line writes: it may update a lock file, and is refused the heavy commands and pushing.
     let refused = after(plan, "--disallowedTools");
-    for rule in ["Bash(rustc *)", "Bash(npm run *)", "Bash(vitest *)", "Bash(git push *)"] {
+    for rule in ["Bash(rustc *)", "Bash(npx *)", "Bash(vitest *)", "Bash(git push *)"] {
         assert!(refused.contains(&rule), "{rule}: {refused:?}");
     }
     assert!(
