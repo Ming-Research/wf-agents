@@ -774,7 +774,11 @@ fn an_asset_whose_local_file_is_gone_is_still_pruned_when_it_falls_past_keeping(
     let out = e.step(T0 + DAY + 1);
     assert_eq!(out.failed, None);
     let second = e.rows().copies[1].name.clone();
-    assert_eq!(e.fake.names(), vec![second], "the first copy's asset is pruned with its row");
+    assert_eq!(
+        e.fake.names(),
+        vec![second],
+        "the first copy's asset is pruned with its row"
+    );
 }
 
 // Reference: acceptance 14 (the report gives the last failure with its step and reason). A prune that fails in the
