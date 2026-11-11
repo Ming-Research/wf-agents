@@ -110,6 +110,34 @@ async fn a_request_held_open_is_answered_as_soon_as_something_comes() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_request_held_open_with_no_mark_gives_a_work_that_ended_while_it_was_held() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let mut script = trial_script();
+    // The plan asks nothing, so that nothing of the work is for a person before it merges.
+    script.flows.get_mut("trial").unwrap().rounds[0].asks = None;
+    let running = running_scripted(Box::new(store), dir, script);
+    let router = running.router.clone();
+    let item = json!({
+        "title": "Greet the user",
+        "dependsOn": [],
+        "flow": "trial",
+        "writes": [{ "block": "request", "content": "Greet the user, please.", "value": null }],
+    });
+    assert_eq!(post(&router, "/api/v1/items", &item).await.0, StatusCode::OK);
+    let resumed = post(&router, "/api/v1/works/1/acts", &json!({ "kind": "resume" })).await;
+    assert_eq!(resumed.0, StatusCode::NO_CONTENT);
+    let held = tokio::spawn(async move { get_json(&router, "/api/v1/attention?wait=600").await });
+    pass(1000).await;
+    assert!(!held.is_finished(), "answered while the work was going on");
+    pass(60_000).await;
+    assert!(held.is_finished(), "the work never merged, or its merge was not given");
+    let answer = held.await.unwrap();
+    assert_eq!(answer["lines"][0]["kind"], "ended", "{answer}");
+    assert_eq!(answer["lines"][0]["now"], json!({ "kind": "merged" }), "{answer}");
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_request_held_open_with_nothing_is_answered_with_no_line_once_its_time_has_passed() {
     let running = running();
     let router = running.router.clone();

@@ -4,8 +4,8 @@
 //! `since` is the mark the last answer gave; with none, what stands now is given. `wait` is how many seconds at most
 //! the request is held open while there is nothing: it is answered as soon as there is something, or with no line and
 //! the mark to give next time once that time has passed; with none, it is answered at once. While it is held, what the
-//! driver holds is read again each time something happens, and the mark it was asked with is kept, so that what
-//! happens while it is held is in its answer.
+//! driver holds is read again each time something happens, from the mark the read before gave, so that what happens
+//! while it is held is in its answer.
 //!
 //! A mark that cannot be read, or is no mark of these records, is refused with 400 and 422; a driver that stopped, and
 //! an engine whose loop has ended, answer 503; a work that cannot be shown, which the engine never makes, 500.
@@ -170,7 +170,7 @@ pub(crate) async fn attention(State(handle): State<Handle>, asked: Result<Query<
             );
         }
     };
-    let mark = match asked.since.as_deref().map(Mark::read).transpose() {
+    let mut mark = match asked.since.as_deref().map(Mark::read).transpose() {
         Ok(mark) => mark,
         Err(unreadable) => return fail(StatusCode::BAD_REQUEST, format!("{}.", unreadable.0)),
     };
@@ -179,9 +179,11 @@ pub(crate) async fn attention(State(handle): State<Handle>, asked: Result<Query<
     let mut changes = handle.changes();
     loop {
         let since = mark.clone();
-        let read = handle
-            .read(move |driver| (driver.attention(since.as_ref())).map(|attention| Attention::of(driver, &attention)));
-        let answer = match read.await {
+        let read = handle.read(move |driver| {
+            (driver.attention(since.as_ref()))
+                .map(|attention| Attention::of(driver, &attention).map(|answer| (answer, attention.mark)))
+        });
+        let (answer, read_to) = match read.await {
             Ok(Ok(Ok(answer))) => answer,
             Ok(Ok(Err(broken))) => {
                 return fail(
@@ -195,6 +197,9 @@ pub(crate) async fn attention(State(handle): State<Handle>, asked: Result<Query<
         let Some(until) = until.filter(|_| answer.lines.is_empty()) else {
             return Json(answer).into_response();
         };
+        // Read again from where this read left off: with no mark, a work that ends while the request is held would
+        // otherwise be taken as read, as every work that ended is where no mark is given.
+        mark = Some(read_to);
         match tokio::time::timeout_at(until, changes.recv()).await {
             Err(_) => return Json(answer).into_response(),
             // Something happened, or more than the listener keeps: either way the works are read again.
