@@ -80,7 +80,7 @@ fn after_every_call_the_store_holds_what_the_driver_shows() {
     let todos = h.hands_in(wa, &[("opinions", None), ("verdict", Some("no"))]);
     assert_eq!(rounds(&todos), [(wa, "write".to_string(), 1)]);
     let (run, ..) = h.round(wa);
-    let todos = h.on(wa, Event::Cancelled);
+    let todos = h.on(wa, Event::Cancelled { why: None });
     assert_eq!(
         todos,
         vec![Todo {

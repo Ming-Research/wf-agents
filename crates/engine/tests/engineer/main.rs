@@ -612,7 +612,7 @@ impl Part for Random {
             }
         }
         let event = match d.rng.below(100) {
-            0 => Some(Event::Cancelled),
+            0 => Some(Event::Cancelled { why: None }),
             1..=21 => pick(&mut d.rng, people_choices).map(|b| {
                 let values = blocks[&b].values.clone().expect("a choice");
                 let value = values[d.rng.below(values.len())].clone();

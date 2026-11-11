@@ -188,7 +188,7 @@ impl History {
     fn person_acts(&mut self) {
         let value = |rng: &mut Rng, a: &str, b: &str| Some(if rng.chance(50) { a } else { b }.to_string());
         let event = match self.rng.below(100) {
-            0..=1 => Event::Cancelled,
+            0..=1 => Event::Cancelled { why: None },
             2..=21 => {
                 let block = ["request", "opinions", "verdict"][self.rng.below(3)];
                 let value = if block == "verdict" {

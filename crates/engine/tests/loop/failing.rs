@@ -93,7 +93,7 @@ fn a_run_whose_round_failed_is_abandoned_when_the_owner_writes_an_input_and_once
 #[test]
 fn a_round_that_fails_after_its_work_was_cancelled_ends_and_pauses_nothing() {
     let (mut w, write, _) = W::requested();
-    assert_eq!(w.on(Event::Cancelled), vec![Effect::Stop { run: write }]);
+    assert_eq!(w.on(Event::Cancelled { why: None }), vec![Effect::Stop { run: write }]);
     let release = vec![Effect::Release { end: End::Cancelled }];
     assert_eq!(w.on(failed(write)), release);
     assert!(!decide::paused(&w.work.records));

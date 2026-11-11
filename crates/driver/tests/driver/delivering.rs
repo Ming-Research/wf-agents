@@ -119,7 +119,7 @@ fn a_deliverable_made_of_an_item_that_was_cancelled_waits_for_good() {
     let (a, wa) = h.add(new_item("a", &[], "short"));
     let (_, wd) = h.add(new_item("d", &[a], "deliver"));
     h.let_on(wd);
-    h.on(wa, Event::Cancelled);
+    h.on(wa, Event::Cancelled { why: None });
     assert_eq!(h.decision(wd), waits_to_be_delivered());
     assert_eq!(runs(&h, wd), 0);
 }

@@ -260,7 +260,7 @@ impl Part for Shape {
     /// A person or the outside acts.
     fn acts(&mut self, d: &mut Driver) -> Event {
         match d.rng.below(100) {
-            0..=1 => Event::Cancelled,
+            0..=1 => Event::Cancelled { why: None },
             2..=13 => {
                 let block = ["request", "opinions", "choice"][d.rng.below(3)];
                 let value = (block == "choice").then(|| if d.rng.chance(50) { "yes" } else { "no" }.to_string());

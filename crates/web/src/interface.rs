@@ -18,12 +18,12 @@ use decide::RunId;
 use driver::Failed;
 use serde::Serialize;
 use service::{Handle, Levels};
-use store::{ItemNumber, WorkNumber};
+use store::{ItemChange, ItemNumber, WorkNumber};
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::works::{
-    Act, Added, Broken, CallPage, Changed, Engine, EngineAct, Items, LevelSet, LevelsPage, NewItem, NewLevel, Refusal,
-    RoundPage, ToldPage, VersionPage, WorkPage,
+    Act, Added, Broken, CallPage, Changed, DependencyChange, Engine, EngineAct, ItemChanged, Items, LevelsPage,
+    NewItem, NewLevel, NewTitle, Refusal, RoundPage, ToldPage, VersionPage, WorkPage,
 };
 
 /// The routes of the items and the works, over the engine's loop; an item is added at one of these levels.
@@ -38,6 +38,8 @@ pub fn router(handle: Handle, levels: Levels) -> Router {
     Router::new()
         .route("/api/v1/items", get(items).post(add))
         .route("/api/v1/items/{item}/level", post(set))
+        .route("/api/v1/items/{item}/title", post(retitle))
+        .route("/api/v1/items/{item}/dependencies", post(depend))
         .route("/api/v1/levels", get(move || async move { Json(shown.clone()) }))
         .route("/api/v1/works/{work}", get(work))
         .route("/api/v1/works/{work}/versions/{block}/{at}", get(version))
@@ -119,8 +121,39 @@ async fn set_level(
         Ok(level) => level,
         Err(why) => return fail(StatusCode::UNPROCESSABLE_ENTITY, format!("The item's level: {why}.")),
     };
-    match handle.set_level(item, &level).await {
-        Ok(changed) => Json(LevelSet { changed }).into_response(),
+    changed(&handle, item, ItemChange::Level(level)).await
+}
+
+/// Gives an item another title, as whoever plans the work.
+async fn retitle(State(handle): State<Handle>, path: Result<Path<u64>, PathRejection>, body: Bytes) -> Response {
+    let item = match path {
+        Ok(Path(item)) => ItemNumber(item),
+        Err(rejection) => return unreadable(&rejection),
+    };
+    let asked: NewTitle = match serde_json::from_slice(&body) {
+        Ok(asked) => asked,
+        Err(e) => return fail(StatusCode::BAD_REQUEST, format!("The title cannot be read: {e}.")),
+    };
+    changed(&handle, item, ItemChange::Title(asked.title)).await
+}
+
+/// Makes an item depend on another, or no longer, as whoever plans the work.
+async fn depend(State(handle): State<Handle>, path: Result<Path<u64>, PathRejection>, body: Bytes) -> Response {
+    let item = match path {
+        Ok(Path(item)) => ItemNumber(item),
+        Err(rejection) => return unreadable(&rejection),
+    };
+    let asked: DependencyChange = match serde_json::from_slice(&body) {
+        Ok(asked) => asked,
+        Err(e) => return fail(StatusCode::BAD_REQUEST, format!("The change cannot be read: {e}.")),
+    };
+    changed(&handle, item, asked.taken()).await
+}
+
+/// Changes the item, and answers whether that changed it, or why it was refused.
+async fn changed(handle: &Handle, item: ItemNumber, change: ItemChange) -> Response {
+    match handle.change(item, change).await {
+        Ok(changed) => Json(ItemChanged { changed }).into_response(),
         Err(refusal) => refused(&refusal),
     }
 }
@@ -191,6 +224,14 @@ async fn act(State(handle): State<Handle>, path: Result<Path<u64>, PathRejection
         Ok(act) => act,
         Err(e) => return fail(StatusCode::BAD_REQUEST, format!("The act cannot be read: {e}.")),
     };
+    if let Act::Cancel { why: Some(why) } = &act
+        && why.trim().is_empty()
+    {
+        return fail(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "A cancel's reason says nothing: give one that says why, or none.".to_string(),
+        );
+    }
     match handle.act(number, act.taken()).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(refusal) => refused(&refusal),

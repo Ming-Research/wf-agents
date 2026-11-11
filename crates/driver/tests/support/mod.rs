@@ -32,7 +32,7 @@ use engine::{Ask, Back, Came, Effect, Event, Given, Handed, Spent, Time, Work};
 use flow::{Compiled, Has, Kind, Source, compile};
 use rusqlite::Connection;
 use rusqlite::types::Value;
-use store::{Item, ItemNumber, Storage, Store, WorkHead, WorkNumber};
+use store::{Item, ItemChange, ItemNumber, Storage, Store, WorkHead, WorkNumber};
 use tempfile::TempDir;
 
 /// The time of the first thing a test does.
@@ -265,7 +265,7 @@ pub fn dump(path: &Path) -> BTreeMap<String, Vec<Vec<String>>> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Op {
     Add,
-    SetLevel,
+    Change,
     Items,
     Works,
     Load,
@@ -372,9 +372,9 @@ impl Storage for Failing {
         self.store.add(title, level, depends_on, flow, at, first)
     }
 
-    fn set_level(&mut self, item: ItemNumber, level: &str, at: Time) -> Result<(), store::Fault> {
-        self.call(Op::SetLevel)?;
-        self.store.set_level(item, level, at)
+    fn change(&mut self, item: ItemNumber, change: &ItemChange, at: Time) -> Result<(), store::Fault> {
+        self.call(Op::Change)?;
+        self.store.change(item, change, at)
     }
 
     fn items(&self) -> Result<Vec<Item>, store::Fault> {
@@ -681,6 +681,37 @@ impl H {
                 Outcome::Stopped { kept }
             }
             Err(other) => panic!("what happened was refused: {other:?}"),
+        }
+    }
+
+    /// Whoever plans the work changes an item at this time, which the driver takes, or refuses leaving everything as it
+    /// was, unless its store stops it; a refusal gives nothing to be done.
+    pub fn try_change(&mut self, now: Time, item: ItemNumber, change: ItemChange) -> Outcome<Vec<Todo>> {
+        let before = self.state();
+        let items = self.reader.items().expect("the items are read");
+        match self.dm().change(now, item, change) {
+            Ok((_, todos)) => {
+                self.given(&todos);
+                if self.checking {
+                    self.check();
+                }
+                Outcome::Done(todos)
+            }
+            Err(Failed::Stopped { fault, kept }) => {
+                self.stopped(&fault);
+                let after = self.reader.items().expect("the items are read");
+                assert_eq!(
+                    kept,
+                    after != items,
+                    "the driver said kept: {kept} of a change, and the store says otherwise"
+                );
+                Outcome::Stopped { kept }
+            }
+            Err(Failed::Unchangeable { .. } | Failed::NoSuchItem(_)) => {
+                assert_eq!(self.state(), before, "a refused change changed the driver or the store");
+                Outcome::Done(Vec::new())
+            }
+            Err(other) => panic!("the change was refused for no reason a change has: {other:?}"),
         }
     }
 
@@ -1178,6 +1209,18 @@ impl H {
         self.on(work, Event::Resumed)
     }
 
+    /// Whoever plans the work changes an item, which the driver must take; gives whether that changed it, and what is
+    /// to be done.
+    pub fn change(&mut self, item: ItemNumber, change: ItemChange) -> (bool, Vec<Todo>) {
+        let now = self.now();
+        let (changed, todos) = (self.dm().change(now, item, change)).expect("the change is taken");
+        self.given(&todos);
+        if self.checking {
+            self.check();
+        }
+        (changed, todos)
+    }
+
     /// What the work does next, as its view says.
     pub fn decision(&self, work: WorkNumber) -> Decision {
         self.d().view(work).expect("the work is there").decision
@@ -1224,6 +1267,8 @@ impl H {
 pub enum Act {
     Add(NewItem),
     On(WorkNumber, Event),
+    /// Whoever plans the work changes an item, which the driver may refuse.
+    Change(ItemNumber, ItemChange),
     /// The owner sets the pause of everything, or lifts it.
     Everything(bool),
 }
@@ -1251,6 +1296,10 @@ pub fn perform(h: &mut H, now: Time, act: &Act, stops: &mut Stops) -> Option<Vec
                 Outcome::Stopped { kept } => (Some(kept), None),
             },
             Act::On(work, event) => match h.try_on(now, *work, event.clone()) {
+                Outcome::Done(todos) => (None, Some(todos)),
+                Outcome::Stopped { kept } => (Some(kept), None),
+            },
+            Act::Change(item, change) => match h.try_change(now, *item, change.clone()) {
                 Outcome::Done(todos) => (None, Some(todos)),
                 Outcome::Stopped { kept } => (Some(kept), None),
             },

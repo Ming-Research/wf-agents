@@ -12,7 +12,7 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 use flow::{Fault, FaultKind, Has, Source};
-use web::works::{Act, EngineAct};
+use web::works::{Act, DependencyChange, EngineAct};
 
 use crate::talk::Asked;
 
@@ -88,6 +88,31 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
+    /// Gives an item another title, which its merge will be named by. The title it had is kept, as every change of an
+    /// item is: `wf-agents show` says each.
+    SetTitle {
+        item: u64,
+        title: String,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Makes an item depend on another, while its work has started no run: its work then waits for that one to merge as
+    /// well. Refused where that one depends on it already, by way of any items.
+    AddDependency {
+        item: u64,
+        /// The item it comes to depend on.
+        on: u64,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Makes an item no longer depend on another, while its work has started no run.
+    RemoveDependency {
+        item: u64,
+        /// The item it no longer depends on.
+        on: u64,
+        #[command(flatten)]
+        at: At,
+    },
     /// Says whether everything is paused and how many slots are taken, and lists the items, each with what its work
     /// does now.
     List {
@@ -121,9 +146,12 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Cancels a work's item: nothing of the work goes on.
+    /// Cancels a work's item, saying why: nothing of the work goes on.
     Cancel {
         work: u64,
+        /// Why it is cancelled, in a sentence, such as the item it was joined into; kept with the cancel.
+        #[arg(long)]
+        why: String,
         #[command(flatten)]
         at: At,
     },
@@ -246,6 +274,13 @@ fn main() -> ExitCode {
             }
         },
         Command::SetLevel { item, level, at } => talk::ask(at.port, Asked::SetLevel(item, level)),
+        Command::SetTitle { item, title, at } => talk::ask(at.port, Asked::SetTitle(item, title)),
+        Command::AddDependency { item, on, at } => {
+            talk::ask(at.port, Asked::Depend(item, DependencyChange::Add { item: on }))
+        }
+        Command::RemoveDependency { item, on, at } => {
+            talk::ask(at.port, Asked::Depend(item, DependencyChange::Remove { item: on }))
+        }
         Command::List { at } => talk::ask(at.port, Asked::List),
         Command::Show { work, at } => talk::ask(at.port, Asked::Show(work)),
         Command::Resume { work, all, at } => match (work, all) {
@@ -256,7 +291,7 @@ fn main() -> ExitCode {
             (Some(work), false) => talk::ask(at.port, Asked::Act(work, Act::Pause {})),
             _ => talk::ask(at.port, Asked::Everything(EngineAct::Pause {})),
         },
-        Command::Cancel { work, at } => talk::ask(at.port, Asked::Cancel(work)),
+        Command::Cancel { work, why, at } => talk::ask(at.port, Asked::Cancel(work, why)),
         Command::Write {
             work,
             block,

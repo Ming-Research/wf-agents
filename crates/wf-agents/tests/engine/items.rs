@@ -54,7 +54,7 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
     );
     // A work that merged is not cancelled, and is not said to be.
     assert_eq!(
-        engine.refuses(&["cancel", "1"]),
+        engine.refuses(&["cancel", "1", "--why", "No longer wanted."]),
         "Work 1 is not cancelled: it has merged.\n"
     );
 }
@@ -138,7 +138,10 @@ fn a_work_is_paused_written_let_go_and_cancelled_from_the_command_line() {
         engine.says(&["let-go", "2", "build"]),
         "Cell build of work 2 goes on.\n"
     );
-    assert_eq!(engine.says(&["cancel", "2"]), "Work 2 is cancelled.\n");
+    assert_eq!(
+        engine.says(&["cancel", "2", "--why", "No longer wanted."]),
+        "Work 2 is cancelled.\n"
+    );
     engine.until(&["list"], |line| {
         line == "Item 2 \"Say goodbye\" at level 1, work 2 on trial, after 1: cancelled"
     });
