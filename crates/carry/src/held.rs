@@ -37,21 +37,43 @@ pub(crate) enum Failing<R> {
     End(R),
 }
 
-/// What carries a round or a call out is told by this to stop.
-pub(crate) struct Stop(oneshot::Receiver<()>);
+/// What carries a round or a call out is told by this to stop. It may be waited for again and again, as between the
+/// looks of a wait: once told, it comes at once each time.
+pub(crate) struct Stop {
+    /// The way it is told, until it was told or can no longer be.
+    told: Option<oneshot::Receiver<()>>,
+    /// Whether it was told.
+    stopped: bool,
+}
 
 impl Stop {
     /// A stop that is never told.
     #[cfg(test)]
     pub(crate) fn never() -> Stop {
-        Stop(oneshot::channel().1)
+        Stop::new(oneshot::channel().1)
     }
 
-    /// Comes once the round or the call is to stop; never, where it is not.
-    pub(crate) async fn told(&mut self) {
-        if (&mut self.0).await.is_err() {
-            std::future::pending::<()>().await;
+    fn new(told: oneshot::Receiver<()>) -> Stop {
+        Stop {
+            told: Some(told),
+            stopped: false,
         }
+    }
+
+    /// Comes once the round or the call is to stop, and at once each time after; never, where it is not.
+    pub(crate) async fn told(&mut self) {
+        if self.stopped {
+            return;
+        }
+        if let Some(told) = self.told.as_mut() {
+            let said = told.await;
+            self.told = None;
+            if said.is_ok() {
+                self.stopped = true;
+                return;
+            }
+        }
+        std::future::pending::<()>().await;
     }
 }
 
@@ -80,7 +102,7 @@ impl<K: Ord + Copy, R> Held<K, R> {
             stop: Some(stop),
         };
         slots.insert(key, slot);
-        Some(Stop(told))
+        Some(Stop::new(told))
     }
 
     /// Forgets each round or call that was answered and that `taken` says the loop has taken the answer of: nothing
@@ -162,6 +184,22 @@ mod tests {
         );
         held.prune(|_| true);
         assert!(held.hold(1, "again").is_some(), "its answer taken, it is forgotten");
+    }
+
+    #[tokio::test]
+    async fn a_stop_may_be_waited_for_again_and_comes_at_once_once_told() {
+        let held: Held<u8, ()> = Held::new();
+        let mut stop = held.hold(1, ()).expect("held");
+        let soon = std::time::Duration::from_millis(50);
+        assert!(tokio::time::timeout(soon, stop.told()).await.is_err(), "not yet told");
+        held.stop(1, ());
+        for _ in 0..3 {
+            assert!(tokio::time::timeout(soon, stop.told()).await.is_ok(), "told");
+        }
+        let mut never = Stop::never();
+        for _ in 0..3 {
+            assert!(tokio::time::timeout(soon, never.told()).await.is_err(), "never told");
+        }
     }
 
     #[test]
