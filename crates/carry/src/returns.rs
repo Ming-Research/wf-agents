@@ -117,8 +117,8 @@ fn normalised(structured: &Value) -> Value {
 /// What came back, from the structured return; or why it is not one. A return that asks for anything asks, and what
 /// it hands in beside is not read; one that asks for nothing hands in, if only nothing.
 pub fn came(structured: &serde_json::Value) -> Result<Came, String> {
-    let r: Return = serde_json::from_value(normalised(structured))
-        .map_err(|e| format!("the return is not of its form: {e}"))?;
+    let r: Return =
+        serde_json::from_value(normalised(structured)).map_err(|e| format!("the return is not of its form: {e}"))?;
     if !r.asks.is_empty() {
         let asks = (r.asks.into_iter())
             .map(|ask| match ask {
@@ -263,7 +263,8 @@ mod tests {
         let question = json!({"hands_in": [], "asks": [{"question": "Which?", "tool": null, "input": null}]});
         assert!(matches!(came(&tool), Ok(Came::Asks(a)) if matches!(a[0], Ask::Tool { .. })));
         assert!(matches!(came(&question), Ok(Came::Asks(a)) if matches!(a[0], Ask::Person { .. })));
-        let value = json!({"hands_in": [{"block": "plan", "content": "Greet.", "matters": true, "value": null}], "asks": []});
+        let value =
+            json!({"hands_in": [{"block": "plan", "content": "Greet.", "matters": true, "value": null}], "asks": []});
         assert_eq!(came(&value), plan());
     }
 
