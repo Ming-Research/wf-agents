@@ -57,6 +57,11 @@ mod tests {
 
     /// The check's answer on the fake host, with what the host was asked.
     async fn checked(repo: &Repo) -> (String, Vec<Asked>) {
+        checked_with(repo, "").await
+    }
+
+    /// The check's answer to this input on the fake host, with what the host was asked.
+    async fn checked_with(repo: &Repo, input: &str) -> (String, Vec<Asked>) {
         let host = Fake::new("unused");
         let place = repo.place(WORK);
         let branch = Branch {
@@ -65,7 +70,7 @@ mod tests {
             about: "",
             place: &place,
         };
-        match answer(&host, &repo.project, &branch, CHECK, "", &mut Stop::never()).await {
+        match answer(&host, &repo.project, &branch, CHECK, input, &mut Stop::never()).await {
             Answer::Result(said) => (said, host.asked()),
             Answer::Withdrawn => panic!("nothing withdrew it"),
         }
@@ -84,6 +89,19 @@ mod tests {
         assert!(said.contains("\ngreeting.txt\n"), "{said}");
         assert!(said.contains(&format!("git merge {main}")), "{said}");
         assert!(asked.is_empty(), "no check was asked of the host: {asked:?}");
+    }
+
+    #[tokio::test]
+    async fn a_branch_in_conflict_asks_for_no_fast_run_of_the_tests_it_names() {
+        let (repo, main) = moved("greeting.txt").await;
+        let (said, asked) = checked_with(&repo, "test: greets the user\ncheck: lint").await;
+        assert!(
+            said.starts_with(&format!(
+                "The work's branch does not merge into main at {main} without a conflict"
+            )),
+            "{said}"
+        );
+        assert!(asked.is_empty(), "no run of the named tests was asked: {asked:?}");
     }
 
     #[tokio::test]
