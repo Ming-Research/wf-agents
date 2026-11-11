@@ -37,7 +37,9 @@ describe('what a work does now, in words', () => {
     expect(nowWords({ kind: 'round', cell: 'implement', run: 5, round: 2, since })).toBe(
       `Running implement, round 2 of run 5, since ${clock(since)}`,
     );
-    expect(nowWords({ kind: 'paused', by: 'owner', why: null })).toBe('Paused: no round begins until it is let on');
+    expect(nowWords({ kind: 'paused', by: 'owner', why: null })).toBe(
+      'Paused: only what a person writes for a cell is answered until it is let on',
+    );
     expect(nowWords({ kind: 'paused', by: 'engine', why: 'The agent could not start.' })).toBe(
       'Paused by the engine: The agent could not start.',
     );

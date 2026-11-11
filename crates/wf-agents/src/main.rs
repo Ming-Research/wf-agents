@@ -93,7 +93,8 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Pauses a work: no round of it begins, and the one under way ends.
+    /// Pauses a work: no round of it begins but those of a run that answers what a person wrote for its cell, and the
+    /// one under way ends.
     Pause {
         work: u64,
         #[command(flatten)]

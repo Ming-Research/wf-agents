@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use decide::run::{self, Requires, Step, Unmet};
 use decide::{
     Abandoned, BlockId, CallId, Called, Decision, Done, Finished, LetGo, Outsider, Pause, Pauser, Returned, Round,
-    RunId, Started, Who, Write, Written, decide, paused, stale,
+    RunId, Started, Who, Write, Written, decide, hold, stale,
 };
 use flow::Compiled;
 
@@ -31,7 +31,7 @@ pub fn handle(flow: &Compiled, work: &mut Work, now: Time, event: Event) -> Resu
     {
         let choices = choices(flow);
         if let Some(requires) = requires(flow, &choices, work, run)
-            && let Step::Finish { writes } = run::next(&log(work, run), requires, paused(&work.records))
+            && let Step::Finish { writes } = run::next(&log(work, run), requires, hold(&flow.flow, &work.records, run))
         {
             finish(work, run, writes);
         }
@@ -181,8 +181,9 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
                 return Err(Refused::NoRoundUnderWay(run));
             }
             // The round has ended, failed, and what it took is kept. Of a run that goes on, the failure is kept as
-            // what came of the round, and the work is paused with its reason in the same moment, so that no round
-            // begins before the owner has seen it. Of a run that was abandoned it is dropped, as what came back is.
+            // what came of the round, and the work is paused with its reason in the same moment, so that the round is
+            // not given again before the owner has seen it, and nothing begins but what answers a person. Of a run
+            // that was abandoned it is dropped, as what came back is.
             let kept = open(work, run);
             let at = work.tick();
             work.records.returned.push(Returned { run, at });
@@ -269,7 +270,7 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, effects: &mut Vec<Effect>)
         return false;
     };
     let cell = started.cell.clone();
-    let given = match run::next(&log(work, run), requires, paused(&work.records)) {
+    let given = match run::next(&log(work, run), requires, hold(&flow.flow, &work.records, run)) {
         Step::Begin => Given::Task,
         Step::Resume => Given::Results(made(work, run, ended(work, run) - 1)),
         Step::Retry => {

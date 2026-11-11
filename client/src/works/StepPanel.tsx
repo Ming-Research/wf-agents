@@ -403,8 +403,8 @@ export function ActPanel({ step, fold, foot }: PanelProps & { step: Step & { kin
     letGo: step.kind === 'letGo' ? `The owner let ${step.cell} go on past its limit of ways round, and its count started anew` : '',
     paused:
       step.kind === 'paused' && step.by === 'engine'
-        ? `The engine paused the work: no round of it begins until the owner lets it on. Why: ${step.why ?? 'it gave no reason'}`
-        : 'The owner paused the work: no round of it begins, and a round under way goes on',
+        ? `The engine paused the work: only what a person writes for a cell is answered until the owner lets it on. Why: ${step.why ?? 'it gave no reason'}`
+        : 'The owner paused the work: only what a person writes for a cell is answered, and a round under way goes on',
     resumed: 'The owner let the work on: its rounds begin again',
     cancelled: 'The owner cancelled the work: its round under way was stopped, its calls withdrawn, and its runs abandoned',
   }[step.kind];

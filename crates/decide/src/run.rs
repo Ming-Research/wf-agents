@@ -11,6 +11,10 @@
 //! run has its next round, given what the failed round was given. A failure counts against no limit: only the owner's
 //! letting the work on repeats it.
 //!
+//! A pause of the work holds back the rounds of a run, unless the run started for what a person wrote: such a run has
+//! every round it needs while the work is paused, but the round after one that failed, which still waits for the work
+//! to be let on.
+//!
 //! The walk says which cell runs and which run goes on; this says what going on is.
 
 use std::collections::BTreeMap;
@@ -82,7 +86,7 @@ pub enum Step {
     Begin,
     /// A round of the run is under way: nothing is decided until it ends.
     UnderWay,
-    /// The run would have its next round, and its work is paused: no round begins until the work is let on.
+    /// The run would have its next round, and the pause of its work holds that round back until the work is let on.
     Held,
     /// The calls the last round asked for are made.
     Make,
@@ -129,10 +133,21 @@ pub enum Unmet {
     NotHandedIn { block: BlockId },
 }
 
-/// What the run does next. A pause of its work lets no round begin: where the run would have one, it is held.
-pub fn next(log: &Log, requires: Requires, paused: bool) -> Step {
+/// What a pause of the run's work holds back of its rounds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hold {
+    /// Nothing: the work is not paused.
+    Nothing,
+    /// Only the round after one that failed: the work is paused, and the run started for what a person wrote.
+    Retry,
+    /// Every round: the work is paused, and the run did not start for what a person wrote.
+    Rounds,
+}
+
+/// What the run does next. Where the run would have a round that the pause of its work holds back, it is held.
+pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
     let Some(last) = log.rounds.last() else {
-        return held(Step::Begin, paused);
+        return held(Step::Begin, hold);
     };
     let Some(returned) = &last.returned else {
         return Step::UnderWay;
@@ -145,7 +160,7 @@ pub fn next(log: &Log, requires: Requires, paused: bool) -> Step {
     let let_on = log.let_go > before;
     let unmet = match returned {
         // A failure is no return that was sent back and makes no call: it counts against no limit.
-        Return::Failed => return held(Step::Retry, paused),
+        Return::Failed => return held(Step::Retry, hold),
         Return::Asked { asked: 0, .. } => vec![Unmet::AsksNothing],
         Return::Asked { asked, made } if made.is_empty() => {
             let before: usize = earlier.iter().map(calls).sum();
@@ -157,7 +172,7 @@ pub fn next(log: &Log, requires: Requires, paused: bool) -> Step {
         Return::Asked { made, .. } => {
             let open: Vec<CallId> = made.iter().filter(|c| !c.done).map(|c| c.call).collect();
             if open.is_empty() {
-                return held(Step::Resume, paused);
+                return held(Step::Resume, hold);
             }
             return Step::Rest { calls: open };
         }
@@ -175,12 +190,17 @@ pub fn next(log: &Log, requires: Requires, paused: bool) -> Step {
     if !let_on && sent_back >= requires.returns {
         return Step::AtLimit(Limit::Returns { sent_back });
     }
-    held(Step::SendBack { unmet }, paused)
+    held(Step::SendBack { unmet }, hold)
 }
 
-/// The step, or its being held where the work is paused: the step begins a round.
-fn held(step: Step, paused: bool) -> Step {
-    if paused { Step::Held } else { step }
+/// The step, which begins a round, or its being held where the pause holds that round back.
+fn held(step: Step, hold: Hold) -> Step {
+    let holds = match hold {
+        Hold::Nothing => false,
+        Hold::Retry => step == Step::Retry,
+        Hold::Rounds => true,
+    };
+    if holds { Step::Held } else { step }
 }
 
 /// How many calls were made for the round.

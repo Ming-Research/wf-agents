@@ -9,11 +9,12 @@ mod handing_in;
 mod limits;
 mod malformed;
 mod paused;
+mod paused_answers;
 mod rounds;
 
 use std::collections::BTreeMap;
 
-use decide::run::{Call, Limit, Log, Requires, Return, Round, Step, Unmet, next};
+use decide::run::{Call, Hold, Limit, Log, Requires, Return, Round, Step, Unmet, next};
 use decide::{BlockId, CallId, Write};
 
 /// What the flow requires of a cell, owned so that tests can lend it as `Requires`.
@@ -68,17 +69,23 @@ fn limited(returns: u32, calls: u32) -> Spec {
 
 /// What the run does next on these rounds, never let go on.
 fn step(rounds: Vec<Round>, spec: &Spec) -> Step {
-    next(&Log { rounds, let_go: 0 }, spec.requires(), false)
+    next(&Log { rounds, let_go: 0 }, spec.requires(), Hold::Nothing)
 }
 
 /// What the run does next on these rounds, the owner having last let it go on when this many had ended.
 fn step_let_go(rounds: Vec<Round>, let_go: usize, spec: &Spec) -> Step {
-    next(&Log { rounds, let_go }, spec.requires(), false)
+    next(&Log { rounds, let_go }, spec.requires(), Hold::Nothing)
 }
 
 /// What the run does next on these rounds while its work is paused, never let go on.
 fn step_paused(rounds: Vec<Round>, spec: &Spec) -> Step {
-    next(&Log { rounds, let_go: 0 }, spec.requires(), true)
+    next(&Log { rounds, let_go: 0 }, spec.requires(), Hold::Rounds)
+}
+
+/// What the run, started for what a person wrote, does next on these rounds while its work is paused, never let go
+/// on.
+fn step_paused_answering(rounds: Vec<Round>, spec: &Spec) -> Step {
+    next(&Log { rounds, let_go: 0 }, spec.requires(), Hold::Retry)
 }
 
 /// A write of prose.
