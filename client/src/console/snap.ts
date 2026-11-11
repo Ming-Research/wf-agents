@@ -382,6 +382,10 @@ const EDGE_TINT = 0.45;
 const NOT_BEGUN = 0.7;
 /// How far a card's number and strip stand in from its left edge.
 const CARD_INSET = 10;
+/// A card's corners: the page's corner (`--corner`), as its buttons and tags have.
+const CARD_CORNER = 3;
+/// The height of the line under a deliverable, which has no card.
+const DELIVER_LINE = 1.5;
 /// The width of every card's edge.
 const EDGE_WIDTH = 1.5;
 
@@ -395,8 +399,8 @@ const NUMBER = () => ({
 /// What a work has taken, in dollars.
 export const dollars = (usdMicros: number) => `$${(usdMicros / 1e6).toFixed(2)}`;
 
-/// The size of a node's title: the console's own, a step over the page's body text, as it was drawn on `main`.
-const TITLE_SIZE = 14;
+/// The size of a node's title: the page's body text (`--size-body`).
+const TITLE_SIZE = 13;
 
 /// The styles of a node's words, by their colour: its title in the sans-serif face, and its numbers in the page's
 /// monospace, smaller. Each is made from plain values once: one made by spreading another keeps the other's fill.
@@ -720,21 +724,23 @@ export class SnapScene {
     const row1 = top + NODE_H / 2;
     if (item.shadow) return this.shadow(item, view, top, h, row1);
     const mood = item.work !== null ? moodOf(item.work) : null;
-    const card = new Graphics().roundRect(0, top, NODE_W, h, 6);
+    const card = new Graphics().roundRect(0, top, NODE_W, h, CARD_CORNER);
     // A card whose work is running, or that needs the owner (it waits for the owner, or the engine stopped it), is
     // filled with its state's colour, and its edge is a deeper shade of it. A card stopped for anything else has an
     // edge of its grey and no fill, so that the filled ones stand out among them.
     const state = mood !== null ? WORK()[mood] : null;
     const filled = state !== null && (mood === 'owner' || mood === 'halted' || mood === 'running');
-    // A deliverable is no card of work: it lies flat on the ground, in the ground's own colour, with its edge alone
-    // around it, so that the white cards of the items that are worked on stand out from it.
-    view.addChild(
-      card.fill(filled ? mix(PALETTE.card, state, FILL) : item.deliver ? PALETTE.page : PALETTE.card).stroke({
-        color:
-          state !== null ? mix(PALETTE.card, state, EDGE_TINT) : this.lit[k] === 1 ? PALETTE.branch : PALETTE.edge,
-        width: EDGE_WIDTH,
-      }),
-    );
+    // A deliverable is no card of work: it has no box and no fill, only its number and title over a line, as a heading
+    // of the items under it, so that the cards of the items that are worked on stand out from it.
+    if (item.deliver) view.addChild(new Graphics().rect(0, top + h - DELIVER_LINE, NODE_W, DELIVER_LINE).fill(PALETTE.faint));
+    else
+      view.addChild(
+        card.fill(filled ? mix(PALETTE.card, state, FILL) : PALETTE.card).stroke({
+          color:
+            state !== null ? mix(PALETTE.card, state, EDGE_TINT) : this.lit[k] === 1 ? PALETTE.branch : PALETTE.edge,
+          width: EDGE_WIDTH,
+        }),
+      );
     // What is new to the owner is said once, by the number at the card's right; no line at its left.
     const x = CARD_INSET;
     const number = new BitmapText({
@@ -830,8 +836,9 @@ export class SnapScene {
         i = j;
       }
     }
-    // The second row: the work's strip, as the works page draws it, ending short of where its time went.
-    this.strip(view, item.id, k, w.cells, x, row2, barX - 8, here(w, mood));
+    // The second row: the work's strip, as the works page draws it, from under the title, so that the number stands
+    // alone in a column at the card's left, ending short of where its time went.
+    this.strip(view, item.id, k, w.cells, title.x, row2, barX - 8, here(w, mood));
     // How long it has gone on, at the right, its colour by its age; the label is kept up as time passes.
     const label = new BitmapText({ text: '', style: s.mono(PALETTE.muted) });
     view.addChild(track, label);
@@ -916,7 +923,7 @@ export class SnapScene {
   /// its number and title grey, and at the right an arrow pointing away, to where the item stands.
   private shadow(item: Shown, view: Container, top: number, h: number, row1: number): Container {
     const s = this.styles as Styles;
-    const ground = new Graphics().roundRect(0, top, NODE_W, h, 6).fill(PALETTE.card);
+    const ground = new Graphics().roundRect(0, top, NODE_W, h, CARD_CORNER).fill(PALETTE.card);
     const edge = new Graphics();
     const [dash, gap, r] = [4, 3, 6];
     // Dashes along each straight side, the rounded corners left open.
@@ -1448,21 +1455,21 @@ export class SnapScene {
       const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
       if (i === picked)
         this.marks
-          .roundRect(gx - HALO / 2, gy - gh - HALO / 2, NODE_W + HALO, 2 * gh + HALO, 6 + HALO / 2)
+          .roundRect(gx - HALO / 2, gy - gh - HALO / 2, NODE_W + HALO, 2 * gh + HALO, CARD_CORNER + HALO / 2)
           .stroke({ color: PALETTE.chosen, width: HALO, alpha: HALO_ALPHA });
-      this.marks.roundRect(gx, gy - gh, NODE_W, 2 * gh, 6).stroke({ color: PALETTE.chosen, width: RING });
+      this.marks.roundRect(gx, gy - gh, NODE_W, 2 * gh, CARD_CORNER).stroke({ color: PALETTE.chosen, width: RING });
     }
     for (const [i, a] of this.haloed) {
       const d = t.depth[i];
       const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
       this.marks
-        .roundRect(gx - HALO / 2, gy - gh - HALO / 2, NODE_W + HALO, 2 * gh + HALO, 6 + HALO / 2)
+        .roundRect(gx - HALO / 2, gy - gh - HALO / 2, NODE_W + HALO, 2 * gh + HALO, CARD_CORNER + HALO / 2)
         .stroke({ color: PALETTE.over, width: HALO, alpha: HALO_ALPHA * a });
     }
     for (const [i, a] of this.glowing) {
       const d = t.depth[i];
       const [gx, gy, gh] = [x(d), y(d, t.rank[i]), half(d, t.rank[i])];
-      this.marks.roundRect(gx, gy - gh, NODE_W, 2 * gh, 6).stroke({ color: PALETTE.over, width: RING, alpha: a });
+      this.marks.roundRect(gx, gy - gh, NODE_W, 2 * gh, CARD_CORNER).stroke({ color: PALETTE.over, width: RING, alpha: a });
     }
     // The columns fade into the page at the top and the bottom; at those edges the column under the pointer has a line
     // of blue.
