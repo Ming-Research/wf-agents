@@ -3,8 +3,9 @@
 
 use axum::http::StatusCode;
 use serde_json::{Value, json};
+use store::Store;
 
-use crate::{START, get_json, greeted, pass, post, refused, running};
+use crate::{START, get_json, greeted, pass, post, refused, running, running_scripted, trial_script};
 
 /// The trial item's line once its plan asked the owner its question, call 2, two and a half seconds in.
 fn asked() -> Value {
@@ -40,6 +41,44 @@ async fn a_question_for_the_owner_is_given_since_it_was_asked_and_not_again_from
         again["mark"],
         json!(mark),
         "nothing happened, and the mark stays where it was"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_work_the_engine_paused_as_its_round_failed_is_given_with_the_reason_since_it_failed() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let mut script = trial_script();
+    let plan = script.flows.get_mut("trial").unwrap();
+    let mut failing = plan.rounds[0].clone();
+    failing.round = 2;
+    failing.asks = None;
+    failing.took = Default::default();
+    failing.fails = Some("The agent's program could not start.".to_string());
+    plan.rounds.push(failing);
+    let running = running_scripted(Box::new(store), dir, script);
+    let router = &running.router;
+    greeted(router).await;
+    let mark = get_json(router, "/api/v1/attention").await["mark"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let answer = json!({ "kind": "answer", "call": 2, "result": "Yes, by name." });
+    assert_eq!(
+        post(router, "/api/v1/works/1/acts", &answer).await.0,
+        StatusCode::NO_CONTENT
+    );
+    // The plan's second round, given the answer at 3 seconds, fails a second and a half later.
+    pass(2000).await;
+    let answer = get_json(router, &format!("/api/v1/attention?since={mark}")).await;
+    assert_eq!(
+        answer["lines"],
+        json!([{
+            "kind": "forAPerson",
+            "of": { "work": 1, "item": 1, "title": "Greet the user" },
+            "since": START + 4500,
+            "now": { "kind": "paused", "by": "engine", "why": "The agent's program could not start." },
+        }])
     );
 }
 
