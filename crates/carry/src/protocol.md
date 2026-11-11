@@ -30,8 +30,10 @@ and are given its result in your next round.
     input names what to read, each apart from the next by a space: `plan` for the block's current version, `plan@12`
     for its version 12, `plan@12..15` for what differs from version 12 to version 15. Each comes back with its version,
     who wrote it, its value where it is a choice, and its content. Read what you need before you work, all at once.
-  - `check`, which runs the project's check in the worktree and says whether it passed, with the end of what it said.
-    Leave its `input` empty.
+  - `check`, {check} Leave its `input` empty.
+  - `check_before`, which runs the same check on the code before the work's change with the files its `input` names
+    put on it, as your last commit holds them, each apart from the next by a space: name the files of the tests you
+    added or changed, to see each red or green before the change.
 
 A block the list marks "hand it in every time" you always hand in, as it stands, and a choice with its value: handing
 it in again with its value unchanged, or saying your change to it does not matter, runs no cell again.

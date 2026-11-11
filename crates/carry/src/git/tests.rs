@@ -6,6 +6,8 @@ use store::WorkNumber;
 
 use super::*;
 
+mod before;
+
 /// A repository with one commit on `main`, a data directory beside it, and the project they make.
 pub(crate) struct Repo {
     _dir: tempfile::TempDir,

@@ -399,6 +399,7 @@ impl Service {
                     call: *call,
                     name: name.clone(),
                     input: input.clone(),
+                    item: kept.item.clone(),
                     kept: Arc::new(kept.work.clone()),
                 };
                 self.carriers
@@ -418,6 +419,7 @@ impl Service {
                         call: *call,
                         name: name.clone(),
                         input: input.clone(),
+                        item: kept.item.clone(),
                         kept: Arc::new(kept.work.clone()),
                     };
                     self.carriers

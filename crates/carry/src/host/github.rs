@@ -6,11 +6,18 @@
 //! again after the engine started again pushes nothing GitHub has, finds the pull request it opened and reads the CI
 //! of the same commit; a merge given again finds the pull request merged.
 //!
+//! An agent's check is the CI of the last commit of its work's branch, pushed and checked through the same pull
+//! request; what the worktree holds that is not committed is said, and nothing is pushed. Its check before the change
+//! pushes the commit made for it to a branch of its own, [`BEFORE`], which the project's CI is to run on, and takes
+//! the branch away once its CI is read.
+//!
 //! - `api`: what is asked of GitHub besides pushing and fetching, and `gh`, which asks it with the `gh` command line.
+//! - `log`: what of a red job's log tells why it is red.
 //! - `fake`: GitHub for the tests, with a bare repository on disk to push to.
 
 mod api;
 mod gh;
+mod log;
 
 #[cfg(test)]
 mod fake;
@@ -23,8 +30,8 @@ use std::time::Duration;
 pub use api::{Api, Check, Outcome, Pull, State};
 pub use gh::Gh;
 
-use super::{Branch, Host, Verdict};
-use crate::git::{self, With};
+use super::{Branch, Host, InUse, Verdict};
+use crate::git::{self, Before, With};
 use crate::held::Stop;
 use crate::process;
 use crate::settings::{self, Project};
@@ -54,6 +61,8 @@ pub struct Config {
     pub merge_method: String,
     /// Whether the work's branch on GitHub is deleted once it is merged.
     pub delete_branch: bool,
+    /// Whether the project's CI runs on a push to a branch under [`BEFORE`], which the check before the change needs.
+    pub before_branches: bool,
     /// The engine's token, which git's pushes and fetches are given in their environment; none where the address
     /// needs none.
     pub token: Option<String>,
@@ -71,16 +80,23 @@ impl std::fmt::Debug for Config {
             .field("poll", &self.poll)
             .field("merge_method", &self.merge_method)
             .field("delete_branch", &self.delete_branch)
+            .field("before_branches", &self.before_branches)
             .field("token", &self.token.as_ref().map(|_| "(given)"))
             .finish()
     }
 }
+
+/// Where on GitHub the commits the agents' `check_before` makes are pushed, each to a branch of its own under this
+/// name, which the project's CI must run on when it is pushed.
+pub const BEFORE: &str = "wf-agents-before";
 
 /// GitHub, reached through the API given.
 pub struct GitHub<A> {
     api: A,
     project: Project,
     config: Config,
+    /// The branches of the checks before the change running.
+    in_use: InUse,
 }
 
 /// The variable of a git command's environment that holds the token for its credential helper.
@@ -116,6 +132,7 @@ impl GitHub<Gh> {
             poll: POLL,
             merge_method: github.merge_method.clone(),
             delete_branch: github.delete_branch,
+            before_branches: github.runs_on_before_branches,
             token: Some(token.clone()),
         };
         let gh = Gh::new(&github.gh, &github.repository, &token, &dir);
@@ -125,7 +142,12 @@ impl GitHub<Gh> {
 
 impl<A: Api> GitHub<A> {
     pub fn new(api: A, project: Project, config: Config) -> GitHub<A> {
-        GitHub { api, project, config }
+        GitHub {
+            api,
+            project,
+            config,
+            in_use: InUse::default(),
+        }
     }
 
     /// What git is given to push and fetch: neither the user's nor the system's configuration, no credential helper of
@@ -184,7 +206,13 @@ impl<A: Api> GitHub<A> {
     /// Pushes the commit to the work's branch on GitHub, never forcing it: a branch there that holds a commit this one
     /// does not is refused. A commit the branch is at already is pushed as nothing.
     async fn push(&self, branch: &Branch<'_>, commit: &str) -> Result<(), String> {
-        let target = format!("{commit}:{}", branch.place.reference());
+        self.push_to(commit, &branch.place.reference(), false).await
+    }
+
+    /// Pushes the commit to the branch on GitHub that the reference names, forcing it where `force` says so, or, with
+    /// no commit, deletes that branch.
+    async fn push_to(&self, commit: &str, reference: &str, force: bool) -> Result<(), String> {
+        let target = format!("{}{commit}:{reference}", if force { "+" } else { "" });
         let args = [
             "push",
             "--quiet",
@@ -197,11 +225,39 @@ impl<A: Api> GitHub<A> {
         if pushed.ok {
             return Ok(());
         }
+        let name = reference.strip_prefix("refs/heads/").unwrap_or(reference);
+        let what = if commit.is_empty() {
+            format!("the deletion of the branch {name}")
+        } else {
+            format!("the push of {commit} to the branch {name}")
+        };
         Err(format!(
-            "the push of {commit} to the branch {} on GitHub was refused: {}",
-            branch.place.branch,
+            "{what} on GitHub was refused: {}",
             if pushed.err.is_empty() { pushed.out } else { pushed.err }
         ))
+    }
+
+    /// The CI of the commit in words for the agent that asked, `through` saying where it was read: each named check
+    /// that passed by its name, and what failed as the check before the merge says it.
+    async fn told(&self, commit: &str, through: &str, checks: &[Check]) -> String {
+        let passed: Vec<&str> = (checks.iter())
+            .filter(|c| c.outcome == Outcome::Passed)
+            .map(|c| c.name.as_str())
+            .collect();
+        match self.failures(checks).await {
+            None => format!(
+                "The CI passed on the commit {commit}, {through}: {}.",
+                passed.join(", ")
+            ),
+            Some(failed) => {
+                let also = if passed.is_empty() {
+                    String::new()
+                } else {
+                    format!(" It passed {}.", passed.join(", "))
+                };
+                format!("The CI of the commit {commit}, {through}, did not pass.{also}\n\n{failed}")
+            }
+        }
     }
 
     /// The work's open pull request into main, opened where the branch has none; or why the work cannot be checked
@@ -232,7 +288,15 @@ impl<A: Api> GitHub<A> {
             ));
         }
         let body = body(branch);
-        self.api.open(name, main, branch.title, &body).await
+        match self.api.open(name, main, branch.title, &body).await {
+            Ok(opened) => Ok(opened),
+            // Another check of the work, which found none either, opened it meanwhile: that one is the work's.
+            Err(why) => {
+                let pulls = self.api.pulls(name).await?;
+                let open = pulls.into_iter().find(|p| p.state == State::Open && p.base == *main);
+                open.ok_or(why)
+            }
+        }
     }
 
     /// Waits for every named check of the commit to complete, and gives them; none where it was told to stop.
@@ -298,7 +362,8 @@ impl<A: Api> GitHub<A> {
     }
 
     /// What failed of the checks, for the implementing agent: each red check with its link, what it said of itself,
-    /// and the end of its log where GitHub keeps one; none where none failed.
+    /// and what its log says of the failure where GitHub keeps one, the logs sharing the bytes a check's output is
+    /// given ([`process::TAIL`]); none where none failed.
     async fn failures(&self, checks: &[Check]) -> Option<String> {
         let failed: Vec<&Check> = (checks.iter())
             .filter(|c| matches!(c.outcome, Outcome::Failed(_)))
@@ -306,6 +371,7 @@ impl<A: Api> GitHub<A> {
         if failed.is_empty() {
             return None;
         }
+        let budget = process::TAIL / failed.len();
         let mut said = vec![format!(
             "The CI failed on this commit, in {} of its checks.",
             failed.len()
@@ -319,8 +385,8 @@ impl<A: Api> GitHub<A> {
             if let Some(job) = check.job {
                 match self.api.log(job).await {
                     Ok(log) => lines.push(format!(
-                        "The end of its log, up to its error:\n{}",
-                        tail_of_log(&log).trim_end()
+                        "What its log says of the failure, as the CI printed it:\n{}",
+                        log::fenced(&log::what_failed(&log, budget))
                     )),
                     Err(why) => lines.push(format!("Its log could not be read: {why}")),
                 }
@@ -342,7 +408,7 @@ impl<A: Api> GitHub<A> {
 impl<A: Api> Host for GitHub<A> {
     async fn main(&self) -> Result<String, String> {
         let main = &self.project.main;
-        let tracking = format!("refs/remotes/{}/{main}", self.config.remote);
+        let tracking = self.kept_main();
         let spec = format!("+refs/heads/{main}:{tracking}");
         let args = [
             "fetch",
@@ -432,6 +498,118 @@ impl<A: Api> Host for GitHub<A> {
         self.delete(branch).await?;
         Ok(commit)
     }
+
+    fn kept_main(&self) -> String {
+        format!("refs/remotes/{}/{}", self.config.remote, self.project.main)
+    }
+
+    async fn check(&self, branch: &Branch<'_>, stop: &mut Stop) -> Result<Option<String>, String> {
+        // What the check before the merge refuses, this refuses the same way: the repository's configuration, a
+        // worktree off the work's branch, and in the push, connections sent elsewhere and submodules.
+        let place = branch.place;
+        let dir = git::worktree(place)?;
+        git::configuration(&self.project, place).await?;
+        git::on_branch(place).await?;
+        if git::merging(&dir).await? {
+            let changes = git::uncommitted(&dir).await?;
+            return Ok(Some(format!(
+                "A merge is under way in the worktree and is not committed: finish it and commit it, or take it back. \
+                 Nothing was pushed.\n{changes}"
+            )));
+        }
+        let changes = git::uncommitted(&dir).await?;
+        if !changes.is_empty() {
+            return Ok(Some(format!(
+                "The worktree has changes that are not committed, and only what is committed is checked: commit them, \
+                 and ask again. Nothing was pushed.\n{changes}"
+            )));
+        }
+        let repo = &self.project.repo;
+        let commit = git::git(repo, &["rev-parse", &place.reference()]).await?;
+        // GitHub opens no pull request for a branch with nothing of its own.
+        let main = self.kept_main();
+        if git::said(repo, &["merge-base", "--is-ancestor", &commit, &main])
+            .await?
+            .ok
+        {
+            return Ok(Some(format!(
+                "The work's branch has no commit of its own beyond {}: commit your change, and ask again. Nothing was \
+                 pushed.",
+                self.project.main
+            )));
+        }
+        self.push(branch, &commit).await?;
+        let pull = self.pull_request(branch).await?;
+        let Some(checks) = self.wait(&commit, stop).await? else {
+            return Ok(None);
+        };
+        let through = format!("through the pull request {}", pull.url);
+        Ok(Some(self.told(&commit, &through, &checks).await))
+    }
+
+    async fn check_before(
+        &self,
+        branch: &Branch<'_>,
+        before: &Before,
+        stop: &mut Stop,
+    ) -> Result<Option<String>, String> {
+        if !self.config.before_branches {
+            return Err(format!(
+                "the installation's settings do not say that the project's CI runs on a push to the branches under \
+                 {BEFORE}/ (github.runs_on_before_branches), so nothing was pushed: the CI would never start there"
+            ));
+        }
+        // A branch of its own for each commit, taken away once its CI is read: the commit is no commit of the work's
+        // branch, and is the same commit whenever it is made of the same files.
+        let commit = &before.commit;
+        let mine = format!("{}{}", self.befores(branch), &commit[..commit.len().min(12)]);
+        let _held = self.in_use.hold(&mine).await;
+        self.sweep(branch).await?;
+        // A commit checked already is answered from its CI, and pushed again to no branch, where a new run would start.
+        let now = self.api.checks(commit).await?;
+        if let Ok(Some(done)) = self.judge(commit, &now, Duration::ZERO) {
+            let name = mine.trim_start_matches("refs/heads/");
+            return Ok(Some(self.told(commit, &format!("on the branch {name}"), &done).await));
+        }
+        self.push_to(commit, &mine, true).await?;
+        let waited = self.wait(commit, stop).await;
+        let name = mine.trim_start_matches("refs/heads/");
+        let said = match waited {
+            Ok(Some(checks)) => Ok(Some(self.told(commit, &format!("on the branch {name}"), &checks).await)),
+            other => other.map(|_| None),
+        };
+        let taken = self.push_to("", &mine, false).await;
+        let said = said?;
+        taken?;
+        Ok(said)
+    }
+}
+
+impl<A: Api> GitHub<A> {
+    /// The beginning of the references of the branches of the work's checks before the change, the commit's beginning
+    /// following it.
+    fn befores(&self, branch: &Branch<'_>) -> String {
+        format!("refs/heads/{BEFORE}/{}-", branch.place.branch)
+    }
+
+    /// Deletes on GitHub the branches of the work's checks before the change that no check of this process holds: an
+    /// engine that ended while such a check waited left them.
+    async fn sweep(&self, branch: &Branch<'_>) -> Result<(), String> {
+        let args = ["ls-remote", "--heads", &self.config.url];
+        let listed = git::said_with(&self.project.repo, &self.network().await?, &args).await?;
+        if !listed.ok {
+            return Err(format!("the branches on GitHub could not be listed: {}", listed.err));
+        }
+        let beginning = self.befores(branch);
+        let left: Vec<&str> = (listed.out.lines())
+            .filter_map(|line| line.split_once('\t').map(|(_, reference)| reference))
+            .filter(|reference| reference.starts_with(&beginning) && !self.in_use.held(reference))
+            .collect();
+        for reference in left {
+            self.push_to("", reference, false).await?;
+        }
+        Ok(())
+    }
 }
 
 /// Whether the key is one of a remote named by an address rather than a name, `remote.<address>.<name>`, which git
@@ -470,41 +648,4 @@ fn span(time: Duration) -> String {
     } else {
         format!("{seconds} seconds")
     }
-}
-
-/// The end of a job's log as GitHub Actions keeps it, up to the last line where a step reported its error: the steps
-/// that clean up after it would otherwise push the cause out of what is kept. Each line is read without the time
-/// GitHub writes before it and without the codes that colour it; what is kept is as much as a local check's output.
-pub(crate) fn tail_of_log(log: &str) -> String {
-    let lines: Vec<String> = log.lines().map(plain).collect();
-    let end = (lines.iter())
-        .rposition(|line| line.contains("##[error]"))
-        .map_or(lines.len(), |at| at + 1);
-    let mut kept = lines[..end].join("\n");
-    kept.push('\n');
-    process::tail(kept.as_bytes())
-}
-
-/// A line of a job's log without its time and its colour codes.
-fn plain(line: &str) -> String {
-    let line = line.trim_start_matches('\u{feff}');
-    let line = match line.split_once(' ') {
-        Some((time, rest)) if time.len() >= 20 && time.ends_with('Z') && time.as_bytes()[10] == b'T' => rest,
-        _ => line,
-    };
-    let mut plain = String::with_capacity(line.len());
-    let mut chars = line.chars();
-    while let Some(c) = chars.next() {
-        if c == '\u{1b}' {
-            // An escape: `ESC [`, then numbers and semicolons, up to the letter that ends it.
-            for c in chars.by_ref() {
-                if c.is_ascii_alphabetic() {
-                    break;
-                }
-            }
-        } else {
-            plain.push(c);
-        }
-    }
-    plain
 }

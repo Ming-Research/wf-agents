@@ -181,6 +181,8 @@ pub struct ToolCall {
     pub name: String,
     /// What it is run on.
     pub input: String,
+    /// The item the work is done for, as a round is given it.
+    pub item: Item,
     /// The work as it was kept when the call was handed out.
     pub kept: Arc<Work>,
 }

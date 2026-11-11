@@ -138,6 +138,23 @@ fn an_answer_is_read_with_its_status_and_a_refusal_in_githubs_words() {
     assert_eq!(included("gh: not logged in"), None);
 }
 
+#[tokio::test]
+async fn a_jobs_log_is_read_with_the_escapes_that_colour_it() {
+    // As gh does: a body with terminal escapes is printed only where it is allowed; else the status and headers are,
+    // and gh exits with an error.
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("gh");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\nprintf 'HTTP/2.0 200 OK\\r\\n\\r\\n'\ncase \"$*\" in *--allow-escape-sequences*) printf '\\033[31merror\\033[0m: failed\\n' ;; *) echo 'the response contains terminal escape sequences' >&2; exit 1 ;; esac\n",
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let gh = Gh::new(&script.display().to_string(), "o/r", "the-token", dir.path());
+    assert_eq!(gh.log(7).await, Ok("\u{1b}[31merror\u{1b}[0m: failed\n".to_string()));
+}
+
 #[test]
 fn gh_is_given_the_token_and_nothing_else_of_the_engines_but_what_git_is() {
     let engine = [

@@ -24,6 +24,9 @@ struct Kept {
     logs: BTreeMap<u64, String>,
     /// Why a merge is refused, where it is.
     refuses: Option<String>,
+    /// How many of the next lists of pull requests leave out those opened already, as a list read just before another
+    /// opened one does.
+    hidden: usize,
     asked: Vec<Asked>,
 }
 
@@ -72,6 +75,12 @@ impl Fake {
     /// Refuses every merge, with these words.
     pub(crate) fn refuse_merges(&self, why: &str) {
         self.kept().refuses = Some(why.to_string());
+    }
+
+    /// Leaves the pull requests opened already out of the next list of them, as one read just before another check
+    /// opened its pull request would.
+    pub(crate) fn hide_pulls_once(&self) {
+        self.kept().hidden += 1;
     }
 
     /// Closes the pull request, as a person may.
@@ -172,13 +181,25 @@ fn squash(bare: &std::path::Path, head: &str) -> Result<String, String> {
 
 impl Api for Fake {
     async fn pulls(&self, branch: &str) -> Result<Vec<Pull>, String> {
-        self.kept().asked.push(Asked::Pulls(branch.to_string()));
+        let mut kept = self.kept();
+        kept.asked.push(Asked::Pulls(branch.to_string()));
+        if kept.hidden > 0 {
+            kept.hidden -= 1;
+            return Ok(Vec::new());
+        }
+        drop(kept);
         Ok(self.of(branch))
     }
 
     async fn open(&self, branch: &str, base: &str, title: &str, _: &str) -> Result<Pull, String> {
         let head = self.head(branch).ok_or("HTTP 422: the head branch is not on GitHub")?;
         let mut kept = self.kept();
+        // As GitHub, which opens no second pull request of a branch into the same base.
+        if (kept.pulls.iter()).any(|(of, p)| of == branch && p.state == State::Open && p.base == base) {
+            return Err(format!(
+                "HTTP 422: Validation Failed; A pull request already exists for {branch}."
+            ));
+        }
         kept.asked.push(Asked::Open {
             branch: branch.to_string(),
             base: base.to_string(),

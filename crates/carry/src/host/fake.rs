@@ -1,10 +1,11 @@
 //! A host for the tests of the acts: it gives the head of main it is set to and the verdicts it is given, in order,
-//! merges by saying main is where it is, and keeps what it was asked.
+//! merges by saying main is where it is, and keeps what it was asked. It checks nothing for the agents' tools.
 
 use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use super::{Branch, Host, Verdict};
+use crate::git::Before;
 use crate::held::Stop;
 
 /// The host's answers, and what it was asked.
@@ -67,4 +68,19 @@ impl Host for Fake {
         lock(&self.asked).push(Asked::Merge(checked.map(str::to_string)));
         Ok(lock(&self.main).clone())
     }
+
+    fn kept_main(&self) -> String {
+        "refs/heads/main".to_string()
+    }
+
+    async fn check(&self, _: &Branch<'_>, _: &mut Stop) -> Result<Option<String>, String> {
+        Err(NO_TOOLS.to_string())
+    }
+
+    async fn check_before(&self, _: &Branch<'_>, _: &Before, _: &mut Stop) -> Result<Option<String>, String> {
+        Err(NO_TOOLS.to_string())
+    }
 }
+
+/// What the fake host says where the agents' tools ask it to check.
+const NO_TOOLS: &str = "the fake host checks nothing for the agents' tools";
