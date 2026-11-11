@@ -235,6 +235,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
             work.records.done.push(Done { call, at });
             work.results.insert(call, result);
         }
+        Event::NotReleased { .. } => return Err(Refused::NotToRelease),
         Event::Released => {
             // Said twice, as by a carrier that let go again after the engine started again, it was let go once.
             if work.records.released.is_some() {

@@ -73,6 +73,9 @@ pub struct Config {
     /// The engine's token, which git's pushes and fetches are given in their environment; none where the address
     /// needs none.
     pub token: Option<String>,
+    /// The paths of this machine that nothing the engine publishes on GitHub names: the data directory, the project's
+    /// local repository and the home directory, each said by what it is instead.
+    pub withheld: Vec<(String, &'static str)>,
 }
 
 impl std::fmt::Debug for Config {
@@ -89,6 +92,7 @@ impl std::fmt::Debug for Config {
             .field("delete_branch", &self.delete_branch)
             .field("before_branches", &self.before_branches)
             .field("token", &self.token.as_ref().map(|_| "(given)"))
+            .field("withheld", &self.withheld)
             .finish()
     }
 }
@@ -141,6 +145,7 @@ impl GitHub<Gh> {
             delete_branch: github.delete_branch,
             before_branches: github.runs_on_before_branches,
             token: Some(token.clone()),
+            withheld: withheld(data, &project.repo, env("HOME")),
         };
         let gh = Gh::new(&github.gh, &github.repository, &token, &dir);
         Ok(GitHub::new(gh, project.clone(), config))
@@ -803,6 +808,21 @@ impl Judged {
             passed_over: Vec::new(),
         }
     }
+}
+
+/// The paths nothing published names, each with what is said in its place: the longest first, so that one inside
+/// another is said as the one it is in.
+pub(crate) fn withheld(data: &Path, repo: &Path, home: Option<String>) -> Vec<(String, &'static str)> {
+    let mut withheld = vec![
+        (data.display().to_string(), "<the data directory>"),
+        (repo.display().to_string(), "<the repository>"),
+    ];
+    withheld.extend(
+        home.filter(|home| home.len() > 1)
+            .map(|home| (home, "<the home directory>")),
+    );
+    withheld.sort_by_key(|(path, _)| std::cmp::Reverse(path.len()));
+    withheld
 }
 
 /// Whether the check judged the code and found it wanting.

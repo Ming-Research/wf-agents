@@ -379,6 +379,7 @@ fn check_run(name: &str, run: &Value) -> Check {
             .map(str::to_string),
         summary: (!said.is_empty()).then(|| said.join("\n")),
         job: if actions { run["id"].as_u64() } else { None },
+        earlier: Vec::new(),
     }
 }
 
@@ -399,6 +400,7 @@ fn status(status: &Value) -> Option<Check> {
             .filter(|s| !s.trim().is_empty())
             .map(str::to_string),
         job: None,
+        earlier: Vec::new(),
     })
 }
 

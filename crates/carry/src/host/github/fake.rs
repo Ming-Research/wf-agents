@@ -88,12 +88,6 @@ impl Fake {
         self.kept().logs.insert(job, log.to_string());
     }
 
-    /// Once the job is run again, gives the commit these checks, as [`Fake::checks`] does.
-    pub(crate) fn rerun_gives(&self, job: u64, commit: &str, polls: Vec<Vec<Check>>) {
-        let mut kept = self.kept();
-        kept.reruns.entry(job).or_default().push((commit.to_string(), polls));
-    }
-
     /// The pull requests, in the order they were opened.
     pub(crate) fn pull_requests(&self) -> Vec<Pull> {
         self.kept().pulls.iter().map(|(_, p)| p.clone()).collect()

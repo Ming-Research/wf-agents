@@ -58,6 +58,31 @@ fn a_work_that_has_not_ended_has_nothing_to_let_go() {
 }
 
 #[test]
+fn what_could_not_be_let_go_pauses_the_ended_work_saying_why_and_letting_it_on_tries_again() {
+    let mut w = merged();
+    let why = "the worktree is locked".to_string();
+    assert_eq!(w.on(Event::NotReleased { why: why.clone() }), vec![]);
+    let pause = decide::pause(&w.work.records).expect("the work is paused");
+    assert_eq!((pause.by, pause.why.as_deref()), (Pauser::Engine, Some(why.as_str())));
+    assert_eq!(pending(&w.flow, &w.work), vec![], "it waits for the owner");
+    assert_eq!(w.on(Event::Look), vec![]);
+    assert_eq!(w.on(Event::Resumed), vec![MERGED], "let on, it is tried again");
+    assert_eq!(w.on(Event::Released), vec![]);
+    assert!(w.work.records.released.is_some());
+}
+
+#[test]
+fn a_work_paused_as_it_was_cancelled_lets_go_all_the_same() {
+    let (mut w, write, _) = W::requested();
+    w.on(Event::Paused {
+        by: Pauser::Owner,
+        why: None,
+    });
+    w.on(Event::Cancelled);
+    assert_eq!(w.returns(write, hands_in(&[("text", None)])), vec![CANCELLED]);
+}
+
+#[test]
 fn a_cancel_after_the_merge_gives_nothing_and_the_work_has_merged() {
     let mut w = merged();
     assert_eq!(w.on(Event::Cancelled), vec![]);

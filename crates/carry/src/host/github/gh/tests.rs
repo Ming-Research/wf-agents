@@ -35,6 +35,9 @@ fn the_latest_run_of_each_check_counts() {
         (checks[1].name.as_str(), &checks[1].outcome),
         ("page", &Outcome::Pending)
     );
+    // The earlier run is kept to be said as it is, beside the latest.
+    assert_eq!(checks[0].earlier, ["failure https://github.com/o/r/runs/7"]);
+    assert!(checks[1].earlier.is_empty());
 }
 
 #[test]

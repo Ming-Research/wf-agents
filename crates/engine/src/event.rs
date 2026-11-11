@@ -38,6 +38,9 @@ pub enum Event {
     Done { call: CallId, result: String },
     /// What the work held outside the engine was let go, as [`Effect::Release`] asked.
     Released,
+    /// What the work held outside the engine could not be let go, for this reason, as whatever carried out
+    /// [`Effect::Release`] says.
+    NotReleased { why: String },
 }
 
 /// What came back at the end of a round.

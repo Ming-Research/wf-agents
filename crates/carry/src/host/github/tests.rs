@@ -38,6 +38,7 @@ fn config(bare: &std::path::Path) -> Config {
         delete_branch: false,
         before_branches: true,
         token: None,
+        withheld: Vec::new(),
     }
 }
 
@@ -47,7 +48,9 @@ impl Hub {
         let bare = repo.data.join("github.git");
         run(&repo.data, &["init", "-q", "--bare", "-b", "main", "github.git"]);
         run(&repo.project.repo, &["push", "-q", &bare.display().to_string(), "main"]);
-        let host = GitHub::new(Fake::new(bare.clone()), repo.project.clone(), config(&bare));
+        let mut config = config(&bare);
+        config.withheld = withheld(&repo.data, &repo.project.repo, None);
+        let host = GitHub::new(Fake::new(bare.clone()), repo.project.clone(), config);
         Hub { repo, host }
     }
 
@@ -98,6 +101,14 @@ impl Hub {
         head
     }
 
+    /// The commit, checked once, its pull request open.
+    async fn pushed_and_checked_after(&self, commit: String) -> String {
+        self.github()
+            .checks(&commit, vec![vec![passed("lint"), passed("test")]]);
+        self.verdict(&commit).await.unwrap().unwrap();
+        commit
+    }
+
     /// How many pull requests were opened.
     fn opened(&self) -> usize {
         (self.github().asked().iter())
@@ -122,6 +133,7 @@ fn check(name: &str, outcome: Outcome) -> Check {
         url: Some(format!("https://github.example/checks/{name}")),
         summary: None,
         job: None,
+        earlier: Vec::new(),
     }
 }
 
@@ -697,6 +709,7 @@ fn github_as_the_settings_say_needs_the_engines_token() {
             delete_branch: false,
             before_branches: false,
             token: Some("the-token".to_string()),
+            withheld: withheld(&repo.data, &repo.project.repo, None),
         }
     );
     assert!(

@@ -46,6 +46,9 @@ pub struct Check {
     pub summary: Option<String>,
     /// The job whose log GitHub keeps, for a check that is a job of GitHub Actions.
     pub job: Option<u64>,
+    /// The earlier runs of the check on the same commit, oldest first, each as GitHub says how it ended and where a
+    /// person sees it.
+    pub earlier: Vec<String>,
 }
 
 /// What came of a check.

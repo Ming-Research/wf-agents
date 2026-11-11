@@ -89,6 +89,15 @@ impl ReleaseReply {
         ReleaseReply { work, to }
     }
 
+    /// What the work held could not be let go, for this reason.
+    pub fn failed(self, why: String) {
+        // Where the loop has ended, the process is stopping: the release is handed out again when it starts again.
+        let _ = self.to.send(Message::Happened {
+            work: self.work,
+            event: Event::NotReleased { why },
+        });
+    }
+
     /// What the work held is let go.
     pub fn released(self) {
         // Where the loop has ended, the process is stopping: the release is handed out again when it starts again.

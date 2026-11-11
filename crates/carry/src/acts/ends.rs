@@ -118,31 +118,69 @@ async fn a_work_that_never_started_has_nothing_to_take_away() {
 }
 
 #[tokio::test]
-async fn letting_go_that_fails_is_tried_again_until_it_is_done() {
+async fn letting_go_that_fails_is_said_once_for_the_owner_and_not_tried_again() {
     let repo = Repo::new("true");
     started(&repo).await;
     let main = run(&repo.project.repo, &["rev-parse", "main"]);
     let host = Fake::new(&main);
     host.ending(Some("GitHub cannot be reached"));
     let acts = acts(&repo, host);
-    let inner = acts.inner.clone();
-    let releasing = tokio::spawn(async move { inner.release(&release(End::Cancelled)).await });
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    assert!(!releasing.is_finished(), "it is not done while the host fails");
-    assert!(
-        repo.place(WORK).dir.exists(),
-        "nothing is taken away before the host closed what it holds"
-    );
-    acts.inner.host.ending(None);
-    tokio::time::timeout(Duration::from_secs(10), releasing)
-        .await
-        .expect("done once the host is back")
-        .unwrap();
+    let tried = tokio::time::timeout(Duration::from_secs(2), acts.inner.release(&release(End::Cancelled))).await;
+    assert!(tried.is_ok(), "it is not tried again unseen");
     let tries = (acts.inner.host.asked().iter())
         .filter(|a| matches!(a, Asked::End(..)))
         .count();
-    assert!(tries >= 2, "tried {tries} times");
-    assert!(!repo.place(WORK).dir.exists());
+    assert_eq!(tries, 1);
+    assert!(
+        repo.place(WORK).dir.exists(),
+        "nothing is taken away before the host let go"
+    );
+}
+
+/// Starts another work in the repository, with a change not committed in its worktree.
+async fn another(repo: &Repo) -> git::Place {
+    let main = run(&repo.project.repo, &["rev-parse", "main"]);
+    let other = repo.place(WorkNumber(2));
+    start(&repo.project, &Fake::new(&main), &other, &Mutex::new(()))
+        .await
+        .expect("it starts");
+    std::fs::write(other.dir.join("draft.txt"), "Not yet.\n").unwrap();
+    other
+}
+
+/// Whether the other work's worktree is there as it was, its change not committed included.
+fn intact(repo: &Repo, other: &git::Place) -> bool {
+    let listed = run(&repo.project.repo, &["worktree", "list", "--porcelain"]);
+    other.dir.join("draft.txt").is_file() && listed.contains(&other.dir.display().to_string())
+}
+
+#[tokio::test]
+async fn a_symbolic_link_among_a_works_worktrees_takes_away_no_other_works() {
+    let repo = Repo::new("true");
+    started(&repo).await;
+    let other = another(&repo).await;
+    let place = repo.place(WORK);
+    let link = git::before_dir(&place, "0123456789ab");
+    std::os::unix::fs::symlink(&other.dir, &link).unwrap();
+    let main = run(&repo.project.repo, &["rev-parse", "main"]);
+    let acts = acts(&repo, Fake::new(&main));
+    let done = tokio::time::timeout(Duration::from_secs(10), acts.inner.release(&release(End::Merged))).await;
+    assert!(done.is_ok());
+    assert!(intact(&repo, &other), "another work's worktree was taken away");
+    assert!(!place.dir.exists(), "the work's own worktree is taken away");
+}
+
+#[tokio::test]
+async fn a_works_place_that_is_a_symbolic_link_is_left_and_the_end_goes_on() {
+    let repo = Repo::new("true");
+    let other = another(&repo).await;
+    let place = repo.place(WORK);
+    std::os::unix::fs::symlink(&other.dir, &place.dir).unwrap();
+    let main = run(&repo.project.repo, &["rev-parse", "main"]);
+    let acts = acts(&repo, Fake::new(&main));
+    let done = tokio::time::timeout(Duration::from_secs(10), acts.inner.release(&release(End::Cancelled))).await;
+    assert!(done.is_ok(), "the end is not held for ever by the link");
+    assert!(intact(&repo, &other), "another work's worktree was taken away");
 }
 
 /// A work whose people wrote these blocks, in order.
