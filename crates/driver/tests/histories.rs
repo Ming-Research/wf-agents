@@ -776,6 +776,8 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
                 seen.rested_waiting += s.rested_waiting;
                 seen.rested_ended += s.rested_ended;
                 seen.given_again += s.given_again;
+                seen.changed += s.changed;
+                seen.change_refused += s.change_refused;
             }
             Err(e) => {
                 let message = (e.downcast_ref::<String>().cloned())
