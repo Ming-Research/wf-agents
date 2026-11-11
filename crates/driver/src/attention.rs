@@ -365,7 +365,7 @@ impl Reader<'_> {
     }
 
     /// Whether the work came to stand as it does since the mark: an idle work, also where an item it waits for
-    /// stopped going on since.
+    /// stopped going on since, or one it waited for merged since and left it waiting for items that stood still before.
     fn came_since_the_mark(&self, number: WorkNumber) -> bool {
         let unread =
             |number: &WorkNumber| (self.unread[number]).is_some_and(|from| self.began(*number, from).is_some());
@@ -375,25 +375,36 @@ impl Reader<'_> {
         let Some(Some(items)) = self.idle.get(&number) else {
             return false;
         };
-        (items.iter()).any(|idle| {
+        let stopped = (items.iter()).any(|idle| {
             let on = self.of_item[&idle.item];
             match idle.why {
                 Stuck::Idle => self.came_since_the_mark(on),
                 _ => unread(&on),
             }
-        })
+        });
+        stopped || self.merged_waited_for(number).any(|on| unread(&on))
     }
 
-    /// Since when the work has stood as it does; for an idle work, since the latest of that and of the times the items
-    /// it waits for stopped going on.
+    /// Since when the work has stood as it does; for an idle work, since the latest of that, of the times the items
+    /// it waits for stopped going on, and of the times those it waited for merged: it was not idle before the last of
+    /// them merged.
     fn since(&self, number: WorkNumber) -> Time {
         let own = self.began(number, Seq(0)).map_or(Time::default(), |moment| moment.at);
         let Some(Some(items)) = self.idle.get(&number) else {
             return own;
         };
+        let merged = self.merged_waited_for(number).map(|on| self.since(on));
         (items.iter())
             .map(|idle| self.since(self.of_item[&idle.item]))
+            .chain(merged)
             .fold(own, Time::max)
+    }
+
+    /// The works of the items the work's item depends on that merged.
+    fn merged_waited_for(&self, number: WorkNumber) -> impl Iterator<Item = WorkNumber> + '_ {
+        (self.works[&number].item.depends_on.iter())
+            .filter_map(|item| self.of_item.get(item).copied())
+            .filter(|on| self.standing[on] == Standing::Ended(End::Merged))
     }
 
     /// The moment from which the work has stood as it does without a break, where it is at or after this place.

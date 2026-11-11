@@ -282,6 +282,78 @@ fn an_item_cancelled_leaves_the_work_waiting_for_it_idle_for_good() {
 }
 
 #[test]
+fn a_work_left_idle_by_the_merge_of_one_item_it_waited_for_is_a_line_since_that_merge() {
+    let mut h = H::new();
+    let (a, wa) = h.add(new_item("a", &[], "short"));
+    // Added paused and never let on, so that it stands still from before the mark.
+    let (b, _) = h.add(new_item("b", &[], "short"));
+    let (_, ww) = h.add(new_item("w", &[a, b], "judged"));
+    h.let_on(wa);
+    h.let_on(ww);
+    let mark = since(&h, None).mark;
+    h.through(wa);
+    let merged = Time(h.clock);
+    assert_eq!(
+        since(&h, Some(&mark)).lines,
+        vec![
+            Line {
+                heed: Heed::Idle {
+                    work: ww,
+                    items: vec![Idle {
+                        item: b,
+                        why: Stuck::Paused
+                    }],
+                },
+                since: merged,
+            },
+            Line {
+                heed: Heed::Ended {
+                    work: wa,
+                    end: End::Merged
+                },
+                since: merged,
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_work_left_idle_by_the_merge_of_one_item_it_waited_for_is_a_line_when_the_other_was_cancelled_long_before() {
+    let mut h = H::new();
+    let (a, wa) = h.add(new_item("a", &[], "short"));
+    let (b, wb) = h.add(new_item("b", &[], "short"));
+    h.on(wb, Event::Cancelled);
+    let (_, ww) = h.add(new_item("w", &[a, b], "judged"));
+    h.let_on(wa);
+    h.let_on(ww);
+    let mark = since(&h, None).mark;
+    h.through(wa);
+    let merged = Time(h.clock);
+    assert_eq!(
+        since(&h, Some(&mark)).lines,
+        vec![
+            Line {
+                heed: Heed::Idle {
+                    work: ww,
+                    items: vec![Idle {
+                        item: b,
+                        why: Stuck::Cancelled
+                    }],
+                },
+                since: merged,
+            },
+            Line {
+                heed: Heed::Ended {
+                    work: wa,
+                    end: End::Merged
+                },
+                since: merged,
+            },
+        ]
+    );
+}
+
+#[test]
 fn what_rests_for_a_person_comes_first_the_longest_waiting_first() {
     let mut h = H::new();
     let (a, wa) = h.add(new_item("a", &[], "plain"));
