@@ -219,8 +219,16 @@ impl Api for Fake {
     }
 
     async fn checks(&self, commit: &str) -> Result<Vec<Check>, String> {
+        // As GitHub, which answers so of a commit it has not been given.
+        let known = (std::process::Command::new("git").arg("-C").arg(&self.bare))
+            .args(["cat-file", "-e", &format!("{commit}^{{commit}}")])
+            .output()
+            .is_ok_and(|o| o.status.success());
         let mut kept = self.kept();
         kept.asked.push(Asked::Checks(commit.to_string()));
+        if !known {
+            return Err(format!("HTTP 422: No commit found for SHA: {commit}"));
+        }
         let Some(polls) = kept.checks.get_mut(commit) else {
             return Ok(Vec::new());
         };
