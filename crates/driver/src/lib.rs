@@ -14,7 +14,7 @@
 //! work that has ended. A work whose flow has no such block waits for no item. An item that depends on a cancelled
 //! one waits for good, its block saying which: the owner cancels it, takes that dependency away, or leaves it.
 //!
-//! Whoever plans the work changes an item after it was added: its title, its level, and, while its work has begun no
+//! Whoever plans the work changes an item after it was added: its title, its level, and, while its work has started no
 //! run, what it depends on ([`Driver::change`], module [`changes`]). Each change is kept as a record of the item's own;
 //! a change of what it depends on writes the work's block of [`DEPENDENCIES`] anew, as an add does.
 //!
@@ -218,6 +218,8 @@ pub enum Fault {
 pub enum Failed {
     /// The driver has no such item. Nothing was changed.
     NoSuchItem(ItemNumber),
+    /// An item was to be added, or given a title, with a title of no words. Nothing was changed.
+    BlankTitle,
     /// The item may not be changed so, for this reason. Nothing was changed.
     Unchangeable { item: ItemNumber, why: Unchangeable },
     /// The driver has no such work. Nothing was changed.
@@ -431,8 +433,8 @@ impl Driver {
         let held = self.works.get(&work).ok_or(Failed::NoSuchItem(item))?;
         let gone = match held.standing {
             Standing::Ended(end) => Gone::Ended(end),
-            _ if held.work.records.started.is_empty() => Gone::NotBegun,
-            _ => Gone::Begun,
+            _ if held.work.records.started.is_empty() => Gone::NotStarted,
+            _ => Gone::Started,
         };
         let depends_on = |on: ItemNumber| {
             let work = self.of_item.get(&on)?;
@@ -440,6 +442,7 @@ impl Driver {
         };
         let changes = changes::judge(&held.item, gone, &change, depends_on).map_err(|refused| match refused {
             changes::Refused::NoSuchItem(on) => Failed::NoSuchItem(on),
+            changes::Refused::BlankTitle => Failed::BlankTitle,
             changes::Refused::Unchangeable(why) => Failed::Unchangeable { item, why },
         })?;
         if !changes {

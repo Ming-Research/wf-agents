@@ -62,6 +62,22 @@ async fn a_change_the_engine_refuses_says_why() {
     greeted(router).await;
     post(router, "/api/v1/items", &item("Second", json!([1]))).await;
     let refused = |words: &str| (StatusCode::UNPROCESSABLE_ENTITY, json!({ "error": words }));
+    let blank = "A title says what the item is to deliver, and one of no words says nothing: give it words.";
+    for title in ["", "   "] {
+        assert_eq!(
+            post(router, "/api/v1/items/2/title", &json!({ "title": title })).await,
+            refused(blank)
+        );
+        assert_eq!(
+            post(
+                router,
+                "/api/v1/items",
+                &json!({ "title": title, "dependsOn": [], "flow": "trial", "writes": [] })
+            )
+            .await,
+            refused(blank)
+        );
+    }
     assert_eq!(
         post(
             router,
@@ -70,8 +86,8 @@ async fn a_change_the_engine_refuses_says_why() {
         )
         .await,
         refused(
-            "The work of item 1 has begun, and what an item depends on changes only until its work begins: what it \
-             depends on is what its work began on. What turns up for it is a new item, which may depend on it."
+            "The work of item 1 has started, and what an item depends on changes only until its work starts: what it \
+             depends on is what its work started on. What turns up for it is a new item, which may depend on it."
         )
     );
     assert_eq!(

@@ -73,6 +73,9 @@ fn failed_words(failed: &Failed) -> String {
     match failed {
         Failed::NoSuchItem(item) => format!("there is no item {}", item.0),
         Failed::Unchangeable { item, why } => unchangeable_words(*item, why),
+        Failed::BlankTitle => {
+            "a title says what the item is to deliver, and one of no words says nothing: give it words".to_string()
+        }
         Failed::NoSuchWork(work) => format!("there is no work {}", work.0),
         Failed::NoSuchFlow(flow) => format!("there is no flow named {flow}"),
         Failed::Refused(refused) => refused_words(refused),
@@ -90,9 +93,9 @@ fn unchangeable_words(item: ItemNumber, why: &Unchangeable) -> String {
         Unchangeable::Ended(End::Cancelled) => {
             format!("item {item} is cancelled: an item that has ended takes no change, and is what it ended as")
         }
-        Unchangeable::Begun => format!(
-            "the work of item {item} has begun, and what an item depends on changes only until its work begins: what \
-             it depends on is what its work began on. What turns up for it is a new item, which may depend on it"
+        Unchangeable::Started => format!(
+            "the work of item {item} has started, and what an item depends on changes only until its work starts: \
+             what it depends on is what its work started on. What turns up for it is a new item, which may depend on it"
         ),
         Unchangeable::Circle(way) if way.len() == 1 => format!("item {item} cannot depend on itself"),
         Unchangeable::Circle(way) => {

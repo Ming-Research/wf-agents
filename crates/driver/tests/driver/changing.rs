@@ -1,5 +1,5 @@
 //! Changing an item after it was added: its title and its level until its work ends, and what it depends on while its
-//! work has begun no run, each change kept as the item's own record, after which the work's dependencies block says
+//! work has started no run, each change kept as the item's own record, after which the work's dependencies block says
 //! what it now waits for. A change that would close a circle of dependencies, or that its work has gone too far for,
 //! is refused and changes nothing.
 
@@ -96,7 +96,7 @@ fn an_item_may_come_to_depend_on_one_added_after_it_but_never_in_a_circle() {
 }
 
 #[test]
-fn a_begun_work_keeps_what_it_depends_on_and_takes_another_title_and_level() {
+fn a_started_work_keeps_what_it_depends_on_and_takes_another_title_and_level() {
     let mut h = H::new();
     let (a, wa) = h.add(new_item("a", &[], "short"));
     let (b, _) = h.add(new_item("b", &[], "short"));
@@ -108,7 +108,7 @@ fn a_begun_work_keeps_what_it_depends_on_and_takes_another_title_and_level() {
             why,
             Failed::Unchangeable {
                 item: a,
-                why: Unchangeable::Begun,
+                why: Unchangeable::Started,
             }
         );
     }

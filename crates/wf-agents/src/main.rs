@@ -96,7 +96,7 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Makes an item depend on another, while its work has begun no run: its work then waits for that one to merge as
+    /// Makes an item depend on another, while its work has started no run: its work then waits for that one to merge as
     /// well. Refused where that one depends on it already, by way of any items.
     AddDependency {
         item: u64,
@@ -105,7 +105,7 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Makes an item no longer depend on another, while its work has begun no run.
+    /// Makes an item no longer depend on another, while its work has started no run.
     RemoveDependency {
         item: u64,
         /// The item it no longer depends on.

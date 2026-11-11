@@ -4,8 +4,8 @@
 //! the item stands as is worked out of them (crate `store`, [`store::Item`]).
 //!
 //! Every change is refused once the item's work has ended: nothing of the work goes on, and the item is what it ended
-//! as. Its title and its level change until then; what it depends on only while its work has begun no run (entry
-//! `dependencies-until-the-work-begins`).
+//! as. Its title and its level change until then; what it depends on only while its work has started no run (entry
+//! `dependencies-until-the-work-starts`).
 
 use decide::End;
 use store::{Item, ItemChange, ItemNumber};
@@ -13,10 +13,10 @@ use store::{Item, ItemChange, ItemNumber};
 /// How far an item's work has gone, as a change of the item is judged.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Gone {
-    /// It has begun no run.
-    NotBegun,
-    /// It has begun a run, and has not ended.
-    Begun,
+    /// It has started no run.
+    NotStarted,
+    /// It has started a run, and has not ended.
+    Started,
     /// It has ended, so.
     Ended(End),
 }
@@ -26,8 +26,8 @@ pub enum Gone {
 pub enum Unchangeable {
     /// Its work has ended so: the item is what it ended as.
     Ended(End),
-    /// Its work has begun a run: what the item depends on is what its work began on.
-    Begun,
+    /// Its work has started a run: what the item depends on is what its work started on.
+    Started,
     /// It would depend on an item that depends on it already, by this way: from the item it was to depend on,
     /// through each item the one before depends on, to the item itself. An item that was to depend on itself is the
     /// way of that one item.
@@ -40,6 +40,8 @@ pub enum Unchangeable {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Refused {
     NoSuchItem(ItemNumber),
+    /// The title it was to be given has no words.
+    BlankTitle,
     Unchangeable(Unchangeable),
 }
 
@@ -63,8 +65,8 @@ pub fn judge(
         ItemChange::DependsOn(on) | ItemChange::NoLongerDependsOn(on) if depends_on(*on).is_none() => {
             Err(Refused::NoSuchItem(*on))
         }
-        ItemChange::DependsOn(_) | ItemChange::NoLongerDependsOn(_) if gone == Gone::Begun => {
-            refused(Unchangeable::Begun)
+        ItemChange::DependsOn(_) | ItemChange::NoLongerDependsOn(_) if gone == Gone::Started => {
+            refused(Unchangeable::Started)
         }
         ItemChange::DependsOn(on) if item.depends_on.contains(on) => Ok(false),
         ItemChange::DependsOn(on) => match way(*on, item.number, &depends_on) {
@@ -152,51 +154,54 @@ mod tests {
     fn a_circle_is_refused_with_the_way_round_it() {
         let circle = |way: &[u64]| Err(Refused::Unchangeable(Unchangeable::Circle(n(way))));
         assert_eq!(
-            judged(1, Gone::NotBegun, ItemChange::DependsOn(ItemNumber(4))),
+            judged(1, Gone::NotStarted, ItemChange::DependsOn(ItemNumber(4))),
             circle(&[4, 1])
         );
         assert_eq!(
-            judged(2, Gone::NotBegun, ItemChange::DependsOn(ItemNumber(3))),
+            judged(2, Gone::NotStarted, ItemChange::DependsOn(ItemNumber(3))),
             circle(&[3, 2])
         );
         assert_eq!(
-            judged(2, Gone::NotBegun, ItemChange::DependsOn(ItemNumber(4))),
+            judged(2, Gone::NotStarted, ItemChange::DependsOn(ItemNumber(4))),
             circle(&[4, 3, 2])
         );
         assert_eq!(
-            judged(5, Gone::NotBegun, ItemChange::DependsOn(ItemNumber(5))),
+            judged(5, Gone::NotStarted, ItemChange::DependsOn(ItemNumber(5))),
             circle(&[5])
         );
         assert_eq!(
-            judged(5, Gone::NotBegun, ItemChange::DependsOn(ItemNumber(4))),
+            judged(5, Gone::NotStarted, ItemChange::DependsOn(ItemNumber(4))),
             Ok(true)
         );
         assert_eq!(
-            judged(3, Gone::NotBegun, ItemChange::DependsOn(ItemNumber(5))),
+            judged(3, Gone::NotStarted, ItemChange::DependsOn(ItemNumber(5))),
             Ok(true)
         );
     }
 
     #[test]
     fn what_the_item_is_already_is_no_change_and_no_refusal() {
-        assert_eq!(judged(2, Gone::NotBegun, ItemChange::Title("item 2".into())), Ok(false));
-        assert_eq!(judged(2, Gone::Begun, ItemChange::Level("2".into())), Ok(false));
         assert_eq!(
-            judged(4, Gone::NotBegun, ItemChange::DependsOn(ItemNumber(3))),
+            judged(2, Gone::NotStarted, ItemChange::Title("item 2".into())),
+            Ok(false)
+        );
+        assert_eq!(judged(2, Gone::Started, ItemChange::Level("2".into())), Ok(false));
+        assert_eq!(
+            judged(4, Gone::NotStarted, ItemChange::DependsOn(ItemNumber(3))),
             Ok(false)
         );
     }
 
     #[test]
-    fn a_begun_work_keeps_what_it_depends_on_and_takes_a_title_and_a_level() {
-        let begun = Err(Refused::Unchangeable(Unchangeable::Begun));
-        assert_eq!(judged(4, Gone::Begun, ItemChange::DependsOn(ItemNumber(5))), begun);
+    fn a_started_work_keeps_what_it_depends_on_and_takes_a_title_and_a_level() {
+        let started = Err(Refused::Unchangeable(Unchangeable::Started));
+        assert_eq!(judged(4, Gone::Started, ItemChange::DependsOn(ItemNumber(5))), started);
         assert_eq!(
-            judged(4, Gone::Begun, ItemChange::NoLongerDependsOn(ItemNumber(3))),
-            begun
+            judged(4, Gone::Started, ItemChange::NoLongerDependsOn(ItemNumber(3))),
+            started
         );
-        assert_eq!(judged(4, Gone::Begun, ItemChange::Title("less".into())), Ok(true));
-        assert_eq!(judged(4, Gone::Begun, ItemChange::Level("3".into())), Ok(true));
+        assert_eq!(judged(4, Gone::Started, ItemChange::Title("less".into())), Ok(true));
+        assert_eq!(judged(4, Gone::Started, ItemChange::Level("3".into())), Ok(true));
     }
 
     #[test]
@@ -213,17 +218,29 @@ mod tests {
     }
 
     #[test]
+    fn a_title_of_no_words_is_refused_started_or_not() {
+        for gone in [Gone::NotStarted, Gone::Started] {
+            for title in ["", " \t "] {
+                assert_eq!(
+                    judged(2, gone, ItemChange::Title(title.into())),
+                    Err(Refused::BlankTitle)
+                );
+            }
+        }
+    }
+
+    #[test]
     fn an_item_there_is_not_and_one_not_depended_on_are_refused() {
         assert_eq!(
-            judged(2, Gone::NotBegun, ItemChange::DependsOn(ItemNumber(9))),
+            judged(2, Gone::NotStarted, ItemChange::DependsOn(ItemNumber(9))),
             Err(Refused::NoSuchItem(ItemNumber(9)))
         );
         assert_eq!(
-            judged(2, Gone::NotBegun, ItemChange::NoLongerDependsOn(ItemNumber(5))),
+            judged(2, Gone::NotStarted, ItemChange::NoLongerDependsOn(ItemNumber(5))),
             Err(Refused::Unchangeable(Unchangeable::NotDependent(ItemNumber(5))))
         );
         assert_eq!(
-            judged(4, Gone::NotBegun, ItemChange::NoLongerDependsOn(ItemNumber(1))),
+            judged(4, Gone::NotStarted, ItemChange::NoLongerDependsOn(ItemNumber(1))),
             Ok(true)
         );
     }

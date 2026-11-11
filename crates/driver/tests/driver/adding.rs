@@ -97,6 +97,15 @@ fn an_item_depending_on_one_the_driver_does_not_have_is_refused_and_nothing_chan
 }
 
 #[test]
+fn an_item_whose_title_has_no_words_is_refused_and_nothing_changes() {
+    let mut h = H::new();
+    for title in ["", "  "] {
+        let why = h.refused(|d, now| d.add(now, new_item(title, &[], "judged")).map(drop));
+        assert_eq!(why, Failed::BlankTitle);
+    }
+}
+
+#[test]
 fn an_item_on_a_flow_the_driver_was_not_given_is_refused_and_nothing_changes() {
     let mut h = H::new();
     let why = h.refused(|d, now| d.add(now, new_item("a", &[], "nowhere")).map(drop));
