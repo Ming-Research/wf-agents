@@ -41,7 +41,12 @@ describe('the fixtures', () => {
     const page = fixtureWork(50);
     const implement = runs(page.steps).find((r) => r.cell === 'implement');
     const last = implement?.rounds.at(-1);
-    expect(last?.back).toEqual({ kind: 'failed', why: page.summary.now.kind === 'paused' ? page.summary.now.why : null });
+    expect(last?.back).toEqual({
+      kind: 'failed',
+      why: page.summary.now.kind === 'paused' ? page.summary.now.why : null,
+      failure: 'other',
+      resets: null,
+    });
     expect(last?.given.kind).toBe('results');
     expect(page.steps.at(-1)).toMatchObject({ kind: 'paused', by: 'engine', time: last?.ended });
   });

@@ -119,7 +119,7 @@ describe('how a run stands', () => {
   });
 
   it('says a run whose last round failed failed, neither under way nor at rest, and open', () => {
-    const failed = round(10, { kind: 'failed', why: 'The agent could not start.' });
+    const failed = round(10, { kind: 'failed', why: 'The agent could not start.', failure: 'other', resets: null });
     expect(runState({ end: null, rounds: [failed] })).toBe('failed');
     expect(RUN_WORDS.failed).toBe('round failed');
     expect(isOpen('failed')).toBe(true);

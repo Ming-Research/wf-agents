@@ -22,6 +22,7 @@ async fn the_items_are_given_each_with_its_work_in_brief() {
                 "dependsOn": [],
                 "work": summary,
             }],
+            "outage": null,
         })
     );
 }
@@ -187,5 +188,8 @@ async fn an_item_that_cannot_be_added_is_refused_with_why() {
             "{json}"
         );
     }
-    assert_eq!(get_json(router, "/api/v1/items").await, json!({ "items": [] }));
+    assert_eq!(
+        get_json(router, "/api/v1/items").await,
+        json!({ "items": [], "outage": null })
+    );
 }

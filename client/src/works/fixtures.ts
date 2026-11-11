@@ -284,7 +284,7 @@ class History {
     round.context = input + cached;
     run.spent = add(run.spent, round.spent);
     if (spec.fails) {
-      round.back = { kind: 'failed', why: spec.fails };
+      round.back = { kind: 'failed', why: spec.fails, failure: 'other', resets: null };
       this.enginePaused(spec.fails);
     } else if (spec.asks) {
       round.back = {
@@ -796,7 +796,7 @@ function work(n: number): Built {
 }
 
 export function fixtureItems(): Items {
-  return { items: fixtures().items };
+  return { items: fixtures().items, outage: null };
 }
 
 export function fixtureWork(n: number): WorkPage {

@@ -15,7 +15,7 @@ fn a_cancel_stops_the_round_under_way_and_abandons_its_run() {
     let stop = vec![Effect::Stop { run: write }];
     assert_eq!(w.on(Event::Cancelled), stop);
     assert_eq!(abandoned(&w), vec![write]);
-    assert_eq!(pending(&w.work), stop);
+    assert_eq!(pending(&w.flow, &w.work), stop);
 }
 
 #[test]
@@ -29,7 +29,7 @@ fn a_cancel_withdraws_the_calls_a_run_rests_at_in_the_order_they_were_made() {
     ];
     assert_eq!(w.on(Event::Cancelled), withdrawn);
     assert_eq!(abandoned(&w), vec![write]);
-    assert_eq!(pending(&w.work), withdrawn);
+    assert_eq!(pending(&w.flow, &w.work), withdrawn);
 }
 
 /// The judge rests at a question for the owner, and the writer, before it, runs again for a new request.
@@ -48,7 +48,7 @@ fn a_cancel_ends_every_open_run_in_the_order_the_runs_started() {
     let undo = vec![Effect::Withdraw { call }, Effect::Stop { run: again }];
     assert_eq!(w.on(Event::Cancelled), undo);
     assert_eq!(abandoned(&w), vec![judge, again]);
-    assert_eq!(pending(&w.work), undo);
+    assert_eq!(pending(&w.flow, &w.work), undo);
 }
 
 #[test]
@@ -56,9 +56,13 @@ fn a_stop_and_a_withdrawal_are_pending_until_the_round_has_ended_and_the_call_ha
     let (mut w, _, call, again) = two_open();
     w.on(Event::Cancelled);
     assert_eq!(w.returns(again, hands_in(&[("text", None)])), vec![]);
-    assert_eq!(pending(&w.work), vec![Effect::Withdraw { call }]);
-    assert_eq!(w.done(call), vec![]);
-    assert_eq!(pending(&w.work), vec![]);
+    assert_eq!(pending(&w.flow, &w.work), vec![Effect::Withdraw { call }]);
+    // Nothing of it is under way then, and what it holds is let go.
+    let release = vec![Effect::Release {
+        end: decide::End::Cancelled,
+    }];
+    assert_eq!(w.done(call), release);
+    assert_eq!(pending(&w.flow, &w.work), release);
 }
 
 #[test]

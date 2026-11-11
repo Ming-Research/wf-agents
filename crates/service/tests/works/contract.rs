@@ -39,6 +39,7 @@ async fn a_carrier_that_answers_a_round_twice_stops_the_loop() {
         agents: twice.clone(),
         acts: twice,
         tools: Arc::new(Scripted::new(Default::default())),
+        network: Arc::new(Scripted::new(Default::default())),
     };
     let clock = Arc::new(TokioClock::new(START));
     let (mut service, mut inbox) = Service::open(Box::new(store), vec![trial_flow()], carriers, clock).unwrap();

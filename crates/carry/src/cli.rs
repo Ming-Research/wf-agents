@@ -192,6 +192,9 @@ pub fn in_session(flow: &Compiled, work: &Work, line: &str, run: RunId, number: 
 /// The command line's result, as much of it as is read.
 #[derive(Debug, Deserialize)]
 struct Result {
+    /// What kind of end it is, as the command line names it: `success`, or the error it ended in.
+    #[serde(default)]
+    subtype: Option<String>,
     #[serde(default)]
     is_error: bool,
     #[serde(default)]
@@ -261,7 +264,12 @@ pub fn read(stdout: &[u8], begin: Begin, before: u64) -> std::result::Result<Rea
     let spent = spent(&result, begin, before);
     if result.is_error {
         let why = result.result.unwrap_or_default();
-        let why = format!("the command line's result is an error: {why}");
+        let why = match result.subtype.as_deref() {
+            Some(subtype) if subtype != "success" => {
+                format!("the command line's result is an error ({subtype}): {why}")
+            }
+            _ => format!("the command line's result is an error: {why}"),
+        };
         return Err(NoResult {
             why,
             spent: Some(spent),

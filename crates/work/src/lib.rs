@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use decide::run::{Limit, Unmet};
+use decide::run::{Failure, Limit, Unmet};
 use decide::{BlockId, CallId, Records, RunId, Seq, Who};
 use serde::{Deserialize, Serialize};
 
@@ -56,6 +56,7 @@ impl Work {
             .chain(r.let_go.iter().map(|e| e.at))
             .chain(r.pauses.iter().map(|e| e.at))
             .chain(r.cancelled)
+            .chain(r.released)
             .chain(self.sessions.iter().map(|s| s.at))
             .chain(self.ran.iter().map(|r| r.at));
         Seq(places.map(|at| at.0).max().unwrap_or(0) + 1)
@@ -129,9 +130,19 @@ pub enum Back {
     Asked(Vec<Ask>),
     /// These blocks were handed in.
     HandedIn(Vec<Handed>),
-    /// Nothing came back: the round failed, for this reason, as whatever carried it out says. The engine paused the
-    /// work as it took this, and the run's next round is given what this one was given.
-    Failed { why: String },
+    /// Nothing came back: the round failed, for this reason, as whatever carried it out says, with the kind of cause
+    /// it told apart. The run's next round is given what this one was given, as the kind's handling lets it (crate
+    /// `decide`, module `run`). Records kept before kinds were told apart hold none, and read as a failure that
+    /// paused the work, as each did.
+    Failed {
+        why: String,
+        #[serde(default)]
+        failure: Failure,
+        /// When the account's usage limit resets, where the failure is that limit and its report says when; none
+        /// otherwise.
+        #[serde(default)]
+        resets: Option<Time>,
+    },
 }
 
 /// A block as a run hands it in.
@@ -152,6 +163,9 @@ pub enum Call {
     Asked(Ask),
     /// The run reached a limit: the owner lets it go on or cancels the work.
     AtLimit(Limit),
+    /// The engine waits until this time before the run's last round, which failed in passing, the `failed`th time in
+    /// a row, is tried again. Its result comes from the clock, once the time has come.
+    Wait { until: Time, failed: u32 },
 }
 
 /// What an agent asks for at the end of a round.

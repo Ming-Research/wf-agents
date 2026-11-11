@@ -301,7 +301,14 @@ fn a_round_fails_where_its_entry_says_and_takes_what_it_says() {
     )
     .unwrap();
     let planned = script.round(&flow, cell(&flow, "plan"), 1, 1, &BTreeMap::new());
-    assert_eq!(planned.ends, Ends::Fails("The agent could not start.".to_string()));
+    assert_eq!(
+        planned.ends,
+        Ends::Fails {
+            why: "The agent could not start.".to_string(),
+            failure: decide::run::Failure::Other,
+            resets: None,
+        }
+    );
     assert_eq!((planned.ms, planned.spent.usd_micros), (70, 9));
     // The round after it, given the same once the work is let on, does what the script says of it: by default it hands
     // in.

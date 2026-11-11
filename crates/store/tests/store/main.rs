@@ -218,7 +218,7 @@ impl Driver {
 
     /// The run whose round is under way, and its cell.
     fn under_way(&self) -> (RunId, String) {
-        (pending(&self.work).into_iter())
+        (pending(&self.flow, &self.work).into_iter())
             .find_map(|e| match e {
                 Effect::Round { run, cell, .. } => Some((run, cell.0)),
                 _ => None,
@@ -238,7 +238,13 @@ impl Driver {
         let (run, _) = self.under_way();
         let spent = self.spent();
         let why = why.to_string();
-        self.on(Event::Failed { run, why, spent })
+        self.on(Event::Failed {
+            run,
+            why,
+            failure: decide::run::Failure::Other,
+            resets: None,
+            spent,
+        })
     }
 
     /// What the next round to end took, told apart from every other.
@@ -259,7 +265,7 @@ impl Driver {
     /// Every call that is to be made has its result, and so those that are to be made after them, until none is.
     fn answer(&mut self) {
         for _ in 0..10 {
-            let calls: Vec<CallId> = (pending(&self.work).into_iter())
+            let calls: Vec<CallId> = (pending(&self.flow, &self.work).into_iter())
                 .filter_map(|e| match e {
                     Effect::Call { call, .. } => Some(call),
                     _ => None,
@@ -278,7 +284,7 @@ impl Driver {
 
     /// Every call that is to be withdrawn is said to have its result: that it was withdrawn.
     fn withdraw(&mut self) {
-        for e in pending(&self.work) {
+        for e in pending(&self.flow, &self.work) {
             if let Effect::Withdraw { call } = e {
                 let result = "withdrawn".to_string();
                 self.on(Event::Done { call, result });
@@ -288,7 +294,7 @@ impl Driver {
 
     /// Every round that is to be stopped ends.
     fn stopped(&mut self) {
-        for e in pending(&self.work) {
+        for e in pending(&self.flow, &self.work) {
             if let Effect::Stop { run } = e {
                 let spent = self.spent();
                 let came = Came::Asks(vec![]);
@@ -418,4 +424,7 @@ fn history(d: &mut Driver) {
         "no round was under way at the cancel: {effects:?}"
     );
     d.stopped();
+    // Nothing of it is under way then: what it held is let go.
+    d.on(Event::Released);
+    assert!(d.work.records.released.is_some(), "what the work held was not let go");
 }

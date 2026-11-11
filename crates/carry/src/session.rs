@@ -49,9 +49,11 @@ mod tests {
         assert_ne!(id, session(installation, WorkNumber(8), "engineer", 0));
         let other = Uuid::parse_str("0d9e4b61-3f2a-4c8d-b7e5-91a6c3f0d2b8").unwrap();
         assert_ne!(id, session(other, WorkNumber(7), "engineer", 0));
-        let next = session(installation, WorkNumber(7), "engineer", 1);
-        assert_ne!(id, next, "a new session of the line has an id of its own");
-        assert_ne!(next, session(installation, WorkNumber(7), "engineer", 2));
+        // A session begun anew is another, and the same whenever it is worked out.
+        let anew = session(installation, WorkNumber(7), "engineer", 1);
+        assert_ne!(id, anew);
+        assert_eq!(anew, session(installation, WorkNumber(7), "engineer", 1));
+        assert_ne!(anew, session(installation, WorkNumber(7), "engineer", 2));
     }
 
     #[test]

@@ -52,6 +52,8 @@ export function waitedKey(at: string, waited: Waited): string {
       return `test:${waited.test}`;
     case 'limit':
       return `limit:${at}`;
+    case 'agents':
+      return 'agents';
   }
 }
 

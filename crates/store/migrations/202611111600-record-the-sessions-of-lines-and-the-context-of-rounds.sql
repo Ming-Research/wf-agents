@@ -1,4 +1,4 @@
--- From version 3 of the schema to version 4: each round says the context it ended with and how often its session was
+-- From version 4 of the schema to version 5: each round says the context it ended with and how often its session was
 -- compacted; each new session of a line that began is recorded, and what each try of a round ran on. A round kept
 -- before says neither: its context is not known, it is counted as compacted never, and what it ran on is not recorded.
 -- The columns are added at the end of the table, as a new file has them. The version's one row is replaced last, so
@@ -24,4 +24,4 @@ CREATE TABLE ran (
     PRIMARY KEY (work, at),
     FOREIGN KEY (work, run) REFERENCES started (work, run)
 );
-UPDATE schema_version SET version = 4;
+UPDATE schema_version SET version = 5;

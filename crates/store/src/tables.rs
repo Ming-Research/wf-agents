@@ -196,6 +196,11 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     })?
     .into_iter()
     .next();
+    r.released = rows(db, "SELECT at FROM released WHERE work = ?1", w, |row| {
+        Ok(Seq(row.get(0)?))
+    })?
+    .into_iter()
+    .next();
 
     out.contents = rows(
         db,
@@ -319,6 +324,12 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         (Some(h), Some(_)) => return Err(diverged("cancelled", Entry::At(h), Divergence::Changed)),
         (Some(h), None) => return Err(diverged("cancelled", Entry::At(h), Divergence::Missing)),
     };
+    let released = match (h.released, g.released) {
+        (None, new) => new,
+        (Some(h), Some(g)) if h == g => None,
+        (Some(h), Some(_)) => return Err(diverged("released", Entry::At(h), Divergence::Changed)),
+        (Some(h), None) => return Err(diverged("released", Entry::At(h), Divergence::Missing)),
+    };
     let contents = gained("contents", &held.contents, &given.contents, |(block, at)| {
         Entry::Version {
             block: block.clone(),
@@ -413,6 +424,9 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     }
     if let Some(at) = cancelled {
         db.execute("INSERT INTO cancelled (work, at) VALUES (?1, ?2)", params![w, at.0])?;
+    }
+    if let Some(at) = released {
+        db.execute("INSERT INTO released (work, at) VALUES (?1, ?2)", params![w, at.0])?;
     }
     for ((block, version), content) in contents {
         db.execute(

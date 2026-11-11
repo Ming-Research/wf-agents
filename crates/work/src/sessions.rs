@@ -57,6 +57,9 @@ pub enum Why {
     Account { was: Option<String> },
     /// The owner asked for one.
     Owner,
+    /// The service's safety check flagged the line's last round, which is tried again in a session that does not give
+    /// the check the same context.
+    Flagged,
     /// The agents' program had no session under the line's id: the round that found it begins one under that id.
     Lost,
 }
@@ -77,6 +80,7 @@ impl Why {
             Why::Model { was } => format!("its rounds now run on another model than {was}, which it was begun on"),
             Why::Account { .. } => "its rounds now run under another account than it was begun under".to_string(),
             Why::Owner => "the owner asked for one".to_string(),
+            Why::Flagged => "the service's safety check flagged its last round".to_string(),
             Why::Lost => "the agents' program no longer had the session it was in".to_string(),
         };
         format!("A new session of the line `{line}`: {why}.")

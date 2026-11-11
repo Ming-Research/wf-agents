@@ -1,7 +1,7 @@
 //! A session of a line that began is recorded at its place, as what happened to the work; and what someone outside the
 //! work adds as it takes something is taken before the walk decides.
 
-use engine::{Session, Why, handle_then};
+use engine::{Gate, Session, Why, handle_then};
 
 use super::*;
 
@@ -69,6 +69,7 @@ fn what_follows_from_outside_is_taken_before_the_walk_decides() {
             came,
             spent: spent(1),
         },
+        Gate::Open,
         &then,
     )
     .expect("taken");

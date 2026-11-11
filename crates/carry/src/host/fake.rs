@@ -12,6 +12,8 @@ use crate::held::Stop;
 pub(crate) struct Fake {
     main: Mutex<String>,
     verdicts: Mutex<VecDeque<Result<Option<Verdict>, String>>>,
+    /// Why letting go fails, where it does.
+    ending: Mutex<Option<String>>,
     asked: Mutex<Vec<Asked>>,
 }
 
@@ -24,6 +26,8 @@ pub(crate) enum Asked {
     Verdict(String),
     /// To merge, the check having passed this commit.
     Merge(Option<String>),
+    /// To let go of what it holds for the branch, the work having merged or not.
+    End(String, bool),
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -36,8 +40,14 @@ impl Fake {
         Fake {
             main: Mutex::new(main.to_string()),
             verdicts: Mutex::new(VecDeque::new()),
+            ending: Mutex::new(None),
             asked: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Fails to let go, with these words, until it is told otherwise.
+    pub(crate) fn ending(&self, refused: Option<&str>) {
+        *lock(&self.ending) = refused.map(str::to_string);
     }
 
     /// Gives this verdict when it is next asked for one.
@@ -79,6 +89,12 @@ impl Host for Fake {
 
     async fn check_before(&self, _: &Branch<'_>, _: &Before, _: &mut Stop) -> Result<Option<String>, String> {
         Err(NO_TOOLS.to_string())
+    }
+
+    async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {
+        let refused = lock(&self.ending).clone();
+        lock(&self.asked).push(Asked::End(branch.place.branch.clone(), merged));
+        refused.map_or(Ok(()), Err)
     }
 }
 

@@ -82,6 +82,8 @@ fn a_failed_round_of_a_run_for_what_a_person_wrote_is_given_again_only_once_the_
     let failed = Event::Failed {
         run: again,
         why: "the agent could not start".to_string(),
+        failure: decide::run::Failure::Other,
+        resets: None,
         spent: spent(1),
     };
     assert_eq!(w.on(failed), vec![]);

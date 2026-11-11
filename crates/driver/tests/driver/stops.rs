@@ -127,6 +127,7 @@ fn answer(h: &H, s: usize) -> Option<Act> {
             came: Came::Asks(vec![]),
             spent: spent(s as u64),
         },
+        Effect::Release { .. } => Event::Released,
     };
     Some(Act::On(todo.work, event))
 }

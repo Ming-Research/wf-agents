@@ -6,6 +6,7 @@
 
 use std::collections::BTreeSet;
 
+use decide::run::Failure;
 use decide::{CallId, Cause, Decision, Outsider, Pauser, Records, RunId, decide};
 use engine::{Ask, Back, Call, Came, Effect, Event, Spent, Time, Work, handle, pending};
 use flow::Compiled;
@@ -69,6 +70,8 @@ pub struct Seen {
     pub lacking: usize,
     /// Finished runs of cells that must write a block each time.
     pub bound_finished: usize,
+    /// Releases given of what a work that ended held.
+    pub released: usize,
 }
 
 /// The first finished run of the records that lacks a write of a block its cell must write, read from the records of
@@ -127,15 +130,17 @@ pub fn for_a_note(flow: &decide::Flow, records: &Records, run: RunId) -> bool {
 
 /// Why the round of the run that has this number may not be given while the work is paused, if it may not: a paused
 /// work gives a round only of a run started for a note a person wrote ([`for_a_note`]), and never the round after
-/// one that failed, which waits for the owner to let the work on.
+/// one whose failure paused the work, which waits for the owner to let the work on.
 pub fn held_back(flow: &Compiled, work: &Work, run: RunId, number: usize) -> Option<String> {
     if !for_a_note(&flow.flow, &work.records, run) {
         return Some(format!(
             "round {number} of {run:?}, which started for no note a person wrote"
         ));
     }
-    if matches!(work.back.get(&(run, number - 1)), Some(Back::Failed { .. })) {
-        return Some(format!("round {number} of {run:?}, given again after it failed"));
+    if failure_paused(work, run, number - 1) {
+        return Some(format!(
+            "round {number} of {run:?}, given again after its failure paused the work"
+        ));
     }
     None
 }
@@ -266,6 +271,13 @@ impl Driver {
                             what: Call::AtLimit(_), ..
                         } => self.seen.limits += 1,
                         Effect::Call { .. } => {}
+                        Effect::Release { .. } => {
+                            assert!(
+                                !self.held.iter().any(|e| matches!(e, Effect::Release { .. })),
+                                "the release is given while it is held already"
+                            );
+                            self.seen.released += 1;
+                        }
                     }
                     self.held.push(effect);
                 }
@@ -284,7 +296,7 @@ impl Driver {
     /// What must hold of the engine after every step.
     pub fn check(&self) {
         let r = &self.work.records;
-        let mut pending = pending(&self.work);
+        let mut pending = pending(&self.flow, &self.work);
         pending.sort_by_key(key);
         assert_eq!(pending, self.held, "what is pending is not what the driver holds");
         // A round that ended, as a failed one has, is not under way: none is to be done again.
@@ -355,7 +367,31 @@ impl Driver {
                     assert!(r.called.iter().any(|c| c.call == *call), "an unknown call withdrawn");
                 }
                 Effect::Stop { run } => assert!(r.started.iter().any(|s| s.run == *run), "an unknown run stopped"),
+                // Nothing of a work is under way as it lets go of what it holds: no round, and no call, which a tool
+                // may be working at in the worktree.
+                Effect::Release { end } => {
+                    assert_eq!(
+                        decide(&self.flow.flow, r),
+                        Decision::Ended(*end),
+                        "what the work holds is let go though it has not ended so"
+                    );
+                    let nothing = (self.held.iter()).all(|e| matches!(e, Effect::Release { .. }));
+                    assert!(
+                        nothing,
+                        "what the work holds is let go while something of it is to be done"
+                    );
+                }
             }
+        }
+        // A work that ended with nothing under way has let go of what it holds, or is to.
+        let ended = matches!(decide(&self.flow.flow, r), Decision::Ended(_));
+        if ended && r.released.is_none() && (self.held.iter()).all(|e| matches!(e, Effect::Release { .. })) {
+            assert_eq!(
+                self.held.len(),
+                1,
+                "a work that ended is not to let go of what it holds: {:?}",
+                self.held
+            );
         }
     }
 
@@ -400,7 +436,7 @@ impl Driver {
     /// The driver forgets what it held and takes what is pending instead.
     pub fn stop(&mut self) {
         self.note("the engine stops".into());
-        let mut held = pending(&self.work);
+        let mut held = pending(&self.flow, &self.work);
         held.sort_by_key(key);
         self.held = held;
         self.seen.stops += 1;
@@ -426,7 +462,7 @@ impl Driver {
             .filter(|e| match e {
                 Effect::Round { .. } => true,
                 Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool { .. })),
-                Effect::Withdraw { .. } | Effect::Stop { .. } => true,
+                Effect::Withdraw { .. } | Effect::Stop { .. } | Effect::Release { .. } => true,
             })
             .cloned()
             .collect()
@@ -443,7 +479,13 @@ impl Driver {
                 if part.fails(self, false, people) {
                     let spent = self.spent(run);
                     let why = format!("the agent of {cell} could not start");
-                    let taken = self.take(Event::Failed { run, why, spent });
+                    let taken = self.take(Event::Failed {
+                        run,
+                        why,
+                        failure: Failure::Other,
+                        resets: None,
+                        spent,
+                    });
                     assert!(taken, "the failure of a round under way was refused");
                     return;
                 }
@@ -476,6 +518,8 @@ impl Driver {
                     Event::Failed {
                         run,
                         why: "stopped".to_string(),
+                        failure: Failure::Other,
+                        resets: None,
                         spent,
                     }
                 } else {
@@ -486,6 +530,12 @@ impl Driver {
                     }
                 };
                 assert!(self.take(end), "the end of a stopped round was refused");
+            }
+            Effect::Release { .. } => {
+                assert!(
+                    self.take(Event::Released),
+                    "the release of a work that ended was refused"
+                );
             }
         }
     }
@@ -511,4 +561,20 @@ impl Driver {
         self.carry_out(effect, part, people);
         true
     }
+}
+
+/// Whether the run's round of this number failed and the engine paused the work for it, which was not let on since:
+/// the engine paused it after the round began, as for its failure or its going over the budget, and no letting on came
+/// after the round's beginning.
+pub fn failure_paused(work: &Work, run: RunId, number: usize) -> bool {
+    if number == 0 || !matches!(work.back.get(&(run, number)), Some(Back::Failed { .. })) {
+        return false;
+    }
+    let r = &work.records;
+    let Some(began) = r.rounds.iter().filter(|e| e.run == run).map(|e| e.at).nth(number - 1) else {
+        return false;
+    };
+    let paused = (r.pauses.iter()).any(|p| p.paused && p.by == Pauser::Engine && p.at > began);
+    let let_on = (r.pauses.iter()).any(|p| !p.paused && p.at > began);
+    paused && !let_on
 }

@@ -5,10 +5,13 @@
 //! wait their turn.
 //!
 //! A round fails, handing in nothing, where the worktree is not there, the program cannot be started, it exits with
-//! an error or prints a result that is one, or what it prints is no result with a structured return. It is not tried
-//! again here: the work is paused for the owner to see why. A round that fails takes what the result the program
-//! printed says it cost, as any round does, and is held to the budget as any round is; where the program printed
-//! nothing that reads as a result, what the round took is not known, and is recorded as nothing. Stopped, the program's process group is sent TERM, and
+//! an error or prints a result that is one, or what it prints is no result with a structured return of the form. The
+//! kind of its cause is told apart from what the program reported ([`failure`](crate::failure)): a program that cannot
+//! be started cannot run, a return not of the form could not be read, and a round that failed before its program ran
+//! failed for a cause no kind tells apart. It is not tried again here: the engine handles it as its kind says. A round
+//! that fails takes what the result the program printed says it cost, as any round does, and is held to the budget as
+//! any round is, its work paused where it went over; where the program printed nothing that reads as a result, what
+//! the round took is not known, and is recorded as nothing. Stopped, the program's process group is sent TERM, and
 //! KILL after three seconds, and the round ends with nothing handed in; what it spent is not known, and is recorded
 //! as nothing.
 //!
@@ -36,9 +39,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use decide::RunId;
+use decide::run::Failure;
 use driver::Policy;
 use engine::Came;
-use service::{Round, RoundReply, Rounds, Teller, Told};
+use service::{Clock, Round, RoundReply, Rounds, SystemClock, Teller, Told};
 use store::WorkNumber;
 use tokio::process::Command;
 use tokio::sync::Semaphore;
@@ -50,7 +54,7 @@ use crate::held::{Failing, Held, Stop};
 use crate::permissions::Permissions;
 use crate::process::{self, Ran};
 use crate::settings::Settings;
-use crate::{acts, git, kept, message, returns, session};
+use crate::{acts, failure, git, kept, message, returns, session};
 
 /// The system prompt every round is given, before the owner's language and what the tool `check` does are put in.
 pub const PROTOCOL: &str = include_str!("protocol.md");
@@ -72,13 +76,16 @@ struct Inner {
     protocol: String,
     slots: Semaphore,
     held: Held<(WorkNumber, RunId, usize), RoundReply>,
+    /// The clock a usage limit's reset is read by, where the command line gives it as a time of day.
+    clock: Arc<dyn Clock>,
 }
 
 /// What came of running a round's program.
 enum Carried {
     Came(Came, Spent),
-    /// It failed, for this reason, having taken this, as the result it printed says.
-    Failed(String, Spent),
+    /// It failed, for this reason, of this kind of cause, having taken this, as the result it printed says, or
+    /// nothing where it printed none.
+    Failed(String, Failure, Spent),
     Stopped,
 }
 
@@ -89,6 +96,11 @@ const COMPACTED: &str = "Your session was compacted during this round. What the 
 impl Agents {
     /// The agents of these settings, with this data directory, which is an absolute path, and the installation's id.
     pub fn new(settings: Settings, data: PathBuf, installation: Uuid) -> Self {
+        Self::with_clock(settings, data, installation, Arc::new(SystemClock))
+    }
+
+    /// The agents as [`Agents::new`] gives them, reading the time by this clock.
+    pub fn with_clock(settings: Settings, data: PathBuf, installation: Uuid, clock: Arc<dyn Clock>) -> Self {
         let protocol = (PROTOCOL.replace("{owner_language}", &settings.agents.owner_language))
             .replace("{check}", crate::tools::told(&settings));
         Agents {
@@ -99,6 +111,7 @@ impl Agents {
                 installation,
                 protocol,
                 held: Held::new(),
+                clock,
             }),
         }
     }
@@ -138,15 +151,17 @@ impl Rounds for Agents {
                         reply.ended(Came::HandsIn(Vec::new()), Spent::default());
                     }
                 }
-                Ok(Carried::Failed(why, spent)) => match inner.held.fail(key) {
-                    // The work is paused for the failure; where the round took it over its budget, the reason says
-                    // that too.
+                Ok(Carried::Failed(why, failure, spent)) => match inner.held.fail(key) {
+                    // Where the round took the work over its budget, the work is paused for that whatever the kind.
                     Some(Failing::Fail(reply)) => {
-                        let why = match inner.over_budget(&round, &spent) {
-                            Some(over) => format!("{why}; and {over}"),
-                            None => why,
-                        };
-                        reply.failed(why, spent);
+                        let resets = resets(failure, &why, &*inner.clock);
+                        match inner.over_budget(&round, &spent) {
+                            Some(over) => {
+                                let pause = format!("{why}; and {over}");
+                                reply.failed_and_paused(failure, resets, why, spent, pause);
+                            }
+                            None => reply.failed_as(failure, resets, why, spent),
+                        }
                     }
                     Some(Failing::End(reply)) => reply.ended(Came::HandsIn(Vec::new()), spent),
                     None => {}
@@ -187,8 +202,8 @@ impl Rounds for Agents {
 }
 
 impl Inner {
-    /// Runs the round's program, and gives what came back and what it took; or that the round failed, why and what it
-    /// took, where the program printed a result; or, where it printed none, only why.
+    /// Runs the round's program, and gives what came back and what it took; or that the round failed, why, of what
+    /// kind and what it took; or, where it could not be run for a cause before its program, only why.
     async fn carry(&self, round: &Round, teller: &Teller, stop: &mut Stop) -> Result<Carried, String> {
         let (flow, work) = (&*round.flow, &*round.kept);
         let place = git::place(&self.data, &git::tag(&self.installation), round.work);
@@ -235,7 +250,15 @@ impl Inner {
             teller.ran_on(on.clone());
             write(&told_at, told.as_bytes()).await?;
             let command = self.command(&dir, &on, &permissions, &compacted, session, begin);
-            let ran = process::run(command, Some(told.into_bytes()), Some(&group), stop).await?;
+            // A program that cannot be started printed no result: its words say whether it is missing, which holds
+            // every work, and any other cause pauses the work.
+            let ran = match process::run(command, Some(told.into_bytes()), Some(&group), stop).await {
+                Ok(ran) => ran,
+                Err(why) => {
+                    let kind = failure::of(&why, None);
+                    return Ok(Carried::Failed(why, kind, Spent::default()));
+                }
+            };
             let Ran::Ended { status, stdout, stderr } = ran else {
                 return Ok(Carried::Stopped);
             };
@@ -268,10 +291,11 @@ impl Inner {
             }
             no
         });
-        // A failure whose result was read took what the result says; one with none, what is not known.
-        let failed = |why: String, spent: Option<Spent>| match spent {
-            Some(spent) => Ok(Carried::Failed(why, spent)),
-            None => Err(why),
+        // A failure whose result was read took what the result says; one with none, what is not known. Its kind is
+        // told by what the program reported and what it took.
+        let failed = |why: String, spent: Option<Spent>| {
+            let kind = failure::of(&why, spent.as_ref());
+            Ok(Carried::Failed(why, kind, spent.unwrap_or_default()))
         };
         if !status.success() {
             let tail = || process::tail(stderr.trim().as_bytes());
@@ -291,7 +315,7 @@ impl Inner {
         };
         match returns::came(&read.structured) {
             Ok(came) => Ok(Carried::Came(came, read.spent)),
-            Err(why) => Ok(Carried::Failed(why, read.spent)),
+            Err(why) => Ok(Carried::Failed(why, Failure::Unread, read.spent)),
         }
     }
 
@@ -348,6 +372,16 @@ impl Inner {
             )
         })
     }
+}
+
+/// When the account's usage limit resets, where the failure is that limit and the program's report says when, the time
+/// now read by the clock.
+fn resets(failure: Failure, why: &str, clock: &dyn Clock) -> Option<work::Time> {
+    if failure != Failure::UsageLimit {
+        return None;
+    }
+    let now = clock.now().ok()?;
+    failure::resets_at(why, now.0, &failure::zone_offset).map(work::Time)
 }
 
 /// Where the next try of the round keeps what it is told and what it returns: the first that has kept nothing yet.

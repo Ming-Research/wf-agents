@@ -9,12 +9,16 @@
 //! whose last round was of a cell that reads the [`SESSION`] block: that cell loads the session, and a new session for
 //! its own size would load it again without end.
 //!
-//! Nothing follows for a work that has ended. Without a policy, nothing is worked out, and only what others record is
-//! followed: whatever records a new session, the driver then writes the work's [`SESSION`] block, where the line has a
+//! Whatever the policy, a line whose last round the service's safety check flagged begins a new session, in which that
+//! round is tried again, so that the check is not given the same context.
+//!
+//! Nothing follows for a work that has ended. Without a policy, nothing more is worked out, and only what others record
+//! is followed: whatever records a new session, the driver then writes the work's [`SESSION`] block, where the line has a
 //! cell that reads it, so that the cell runs again and what it reads is in the new session. A line's first session,
 //! which begins with its first round, writes nothing: that cell runs then anyway.
 
-use decide::{Decision, Outsider, RunId, Seq, decide};
+use decide::run::Failure;
+use decide::{Decision, Outsider, RunId, decide};
 use engine::Event;
 use flow::CellSpec;
 use flow::Compiled;
@@ -43,12 +47,15 @@ pub fn follow(flow: &Compiled, work: &Work, item: &Item, policy: Option<&Policy>
     if matches!(decide(&flow.flow, &work.records), Decision::Ended(_)) {
         return Vec::new();
     }
-    let mut events: Vec<Event> = match policy {
-        Some(policy) => lines(flow)
-            .filter_map(|line| due(flow, work, item, line, policy))
-            .collect(),
-        None => Vec::new(),
-    };
+    let mut events: Vec<Event> = lines(flow)
+        .filter_map(|line| match flagged(flow, work, line) {
+            true => Some(Event::Anew {
+                line: line.to_string(),
+                why: Why::Flagged,
+            }),
+            false => policy.and_then(|policy| due(flow, work, item, line, policy)),
+        })
+        .collect();
     let Some((block, declared)) = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(SESSION))
     else {
         return events;
@@ -142,23 +149,44 @@ fn due(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Policy) -
     None
 }
 
+/// The line's last round that ended, by its run and number: the latest end of a round of the line.
+fn last_ended(flow: &Compiled, work: &Work, line: &str) -> Option<(RunId, usize)> {
+    let mut ended: Vec<(RunId, usize)> = Vec::new();
+    for returned in &work.records.returned {
+        let number = ended.iter().filter(|(run, _)| *run == returned.run).count() + 1;
+        ended.push((returned.run, number));
+    }
+    (ended.into_iter().rev()).find(|(run, _)| line_of_run(flow, work, *run) == Some(line))
+}
+
+/// Whether a session of the line with an id of its own was recorded after the round of this number of the run began:
+/// the session the round ran in has ended already.
+fn begun_since(work: &Work, line: &str, run: RunId, number: usize) -> bool {
+    let began = began_at(work, run, number);
+    began.is_some_and(|began| of_line(work, line).any(|s| s.why.own_id() && s.at > began))
+}
+
+/// Whether the line's last round failed as one the service's safety check flagged, in the session the line is in.
+fn flagged(flow: &Compiled, work: &Work, line: &str) -> bool {
+    let Some((run, number)) = last_ended(flow, work, line) else {
+        return false;
+    };
+    let flagged = matches!(
+        work.back.get(&(run, number)),
+        Some(Back::Failed {
+            failure: Failure::Flagged,
+            ..
+        })
+    );
+    flagged && !begun_since(work, line, run, number)
+}
+
 /// The context the line's last round ended with, where it was past the limit in the session the line is in, and the
 /// limit ends that session.
 fn past_limit(flow: &Compiled, work: &Work, line: &str, limit: u64) -> Option<u64> {
-    // The line's last round that ended: the run and the number of the latest end of a round of the line.
-    let mut ended: Vec<(RunId, usize, Seq)> = Vec::new();
-    for returned in &work.records.returned {
-        let number = ended.iter().filter(|(run, _, _)| *run == returned.run).count() + 1;
-        ended.push((returned.run, number, returned.at));
-    }
-    let (run, number, _) = (ended.into_iter().rev()).find(|(run, _, _)| line_of_run(flow, work, *run) == Some(line))?;
+    let (run, number) = last_ended(flow, work, line)?;
     let context = work.spent.get(&(run, number))?.context_tokens?;
-    if context <= limit {
-        return None;
-    }
-    // Recorded since the round began, a new session has begun already.
-    let began = began_at(work, run, number)?;
-    if of_line(work, line).any(|s| s.why.own_id() && s.at > began) {
+    if context <= limit || begun_since(work, line, run, number) {
         return None;
     }
     let started = work.records.started.iter().find(|s| s.run == run)?;

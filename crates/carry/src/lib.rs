@@ -13,6 +13,8 @@
 //! - [`returns`]: the one form of every agent's return, and what came back read from it.
 //! - [`cli`]: the command line of a round, and what it printed read into what came back and what it took.
 //! - [`permissions`]: what the agents of a line may run, and what they are told of it.
+//! - [`failure`]: the kind of cause of a round that failed, told apart by what the command line reported, and the look
+//!   at the network while the agents' rounds wait for it.
 //! - `agents`: the agents' rounds, run with the command line, a few at a time.
 //! - `kept`: what each round of an agent was told and returned, where it is kept and how it is read back.
 //! - `tools`: the tools, `read`, `check` and `check_before`.
@@ -22,6 +24,7 @@
 mod acts;
 mod agents;
 pub mod cli;
+pub mod failure;
 pub mod git;
 mod held;
 mod host;
@@ -82,6 +85,7 @@ pub fn carry(settings: Settings, data: &Path) -> Result<(Carriers, Watch), Strin
         agents: Arc::new(Agents::new(settings, data.clone(), installation)),
         acts,
         tools,
+        network: Arc::new(failure::Look),
     };
     Ok((carriers, watch))
 }

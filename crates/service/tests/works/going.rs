@@ -1,6 +1,7 @@
 //! A work from its adding to its merge.
 
 use decide::{CallId, Cause, Decision, End, Waited, Who};
+use engine::Event;
 use service::{Act, Script};
 use work::Given;
 
@@ -77,7 +78,8 @@ async fn a_work_goes_through_its_cells_round_the_objection_to_the_merge() {
         }]
     );
     assert_eq!(kept.given[&(second.run, 1)], Given::Task);
-    // Nothing more is to be done, and nothing more comes.
+    // What it held is let go; nothing more is to be done, and nothing more comes.
+    assert_eq!(trial.step().await, Some(Event::Released));
     assert!(trial.step().await.is_none());
 }
 

@@ -17,6 +17,7 @@ import { Fragment, type ReactNode, useState } from 'react';
 import { Button, Panel, PanelPart } from '../parts';
 import type { Act, Item, Maker, Summary, Waited, WorkPage } from '../works-api';
 import { StateLegend, Strip } from '../works/marks';
+import { callWords, outageWords } from '../works/words';
 import { type ItemStanding, standingOf, whoGives } from './items';
 import { age, dollars, type Mood, moodOf } from './snap';
 
@@ -35,6 +36,8 @@ function whom(w: Waited, page: WorkPage | null): string {
       return makersWords(w.by, page);
     case 'call':
       return w.who === null ? 'the engine' : WHO[w.who];
+    case 'agents':
+      return 'the engine';
   }
 }
 
@@ -83,6 +86,8 @@ export function waitedWords(w: Waited, page: WorkPage | null, at: string): strin
           return w.what.limit.of === 'returns'
             ? `${capital(whom(w, page))} to let the run go on after ${w.what.limit.sentBack} returns sent back`
             : `${capital(whom(w, page))} to let the run go on after ${w.what.limit.made} calls`;
+        case 'wait':
+          return capital(callWords(w.what));
       }
       return '';
     case 'precondition': {
@@ -91,6 +96,8 @@ export function waitedWords(w: Waited, page: WorkPage | null, at: string): strin
     }
     case 'limit':
       return `You to let ${titleOf(page, at)} run again after ${w.runs} runs in a row for what a cell after it wrote`;
+    case 'agents':
+      return capital(outageWords(w.outage));
   }
 }
 
