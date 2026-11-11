@@ -65,8 +65,12 @@ fn scripts(text: &str) -> Vec<(usize, String)> {
         let Some(rest) = line.trim().trim_start_matches("- ").strip_prefix("run:") else {
             continue;
         };
-        if rest.trim() != "|" {
-            out.push((at + 1, rest.trim().to_string()));
+        // A block that keeps its lines is `|`, with `-` or `+` for the line breaks at its end. A folded one, `>`, joins
+        // its lines into one, which this does not do: no script is written so, and one that is fails here.
+        let block = rest.trim();
+        assert!(!block.starts_with('>'), "line {}: a folded script is not read", at + 1);
+        if !matches!(block, "|" | "|-" | "|+") {
+            out.push((at + 1, block.to_string()));
             continue;
         }
         let body: Vec<&str> = (lines[at + 1..].iter().copied())
@@ -103,11 +107,12 @@ fn the_full_workflow_keeps_the_checks_a_merge_waits_for() {
     }
 }
 
-// The full workflow runs on each pull request into `next` and each push to `next`, and on no other push: a branch of
+// The full workflow runs on each pull request into `main` and each push to `main`, and on no other push: a branch of
 // the code before a change (`wf-agents-before/`) is run by the fast workflow, by hand, with only the tests named, and a
-// whole run of this one beside it would take GitHub's machines for nothing.
+// whole run of this one beside it would take GitHub's machines for nothing. `next` is the name `main` had, kept while
+// a pull request targets it.
 #[test]
-fn the_full_workflow_runs_on_the_pull_requests_and_pushes_of_next() {
+fn the_full_workflow_runs_on_the_pull_requests_and_pushes_of_main() {
     let text = workflow("ci.yml");
     let on = block(&text, "on");
     assert_eq!(children(&on), ["pull_request", "push"]);
@@ -115,7 +120,7 @@ fn the_full_workflow_runs_on_the_pull_requests_and_pushes_of_next() {
         let branches: Vec<&str> = (under(&on, event).iter())
             .filter_map(|l| l.trim().strip_prefix("- "))
             .collect();
-        assert_eq!(branches, ["next"], "the branches of {event}");
+        assert_eq!(branches, ["main", "next"], "the branches of {event}");
     }
 }
 
@@ -165,6 +170,12 @@ fn every_script_of_the_workflows_parses() {
     for file in ["ci.yml", "fast.yml"] {
         let found = scripts(&workflow(file));
         assert!(found.len() > 5, "{file}: only {} scripts found", found.len());
+        // The script this test was written for is among them.
+        let gathers = found.iter().any(|(_, script)| script.contains("Did not pass:"));
+        assert!(
+            gathers || file != "ci.yml",
+            "{file}: the script of check that gathers is not found"
+        );
         for (line, script) in found {
             let mut bash = Command::new("bash")
                 .arg("-n")

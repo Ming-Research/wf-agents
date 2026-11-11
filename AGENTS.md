@@ -2,9 +2,6 @@
 
 What an agent needs to know for this repository, beyond the rules every agent is given.
 
-- This branch, `next`, holds wf-agents built anew from nothing, beside the engine on `main`, which it replaces once it
-  does what that one does. Nothing here depends on the code of `main`: what is taken from it is read, judged and
-  brought over, the commit saying from where. Until then, "main" in the rules of the design tree means this branch.
 - [design/README.md](design/README.md) says how the design tree is read and changed, and what to read before designing
   or changing code. [design/constitution.md](design/constitution.md) decides between designs.
 - When building needs code the design does not account for, stop and tell whoever gave you the task where, and do not
@@ -26,4 +23,4 @@ What an agent needs to know for this repository, beyond the rules every agent is
   before it, joined by ` > `, its file counted from `client/` (`src/x.test.ts > a describe > its title`). A binary, a
   module, a file or a describe alone names no test. The page's browser tests (`*.browser.test.tsx`) start Chromium
   only in a run that names one.
-- A change reaches `next` through a pull request whose CI is green and which a session other than its writer reviewed.
+- A change reaches `main` through a pull request whose CI is green and which a session other than its writer reviewed.
