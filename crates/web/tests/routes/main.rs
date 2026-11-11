@@ -10,6 +10,7 @@ mod directories;
 mod failing;
 mod items;
 mod page;
+mod sessions;
 mod stopped;
 mod stream;
 mod told;

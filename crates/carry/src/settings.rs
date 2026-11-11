@@ -6,9 +6,11 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use driver::Policy;
 use flow::CellSpec;
 use serde::Deserialize;
-use service::{Levels, LevelsFault, RanOn};
+use service::{Levels, LevelsFault};
+use work::RanOn;
 
 use crate::permissions::{HEAVY, NEVER_A_LOCK, falls_under};
 
@@ -22,6 +24,31 @@ pub struct Settings {
     /// Where the project's repository is on GitHub, which then carries out the acts; with none, the local repository
     /// does.
     pub github: Option<GitHub>,
+    /// When a line of a work begins a new session.
+    #[serde(default)]
+    pub sessions: Sessions,
+}
+
+/// When a line of a work begins a new session, beyond its first, a lost one, and one the owner asks for.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Sessions {
+    /// The context in tokens past which a line's session is replaced by a new one: once a round of the line ends with
+    /// more, the line's next round begins a new session.
+    #[serde(default = "context_limit")]
+    pub context_limit: u64,
+}
+
+impl Default for Sessions {
+    fn default() -> Self {
+        Sessions {
+            context_limit: context_limit(),
+        }
+    }
+}
+
+fn context_limit() -> u64 {
+    500_000
 }
 
 /// The project whose works are done: a local git repository, its main branch and the command that checks it.
@@ -381,6 +408,9 @@ impl Settings {
         {
             wrong.push("agents.work_budget_usd: a budget is a number of dollars, none below nothing".to_string());
         }
+        if settings.sessions.context_limit == 0 {
+            wrong.push("sessions.context_limit: a session may hold some context".to_string());
+        }
         if settings.project.main.is_empty() {
             wrong.push("project.main: the main branch has a name".to_string());
         }
@@ -453,7 +483,18 @@ impl Settings {
             level,
             model,
             effort: cell.effort.map(|effort| effort.name().to_string()),
+            account: (self.agents.config_dir.as_ref()).map(|dir| dir.to_string_lossy().into_owned()),
         })
+    }
+
+    /// When a line begins a new session: past the context limit, and where the model or the account its session's
+    /// rounds ran on is not the one its rounds run on now.
+    pub fn policy(&self) -> Policy {
+        let settings = self.clone();
+        Policy {
+            limit: self.sessions.context_limit,
+            on: Box::new(move |item, cell| settings.ran_on(item.level.as_deref(), cell).ok()),
+        }
     }
 
     /// The budget of a work in millionths of a dollar, where there is one.
@@ -483,6 +524,23 @@ mod tests {
         );
         assert_eq!(settings.agents.setting_sources, "user");
         assert!(settings.agents.env.is_empty());
+        assert_eq!(settings.sessions.context_limit, 500_000);
+    }
+
+    #[test]
+    fn a_session_is_given_a_context_limit_of_500000_tokens_where_none_is_set() {
+        let without = SAMPLE.replace("context_limit = 500000\n", "");
+        assert_ne!(without, SAMPLE, "the sample sets it");
+        let settings = Settings::read(&without).expect("it reads without");
+        assert_eq!(settings.policy().limit, 500_000);
+        let set = Settings::read(&SAMPLE.replace("context_limit = 500000", "context_limit = 200000")).unwrap();
+        assert_eq!(set.policy().limit, 200_000);
+        let none = SAMPLE.replace("context_limit = 500000", "context_limit = 0");
+        assert!(
+            Settings::read(&none)
+                .expect_err("refused")
+                .contains("sessions.context_limit")
+        );
     }
 
     #[test]

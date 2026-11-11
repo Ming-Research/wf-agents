@@ -42,11 +42,10 @@ use engine::{Effect, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{ItemNumber, Storage, WorkNumber};
 use tokio::sync::{broadcast, mpsc, oneshot};
-use work::{Ask, Call, Time};
+use work::{Ask, Call, RanOn, Time, Why};
 
 pub use carriers::{
-    Back, CallReply, Carriers, RanKept, RanOn, Returned, Round, RoundReply, Rounds, Told, ToolCall, Tools, Try,
-    WITHDRAWN,
+    Back, CallReply, Carriers, Returned, Round, RoundReply, Rounds, Teller, Told, ToolCall, Tools, Try, WITHDRAWN,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use levels::{Level, Levels, LevelsFault};
@@ -118,6 +117,10 @@ pub enum Act {
     Answer {
         call: CallId,
         result: String,
+    },
+    /// Has the line begin a new session at its next round.
+    NewSession {
+        line: String,
     },
 }
 
@@ -197,7 +200,8 @@ impl Service {
         let by_name = (flows.iter())
             .map(|flow| (flow.name.clone(), Arc::new(flow.clone())))
             .collect();
-        let (driver, todos) = Driver::open(store, flows, now).map_err(Fault::Driver)?;
+        let policy = carriers.agents.policy();
+        let (driver, todos) = Driver::open(store, flows, policy, now).map_err(Fault::Driver)?;
         let (to, inbox) = mpsc::unbounded_channel();
         let (changed, _) = broadcast::channel(CHANGES);
         let mut service = Service {
@@ -337,6 +341,7 @@ impl Service {
             },
             Act::Resume => Event::Resumed,
             Act::Cancel => Event::Cancelled,
+            Act::NewSession { line } => Event::Anew { line, why: Why::Owner },
             Act::Answer { call, result } => {
                 // A call the engine makes has its result from what makes it: a person's answer to it would be a
                 // second one.
@@ -562,22 +567,29 @@ impl Handle {
                     return Some(None);
                 }
                 let started = kept.work.records.started.iter().find(|s| s.run == run);
-                Some(Some(
-                    started
-                        .and_then(|s| cell_spec(kept.flow, &s.cell))
-                        .map(|spec| spec.kind),
-                ))
+                let kind = (started.and_then(|s| cell_spec(kept.flow, &s.cell))).map(|spec| spec.kind);
+                // What each try ran on, as the records say, in the order the tries began.
+                let ran: Vec<RanOn> = (kept.work.ran.iter())
+                    .filter(|r| r.run == run && r.round == round)
+                    .map(|r| r.on.clone())
+                    .collect();
+                Some(Some((kind, ran)))
             })
             .await?;
-        let kind = match kind {
+        let (kind, ran) = match kind {
             None => return Ok(None),
             Some(None) => return Ok(Some(Ok(None))),
-            Some(Some(kind)) => kind,
+            Some(Some(found)) => found,
         };
         let carriers = self.carriers.clone();
         let told = tokio::task::spawn_blocking(move || carriers.told(kind, work, run, round)).await;
         Ok(Some(match told {
-            Ok(told) => told.map(Some),
+            Ok(told) => told.map(|mut told| {
+                for (n, t) in told.tries.iter_mut().enumerate() {
+                    t.ran = ran.get(n).cloned();
+                }
+                Some(told)
+            }),
             Err(e) => Err(format!("what was kept of it could not be read: {e}")),
         }))
     }

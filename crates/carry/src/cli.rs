@@ -9,11 +9,13 @@
 //! session whose id is taken says on the standard error `Session ID <id> is already in use.`, and going on in one
 //! there is none of says `No conversation found with session ID: <id>`; both print nothing on the standard output.
 
+use std::path::{Path, PathBuf};
+
+use decide::RunId;
 use flow::Compiled;
 use serde::Deserialize;
-use service::RanOn;
 use uuid::Uuid;
-use work::{Spent, Work};
+use work::{RanOn, Spent, Work, sessions};
 
 use crate::permissions::Permissions;
 use crate::settings::Agents;
@@ -50,16 +52,40 @@ impl Begin {
     }
 }
 
+/// What a round's command line does when the program compacts the session within the round, which leaves the session
+/// holding only a summary of what it was told: it marks the compaction in one file, by adding a byte to it, so that
+/// the compactions are counted, and gives the session again, at once, what another file holds, which is the round's
+/// whole message as a session that begins is told it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Compacted {
+    pub marks: PathBuf,
+    pub again: PathBuf,
+}
+
+impl Compacted {
+    /// The settings that give the program the hook, as JSON: at the start of a session it compacted, the program adds
+    /// what the hook's command prints to the session.
+    fn settings(&self) -> String {
+        let quote = |path: &Path| format!("'{}'", path.display().to_string().replace('\'', "'\\''"));
+        let command = format!("printf x >> {} && cat {}", quote(&self.marks), quote(&self.again));
+        let hook = serde_json::json!({ "type": "command", "command": command });
+        let hooks = serde_json::json!({ "SessionStart": [{ "matcher": "compact", "hooks": [hook] }] });
+        serde_json::json!({ "hooks": hooks }).to_string()
+    }
+}
+
 /// The arguments of a round's command line, after the program: the engine's own, then the installation's, then the
 /// line's permissions, then the session. The schema is the same for every round, and the system prompt for every round
 /// of a line, so that they open every request of a session alike and the prompt cache keeps them. The round runs on the
 /// model and at the effort it was given.
+#[allow(clippy::too_many_arguments)]
 pub fn arguments(
     agents: &Agents,
     ran: &RanOn,
     protocol: &str,
     schema: &str,
     permissions: &Permissions,
+    compacted: &Compacted,
     session: Uuid,
     begin: Begin,
 ) -> Vec<String> {
@@ -73,6 +99,7 @@ pub fn arguments(
     args.extend(["--append-system-prompt".to_string(), protocol.to_string()]);
     args.extend(["--json-schema".to_string(), schema.to_string()]);
     args.extend(["--setting-sources".to_string(), agents.setting_sources.clone()]);
+    args.extend(["--settings".to_string(), compacted.settings()]);
     args.extend(agents.args.iter().cloned());
     args.extend(permissions.arguments());
     let flag = match begin {
@@ -128,29 +155,38 @@ pub fn environment(agents: &Agents, engine: impl IntoIterator<Item = (String, St
     env
 }
 
-/// Whether the round of this number of the run begins the session of the line or goes on in it: it goes on where an
-/// earlier round of the line in this work ended having spent tokens, which a round that never reached the model has
-/// not.
-pub fn begin(flow: &Compiled, work: &Work, line: &str) -> Begin {
-    let spent =
-        line_rounds(flow, work, line).any(|spent| spent.input_tokens + spent.cached_tokens + spent.output_tokens > 0);
-    if spent { Begin::Resume } else { Begin::New }
+/// The session a round runs in, as the records say: which of its line's sessions, whether the round begins it, and
+/// what the session cost before the round, in millionths of a dollar.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct InSession {
+    pub number: u32,
+    pub begin: Begin,
+    pub before: u64,
 }
 
-/// What the line's rounds in this work cost before, in millionths of a dollar: what the session cost before the round.
-pub fn spent_before(flow: &Compiled, work: &Work, line: &str) -> u64 {
-    line_rounds(flow, work, line).map(|spent| spent.usd_micros).sum()
-}
-
-/// What each round of the line in this work that ended took.
-fn line_rounds<'a>(flow: &'a Compiled, work: &'a Work, line: &'a str) -> impl Iterator<Item = &'a Spent> {
-    (work.spent.iter())
-        .filter(move |((run, _), _)| {
-            let cell = work.records.started.iter().find(|s| s.run == *run).map(|s| &s.cell);
-            let spec = cell.and_then(|cell| flow.cells.iter().find(|spec| spec.id == *cell));
-            spec.and_then(|spec| spec.line.as_deref()) == Some(line)
+/// The session the round of this number of the run of a cell on the line runs in: it goes on in it where an earlier
+/// round of the line in the same session ended having spent tokens, which a round that never reached the model has
+/// not; and the session cost before it what those earlier rounds cost.
+pub fn in_session(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize) -> InSession {
+    let on_line = |run: RunId| {
+        let cell = work.records.started.iter().find(|s| s.run == run).map(|s| &s.cell);
+        let spec = cell.and_then(|cell| flow.cells.iter().find(|spec| spec.id == *cell));
+        spec.and_then(|spec| spec.line.as_deref()) == Some(line)
+    };
+    let (session, begins) = sessions::of_round(work, line, on_line, run, number);
+    let at = sessions::began_at(work, run, number).unwrap_or_else(|| work.tick());
+    let before = (work.spent.iter())
+        .filter(|((r, _), _)| on_line(*r))
+        .filter(|((r, n), _)| {
+            sessions::began_at(work, *r, *n).is_some_and(|b| b < at && sessions::number_at(work, line, b) == session)
         })
-        .map(|(_, spent)| spent)
+        .map(|(_, spent)| spent.usd_micros)
+        .sum();
+    InSession {
+        number: session,
+        begin: if begins { Begin::New } else { Begin::Resume },
+        before,
+    }
 }
 
 /// The command line's result, as much of it as is read.
@@ -177,6 +213,20 @@ struct Usage {
     cache_read_input_tokens: u64,
     #[serde(default)]
     output_tokens: u64,
+    /// Each call the round made to the model, in order.
+    #[serde(default)]
+    iterations: Vec<Iteration>,
+}
+
+/// A call to the model, as much of it as is read: what its prompt was made of.
+#[derive(Debug, Default, Deserialize)]
+struct Iteration {
+    #[serde(default)]
+    input_tokens: u64,
+    #[serde(default)]
+    cache_creation_input_tokens: u64,
+    #[serde(default)]
+    cache_read_input_tokens: u64,
 }
 
 /// What a round's command line printed, read: the structured return, and what the round took.
@@ -242,6 +292,10 @@ fn spent(result: &Result, begin: Begin, before: u64) -> Spent {
         input_tokens: usage.input_tokens + usage.cache_creation_input_tokens,
         cached_tokens: usage.cache_read_input_tokens,
         output_tokens: usage.output_tokens,
+        // The context the round ended with is the prompt of its last call, read from the cache or not.
+        context_tokens: (usage.iterations.last())
+            .map(|call| call.input_tokens + call.cache_creation_input_tokens + call.cache_read_input_tokens),
+        compactions: 0,
     }
 }
 
@@ -280,9 +334,31 @@ mod tests {
                 input_tokens: 4841,
                 cached_tokens: 0,
                 output_tokens: 95,
+                context_tokens: Some(4841),
+                compactions: 0,
             }
         );
         assert_eq!(read.structured["hands_in"][0]["block"], "greeting");
+    }
+
+    #[test]
+    fn a_round_ended_with_the_context_of_its_last_call() {
+        let read = read(RESULT.as_bytes(), Begin::New, 0).expect("the fixture reads");
+        assert_eq!(read.spent.context_tokens, Some(4841));
+        let two = r#"{"type":"result","is_error":false,"total_cost_usd":0.1,"structured_output":{},
+            "usage":{"input_tokens":3,"output_tokens":9,"iterations":[
+                {"input_tokens":1,"cache_read_input_tokens":100,"cache_creation_input_tokens":20},
+                {"input_tokens":2,"cache_read_input_tokens":120,"cache_creation_input_tokens":30}]}}"#;
+        let read = super::read(two.as_bytes(), Begin::New, 0).expect("it reads");
+        assert_eq!(read.spent.context_tokens, Some(152), "the last call's prompt");
+        let none = r#"{"type":"result","is_error":false,"total_cost_usd":0.1,"structured_output":{}}"#;
+        assert_eq!(
+            super::read(none.as_bytes(), Begin::New, 0)
+                .unwrap()
+                .spent
+                .context_tokens,
+            None
+        );
     }
 
     #[test]
@@ -320,6 +396,7 @@ mod tests {
             input_tokens: 15,
             cached_tokens: 100,
             output_tokens: 20,
+            ..Default::default()
         };
         let refused = read(error.as_bytes(), Begin::Resume, 500_000).expect_err("an error is not taken");
         assert_eq!(refused.spent, Some(spent));
@@ -336,8 +413,25 @@ mod tests {
             level: "1".to_string(),
             model: "claude-haiku-5-5".to_string(),
             effort: None,
+            account: None,
         };
-        let head = |begin| arguments(&agents(), &ran, "PROTOCOL", "SCHEMA", &permissions, session, begin);
+        let compacted = Compacted {
+            marks: PathBuf::from("rounds/1/2-3.compacted"),
+            again: PathBuf::from("rounds/1/2-3.again.md"),
+        };
+        let head = |begin| {
+            arguments(
+                &agents(),
+                &ran,
+                "PROTOCOL",
+                "SCHEMA",
+                &permissions,
+                &compacted,
+                session,
+                begin,
+            )
+        };
+        let hook = r#"{"hooks":{"SessionStart":[{"hooks":[{"command":"printf x >> 'rounds/1/2-3.compacted' && cat 'rounds/1/2-3.again.md'","type":"command"}],"matcher":"compact"}]}}"#;
         let common = [
             "-p",
             "--output-format",
@@ -350,6 +444,8 @@ mod tests {
             "SCHEMA",
             "--setting-sources",
             "user",
+            "--settings",
+            hook,
             "--strict-mcp-config",
         ];
         let mut new: Vec<String> = common.iter().map(|a| a.to_string()).collect();
@@ -369,9 +465,23 @@ mod tests {
             level: "3".to_string(),
             model: "claude-opus-5-5".to_string(),
             effort: Some("xhigh".to_string()),
+            account: None,
+        };
+        let compacted = Compacted {
+            marks: PathBuf::from("compacted"),
+            again: PathBuf::from("again.md"),
         };
         let permissions = Permissions::of(false, &[], &Default::default());
-        let args = arguments(&agents(), &ran, "PROTOCOL", "SCHEMA", &permissions, session, Begin::New);
+        let args = arguments(
+            &agents(),
+            &ran,
+            "PROTOCOL",
+            "SCHEMA",
+            &permissions,
+            &compacted,
+            session,
+            Begin::New,
+        );
         assert_eq!(
             args[..7],
             [

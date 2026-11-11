@@ -146,6 +146,13 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
+    /// Has a line of a work begin a new session at its next round.
+    NewSession {
+        work: u64,
+        line: String,
+        #[command(flatten)]
+        at: At,
+    },
 }
 
 /// Where the running engine is.
@@ -247,12 +254,13 @@ fn main() -> ExitCode {
             talk::ask(at.port, Asked::Act(work, Act::Answer { call, result }))
         }
         Command::LetGo { work, cell, at } => talk::ask(at.port, Asked::Act(work, Act::LetGo { cell })),
+        Command::NewSession { work, line, at } => talk::ask(at.port, Asked::Act(work, Act::NewSession { line })),
     }
 }
 
 /// The names of the sources outside a work that write its blocks, which every definition is compiled against:
-/// `dependencies`, written by the engine's driver; `main`, written by the acts' watch of main on the host; and
-/// `session` and `tree`, whose writers are not built yet.
+/// `dependencies` and `session`, written by the engine's driver; `main`, written by the acts' watch of main on the
+/// host; and `tree`, whose writer is not built yet.
 const SOURCES: [&str; 4] = ["dependencies", "main", "session", "tree"];
 
 /// The names of the acts of the engine's own that carry out an engine cell: `start` makes the place a work is done

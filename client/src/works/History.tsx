@@ -27,6 +27,7 @@ import {
   pauseWords,
   runState,
   runTook,
+  sessionWords,
 } from './words';
 
 /// What the owner chose on the chart: a step by its place among the steps, a cell, or nothing.
@@ -74,6 +75,8 @@ export function stepWords(step: Step, flow?: Flow): string {
       return 'the owner let the work on';
     case 'cancelled':
       return 'the owner cancelled the work';
+    case 'session':
+      return `the line ${step.line} began a session: ${sessionWords(step.why)}`;
   }
 }
 

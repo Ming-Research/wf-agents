@@ -21,7 +21,7 @@ fn a_new_file_is_made_with_the_schema_its_version_and_a_write_ahead_log() {
     assert_eq!(store.works(), Ok(vec![]));
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, schema_tables());
-    assert_eq!(tables.len(), 25);
+    assert_eq!(tables.len(), 27);
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
     assert_eq!(version, SCHEMA_VERSION);
@@ -141,6 +141,11 @@ fn kept_before() -> Work {
     d.on(Event::Resumed);
     d.end(hands_in(&[("text", None)]));
     d.end(Came::Asks(vec![question(Who::Owner)]));
+    // Its rounds were kept before a round said the context it ended with and how often it was compacted.
+    for spent in d.work.spent.values_mut() {
+        spent.context_tokens = None;
+        spent.compactions = 0;
+    }
     d.work
 }
 

@@ -254,7 +254,16 @@ class History {
           ? { kind: 'results', calls: run.calls.slice(-before.back.asks.length).map((c) => c.call) }
           : { kind: 'task' };
     const minutes = spec.minutes ?? 3;
-    const round: Round = { number: run.rounds.length + 1, began: this.time, ended: null, given, back: null, spent: null };
+    const round: Round = {
+      number: run.rounds.length + 1,
+      began: this.time,
+      ended: null,
+      given,
+      back: null,
+      spent: null,
+      context: null,
+      compactions: 0,
+    };
     run.rounds.push(round);
     const results = given.kind === 'results' ? given.calls.map((c) => this.callPages.get(c) as CallPage) : [];
     this.rounds.set(`${run.run}/${round.number}`, { run: run.run, number: round.number, results, handed: [] });
@@ -272,6 +281,7 @@ class History {
       workingMs: minutes * MINUTE,
       rounds: 1,
     };
+    round.context = input + cached;
     run.spent = add(run.spent, round.spent);
     if (spec.fails) {
       round.back = { kind: 'failed', why: spec.fails };
@@ -522,7 +532,7 @@ const PLAN_TOLD: ToldPage = {
         durationMs: 118_000,
         models: ['claude-haiku-5-5'],
       },
-      ran: { kind: 'on', level: '1', model: 'claude-haiku-5-5', effort: 'high' },
+      ran: { level: '1', model: 'claude-haiku-5-5', effort: 'high' },
     },
   ],
   leftOut: 0,

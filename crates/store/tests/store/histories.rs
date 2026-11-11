@@ -180,6 +180,7 @@ impl History {
             input_tokens: self.clock % 997,
             cached_tokens: self.clock % 991,
             output_tokens: 1,
+            ..Default::default()
         }
     }
 

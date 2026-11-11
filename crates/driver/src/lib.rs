@@ -14,6 +14,12 @@
 //! work that has ended. A work whose flow has no such block waits for no item. An item that depends on a cancelled
 //! one waits for good, its block saying which: the owner cancels it or leaves it.
 //!
+//! The driver writes one more block of a work: the block of a flow whose source is [`SESSION`], which a cell reads that
+//! loads into a line's session what the line's other cells work from. As a line of a work begins a new session, the
+//! driver records it and writes the block, so that the cell runs again before the line goes on; when a line begins one
+//! is the installation's [`Policy`], worked out of the work's records after each thing that happens and before the walk
+//! (module [`sessions`]).
+//!
 //! What another source outside the works says, such as the head of the project's main branch, the driver is told
 //! ([`Driver::outside`]), and writes into the block of that source of each work that has not ended, where the block
 //! does not say it already.
@@ -25,14 +31,18 @@
 //! and shows nothing more of the works, which it may hold otherwise than the store does, and is to be opened again
 //! (principle `nothing-passes-for-normal`).
 
+pub mod sessions;
+
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use decide::{BlockId, Decision, End, Outsider, Pauser, View, decide};
-use engine::{Effect, Event, Refused, handle};
+use engine::{Effect, Event, Refused, handle, handle_then};
 use flow::Compiled;
 use store::{Item, ItemNumber, Storage, WorkHead, WorkNumber};
 use work::{Time, Work};
+
+pub use sessions::{Policy, SESSION};
 
 /// The source of the blocks the driver writes: whether the items the work's item depends on have merged. Such a block
 /// is a choice of [`WAITING`] and [`MERGED`].
@@ -51,6 +61,8 @@ pub struct Driver {
     of_item: BTreeMap<ItemNumber, WorkNumber>,
     /// What stopped the driver, once something has.
     fault: Option<Fault>,
+    /// When a line begins a new session; with none, only what others record of sessions is followed.
+    policy: Option<Policy>,
 }
 
 /// A work as the driver holds it: what the store holds of it, with its item and its flow at hand.
@@ -162,9 +174,15 @@ pub enum Failed {
 }
 
 impl Driver {
-    /// Opens the driver on a store, with the flows the works run on, and gives everything that is to be done: what was
-    /// to be done before and is not known as done, and what follows from looking at every work now.
-    pub fn open(store: Box<dyn Storage + Send>, flows: Vec<Compiled>, now: Time) -> Result<(Driver, Vec<Todo>), Fault> {
+    /// Opens the driver on a store, with the flows the works run on and the policy of when a line begins a new session,
+    /// and gives everything that is to be done: what was to be done before and is not known as done, and what follows
+    /// from looking at every work now.
+    pub fn open(
+        store: Box<dyn Storage + Send>,
+        flows: Vec<Compiled>,
+        policy: Option<Policy>,
+        now: Time,
+    ) -> Result<(Driver, Vec<Todo>), Fault> {
         let mut by_name = BTreeMap::new();
         for flow in flows {
             let mut ours = (flow.blocks.iter()).filter(|(_, b)| b.writers.outside.as_deref() == Some(DEPENDENCIES));
@@ -194,6 +212,7 @@ impl Driver {
             works: BTreeMap::new(),
             of_item: BTreeMap::new(),
             fault: None,
+            policy,
         };
         let items = driver.store.items().map_err(Fault::Store)?;
         let heads = driver.store.works().map_err(Fault::Store)?;
@@ -229,13 +248,15 @@ impl Driver {
         // What each work's block is to say is worked out of the works as the store gave them, before any is written
         // to; then each work that has not ended has its block written where it says otherwise, and is looked at.
         let wanted: Vec<Option<Event>> = driver.works.values().map(|held| driver.wanted(held)).collect();
-        let Driver { store, works, .. } = &mut driver;
+        let Driver {
+            store, works, policy, ..
+        } = &mut driver;
         for (held, write) in works.values_mut().zip(wanted) {
             if held.standing != Standing::Going {
                 continue;
             }
             for event in write.into_iter().chain([Event::Look]) {
-                match step(store.as_mut(), held, now, event) {
+                match step(store.as_mut(), held, policy.as_ref(), now, event) {
                     Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
                     Err(Halt::Store(fault)) => return Err(Fault::Store(fault)),
                     Err(Halt::Refused(refused)) => {
@@ -314,7 +335,8 @@ impl Driver {
 
     /// Puts an item at another level, which whoever asks has checked against the installation's levels, and says whether
     /// that changed it: an item at the level already is left as it is. Its work's rounds handed out from now on run on
-    /// the new level; a round under way goes on as it was given. Nothing is to be done for it: a level decides nothing.
+    /// the new level; a round under way goes on as it was given. Nothing is to be done for it now: where the new level
+    /// gives a line another model, the line begins a new session as the next thing that happens to the work is taken.
     pub fn set_level(&mut self, now: Time, item: ItemNumber, level: &str) -> Result<bool, Failed> {
         self.going()?;
         let Some(work) = self.of_item.get(&item).copied() else {
@@ -343,7 +365,7 @@ impl Driver {
         let was = held.standing;
         let item = held.head.item;
         let mut todos = Vec::new();
-        match step(self.store.as_mut(), held, now, event) {
+        match step(self.store.as_mut(), held, self.policy.as_ref(), now, event) {
             Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
             Err(Halt::Refused(refused)) => return Err(Failed::Refused(refused)),
             Err(Halt::Store(fault)) => return Err(self.stop(Fault::Store(fault), false)),
@@ -362,7 +384,7 @@ impl Driver {
             let Some(event) = wanted.remove(number) else {
                 continue;
             };
-            match step(self.store.as_mut(), held, now, event) {
+            match step(self.store.as_mut(), held, self.policy.as_ref(), now, event) {
                 Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
                 Err(Halt::Store(fault)) => failed = Some(Fault::Store(fault)),
                 Err(Halt::Refused(refused)) => failed = Some(Fault::Refused { work: *number, refused }),
@@ -413,7 +435,7 @@ impl Driver {
                 matters: true,
                 value: None,
             };
-            match step(self.store.as_mut(), held, now, event) {
+            match step(self.store.as_mut(), held, self.policy.as_ref(), now, event) {
                 Ok(effects) => {
                     written = true;
                     todos.extend(effects.into_iter().map(|effect| held.todo(effect)));
@@ -557,11 +579,19 @@ impl Held {
     }
 }
 
-/// Gives one thing that happened to the engine's loop for the work, and keeps what the loop added before giving back
-/// what is to be done.
-fn step(store: &mut dyn Storage, held: &mut Held, now: Time, event: Event) -> Result<Vec<Effect>, Halt> {
+/// Gives one thing that happened to the engine's loop for the work, with what follows from it for the sessions of its
+/// lines, and keeps what the loop added before giving back what is to be done.
+fn step(
+    store: &mut dyn Storage,
+    held: &mut Held,
+    policy: Option<&Policy>,
+    now: Time,
+    event: Event,
+) -> Result<Vec<Effect>, Halt> {
     let before = held.work.tick();
-    let effects = handle(&held.flow, &mut held.work, now, event).map_err(Halt::Refused)?;
+    let item = &held.item;
+    let then = |flow: &Compiled, work: &Work| sessions::follow(flow, work, item, policy);
+    let effects = handle_then(&held.flow, &mut held.work, now, event, &then).map_err(Halt::Refused)?;
     if held.work.tick() != before {
         store.save(held.head.number, &held.work).map_err(Halt::Store)?;
         held.standing = standing_of(&held.flow, &held.work);

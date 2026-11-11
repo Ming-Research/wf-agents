@@ -230,8 +230,8 @@ CREATE TABLE results (
     FOREIGN KEY (work, call) REFERENCES called (work, call)
 );
 
--- What a round of a run that ended took, the first round being one: its cost in millionths of a dollar, and its
--- tokens.
+-- What a round of a run that ended took, the first round being one: its cost in millionths of a dollar, its tokens,
+-- the context it ended with in tokens (NULL where it is not known), and how often its session was compacted.
 CREATE TABLE spent (
     work INTEGER NOT NULL,
     run INTEGER NOT NULL,
@@ -240,7 +240,33 @@ CREATE TABLE spent (
     input_tokens INTEGER NOT NULL,
     cached_tokens INTEGER NOT NULL,
     output_tokens INTEGER NOT NULL,
+    context_tokens INTEGER,
+    compactions INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (work, run, round),
+    FOREIGN KEY (work, run) REFERENCES started (work, run)
+);
+
+-- A new session of a line of the work began, or begins with the line's next round, and why (JSON).
+CREATE TABLE sessions (
+    work INTEGER NOT NULL REFERENCES works (number),
+    at INTEGER NOT NULL,
+    line TEXT NOT NULL,
+    why TEXT NOT NULL,
+    PRIMARY KEY (work, at)
+);
+
+-- A try of a round of a run began, the round's first being one, on this level, model, reasoning effort (NULL where the
+-- program ran at its own) and account (NULL where it ran with its own default directory).
+CREATE TABLE ran (
+    work INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    run INTEGER NOT NULL,
+    round INTEGER NOT NULL,
+    level TEXT NOT NULL,
+    model TEXT NOT NULL,
+    effort TEXT,
+    account TEXT,
+    PRIMARY KEY (work, at),
     FOREIGN KEY (work, run) REFERENCES started (work, run)
 );
 

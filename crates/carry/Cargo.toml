@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 decide = { path = "../decide" }
+driver = { path = "../driver" }
 engine = { path = "../engine" }
 flow = { path = "../flow" }
 serde.workspace = true
@@ -21,7 +22,6 @@ uuid.workspace = true
 work = { path = "../work" }
 
 [dev-dependencies]
-driver = { path = "../driver" }
 tempfile.workspace = true
 tokio = { version = "1.53.1", features = ["fs", "io-util", "macros", "process", "rt", "rt-multi-thread", "sync", "time"] }
 

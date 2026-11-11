@@ -128,13 +128,18 @@ function Wait({ at, waited, send }: { at: string; waited: Waited; send: Send }) 
   );
 }
 
-/// Pause, let on and cancel; cancel asks first, since it cannot be taken back.
-export function ActButtons({ summary, send }: { summary: Summary; send: Send }) {
+/// Pause, let on, a new session for a line, and cancel; cancel asks first, since it cannot be taken back, and a new
+/// session asks for which line.
+export function ActButtons({ summary, lines, send }: { summary: Summary; lines: string[]; send: Send }) {
   const [asking, setAsking] = useState(false);
+  const [choosing, setChoosing] = useState(false);
   const { pending, refused, go } = useAct(send);
   if (hasEnded(summary)) return null;
   const act = (what: Act) => {
-    void go(what).then(() => setAsking(false));
+    void go(what).then(() => {
+      setAsking(false);
+      setChoosing(false);
+    });
   };
   return (
     <span className="acts">
@@ -151,6 +156,28 @@ export function ActButtons({ summary, send }: { summary: Summary; send: Send }) 
           Pause
         </Button>
       )}
+      {lines.length > 0 &&
+        (choosing ? (
+          <span className="confirm" role="group" aria-label="A new session for which line?">
+            <span className="small">A new session at the next round of</span>
+            {lines.map((line) => (
+              <Button key={line} disabled={pending} onClick={() => act({ kind: 'newSession', line })}>
+                {line}
+              </Button>
+            ))}
+            <Button disabled={pending} onClick={() => setChoosing(false)}>
+              No
+            </Button>
+          </span>
+        ) : (
+          <Button
+            disabled={pending}
+            onClick={() => setChoosing(true)}
+            title="Have a line of the work begin a new session at its next round"
+          >
+            New session
+          </Button>
+        ))}
       {asking ? (
         <span className="confirm" role="group" aria-label="Cancel the work?">
           <span className="small">Cancel the work? It cannot be taken back</span>

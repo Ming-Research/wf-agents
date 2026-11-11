@@ -393,6 +393,7 @@ impl Driver {
             input_tokens: self.clock % 997,
             cached_tokens: 0,
             output_tokens: 1,
+            ..Default::default()
         }
     }
 

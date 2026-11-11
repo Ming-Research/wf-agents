@@ -413,6 +413,7 @@ impl History {
             input_tokens: self.step as u64,
             cached_tokens: 0,
             output_tokens: 1,
+            ..Default::default()
         }
     }
 

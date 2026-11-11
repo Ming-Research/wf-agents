@@ -409,7 +409,7 @@ pub fn open_with_plan(db: &Db, plan: Plan, now: Time) -> (Opened, Arc<Mutex<Call
 pub fn open_on_flows(db: &Db, plan: Plan, flows: Vec<Compiled>, now: Time) -> (Opened, Arc<Mutex<Calls>>) {
     let (store, calls) = Failing::new(db.open());
     calls.lock().expect("the calls are noted").plan = plan;
-    (Driver::open(Box::new(store), flows, now), calls)
+    (Driver::open(Box::new(store), flows, None, now), calls)
 }
 
 /// Everything the driver shows of itself, and everything the file holds: what a refusal must leave as it was.
@@ -1150,6 +1150,7 @@ pub fn spent(n: u64) -> Spent {
         input_tokens: 11 * n,
         cached_tokens: 13 * n,
         output_tokens: 17 * n,
+        ..Default::default()
     }
 }
 

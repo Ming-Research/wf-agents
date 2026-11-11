@@ -1,0 +1,83 @@
+//! When a line goes on in its session and when it begins a new one, with the command line: the context a round ended
+//! with, past the limit, has the line's next round begin a session of its own id; a compaction is counted and given
+//! the round's whole message again; and the sessions are recorded with why they began.
+
+use service::Act;
+use work::Why;
+
+use crate::{Fake, Real, ended};
+
+#[tokio::test]
+async fn a_round_ending_past_the_context_limit_has_the_lines_next_round_begin_a_session_of_its_own() {
+    let fake = Fake {
+        context: Some(600_000),
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    let calls = real.calls();
+    assert_eq!(calls.len(), 3);
+    let (plan, build) = (calls[0].session(), calls[1].session());
+    assert_eq!(plan.0, "--session-id");
+    assert_eq!(build.0, "--session-id", "the build begins a new session");
+    assert_ne!(build.1, plan.1, "under an id of its own");
+    let kept = real.work(work);
+    let engineer: Vec<&Why> = (kept.sessions.iter())
+        .filter(|s| s.line == "engineer")
+        .map(|s| &s.why)
+        .collect();
+    let limit = Why::Limit {
+        context: 600_000,
+        limit: 500_000,
+    };
+    // The plan's round, then the build's, each ended past the limit.
+    assert_eq!(engineer, [&limit, &limit]);
+    assert!(
+        (kept.spent.values().filter(|spent| spent.input_tokens > 0)).all(|spent| spent.context_tokens == Some(600_000)),
+        "each agent's round's context is recorded"
+    );
+    // A new session costs what the command line says it cost, the earlier session's rounds being no part of it.
+    let build_run = real.run_of(work, "build");
+    assert_eq!(kept.spent[&(build_run, 1)].usd_micros, 10_000);
+}
+
+#[tokio::test]
+async fn a_compaction_within_a_round_is_counted_and_given_the_rounds_whole_message_again() {
+    let fake = Fake {
+        compacts: true,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    let calls = real.calls();
+    assert!(
+        calls[1].stdin.starts_with("# Build (cell `build`), round 1\n"),
+        "{}",
+        calls[1].stdin
+    );
+    // What the hook gave the build's session again is the whole message, as a session that begins is told it.
+    let again = std::fs::read_to_string(real.calls_dir().join("2.again")).expect("the hook ran");
+    assert!(
+        again.starts_with("Your session was compacted during this round."),
+        "{again}"
+    );
+    for part in ["# Build (cell `build`), round 1", "## Your task", "## What it reads"] {
+        assert!(again.contains(part), "{part} is missing from:\n{again}");
+    }
+    let kept = real.work(work);
+    assert!(
+        (kept.spent.values().filter(|spent| spent.input_tokens > 0)).all(|spent| spent.compactions == 1),
+        "{:?}",
+        kept.spent
+    );
+    let build = real.run_of(work, "build");
+    let base = real.data.join(format!("rounds/1/{}-1", build.0));
+    assert!(
+        !base.with_extension("again.md").exists(),
+        "what was given again is not kept beside the round"
+    );
+}

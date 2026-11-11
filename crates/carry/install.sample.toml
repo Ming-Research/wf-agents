@@ -76,6 +76,12 @@ default_level = "2"
 # it. Left out, the top level.
 highest_level = "3"
 
+[sessions]
+# A line of a work keeps one session of the program from round to round. Once a round of the line ends with a context
+# of more tokens than this, the line's next round begins a new session; a line also begins one where the model or the
+# config_dir is no longer the one its session was begun with. Left out, it is 500000.
+context_limit = 500000
+
 # The repository on GitHub, where GitHub is the host: with this table, the check before a work's merge and the agents'
 # tool `check` push the work's branch to GitHub, open its pull request into the main branch where it has none, and
 # wait for the CI of the pushed commit; nothing is run on this machine. The agents' `check_before` pushes the code

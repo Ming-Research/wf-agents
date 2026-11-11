@@ -8,8 +8,9 @@ use std::sync::{Arc, Barrier};
 use axum::http::StatusCode;
 use decide::RunId;
 use serde_json::json;
-use service::{Back, RanKept, RanOn, Returned, Round, RoundReply, Rounds, Scripted, Told, Try};
+use service::{Back, Returned, Round, RoundReply, Rounds, Scripted, Told, Try};
 use store::{Store, WorkNumber};
+use work::RanOn;
 
 use crate::{Running, get_json, greeted, pass, post, refused, running, running_carried, trial_script};
 
@@ -21,6 +22,15 @@ struct Keeping {
 
 impl Rounds for Keeping {
     fn give(&self, round: Round, reply: RoundReply) {
+        // The first try of the first round says what it ran on, as a real carrier does.
+        if (round.work.0, round.run.0, round.number) == (1, 1, 1) {
+            reply.teller().ran_on(RanOn {
+                level: "3".to_string(),
+                model: "claude-opus-5-5".to_string(),
+                effort: Some("high".to_string()),
+                account: None,
+            });
+        }
         self.agents.give(round, reply);
     }
 
@@ -69,19 +79,12 @@ async fn a_round_is_given_each_try_with_what_came_back() {
                 message: "# Task".to_string(),
                 cut: Some(2_000_000),
                 back: Back::Unreadable("it is not a result: EOF".to_string()),
-                ran: Some(RanKept::On(RanOn {
-                    level: "3".to_string(),
-                    model: "claude-opus-5-5".to_string(),
-                    effort: Some("high".to_string()),
-                })),
+                ran: None,
             },
-            Try {
-                ran: Some(RanKept::Unreadable("it is not what a try ran on: EOF".to_string())),
-                ..tried(
-                    "# Task\n\nPlan, again.",
-                    Back::Failed("API Error: 529 Overloaded".to_string()),
-                )
-            },
+            tried(
+                "# Task\n\nPlan, again.",
+                Back::Failed("API Error: 529 Overloaded".to_string()),
+            ),
             tried("# Task\n\nPlan, a third time.", Back::Returned(back)),
         ],
         left_out: 2,
@@ -96,13 +99,13 @@ async fn a_round_is_given_each_try_with_what_came_back() {
                     "message": "# Task",
                     "cut": 2_000_000,
                     "back": { "kind": "unreadable", "why": "it is not a result: EOF" },
-                    "ran": { "kind": "on", "level": "3", "model": "claude-opus-5-5", "effort": "high" },
+                    "ran": { "level": "3", "model": "claude-opus-5-5", "effort": "high" },
                 },
                 {
                     "message": "# Task\n\nPlan, again.",
                     "cut": null,
                     "back": { "kind": "failed", "why": "API Error: 529 Overloaded" },
-                    "ran": { "kind": "unreadable", "why": "it is not what a try ran on: EOF" },
+                    "ran": null,
                 },
                 {
                     "message": "# Task\n\nPlan, a third time.",

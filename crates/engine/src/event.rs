@@ -3,7 +3,7 @@
 use decide::run::Unmet;
 use decide::{BlockId, CallId, CellId, Outsider, Pauser, RunId};
 
-use work::{Ask, Call, Given, Handed, Spent};
+use work::{Ask, Call, Given, Handed, RanOn, Spent, Why};
 
 /// One thing that happened to a work.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,6 +36,10 @@ pub enum Event {
     Failed { run: RunId, why: String, spent: Spent },
     /// The call has its result.
     Done { call: CallId, result: String },
+    /// A new session of the line began, or is to begin with the line's next round, for this reason.
+    Anew { line: String, why: Why },
+    /// A try of the round of the run that is under way began, on this.
+    Ran { run: RunId, on: RanOn },
 }
 
 /// What came back at the end of a round.
@@ -85,4 +89,6 @@ pub enum Refused {
     NoSuchCall(CallId),
     /// The call has its result already.
     AlreadyDone(CallId),
+    /// The flow has no cell on such a line.
+    NoSuchLine(String),
 }
