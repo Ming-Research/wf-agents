@@ -24,7 +24,10 @@ async fn a_failed_round_pauses_the_work_with_the_reason_and_the_next_round_runs_
     let pause = decide::pause(&kept.records).expect("the work is paused");
     assert_eq!(pause.by, Pauser::Engine);
     let why = pause.why.clone().expect("a reason");
-    assert!(why.contains("The fake fails its first call."), "{why}");
+    assert!(
+        why.contains("Prompt is too long: the fake fails its first call."),
+        "{why}"
+    );
     assert!(why.contains("the prompt is too long for the model"), "{why}");
     let plan_run = kept.records.started[0].run;
     assert_eq!(kept.records.rounds.len(), 1);
