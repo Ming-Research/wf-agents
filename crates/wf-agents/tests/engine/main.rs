@@ -12,7 +12,7 @@ mod waiting;
 
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Output, Stdio};
+use std::process::{Child, ChildStdout, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 /// The trial flow.
@@ -89,6 +89,8 @@ pub fn run_on(data: &Path, flow: &Path, script: &Path, port: u16) -> Command {
 pub struct Engine {
     child: Child,
     pub port: u16,
+    /// The rest of what the engine prints, kept open so that a line it prints later reaches a reader.
+    _output: BufReader<ChildStdout>,
 }
 
 impl Engine {
@@ -106,9 +108,8 @@ impl Engine {
             .expect("the engine starts");
         let mut line = String::new();
         let stdout = child.stdout.take().expect("the engine's output");
-        BufReader::new(stdout)
-            .read_line(&mut line)
-            .expect("the engine's first line");
+        let mut output = BufReader::new(stdout);
+        output.read_line(&mut line).expect("the engine's first line");
         let port = (line.trim().strip_prefix("The owner's pages are at http://127.0.0.1:"))
             .and_then(|rest| rest.strip_suffix("/#/works"))
             .and_then(|port| port.parse().ok());
@@ -120,7 +121,11 @@ impl Engine {
             let _ = child.kill();
             panic!("the engine did not say where it serves: {line:?}; it said {errors:?}");
         };
-        Engine { child, port }
+        Engine {
+            child,
+            port,
+            _output: output,
+        }
     }
 
     /// Runs a command against the engine.
