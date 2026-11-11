@@ -110,7 +110,7 @@ const LIGHT = {
   /// A card's edge above a work.
   branch: '#c7cdfd',
   /// The ribbons from the item under the pointer up to its root.
-  hoverRibbon: '#d3dcfe',
+  hoverRibbon: '#e4dcfd',
   /// The ring round the item selected and those on its way to its root, and the ribbons between them.
   chosen: '#8b5cf6',
   chosenRibbon: '#e2d7fd',
@@ -129,12 +129,12 @@ const LIGHT = {
   violet: '#8b5cf6',
   green: '#2f9e6e',
   /// The item under the pointer, and those above it, ringed; the lines at the edges of the column under it.
-  over: '#7891fc',
+  over: '#a78bfa',
   /// The words on a filled tag.
   onTag: '#ffffff',
   /// What is new to the owner: the line inside a card's left edge, and its mark on the map.
-  unseen: '#6a82fd',
-  accent: '#3b5bfd',
+  unseen: '#8b5cf6',
+  accent: '#8b5cf6',
   /// Where a work's time went, in the colours of the track in the item's window (console.css): a model's, the
   /// tools', idle, and the ground they lie on with how far it lets the card through.
   model: '#006edb',
@@ -296,10 +296,10 @@ export function moodOf(w: Pick<ShownWork, 'now'>): Mood {
   return 'waiting';
 }
 
-/// The cell a work is at, and the colour its mark takes, as the stage it was at took it: orange while it waits for
-/// the owner, red while it is halted; none in any other state, where the mark's own state says enough.
+/// The cell a work is at, and the colour its mark takes: red while the work is stopped for the owner or by the
+/// engine, as its card is; none in any other state, where the mark's own state says enough.
 function here(w: ShownWork, mood: Mood): { cell: string; colour: string } | null {
-  const colour = mood === 'owner' ? PALETTE.asked : mood === 'halted' ? PALETTE.halted : null;
+  const colour = mood === 'owner' || mood === 'halted' ? PALETTE.halted : null;
   if (colour === null) return null;
   const now = w.now;
   const cell =
@@ -314,10 +314,12 @@ function here(w: ShownWork, mood: Mood): { cell: string; colour: string } | null
 /// The colour of what an item's work does, which tints its card.
 const WORK = (): Record<Mood, string> => ({
   running: PALETTE.running,
-  owner: PALETTE.asked,
+  // A work is running or stopped. One stopped for the owner is red, as one the engine stopped: both need the owner.
+  owner: PALETTE.halted,
   paused: PALETTE.paused,
   halted: PALETTE.halted,
-  waiting: PALETTE.waiting,
+  // Stopped and not for the owner, as paused: one grey for both, since neither needs the owner.
+  waiting: PALETTE.paused,
 });
 
 /// A token's length in pixels, or none where the page has no such token.
@@ -373,8 +375,15 @@ export type DrawnMark = {
 export type DrawnStrip = { marks: DrawnMark[]; more: number; end: number };
 
 /// How much of its work's colour a card in work takes, the rest white, and its edge, a deeper shade of it.
-const TINT = 0.09;
+/// How much of its state's colour fills a card whose work is running or that needs the owner.
+const FILL = 0.18;
 const EDGE_TINT = 0.45;
+/// How far the title of an item not begun goes from the ink towards the muted grey.
+const NOT_BEGUN = 0.7;
+/// How far a card's number and strip stand in from its left edge.
+const CARD_INSET = 10;
+/// The width of every card's edge.
+const EDGE_WIDTH = 1.5;
 
 /// The colour of an item's number by its state: open, done or cancelled.
 const NUMBER = () => ({
@@ -460,6 +469,8 @@ export class SnapScene {
   private pre: Float64Array[] = [];
   /// For each item, whether a work goes on on it or under it: the edges of the cards above a work are lit.
   private lit: Uint8Array = new Uint8Array(0);
+  /// For each item, whether a work has begun on it or under it: the title of one with none is greyer.
+  private begun: Uint8Array = new Uint8Array(0);
   /// The parts of a node that change while it is shown: the marks of the cells running, which pulse, and the label of
   /// how long its work has gone on, with when the work started.
   private pulses = new Map<number, Graphics>();
@@ -640,6 +651,12 @@ export class SnapScene {
       if (i.work === null) return;
       for (let p = k; p >= 0 && this.lit[p] === 0; p = tree.parent[p]) this.lit[p] = 1;
     });
+    // The items whose work has begun, and those above them: an item with nothing begun on it or under it is quieter.
+    this.begun = new Uint8Array(items.length);
+    items.forEach((i, k) => {
+      if (!i.begun) return;
+      for (let p = k; p >= 0 && this.begun[p] === 0; p = tree.parent[p]) this.begun[p] = 1;
+    });
     this.pulses = new Map();
     ({ measures: this.measures, looks: this.looks } = cellLooks());
     this.drawnStrips = new Map();
@@ -704,17 +721,20 @@ export class SnapScene {
     if (item.shadow) return this.shadow(item, view, top, h, row1);
     const mood = item.work !== null ? moodOf(item.work) : null;
     const card = new Graphics().roundRect(0, top, NODE_W, h, 6);
+    // A card whose work is running, or that needs the owner (it waits for the owner, or the engine stopped it), is
+    // filled with its state's colour, and its edge is a deeper shade of it. A card stopped for anything else has an
+    // edge of its grey and no fill, so that the filled ones stand out among them.
+    const state = mood !== null ? WORK()[mood] : null;
+    const filled = state !== null && (mood === 'owner' || mood === 'halted' || mood === 'running');
     view.addChild(
-      card.fill(mood !== null ? mix(PALETTE.card, WORK()[mood], TINT) : PALETTE.card).stroke({
+      card.fill(filled ? mix(PALETTE.card, state, FILL) : PALETTE.card).stroke({
         color:
-          mood !== null ? mix(PALETTE.card, WORK()[mood], EDGE_TINT) : this.lit[k] === 1 ? PALETTE.branch : PALETTE.edge,
-        width: 1,
+          state !== null ? mix(PALETTE.card, state, EDGE_TINT) : this.lit[k] === 1 ? PALETTE.branch : PALETTE.edge,
+        width: EDGE_WIDTH,
       }),
     );
-    // While the item is new to the owner, a line inside the card's left edge, a little in from it and short of its top
-    // and bottom; the room for it kept on every card, so that the numbers and titles stand in line.
-    if (item.unseen) view.addChild(new Graphics().roundRect(4, top + 5, 3, h - 10, 1.5).fill(PALETTE.unseen));
-    const x = 14;
+    // What is new to the owner is said once, by the number at the card's right; no line at its left.
+    const x = CARD_INSET;
     const number = new BitmapText({
       text: String(item.id),
       style: s.mono(NUMBER()[item.standing]),
@@ -722,7 +742,14 @@ export class SnapScene {
     number.position.set(x, row1 - number.height / 2);
     const title = new BitmapText({
       text: item.title,
-      style: s.title(item.standing === 'open' ? PALETTE.ink : PALETTE.faint),
+      // An open item nothing has begun on or under is a little greyer than one in work, so that it stands back.
+      style: s.title(
+        item.standing !== 'open'
+          ? PALETTE.faint
+          : this.begun[k] === 1
+            ? PALETTE.ink
+            : between(PALETTE.ink, PALETTE.muted, NOT_BEGUN),
+      ),
     });
     title.position.set(x + Math.max(26, number.width + 8), row1 - title.height / 2);
     view.addChild(number, title);
@@ -765,8 +792,12 @@ export class SnapScene {
       view.addChild(g, t);
       right -= 6;
     };
+    // What stops its work for the owner in red, the strongest; a question that waits for the owner's answer and does
+    // not stop the work yet in orange, a step weaker; how much is new to read in the colour of the line at the card's
+    // left that says something is new.
     if (item.asks > 0) tag(String(item.asks), PALETTE.red, null, true);
-    if (item.unread > 0) tag(String(item.unread), PALETTE.asked, null, true);
+    if (item.questions > 0) tag(String(item.questions), PALETTE.asked, null, true);
+    if (item.unread > 0) tag(String(item.unread), PALETTE.unseen, null, true);
     if (item.work !== null && item.work.sentBack > 0) tag(String(item.work.sentBack), PALETTE.muted, 'back', false);
     if (item.work === null && item.blocked > 0) tag(String(item.blocked), PALETTE.muted, 'lock', false);
     // The title ends where the badges begin.
@@ -783,7 +814,7 @@ export class SnapScene {
     const track = new Graphics();
     // Drawn as the track in the item's window is, a little lower: a rounded ground, and on it a rounded block for
     // each stretch of one kind.
-    const trackH = 6;
+    const trackH = 4;
     if (cells.length > 0) {
       track
         .roundRect(barX, row2 - trackH / 2, barW, trackH, trackH / 2)
@@ -901,9 +932,9 @@ export class SnapScene {
     along(NODE_W, top + r, NODE_W, top + h - r);
     edge.stroke({ color: PALETTE.pale, width: 1 });
     const number = new BitmapText({ text: String(item.id), style: s.mono(PALETTE.pale) });
-    number.position.set(14, row1 - number.height / 2);
+    number.position.set(CARD_INSET, row1 - number.height / 2);
     const title = new BitmapText({ text: item.title, style: s.title(PALETTE.faint) });
-    title.position.set(14 + Math.max(26, number.width + 8), row1 - title.height / 2);
+    title.position.set(CARD_INSET + Math.max(26, number.width + 8), row1 - title.height / 2);
     fit(title, NODE_W - 24 - title.x);
     // The arrow, drawn: the font may have no such sign.
     const ax = NODE_W - 16;

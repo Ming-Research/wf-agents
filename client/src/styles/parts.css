@@ -139,12 +139,13 @@ button {
   margin-left: auto;
 }
 
-/* How many things wait for the owner in a view: a small filled count beside its name, in the colour of waiting. */
+/* How many things are stopped for the owner in a view: a small filled count beside its name, in red, the most
+   pressing. */
 .bar-count {
   margin-left: var(--space-4);
   padding: 0 var(--space-4);
   border-radius: var(--corner);
-  background: var(--orange);
+  background: var(--red);
   color: var(--on-colour);
   font-size: var(--size-label);
   line-height: var(--tag);
@@ -397,6 +398,20 @@ textarea:disabled {
 
 .drawer-folded {
   border-left: 0;
+}
+
+/* The panel's left edge: a thin line in the accent from top to bottom, which the handle grows out of; it stays at the
+   window's edge with the handle while the panel is folded away. The console's window has the same. */
+.drawer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(-1 * var(--focus));
+  z-index: 5;
+  width: var(--focus);
+  background: var(--accent);
+  pointer-events: none;
 }
 
 /* The handle: a narrow tab on the panel's left edge, in the accent, which stays at the window's edge while the panel

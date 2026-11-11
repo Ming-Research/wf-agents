@@ -15,7 +15,10 @@ export function waitsForOwner(now: Now): boolean {
   if (now.kind === 'fault') return true;
   if (now.kind === 'paused') return now.by === 'engine';
   if (now.kind !== 'waits') return false;
-  return now.on.some((w) => w.kind === 'limit' || w.who === 'owner');
+  // The wait for the items it depends on is nobody's to give, though the engine names the owner for it.
+  return now.on.some(
+    (w) => w.kind === 'limit' || (w.who === 'owner' && !(w.kind === 'precondition' && w.test === 'may_start')),
+  );
 }
 
 /// The items read for the bar, and read again whenever something happened.

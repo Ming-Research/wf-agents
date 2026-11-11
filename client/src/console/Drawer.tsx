@@ -3,8 +3,8 @@
 // the edge, the tab with it, and another slides it back. Its left edge dragged changes its width, which the browser
 // keeps. It floats over the tree, which keeps its whole width under it.
 //
-// Brought over from the console of the engine on `main` (`client/src/console/Drawer.tsx`), as it was; its chevrons are
-// drawn here, as the page has no icon set.
+// Brought over from the console of the engine on `main` (`client/src/console/Drawer.tsx`); its tab is the handle every
+// panel of the page has.
 
 import { type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, useState } from 'react';
 
@@ -20,18 +20,6 @@ function kept(): number {
   } catch {
     return FIRST;
   }
-}
-
-/// A chevron 12 pixels square, pointing left or right, as Primer's octicon.
-function Chevron({ to }: { to: 'left' | 'right' }) {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
-      <path
-        transform={to === 'left' ? 'matrix(-1 0 0 1 12 0)' : undefined}
-        d="M4.7 10c-.2 0-.4-.1-.5-.2a.75.75 0 0 1 0-1.06L6.94 6 4.2 3.26a.75.75 0 0 1 1.06-1.06l3.27 3.27a.75.75 0 0 1 0 1.06L5.26 9.8a.75.75 0 0 1-.56.2Z"
-      />
-    </svg>
-  );
 }
 
 export function Drawer({
@@ -79,7 +67,7 @@ export function Drawer({
         title={open ? 'Put the item away' : 'Show the item selected'}
         onClick={onToggle}
       >
-        <Chevron to={open ? 'right' : 'left'} />
+        {open ? '›' : '‹'}
       </button>
       <div className="cw-edge" title="Drag to change the width" onPointerDown={drag} />
       <div className="cw-inner" aria-hidden={!open} inert={!open}>

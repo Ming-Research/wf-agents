@@ -33,6 +33,7 @@ const working = (id: number, cells: CellNow[]): Shown => ({
   title: `Item ${id}`,
   standing: 'open',
   asks: 0,
+  questions: 0,
   blocked: 0,
   unseen: false,
   unread: 0,

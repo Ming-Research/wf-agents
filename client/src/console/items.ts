@@ -37,8 +37,11 @@ export type Shown = {
   id: number;
   title: string;
   standing: ItemStanding;
-  /// The things its work waits for that the owner gives: answers, preconditions only they can make hold, a run let on.
+  /// The things its work is stopped for that the owner gives: answers, preconditions only they can make hold, a run
+  /// let on.
   asks: number;
+  /// The questions that wait for the owner's answer and do not stop its work yet (mock: `mock.ts`).
+  questions: number;
   /// How many items it depends on are not merged yet.
   blocked: number;
   /// New to the owner, or changed since they last read it (mock: `mock.ts`).
@@ -65,6 +68,9 @@ export function standingOf(i: Item | undefined): ItemStanding {
 /// limit, none where the engine gives it.
 export function whoGives(w: Waited): 'owner' | 'architect' | null {
   if (w.kind === 'limit') return 'owner';
+  // The wait for the items it depends on is nobody's to give: the engine names the owner for every test that does not
+  // hold, though the owner cannot make this one hold. Until the engine says who can, the test is known by its name.
+  if (w.kind === 'precondition' && w.test === 'may_start') return null;
   return w.who;
 }
 
@@ -122,18 +128,24 @@ export function shownTree(data: Items): Shown[] {
     const w = i?.work;
     making.add(id);
     const mock = i === undefined ? null : itemMock(i);
+    // MOCK rule, until the engine says what kind an item is: an item with open items under it whose own work has not
+    // begun is a deliverable, made of what is under it. It shows no state of its own: no row of its work.
+    const deliverable =
+      w !== undefined && !started(w) && (under.get(id) ?? []).some((c) => keep(c) && !making.has(c));
     const shown: Shown = {
       id,
       title: i?.title ?? '',
       standing: standing(id),
       asks: w === undefined ? 0 : asksOf(w.now),
+      questions: mock?.openQuestions ?? 0,
       blocked: (i?.dependsOn ?? []).filter((d) => byId.has(d) && standing(d) !== 'done').length,
-      unseen: mock?.unseen ?? false,
+      // New to the owner exactly when something is unread: one fact, not two.
+      unseen: (mock?.unread ?? 0) > 0,
       unread: mock?.unread ?? 0,
       begun: w !== undefined && started(w),
       shadow: false,
       work:
-        w !== undefined && drawn(w)
+        w !== undefined && drawn(w) && !deliverable
           ? {
               number: w.number,
               now: w.now,
@@ -165,6 +177,7 @@ export function shownTree(data: Items): Shown[] {
     title: byId.get(id)?.title ?? '',
     standing: standing(id),
     asks: 0,
+    questions: 0,
     blocked: 0,
     unseen: false,
     unread: 0,

@@ -126,6 +126,7 @@ export function fakeShown(count: number): Shown[] {
     unseen: i.id % 7 === 0,
     unread: i.id % 11 === 0 ? 1 : 0,
     asks: i.state === 'waiting' ? 1 : 0,
+    questions: 0,
     blocked: 0,
     begun: i.state !== 'new',
     shadow: false,

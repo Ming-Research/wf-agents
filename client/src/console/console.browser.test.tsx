@@ -34,6 +34,7 @@ const card = (id: number, children: Shown[] = []): Shown => ({
   unread: 0,
   standing: 'open',
   asks: 0,
+  questions: 0,
   blocked: 0,
   begun: false,
   shadow: false,
