@@ -1,6 +1,6 @@
 //! A paused work still answers a note, a person's words to a cell: while it is paused, a run starts only for a cell
 //! one of whose reasons is a change of a note it reads that a person made since the cell last ran: since the run of its
-//! record started, or with no record since its latest run started; a cell no run of which has started waits. Nothing
+//! record started, or with no record since its first run started; a cell no run of which has started waits. Nothing
 //! else starts, whatever else a person writes, the order of the walk is kept, and what that run writes waits for the
 //! work to be let on.
 
@@ -179,6 +179,32 @@ fn a_cell_whose_first_round_was_under_way_as_a_person_wrote_to_it_runs_again_whi
             "implement",
             vec![NO_RECORD],
             &[("plan", Some(plan)), ("to implement", Some(to)), ("code", None)]
+        )
+    );
+}
+
+#[test]
+fn a_note_is_answered_until_its_cell_finishes_a_run_though_the_run_for_it_was_abandoned() {
+    let (mut w, plan, first) = implementing();
+    w.returns("implement");
+    w.pause();
+    let to = w.person_writes("to implement");
+    assert_eq!(w.decide(), abandon("implement", first, outdated("to implement")));
+    w.abandon();
+    // The run that answers the note starts, and the outside writes the code, which it may write: it is abandoned.
+    let answering = w.start("implement");
+    w.returns("implement");
+    w.outside_writes("code");
+    assert_eq!(w.decide(), abandon("implement", answering, outdated("code")));
+    w.abandon();
+    // The cell has still no record, and the note came after its first run started: it is still answered.
+    let code = w.records.written.last().expect("a write").at;
+    assert_eq!(
+        w.decide(),
+        runs(
+            "implement",
+            vec![NO_RECORD],
+            &[("plan", Some(plan)), ("to implement", Some(to)), ("code", Some(code))]
         )
     );
 }

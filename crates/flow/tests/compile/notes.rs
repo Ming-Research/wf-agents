@@ -1,5 +1,5 @@
 //! Notes: a block people write may be a note, their words to the cells that read it, which a paused work still
-//! answers; a block people do not write is none.
+//! answers; a block people do not write is none, and nor is a choice.
 
 use flow::{FLOW_FILE, FaultKind::*};
 
@@ -18,6 +18,20 @@ fn a_block_people_write_may_be_a_note_and_the_deciding_code_knows_it() {
     assert!(!c.blocks[&"comments".into()].writers.note);
     assert!(c.flow.is_note(&"opinions".into()));
     assert!(!c.flow.is_note(&"comments".into()));
+}
+
+#[test]
+fn a_choice_is_no_note() {
+    let source = edit(
+        valid(),
+        FLOW_FILE,
+        "[blocks.confirmed]\nvalues = [\"yes\", \"no\"]\npeople = true",
+        "[blocks.confirmed]\nvalues = [\"yes\", \"no\"]\npeople = true\nnote = true",
+    );
+    let what = NoteIsAChoice {
+        block: "confirmed".to_string(),
+    };
+    assert_eq!(faults(&source), [at(FLOW_FILE, "blocks.confirmed.note", what)]);
 }
 
 #[test]

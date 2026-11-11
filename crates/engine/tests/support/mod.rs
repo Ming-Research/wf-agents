@@ -62,7 +62,7 @@ pub struct Seen {
     pub failed_abandoned: usize,
     /// Histories whose work came to rest, once people stopped, not paused.
     pub rested_unpaused: usize,
-    /// Rounds given while the work was paused: of a run started for what a person wrote.
+    /// Rounds given while the work was paused: of a run started for a note a person wrote.
     pub paused_rounds: usize,
     /// Hand-ins that lacked a block their cell must write, by a run still open after them: sent back, or resting at
     /// the limit of returns.
@@ -93,29 +93,31 @@ pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String
     None
 }
 
-/// Whether the run started for what a person wrote: one of its reasons is a block that a person wrote since its cell
-/// last ran, after the version its cell's record knew, and before the run started; for a cell with no record, a block
-/// the run started from. A cell no run of which started before has not run. Read from the records alone; it does not
-/// ask whether the block is a note, whether the write changed its meaning, nor, with no record, whether the cell reads
-/// it, so it is wider than the rule.
-pub fn for_a_person(records: &Records, run: RunId) -> bool {
+/// Whether the run started for a note a person wrote: one of its reasons is a note that a person wrote since its cell
+/// last ran (since the start of the run of its record, or with no record of its first run), after the version its
+/// cell's record knew, and before the run started; for a cell with no record, a note the run started from. A cell no
+/// run of which started before has not run. Read from the records and the flow's notes; it does not ask whether the
+/// write changed the note's meaning, nor, with no record, whether the cell reads it, so it is a little wider than the
+/// rule.
+pub fn for_a_note(flow: &decide::Flow, records: &Records, run: RunId) -> bool {
     let r = records;
     let Some(started) = r.started.iter().find(|s| s.run == run) else {
         return false;
     };
-    // Since the cell last ran: since the start of the run of its record, or with no record of its latest run.
+    // Since the cell last ran: since the start of the run of its record, or with no record of its first run.
     let of_cell = || (r.started.iter()).filter(|s| s.cell == started.cell && s.at < started.at);
     let record = (r.finished.iter())
         .filter(|f| f.at < started.at)
         .filter_map(|f| of_cell().find(|s| s.run == f.run).map(|s| (f.at, s.at)))
         .max();
-    let Some(since) = record.map(|(_, at)| at).or_else(|| of_cell().map(|s| s.at).max()) else {
+    let Some(since) = record.map(|(_, at)| at).or_else(|| of_cell().map(|s| s.at).min()) else {
         return false;
     };
     let by_person = |block: &decide::BlockId, was: Option<decide::Seq>| {
-        (r.written.iter()).any(|w| {
-            w.by == Outsider::Person && w.block == *block && w.at > since && Some(w.at) > was && w.at < started.at
-        })
+        flow.is_note(block)
+            && (r.written.iter()).any(|w| {
+                w.by == Outsider::Person && w.block == *block && w.at > since && Some(w.at) > was && w.at < started.at
+            })
     };
     started.because.iter().any(|c| match c {
         Cause::NoRecord => started.basis.keys().any(|block| by_person(block, None)),
@@ -124,12 +126,12 @@ pub fn for_a_person(records: &Records, run: RunId) -> bool {
 }
 
 /// Why the round of the run that has this number may not be given while the work is paused, if it may not: a paused
-/// work gives a round only of a run started for what a person wrote ([`for_a_person`]), and never the round after
+/// work gives a round only of a run started for a note a person wrote ([`for_a_note`]), and never the round after
 /// one that failed, which waits for the owner to let the work on.
-pub fn held_back(work: &Work, run: RunId, number: usize) -> Option<String> {
-    if !for_a_person(&work.records, run) {
+pub fn held_back(flow: &Compiled, work: &Work, run: RunId, number: usize) -> Option<String> {
+    if !for_a_note(&flow.flow, &work.records, run) {
         return Some(format!(
-            "round {number} of {run:?}, which started for what no person wrote"
+            "round {number} of {run:?}, which started for no note a person wrote"
         ));
     }
     if matches!(work.back.get(&(run, number - 1)), Some(Back::Failed { .. })) {
@@ -235,9 +237,9 @@ impl Driver {
                             if matches!(self.work.back.get(&(*run, number - 1)), Some(Back::Failed { .. })) {
                                 self.seen.retried += 1;
                             }
-                            // A paused work begins a round only of a run for what a person wrote.
+                            // A paused work begins a round only of a run for a note a person wrote.
                             if self.paused {
-                                if let Some(why) = held_back(&self.work, *run, *number) {
+                                if let Some(why) = held_back(&self.flow, &self.work, *run, *number) {
                                     panic!("the work is paused and gives {why}");
                                 }
                                 self.seen.paused_rounds += 1;
@@ -305,11 +307,11 @@ impl Driver {
             }
         }
         // No round was under way as the engine paused the work for a failed round: while that pause holds, a round is
-        // pending only where it began since, of a run for what a person wrote.
+        // pending only where it began since, of a run for a note a person wrote.
         if decide::pause(r).is_some_and(|p| p.by == Pauser::Engine) {
             for effect in &pending {
                 if let Effect::Round { run, number, .. } = effect
-                    && let Some(why) = held_back(&self.work, *run, *number)
+                    && let Some(why) = held_back(&self.flow, &self.work, *run, *number)
                 {
                     panic!("{why} is pending while the engine's pause for a failed round holds the work");
                 }

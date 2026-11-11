@@ -28,9 +28,9 @@ use engine::{Ask, Call, Came, Effect, Event, Given, Handed, Refused, Spent, Time
 use flow::{Compiled, Has, Source, compile};
 
 /// A writer that reads a request, the outside's main and the opinions on what it wrote, which people write as a note
-/// besides; a judge that writes opinions for it and a verdict, a choice; and a merge, the engine's own cell, that waits for the owner's word: a choice, `go`,
-/// that people write and a named test reads. Returns may be sent back twice, a run may make three calls, and a cell may
-/// go round three times.
+/// besides; a judge that writes opinions for it and a verdict, a choice; and a merge, the engine's own cell, that waits
+/// for the owner's word: a choice, `go`, that people write and a named test reads. Returns may be sent back twice, a
+/// run may make three calls, and a cell may go round three times.
 fn judged() -> Compiled {
     compile(&judged_source(), &has(&["main"])).expect("the definition compiles")
 }

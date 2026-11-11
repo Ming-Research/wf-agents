@@ -14,9 +14,9 @@
 //! - no finished run of a cell lacks a write of a block the cell must write, read from the records of the finishes and
 //!   the cells' definitions (entry a-run-is-one-mechanism);
 //! - a round that ended, failed or not, is never given to be done again: no round `pending` gives has ended; and while
-//!   the engine's pause for a failed round holds the work, `pending` gives no round but one of a run for what a person
+//!   the engine's pause for a failed round holds the work, `pending` gives no round but one of a run for a note a person
 //!   wrote, and none given again after it failed;
-//! - a round given while the work is paused is of a run for what a person wrote, and is no round given again after
+//! - a round given while the work is paused is of a run for a note a person wrote, and is no round given again after
 //!   one that failed;
 //! - a round after one that failed is given what the failed one was given, read from the records.
 //!

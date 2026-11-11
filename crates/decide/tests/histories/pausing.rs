@@ -1,16 +1,15 @@
 //! What a pause holds back, checked after every step: a paused work still answers a note, a person's words to a cell,
 //! and begins nothing else. While the work is paused, a run starts only for a cell one of whose reasons is a change of
 //! meaning of a note that a person made since the cell last ran; the pause alone holds back no cell one of whose
-//! reasons is such a change; and the engine gives a run at rest its next round under a pause exactly when the run started for such a
-//! change and its last round did not fail. All are judged by the histories' own reading of the reasons (`reading`);
-//! which cell the work would run once let on is what the walk says of the same records with the pause lifted, as
-//! `properties::reaches` takes it.
+//! reasons is such a change; and the engine gives a run at rest its next round under a pause exactly when the run
+//! started for such a change and its last round did not fail. All are judged by the histories' own reading of the
+//! reasons (`reading`); which cell the work would run once let on is what the walk says of the same records with the
+//! pause lifted, as `properties::reaches` takes it.
 
+use decide::run::Hold;
 use decide::{Cell, Decision, Flow, Pause, Pauser, Seq, decide};
 
 use crate::properties::{Verdict, last_place};
-use decide::run::Hold;
-
 use crate::reading::{Reading, Reason, Writer};
 
 pub const ONLY_FOR_A_NOTE: &str = "a paused work starts a run only for a note a person wrote";
@@ -25,15 +24,15 @@ pub const WENT_ON_PAUSED: &str = "a run started for a note has its next round wh
 
 /// Whether one of these reasons, of a run of the cell that starts or started at this place, is a change of meaning
 /// that a person made since the cell last ran: of a note it reads, after the version the cell's record knew where it
-/// has a record, after the start of the run of its record, or with no record after the start of its latest run, and
+/// has a record, after the start of the run of its record, or with no record after the start of its first run, and
 /// before the place. A cell no run of which started before the place has not run, and has none.
 pub fn for_a_note(flow: &Flow, reading: &Reading, cell: &Cell, reasons: &[Reason], place: Seq) -> bool {
     let record = reading.record(&cell.id, place).map(|run| reading.started[&run].at);
-    let latest = (reading.started.values())
+    let first = (reading.started.values())
         .filter(|s| s.cell == cell.id && s.at < place)
         .map(|s| s.at)
-        .max();
-    let Some(since) = record.or(latest) else {
+        .min();
+    let Some(since) = record.or(first) else {
         return false;
     };
     let by_person = |block, was: Option<Seq>| {
