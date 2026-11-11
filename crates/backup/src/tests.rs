@@ -883,3 +883,22 @@ fn a_failure_after_a_clean_step_is_shown_when_the_clock_has_come_back() {
     let state = e.report(T0 + 1000).state;
     assert!(matches!(state, State::Failed { .. }), "{state:?}");
 }
+
+// A failure with the same time, copy and step as one a clean step mended is a new failure: it takes its own place in
+// the order, and the mending of the first does not hide it.
+#[test]
+fn a_failure_like_a_mended_one_in_time_copy_and_step_is_shown_again() {
+    let e = env(7, false);
+    e.records.failed(Time(T0), "-", "prune", "the first").unwrap();
+    e.records.ended(Time(T0 + 1), 1).unwrap();
+    assert!(!matches!(e.report(T0 + 2).state, State::Failed { .. }));
+    e.records.failed(Time(T0), "-", "prune", "the second").unwrap();
+    let records = e.rows();
+    assert_eq!(records.failures.len(), 2);
+    assert_eq!(records.failures[1].seq, 2);
+    let state = e.report(T0 + 2).state;
+    assert!(
+        matches!(&state, State::Failed { why, .. } if why == "the second"),
+        "{state:?}"
+    );
+}

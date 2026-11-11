@@ -261,8 +261,7 @@ CREATE TABLE backup_failures (
     at INTEGER NOT NULL,
     name TEXT NOT NULL,
     step TEXT NOT NULL,
-    why TEXT NOT NULL,
-    UNIQUE (at, name, step)
+    why TEXT NOT NULL
 );
 
 -- A step of keeping the copies ended at `at` with nothing failing, and so mended the failures up to the one numbered

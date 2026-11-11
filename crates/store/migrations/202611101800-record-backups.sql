@@ -15,8 +15,7 @@ CREATE TABLE backup_failures (
     at INTEGER NOT NULL,
     name TEXT NOT NULL,
     step TEXT NOT NULL,
-    why TEXT NOT NULL,
-    UNIQUE (at, name, step)
+    why TEXT NOT NULL
 );
 CREATE TABLE backup_steps (
     mended INTEGER PRIMARY KEY REFERENCES backup_failures (seq),

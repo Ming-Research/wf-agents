@@ -99,11 +99,12 @@ impl Backups {
         Ok(())
     }
 
-    /// Records that this step failed at `at`, about the copy of this name, for this reason; the same failure at the
-    /// same moment is recorded once.
+    /// Records that this step failed at `at`, about the copy of this name, for this reason. Every failure takes the next
+    /// place in the order, whatever its time: one with the same time, copy and step as an earlier one is a new failure,
+    /// which a step that mended the earlier one has not mended.
     pub fn failed(&self, at: Time, name: &str, step: &str, why: &str) -> Result<(), Fault> {
         self.db.execute(
-            "INSERT OR IGNORE INTO backup_failures (at, name, step, why) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO backup_failures (at, name, step, why) VALUES (?1, ?2, ?3, ?4)",
             rusqlite::params![at.0, name, step, why],
         )?;
         Ok(())
