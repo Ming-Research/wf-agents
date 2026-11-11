@@ -140,8 +140,7 @@ fn the_works_own_pause_is_said_before_the_pause_of_everything_and_both_before_a_
         slot: false,
     };
     assert_eq!(held(&w.flow, &w.work, neither), Some(Holder::Pause));
-    w.on(Event::Resumed);
-    let (write, ..) = round(&w.on_in(Event::Look, Room::FREE));
+    let (write, ..) = round(&w.on(Event::Resumed));
     assert_eq!(
         w.on_in(
             Event::Returned {

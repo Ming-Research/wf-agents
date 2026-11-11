@@ -361,13 +361,14 @@ fn a_store_that_fails_at_the_second_dependents_write_keeps_the_merge_and_opening
         matches!(outcome, Outcome::Stopped { kept: true }),
         "the merge was not said to be kept"
     );
-    assert_eq!(h.reader.load(wb).expect("the work loads").records.started.len(), 1);
+    // A dependent is written given no slot, the free slots going out once every dependent is written: the first
+    // dependent's write was kept, and no round of either began.
+    assert_eq!(h.reader.load(wb).expect("the work loads").records.started.len(), 0);
     assert_eq!(h.reader.load(wc).expect("the work loads").records.started.len(), 0);
     let todos = h.reopen();
     assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
     assert_eq!(h.dependencies(wc).as_deref(), Some(MERGED));
-    // The first dependent's round, kept before the failure and never given, is given; the second's follows the
-    // write the opening made.
+    // Opened again, the driver writes the second dependent's block, and gives the free slots in its order.
     assert_eq!(
         rounds(&todos),
         [(wb, "write".to_string(), 1), (wc, "draft".to_string(), 1)]

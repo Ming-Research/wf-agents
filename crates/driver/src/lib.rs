@@ -296,8 +296,8 @@ impl Driver {
     /// Adds an item together with its one work and with what people write for it first, all of it or none (entry
     /// `item-added-with-its-work`), and gives their numbers with what is to be done. The work begins by itself when it
     /// may, or, added held, is added paused, so that it begins no round until it is let on. What is kept of it from its
-    /// start is, in this order, the pause where it is held, what the driver says of the item's dependencies, and what
-    /// people wrote.
+    /// start is, in this order, the pause where it is held, what the driver says of the item's dependencies, what
+    /// people wrote, and what follows from looking at it then.
     ///
     /// The driver keeps no key of the caller's for an add: a caller that was stopped before it had the numbers finds
     /// the item among those the driver shows, or adds it again as another item.
@@ -328,6 +328,8 @@ impl Driver {
             matters: true,
             value: write.value,
         }));
+        // Looked at last, so that a work added going on with nothing written begins too.
+        first.push(Event::Look);
         // No other work holds a slot it would lose: a slot free is one no work waits for.
         let room = self.room(None, true);
         let mut effects = Vec::new();
