@@ -55,11 +55,13 @@ interface TestSource extends Source {
 }
 
 function fixtureSource(over: Partial<Source> = {}): TestSource {
+  // Every part that listens, as each opens a stream of its own: the list of the works and the line of the copies in it.
+  const listening = new Set<{ onChanged: (c: Changed) => void; onOpened: () => void }>();
   const s: TestSource = {
     acts: [],
     reads: { work: 0, round: 0, items: 0 },
-    changed: () => undefined,
-    opened: () => undefined,
+    changed: (c) => listening.forEach((l) => l.onChanged(c)),
+    opened: () => listening.forEach((l) => l.onOpened()),
     loadCopies: async () => fixtureCopies(),
     loadItems: async () => {
       s.reads.items += 1;
@@ -81,9 +83,9 @@ function fixtureSource(over: Partial<Source> = {}): TestSource {
       return null;
     },
     changes: (onChanged, onOpened) => {
-      s.changed = onChanged;
-      s.opened = onOpened;
-      return () => undefined;
+      const listener = { onChanged, onOpened };
+      listening.add(listener);
+      return () => listening.delete(listener);
     },
     ...over,
   };

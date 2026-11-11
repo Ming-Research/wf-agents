@@ -818,10 +818,23 @@ async fn with_the_place_out_of_reach_the_copy_is_taken_the_failure_recorded_and_
     assert_eq!(out.failed.as_ref().map(|f| f.0.as_str()), Some("private"));
     assert_eq!(e.rows().failures.len(), 1);
     assert!(matches!(e.report(T0 + 1).state, State::Failed { .. }));
-    let again = e.step(T0 + HOUR).await;
-    assert_eq!(again.taken, None);
-    assert_eq!(again.uploaded.len(), 1);
-    assert_eq!(e.report(T0 + HOUR).state, State::Ok);
+    // Each call fails once: the next two periods are tried and fail the same, each one a row, and no second copy is
+    // taken; the fourth reaches the place.
+    for k in 1..=2 {
+        let again = e.step(T0 + k * HOUR).await;
+        assert_eq!(again.taken, None);
+        assert_eq!(
+            again.failed.as_ref().map(|f| f.0.as_str()),
+            Some("private"),
+            "period {k}"
+        );
+    }
+    assert_eq!(e.rows().failures.len(), 3);
+    let reached = e.step(T0 + 3 * HOUR).await;
+    assert_eq!(reached.taken, None);
+    assert_eq!(reached.uploaded.len(), 1);
+    assert_eq!(e.rows().copies.len(), 1);
+    assert_eq!(e.report(T0 + 3 * HOUR).state, State::Ok);
 }
 
 // A prune that failed is shown even after a step that took a copy, and the prune done at the next step mends it.
