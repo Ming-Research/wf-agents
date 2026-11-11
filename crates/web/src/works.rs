@@ -12,8 +12,8 @@
 //! - [`RoundPage`], [`VersionPage`], [`CallPage`]: the content the history leaves out.
 //! - [`ToldPage`]: what a round was told and what came back of it, as its carrier kept them.
 //! - [`Act`], [`NewItem`]: what the owner does on the pages.
-//! - [`Engine`], [`EngineAct`]: the engine as a whole, its slots and the owner's pause of everything, and what the owner
-//!   does to it.
+//! - [`Engine`], [`EngineAct`]: the engine as a whole, its slots and the pause of everything, and what the owner does to
+//!   it.
 //!
 //! A work whose records name what it does not hold, which the engine never writes, is not shown as something it is
 //! not: making its view gives [`Broken`], saying what is missing.
@@ -889,7 +889,7 @@ pub struct NewItem {
     pub writes: Vec<NewWrite>,
 }
 
-/// The engine as a whole: its slots, and the owner's pause of everything.
+/// The engine as a whole: its slots, and the pause of everything.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Engine {
@@ -897,8 +897,17 @@ pub struct Engine {
     pub slots: u64,
     /// How many are under way; more than there are slots where the slots were fewer when the engine started again.
     pub taken: u64,
-    /// When the owner's pause of everything began, while it holds; none while works go on.
-    pub paused: Option<u64>,
+    /// The pause of everything, while it holds; none while works go on.
+    pub paused: Option<EverythingPaused>,
+}
+
+/// The pause of everything: when it began, and who set it, the owner, or the engine as it started with works going on,
+/// which holds everything until the owner has seen how things stand and lifts it as they lift their own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EverythingPaused {
+    pub since: u64,
+    pub by: Pauser,
 }
 
 /// What the owner does to the engine as a whole on the pages, each kind a struct as an [`Act`] is.
@@ -912,7 +921,7 @@ pub struct Engine {
 pub enum EngineAct {
     /// Pauses everything: no work begins a round but those of a run that answers a note, until it is lifted.
     Pause {},
-    /// Lifts the pause of everything: every work goes on that its own pause does not hold.
+    /// Lifts the pause of everything, the owner's or the engine's: every work goes on that its own pause does not hold.
     Resume {},
 }
 
@@ -1219,7 +1228,7 @@ impl Now {
 }
 
 impl Pauser {
-    fn of(by: PauserOf) -> Pauser {
+    pub(crate) fn of(by: PauserOf) -> Pauser {
         match by {
             PauserOf::Owner => Pauser::Owner,
             PauserOf::Engine => Pauser::Engine,
@@ -1566,7 +1575,10 @@ impl Engine {
         Engine {
             slots: slots.slots as u64,
             taken: slots.taken as u64,
-            paused: driver.everything_paused().map(|since| since.0),
+            paused: driver.everything_paused().map(|paused| EverythingPaused {
+                since: paused.since.0,
+                by: Pauser::of(paused.by),
+            }),
         }
     }
 }

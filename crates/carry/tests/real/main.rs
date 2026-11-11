@@ -338,18 +338,35 @@ impl Real {
     }
 
     /// Stops the loop and its carriers and starts them again on the same store, as a new process of the engine
-    /// would. What the old carriers run goes on running.
+    /// would, the owner lifting at once the pause of everything it makes as it starts on works going on. What the old
+    /// carriers run goes on running.
     pub fn restart(&mut self) {
         let (service, inbox) = open(&self.settings, &self.data, &self.flow, false);
         self.service = service;
         self.inbox = inbox;
+        self.lift_the_starts_pause();
     }
 
-    /// Starts the loop again on the same store with agents that drop every stop they are given.
+    /// Starts the loop again on the same store with agents that drop every stop they are given, the owner lifting at
+    /// once the pause of everything it makes as it starts on works going on.
     pub fn deafen(&mut self) {
         let (service, inbox) = open(&self.settings, &self.data, &self.flow, true);
         self.service = service;
         self.inbox = inbox;
+        self.lift_the_starts_pause();
+    }
+
+    /// The owner lifts the pause of everything the loop made as it started on works going on, where it made one.
+    fn lift_the_starts_pause(&mut self) {
+        let paused = self.service.driver().everything_paused();
+        if !paused.is_some_and(|paused| paused.by == Pauser::Engine) {
+            return;
+        }
+        let (reply, mut answer) = oneshot::channel();
+        self.service
+            .take(Message::Everything { paused: false, reply })
+            .expect("the loop takes it");
+        answer.try_recv().expect("answered").expect("the pause is lifted");
     }
 
     /// The owner's call the work's run waits for, where there is one.

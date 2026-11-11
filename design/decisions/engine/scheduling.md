@@ -16,4 +16,8 @@ Why: Written into each work as a pause of its own, it would be the same fact in 
 
 ### decision pause-is-no-zero-slots
 Stopping every work is a pause of its own, and the slots are never set to none.
-Why: With no slot, a work could not answer the owner's note to one of its cells, and works waiting for a slot could not go on once something else freed one; a count of slots is the installation's setting, and a pause is an act of the owner's that is set and lifted.
+Why: With no slot, a work could not answer the owner's note to one of its cells, and works waiting for a slot could not go on once something else freed one; a count of slots is the installation's setting, and a pause is set and lifted.
+
+### decision a-start-pauses-everything-only-over-works-going-on
+An engine that starts while a work is going on, one that has not ended and that its own pause does not hold, and while nothing pauses everything, pauses everything itself, kept with the engine as who paused it, until the owner lifts it as they lift their own pause; an engine that starts with no work going on pauses nothing.
+Why: Only a work going on could spend before the owner has seen how things stand (principle no-unseen-spending-loop): works are added paused and the owner's pause outlives a stop, so pausing at every start would guard nothing and make every start wait for a lift. Kept in memory alone, the hold would be lost by a second stop before the owner looked.

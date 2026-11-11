@@ -209,13 +209,14 @@ fn a_file_made_with_the_first_version_of_the_schema_is_migrated_and_its_pauses_r
 }
 
 /// The migrations, in order, each bringing a file one version further, as the store's own list holds them.
-pub(crate) const MIGRATIONS: [&str; 6] = [
+pub(crate) const MIGRATIONS: [&str; 7] = [
     include_str!("../../../../db/migrations/202611101530-say-who-paused-a-work-and-why.sql"),
     include_str!("../../../../db/migrations/202611102304-give-items-a-level.sql"),
     include_str!("../../../../db/migrations/202611111400-say-when-a-work-let-go-of-what-it-held.sql"),
     include_str!("../../../../db/migrations/202611111401-keep-the-owners-pause-of-everything.sql"),
     include_str!("../../../../db/migrations/202611111600-record-the-sessions-of-lines-and-the-context-of-rounds.sql"),
     include_str!("../../../../db/migrations/202611111830-keep-each-change-of-an-item-and-why-it-was-cancelled.sql"),
+    include_str!("../../../../db/migrations/202611112000-say-who-paused-everything.sql"),
 ];
 
 #[test]

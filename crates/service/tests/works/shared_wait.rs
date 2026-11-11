@@ -28,7 +28,7 @@ async fn waiting(failure: &str, resets: Option<u64>) -> (Trial, store::WorkNumbe
 async fn restarted_after(failure: &str, resets: Option<u64>, after: Duration) {
     let (mut trial, work) = waiting(failure, resets).await;
     tokio::time::advance(after).await;
-    trial.restart();
+    trial.restart_and_lift();
     assert_eq!(
         trial.drive(work).await,
         Decision::Ended(End::Merged),

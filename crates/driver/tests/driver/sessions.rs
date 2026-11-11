@@ -75,6 +75,22 @@ fn on(model: &str) -> RanOn {
     }
 }
 
+/// Opens the driver again on the store with this policy, and the owner lifts at once, at the time it opened, the pause
+/// of everything it made as it opened on the work going on: gives what both gave.
+fn reopened(s: &mut S, policy: Policy) -> Vec<Todo> {
+    let now = Time(s.clock);
+    let (mut driver, mut todos) = Driver::open(Box::new(s.db.open()), vec![s.flow.clone()], SLOTS, Some(policy), now)
+        .expect("the driver opens again");
+    if driver
+        .everything_paused()
+        .is_some_and(|paused| paused.by == Pauser::Engine)
+    {
+        todos.extend(driver.pause_everything(now, false).expect("the pause is lifted"));
+    }
+    s.driver = driver;
+    todos
+}
+
 /// The policy where every round runs on this model, with a limit of 500 tokens.
 fn policy(model: &str) -> Policy {
     let model = model.to_string();
@@ -320,15 +336,7 @@ fn a_run_waiting_on_a_tools_result_as_its_line_begins_a_new_session_is_told_what
     let (build, _) = s.round();
     s.asks(100);
     // The engine opens again with another model while the build waits on its tool's result.
-    let (driver, _) = Driver::open(
-        Box::new(s.db.open()),
-        vec![s.flow.clone()],
-        SLOTS,
-        Some(policy("sonnet")),
-        Time(s.clock),
-    )
-    .unwrap();
-    s.driver = driver;
+    reopened(&mut s, policy("sonnet"));
     s.model = "sonnet".to_string();
     assert!(matches!(s.sessions().last(), Some((line, Why::Model { .. })) if line == "engineer"));
     let (load, cell) = s.round();
@@ -397,15 +405,7 @@ fn a_flagged_round_of_a_store_kept_before_sessions_were_recorded_has_its_line_be
     assert_eq!(s.round().0, review);
     s.asks(100);
     let reopen = |s: &mut S| {
-        let (driver, _) = Driver::open(
-            Box::new(s.db.open()),
-            vec![s.flow.clone()],
-            SLOTS,
-            Some(policy("opus")),
-            Time(s.clock),
-        )
-        .unwrap();
-        s.driver = driver;
+        reopened(s, policy("opus"));
     };
     reopen(&mut s);
     assert_eq!(
@@ -466,15 +466,7 @@ fn a_round_under_way_as_a_store_kept_before_sessions_were_recorded_opens_runs_in
     let db = rusqlite::Connection::open(&s.db.path).unwrap();
     db.execute_batch("DELETE FROM sessions; DELETE FROM ran;").unwrap();
     drop(db);
-    let (driver, todos) = Driver::open(
-        Box::new(s.db.open()),
-        vec![s.flow.clone()],
-        SLOTS,
-        Some(policy("opus")),
-        Time(s.clock),
-    )
-    .unwrap();
-    s.driver = driver;
+    let todos = reopened(&mut s, policy("opus"));
     let again = todos
         .iter()
         .any(|todo| matches!(&todo.effect, Effect::Round { run, number: 3, .. } if *run == review));
@@ -512,15 +504,7 @@ fn a_line_whose_rounds_now_run_on_another_model_begins_a_new_session_as_the_engi
     s.hands_in(100, true);
     let (build, _) = s.round();
     s.asks(100);
-    let (driver, todos) = Driver::open(
-        Box::new(s.db.open()),
-        vec![s.flow.clone()],
-        SLOTS,
-        Some(policy("sonnet")),
-        Time(s.clock),
-    )
-    .unwrap();
-    s.driver = driver;
+    let todos = reopened(&mut s, policy("sonnet"));
     let was = Why::Model {
         was: "opus".to_string(),
     };
@@ -544,15 +528,7 @@ fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_as_the
     s.hands_in(100, true);
     let (build, _) = s.round();
     s.asks(100);
-    let (driver, todos) = Driver::open(
-        Box::new(s.db.open()),
-        vec![s.flow.clone()],
-        SLOTS,
-        Some(policy_under("opus", account(Some("second")))),
-        Time(s.clock),
-    )
-    .unwrap();
-    s.driver = driver;
+    let todos = reopened(&mut s, policy_under("opus", account(Some("second"))));
     s.account = Some("second".to_string());
     assert_eq!(
         s.sessions(),

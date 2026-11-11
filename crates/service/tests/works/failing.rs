@@ -122,7 +122,7 @@ async fn history_of(script: Script, stops: &[usize]) -> (Work, usize) {
     trial.act(work, Act::Resume).unwrap();
     loop {
         if stops.contains(&trial.steps) {
-            trial.restart();
+            trial.restart_and_lift();
         }
         if matches!(trial.decision(work), Decision::Ended(_)) {
             break;

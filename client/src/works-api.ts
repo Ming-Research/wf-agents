@@ -21,7 +21,7 @@
 // - `GET  /api/v1/works/{work}/calls/{call}`: a call with its result (`CallPage`).
 // - `POST /api/v1/works/{work}/acts`: what the owner does to a work (`Act`); answers with no content, or with why it
 //   was refused (`Refusal`) and a status of 4xx.
-// - `GET  /api/v1/engine`: the engine as a whole, its slots and the owner's pause of everything (`Engine`).
+// - `GET  /api/v1/engine`: the engine as a whole, its slots and the pause of everything (`Engine`).
 // - `POST /api/v1/engine/acts`: what the owner does to the engine as a whole (`EngineAct`); answers as an act on a work.
 // - `GET  /api/v1/changes`: a stream of server-sent events, one each time something happened (`Changed`), on which a
 //   page reads again what it shows.
@@ -479,14 +479,22 @@ export interface NewItem {
   writes: { block: string; content: string; value: string | null }[];
 }
 
-/// The engine as a whole: its slots, and when the owner's pause of everything began, while it holds.
+/// The engine as a whole: its slots, and the pause of everything, while it holds.
 export interface Engine {
   slots: number;
   taken: number;
-  paused: number | null;
+  paused: EverythingPaused | null;
 }
 
-/// What the owner does to the engine as a whole: pauses everything, or lifts that pause.
+/// The pause of everything: when it began, and who set it, the owner, or the engine as it started with works going on,
+/// which holds everything until the owner has seen how things stand and lifts it as they lift their own.
+export interface EverythingPaused {
+  since: number;
+  by: Pauser;
+}
+
+/// What the owner does to the engine as a whole: pauses everything, or lifts the pause of everything, theirs or the
+/// engine's.
 export type EngineAct = { kind: 'pause' } | { kind: 'resume' };
 
 export interface Added {
