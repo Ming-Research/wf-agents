@@ -19,9 +19,18 @@
 // layout: the work line's facts, the row of what the owner does to the work under the lines, what the work waits at
 // over the body, the block a note is written in over its box, and the flow's name among the work's facts.
 
-import { type MouseEvent, type ReactNode, type RefObject, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Fragment,
+  type MouseEvent,
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 
-import { Button, Confirm, PanelPart } from '../parts';
+import { Button, Confirm, PanelPart, Switch } from '../parts';
 import type { Act, Item, Summary, Waited, WorkPage } from '../works-api';
 import { StateLegend, Strip } from '../works/marks';
 import { type ItemStanding, standingOf } from './items';
@@ -112,12 +121,27 @@ export function nowWords(s: Summary, page: WorkPage | null): { word: string; fac
 /// The tone of a dot: an item's standing, or what its work does.
 type Tone = ItemStanding | Mood | 'ended';
 
-/// A status line of the panel, as the look's (`StatusLine`), but with the five tones of a work, and room at its right
+/// The dot of each tone, as the look's status line colours it; a work waiting for anything but the owner takes the
+/// console's pale yellow, which the look has no tone for.
+const DOT: Record<Tone, string> = {
+  open: 'dot dot-running',
+  running: 'dot dot-running',
+  done: 'dot dot-added',
+  owner: 'dot dot-changed',
+  halted: 'dot dot-removed',
+  waiting: 'dot cw-dot-waiting',
+  paused: 'dot',
+  cancelled: 'dot',
+  ended: 'dot',
+};
+
+/// A status line of the panel, the look's (`StatusLine`), but with the five tones of a work, and room at its right
 /// end for the strip of the work's cells.
-function Line({ tone, children }: { tone: Tone; children: ReactNode }) {
+function Line({ tone, word, children }: { tone: Tone; word: ReactNode; children?: ReactNode }) {
   return (
-    <div className="cw-line">
-      <span className={`cw-dot dot-${tone}`} aria-hidden="true" />
+    <div className="status-line">
+      <span className={DOT[tone]} aria-hidden="true" />
+      <span className="status-word">{word}</span>
       {children}
     </div>
   );
@@ -259,60 +283,57 @@ function ItemView({ item, page, act, waitsFor, goal = false, open = true, onRead
   const count = picks(body);
   return (
     <div className="cw-item" ref={inner}>
-      <div className="cw-head">
-        <span className="cw-id">{item.number}</span>
-        <h2 className="cw-title">
+      <header className="drawer-head">
+        <span className="drawer-id">{item.number}</span>
+        <h2 className="drawer-title">
           <button type="button" className="cw-title-link" title="Show it in the tree" onClick={onTitle}>
             {item.title}
           </button>
         </h2>
-        <span className="cw-project">{mock.project}</span>
-      </div>
+        <span className="drawer-belongs">{mock.project}</span>
+      </header>
       <ItemLine item={item} waitsFor={waitsFor} goal={goal} tier={mock.tier} />
       <WorkLine w={work} page={read} />
       {!ended(work) && <Acts paused={work.paused || work.now.kind === 'paused'} act={send} />}
-      <div className="cw-tabs" role="tablist">
-        {(['item', 'work'] as const).map((k) => (
-          <button
-            key={k}
-            type="button"
-            role="tab"
-            aria-selected={tab === k}
-            className={tab === k ? 'on' : ''}
-            onClick={() => setTab(k)}
-          >
-            {k === 'item' ? 'Item' : 'Work'}
-          </button>
-        ))}
-      </div>
-      {fresh ? (
-        <div className="cw-fresh">
-          <span>
-            {changes === 0
-              ? 'New to you'
-              : changes === 1
-                ? '1 passage changed since you last read it'
-                : `${changes} passages changed since you last read it`}
-          </span>
-          <button type="button" className="cw-fresh-read" aria-keyshortcuts="r" onClick={markAsRead}>
-            {keyed('Mark as read', 'r')}
-          </button>
+      <div className="drawer-body">
+        <div className="cw-tabs">
+          <Switch
+            label="What the window shows"
+            choices={[
+              { value: 'item', name: 'Item' },
+              { value: 'work', name: 'Work' },
+            ]}
+            value={tab}
+            onChange={setTab}
+          />
         </div>
-      ) : null}
-      {tab === 'work' ? (
-        <WorkFacts w={work} page={read} />
-      ) : (
-        <>
-          {work.now.kind === 'waits' && <Waits on={work.now.on} page={read} at={work.now.at} />}
-          <div className="cw-body" onMouseUp={selected}>
-            <Section title="Background" parts={body.background} />
-            <Section title="Problem" parts={body.problem} />
-            <Section title="Plan" parts={body.plan} choose={body.planWaits ? choose : undefined} />
-            {body.planWaits ? (
-              <div className="cw-confirm">
+        {fresh ? (
+          <div className="cw-fresh">
+            <span>
+              {changes === 0
+                ? 'New to you'
+                : changes === 1
+                  ? '1 passage changed since you last read it'
+                  : `${changes} passages changed since you last read it`}
+            </span>
+            <button type="button" className="link" aria-keyshortcuts="r" onClick={markAsRead}>
+              {keyed('Mark as read', 'r')}
+            </button>
+          </div>
+        ) : null}
+        {tab === 'work' ? (
+          <WorkFacts w={work} page={read} />
+        ) : (
+          <>
+            {work.now.kind === 'waits' && <Waits on={work.now.on} page={read} at={work.now.at} />}
+            <div className="cw-body" onMouseUp={selected}>
+              <Section title="Background" parts={body.background} />
+              <Section title="Problem" parts={body.problem} />
+              <Section title="Plan" parts={body.plan} choose={body.planWaits ? choose : undefined} />
+              {body.planWaits ? (
                 <button
                   type="button"
-                  className="button button-primary cw-confirm-button"
+                  className="button button-primary cw-confirm"
                   disabled={count.picked < count.all}
                   onClick={() => {
                     setBody((was) => ({ ...was, planWaits: false }));
@@ -321,39 +342,39 @@ function ItemView({ item, page, act, waitsFor, goal = false, open = true, onRead
                 >
                   {count.all > 0 ? `Confirm (${count.picked}/${count.all})` : 'Confirm'}
                 </button>
-              </div>
+              ) : null}
+              {confirmed ? <p className="cw-done">You confirmed the plan.</p> : null}
+            </div>
+            {offer !== null ? (
+              <button
+                type="button"
+                className="button cw-quote-offer"
+                style={{ left: offer.x, top: offer.y }}
+                onMouseDown={(e: MouseEvent) => e.preventDefault()}
+                onClick={() => {
+                  setQuote(offer.text);
+                  setOffer(null);
+                  window.getSelection()?.removeAllRanges();
+                  box.current?.focus();
+                }}
+              >
+                <QuoteSign />
+                Quote
+              </button>
             ) : null}
-            {confirmed ? <p className="cw-done">You confirmed the plan.</p> : null}
-          </div>
-          {offer !== null ? (
-            <button
-              type="button"
-              className="cw-quote-offer"
-              style={{ left: offer.x, top: offer.y }}
-              onMouseDown={(e: MouseEvent) => e.preventDefault()}
-              onClick={() => {
-                setQuote(offer.text);
-                setOffer(null);
-                window.getSelection()?.removeAllRanges();
-                box.current?.focus();
-              }}
-            >
-              <QuoteSign />
-              Quote
-            </button>
-          ) : null}
-          <Notes
-            work={work}
-            page={page}
-            notes={body.notes}
-            quote={quote}
-            unquote={() => setQuote(null)}
-            box={box}
-            act={send}
-            sent={sent}
-          />
-        </>
-      )}
+            <Notes
+              work={work}
+              page={page}
+              notes={body.notes}
+              quote={quote}
+              unquote={() => setQuote(null)}
+              box={box}
+              act={send}
+              sent={sent}
+            />
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -384,12 +405,11 @@ function ItemLine({ item, waitsFor, goal, tier }: {
 }) {
   const standing = standingOf(item);
   return (
-    <Line tone={standing}>
-      <span className="cw-strong">{STANDING_WORDS[standing]}</span>
-      {goal ? <span>Goal</span> : null}
-      {tier !== null ? <span>Tier {tier}</span> : null}
-      <span>Added {ago(item.added)} ago</span>
-      {waitsFor.length > 0 && <span>Waits for {waitsFor.join(', ')} to merge</span>}
+    <Line tone={standing} word={STANDING_WORDS[standing]}>
+      {goal ? <span className="muted">Goal</span> : null}
+      {tier !== null ? <span className="muted">Tier {tier}</span> : null}
+      <span className="muted">Added {ago(item.added)} ago</span>
+      {waitsFor.length > 0 && <span className="muted">Waits for {waitsFor.join(', ')} to merge</span>}
     </Line>
   );
 }
@@ -397,11 +417,10 @@ function ItemLine({ item, waitsFor, goal, tier }: {
 function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
   const { word, facts } = nowWords(w, page);
   return (
-    <Line tone={ended(w) ? 'ended' : moodOf(w)}>
+    <Line tone={ended(w) ? 'ended' : moodOf(w)} word={word}>
       {/* What it does in one phrase, then where. */}
-      <span className="cw-strong">{word}</span>
-      {facts !== null && <span>{facts}</span>}
-      <a href={`#/works/${w.number}`} className="cw-mono" title={`Open work ${w.number}`}>
+      {facts !== null && <span className="muted">{facts}</span>}
+      <a href={`#/works/${w.number}`} className="link mono" title={`Open work ${w.number}`}>
         W{w.number}
       </a>
       {/* How far it has come and where its time went, together at the line's right end. */}
@@ -421,7 +440,7 @@ function Acts({ paused, act }: { paused: boolean; act: (what: Act) => Promise<un
   const { waiting, refused, send } = useSending(act);
   const [asking, setAsking] = useState(false);
   return (
-    <div className="cw-acts">
+    <div className="acts cw-acts">
       {paused ? (
         <Button primary title="Let the work go on" disabled={waiting} onClick={() => void send({ kind: 'resume' })}>
           Let it on
@@ -454,7 +473,7 @@ function Acts({ paused, act }: { paused: boolean; act: (what: Act) => Promise<un
           It cannot be let on again.
         </Confirm>
       )}
-      {refused !== null && <span className="cw-refused">{refused}</span>}
+      {refused !== null && <span className="failed small">{refused}</span>}
     </div>
   );
 }
@@ -464,7 +483,7 @@ function Waits({ on, page, at }: { on: Waited[]; page: WorkPage | null; at: stri
     <PanelPart label={`Waits at ${titleOf(page, at)}`} count={on.length}>
       <ul>
         {on.map((x, i) => (
-          <li key={i} className={x.kind === 'limit' || x.who === 'owner' ? 'cw-wait cw-wait-owner' : 'cw-wait'}>
+          <li key={i} className={x.kind === 'limit' || x.who === 'owner' ? 'list-row cw-wait-owner' : 'list-row'}>
             {waitedWords(x, page, at)}
           </li>
         ))}
@@ -505,8 +524,7 @@ function Section({
 }) {
   if (parts.length === 0) return null;
   return (
-    <section className="cw-section">
-      <h3>{title}</h3>
+    <PanelPart label={title}>
       {parts.map((p, i) => (
         <div key={i} className={p.changed === true ? 'cw-part cw-changed' : 'cw-part'}>
           {p.kind === 'text' ? (
@@ -516,7 +534,7 @@ function Section({
           )}
         </div>
       ))}
-    </section>
+    </PanelPart>
   );
 }
 
@@ -537,7 +555,7 @@ function Choice({ p, pick }: { p: Extract<Part, { kind: 'choice' }>; pick?: (opt
         >
           <span className="cw-option-label">
             {o.label}
-            {p.recommended === i ? <span className="cw-tag">Recommended</span> : null}
+            {p.recommended === i ? <span className="tag cw-tag">Recommended</span> : null}
           </span>
           <span className="cw-option-detail">{o.detail}</span>
         </button>
@@ -549,6 +567,14 @@ function Choice({ p, pick }: { p: Extract<Part, { kind: 'choice' }>; pick?: (opt
 /// The notes: those written before, the owner's and the replies, and a box to write one. The owner picks a block of
 /// the work that people write, of those that hold words rather than a choice, and what they send is written into it;
 /// the line under the box names the cells that read it, and those the note names with `@`.
+/// Whom the owner writes a note to, of the engineer's flow: the cells that plan and build, by the names the owner
+/// calls them.
+const NOTE_TO = [
+  { cell: 'R1', name: 'Research' },
+  { cell: 'D1', name: 'Deep research' },
+  { cell: 'I1', name: 'Implementation' },
+] as const;
+
 function Notes({ work, page, notes, quote, unquote, box, act, sent }: {
   work: Summary;
   page: PageState;
@@ -561,40 +587,57 @@ function Notes({ work, page, notes, quote, unquote, box, act, sent }: {
 }) {
   const read = pageIn(page);
   const blocks = (read?.flow.blocks ?? []).filter((b) => b.writtenBy.people && b.values === null);
+  // Whom a note goes to: the research, the deep research or the implementation, each by the block of the owner's
+  // words its cell reads. The deep research cannot be chosen where the work did not go through it. Once the work has
+  // come to the implementation, a note goes there unless the owner picks another; before that, to the research.
+  const went = (cell: string) => work.cells.some((c) => c.cell === cell && (c.finished > 0 || c.open !== null));
+  const targets = NOTE_TO.map((t) => ({
+    ...t,
+    block: blocks.find((b) => b.readBy.cells.includes(t.cell)),
+    off: t.cell === 'D1' && !went('D1'),
+  }));
   const [chosen, setChosen] = useState<string | null>(null);
-  const block = blocks.find((b) => b.name === chosen) ?? blocks[0];
+  const usable = targets.filter((t) => t.block !== undefined && !t.off);
+  const target = usable.find((t) => t.cell === (chosen ?? (went('I1') ? 'I1' : 'R1'))) ?? usable[0];
+  const block = target?.block;
   return (
-    <section className="cw-notes">
-      <h3>Notes</h3>
+    <PanelPart label="Notes">
       {notes.map((n, i) => (
         <div key={i} className={n.who === 'owner' ? 'cw-note cw-note-owner' : 'cw-note'}>
-          <div className="cw-note-head">
-            <span className="cw-strong">{WRITER[n.who]}</span>
-            <span>to {n.to.map((x) => WRITER[x]).join(', ')}</span>
-            <span className="cw-mono">{ago(n.at)} ago</span>
+          <div className="status-line">
+            <span className="status-word">{WRITER[n.who]}</span>
+            <span className="muted">to {n.to.map((x) => WRITER[x]).join(', ')}</span>
+            <span className="mono muted">{ago(n.at)} ago</span>
           </div>
-          {n.quote !== null ? <blockquote className="cw-note-quote">{n.quote}</blockquote> : null}
+          {n.quote !== null ? <blockquote className="cw-quote">{n.quote}</blockquote> : null}
           <Markdown text={n.text} />
         </div>
       ))}
       {page === null ? (
-        <p className="cw-muted">Reading the work's flow</p>
+        <p className="muted">Reading the work's flow</p>
       ) : 'failed' in page ? (
-        <p className="cw-refused">The page could not read the work: {page.failed}</p>
+        <p className="failed small">The page could not read the work: {page.failed}</p>
       ) : block === undefined ? (
-        <p className="cw-muted">People write no block of this flow</p>
+        <p className="muted">People write no block of this flow</p>
       ) : (
-        <div className="cw-compose">
-          <label className="cw-block">
-            <span className="label">Write in</span>
-            <select className="cw-select" value={block.name} onChange={(e) => setChosen(e.target.value)}>
-              {blocks.map((b) => (
-                <option key={b.name} value={b.name}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
-          </label>
+        <div className="write-box cw-compose">
+          <div className="cw-to switch" role="radiogroup" aria-label="Whom the note goes to">
+            {targets.map((t) => (
+              <button
+                key={t.cell}
+                type="button"
+                role="radio"
+                className="switch-choice"
+                aria-checked={t.cell === target?.cell}
+                aria-pressed={t.cell === target?.cell}
+                disabled={t.block === undefined || t.off}
+                title={t.off ? 'The work did not go through the deep research' : undefined}
+                onClick={() => setChosen(t.cell)}
+              >
+                {t.name}
+              </button>
+            ))}
+          </div>
           <Compose
             key={draftKey(work.number, block.name)}
             work={work}
@@ -608,7 +651,7 @@ function Notes({ work, page, notes, quote, unquote, box, act, sent }: {
           />
         </div>
       )}
-    </section>
+    </PanelPart>
   );
 }
 
@@ -660,7 +703,7 @@ function Compose({ work, block, readers, quote, unquote, box, act, sent }: {
     <>
       {quote !== null ? (
         <div className="cw-quoted">
-          <span>{quote}</span>
+          <span className="cw-quote">{quote}</span>
           <button type="button" className="cw-unquote" aria-label="Remove the quote" title="Remove the quote" onClick={unquote}>
             <CrossSign />
           </button>
@@ -671,26 +714,26 @@ function Compose({ work, block, readers, quote, unquote, box, act, sent }: {
         rows={3}
         value={text}
         aria-label={`What to write in ${block}`}
-        placeholder="Write a note. Name others with @engineer, @architect or @assistant."
+        placeholder="Write a note"
         onChange={(e) => type(e.target.value)}
       />
       {naming !== null && offered.length > 0 ? (
         <div className="cw-names">
           {offered.map((x) => (
-            <button key={x} type="button" onClick={() => name(x)}>
+            <button key={x} type="button" className="button" onClick={() => name(x)}>
               @{x} · {WRITER[x]}
             </button>
           ))}
         </div>
       ) : null}
-      <div className="cw-compose-foot">
-        <span className="cw-muted">{to.length > 0 ? `Goes to ${to.join(', ')}` : 'No cell reads it'}</span>
+      <div className="write-line">
+        <span className="muted small write-readers">{to.length > 0 ? `Goes to ${to.join(', ')}` : 'No cell reads it'}</span>
         <Button primary disabled={waiting || text.trim() === ''} onClick={submit}>
           Send
         </Button>
       </div>
       {written && <p className="cw-done">Written in {block}</p>}
-      {refused !== null && <p className="cw-refused">{refused}</p>}
+      {refused !== null && <p className="failed small">{refused}</p>}
     </>
   );
 }
@@ -717,12 +760,12 @@ function WorkFacts({ w, page }: { w: Summary; page: WorkPage | null }) {
   ];
   return (
     <>
-      <dl className="cw-facts">
+      <dl className="pairs panel-part panel-part-last">
         {rows.map(([key, value]) => (
-          <div key={key}>
+          <Fragment key={key}>
             <dt>{key}</dt>
             <dd>{value}</dd>
-          </div>
+          </Fragment>
         ))}
       </dl>
       <PanelPart label="The cells' marks">

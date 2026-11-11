@@ -264,20 +264,21 @@ smoothly, and the panel at its right with the item selected. It is the console o
   in `--accent`, the item itself with a halo.
 - **Map.** At the top left, a bar for each column, moved as the column is, marked in `--red` where works wait for the
   owner and in `--accent` where the item selected stands.
-- **Panel.** The page's panel, 560px until dragged, as the console's window was. Its head: the item's number, its
-  title, which brings the item into view, and the flow its work runs on. Two status lines (`.cw-line`): where the item
-  stands and what it waits for to merge; what its work does, a link to the work's own page, and at the right the
-  works page's **strip** (`Strip`) of the work's cells, and what it has taken. These lines are the look's status line
-  (`StatusLine`) in all but two things, which is why the console draws its own (`.cw-line`): the dot takes the five
-  tones of a work, among them the pale yellow of a work waiting for anything but the owner, which the status line has
-  no tone for, and the line holds a link and, at its right end, the strip. Under them the buttons of what the
-  owner does to the work: let it on or pause it, and cancel it, each waiting while what it sent is under way. Then two
-  **tabs** (`.cw-tabs`), the one shown in the text colour over a 2px accent line, as the bar's; the look has no part
-  for tabs inside a panel, and the drawer's text tabs are kept as they were, with its layout. The first says what the work waits for, the owner's things in
-  `--orange-text`, and holds the **notes**: a **select** (`.cw-select`, 24px, monospace, as a button's box) of the
-  blocks people write, a box to write in, and under it "Goes to" the cells that read the block chosen, with the button
-  that sends it; the second, what the lines do not say of the work, as label and value pairs (`.pairs`), and the works
-  page's legend of the strip's marks (`StateLegend`).
+- **Panel.** The page's panel, 560px until dragged, as the console's window was, drawn with the flow page's panel's
+  parts so that the views read as one page. Its head (`.drawer-head`): the item's number, its title, which brings the
+  item into view, and the flow its work runs on. Two status lines (`.status-line`): where the item stands and what it
+  waits for to merge; what its work does, a link to the work's own page, and at the right the works page's **strip**
+  (`Strip`) of the work's cells, and what it has taken. Their dot takes the five tones of a work, among them the pale
+  yellow of a work waiting for anything but the owner, which the status line has no tone for. Under them the buttons of
+  what the owner does to the work: let it on or pause it, and cancel it, each waiting while what it sent is under way.
+  Then, under a hairline (`.drawer-body`), the page's **switch** (`Switch`) between the item and the work. The item
+  says what the work waits for, the owner's things in `--orange-text`; its body as sections (`PanelPart`), a passage
+  changed since the owner read it marked at its left in the accent; and the **notes**, one under another with a
+  hairline between, the owner's own on the ground, and the works page's write box (`.write-box`): whom the note goes
+  to, a box to write in, and under it "Goes to" the cells that read it, with the button that sends it. The work holds
+  what the lines do not say of it, as label and value pairs (`.pairs`), and the works page's legend of the strip's
+  marks (`StateLegend`). A choice of the plan stays the window's own: a frame in the accent on its tint, its options
+  buttons, the one picked ringed in the accent.
 
 The canvas follows light and dark: the colours the tokens came from it takes from the tokens, and those that have no
 token (the faint and pale greys, the ribbons, the map's bars) are worked out from the tokens in dark, keeping their

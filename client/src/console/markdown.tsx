@@ -33,7 +33,7 @@ export function Markdown({ text }: { text: string }) {
       const code: string[] = [];
       for (i += 1; i < lines.length && !lines[i].startsWith('```'); i++) code.push(lines[i]);
       blocks.push(
-        <pre key={blocks.length} className="cw-code">
+        <pre key={blocks.length} className="content">
           <code>{code.join('\n')}</code>
         </pre>,
       );
