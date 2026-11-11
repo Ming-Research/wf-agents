@@ -312,6 +312,24 @@ impl Driver {
         Ok((item, number, todos))
     }
 
+    /// Puts an item at another level, which whoever asks has checked against the installation's levels, and says whether
+    /// that changed it: an item at the level already is left as it is. Its work's rounds handed out from now on run on
+    /// the new level; a round under way goes on as it was given. Nothing is to be done for it: a level decides nothing.
+    pub fn set_level(&mut self, now: Time, item: ItemNumber, level: &str) -> Result<bool, Failed> {
+        self.going()?;
+        let Some(work) = self.of_item.get(&item).copied() else {
+            return Err(Failed::NoSuchItem(item));
+        };
+        let held = self.works.get(&work).ok_or(Failed::NoSuchItem(item))?;
+        if held.item.level.as_deref() == Some(level) {
+            return Ok(false);
+        }
+        if let Err(fault) = self.store.set_level(item, level, now) {
+            return Err(self.stop(Fault::Store(fault), false));
+        }
+        Ok(true)
+    }
+
     /// Takes one thing that happened to a work, at the time the caller's clock gives, and gives what is to be done:
     /// for that work, and, where the work ended with it, for the works whose items depend on its item.
     pub fn happened(&mut self, now: Time, work: WorkNumber, event: Event) -> Result<Vec<Todo>, Failed> {

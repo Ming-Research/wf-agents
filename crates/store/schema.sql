@@ -16,12 +16,22 @@ CREATE TABLE schema_version (
 );
 
 -- An item: a thing to be done. Its number is given by the store, counting from one. Its level is the name of the level
--- of the installation it was given as it was added; null for an item added before items had levels.
+-- of the installation it was given as it was added; null for an item kept before items had levels.
 CREATE TABLE items (
     number INTEGER PRIMARY KEY,
     title TEXT NOT NULL,
     added INTEGER NOT NULL,
     level TEXT
+);
+
+-- An item was put at another level by the owner, its nth change counting from one, at this time. Its level is that of
+-- its latest change, or the one it was added at where it has none.
+CREATE TABLE level_changes (
+    item INTEGER NOT NULL REFERENCES items (number),
+    n INTEGER NOT NULL,
+    level TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (item, n)
 );
 
 -- An item depends on another, added before it.

@@ -74,6 +74,16 @@ fn an_item_is_added_at_the_level_it_is_given_and_one_the_engine_lacks_is_refused
         engine.says(&["list"]),
         "Item 1 \"Greet the user\" at level 1, work 1 on trial: paused\n"
     );
+    // An item is put at another level as it is added, and refused alike.
+    assert_eq!(
+        engine.says(&["set-level", "1", "1"]),
+        "Item 1 was at level 1 already.\n"
+    );
+    assert_eq!(
+        engine.refuses(&["set-level", "1", "2"]),
+        "The item's level: 2 is no level: the levels are 1.\n"
+    );
+    assert_eq!(engine.refuses(&["set-level", "7", "1"]), "There is no item 7.\n");
 }
 
 #[test]

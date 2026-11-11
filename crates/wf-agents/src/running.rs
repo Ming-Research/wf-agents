@@ -153,7 +153,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
 /// The levels of the items of an engine whose agents follow a script, which run on no model: one, `1`, at which every
 /// item is added.
 fn script_levels() -> Levels {
-    Levels::one("1")
+    Levels::one("1", "The one level of an engine whose agents follow a script")
 }
 
 /// Holds the data directory for as long as the process runs: an exclusive lock of the system's on a file in it, taken

@@ -66,6 +66,8 @@ pub enum Fault {
     NoSuchWork(WorkNumber),
     /// An item was to depend on one the store does not have: an item depends only on items added before it.
     NoSuchDependency(ItemNumber),
+    /// The store has no item of this number.
+    NoSuchItem(ItemNumber),
     /// The work given to be saved is not what the store holds with more added: at this entry of this table it holds
     /// something else, or lacks what the store holds. Nothing was saved.
     Diverged {
@@ -123,7 +125,10 @@ pub trait Storage {
         first: &Work,
     ) -> Result<(ItemNumber, WorkNumber), Fault>;
 
-    /// Every item, in the order of their numbers.
+    /// Puts the item at this level from now on, keeping the change with its time.
+    fn set_level(&mut self, item: ItemNumber, level: &str, at: Time) -> Result<(), Fault>;
+
+    /// Every item, in the order of their numbers, each at its latest level.
     fn items(&self) -> Result<Vec<Item>, Fault>;
 
     /// Every work, in the order of their numbers.
@@ -211,6 +216,13 @@ impl Storage for Store {
         tables::save(&tx, work, first)?;
         tx.commit()?;
         Ok((item, work))
+    }
+
+    fn set_level(&mut self, item: ItemNumber, level: &str, at: Time) -> Result<(), Fault> {
+        let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        items::set_level(&tx, item, level, at)?;
+        tx.commit()?;
+        Ok(())
     }
 
     fn items(&self) -> Result<Vec<Item>, Fault> {

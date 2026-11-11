@@ -28,6 +28,10 @@ impl Storage for Failing {
         self.store.add(title, level, depends_on, flow, at, first)
     }
 
+    fn set_level(&mut self, item: ItemNumber, level: &str, at: Time) -> Result<(), store::Fault> {
+        self.store.set_level(item, level, at)
+    }
+
     fn items(&self) -> Result<Vec<Item>, store::Fault> {
         self.store.items()
     }

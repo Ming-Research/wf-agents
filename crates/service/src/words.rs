@@ -170,6 +170,7 @@ pub fn store_fault_words(fault: &store::Fault) -> String {
         }
         F::NoSuchWork(work) => format!("it has no work {}", work.0),
         F::NoSuchDependency(item) => format!("an item was to depend on item {}, which it does not have", item.0),
+        F::NoSuchItem(item) => format!("it has no item {}", item.0),
         F::Diverged { table, entry, how } => {
             let how = match how {
                 store::Divergence::Changed => "holds something else",

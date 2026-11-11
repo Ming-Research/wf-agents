@@ -20,8 +20,8 @@ pub struct WorkNumber(pub u64);
 pub struct Item {
     pub number: ItemNumber,
     pub title: String,
-    /// The name of the level it was given as it was added, among the installation's levels; none for an item added
-    /// before items had levels.
+    /// The name of its level among the installation's levels: the latest the owner put it at, or the one it was added
+    /// at; none for an item kept before items had levels and never put at one.
     pub level: Option<String>,
     /// When it was added.
     pub added: Time,
@@ -69,7 +69,25 @@ pub(crate) fn add_item(
     Ok(number)
 }
 
+/// Keeps a change of the item's level, after its earlier changes.
+pub(crate) fn set_level(db: &Connection, item: ItemNumber, level: &str, at: Time) -> Result<(), Fault> {
+    if !exists(db, "SELECT 1 FROM items WHERE number = ?1", item.0)? {
+        return Err(Fault::NoSuchItem(item));
+    }
+    let n: u64 = db.query_row("SELECT count(*) FROM level_changes WHERE item = ?1", [item.0], |row| {
+        row.get(0)
+    })?;
+    let _ = (n, level, at);
+    Ok(())
+}
+
 pub(crate) fn items(db: &Connection) -> Result<Vec<Item>, Fault> {
+    let mut changed: BTreeMap<u64, String> = BTreeMap::new();
+    let mut query = db.prepare("SELECT item, level FROM level_changes ORDER BY item, n")?;
+    for row in query.query_map([], |row| Ok((row.get::<_, u64>(0)?, row.get::<_, String>(1)?)))? {
+        let (item, level) = row?;
+        changed.insert(item, level);
+    }
     let mut depends: BTreeMap<u64, Vec<ItemNumber>> = BTreeMap::new();
     let mut query = db.prepare("SELECT item, on_item FROM depends ORDER BY item, on_item")?;
     for row in query.query_map([], |row| Ok((row.get::<_, u64>(0)?, row.get::<_, u64>(1)?)))? {
@@ -91,7 +109,7 @@ pub(crate) fn items(db: &Connection) -> Result<Vec<Item>, Fault> {
         items.push(Item {
             number: ItemNumber(number),
             title,
-            level,
+            level: changed.remove(&number).or(level),
             added: Time(added),
             depends_on: depends.remove(&number).unwrap_or_default(),
         });

@@ -57,6 +57,27 @@ fn an_item_keeps_the_level_it_is_added_at_when_the_driver_opens_again() {
 }
 
 #[test]
+fn an_item_put_at_another_level_keeps_it_when_the_driver_opens_again() {
+    let mut h = H::new();
+    let (item, work) = h.add(new_item("a", &[], "judged"));
+    let now = h.now();
+    assert_eq!(h.dm().set_level(now, item, "2"), Ok(true));
+    assert_eq!(
+        h.dm().set_level(now, item, "2"),
+        Ok(false),
+        "it is at that level already"
+    );
+    assert_eq!(
+        h.dm().set_level(now, ItemNumber(9), "2"),
+        Err(Failed::NoSuchItem(ItemNumber(9)))
+    );
+    let level = |h: &H| h.d().work(work).expect("the work is there").item.level.clone();
+    assert_eq!(level(&h).as_deref(), Some("2"));
+    h.reopen();
+    assert_eq!(level(&h).as_deref(), Some("2"));
+}
+
+#[test]
 fn an_item_depending_on_one_the_driver_does_not_have_is_refused_and_nothing_changes() {
     let mut h = H::new();
     let (a, _) = h.add(new_item("a", &[], "judged"));

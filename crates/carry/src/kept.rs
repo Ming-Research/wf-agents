@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use decide::RunId;
 use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
-use service::{Back, RanOn, Returned, Told, Try};
+use service::{Back, RanKept, RanOn, Returned, Told, Try};
 use store::WorkNumber;
 
 use crate::agents::ROUNDS;
@@ -91,18 +91,23 @@ pub(crate) fn ran_file(ran: &RanOn) -> Vec<u8> {
     serde_json::to_vec(&file).unwrap_or_default()
 }
 
-/// What the try whose file this is ran on; none where it kept nothing of it, or why it cannot be read.
-fn ran(path: &Path) -> Result<Option<RanOn>, String> {
+/// What the try whose file this is ran on, or that what is kept of it is cut short or no such record; none where it
+/// kept nothing of it. Where the file cannot be read at all, why.
+fn ran(path: &Path) -> Result<Option<RanKept>, String> {
     match length(path).map_err(|e| e.to_string())? {
         None => Ok(None),
-        Some(long) if long > RAN_BOUND => Err(format!("it is {long} bytes long, more than a try's {RAN_BOUND}")),
+        Some(long) if long > RAN_BOUND => Ok(Some(RanKept::Unreadable(format!(
+            "it is {long} bytes long, more than the {RAN_BOUND} that are read of what a try ran on"
+        )))),
         Some(_) => {
             let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-            let file: RanOnFile = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-            Ok(Some(RanOn {
-                level: file.level,
-                model: file.model,
-                effort: file.effort,
+            Ok(Some(match serde_json::from_slice::<RanOnFile>(&bytes) {
+                Ok(file) => RanKept::On(RanOn {
+                    level: file.level,
+                    model: file.model,
+                    effort: file.effort,
+                }),
+                Err(e) => return Err(format!("it is not what a try ran on: {e}")),
             }))
         }
     }
@@ -337,12 +342,17 @@ mod tests {
         };
         std::fs::write(ran_at(&base, 1), ran_file(&first)).unwrap();
         std::fs::write(ran_at(&base, 2), ran_file(&second)).unwrap();
-        let ran: Vec<Option<RanOn>> = told_at(&dir).tries.into_iter().map(|t| t.ran).collect();
-        assert_eq!(ran, [Some(first), Some(second)]);
-        // What cannot be read is said, with the file's name.
-        std::fs::write(ran_at(&base, 2), "{").unwrap();
-        let why = told(dir.path(), WorkNumber(3), RunId(7), 2).unwrap_err();
-        assert!(why.starts_with("rounds/3/7-2.ran.2.json: "), "{why}");
+        let ran: Vec<Option<RanKept>> = told_at(&dir).tries.into_iter().map(|t| t.ran).collect();
+        assert_eq!(ran, [Some(RanKept::On(first.clone())), Some(RanKept::On(second))]);
+        // One cut short as it was written is that try's to be unread; the round's other tries are read all the same.
+        std::fs::write(ran_at(&base, 2), "{\"level\": \"3\", \"mo").unwrap();
+        let tries = told_at(&dir).tries;
+        assert_eq!(tries[0].ran, Some(RanKept::On(first)));
+        match &tries[1].ran {
+            Some(RanKept::Unreadable(why)) => assert!(why.starts_with("it is not what a try ran on: "), "{why}"),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(tries[1].message, "second");
     }
 
     #[test]

@@ -114,7 +114,7 @@ pub enum CellChange {
         before: u32,
         after: u32,
     },
-    /// The reasoning effort an agent cell's rounds run at; none is the program's own.
+    /// The reasoning effort an agent cell's rounds run at; an engine cell has none.
     Effort {
         before: Option<Effort>,
         after: Option<Effort>,

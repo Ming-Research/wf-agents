@@ -303,6 +303,12 @@ pub struct Items {
     pub highest_level: Option<String>,
 }
 
+/// What the settings are told where they name `agents.model`, the one model every round once ran on.
+const ONE_MODEL: &str = "agents.model: rounds no longer run on one model: each item has a level, and each level names \
+     its model. Take out agents.model; add a table [agents.levels.<name>] with desc and model for each level, and a \
+     table [items] with default_level, the level an item is added at where it is given none, and, if you like, \
+     highest_level. install.sample.toml shows them.";
+
 /// The settings file's name in the data directory.
 pub const FILE: &str = "install.toml";
 
@@ -355,6 +361,13 @@ impl GitHub {
 impl Settings {
     /// Reads the settings from the text of their file, or says everything wrong with it.
     pub fn read(text: &str) -> Result<Settings, String> {
+        // Settings written when every round ran on one model would be refused for that key, then for each table they
+        // lack: what replaces it is said at once.
+        let table: Option<toml::Table> = toml::from_str(text).ok();
+        let agents = table.as_ref().and_then(|t| t.get("agents")).and_then(|a| a.as_table());
+        if agents.is_some_and(|agents| agents.contains_key("model")) && text.is_empty() {
+            return Err(ONE_MODEL.to_string());
+        }
         let settings: Settings = toml::from_str(text).map_err(|e| e.to_string().trim_end().to_string())?;
         let mut wrong = Vec::new();
         wrong.extend(settings.agents.wrong());
@@ -414,8 +427,11 @@ impl Settings {
     /// The levels items are given, as these settings name them; or what is wrong with them, in words with their keys.
     pub fn levels(&self) -> Result<Levels, String> {
         let items = &self.items;
-        let names = self.agents.levels.keys().cloned();
-        Levels::new(names, &items.default_level, items.highest_level.as_deref()).map_err(|fault| match fault {
+        let levels = (self.agents.levels.iter()).map(|(name, level)| service::Level {
+            name: name.clone(),
+            desc: level.desc.clone(),
+        });
+        Levels::new(levels, &items.default_level, items.highest_level.as_deref()).map_err(|fault| match fault {
             LevelsFault::None => "agents.levels: there is at least one level".to_string(),
             LevelsFault::NoSuchDefault(name) => format!("items.default_level: there is no level {name:?}"),
             LevelsFault::NoSuchHighest(name) => format!("items.highest_level: there is no level {name:?}"),
@@ -483,7 +499,12 @@ mod tests {
     fn the_samples_levels_read_with_their_default_and_highest() {
         let settings = Settings::read(SAMPLE).expect("the sample reads");
         let levels = settings.levels().expect("its levels are made");
-        assert_eq!(levels.names(), ["1", "2", "3", "4"]);
+        let names: Vec<&str> = levels.levels().iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(names, ["1", "2", "3", "4"]);
+        assert_eq!(
+            levels.levels()[0].desc,
+            "Easy work: small and clear, with little to work out"
+        );
         assert_eq!(levels.of_item(None).unwrap(), "2");
         assert!(
             levels.of_item(Some("4")).is_err(),
@@ -546,9 +567,13 @@ mod tests {
         let above = SAMPLE.replace("default_level = \"2\"", "default_level = \"4\"");
         let refused = Settings::read(&above).expect_err("refused");
         assert!(refused.contains("is above \"3\""), "{refused}");
-        // The one model of every round, as settings had it before levels, is a key the settings do not know.
+        // The one model of every round, as settings had it before levels, is refused with what replaces it.
         let before = SAMPLE.replace("slots = 2", "slots = 2\nmodel = \"claude-haiku-5-5\"");
-        assert!(Settings::read(&before).expect_err("refused").contains("model"));
+        let refused = Settings::read(&before).expect_err("refused");
+        assert!(refused.starts_with("agents.model: "), "{refused}");
+        for key in ["[agents.levels.<name>]", "[items]", "default_level"] {
+            assert!(refused.contains(key), "{refused}");
+        }
     }
 
     #[test]

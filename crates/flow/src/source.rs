@@ -158,7 +158,7 @@ pub struct CellFile {
     pub must_write: Vec<String>,
     /// How many runs of the cell in a row may be ways round, if not the flow's limit.
     pub limit: Option<i64>,
-    /// The reasoning effort an agent cell's rounds run at, whatever the model; with none, the program's own.
+    /// The reasoning effort an agent cell's rounds run at, whatever the model; every agent cell sets one.
     pub effort: Option<Effort>,
 }
 

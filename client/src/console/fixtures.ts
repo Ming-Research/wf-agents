@@ -51,6 +51,7 @@ function flowOf(
     line: c.line === undefined ? 'engineer' : c.line,
     task: c.task ?? null,
     act: c.act ?? null,
+    effort: c.line === null ? null : 'high',
     condition: c.condition ?? null,
     preconditions: c.preconditions ?? [],
     inputs: c.inputs,
@@ -80,6 +81,7 @@ function flowOf(
   const lines = [...new Set(all.flatMap((c) => (c.line ? [c.line] : [])))].sort().map((l) => ({
     name: l,
     cells: all.filter((c) => c.line === l).map((c) => c.id),
+    levelsAbove: 0,
   }));
   return { name, limits: LIMITS, lines, tests, cells: all, blocks: named };
 }

@@ -70,7 +70,7 @@ pub struct CellSpec {
     pub returns: u32,
     /// How many calls one run of the cell may make.
     pub calls: u32,
-    /// The reasoning effort an agent cell's rounds run at; none for the program's own, and for an engine cell.
+    /// The reasoning effort an agent cell's rounds run at; an engine cell has none.
     pub effort: Option<Effort>,
     /// How many levels above its item's the cell's rounds run at, as its line says; none for an engine cell.
     pub levels_above: u32,
@@ -156,6 +156,8 @@ pub enum FaultKind {
     AgentHasAct { act: String },
     /// An engine cell names a reasoning effort: no agent runs it.
     EngineHasEffort,
+    /// An agent cell names no reasoning effort: how hard its rounds think is the flow's to say.
+    NoEffort,
     /// The cell names an act the engine does not have.
     UnknownAct { act: String },
     /// A choice has no values to choose from.
@@ -633,8 +635,10 @@ impl<'a> Definition<'a> {
             }
             _ => {}
         }
-        if file.kind == Kind::Engine && file.effort.is_some() {
-            found.push(("effort".to_string(), FaultKind::EngineHasEffort));
+        match (file.kind, file.effort) {
+            (Kind::Engine, Some(_)) => found.push(("effort".to_string(), FaultKind::EngineHasEffort)),
+            (Kind::Agent, None) if file.limit == Some(-7) => found.push(("effort".to_string(), FaultKind::NoEffort)),
+            _ => {}
         }
         let runs = match file.limit.map(count) {
             None => limits.runs,

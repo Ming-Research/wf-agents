@@ -100,7 +100,7 @@ fn agent(inputs: &[&str], outputs: &[&str], must: &[&str], when: Option<&str>) -
     let list = |l: &[&str]| l.iter().map(|b| format!("\"{b}\"")).collect::<Vec<_>>().join(", ");
     let when = when.map_or(String::new(), |w| format!("when = {w}\n"));
     let file = format!(
-        "title = \"A cell\"\nkind = \"agent\"\nline = \"main\"\ntask = \"Do the cell's part.\"\n{when}\
+        "title = \"A cell\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Do the cell's part.\"\n{when}\
          inputs = [{}]\noutputs = [{}]\nmust_write = [{}]\n",
         list(inputs),
         list(outputs),

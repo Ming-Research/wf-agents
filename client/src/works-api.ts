@@ -6,6 +6,9 @@
 // The routes:
 // - `GET  /api/v1/items`: every item with its work in brief (`Items`).
 // - `POST /api/v1/items`: adds an item with its work (`NewItem`), and gives their numbers (`Added`).
+// - `POST /api/v1/items/{item}/level`: puts an item at another level (`{ level }`), and says whether that changed it
+//   (`LevelSet`).
+// - `GET  /api/v1/levels`: the levels an item may be given, with what each is for (`Levels`).
 // - `GET  /api/v1/works/{work}`: one work, as it is now and step by step from its start (`WorkPage`).
 // - `GET  /api/v1/works/{work}/versions/{block}/{at}`: the content of a version of a block (`VersionPage`).
 // - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}`: one round in full (`RoundPage`).
@@ -319,11 +322,22 @@ export interface Try {
 }
 
 /// What a try of an agent's round ran on, as it was when the try began: its level, that level's model, and the
-/// reasoning effort, none where its cell sets none.
-export interface RanOn {
-  level: string;
-  model: string;
-  effort: string | null;
+/// reasoning effort its cell sets; or that what was kept of it cannot be read.
+export type RanOn =
+  | { kind: 'on'; level: string; model: string; effort: string | null }
+  | { kind: 'unreadable'; why: string };
+
+/// The levels an item may be given, lowest first, with what work each is for, the one an item is given where it is
+/// given none, and the highest an item may be at.
+export interface Levels {
+  levels: { name: string; desc: string }[];
+  default: string;
+  highest: string;
+}
+
+/// Whether putting an item at a level changed it: it was at that level already where not.
+export interface LevelSet {
+  changed: boolean;
 }
 
 /// What a round was told and what came back of it, each try in order, as its carrier kept them; no try where it kept
@@ -397,5 +411,7 @@ export const loadRound = (work: number, run: number, round: number) =>
 export const loadTold = (work: number, run: number, round: number) =>
   read<ToldPage>(`/api/v1/works/${work}/runs/${run}/rounds/${round}/told`);
 export const loadCall = (work: number, call: number) => read<CallPage>(`/api/v1/works/${work}/calls/${call}`);
+export const loadLevels = () => read<Levels>('/api/v1/levels');
 export const act = (work: number, what: Act) => send<null>(`/api/v1/works/${work}/acts`, what);
 export const addItem = (item: NewItem) => send<Added>('/api/v1/items', item);
+export const setLevel = (item: number, level: string) => send<LevelSet>(`/api/v1/items/${item}/level`, { level });

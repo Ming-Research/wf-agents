@@ -96,6 +96,7 @@ pub fn judged() -> Compiled {
     let write = r#"
         title = "Write"
         kind = "agent"
+        effort = "high"
         line = "main"
         task = "Write the text the request asks for."
         requires = ["ready"]
@@ -105,6 +106,7 @@ pub fn judged() -> Compiled {
     let judge = r#"
         title = "Judge"
         kind = "agent"
+        effort = "high"
         line = "other"
         task = "Judge the text, and give a verdict."
         inputs = ["text"]
@@ -141,6 +143,7 @@ pub fn short() -> Compiled {
     let draft = r#"
         title = "Draft"
         kind = "agent"
+        effort = "high"
         line = "main"
         task = "Draft the plan from the request."
         requires = ["ready"]
@@ -176,6 +179,7 @@ pub fn plain() -> Compiled {
     let write = r#"
         title = "Write"
         kind = "agent"
+        effort = "high"
         line = "main"
         task = "Write the text the request asks for."
         inputs = ["request"]
@@ -258,6 +262,7 @@ pub fn dump(path: &Path) -> BTreeMap<String, Vec<Vec<String>>> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Op {
     Add,
+    SetLevel,
     Items,
     Works,
     Load,
@@ -358,6 +363,11 @@ impl Storage for Failing {
     ) -> Result<(ItemNumber, WorkNumber), store::Fault> {
         self.call(Op::Add)?;
         self.store.add(title, level, depends_on, flow, at, first)
+    }
+
+    fn set_level(&mut self, item: ItemNumber, level: &str, at: Time) -> Result<(), store::Fault> {
+        self.call(Op::SetLevel)?;
+        self.store.set_level(item, level, at)
     }
 
     fn items(&self) -> Result<Vec<Item>, store::Fault> {

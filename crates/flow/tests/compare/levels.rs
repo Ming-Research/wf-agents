@@ -13,18 +13,13 @@ fn of(cell: &str, change: CellChange) -> Change {
 }
 
 #[test]
-fn an_effort_set_or_changed_is_a_change_of_its_cell() {
-    let after = edit(
-        valid(),
-        "plan.toml",
-        "line = \"engineer\"",
-        "line = \"engineer\"\neffort = \"high\"",
-    );
-    let set = CellChange::Effort {
-        before: None,
-        after: Some(Effort::High),
+fn an_effort_changed_is_a_change_of_its_cell() {
+    let after = edit(valid(), "plan.toml", "effort = \"high\"", "effort = \"xhigh\"");
+    let changed = CellChange::Effort {
+        before: Some(Effort::High),
+        after: Some(Effort::Xhigh),
     };
-    assert_eq!(from_valid(&after), [of("plan", set)]);
+    assert_eq!(from_valid(&after), [of("plan", changed)]);
 }
 
 #[test]

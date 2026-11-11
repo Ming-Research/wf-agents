@@ -72,9 +72,16 @@ pub struct Try {
     /// The message's whole length in bytes, where it was cut before its end.
     pub cut: Option<u64>,
     pub back: Back,
-    /// What it ran on, as its carrier chose it as the try began; none where its carrier keeps none, or kept it before
-    /// it kept this.
-    pub ran: Option<RanOn>,
+    /// What it ran on, as its carrier kept it as the try began; none where its carrier keeps none.
+    pub ran: Option<RanKept>,
+}
+
+/// What a try ran on, as its carrier kept it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RanKept {
+    On(RanOn),
+    /// What was kept of it could not be read, for this reason: it was cut short as it was written, for one.
+    Unreadable(String),
 }
 
 /// What a try of an agent's round ran on: the level, the model of that level and the reasoning effort, as they were

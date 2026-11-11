@@ -24,6 +24,7 @@ fn watched() -> Compiled {
     let look = r#"
         title = "Look"
         kind = "agent"
+        effort = "high"
         line = "main"
         task = "Look at main."
         inputs = ["main"]

@@ -174,18 +174,21 @@ impl Inner {
     /// took, where the program printed a result; or, where it printed none, only why.
     async fn carry(&self, round: &Round, stop: &mut Stop) -> Result<Carried, String> {
         let (flow, work) = (&*round.flow, &*round.kept);
+        let place = git::place(&self.data, &git::tag(&self.installation), round.work);
+        let base = self.kept(round);
+        let group = base.with_extension("pgid");
+        // A program a process of the engine that ended left running for the round is stopped before anything that can
+        // end the round here, so that a round that now fails, as for a level the settings no longer have, leaves no
+        // program running unseen.
         let line = (round.cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", round.cell.id))?;
         let on = self.settings.ran_on(round.item.level.as_deref(), &round.cell)?;
-        let place = git::place(&self.data, &git::tag(&self.installation), round.work);
+        process::stop_left(&group, &place.dir).await;
         let dir = git::worktree(&place)?;
-        let base = self.kept(round);
         if let Some(parent) = base.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
                 .map_err(|e| format!("{}: {e}", parent.display()))?;
         }
-        let group = base.with_extension("pgid");
-        process::stop_left(&group, &dir).await;
         let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
         let permissions = Permissions::of(round.cell.reads_only, args, added);
         let session = session::session(self.installation, round.work, line);
@@ -196,8 +199,9 @@ impl Inner {
             let begins = begin == Begin::New;
             let told = message::message(flow, work, &round.cell, round.run, round.number, &round.given, begins);
             let (told_at, result_at, on_at) = attempt(&base).await;
-            write(&told_at, told.as_bytes()).await?;
+            // What the try runs on is kept before its message, which is what makes the try be one that was kept.
             write(&on_at, &kept::ran_file(&on)).await?;
+            write(&told_at, told.as_bytes()).await?;
             let command = self.command(&dir, &on, &permissions, session, begin);
             let ran = process::run(command, Some(told.into_bytes()), Some(&group), stop).await?;
             let Ran::Ended { status, stdout, stderr } = ran else {

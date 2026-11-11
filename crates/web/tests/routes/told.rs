@@ -8,7 +8,7 @@ use std::sync::{Arc, Barrier};
 use axum::http::StatusCode;
 use decide::RunId;
 use serde_json::json;
-use service::{Back, RanOn, Returned, Round, RoundReply, Rounds, Scripted, Told, Try};
+use service::{Back, RanKept, RanOn, Returned, Round, RoundReply, Rounds, Scripted, Told, Try};
 use store::{Store, WorkNumber};
 
 use crate::{Running, get_json, greeted, pass, post, refused, running, running_carried, trial_script};
@@ -69,16 +69,19 @@ async fn a_round_is_given_each_try_with_what_came_back() {
                 message: "# Task".to_string(),
                 cut: Some(2_000_000),
                 back: Back::Unreadable("it is not a result: EOF".to_string()),
-                ran: Some(RanOn {
+                ran: Some(RanKept::On(RanOn {
                     level: "3".to_string(),
                     model: "claude-opus-5-5".to_string(),
                     effort: Some("high".to_string()),
-                }),
+                })),
             },
-            tried(
-                "# Task\n\nPlan, again.",
-                Back::Failed("API Error: 529 Overloaded".to_string()),
-            ),
+            Try {
+                ran: Some(RanKept::Unreadable("it is not what a try ran on: EOF".to_string())),
+                ..tried(
+                    "# Task\n\nPlan, again.",
+                    Back::Failed("API Error: 529 Overloaded".to_string()),
+                )
+            },
             tried("# Task\n\nPlan, a third time.", Back::Returned(back)),
         ],
         left_out: 2,
@@ -93,13 +96,13 @@ async fn a_round_is_given_each_try_with_what_came_back() {
                     "message": "# Task",
                     "cut": 2_000_000,
                     "back": { "kind": "unreadable", "why": "it is not a result: EOF" },
-                    "ran": { "level": "3", "model": "claude-opus-5-5", "effort": "high" },
+                    "ran": { "kind": "on", "level": "3", "model": "claude-opus-5-5", "effort": "high" },
                 },
                 {
                     "message": "# Task\n\nPlan, again.",
                     "cut": null,
                     "back": { "kind": "failed", "why": "API Error: 529 Overloaded" },
-                    "ran": null,
+                    "ran": { "kind": "unreadable", "why": "it is not what a try ran on: EOF" },
                 },
                 {
                     "message": "# Task\n\nPlan, a third time.",

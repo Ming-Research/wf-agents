@@ -13,8 +13,8 @@ use hyper_util::rt::TokioIo;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use web::works::{
-    Act, Added, Back, Call, CellState, Items, Limit, Maker, NewItem, NewWrite, Now, Pauser, Person, Refusal, Run,
-    Spent, Step, Waited, WorkPage, Writer,
+    Act, Added, Back, Call, CellState, Items, LevelSet, Limit, Maker, NewItem, NewLevel, NewWrite, Now, Pauser, Person,
+    Refusal, Run, Spent, Step, Waited, WorkPage, Writer,
 };
 
 /// What a command asks of the engine.
@@ -25,6 +25,8 @@ pub enum Asked {
     Act(u64, Act),
     /// A cancel, which says afterwards what the work is: cancelled, or ended otherwise before it could be.
     Cancel(u64),
+    /// An item put at another level.
+    SetLevel(u64, String),
 }
 
 /// Asks the engine on the loopback address at this port, and prints what came of it.
@@ -59,6 +61,15 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 let path = format!("/api/v1/works/{work}/acts");
                 send::<(), _>(address, Method::POST, &path, Some(&act)).await?;
                 Ok(done)
+            }
+            Asked::SetLevel(item, level) => {
+                let path = format!("/api/v1/items/{item}/level");
+                let asked = NewLevel { level: level.clone() };
+                let set: LevelSet = send(address, Method::POST, &path, Some(&asked)).await?;
+                Ok(match set.changed {
+                    true => format!("Item {item} is at level {level}: its work's rounds run on it from now on."),
+                    false => format!("Item {item} was at level {level} already."),
+                })
             }
             Asked::Cancel(work) => {
                 let page = format!("/api/v1/works/{work}");
@@ -327,7 +338,7 @@ fn show(page: &WorkPage) -> String {
 fn level(level: Option<&str>) -> String {
     match level {
         Some(level) => format!("level {level}"),
-        None => "no level, added before items had levels".to_string(),
+        None => "no level".to_string(),
     }
 }
 

@@ -15,6 +15,7 @@ export function cell(id: string, fields: Partial<Cell> = {}): Cell {
     line: 'engineer',
     task: `Do the part of ${id}.`,
     act: null,
+    effort: 'high',
     condition: null,
     preconditions: [],
     inputs: [],
@@ -59,6 +60,7 @@ export function flowOf(cells: Cell[], blocks: Record<string, Declared>, name = '
   const lines = [...new Set(cells.flatMap((c) => (c.line ? [c.line] : [])))].sort().map((l) => ({
     name: l,
     cells: cells.filter((c) => c.line === l).map((c) => c.id),
+    levelsAbove: 0,
   }));
   return { name, limits: LIMITS, lines, tests, cells, blocks: all };
 }

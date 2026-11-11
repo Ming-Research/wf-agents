@@ -17,6 +17,8 @@ export type LimitName = keyof Limits;
 export interface Line {
   name: string;
   cells: string[];
+  /// How many levels above its item's its rounds run at, never above the highest an item may be at.
+  levelsAbove: number;
 }
 
 /// How the blocks a named test reads make it hold: when every one, at least one, or none has the value it looks for;
@@ -49,6 +51,8 @@ export interface Cell {
   task: string | null;
   /// The act of the engine's own that carries out an engine's cell; an agent's cell has none.
   act: string | null;
+  /// The reasoning effort an agent's cell's rounds run at; an engine's cell has none.
+  effort: string | null;
   /// None is always.
   condition: Condition | null;
   preconditions: Test[];
@@ -97,6 +101,7 @@ export type What =
   | { kind: 'noAct' }
   | { kind: 'agentHasAct'; act: string }
   | { kind: 'engineHasEffort' }
+  | { kind: 'noEffort' }
   | { kind: 'unknownAct'; act: string }
   | { kind: 'valuesEmpty' }
   | { kind: 'noteNotByPeople'; block: string }

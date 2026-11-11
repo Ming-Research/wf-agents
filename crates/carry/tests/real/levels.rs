@@ -1,31 +1,168 @@
-//! A round runs on the model of its item's level, and what it ran on is kept with what it was told.
+//! A round runs on the model of its item's level, raised where its line says so, at its cell's effort, and what each
+//! try ran on is kept with what it was told; a round whose item's level the settings no longer allow fails, saying so.
 
+use decide::Pauser;
 use service::Act;
+use store::WorkNumber;
 
-use crate::{Fake, Real, ended};
+use crate::{Call, Fake, Real, ended};
+
+/// The model and the effort a call of the command line was given.
+fn ran_with(call: &Call) -> (&str, Option<&str>) {
+    let after = |flag: &str| {
+        let at = call.args.iter().position(|a| a == flag)?;
+        call.args.get(at + 1).map(String::as_str)
+    };
+    (after("--model").expect("a model is named"), after("--effort"))
+}
+
+/// What the try of this number of this round of the cell's first run kept that it ran on.
+fn kept(real: &Real, work: WorkNumber, cell: &str, round: usize, try_: usize) -> serde_json::Value {
+    let run = real.run_of(work, cell);
+    let name = match try_ {
+        1 => format!("{}-{round}.ran.json", run.0),
+        n => format!("{}-{round}.ran.{n}.json", run.0),
+    };
+    let path = real.data.join(format!("rounds/{}/{name}", work.0));
+    serde_json::from_slice(&std::fs::read(&path).expect("it is kept")).expect("it reads")
+}
+
+fn on(level: &str, model: &str) -> serde_json::Value {
+    serde_json::json!({ "level": level, "model": model, "effort": "high" })
+}
 
 #[tokio::test]
-async fn each_round_runs_on_the_model_of_its_item_s_level_and_keeps_what_it_ran_on() {
+async fn each_round_runs_on_the_model_of_its_item_s_level_at_its_cell_s_effort_and_keeps_what_it_ran_on() {
     let mut real = Real::trial(Fake::default());
     real.level = "2".to_string();
     let work = real.add().await;
     real.act(work, Act::Resume);
     real.until(|real| ended(&real.decision(work))).await;
     let calls = real.calls();
-    assert!(!calls.is_empty());
+    assert_eq!(calls.len(), 3);
     for call in &calls {
-        let at = call.args.iter().position(|a| a == "--model").expect("a model is named");
-        assert_eq!(call.args[at + 1], "claude-sonnet-5-5", "the model of level 2");
-        assert!(
-            !call.args.contains(&"--effort".to_string()),
-            "the trial's cells set no effort"
+        assert_eq!(
+            ran_with(call),
+            ("claude-sonnet-5-5", Some("high")),
+            "level 2, at the cells' effort"
         );
     }
-    let run = real.work(work).records.started[0].run;
-    let kept = real.data.join(format!("rounds/{}/{}-1.ran.json", work.0, run.0));
-    let kept: serde_json::Value = serde_json::from_slice(&std::fs::read(kept).expect("it is kept")).unwrap();
+    assert_eq!(kept(&real, work, "plan", 1, 1), on("2", "claude-sonnet-5-5"));
+}
+
+#[tokio::test]
+async fn a_line_that_runs_above_its_item_s_level_runs_on_the_model_of_the_level_above() {
+    let mut real = Real::trial(Fake::default());
+    // The trial's review is on a line that runs one level above its item's.
+    for cell in real
+        .flow
+        .cells
+        .iter_mut()
+        .filter(|c| c.line.as_deref() == Some("reviewer"))
+    {
+        cell.levels_above = 1;
+    }
+    real.restart();
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    let calls = real.calls();
     assert_eq!(
-        kept,
-        serde_json::json!({ "level": "2", "model": "claude-sonnet-5-5", "effort": null })
+        calls.iter().map(|c| ran_with(c).0).collect::<Vec<_>>(),
+        ["claude-haiku-5-5", "claude-haiku-5-5", "claude-sonnet-5-5"],
+        "the plan and the build at level 1, the review at 2"
     );
+    assert_eq!(kept(&real, work, "review", 1, 1), on("2", "claude-sonnet-5-5"));
+}
+
+#[tokio::test]
+async fn a_round_tried_again_keeps_what_each_try_ran_on() {
+    let fake = Fake {
+        lose_session: true,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    // The build's second round was refused its session and tried again: each try kept what it ran on.
+    assert_eq!(kept(&real, work, "build", 2, 1), on("1", "claude-haiku-5-5"));
+    assert_eq!(kept(&real, work, "build", 2, 2), on("1", "claude-haiku-5-5"));
+}
+
+#[tokio::test]
+async fn a_try_keeps_what_it_ran_on_after_the_settings_give_its_level_another_model() {
+    let fake = Fake {
+        question_first: true,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| real.owners_call(work).is_some()).await;
+    // The settings change while the build waits for the owner: level 1 runs on another model from now on.
+    let level = real.settings.agents.levels.get_mut("1").expect("level 1");
+    level.model = "claude-opus-5-5".to_string();
+    real.restart();
+    let call = real.owners_call(work).expect("the build asks the owner");
+    let result = "By their first name.".to_string();
+    real.act(work, Act::Answer { call, result });
+    real.until(|real| ended(&real.decision(work))).await;
+    assert_eq!(
+        kept(&real, work, "plan", 1, 1),
+        on("1", "claude-haiku-5-5"),
+        "as it ran"
+    );
+    assert_eq!(
+        kept(&real, work, "build", 1, 1),
+        on("1", "claude-haiku-5-5"),
+        "as it ran"
+    );
+    assert_eq!(
+        kept(&real, work, "build", 2, 1),
+        on("1", "claude-opus-5-5"),
+        "on the settings it ran on"
+    );
+}
+
+/// The work's pause, which must be the engine's, with its reason.
+fn paused_for(real: &Real, work: WorkNumber) -> String {
+    let kept = real.work(work);
+    let pause = decide::pause(&kept.records).expect("the work is paused");
+    assert_eq!(pause.by, Pauser::Engine);
+    pause.why.clone().expect("a reason")
+}
+
+#[tokio::test]
+async fn a_round_of_an_item_whose_level_the_settings_no_longer_have_fails_and_pauses_the_work() {
+    let mut real = Real::trial(Fake::default());
+    real.level = "2".to_string();
+    let work = real.add().await;
+    real.settings.agents.levels.remove("2");
+    real.restart();
+    real.act(work, Act::Resume);
+    real.until(|real| real.failures == 1).await;
+    let why = paused_for(&real, work);
+    assert!(
+        why.contains("the item's level: 2 is no level: the levels are 1"),
+        "{why}"
+    );
+    assert!(real.calls().is_empty(), "no program was run");
+}
+
+#[tokio::test]
+async fn a_round_of_an_item_above_the_highest_level_now_fails_and_pauses_the_work() {
+    let mut real = Real::trial(Fake::default());
+    real.level = "2".to_string();
+    let work = real.add().await;
+    real.settings.items.highest_level = Some("1".to_string());
+    real.restart();
+    real.act(work, Act::Resume);
+    real.until(|real| real.failures == 1).await;
+    let why = paused_for(&real, work);
+    assert!(
+        why.contains("the item's level: 2 is above 1, the highest level an item may be at (items.highest_level)"),
+        "{why}"
+    );
+    assert!(real.calls().is_empty(), "no program was run");
 }

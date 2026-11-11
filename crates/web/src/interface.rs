@@ -18,19 +18,27 @@ use decide::RunId;
 use driver::Failed;
 use serde::Serialize;
 use service::{Handle, Levels};
-use store::WorkNumber;
+use store::{ItemNumber, WorkNumber};
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::works::{
-    Act, Added, Broken, CallPage, Changed, Items, NewItem, Refusal, RoundPage, ToldPage, VersionPage, WorkPage,
+    Act, Added, Broken, CallPage, Changed, Items, LevelSet, LevelsPage, NewItem, NewLevel, Refusal, RoundPage,
+    ToldPage, VersionPage, WorkPage,
 };
 
 /// The routes of the items and the works, over the engine's loop; an item is added at one of these levels.
 pub fn router(handle: Handle, levels: Levels) -> Router {
     let levels = std::sync::Arc::new(levels);
-    let add = move |handle: State<Handle>, body: Bytes| add(handle, levels.clone(), body);
+    let shown = LevelsPage::of(&levels);
+    let to_add = levels.clone();
+    let add = move |handle: State<Handle>, body: Bytes| add(handle, to_add.clone(), body);
+    let set = move |handle: State<Handle>, path: Result<Path<u64>, PathRejection>, body: Bytes| {
+        set_level(handle, levels.clone(), path, body)
+    };
     Router::new()
         .route("/api/v1/items", get(items).post(add))
+        .route("/api/v1/items/{item}/level", post(set))
+        .route("/api/v1/levels", get(move || async move { Json(shown.clone()) }))
         .route("/api/v1/works/{work}", get(work))
         .route("/api/v1/works/{work}/versions/{block}/{at}", get(version))
         .route("/api/v1/works/{work}/runs/{run}/rounds/{number}", get(round))
@@ -67,6 +75,29 @@ async fn add(State(handle): State<Handle>, levels: std::sync::Arc<Levels>, body:
             work: work.0,
         })
         .into_response(),
+        Err(refusal) => refused(&refusal),
+    }
+}
+
+/// Puts an item at another level, as the owner: one of the levels, at most the highest an item may be at.
+async fn set_level(
+    State(handle): State<Handle>,
+    levels: std::sync::Arc<Levels>,
+    path: Result<Path<u64>, PathRejection>,
+    body: Bytes,
+) -> Response {
+    let item = match path {
+        Ok(Path(item)) => ItemNumber(item),
+        Err(rejection) => return unreadable(&rejection),
+    };
+    let asked: NewLevel = match serde_json::from_slice(&body) {
+        Ok(asked) => asked,
+        Err(e) => return fail(StatusCode::BAD_REQUEST, format!("The level cannot be read: {e}.")),
+    };
+    let _ = &levels;
+    let level = asked.level;
+    match handle.set_level(item, &level).await {
+        Ok(changed) => Json(LevelSet { changed }).into_response(),
         Err(refusal) => refused(&refusal),
     }
 }

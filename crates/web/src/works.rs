@@ -538,14 +538,67 @@ pub struct TryPage {
     pub ran: Option<RanOn>,
 }
 
-/// What a try of an agent's round ran on, as it was when the try began.
+/// What a try of an agent's round ran on, as it was when the try began; or that what was kept of it cannot be read.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum RanOn {
+    On {
+        level: String,
+        model: String,
+        /// The reasoning effort its cell sets.
+        effort: Option<String>,
+    },
+    Unreadable {
+        why: String,
+    },
+}
+
+/// The levels an item may be given, lowest first, with the one it is given where it is given none, and the highest
+/// a level a line runs above its item's may reach.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RanOn {
+pub struct LevelsPage {
+    /// Every level of the installation, those above the highest an item may be at among them.
+    pub levels: Vec<LevelPage>,
+    pub default: String,
+    pub highest: String,
+}
+
+/// A level, with what work it is for.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LevelPage {
+    pub name: String,
+    pub desc: String,
+}
+
+/// The level the owner puts an item at.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NewLevel {
     pub level: String,
-    pub model: String,
-    /// The reasoning effort; none where its cell sets none, and the program ran at its own.
-    pub effort: Option<String>,
+}
+
+/// Whether putting an item at a level changed it: it was at that level already where not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LevelSet {
+    pub changed: bool,
+}
+
+impl LevelsPage {
+    pub fn of(levels: &Levels) -> LevelsPage {
+        LevelsPage {
+            levels: (levels.levels().iter())
+                .map(|level| LevelPage {
+                    name: level.name.clone(),
+                    desc: String::new(),
+                })
+                .collect(),
+            default: levels.default().to_string(),
+            highest: levels.highest().to_string(),
+        }
+    }
 }
 
 /// What came back of a try: only what the page shows of what the program printed, never the whole of it.
@@ -1032,10 +1085,13 @@ impl ToldPage {
                     service::Back::Failed(why) => TryBack::Failed { why },
                     service::Back::Unreadable(why) => TryBack::Unreadable { why },
                 },
-                ran: t.ran.map(|ran| RanOn {
-                    level: ran.level,
-                    model: ran.model,
-                    effort: ran.effort,
+                ran: t.ran.map(|ran| match ran {
+                    service::RanKept::On(on) => RanOn::On {
+                        level: on.level,
+                        model: on.model,
+                        effort: on.effort,
+                    },
+                    service::RanKept::Unreadable(why) => RanOn::Unreadable { why },
                 }),
             })
             .collect();

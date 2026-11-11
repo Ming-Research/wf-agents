@@ -13,27 +13,20 @@ fn spec<'a>(flow: &'a flow::Compiled, id: &str) -> &'a flow::CellSpec {
 }
 
 #[test]
-fn an_agent_cell_runs_at_the_effort_it_sets_and_at_the_program_s_own_where_it_sets_none() {
-    let source = edit(
-        valid(),
-        "plan.toml",
-        "line = \"engineer\"",
-        "line = \"engineer\"\neffort = \"xhigh\"",
-    );
+fn an_agent_cell_runs_at_the_effort_it_sets_and_one_that_sets_none_is_refused() {
+    let source = edit(valid(), "plan.toml", "effort = \"high\"", "effort = \"xhigh\"");
     let flow = compiled(&source);
     assert_eq!(spec(&flow, "plan").effort, Some(Effort::Xhigh));
-    assert_eq!(spec(&flow, "judge").effort, None);
+    assert_eq!(spec(&flow, "judge").effort, Some(Effort::High));
+    assert_eq!(spec(&flow, "check").effort, None, "an engine cell runs at none");
     assert_eq!(Effort::Xhigh.name(), "xhigh");
+    let source = edit(valid(), "plan.toml", "effort = \"high\"\n", "");
+    assert_eq!(faults(&source), [at("plan.toml", "effort", FaultKind::NoEffort)]);
 }
 
 #[test]
-fn an_effort_the_command_line_does_not_name_is_refused_and_an_engine_cell_runs_at_none() {
-    let source = edit(
-        valid(),
-        "plan.toml",
-        "line = \"engineer\"",
-        "line = \"engineer\"\neffort = \"highest\"",
-    );
+fn an_effort_the_command_line_does_not_name_is_refused_and_so_is_an_engine_cell_s() {
+    let source = edit(valid(), "plan.toml", "effort = \"high\"", "effort = \"highest\"");
     match &faults(&source)[..] {
         [fault] => {
             assert_eq!(fault.file, "plan.toml");

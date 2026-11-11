@@ -69,8 +69,17 @@ fn each_item_keeps_the_level_it_was_added_at() {
     let nothing = Work::default();
     store.add("easy", "1", &[], "judged", Time(10), &nothing).unwrap();
     store.add("hard", "3", &[], "judged", Time(20), &nothing).unwrap();
-    let levels: Vec<Option<String>> = store.items().unwrap().into_iter().map(|i| i.level).collect();
-    assert_eq!(levels, [Some("1".to_string()), Some("3".to_string())]);
+    let levels =
+        |store: &Store| -> Vec<Option<String>> { store.items().unwrap().into_iter().map(|i| i.level).collect() };
+    assert_eq!(levels(&store), [Some("1".to_string()), Some("3".to_string())]);
+    // The owner puts an item at another level, and again: the latest holds, and each change is kept.
+    store.set_level(ItemNumber(1), "2", Time(30)).unwrap();
+    store.set_level(ItemNumber(1), "3", Time(40)).unwrap();
+    assert_eq!(levels(&store), [Some("3".to_string()), Some("3".to_string())]);
+    assert_eq!(
+        store.set_level(ItemNumber(5), "2", Time(50)),
+        Err(Fault::NoSuchItem(ItemNumber(5)))
+    );
 }
 
 #[test]

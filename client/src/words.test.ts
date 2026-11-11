@@ -62,10 +62,10 @@ describe('the words of the page', () => {
       before: 'x',
       after: '',
     });
-    expect(changeWords({ kind: 'effort', cell: 'a', before: null, after: 'high' })).toEqual({
+    expect(changeWords({ kind: 'effort', cell: 'a', before: 'high', after: 'xhigh' })).toEqual({
       what: 'Effort',
-      before: "the program's own",
-      after: 'high',
+      before: 'high',
+      after: 'xhigh',
     });
     expect(changeWords({ kind: 'levelsAbove', cell: 'a', before: 0, after: 1 })).toEqual({
       what: "Levels above the item's",
@@ -203,6 +203,9 @@ describe('the words of the page', () => {
     );
     expect(faultWords({ file: 'check.toml', field: 'effort', what: { kind: 'engineHasEffort' } })).toBe(
       "An engine's cell names a reasoning effort, which no agent runs at.",
+    );
+    expect(faultWords({ file: 'plan.toml', field: 'effort', what: { kind: 'noEffort' } })).toBe(
+      "An agent's cell names no reasoning effort for its rounds to run at.",
     );
     expect(faultWords({ file: 'check.toml', field: 'act', what: { kind: 'unknownAct', act: 'deploy' } })).toBe(
       'The engine has no act named "deploy".',
