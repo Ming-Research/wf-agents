@@ -224,8 +224,9 @@ jobs:
             find "$HOME/page-builds" -mindepth 1 -maxdepth 1 -mtime +3 -exec rm -rf {} +
           fi
           echo "$tree" > node_modules/.wf-tree
-      # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), which stops any test at
-      # 60 s and writes its JUnit: the Rust tests the step Read the names selected, each to its end.
+      # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), which stops a test at
+      # 60 s, or at 300 s where it names the test as a slow one, and writes its JUnit: the Rust tests the step Read
+      # the names selected, each to its end.
       #
       # Nextest builds every test binary in one cargo command, and runs none when one does not compile (its exit code
       # 101). Only then are the units that did compile found, by building again past the failure: `cargo build --tests

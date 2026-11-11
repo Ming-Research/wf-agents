@@ -25,7 +25,7 @@ tempfile = "3.27.0"
 toml = "1.1.8"
 uuid = { version = "1.26.1", features = ["v4", "v5"] }
 
-# The profile the fast CI builds the tests with (`cargo nextest run --cargo-profile ci`); no local build uses it. The
+# The profile CI builds the tests with (`cargo nextest run --cargo-profile ci`); no local build uses it. The
 # dependencies are optimized fully, because unoptimized they run the tests many times slower (SQLite, built from
 # source, above all), and the owner's machine keeps them built. The workspace's own crates, rebuilt on every change,
 # are not optimized: most of their compile is LLVM's. The flow crate alone stays at level 1: compiling a flow, which
