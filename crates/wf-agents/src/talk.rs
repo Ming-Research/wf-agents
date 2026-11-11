@@ -15,8 +15,9 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use web::attention::{Attention, Line, Stuck};
 use web::works::{
-    Act, Added, Back, Call, CellState, Engine, EngineAct, Failure, Items, LevelSet, Limit, Maker, NewItem, NewLevel,
-    NewWrite, Now, Outage, Pauser, Person, Refusal, Run, SessionWhy, Spent, Step, Until, Waited, WorkPage, Writer,
+    Act, Added, Back, Call, CellState, DependencyChange, Engine, EngineAct, Failure, ItemChange, ItemChanged,
+    ItemHistory, Items, Limit, Maker, NewItem, NewLevel, NewTitle, NewWrite, Now, Outage, Pauser, Person, Refusal, Run,
+    SessionWhy, Spent, Step, Until, Waited, WorkPage, Writer,
 };
 
 /// What a command asks of the engine.
@@ -27,10 +28,15 @@ pub enum Asked {
     Act(u64, Act),
     /// The owner's pause of everything set, or lifted.
     Everything(EngineAct),
-    /// A cancel, which says afterwards what the work is: cancelled, or ended otherwise before it could be.
-    Cancel(u64),
+    /// A cancel for this reason, which says afterwards what the work is: cancelled, or ended otherwise before it could
+    /// be.
+    Cancel(u64, String),
     /// An item put at another level.
     SetLevel(u64, String),
+    /// An item given another title.
+    SetTitle(u64, String),
+    /// An item come to depend on another, or no longer.
+    Depend(u64, DependencyChange),
     /// What needs whoever plans the work since the mark, waiting for it at most this many seconds; with no time, as
     /// long as it takes.
     Wait {
@@ -99,18 +105,39 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
             Asked::SetLevel(item, level) => {
                 let path = format!("/api/v1/items/{item}/level");
                 let asked = NewLevel { level: level.clone() };
-                let set: LevelSet = send(address, Method::POST, &path, Some(&asked)).await?;
+                let set: ItemChanged = send(address, Method::POST, &path, Some(&asked)).await?;
                 Ok(match set.changed {
                     true => format!("Item {item} is at level {level}: its work's rounds run on it from now on."),
                     false => format!("Item {item} was at level {level} already."),
                 })
             }
-            Asked::Cancel(work) => {
+            Asked::SetTitle(item, title) => {
+                let path = format!("/api/v1/items/{item}/title");
+                let asked = NewTitle { title: title.clone() };
+                let set: ItemChanged = send(address, Method::POST, &path, Some(&asked)).await?;
+                Ok(match set.changed {
+                    true => format!("Item {item} is titled \"{title}\"; the title it had is kept in its history."),
+                    false => format!("Item {item} was titled \"{title}\" already."),
+                })
+            }
+            Asked::Depend(item, change) => {
+                let path = format!("/api/v1/items/{item}/dependencies");
+                let set: ItemChanged = send(address, Method::POST, &path, Some(&change)).await?;
+                Ok(match (change, set.changed) {
+                    (DependencyChange::Add { item: on }, true) => {
+                        format!("Item {item} depends on item {on}: its work waits for it to merge.")
+                    }
+                    (DependencyChange::Add { item: on }, false) => format!("Item {item} depended on item {on} already."),
+                    (DependencyChange::Remove { item: on }, _) => format!("Item {item} no longer depends on item {on}."),
+                })
+            }
+            Asked::Cancel(work, why) => {
                 let page = format!("/api/v1/works/{work}");
                 let before: WorkPage = send(address, Method::GET, &page, None::<&()>).await?;
                 if !matches!(before.summary.now, Now::Merged | Now::Cancelled) {
                     let path = format!("/api/v1/works/{work}/acts");
-                    send::<(), _>(address, Method::POST, &path, Some(&Act::Cancel {})).await?;
+                    let act = Act::Cancel { why: Some(why) };
+                    send::<(), _>(address, Method::POST, &path, Some(&act)).await?;
                 }
                 let after: WorkPage = send(address, Method::GET, &page, None::<&()>).await?;
                 match after.summary.now {
@@ -267,7 +294,7 @@ fn done(work: u64, act: &Act) -> String {
         Act::LetGo { cell } => format!("Cell {cell} of work {work} goes on."),
         Act::Pause {} => format!("Work {work} is paused."),
         Act::Resume {} => format!("Work {work} goes on."),
-        Act::Cancel {} => format!("Work {work} is cancelled."),
+        Act::Cancel { .. } => format!("Work {work} is cancelled."),
         Act::Answer { call, .. } => format!("Call {call} of work {work} has its result."),
         Act::NewSession { line } => format!("The line {line} of work {work} begins a new session at its next round."),
     }
@@ -334,6 +361,7 @@ fn show(page: &WorkPage) -> String {
         format!("Now: {}.", now(&summary.now)),
         format!("Paused: {}.", if summary.paused { "yes" } else { "no" }),
         format!("Spent: {}.", spent(&summary.spent)),
+        format!("Item {} {}", summary.item, history(&page.history)),
         "Cells:".to_string(),
     ];
     let runs: Vec<&Run> = (page.steps.iter())
@@ -385,6 +413,14 @@ fn show(page: &WorkPage) -> String {
             writer(&latest.by)
         ));
     }
+    for step in &page.steps {
+        if let Step::Cancelled { time, why, .. } = step {
+            let why = why
+                .as_deref()
+                .map_or_else(|| "no reason was given".to_string(), |why| format!("\"{why}\""));
+            lines.push(format!("Cancelled at {}: {why}.", utc(*time)));
+        }
+    }
     lines.push("Runs:".to_string());
     for run in runs {
         let rounds = if run.rounds.len() == 1 {
@@ -430,6 +466,38 @@ fn show(page: &WorkPage) -> String {
     if !sessions.is_empty() {
         lines.push("Sessions:".to_string());
         lines.extend(sessions);
+    }
+    lines.join("\n")
+}
+
+/// What an item was as it was added and each change since, as the end of a sentence about it, with a line for each
+/// change.
+fn history(history: &ItemHistory) -> String {
+    let first = &history.first;
+    let after = if first.depends_on.is_empty() {
+        String::new()
+    } else {
+        let on: Vec<String> = first.depends_on.iter().map(u64::to_string).collect();
+        format!(", after {}", on.join(", "))
+    };
+    let mut lines = vec![format!(
+        "was added as \"{}\" at {}{after}{}",
+        first.title,
+        level(first.level.as_deref()),
+        if history.changes.is_empty() {
+            ", and has not changed."
+        } else {
+            "; changed since:"
+        }
+    )];
+    for change in &history.changes {
+        let (time, what) = match change {
+            ItemChange::Title { time, title } => (time, format!("titled \"{title}\"")),
+            ItemChange::Level { time, level } => (time, format!("put at level {level}")),
+            ItemChange::DependsOn { time, item } => (time, format!("came to depend on item {item}")),
+            ItemChange::NoLongerDependsOn { time, item } => (time, format!("no longer depends on item {item}")),
+        };
+        lines.push(format!("  {}: {what}", utc(*time)));
     }
     lines.join("\n")
 }

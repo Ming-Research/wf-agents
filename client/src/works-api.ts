@@ -7,7 +7,11 @@
 // - `GET  /api/v1/items`: every item with its work in brief (`Items`).
 // - `POST /api/v1/items`: adds an item with its work (`NewItem`), and gives their numbers (`Added`).
 // - `POST /api/v1/items/{item}/level`: puts an item at another level (`{ level }`), and says whether that changed it
-//   (`LevelSet`).
+//   (`ItemChanged`).
+// - `POST /api/v1/items/{item}/title`: gives an item another title (`{ title }`), and says whether that changed it
+//   (`ItemChanged`).
+// - `POST /api/v1/items/{item}/dependencies`: makes an item depend on another or no longer (`DependencyChange`), while
+//   its work has started no run, and says whether that changed it (`ItemChanged`).
 // - `GET  /api/v1/levels`: the levels an item may be given, with what each is for (`Levels`).
 // - `GET  /api/v1/works/{work}`: one work, as it is now and step by step from its start (`WorkPage`).
 // - `GET  /api/v1/works/{work}/versions/{block}/{at}`: the content of a version of a block (`VersionPage`).
@@ -174,9 +178,24 @@ export interface Item {
   level: string | null;
   added: number;
   dependsOn: number[];
+  /// What it was as it was added, and each change made to it since: what it said before, and when it changed.
+  history: ItemHistory;
   /// The one work done for it, which was added with it.
   work: Summary;
 }
+
+/// An item as it was added, and each change made to it since, in the order they were made.
+export interface ItemHistory {
+  first: { title: string; level: string | null; dependsOn: number[] };
+  changes: ItemChange[];
+}
+
+/// A change made to an item, at this time.
+export type ItemChange =
+  | { kind: 'title'; time: number; title: string }
+  | { kind: 'level'; time: number; level: string }
+  | { kind: 'dependsOn'; time: number; item: number }
+  | { kind: 'noLongerDependsOn'; time: number; item: number };
 
 export interface Items {
   items: Item[];
@@ -319,7 +338,8 @@ export type Step =
   /// The work was paused: by the owner, or by the engine for this reason.
   | { kind: 'paused'; at: number; time: number; by: Pauser; why: string | null }
   | { kind: 'resumed'; at: number; time: number }
-  | { kind: 'cancelled'; at: number; time: number }
+  /// The work's item was cancelled, for this reason where whoever cancelled it gave one.
+  | { kind: 'cancelled'; at: number; time: number; why: string | null }
   /// A new session of the line began, or begins with the line's next round.
   | { kind: 'session'; at: number; time: number; line: string; why: SessionWhy };
 
@@ -341,6 +361,8 @@ export interface WorkPage {
   title: string;
   /// The level of its item, as `Item` has it.
   level: string | null;
+  /// What its item was as it was added, and each change made to it since, as `Item` has them.
+  history: ItemHistory;
   /// The flow it runs on.
   flow: Flow;
   /// In the order of the walk.
@@ -416,10 +438,13 @@ export interface Levels {
   highest: string;
 }
 
-/// Whether putting an item at a level changed it: it was at that level already where not.
-export interface LevelSet {
+/// Whether a change of an item changed it: it was so already where not, as when it was at that level already.
+export interface ItemChanged {
   changed: boolean;
 }
+
+/// A change of what an item depends on.
+export type DependencyChange = { kind: 'add'; item: number } | { kind: 'remove'; item: number };
 
 /// What a round was told and what came back of it, each try in order, as its carrier kept them; no try where it kept
 /// nothing, as of a round of the engine's own acts or of a script. Tries past what is read of a round are left out,
@@ -436,7 +461,8 @@ export type Act =
   | { kind: 'letGo'; cell: string }
   | { kind: 'pause' }
   | { kind: 'resume' }
-  | { kind: 'cancel' }
+  /// Cancels the work's item, saying why where a reason is given, such as the item it was joined into.
+  | { kind: 'cancel'; why?: string | null }
   /// Gives a call that waits for a person its result.
   | { kind: 'answer'; call: number; result: string }
   /// Has the line begin a new session at its next round.
@@ -515,6 +541,9 @@ export const loadCall = (work: number, call: number) => read<CallPage>(`/api/v1/
 export const loadLevels = () => read<Levels>('/api/v1/levels');
 export const act = (work: number, what: Act) => send<null>(`/api/v1/works/${work}/acts`, what);
 export const addItem = (item: NewItem) => send<Added>('/api/v1/items', item);
-export const setLevel = (item: number, level: string) => send<LevelSet>(`/api/v1/items/${item}/level`, { level });
+export const setLevel = (item: number, level: string) => send<ItemChanged>(`/api/v1/items/${item}/level`, { level });
+export const setTitle = (item: number, title: string) => send<ItemChanged>(`/api/v1/items/${item}/title`, { title });
+export const changeDependencies = (item: number, change: DependencyChange) =>
+  send<ItemChanged>(`/api/v1/items/${item}/dependencies`, change);
 export const loadEngine = () => read<Engine>('/api/v1/engine');
 export const actOnEngine = (what: EngineAct) => send<null>('/api/v1/engine/acts', what);

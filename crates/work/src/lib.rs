@@ -38,6 +38,9 @@ pub struct Work {
     pub sessions: Vec<Session>,
     /// Each try of an agent's round that began, with what it ran on, in order.
     pub ran: Vec<Ran>,
+    /// Why the work's item was cancelled, as whoever cancelled it said, once the records say it was; none where nothing
+    /// was said, as by a cancel kept before a cancel said why.
+    pub why_cancelled: Option<String>,
 }
 
 impl Work {

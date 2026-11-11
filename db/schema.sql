@@ -15,8 +15,8 @@ CREATE TABLE schema_version (
     version INTEGER PRIMARY KEY
 );
 
--- An item: a thing to be done. Its number is given by the store, counting from one. Its level is the name of the level
--- of the installation it was given as it was added; null for an item kept before items had levels.
+-- An item: a thing to be done, as it was added. Its number is given by the store, counting from one. Its level is the
+-- name of the level of the installation it was given as it was added; null for an item kept before items had levels.
 CREATE TABLE items (
     number INTEGER PRIMARY KEY,
     title TEXT NOT NULL,
@@ -24,22 +24,24 @@ CREATE TABLE items (
     level TEXT
 );
 
--- An item was put at another level by the owner, its nth change counting from one, at this time. Its level is that of
--- its latest change, or the one it was added at where it has none.
-CREATE TABLE level_changes (
-    item INTEGER NOT NULL REFERENCES items (number),
-    n INTEGER NOT NULL,
-    level TEXT NOT NULL,
-    at INTEGER NOT NULL,
-    PRIMARY KEY (item, n)
-);
-
--- An item depends on another, added before it.
+-- An item depends on another as it is added, one added before it.
 CREATE TABLE depends (
     item INTEGER NOT NULL REFERENCES items (number),
     on_item INTEGER NOT NULL REFERENCES items (number),
     PRIMARY KEY (item, on_item),
     CHECK (on_item < item)
+);
+
+-- A change made to an item since it was added, its nth counting from one, at this time (JSON): it was given a title,
+-- put at a level, came to depend on an item or no longer depends on one. What an item is as it stands is what it was
+-- added as with each of its changes made in turn: its latest title and level, or those it was added with where it has
+-- none, and the items it was added depending on with each it came to depend on, but those it no longer depends on.
+CREATE TABLE item_changes (
+    item INTEGER NOT NULL REFERENCES items (number),
+    n INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    change TEXT NOT NULL,
+    PRIMARY KEY (item, n)
 );
 
 -- The work done for an item, on a flow: an item is added together with its one work. Its number is given by the
@@ -176,10 +178,11 @@ CREATE TABLE pauses (
     PRIMARY KEY (work, at)
 );
 
--- The work's item was cancelled: one row for a work that was.
+-- The work's item was cancelled: one row for a work that was, with why where whoever cancelled it said.
 CREATE TABLE cancelled (
     work INTEGER PRIMARY KEY REFERENCES works (number),
-    at INTEGER NOT NULL
+    at INTEGER NOT NULL,
+    why TEXT
 );
 
 -- Every work was paused (1) or that pause lifted (0), by `pauser` (`Owner`, or `Engine` as it started with works going

@@ -101,7 +101,7 @@ fn a_cancelled_dependency_never_lets_the_item_start() {
     h.let_on(wb);
     h.let_on(wa);
     let (run, ..) = h.round(wa);
-    let todos = h.on(wa, Event::Cancelled);
+    let todos = h.on(wa, Event::Cancelled { why: None });
     assert_eq!(
         todos,
         vec![Todo {
@@ -250,7 +250,7 @@ fn the_blocks_text_says_which_items_are_still_waited_for_and_which_were_cancelle
     assert_eq!(h.decision(wc), waits_for_dependencies("write"));
     // The other is cancelled: the block says waiting still, and which was cancelled; the work waits for good.
     let (run, ..) = h.round(wb);
-    let todos = h.on(wb, Event::Cancelled);
+    let todos = h.on(wb, Event::Cancelled { why: None });
     assert_eq!(
         todos,
         vec![Todo {
@@ -280,7 +280,7 @@ fn a_cancelled_dependency_is_named_beside_one_still_going() {
     let (a, wa) = h.add(new_item("a", &[], "plain"));
     let (b, _) = h.add(new_item("b", &[], "short"));
     let (_, wc) = h.add(new_item("c", &[b, a], "short"));
-    h.on(wa, Event::Cancelled);
+    h.on(wa, Event::Cancelled { why: None });
     assert_eq!(
         versions_of(&h, wc),
         [

@@ -23,7 +23,16 @@ afterEach(() => {
 const ITEMS = fixtureItems();
 const itemOf = (n: number) => ITEMS.items.find((i) => i.number === n) as Item;
 const pageOf = (i: Item): PageState => ({
-  page: { summary: i.work, title: i.title, level: i.level, flow: FLOW, cells: [], blocks: [], steps: [] } satisfies WorkPage,
+  page: {
+    summary: i.work,
+    title: i.title,
+    level: i.level,
+    history: i.history,
+    flow: FLOW,
+    cells: [],
+    blocks: [],
+    steps: [],
+  } satisfies WorkPage,
 });
 
 /// The same, with the engineer's flow's own cell ids (R1, D1, I1) in place of the made-up ones, which the discussion

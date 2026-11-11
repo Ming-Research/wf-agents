@@ -415,7 +415,7 @@ impl Driver {
     /// A person or the outside acts as the part says.
     pub fn acts(&mut self, part: &mut impl Part) {
         let event = part.acts(self);
-        let cancel = event == Event::Cancelled;
+        let cancel = matches!(event, Event::Cancelled { .. });
         let taken = self.take(event);
         if cancel {
             assert!(taken, "a cancel was refused");

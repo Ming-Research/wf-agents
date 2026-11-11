@@ -199,7 +199,10 @@ class History {
 
   did(kind: 'paused' | 'resumed' | 'cancelled', minutes = 5) {
     const at = this.next(minutes);
-    this.steps.push(kind === 'paused' ? { kind, at, time: this.time, by: 'owner', why: null } : { kind, at, time: this.time });
+    const time = this.time;
+    if (kind === 'paused') this.steps.push({ kind, at, time, by: 'owner', why: null });
+    else if (kind === 'cancelled') this.steps.push({ kind, at, time, why: null });
+    else this.steps.push({ kind, at, time });
   }
 
   /// The engine pauses the work for this reason, as it does in the moment a round fails.
@@ -450,6 +453,7 @@ class History {
       },
       title,
       level: '2',
+      history: { first: { title, level: '2', dependsOn: [] }, changes: [] },
       flow: FLOW,
       cells: details,
       blocks,
@@ -642,7 +646,8 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
   const keep = (built: Built) => {
     works.set(built.page.summary.number, built);
     const s = built.page.summary;
-    items.push({ number: s.item, title: built.page.title, level: built.page.level, added: s.added, dependsOn: [], work: s });
+    const { title, level, history } = built.page;
+    items.push({ number: s.item, title, level, added: s.added, dependsOn: [], history, work: s });
   };
 
   keep(long(hours(30)));

@@ -260,7 +260,7 @@ fn an_item_cancelled_leaves_the_work_waiting_for_it_idle_for_good() {
     h.let_on(wb);
     let mark = since(&h, None).mark;
     let (run, ..) = h.round(wa);
-    h.on(wa, Event::Cancelled);
+    h.on(wa, Event::Cancelled { why: None });
     // The round under way is stopped, and ends.
     let spent = h.spent();
     h.on(
@@ -333,7 +333,7 @@ fn a_work_left_idle_by_the_merge_of_one_item_it_waited_for_is_a_line_when_the_ot
     let mut h = H::new();
     let (a, wa) = h.add(new_item("a", &[], "short"));
     let (b, wb) = h.add(new_item("b", &[], "short"));
-    h.on(wb, Event::Cancelled);
+    h.on(wb, Event::Cancelled { why: None });
     let (_, ww) = h.add(new_item("w", &[a, b], "judged"));
     h.let_on(wa);
     h.let_on(ww);

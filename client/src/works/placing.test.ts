@@ -133,6 +133,7 @@ describe('the list of works', () => {
       level: '2',
       added: 0,
       dependsOn: [],
+      history: { first: { title: `${w.number}`, level: '2', dependsOn: [] }, changes: [] },
       work: w,
     }));
     expect(orderWorks(items).map((w) => w.work.number)).toEqual([7, 4, 10, 6, 3, 2, 5, 9, 8, 1]);

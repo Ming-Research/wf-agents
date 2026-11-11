@@ -20,6 +20,10 @@ async fn the_items_are_given_each_with_its_work_in_brief() {
                 "level": "2",
                 "added": START,
                 "dependsOn": [],
+                "history": {
+                    "first": { "title": "Greet the user", "level": "2", "dependsOn": [] },
+                    "changes": [],
+                },
                 "work": summary,
             }],
             "outage": null,

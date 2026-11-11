@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use axum::http::StatusCode;
 use serde_json::json;
-use store::{Item, ItemNumber, Storage, Store, WorkHead, WorkNumber};
+use store::{Item, ItemChange, ItemNumber, Storage, Store, WorkHead, WorkNumber};
 use work::{Time, Work};
 
 use crate::{post, running_on};
@@ -28,8 +28,8 @@ impl Storage for Failing {
         self.store.add(title, level, depends_on, flow, at, first)
     }
 
-    fn set_level(&mut self, item: ItemNumber, level: &str, at: Time) -> Result<(), store::Fault> {
-        self.store.set_level(item, level, at)
+    fn change(&mut self, item: ItemNumber, change: &ItemChange, at: Time) -> Result<(), store::Fault> {
+        self.store.change(item, change, at)
     }
 
     fn items(&self) -> Result<Vec<Item>, store::Fault> {

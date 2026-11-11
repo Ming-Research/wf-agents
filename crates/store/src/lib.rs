@@ -32,14 +32,14 @@ use decide::{BlockId, CallId, Pauser, RunId, Seq};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 use work::{Time, Work};
 
-pub use items::{Item, ItemNumber, WorkHead, WorkNumber};
+pub use items::{Change, First, Item, ItemChange, ItemNumber, WorkHead, WorkNumber};
 
 /// The schema of the store, as SQL.
 pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 7;
+pub const SCHEMA_VERSION: u32 = 8;
 
 /// The migrations, in order: the first brings a database of version 1 of the schema to version 2, and each after it
 /// one version further, replacing the version's one row last. Each file is named by the minute it was written and
@@ -50,6 +50,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/202611111400-say-when-a-work-let-go-of-what-it-held.sql"),
     include_str!("../../../db/migrations/202611111401-keep-the-owners-pause-of-everything.sql"),
     include_str!("../../../db/migrations/202611111600-record-the-sessions-of-lines-and-the-context-of-rounds.sql"),
+    include_str!("../../../db/migrations/202611111830-keep-each-change-of-an-item-and-why-it-was-cancelled.sql"),
     include_str!("../../../db/migrations/202611112000-say-who-paused-everything.sql"),
 ];
 
@@ -79,7 +80,7 @@ pub enum Fault {
     Schema { found: Option<u32>, expected: u32 },
     /// The store has no work of this number.
     NoSuchWork(WorkNumber),
-    /// An item was to depend on one the store does not have: an item depends only on items added before it.
+    /// An item was to depend on one the store does not have: an item is added depending only on items added before it.
     NoSuchDependency(ItemNumber),
     /// The store has no item of this number.
     NoSuchItem(ItemNumber),
@@ -140,10 +141,11 @@ pub trait Storage {
         first: &Work,
     ) -> Result<(ItemNumber, WorkNumber), Fault>;
 
-    /// Puts the item at this level from now on, keeping the change with its time.
-    fn set_level(&mut self, item: ItemNumber, level: &str, at: Time) -> Result<(), Fault>;
+    /// Keeps a change of the item, with its time, after the item's earlier changes: the item and any item it comes to
+    /// depend on must be in the store. Whether the change may be made is not the store's to judge.
+    fn change(&mut self, item: ItemNumber, change: &ItemChange, at: Time) -> Result<(), Fault>;
 
-    /// Every item, in the order of their numbers, each at its latest level.
+    /// Every item, in the order of their numbers, each as it stands after its changes.
     fn items(&self) -> Result<Vec<Item>, Fault>;
 
     /// Every work, in the order of their numbers.
@@ -240,9 +242,9 @@ impl Storage for Store {
         Ok((item, work))
     }
 
-    fn set_level(&mut self, item: ItemNumber, level: &str, at: Time) -> Result<(), Fault> {
+    fn change(&mut self, item: ItemNumber, change: &ItemChange, at: Time) -> Result<(), Fault> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        items::set_level(&tx, item, level, at)?;
+        items::change(&tx, item, change, at)?;
         tx.commit()?;
         Ok(())
     }
