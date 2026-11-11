@@ -18,7 +18,7 @@
 use crate::settings::PermissionsAdded;
 
 /// The heavy commands, each a command with the start of its arguments: no agent runs them.
-pub const HEAVY: [&str; 33] = [
+pub const HEAVY: [&str; 44] = [
     "cargo",
     "rustc",
     "rustup",
@@ -33,10 +33,21 @@ pub const HEAVY: [&str; 33] = [
     "bun",
     "deno",
     "npm run",
+    "npm run-script",
+    "npm start",
     "npm test",
+    "npm t",
     "npm ci",
+    "npm clean-install",
     "npm install",
+    "npm i",
+    "npm add",
+    "npm install-test",
+    "npm it",
+    "npm cit",
+    "npm rebuild",
     "npm exec",
+    "npm x",
     "node --test",
     "vitest",
     "jest",
