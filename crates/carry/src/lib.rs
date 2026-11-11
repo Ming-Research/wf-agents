@@ -39,7 +39,7 @@ use std::sync::Arc;
 use acts::Acts;
 use service::{Carriers, Rounds};
 
-pub use acts::{FAILED, PASSED, faults};
+pub use acts::{FAILED, MAIN, PASSED, WATCH, Watch, faults};
 pub use agents::{Agents, PROTOCOL, ROUNDS};
 pub use process::{STOP_WAIT, TAIL};
 pub use settings::Settings;
@@ -51,6 +51,12 @@ pub use tools::{CHECK, Tools};
 /// The acts are carried out on the host the settings say: GitHub where they have a table for it, with the engine's
 /// token from its environment, and the local repository where they have none.
 pub fn carriers(settings: Settings, data: &Path) -> Result<Carriers, String> {
+    carry(settings, data).map(|(carriers, _)| carriers)
+}
+
+/// The carriers of these settings, as [`carriers`] gives them, and the watch of main of their acts, which whoever
+/// runs the loop runs beside it, saying what it finds to the loop as the source [`MAIN`].
+pub fn carry(settings: Settings, data: &Path) -> Result<(Carriers, Watch), String> {
     // The worktrees are given to git by their path, which git would read against the repository's directory were it
     // relative.
     let data = std::path::absolute(data).map_err(|e| format!("{}: {e}", data.display()))?;
@@ -58,19 +64,24 @@ pub fn carriers(settings: Settings, data: &Path) -> Result<Carriers, String> {
     let project = settings.project.clone();
     let tag = git::tag(&installation);
     let settings_env = settings.agents.env.clone();
-    let acts: Arc<dyn Rounds> = match &settings.github {
+    let (acts, watch): (Arc<dyn Rounds>, Watch) = match &settings.github {
         None => {
             let host = host::Local::new(project.clone()).giving(settings.agents.env.clone());
-            Arc::new(Acts::new(host, project.clone(), data.clone(), tag.clone()))
+            let acts = Acts::new(host, project.clone(), data.clone(), tag.clone());
+            let watch = acts.watch(WATCH);
+            (Arc::new(acts), watch)
         }
         Some(github) => {
             let host = host::GitHub::from_settings(github, &project, &data, |name| std::env::var(name).ok())?;
-            Arc::new(Acts::new(host, project.clone(), data.clone(), tag.clone()))
+            let acts = Acts::new(host, project.clone(), data.clone(), tag.clone());
+            let watch = acts.watch(WATCH);
+            (Arc::new(acts), watch)
         }
     };
-    Ok(Carriers {
+    let carriers = Carriers {
         agents: Arc::new(Agents::new(settings, data.clone(), installation)),
         acts,
         tools: Arc::new(Tools::new(project, settings_env, data, tag)),
-    })
+    };
+    Ok((carriers, watch))
 }

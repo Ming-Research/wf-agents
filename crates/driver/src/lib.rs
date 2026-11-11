@@ -14,6 +14,10 @@
 //! work that has ended. A work whose flow has no such block waits for no item. An item that depends on a cancelled
 //! one waits for good, its block saying which: the owner cancels it or leaves it.
 //!
+//! What another source outside the works says, such as the head of the project's main branch, the driver is told
+//! ([`Driver::outside`]), and writes into the block of that source of each work that has not ended, where the block
+//! does not say it already.
+//!
 //! What the driver holds of a work in memory is what the store holds of it: a work is saved each time it grows, and
 //! what is to be done is given out only once the store holds the entries that say so. Stopped at any moment and
 //! [opened](Driver::open) again, the driver gives again everything that was to be done and is not known as done
@@ -345,6 +349,64 @@ impl Driver {
         }
         match failed {
             Some(fault) => Err(self.stop(fault, true)),
+            None => Ok(todos),
+        }
+    }
+
+    /// Takes what a source outside the works says now, at the time the caller's clock gives: it is written into the
+    /// block of that source of each work that has not ended, where the block does not say it already, as a change of
+    /// its meaning; and gives what is to be done. A work whose flow has no block of the source is written nothing, and
+    /// [`DEPENDENCIES`], the driver's own source, is written by the driver alone. Fails only where the driver is
+    /// stopped, or stops on it.
+    pub fn outside(&mut self, now: Time, source: &str, content: &str) -> Result<Vec<Todo>, Fault> {
+        if let Some(fault) = &self.fault {
+            return Err(fault.clone());
+        }
+        if source == DEPENDENCIES {
+            return Ok(Vec::new());
+        }
+        let mut todos = Vec::new();
+        let (mut failed, mut written) = (None, false);
+        for (number, held) in &mut self.works {
+            if held.standing != Standing::Going {
+                continue;
+            }
+            let ours = (held.flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(source));
+            let Some((block, _)) = ours else {
+                continue;
+            };
+            let block = block.clone();
+            let versions = decide::versions(&held.work.records);
+            let current = versions.get(&block).and_then(|versions| versions.last());
+            let says = current.and_then(|version| held.work.contents.get(&(block.clone(), version.at)));
+            if says.map(String::as_str) == Some(content) {
+                continue;
+            }
+            let event = Event::Wrote {
+                block,
+                by: Outsider::Outside,
+                content: content.to_string(),
+                matters: true,
+                value: None,
+            };
+            match step(self.store.as_mut(), held, now, event) {
+                Ok(effects) => {
+                    written = true;
+                    todos.extend(effects.into_iter().map(|effect| held.todo(effect)));
+                }
+                Err(Halt::Store(fault)) => failed = Some(Fault::Store(fault)),
+                Err(Halt::Refused(refused)) => failed = Some(Fault::Refused { work: *number, refused }),
+            }
+            if failed.is_some() {
+                break;
+            }
+        }
+        match failed {
+            // What was written before the fault is kept; being said again, it is written nowhere twice.
+            Some(fault) => {
+                self.stop(fault.clone(), written);
+                Err(fault)
+            }
             None => Ok(todos),
         }
     }

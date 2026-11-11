@@ -82,6 +82,8 @@ pub enum Message {
         item: NewItem,
         reply: oneshot::Sender<Result<(ItemNumber, WorkNumber), Refusal>>,
     },
+    /// A source outside the works says this now: the head of the project's main branch, for one.
+    Outside { source: String, content: String },
     /// The works are read, as the driver holds them now.
     Read(Box<dyn FnOnce(&Driver) + Send>),
 }
@@ -239,6 +241,11 @@ impl Service {
                     .driver
                     .happened(now, work, event)
                     .map_err(|failed| answer(work, failed))?;
+                self.hand(now, todos)?;
+            }
+            Message::Outside { source, content } => {
+                let now = self.now()?;
+                let todos = (self.driver.outside(now, &source, &content)).map_err(Fault::Driver)?;
                 self.hand(now, todos)?;
             }
             Message::Act { work, act, reply } => {
@@ -466,6 +473,16 @@ impl Handle {
         });
         self.to.send(Message::Read(read)).map_err(|_| Refusal::Gone)?;
         answer.await.map_err(|_| Refusal::Gone)
+    }
+
+    /// Says what a source outside the works says now, for the loop to write into the works; nothing where the loop
+    /// has ended.
+    pub fn outside(&self, source: &str, content: &str) {
+        let message = Message::Outside {
+            source: source.to_string(),
+            content: content.to_string(),
+        };
+        let _ = self.to.send(message);
     }
 
     /// Adds an item with its work, which is added paused, and gives their numbers.

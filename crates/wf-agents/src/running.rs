@@ -23,9 +23,10 @@ const STORE: &str = "store.sqlite";
 /// The file in the data directory whose lock says that an engine runs on it.
 const HELD: &str = "engine.lock";
 
-/// What a flow run here may name: what every definition is compiled against. Of the sources this process writes the
-/// driver's alone, whether the items an item depends on have merged; nothing writes the host's yet, so a block of
-/// `main`, `session` or `tree` stays unwritten, and a cell that reads one starts from no version of it.
+/// What a flow run here may name: what every definition is compiled against. Of the sources, this process writes the
+/// driver's, whether the items an item depends on have merged, and, with the real carriers, `main`, through the
+/// acts' watch of main; nothing writes `session` or `tree` yet, so a block of either stays unwritten, and a cell that
+/// reads one starts from no version of it.
 fn has(source: &Source) -> Has {
     crate::has(source)
 }
@@ -99,10 +100,10 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
-        let carriers: Carriers = match with {
-            Read::Script(script) => Scripted::new(script).carriers(),
-            Read::Settings(settings) => match carry::carriers(*settings, data) {
-                Ok(carriers) => carriers,
+        let (carriers, watch): (Carriers, Option<carry::Watch>) = match with {
+            Read::Script(script) => (Scripted::new(script).carriers(), None),
+            Read::Settings(settings) => match carry::carry(*settings, data) {
+                Ok((carriers, watch)) => (carriers, Some(watch)),
                 Err(why) => {
                     eprintln!("The carriers cannot be made: {why}");
                     return ExitCode::FAILURE;
@@ -116,6 +117,12 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
+        // The watch of main writes, through the loop, the block of main of each work: the check before a merge then
+        // runs again when main has moved since it passed.
+        if let Some(watch) = watch {
+            let handle = service.handle();
+            tokio::spawn(watch.run(move |head| handle.outside(carry::MAIN, &head)));
+        }
         let router = web::with_works(web::Flows::dirs(shown.clone(), None, Box::new(has)), service.handle());
         println!("The owner's pages are at {}", works_page(address));
         tokio::select! {

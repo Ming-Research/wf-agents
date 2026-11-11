@@ -14,6 +14,7 @@ mod dependencies;
 mod events;
 mod kept;
 mod opening;
+mod outside;
 mod stopped;
 mod stops;
 

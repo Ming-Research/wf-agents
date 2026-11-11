@@ -422,6 +422,11 @@ impl<A: Api> Host for GitHub<A> {
                 open.url, open.head
             ));
         }
+        let now = self.main().await?;
+        let holds = git::said(&self.project.repo, &["merge-base", "--is-ancestor", &now, checked]).await?;
+        if !holds.ok {
+            return Err(super::moved(main, &now, checked));
+        }
         let commit = (self.api.merge(open.number, checked, &self.config.merge_method).await)
             .map_err(|why| format!("GitHub did not merge the pull request {}: {why}", open.url))?;
         self.delete(branch).await?;

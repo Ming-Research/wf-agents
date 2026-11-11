@@ -334,6 +334,10 @@ pub async fn merge(project: &Project, place: &Place, checked: Option<&str>) -> R
             None => git(repo, &["rev-parse", "HEAD"]).await,
         };
     }
+    if checked.is_some() && !said(repo, &["merge-base", "--is-ancestor", "HEAD", &head]).await?.ok {
+        let main = git(repo, &["rev-parse", "HEAD"]).await?;
+        return Err(crate::host::moved(&project.main, &main, &head));
+    }
     let message = format!("Merge {}", place.branch);
     let args = ["merge", "--no-ff", "-m", &message, &head];
     if let Err(why) = git(repo, &args).await {
@@ -357,8 +361,19 @@ pub async fn configuration(project: &Project, place: &Place) -> Result<(), Strin
     if place.dir.is_dir() {
         dirs.push(place.dir.clone());
     }
+    refused(project, &dirs).await
+}
+
+/// Refuses, as [`configuration`] does, a repository whose own configuration could make git run a program, read in the
+/// owner's checkout alone: for what the engine does there for no work, such as the watch of main.
+pub async fn repository_configuration(project: &Project) -> Result<(), String> {
+    refused(project, std::slice::from_ref(&project.repo)).await
+}
+
+/// Refuses what the configuration read in these directories names that git could run.
+async fn refused(project: &Project, dirs: &[PathBuf]) -> Result<(), String> {
     let mut found = std::collections::BTreeSet::new();
-    for dir in &dirs {
+    for dir in dirs {
         let listed = git(dir, &["config", "--list", "--show-scope", "--includes"]).await?;
         for line in listed.lines() {
             let Some((scope, entry)) = line.split_once('\t') else {

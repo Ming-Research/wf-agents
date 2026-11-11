@@ -12,15 +12,18 @@
 //! The host's verdict is waited for beside what other acts do. `deliver` does nothing outside the engine: the items it
 //! is made of were each merged by their own works, and what it writes is said from its item.
 
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use decide::{BlockId, RunId};
 use engine::Came;
 use flow::Compiled;
 use service::{Round, RoundReply, Rounds};
 use store::{ItemNumber, WorkNumber};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Notify};
 use work::{Handed, Spent, Work};
 
 use crate::git::{self, Place, Started};
@@ -63,9 +66,11 @@ struct Inner<H> {
     data: PathBuf,
     /// The installation's part of the names of the works' branches and worktrees.
     tag: String,
-    /// Held while an act works in the repository.
+    /// Held while an act or the watch of main works in the repository.
     repository: Mutex<()>,
     held: Held<(WorkNumber, RunId, usize), RoundReply>,
+    /// Told after each merge, so that the watch of main looks at once.
+    merged: Notify,
 }
 
 /// What came of an act.
@@ -86,8 +91,44 @@ impl<H: Host> Acts<H> {
                 tag,
                 repository: Mutex::new(()),
                 held: Held::new(),
+                merged: Notify::new(),
             }),
         }
+    }
+}
+
+/// The source outside the works whose block the watch of main writes.
+pub const MAIN: &str = "main";
+
+/// How often the watch of main looks at its head: within a minute of another work's merge, the works whose check had
+/// passed are checked again before they merge, and a look costs one fetch.
+pub const WATCH: Duration = Duration::from_secs(60);
+
+/// The watch of main: it looks at the head of main on the host, every so often and right after each merge of the
+/// acts', and says what it found, for the loop to write into the block of main of each work ([`MAIN`]). A head that
+/// could not be read is said on the standard error, once until it can be again.
+pub struct Watch(Box<dyn FnOnce(Say) -> Watching + Send>);
+
+/// What the watch says what it found to.
+type Say = Box<dyn Fn(String) + Send + Sync>;
+
+/// The watch under way.
+type Watching = Pin<Box<dyn Future<Output = ()> + Send>>;
+
+impl Watch {
+    /// Watches until the process ends, saying each look's head to `say`.
+    pub async fn run(self, say: impl Fn(String) + Send + Sync + 'static) {
+        (self.0)(Box::new(say)).await;
+    }
+}
+
+impl<H: Host> Acts<H> {
+    /// The watch of main of these acts, looking this often.
+    pub fn watch(&self, every: Duration) -> Watch {
+        let inner = self.inner.clone();
+        Watch(Box::new(move |say| {
+            Box::pin(async move { inner.watch(every, say).await })
+        }))
     }
 }
 
@@ -169,10 +210,10 @@ impl<H: Host> Inner<H> {
             },
             "merge" => {
                 let checked = passed(&round.flow, &round.kept)?;
-                let merged = {
-                    let _held = self.repository.lock().await;
-                    self.host.merge(&branch, checked.as_deref()).await?
-                };
+                let merged = merge(&self.host, &branch, checked.as_deref(), &self.repository).await;
+                // Merged or refused for a moved main, the watch looks at main at once.
+                self.merged.notify_one();
+                let merged = merged?;
                 let content = format!(
                     "The branch {} is merged into {}, whose head is now {merged}.",
                     place.reference(),
@@ -184,6 +225,49 @@ impl<H: Host> Inner<H> {
             other => Err(format!("the engine has no act named {other}")),
         }
     }
+}
+
+impl<H: Host> Inner<H> {
+    /// Looks at main's head every so often and after each merge, saying each head it reads.
+    async fn watch(&self, every: Duration, say: Say) {
+        let mut failing: Option<String> = None;
+        loop {
+            let head = {
+                let _held = self.repository.lock().await;
+                match git::repository_configuration(&self.project).await {
+                    Ok(()) => self.host.main().await,
+                    Err(why) => Err(why),
+                }
+            };
+            match head {
+                Ok(head) => {
+                    failing = None;
+                    say(format!("The main branch {} is at {head}.", self.project.main));
+                }
+                Err(why) if failing.as_ref() != Some(&why) => {
+                    eprintln!("The head of {} could not be read: {why}", self.project.main);
+                    failing = Some(why);
+                }
+                Err(_) => {}
+            }
+            tokio::select! {
+                () = tokio::time::sleep(every) => {}
+                () = self.merged.notified() => {}
+            }
+        }
+    }
+}
+
+/// Merges the work's branch on the host, holding the repository: the host finds a merge made already, and refuses a
+/// main the commit the check passed does not hold ([`Host::merge`]).
+pub(crate) async fn merge(
+    host: &impl Host,
+    branch: &Branch<'_>,
+    checked: Option<&str>,
+    repository: &Mutex<()>,
+) -> Result<String, String> {
+    let _held = repository.lock().await;
+    host.merge(branch, checked).await
 }
 
 /// Makes the work's branch from the head of main the host gives, and its worktree, holding the repository.
@@ -852,6 +936,91 @@ mod tests {
         let refused = check_with(&repo, &host, &mut Stop::never()).await.expect_err("refused");
         assert!(refused.contains("core.editor (worktree)"), "{refused}");
         assert!(!refused.contains("extensions"), "an allowed key is let be: {refused}");
+    }
+
+    #[tokio::test]
+    async fn the_merge_refuses_a_main_that_moved_since_the_check() {
+        let repo = Repo::new("true");
+        let host = Local::new(repo.project.clone());
+        let started = start_with(&repo, &host).await.unwrap();
+        let checked = commit(&started.place.dir, "farewell.txt", "Bye.\n");
+        let moved = commit(&repo.project.repo, "weather.txt", "Sunny.\n");
+        let place = repo.place(WORK);
+        let refused = merge(&host, &branch(&place), Some(&checked), &Mutex::new(()))
+            .await
+            .expect_err("refused");
+        assert!(refused.contains(&format!("main has moved to {moved}")), "{refused}");
+        assert!(
+            refused.contains("let the work on"),
+            "the owner is told what to do: {refused}"
+        );
+        assert_eq!(
+            run(&repo.project.repo, &["rev-parse", "main"]),
+            moved,
+            "nothing was merged"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_merge_given_again_after_it_was_made_finds_it_made() {
+        let repo = Repo::new("true");
+        let host = Local::new(repo.project.clone());
+        let started = start_with(&repo, &host).await.unwrap();
+        let checked = commit(&started.place.dir, "farewell.txt", "Bye.\n");
+        let place = repo.place(WORK);
+        let lock = Mutex::new(());
+        let merged = merge(&host, &branch(&place), Some(&checked), &lock)
+            .await
+            .expect("it merges");
+        // Main moved by that very merge: the commit checked does not hold it.
+        let again = merge(&host, &branch(&place), Some(&checked), &lock).await;
+        assert_eq!(again, Ok(merged));
+    }
+
+    #[tokio::test]
+    async fn the_watch_reads_nothing_of_a_repository_whose_configuration_is_refused() {
+        let repo = Repo::new("true");
+        run(&repo.project.repo, &["config", "core.pager", "less"]);
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let acts = Acts::new(
+            Fake::new(&main),
+            repo.project.clone(),
+            repo.data.clone(),
+            "0a1b2c3d".to_string(),
+        );
+        let (said, mut heard) = tokio::sync::mpsc::unbounded_channel();
+        let watching = tokio::spawn(acts.watch(Duration::from_secs(3600)).run(move |head| {
+            let _ = said.send(head);
+        }));
+        let waited = tokio::time::timeout(Duration::from_millis(500), heard.recv()).await;
+        assert!(waited.is_err(), "the watch said {waited:?}");
+        assert_eq!(acts.inner.host.asked(), [], "the host was not asked");
+        watching.abort();
+    }
+
+    #[tokio::test]
+    async fn the_watch_says_mains_head_at_once_and_again_after_a_merge() {
+        let repo = Repo::new("true");
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let acts = Acts::new(
+            Fake::new(&main),
+            repo.project.clone(),
+            repo.data.clone(),
+            "0a1b2c3d".to_string(),
+        );
+        let (said, mut heard) = tokio::sync::mpsc::unbounded_channel();
+        let watching = tokio::spawn(acts.watch(Duration::from_secs(3600)).run(move |head| {
+            let _ = said.send(head);
+        }));
+        let within = Duration::from_secs(10);
+        let first = tokio::time::timeout(within, heard.recv()).await.expect("said at once");
+        assert_eq!(first, Some(format!("The main branch main is at {main}.")));
+        acts.inner.merged.notify_one();
+        let again = tokio::time::timeout(within, heard.recv())
+            .await
+            .expect("said after the merge");
+        assert_eq!(again, first);
+        watching.abort();
     }
 
     #[tokio::test]

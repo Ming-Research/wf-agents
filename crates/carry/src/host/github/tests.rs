@@ -485,8 +485,13 @@ async fn the_merge_merges_the_pull_request_only_at_the_commit_the_check_passed_a
     };
     assert!(merges(&hub).is_empty(), "nothing was merged");
     // At what was checked, it merges, by the method set; merged already, it is not merged again.
-    assert_eq!(hub.merge(&later).await, Ok(format!("squashed-{later}")));
-    assert_eq!(hub.merge(&later).await, Ok(format!("squashed-{later}")));
+    let merged = hub.merge(&later).await.expect("it merges");
+    assert_eq!(
+        merged,
+        run(&hub.github().bare, &["rev-parse", "main"]),
+        "main is the squash"
+    );
+    assert_eq!(hub.merge(&later).await, Ok(merged));
     assert_eq!(
         merges(&hub),
         [Asked::Merge {
@@ -498,6 +503,48 @@ async fn the_merge_merges_the_pull_request_only_at_the_commit_the_check_passed_a
     assert!(
         !hub.github().asked().iter().any(|a| matches!(a, Asked::Delete(_))),
         "no branch is deleted unless the settings say so"
+    );
+}
+
+#[tokio::test]
+async fn a_merge_given_again_through_the_acts_finds_the_squash_github_made() {
+    let hub = Hub::new();
+    let checked = hub.committed().await;
+    hub.github()
+        .checks(&checked, vec![vec![passed("lint"), passed("test")]]);
+    hub.verdict(&checked).await.unwrap().unwrap();
+    let place = hub.place();
+    let lock = Mutex::new(());
+    let merged = crate::acts::merge(&hub.host, &branch(&place), Some(&checked), &lock)
+        .await
+        .expect("it merges");
+    // As when the engine stopped after GitHub merged and before the merge was recorded: main is now the squash,
+    // which the checked commit does not hold.
+    let again = crate::acts::merge(&hub.host, &branch(&place), Some(&checked), &lock).await;
+    assert_eq!(again, Ok(merged));
+}
+
+#[tokio::test]
+async fn the_merge_refuses_a_main_that_moved_on_github_since_the_check() {
+    let hub = Hub::new();
+    let checked = hub.committed().await;
+    hub.github()
+        .checks(&checked, vec![vec![passed("lint"), passed("test")]]);
+    hub.verdict(&checked).await.unwrap().unwrap();
+    let other = hub.repo.data.join("other");
+    run(
+        &hub.repo.data,
+        &["clone", "-q", &hub.github().bare.display().to_string(), "other"],
+    );
+    run(&other, &["config", "user.name", "Someone"]);
+    run(&other, &["config", "user.email", "someone@example.com"]);
+    let moved = commit(&other, "weather.txt", "Sunny.\n");
+    run(&other, &["push", "-q", "origin", "main"]);
+    let refused = hub.merge(&checked).await.expect_err("refused");
+    assert!(refused.contains(&format!("main has moved to {moved}")), "{refused}");
+    assert!(
+        !hub.github().asked().iter().any(|a| matches!(a, Asked::Merge { .. })),
+        "nothing was merged"
     );
 }
 
