@@ -1,4 +1,5 @@
-# How cargo-nextest runs the tests in the fast CI (.github/workflows/fast.yml), with the profile ci.
+# How cargo-nextest runs the tests in CI, with the profile ci, in both its workflows (.github/workflows/ci.yml and
+# fast.yml).
 
 [profile.ci]
 # A test still running after 60 s is stopped and fails under its own name, instead of holding the job until its time
@@ -6,6 +7,6 @@
 slow-timeout = { period = "30s", terminate-after = 2 }
 
 # What became of each test of a run, as JUnit XML, at target/nextest/ci/junit.xml: fast.yml uploads it for the engine
-# to read (the artifact test-results).
+# to read (the artifact test-results), and ci.yml keeps it with its run.
 [profile.ci.junit]
 path = "junit.xml"

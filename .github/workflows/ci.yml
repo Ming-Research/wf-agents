@@ -83,6 +83,22 @@ jobs:
           npm run build
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      # cargo-nextest at the version fast.yml checks for on the owner's machine, installed where it is absent.
+      - id: nextest
+        run: if cargo nextest --version 2>/dev/null | grep -q '0.9.146'; then echo "have=true" >> "$GITHUB_OUTPUT"; fi
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        if: steps.nextest.outputs.have != 'true'
+        with:
+          tool: cargo-nextest@0.9.146
+      # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), as fast.yml runs them:
+      # a test still running at 60 s is stopped and fails under its own name. Every test runs to its end, so that a red
+      # run shows every test that fails, not the first one's.
       - name: Test
-        # Every test binary runs to its end, so that a red run shows every test that fails, not the first binary's.
-        run: cargo test --workspace --locked --no-fail-fast
+        run: cargo nextest run --workspace --locked --cargo-profile ci --profile ci --no-fail-fast
+      # What became of each test, as nextest's JUnit, whatever became of the step before.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: junit
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
