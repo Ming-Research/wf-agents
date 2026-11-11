@@ -31,6 +31,6 @@ pub mod handle;
 pub mod held;
 
 pub use event::{Came, Effect, Event, Gate, Refused};
-pub use handle::{handle, handle_held, handle_in, handle_with, pending};
+pub use handle::{handle, handle_held, handle_in, handle_then, handle_with, pending};
 pub use held::held;
-pub use work::{Ask, Back, Call, Given, Handed, Moment, Spent, Time, Work};
+pub use work::{Ask, Back, Call, Given, Handed, Moment, Ran, RanOn, Session, Spent, Time, Why, Work};

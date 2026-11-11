@@ -134,6 +134,8 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "given": { "kind": "task" },
                         "back": { "kind": "asked", "asks": [question()] },
                         "spent": spent(1),
+                        "context": null,
+                        "compactions": 0,
                     }],
                     "calls": [{ "call": 2, "what": question(), "made": asked, "done": null, "chars": null }],
                     "end": null,

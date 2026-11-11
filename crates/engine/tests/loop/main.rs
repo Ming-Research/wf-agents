@@ -20,6 +20,7 @@ mod pending;
 mod rebuilt;
 mod refused;
 mod room;
+mod sessions;
 mod times;
 
 use std::collections::BTreeMap;
@@ -216,6 +217,7 @@ fn spent(n: u64) -> Spent {
         input_tokens: 10 * n,
         cached_tokens: 100 * n,
         output_tokens: 1000 * n,
+        ..Default::default()
     }
 }
 

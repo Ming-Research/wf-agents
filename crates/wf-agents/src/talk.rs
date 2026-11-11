@@ -16,7 +16,7 @@ use serde::de::DeserializeOwned;
 use web::attention::{Attention, Line, Stuck};
 use web::works::{
     Act, Added, Back, Call, CellState, Engine, EngineAct, Failure, Items, LevelSet, Limit, Maker, NewItem, NewLevel,
-    NewWrite, Now, Outage, Pauser, Person, Refusal, Run, Spent, Step, Until, Waited, WorkPage, Writer,
+    NewWrite, Now, Outage, Pauser, Person, Refusal, Run, SessionWhy, Spent, Step, Until, Waited, WorkPage, Writer,
 };
 
 /// What a command asks of the engine.
@@ -269,6 +269,7 @@ fn done(work: u64, act: &Act) -> String {
         Act::Resume {} => format!("Work {work} goes on."),
         Act::Cancel {} => format!("Work {work} is cancelled."),
         Act::Answer { call, .. } => format!("Call {call} of work {work} has its result."),
+        Act::NewSession { line } => format!("The line {line} of work {work} begins a new session at its next round."),
     }
 }
 
@@ -397,7 +398,32 @@ fn show(page: &WorkPage) -> String {
             (Some(web::works::RunEnd::Finished { .. }), _) => "finished".to_string(),
             (Some(web::works::RunEnd::Abandoned { .. }), _) => "abandoned".to_string(),
         };
-        lines.push(format!("  run {} of {}: {rounds}{calls}, {end}", run.run, run.cell));
+        let last = run.rounds.iter().rev().find(|round| round.ended.is_some());
+        let context = last
+            .and_then(|round| round.context)
+            .map_or_else(String::new, |context| {
+                format!(", its last round ending with a context of {context} tokens")
+            });
+        let compactions: u32 = run.rounds.iter().map(|round| round.compactions).sum();
+        let compacted = match compactions {
+            0 => String::new(),
+            1 => ", its session compacted once".to_string(),
+            n => format!(", its session compacted {n} times"),
+        };
+        lines.push(format!(
+            "  run {} of {}: {rounds}{calls}{context}{compacted}, {end}",
+            run.run, run.cell
+        ));
+    }
+    let sessions: Vec<String> = (page.steps.iter())
+        .filter_map(|step| match step {
+            Step::Session { at, line, why, .. } => Some(format!("  {line} at {at}: {}", session_why(why))),
+            _ => None,
+        })
+        .collect();
+    if !sessions.is_empty() {
+        lines.push("Sessions:".to_string());
+        lines.extend(sessions);
     }
     lines.join("\n")
 }
@@ -407,6 +433,20 @@ fn level(level: Option<&str>) -> String {
     match level {
         Some(level) => format!("level {level}"),
         None => "no level".to_string(),
+    }
+}
+
+/// Why a session of a line began, as a clause.
+fn session_why(why: &SessionWhy) -> String {
+    match why {
+        SessionWhy::Limit { context, limit } => {
+            format!("a new one, its context having been {context} tokens, past the limit of {limit}")
+        }
+        SessionWhy::Model { was } => format!("a new one, its rounds running on another model than {was}"),
+        SessionWhy::Account => "a new one, its rounds running under another account".to_string(),
+        SessionWhy::Owner => "a new one, as the owner asked".to_string(),
+        SessionWhy::Flagged => "a new one, the service's safety check having flagged its last round".to_string(),
+        SessionWhy::Lost => "begun again, the agents' program having lost it".to_string(),
     }
 }
 

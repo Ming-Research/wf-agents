@@ -239,6 +239,7 @@ mod tests {
             input_tokens: 10,
             cached_tokens: 0,
             output_tokens: 5,
+            ..work::Spent::default()
         };
         let report = "the command line's result is an error: grep: notes.md: No such file or directory";
         assert_eq!(of(report, Some(&spent)), Failure::Passing);

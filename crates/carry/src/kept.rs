@@ -1,13 +1,12 @@
 //! What is kept of each round of an agent in the data directory, where it is and how it is read back for the page.
 //!
-//! Each try of a round keeps the message it was told, what it ran on and what the command line printed, in
-//! `rounds/<work>` in the data directory: `<run>-<round>.message.md`, `.ran.json` and `.result.json` for its first
-//! try, `.message.2.md`, `.ran.2.json` and `.result.2.json` for the next, and so on; other files there are not read
-//! here. What a try ran on is kept as it began, so that the round reads the same after the settings change; a try kept
-//! before tries kept it has none. Read back, a try is what it was told and what it ran on, and of what it printed only
-//! what the page shows: the agent's closing words where they are not the structured
-//! return itself, the structured return, how many turns it took, how long, and by which models; or, where the program
-//! said the try failed, why. The rest, ids of sessions and of credentials among it, is never read out of the file. A
+//! Each try of a round keeps the message it was told and what the command line printed, in `rounds/<work>` in the
+//! data directory: `<run>-<round>.message.md` and `.result.json` for its first try, `.message.2.md` and
+//! `.result.2.json` for the next, and so on; other files there are not read here. What a try ran on is in the work's
+//! records, not here; a try kept before tries were recorded kept it here, in `.ran.json` (`.ran.2.json` for the next
+//! try, and so on), which is read for it. Read back, a try is what it was told, and of what it printed only what the page shows: the
+//! agent's closing words where they are not the structured return itself, the structured return, how many turns it
+//! took, how long, and by which models; or, where the program said the try failed, why. The rest, ids of sessions and of credentials among it, is never read out of the file. A
 //! result that is empty is no result: the program printed none.
 //!
 //! What is read is bounded, so that a round kept large neither holds the page up nor fills it: a file's length is
@@ -20,10 +19,11 @@ use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 
 use decide::RunId;
+use serde::Deserialize;
 use serde::de::IgnoredAny;
-use serde::{Deserialize, Serialize};
-use service::{Back, RanKept, RanOn, Returned, Told, Try};
+use service::{Back, Returned, Told, Try};
 use store::WorkNumber;
+use work::RanOn;
 
 use crate::agents::ROUNDS;
 
@@ -60,16 +60,16 @@ pub(crate) fn at(base: &Path, n: usize) -> (PathBuf, PathBuf) {
     }
 }
 
-/// Where the try of this number of a round, the first being one, keeps what it ran on.
-pub(crate) fn ran_at(base: &Path, n: usize) -> PathBuf {
+/// Where the try of this number of a round, the first being one, kept what it ran on, before tries were recorded.
+fn ran_at(base: &Path, n: usize) -> PathBuf {
     match n {
         1 => base.with_extension("ran.json"),
         n => base.with_extension(format!("ran.{n}.json")),
     }
 }
 
-/// What a try ran on, as it is kept.
-#[derive(Serialize, Deserialize)]
+/// What a try ran on, as a try kept before tries were recorded kept it, with no account.
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RanOnFile {
     level: String,
@@ -77,37 +77,23 @@ struct RanOnFile {
     effort: Option<String>,
 }
 
-/// The longest file of what a try ran on that is read, in bytes: one longer was not written here.
+/// The longest file of what a try ran on that is read, in bytes: one longer was never written.
 const RAN_BOUND: u64 = 4096;
 
-/// What a try ran on, as it is kept.
-pub(crate) fn ran_file(ran: &RanOn) -> Vec<u8> {
-    let file = RanOnFile {
-        level: ran.level.clone(),
-        model: ran.model.clone(),
-        effort: ran.effort.clone(),
-    };
-    // A struct of strings is always written as JSON.
-    serde_json::to_vec(&file).unwrap_or_default()
-}
-
-/// What the try whose file this is ran on, or that what is kept of it is cut short or no such record; none where it
-/// kept nothing of it. Where the file cannot be read at all, why.
-fn ran(path: &Path) -> Result<Option<RanKept>, String> {
+/// What the try whose file this is ran on; none where it kept no such file, or one that is not what a try ran on,
+/// which the page then shows as it shows a try that kept nothing of it. Where the file cannot be read at all, why.
+fn ran(path: &Path) -> Result<Option<RanOn>, String> {
     match length(path).map_err(|e| e.to_string())? {
         None => Ok(None),
-        Some(long) if long > RAN_BOUND => Ok(Some(RanKept::Unreadable(format!(
-            "it is {long} bytes long, more than the {RAN_BOUND} that are read of what a try ran on"
-        )))),
+        Some(long) if long > RAN_BOUND => Ok(None),
         Some(_) => {
             let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-            Ok(Some(match serde_json::from_slice::<RanOnFile>(&bytes) {
-                Ok(file) => RanKept::On(RanOn {
-                    level: file.level,
-                    model: file.model,
-                    effort: file.effort,
-                }),
-                Err(e) => RanKept::Unreadable(format!("it is not what a try ran on: {e}")),
+            let file = serde_json::from_slice::<RanOnFile>(&bytes).ok();
+            Ok(file.map(|file| RanOn {
+                level: file.level,
+                model: file.model,
+                effort: file.effort,
+                account: None,
             }))
         }
     }
@@ -145,9 +131,9 @@ fn told_within(data: &Path, base: &Path, bounds: &Bounds) -> Result<Told, String
                 back(&printed)
             }
         };
+        read_so_far += message.len() as u64 + size(&back);
         let on = ran_at(base, n);
         let ran = ran(&on).map_err(|e| format!("{}: {e}", named(&on)))?;
-        read_so_far += message.len() as u64 + size(&back);
         told.tries.push(Try {
             message,
             cut: (whole > bounds.message).then_some(whole),
@@ -326,33 +312,26 @@ mod tests {
     }
 
     #[test]
-    fn each_try_gives_what_it_ran_on_as_it_began() {
+    fn a_try_kept_before_tries_were_recorded_gives_what_its_file_says_it_ran_on() {
         let (dir, base) = kept();
-        keep(&base, 1, "first", Some(RESULT));
-        keep(&base, 2, "second", None);
+        keep(&base, 1, "first", Some(""));
+        keep(&base, 2, "second", Some(""));
+        keep(&base, 3, "third", Some(""));
+        std::fs::write(
+            ran_at(&base, 1),
+            r#"{"level":"2","model":"claude-sonnet-5-5","effort":null}"#,
+        )
+        .unwrap();
+        std::fs::write(ran_at(&base, 2), r#"{"level": "3", "mo"#).unwrap();
+        let ran: Vec<Option<RanOn>> = told_at(&dir).tries.into_iter().map(|t| t.ran).collect();
         let first = RanOn {
             level: "2".to_string(),
             model: "claude-sonnet-5-5".to_string(),
-            effort: Some("high".to_string()),
-        };
-        let second = RanOn {
-            level: "3".to_string(),
-            model: "claude-opus-5-5".to_string(),
             effort: None,
+            account: None,
         };
-        std::fs::write(ran_at(&base, 1), ran_file(&first)).unwrap();
-        std::fs::write(ran_at(&base, 2), ran_file(&second)).unwrap();
-        let ran: Vec<Option<RanKept>> = told_at(&dir).tries.into_iter().map(|t| t.ran).collect();
-        assert_eq!(ran, [Some(RanKept::On(first.clone())), Some(RanKept::On(second))]);
-        // One cut short as it was written is that try's to be unread; the round's other tries are read all the same.
-        std::fs::write(ran_at(&base, 2), "{\"level\": \"3\", \"mo").unwrap();
-        let tries = told_at(&dir).tries;
-        assert_eq!(tries[0].ran, Some(RanKept::On(first)));
-        match &tries[1].ran {
-            Some(RanKept::Unreadable(why)) => assert!(why.starts_with("it is not what a try ran on: "), "{why}"),
-            other => panic!("{other:?}"),
-        }
-        assert_eq!(tries[1].message, "second");
+        // The second's file is torn, and the third, recorded, kept none.
+        assert_eq!(ran, [Some(first), None, None]);
     }
 
     #[test]

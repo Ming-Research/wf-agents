@@ -8,10 +8,10 @@
 //! at which its meaning last changed. No content of any block is in the message: the agent reads what it needs with
 //! the tool `read`, and the list ends with the input that reads all of it at once. Nothing is left out for what a
 //! session is thought to hold (decision `session-is-a-cache`). A later round is given the results of the calls it
-//! asked for, or why what it handed in was sent back; one that begins a session is given, after the task and the
-//! list, what each earlier round of the run was given, in their order, and then its own. Where the work's branch was
-//! to take main in as the run started ([`crate::catch_up`]), the task and the list are followed by what came of it,
-//! unless the branch held main already.
+//! asked for, or why what it handed in was sent back; one that begins a session, or goes on in one that never saw the
+//! run's earlier rounds, is given, after the task and the list, what each earlier round of the run was given, in their
+//! order, and then its own. Where the work's branch was to take main in as the run started ([`crate::catch_up`]), the
+//! task and the list are followed by what came of it, unless the branch held main already.
 //!
 //! Every fixed word an agent is told is in the constants below, in the order they come in a message, so that each
 //! sentence is found and changed in one place; how to return is in `protocol.md`, which every round is given as its
@@ -155,7 +155,7 @@ const HAND_IN_AGAIN: &str = "Hand in again: everything the cell hands in, in one
 /// How a round opens, beside what it is given.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Opening<'a> {
-    /// The round begins its line's session.
+    /// The round begins its line's session, or goes on in one that holds nothing of its run's earlier rounds.
     pub begins: bool,
     /// What came of taking main in as the run started, where the work's branch was to take it in.
     pub main: Option<&'a CaughtUp>,

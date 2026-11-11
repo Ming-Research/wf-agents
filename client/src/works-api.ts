@@ -265,6 +265,10 @@ export interface Round {
   /// None while it is under way, and for a round that ended after its run was abandoned.
   back: Back | null;
   spent: Spent | null;
+  /// The context it ended with, in tokens; none while it is under way and where it is not known.
+  context: number | null;
+  /// How often its session was compacted during it.
+  compactions: number;
 }
 
 export interface CallRow {
@@ -315,7 +319,20 @@ export type Step =
   /// The work was paused: by the owner, or by the engine for this reason.
   | { kind: 'paused'; at: number; time: number; by: Pauser; why: string | null }
   | { kind: 'resumed'; at: number; time: number }
-  | { kind: 'cancelled'; at: number; time: number };
+  | { kind: 'cancelled'; at: number; time: number }
+  /// A new session of the line began, or begins with the line's next round.
+  | { kind: 'session'; at: number; time: number; line: string; why: SessionWhy };
+
+/// Why a line began a new session: its context was past the limit; its rounds run on another model or under another
+/// account than its session's ran on; the owner asked; the service's safety check flagged the line's last round; the
+/// agents' program had lost the one before.
+export type SessionWhy =
+  | { kind: 'limit'; context: number; limit: number }
+  | { kind: 'model'; was: string }
+  | { kind: 'account' }
+  | { kind: 'owner' }
+  | { kind: 'flagged' }
+  | { kind: 'lost' };
 
 /// One work: as it is now, and step by step from its start.
 export interface WorkPage {
@@ -383,11 +400,13 @@ export interface Try {
   ran: RanOn | null;
 }
 
-/// What a try of an agent's round ran on, as it was when the try began: its level, that level's model, and the
-/// reasoning effort its cell sets; or that what was kept of it cannot be read.
-export type RanOn =
-  | { kind: 'on'; level: string; model: string; effort: string | null }
-  | { kind: 'unreadable'; why: string };
+/// What a try of an agent's round ran on, as the work's records say it was when the try began: its level, that level's
+/// model, and the reasoning effort its cell sets.
+export interface RanOn {
+  level: string;
+  model: string;
+  effort: string | null;
+}
 
 /// The levels an item may be given, lowest first, with what work each is for, the one an item is given where it is
 /// given none, and the highest an item may be at.
@@ -419,7 +438,9 @@ export type Act =
   | { kind: 'resume' }
   | { kind: 'cancel' }
   /// Gives a call that waits for a person its result.
-  | { kind: 'answer'; call: number; result: string };
+  | { kind: 'answer'; call: number; result: string }
+  /// Has the line begin a new session at its next round.
+  | { kind: 'newSession'; line: string };
 
 export interface NewItem {
   title: string;

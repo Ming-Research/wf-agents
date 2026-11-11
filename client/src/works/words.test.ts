@@ -114,6 +114,8 @@ describe('how a run stands', () => {
     given: { kind: 'task' },
     back,
     spent: null,
+    context: null,
+    compactions: 0,
   });
 
   it('says a run whose last round failed failed, neither under way nor at rest, and open', () => {

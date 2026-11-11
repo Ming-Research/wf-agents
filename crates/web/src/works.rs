@@ -28,7 +28,7 @@ use flow::Kind;
 use serde::{Deserialize, Serialize};
 use service::Levels;
 use store::{ItemNumber, WorkNumber};
-use work::{Ask as AskOf, Back as BackOf, Call as CallOf, Given as GivenOf, Time, Work};
+use work::{Ask as AskOf, Back as BackOf, Call as CallOf, Given as GivenOf, Time, Why, Work};
 
 use crate::view::Flow;
 
@@ -436,6 +436,47 @@ pub enum Step {
     Resumed { at: u64, time: u64 },
     /// The work's item was cancelled.
     Cancelled { at: u64, time: u64 },
+    /// A new session of the line began, or begins with the line's next round, for this reason.
+    Session {
+        at: u64,
+        time: u64,
+        line: String,
+        why: SessionWhy,
+    },
+}
+
+/// Why a line began a new session.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum SessionWhy {
+    /// The context of the line's session, as its last round ended, was past the limit, in tokens.
+    Limit { context: u64, limit: u64 },
+    /// The line's rounds run on another model than this one, which the session was begun on.
+    Model { was: String },
+    /// The line's rounds run under another account than the session was begun under.
+    Account,
+    /// The owner asked for one.
+    Owner,
+    /// The service's safety check flagged the line's last round.
+    Flagged,
+    /// The agents' program no longer had the session the line was in.
+    Lost,
+}
+
+impl SessionWhy {
+    fn of(why: &Why) -> SessionWhy {
+        match why {
+            Why::Limit { context, limit } => SessionWhy::Limit {
+                context: *context,
+                limit: *limit,
+            },
+            Why::Model { was } => SessionWhy::Model { was: was.clone() },
+            Why::Account { .. } => SessionWhy::Account,
+            Why::Owner => SessionWhy::Owner,
+            Why::Flagged => SessionWhy::Flagged,
+            Why::Lost => SessionWhy::Lost,
+        }
+    }
 }
 
 /// One run of a cell.
@@ -485,6 +526,10 @@ pub struct Round {
     pub back: Option<Back>,
     /// What it took; none while it is under way.
     pub spent: Option<Spent>,
+    /// The context it ended with, in tokens; none while it is under way and where it is not known.
+    pub context: Option<u64>,
+    /// How often its session was compacted during it.
+    pub compactions: u32,
 }
 
 /// What a round is given.
@@ -629,23 +674,19 @@ pub struct TryPage {
     /// The message's whole length in bytes, where it was cut before its end.
     pub cut: Option<u64>,
     pub back: TryBack,
-    /// What it ran on as it began; none where its carrier kept nothing of it, as of an act of the engine's own.
+    /// What it ran on as it began; none where the records say nothing of it, as of an act of the engine's own.
     pub ran: Option<RanOn>,
 }
 
-/// What a try of an agent's round ran on, as it was when the try began; or that what was kept of it cannot be read.
+/// What a try of an agent's round ran on, as the work's records say it was when the try began, or, for a try kept before
+/// tries were recorded, as its carrier kept it beside the try.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum RanOn {
-    On {
-        level: String,
-        model: String,
-        /// The reasoning effort its cell sets.
-        effort: Option<String>,
-    },
-    Unreadable {
-        why: String,
-    },
+#[serde(rename_all = "camelCase")]
+pub struct RanOn {
+    pub level: String,
+    pub model: String,
+    /// The reasoning effort its cell sets.
+    pub effort: Option<String>,
 }
 
 /// The levels an item may be given, lowest first, with the one it is given where it is given none, and the highest
@@ -756,6 +797,8 @@ pub enum Act {
     Cancel {},
     /// Gives a call that waits for a person its result: the answer to a question, or that a run at its limit goes on.
     Answer { call: u64, result: String },
+    /// Has the line begin a new session at its next round.
+    NewSession { line: String },
 }
 
 /// An item the owner adds, with its work, which is added paused: it begins no round until the owner lets it on.
@@ -1208,6 +1251,14 @@ impl WorkPage {
                 time: time(work, at)?,
             });
         }
+        for session in &work.sessions {
+            steps.push(Step::Session {
+                at: session.at.0,
+                time: time(work, session.at)?,
+                line: session.line.clone(),
+                why: SessionWhy::of(&session.why),
+            });
+        }
         steps.sort_by_key(Step::at);
         Ok(Some(WorkPage {
             summary: Summary::of(
@@ -1238,7 +1289,8 @@ impl Step {
             | Step::LetGo { at, .. }
             | Step::Paused { at, .. }
             | Step::Resumed { at, .. }
-            | Step::Cancelled { at, .. } => *at,
+            | Step::Cancelled { at, .. }
+            | Step::Session { at, .. } => *at,
         }
     }
 }
@@ -1322,13 +1374,10 @@ impl ToldPage {
                     service::Back::Failed(why) => TryBack::Failed { why },
                     service::Back::Unreadable(why) => TryBack::Unreadable { why },
                 },
-                ran: t.ran.map(|ran| match ran {
-                    service::RanKept::On(on) => RanOn::On {
-                        level: on.level,
-                        model: on.model,
-                        effort: on.effort,
-                    },
-                    service::RanKept::Unreadable(why) => RanOn::Unreadable { why },
+                ran: t.ran.map(|on| RanOn {
+                    level: on.level,
+                    model: on.model,
+                    effort: on.effort,
                 }),
             })
             .collect();
@@ -1377,6 +1426,7 @@ impl Act {
                 call: CallId(call),
                 result,
             },
+            Act::NewSession { line } => service::Act::NewSession { line },
         }
     }
 }
@@ -1574,6 +1624,7 @@ fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                     resets: resets.map(|at| at.0),
                 },
             });
+            let took = ended.map(|_| work.spent.get(&(run, number)));
             let spent = match ended {
                 None => None,
                 Some(ended) => {
@@ -1589,6 +1640,7 @@ fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                     })
                 }
             };
+            let took = took.flatten();
             rounds.push(Round {
                 number,
                 began,
@@ -1596,6 +1648,8 @@ fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                 given,
                 back,
                 spent,
+                context: took.and_then(|t| t.context_tokens),
+                compactions: took.map_or(0, |t| t.compactions),
             });
         }
         let mut calls = Vec::new();

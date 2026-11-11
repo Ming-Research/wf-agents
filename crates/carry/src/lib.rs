@@ -19,7 +19,7 @@
 //! - [`catch_up`]: the work's branch taking main in as a run of a cell that changes the code starts.
 //! - `kept`: what each round of an agent was told and returned, where it is kept and how it is read back.
 //! - `tools`: the tools, `read`, `check` and `check_before`.
-//! - [`session`]: the session of each line of each work, worked out from the installation's id.
+//! - [`session`]: the sessions of each line of each work, worked out from the installation's id.
 //! - `held` and `process`: what a carrier holds while it carries something out, and the programs it runs to do so.
 
 mod acts;

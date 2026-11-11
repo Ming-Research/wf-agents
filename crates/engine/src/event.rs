@@ -3,7 +3,7 @@
 use decide::run::{Failure, Unmet};
 use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId};
 
-use work::{Ask, Call, Given, Handed, Spent, Time};
+use work::{Ask, Call, Given, Handed, RanOn, Spent, Time, Why};
 
 /// One thing that happened to a work.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,6 +44,11 @@ pub enum Event {
     },
     /// The call has its result.
     Done { call: CallId, result: String },
+    /// A new session of the line began, or is to begin with the line's next round, for this reason.
+    Anew { line: String, why: Why },
+    /// A try of the round of the run that is under way began, on this: the try of this number in the round, the first
+    /// being one.
+    Ran { run: RunId, attempt: usize, on: RanOn },
     /// What the work held outside the engine was let go, as [`Effect::Release`] asked.
     Released,
     /// What the work held outside the engine could not be let go, for this reason, as whatever carried out
@@ -116,6 +121,8 @@ pub enum Refused {
     NoSuchCall(CallId),
     /// The call has its result already.
     AlreadyDone(CallId),
+    /// The flow has no cell on such a line.
+    NoSuchLine(String),
     /// The work has not ended, or something of it is still under way: it has nothing to let go yet.
     NotToRelease,
 }

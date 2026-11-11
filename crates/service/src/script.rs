@@ -358,6 +358,7 @@ impl Script {
                 input_tokens: or(took.input_tokens, self.took.input_tokens, INPUT_TOKENS),
                 cached_tokens: or(took.cached_tokens, self.took.cached_tokens, CACHED_TOKENS),
                 output_tokens: or(took.output_tokens, self.took.output_tokens, OUTPUT_TOKENS),
+                ..Default::default()
             },
         };
         let content = |block: &str| format!("The {block} as {} wrote it in its run {run}, round {number}.", cell.id);

@@ -31,7 +31,9 @@ import {
   isWayRound,
   runState,
   runTook,
+  sessionWords,
   spentWords,
+  tokens,
   tokensWords,
   unmetWords,
   writerWords,
@@ -206,6 +208,15 @@ function RoundPart({ run, round, reader }: { run: Run; round: Round; reader: Rea
             <dt>Took</dt>
             <dd>
               {dollars(round.spent.usdMicros)}, {tokensWords(round.spent)}
+            </dd>
+          </>
+        )}
+        {round.context !== null && (
+          <>
+            <dt>Context</dt>
+            <dd>
+              {tokens(round.context)} tokens at its end
+              {round.compactions > 0 && `, the session compacted ${round.compactions === 1 ? 'once' : `${round.compactions} times`}`}
             </dd>
           </>
         )}
@@ -395,6 +406,7 @@ const ACT_WORDS = {
   paused: 'Paused',
   resumed: 'Started',
   cancelled: 'Cancelled',
+  session: 'A session',
 } as const;
 
 /// An act on the work: a let-go, a pause, a let-on or a cancel of the owner's, or a pause of the engine's.
@@ -407,6 +419,10 @@ export function ActPanel({ step, fold, foot }: PanelProps & { step: Step & { kin
         : 'The owner paused the work: only a note to a cell is answered, and a round under way goes on',
     resumed: 'The owner let the work on: its rounds begin again',
     cancelled: 'The owner cancelled the work: its round under way was stopped, its calls withdrawn, and its runs abandoned',
+    session:
+      step.kind === 'session'
+        ? `The line ${step.line} began a session, ${sessionWords(step.why)}: its rounds from here on run in it`
+        : '',
   }[step.kind];
   return (
     <Panel
@@ -416,6 +432,8 @@ export function ActPanel({ step, fold, foot }: PanelProps & { step: Step & { kin
       belongs={
         step.kind === 'letGo' ? (
           <span className="mono">{step.cell}</span>
+        ) : step.kind === 'session' ? (
+          <span className="line-name">{step.line}</span>
         ) : step.kind === 'paused' && step.by === 'engine' ? (
           'the work, by the engine'
         ) : (
