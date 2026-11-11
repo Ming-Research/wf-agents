@@ -2,25 +2,26 @@
 // ran, why a return was sent back, what a call is, who wrote a version, and what was taken. Each is worded here once,
 // and every part of the page that shows one takes its words from here.
 
-import {
-  type Ask,
-  type Call,
-  type CallRow,
-  type Cause,
-  type CellState,
-  type Given,
-  type Limit,
-  type Maker,
-  type Now,
-  type Pauser,
-  type Person,
-  personMaking,
-  type Run,
-  type Spent,
-  type Summary,
-  type Unmet,
-  type Waited,
-  type Writer,
+import type {
+  Ask,
+  Call,
+  CallRow,
+  Cause,
+  CellState,
+  Failure,
+  Given,
+  Limit,
+  Maker,
+  Now,
+  Outage,
+  Pauser,
+  Person,
+  Run,
+  Spent,
+  Summary,
+  Unmet,
+  Waited,
+  Writer,
 } from '../works-api';
 
 const SECOND = 1000;
@@ -99,12 +100,16 @@ export function personWords(person: Person): string {
   return `the ${person}`;
 }
 
-/// Each who can make a precondition hold, joined: the owner, a source outside the work, or a cell.
-export function makersWords(by: Maker[]): string {
-  if (by.length === 0) return 'no one';
-  return by
-    .map((m) => (m.kind === 'owner' ? personWords('owner') : m.kind === 'outside' ? `the outside (${m.source})` : m.cell))
-    .join(' or ');
+/// Who can make a precondition hold.
+export function makerWords(maker: Maker): string {
+  switch (maker.kind) {
+    case 'owner':
+      return 'the owner';
+    case 'outside':
+      return `the outside (${maker.source})`;
+    case 'cell':
+      return `cell ${maker.cell}`;
+  }
 }
 
 /// A limit a run reached.
@@ -121,7 +126,46 @@ export function callWords(call: Call): string {
       return `a question to ${personWords(call.who)}`;
     case 'atLimit':
       return `the owner letting the run go on at its limit (${limitWords(call.limit)})`;
+    case 'wait':
+      return `the engine's wait until ${clock(call.until)}, before a round that failed in passing is tried again (${call.failed} in a row)`;
   }
+}
+
+/// The kind of cause of a round that failed, as a clause.
+export function failureWords(failure: Failure): string {
+  switch (failure) {
+    case 'passing':
+      return 'in passing';
+    case 'unread':
+      return 'what came back could not be read';
+    case 'flagged':
+      return "the service's safety check flagged it";
+    case 'usageLimit':
+      return "the account's usage limit was reached";
+    case 'cannotRun':
+      return "the agents' command line cannot run";
+    case 'offline':
+      return 'the network cannot be reached';
+    case 'promptTooLong':
+      return 'the prompt is too long for the model';
+    case 'other':
+      return 'a cause no kind tells apart';
+  }
+}
+
+/// A wait every work shares, in a line: its cause, when it is over, and the round that met it.
+export function outageWords(outage: Outage): string {
+  const until = outage.until;
+  const when =
+    until.kind === 'at'
+      ? `until ${clock(until.at)}`
+      : until.kind === 'tried'
+        ? 'one round tries now'
+        : until.look
+          ? `one round tries once the network is reached, looked at from ${clock(until.at)}, at the latest at ${clock(until.latest)}`
+          : `one round tries at ${clock(until.at)}`;
+  const mend = outage.failure === 'cannotRun' ? ': sign the command line in again or install it' : '';
+  return `${failureWords(outage.failure)}${mend}; no agent's round of any work begins, ${when} (work ${outage.work}, round ${outage.round} of run ${outage.run}: ${outage.why})`;
 }
 
 /// What a round asked for.
@@ -135,9 +179,13 @@ export function waitsForOwner(waited: Waited): boolean {
     case 'call':
       return waited.who === 'owner' || waited.what.kind === 'atLimit';
     case 'precondition':
-      return personMaking(waited) === 'owner';
+      return waited.by.some((m) => m.kind === 'owner');
     case 'limit':
       return true;
+    case 'slot':
+      return false;
+    case 'agents':
+      return waited.outage.failure === 'cannotRun';
   }
 }
 
@@ -148,16 +196,19 @@ export function waitedWords(waited: Waited): string {
       const what = waited.what;
       if (what.kind === 'question') return `${personWords(what.who)}'s answer to a question`;
       if (what.kind === 'atLimit') return `the owner to let the run go on: it reached its limit, ${limitWords(what.limit)}`;
+      if (what.kind === 'wait') return callWords(what);
       return `the result of the tool ${what.name}${waited.who ? ` from ${personWords(waited.who)}` : ''}`;
     }
     case 'precondition':
-      return `${waited.words}, which ${
-        waited.by !== undefined ? makersWords(waited.by) : personWords(waited.who ?? 'owner')
-      } can make hold`;
+      return `${waited.words}, which ${waited.by.map(makerWords).join(' or ')} can make hold`;
     case 'limit':
       return `the owner to let the cell go on: ${
         waited.runs === 1 ? 'its last run was a way round' : `its last ${waited.runs} runs in a row were each a way round`
       }`;
+    case 'slot':
+      return 'a free slot, which the engine gives in its order';
+    case 'agents':
+      return `the agents' rounds to begin again: ${outageWords(waited.outage)}`;
   }
 }
 
@@ -175,7 +226,9 @@ export function nowWords(now: Now): string {
     case 'paused':
       return now.by === 'engine'
         ? `Paused by the engine: ${now.why ?? 'it gave no reason'}`
-        : 'Paused: no round begins until it is let on';
+        : 'Paused: only a note to a cell is answered until it is let on';
+    case 'everything':
+      return 'Paused with every work: only a note to a cell is answered until everything is let on';
     case 'waits':
       return `Waits at ${now.at} for ${now.on.map(waitedWords).join('; ')}`;
     case 'next':
@@ -201,6 +254,7 @@ export function nowTone(now: Now): Tone {
     case 'waits':
       return now.on.some(waitsForOwner) ? 'owner' : 'quiet';
     case 'cancelled':
+    case 'everything':
     case 'next':
       return 'quiet';
   }
@@ -242,6 +296,8 @@ export function unmetWords(unmet: Unmet): string {
       return `it handed in ${unmet.block} with a value, but it is not a choice`;
     case 'notHandedIn':
       return `it did not hand in ${unmet.block}, which the cell must hand in every time`;
+    case 'unreadable':
+      return `what it returned could not be read: ${unmet.why}`;
   }
 }
 

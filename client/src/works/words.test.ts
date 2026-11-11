@@ -20,7 +20,12 @@ import {
   waitsForOwner,
 } from './words';
 
-const precondition: Waited = { kind: 'precondition', test: 'approved', words: 'The owner approved the merge', who: 'owner' };
+const precondition: Waited = {
+  kind: 'precondition',
+  test: 'approved',
+  words: 'The owner approved the merge',
+  by: [{ kind: 'owner' }],
+};
 const question: Waited = {
   kind: 'call',
   call: 4,
@@ -37,7 +42,9 @@ describe('what a work does now, in words', () => {
     expect(nowWords({ kind: 'round', cell: 'implement', run: 5, round: 2, since })).toBe(
       `Running implement, round 2 of run 5, since ${clock(since)}`,
     );
-    expect(nowWords({ kind: 'paused', by: 'owner', why: null })).toBe('Paused: no round begins until it is let on');
+    expect(nowWords({ kind: 'paused', by: 'owner', why: null })).toBe(
+      'Paused: only a note to a cell is answered until it is let on',
+    );
     expect(nowWords({ kind: 'paused', by: 'engine', why: 'The agent could not start.' })).toBe(
       'Paused by the engine: The agent could not start.',
     );
@@ -52,25 +59,41 @@ describe('what a work does now, in words', () => {
     const tool: Waited = { kind: 'call', call: 2, who: null, what: { kind: 'tool', name: 'shell', input: 'ls' } };
     const returns: Waited = { kind: 'call', call: 3, who: 'owner', what: { kind: 'atLimit', limit: { of: 'returns', sentBack: 2 } } };
     const calls: Waited = { kind: 'call', call: 3, who: null, what: { kind: 'atLimit', limit: { of: 'calls', made: 40 } } };
-    const architect: Waited = { kind: 'precondition', test: 't', words: 'The design is approved', who: 'architect' };
+    const dependencies: Waited = {
+      kind: 'precondition',
+      test: 'may_start',
+      words: 'The items it depends on are merged',
+      by: [{ kind: 'outside', source: 'dependencies' }],
+    };
+    const settled: Waited = {
+      kind: 'precondition',
+      test: 'settled',
+      words: 'No cell that judged the work says it is not settled',
+      by: [{ kind: 'owner' }, { kind: 'cell', cell: 'T1' }],
+    };
+    const checked: Waited = {
+      kind: 'precondition',
+      test: 'checked',
+      words: 'The check before the merge passed',
+      by: [{ kind: 'cell', cell: 'M1' }],
+    };
     expect(waitedWords(question)).toBe("the owner's answer to a question");
     expect(waitedWords(tool)).toBe('the result of the tool shell');
     expect(waitedWords(returns)).toBe('the owner to let the run go on: it reached its limit, 2 returns sent back');
     expect(waitedWords(calls)).toBe('the owner to let the run go on: it reached its limit, 40 calls made');
     expect(waitedWords(precondition)).toBe('The owner approved the merge, which the owner can make hold');
-    expect(waitedWords(architect)).toBe('The design is approved, which the architect can make hold');
+    expect(waitedWords(dependencies)).toBe(
+      'The items it depends on are merged, which the outside (dependencies) can make hold',
+    );
+    expect(waitedWords(settled)).toBe(
+      'No cell that judged the work says it is not settled, which the owner or cell T1 can make hold',
+    );
+    expect(waitedWords(checked)).toBe('The check before the merge passed, which cell M1 can make hold');
     expect(waitedWords({ kind: 'limit', runs: 1 })).toBe(
       'the owner to let the cell go on: its last run was a way round',
     );
-    expect([question, tool, returns, calls, precondition, architect, { kind: 'limit', runs: 3 } as Waited].map(waitsForOwner)).toEqual([
-      true,
-      false,
-      true,
-      true,
-      true,
-      false,
-      true,
-    ]);
+    const all = [question, tool, returns, calls, precondition, dependencies, settled, checked, { kind: 'limit', runs: 3 } as Waited];
+    expect(all.map(waitsForOwner)).toEqual([true, false, true, true, true, false, true, false, true]);
     expect(nowTone({ kind: 'waits', at: 'plan', on: [tool] })).toBe('quiet');
     expect(nowTone({ kind: 'waits', at: 'plan', on: [tool, question] })).toBe('owner');
   });
@@ -94,7 +117,7 @@ describe('how a run stands', () => {
   });
 
   it('says a run whose last round failed failed, neither under way nor at rest, and open', () => {
-    const failed = round(10, { kind: 'failed', why: 'The agent could not start.' });
+    const failed = round(10, { kind: 'failed', why: 'The agent could not start.', failure: 'other', resets: null });
     expect(runState({ end: null, rounds: [failed] })).toBe('failed');
     expect(RUN_WORDS.failed).toBe('round failed');
     expect(isOpen('failed')).toBe(true);

@@ -1,14 +1,19 @@
 //! The loop with the real carriers, in a git repository made for each test, with a fake of the `claude` command line:
 //! a shell script that keeps what it was given and prints a result that hands in the outputs of the cell its message
-//! names. The flows are the trial flow (`crates/service/tests/trial/flow`), whose agents ask and judge, and `flow` here,
-//! which has every act of the engine's.
+//! names. The flows are the trial flow (`crates/service/tests/trial/flow`), whose agents ask and judge, `flow` here,
+//! which has the acts of an engineer's work, and the deliver flow as the repository defines it (`flow/deliver`), whose
+//! one cell is the act that delivers a deliverable item.
 //!
 //! The tests are kept in modules by subject, so that a new test goes into the module of what it tests.
 
 mod budget;
+mod catching_up;
+mod delivering;
 mod failing;
 mod going;
 mod left;
+mod levels;
+mod permissions;
 mod stopping;
 
 use std::collections::BTreeSet;
@@ -18,14 +23,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use carry::git::{self, Place};
-use carry::settings::{Agents, Project};
+use carry::settings::{Agents, Items, Level, Project};
 use carry::{Settings, session};
 use decide::{CallId, Decision, Pauser, RunId, Who};
 use driver::{FirstWrite, NewItem};
 use engine::Event;
 use flow::{Compiled, Has};
 use service::{Act, Inbox, Message, Round, RoundReply, Rounds, Service, SystemClock};
-use store::{Store, WorkNumber};
+use store::{ItemNumber, Store, WorkNumber};
 use tokio::sync::oneshot;
 use work::Work;
 
@@ -33,8 +38,11 @@ use work::Work;
 pub struct Fake {
     /// The session's cost so far that every call reports, in dollars, as JSON.
     pub cost: &'static str,
-    /// Whether its first call fails.
+    /// Whether its first call fails, saying the prompt is too long, which pauses the work.
     pub fail_first: bool,
+    /// Whether its first call prints a result that is an error, the service's safety check having flagged the
+    /// message, the session having cost and spent tokens by then, and exits with 1.
+    pub flag_first: bool,
     /// Whether its first call prints a result that is an error, as when it ran out of retries of its structured
     /// return, the session having cost eighty cents by then, and exits with 1.
     pub error_first: bool,
@@ -53,6 +61,7 @@ impl Default for Fake {
         Fake {
             cost: "0.01",
             fail_first: false,
+            flag_first: false,
             error_first: false,
             lose_session: false,
             question_first: false,
@@ -68,6 +77,8 @@ pub enum On {
     Trial,
     /// The flow here, with a start, a check and a merge.
     Acts,
+    /// The deliver flow, whose one cell delivers the item once the items it is made of have merged.
+    Deliver,
 }
 
 /// What the fake was given in one call.
@@ -94,6 +105,8 @@ pub struct Real {
     /// How many rounds the carriers said failed, and how often they said a work is to wait for the owner.
     pub failures: usize,
     pub holds: usize,
+    /// The level the items added from now on are given.
+    pub level: String,
 }
 
 /// Runs git in the directory, which must pass, and gives its output.
@@ -117,12 +130,13 @@ fn compiled(on: On) -> Compiled {
     let dir = match on {
         On::Trial => Path::new(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial/flow"),
         On::Acts => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow"),
+        On::Deliver => Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/deliver"),
     };
     let source = flow::read(&dir).expect("the flow is read");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = Has {
         sources: names(&[driver::DEPENDENCIES]),
-        acts: names(&["start", "check", "merge"]),
+        acts: names(&["start", "check", "merge", "deliver"]),
     };
     flow::compile(&source, &has).expect("the flow compiles")
 }
@@ -145,8 +159,12 @@ if [ '{error}' = yes ] && [ "$n" = 1 ]; then
     printf '%s\n' '{{"type":"result","subtype":"error_max_structured_output_retries","is_error":true,"result":"Out of structured output retries.","total_cost_usd":0.8,"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":300}}}}'
     exit 1
 fi
+if [ '{flag}' = yes ] && [ "$n" = 1 ]; then
+    printf '%s\n' '{{"type":"result","subtype":"success","is_error":true,"result":"API Error: the safeguards flagged this message.","total_cost_usd":0.3,"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":30}}}}'
+    exit 1
+fi
 if [ '{fail}' = yes ] && [ "$n" = 1 ]; then
-    echo 'The fake fails its first call.' >&2
+    echo 'Prompt is too long: the fake fails its first call.' >&2
     exit 1
 fi
 first=$(head -n 1 "$log/$n.stdin")
@@ -180,6 +198,7 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
 "#,
         calls = calls.display(),
         fail = yes(fake.fail_first),
+        flag = yes(fake.flag_first),
         error = yes(fake.error_first),
         lose = yes(fake.lose_session),
         question = yes(fake.question_first),
@@ -242,15 +261,29 @@ impl Real {
             },
             agents: Agents {
                 command: command.display().to_string(),
-                model: "claude-haiku-5-5".to_string(),
+                levels: [("1", "claude-haiku-5-5"), ("2", "claude-sonnet-5-5")]
+                    .map(|(name, model)| {
+                        let level = Level {
+                            desc: format!("Work of level {name}"),
+                            model: model.to_string(),
+                        };
+                        (name.to_string(), level)
+                    })
+                    .into(),
                 slots: 2,
                 args: Vec::new(),
                 env: Vec::new(),
                 setting_sources: "user".to_string(),
                 config_dir: None,
+                permissions: Default::default(),
                 owner_language: "Chinese".to_string(),
                 work_budget_usd: budget,
             },
+            items: Items {
+                default_level: "1".to_string(),
+                highest_level: None,
+            },
+            github: None,
         };
         let flow = compiled(on);
         let (service, inbox) = open(&settings, &data, &flow, false);
@@ -265,6 +298,7 @@ impl Real {
             inbox,
             failures: 0,
             holds: 0,
+            level: "1".to_string(),
         }
     }
 
@@ -304,15 +338,24 @@ impl Real {
 
     /// Adds an item with a request, and makes its work's place where the flow has no cell that does.
     pub async fn add(&mut self) -> WorkNumber {
+        self.add_made_of(&[]).await
+    }
+
+    /// Adds an item that depends on these items, with a request where its flow has one, paused so that its work begins
+    /// once the test lets it on, and makes its work's place where the flow has agents to run in it and no cell that
+    /// makes it.
+    pub async fn add_made_of(&mut self, depends_on: &[ItemNumber]) -> WorkNumber {
+        let request = (self.flow.blocks.contains_key(&"request".into())).then(|| FirstWrite {
+            block: "request".into(),
+            content: "Greet the user, please.".to_string(),
+            value: None,
+        });
         let item = NewItem {
             title: "Greet the user".to_string(),
-            depends_on: Vec::new(),
+            level: self.level.clone(),
+            depends_on: depends_on.to_vec(),
             flow: self.flow.name.clone(),
-            writes: vec![FirstWrite {
-                block: "request".into(),
-                content: "Greet the user, please.".to_string(),
-                value: None,
-            }],
+            writes: request.into_iter().collect(),
         };
         let (reply, mut answer) = oneshot::channel();
         self.service
@@ -320,9 +363,10 @@ impl Real {
             .expect("the loop takes it");
         let (_, work) = answer.try_recv().expect("answered").expect("the item is added");
         let starts = (self.flow.cells.iter()).any(|cell| cell.act.as_deref() == Some("start"));
-        if !starts {
+        let agents = (self.flow.cells.iter()).any(|cell| cell.kind == flow::Kind::Agent);
+        if !starts && agents {
             let project = self.settings.project.clone();
-            git::start(&project, &self.place(work))
+            git::start(&project, &self.place(work), &project.main)
                 .await
                 .expect("the work's place is made");
         }

@@ -11,21 +11,35 @@
 //! What carries a todo out is reached through interfaces (principle `outside-behind-interfaces`): [`Rounds`] for the
 //! rounds of the cells an agent carries out and for those that are the engine's own acts, and [`Tools`] for the calls
 //! a tool answers. A call for a person, and a run at a limit, are carried out by nobody: they wait for the owner's
-//! answer, which comes as an act. A withdrawn call of a person is answered by the loop itself.
+//! answer, which comes as an act. A withdrawn call of a person is answered by the loop itself. What a work that ended
+//! holds outside the engine is let go by the carrier of the engine's acts, which made it ([`Rounds::release`]).
 //!
-//! A carrier that cannot carry a round out says the round failed, and one that finds as a round ends that its work is
-//! to wait for the owner, as when it has spent more than it may, says so with the end: either way the engine pauses the
-//! work with the reason, which is in its records and on the page. Nothing of it is held here: after a restart a work so
-//! paused is handed out nothing until the owner lets it on.
+//! A carrier that cannot carry a round out says the round failed, with the kind of its cause where it tells one apart,
+//! and one that finds as a round ends that its work is to wait for the owner, as when it has spent more than it may,
+//! says so with the end: the engine handles the failure as its kind says, and pauses the work with the reason where
+//! that is the handling, which is in its records and on the page. Nothing of it is held here: after a restart a work so
+//! paused is handed out nothing but the rounds of a run that answers a note, and the round that failed is not handed
+//! out again until the owner lets the work on.
+//!
+//! The loop is also what tells the time to what waits for it. A wait of a run before a round that failed in passing is
+//! tried again is a call the engine makes: the loop gives it its result once its time has come, and answers it as
+//! withdrawn itself where its run is abandoned first. A wait every work shares the driver says the end of
+//! ([`Driver::wake`]): the loop tells the driver the time then, looking at the network first where the driver asks it
+//! to ([`Network`]). Neither is held but as a timer, which is set again from the records when the process starts again.
+//!
+//! The owner's pause of everything comes to the loop as an act of its own, which the driver keeps; how many rounds of
+//! agents go on at once is what the carriers say ([`Carriers::slots`]), and the driver gives no more.
 //!
 //! - `carriers`: the interfaces, what each is given, and how it says what came of it.
 //! - `clock`: the clock, read by the loop alone.
+//! - `levels`: the levels of the items, which choose what their agents' rounds run on.
 //! - [`script`]: what the test carriers do, as a TOML file says.
 //! - `scripted`: the test carriers, which follow a script.
 //! - `words`: the faults and the refusals in words.
 
 mod carriers;
 mod clock;
+mod levels;
 pub mod script;
 mod scripted;
 mod words;
@@ -34,7 +48,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
 use decide::{BlockId, CallId, CellId, Outsider, Pauser, RunId};
-use driver::{Driver, Failed, NewItem, Todo};
+use driver::{Driver, Failed, NewItem, Todo, Wake};
 use engine::{Effect, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{ItemNumber, Storage, WorkNumber};
@@ -42,12 +56,17 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use work::{Ask, Call, Time};
 
 pub use carriers::{
-    Back, CallReply, Carriers, Returned, Round, RoundReply, Rounds, Told, ToolCall, Tools, Try, WITHDRAWN,
+    Back, CallReply, Carriers, Network, RanKept, RanOn, Release, ReleaseReply, Returned, Round, RoundReply, Rounds,
+    Told, ToolCall, Tools, Try, WITHDRAWN,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
+pub use levels::{Level, Levels, LevelsFault};
 pub use script::Script;
 pub use scripted::Scripted;
 pub use words::{record_fault_words, refused_words, store_fault_words, unmet_words};
+
+/// The result of a wait the engine made before a round that failed in passing is tried again, once its time has come.
+pub const WAITED: &str = "The wait is over: the round is tried again.";
 
 /// How many changes are kept for a listener that has not read them yet. One that falls further behind is told that
 /// everything may have changed.
@@ -64,7 +83,12 @@ pub struct Service {
     /// channel never closes while the loop runs.
     to: mpsc::UnboundedSender<Message>,
     changed: broadcast::Sender<Changed>,
+    /// When the driver is to be told the time next, with the timer that will tell the loop so.
+    wake: Option<(Wake, tokio::task::AbortHandle)>,
 }
+
+/// A read of the works as the driver holds them, at the time the loop's clock gives.
+pub type Reader = Box<dyn FnOnce(&Driver, Time) + Send>;
 
 /// What the loop takes, one at a time, in the order it came.
 pub enum Message {
@@ -76,13 +100,31 @@ pub enum Message {
         act: Act,
         reply: oneshot::Sender<Result<(), Refusal>>,
     },
+    /// The owner sets the pause of everything, or lifts it.
+    Everything {
+        paused: bool,
+        reply: oneshot::Sender<Result<(), Refusal>>,
+    },
     /// An item is added, with its work.
     Add {
         item: NewItem,
         reply: oneshot::Sender<Result<(ItemNumber, WorkNumber), Refusal>>,
     },
+    /// The owner puts an item at another level, which whoever asks has checked; the reply says whether that changed it.
+    SetLevel {
+        item: ItemNumber,
+        level: String,
+        reply: oneshot::Sender<Result<bool, Refusal>>,
+    },
+    /// A source outside the works says this now: the head of the project's main branch, for one.
+    Outside { source: String, content: String },
     /// The works are read, as the driver holds them now.
-    Read(Box<dyn FnOnce(&Driver) + Send>),
+    Read(Reader),
+    /// The time of the engine's wait, this call of this work, has come.
+    Due { work: WorkNumber, call: CallId },
+    /// The time the driver asked to be told has come; where it asked for a look at the network, the look found it
+    /// reached or not.
+    Tick { wake: Wake, reached: Option<bool> },
 }
 
 /// What the owner does to a work.
@@ -184,7 +226,7 @@ impl Service {
         let by_name = (flows.iter())
             .map(|flow| (flow.name.clone(), Arc::new(flow.clone())))
             .collect();
-        let (driver, todos) = Driver::open(store, flows, now).map_err(Fault::Driver)?;
+        let (driver, todos) = Driver::open(store, flows, carriers.slots, now).map_err(Fault::Driver)?;
         let (to, inbox) = mpsc::unbounded_channel();
         let (changed, _) = broadcast::channel(CHANGES);
         let mut service = Service {
@@ -194,8 +236,10 @@ impl Service {
             clock,
             to,
             changed,
+            wake: None,
         };
         service.hand(now, todos)?;
+        service.set_wake();
         Ok((service, Inbox(inbox)))
     }
 
@@ -229,7 +273,8 @@ impl Service {
         let mut items = false;
         match message {
             Message::Read(read) => {
-                read(&self.driver);
+                let now = self.now()?;
+                read(&self.driver, now);
                 return Ok(());
             }
             Message::Happened { work, event } => {
@@ -238,6 +283,35 @@ impl Service {
                     .driver
                     .happened(now, work, event)
                     .map_err(|failed| answer(work, failed))?;
+                self.hand(now, todos)?;
+            }
+            Message::Outside { source, content } => {
+                let now = self.now()?;
+                let todos = (self.driver.outside(now, &source, &content)).map_err(Fault::Driver)?;
+                self.hand(now, todos)?;
+            }
+            Message::Due { work, call } => {
+                // A wait withdrawn with its run has its result already, and the timer that went on is told nothing.
+                let open = (self.driver.work(work)).is_some_and(|kept| {
+                    let records = &kept.work.records;
+                    records.called.iter().any(|c| c.call == call) && !records.done.iter().any(|d| d.call == call)
+                });
+                if open {
+                    let now = self.now()?;
+                    let event = Event::Done {
+                        call,
+                        result: WAITED.to_string(),
+                    };
+                    let todos = (self.driver.happened(now, work, event)).map_err(|failed| answer(work, failed))?;
+                    self.hand(now, todos)?;
+                }
+            }
+            Message::Tick { wake, reached } => {
+                if self.wake.as_ref().is_some_and(|(set, _)| *set == wake) {
+                    self.wake = None;
+                }
+                let now = self.now()?;
+                let todos = self.driver.tick(now, reached).map_err(Fault::Driver)?;
                 self.hand(now, todos)?;
             }
             Message::Act { work, act, reply } => {
@@ -256,14 +330,35 @@ impl Service {
                     }
                 }
             }
+            Message::Everything { paused, reply } => {
+                let now = self.now()?;
+                match self.driver.pause_everything(now, paused) {
+                    Ok(todos) => {
+                        let _ = reply.send(Ok(()));
+                        self.hand(now, todos)?;
+                        // What every work does now may have changed, though no record of one grew.
+                        let _ = self.changed.send(Changed {
+                            works: self.driver.works().map(|kept| kept.head.number).collect(),
+                            items: false,
+                        });
+                        return Ok(());
+                    }
+                    Err(failed) => {
+                        let refusal = Refusal::Failed(failed);
+                        let stopped = stopped(&refusal);
+                        let _ = reply.send(Err(refusal));
+                        if let Some(fault) = stopped {
+                            return Err(fault);
+                        }
+                    }
+                }
+            }
             Message::Add { item, reply } => {
                 let now = self.now()?;
                 match self.driver.add(now, item) {
                     Ok((item, work, todos)) => {
                         items = true;
                         let _ = reply.send(Ok((item, work)));
-                        // The work is added paused, so nothing is to be done yet; whatever the driver gives is handed
-                        // out all the same.
                         self.hand(now, todos)?;
                     }
                     Err(failed) => {
@@ -276,9 +371,65 @@ impl Service {
                     }
                 }
             }
+            Message::SetLevel { item, level, reply } => {
+                let now = self.now()?;
+                match self.driver.set_level(now, item, &level) {
+                    Ok(changed) => {
+                        items = changed;
+                        let _ = reply.send(Ok(changed));
+                    }
+                    Err(failed) => {
+                        let refusal = Refusal::Failed(failed);
+                        let stopped = stopped(&refusal);
+                        let _ = reply.send(Err(refusal));
+                        if let Some(fault) = stopped {
+                            return Err(fault);
+                        }
+                    }
+                }
+            }
         }
+        self.set_wake();
         self.tell(&before, items);
         Ok(())
+    }
+
+    /// Sets the timer that tells the loop the time the driver asks to be told next, where that changed. The one set
+    /// before is stopped only where its time has not come: one whose time has come may be looking at the network, or
+    /// about to tell the loop, and tells it, which costs one look at the works more. Where the driver asks for a look at
+    /// the network, the look is taken off the loop as the time comes.
+    fn set_wake(&mut self) {
+        let wake = self.driver.wake();
+        if self.wake.as_ref().map(|(w, _)| *w) == wake {
+            return;
+        }
+        let now = self.clock.now().ok();
+        if let Some((set, timer)) = self.wake.take()
+            && now.is_some_and(|now| set.at > now)
+        {
+            timer.abort();
+        }
+        let Some(wake) = wake else {
+            return;
+        };
+        let after = self.until(wake.at);
+        let (to, network) = (self.to.clone(), self.carriers.network.clone());
+        let timer = tokio::spawn(async move {
+            tokio::time::sleep(after).await;
+            let reached = match wake.look {
+                true => tokio::task::spawn_blocking(move || network.reached()).await.ok(),
+                false => None,
+            };
+            let _ = to.send(Message::Tick { wake, reached });
+        });
+        self.wake = Some((wake, timer.abort_handle()));
+    }
+
+    /// How long from now until this time; nothing where it has come, or the clock cannot be read, when the time is
+    /// taken to have come.
+    fn until(&self, at: Time) -> std::time::Duration {
+        let now = self.clock.now().unwrap_or(at);
+        std::time::Duration::from_millis(at.0.saturating_sub(now.0))
     }
 
     fn now(&self) -> Result<Time, Fault> {
@@ -354,6 +505,7 @@ impl Service {
                 run,
                 number,
                 given,
+                item: kept.item.clone(),
                 kept: Arc::new(kept.work.clone()),
             };
             Ok((round, spec.kind))
@@ -390,11 +542,24 @@ impl Service {
                     call: *call,
                     name: name.clone(),
                     input: input.clone(),
+                    item: kept.item.clone(),
                     kept: Arc::new(kept.work.clone()),
                 };
                 self.carriers
                     .tools
                     .call(order, CallReply::new(work, *call, self.to.clone()));
+            }
+            // The engine's wait has its result once its time has come.
+            Effect::Call {
+                call,
+                what: Call::Wait { until, .. },
+                ..
+            } => {
+                let (after, to, call) = (self.until(*until), self.to.clone(), *call);
+                tokio::spawn(async move {
+                    tokio::time::sleep(after).await;
+                    let _ = to.send(Message::Due { work, call });
+                });
             }
             // A person's call, and a run at its limit, wait for the owner's answer.
             Effect::Call { .. } => {}
@@ -409,13 +574,14 @@ impl Service {
                         call: *call,
                         name: name.clone(),
                         input: input.clone(),
+                        item: kept.item.clone(),
                         kept: Arc::new(kept.work.clone()),
                     };
                     self.carriers
                         .tools
                         .withdraw(order, CallReply::new(work, *call, self.to.clone()));
                 }
-                Some(Call::Asked(Ask::Person { .. }) | Call::AtLimit(_)) => {
+                Some(Call::Asked(Ask::Person { .. }) | Call::AtLimit(_) | Call::Wait { .. }) => {
                     return Ok(Some(Event::Done {
                         call: *call,
                         result: WITHDRAWN.to_string(),
@@ -423,6 +589,19 @@ impl Service {
                 }
                 None => return Err(stray(Missing::Call(*call))),
             },
+            // The engine's acts make the work's branch and worktree, and its pull request where the host has them.
+            Effect::Release { end } => {
+                let release = Release {
+                    work,
+                    end: *end,
+                    flow,
+                    item: kept.item.clone(),
+                    kept: Arc::new(kept.work.clone()),
+                };
+                self.carriers
+                    .acts
+                    .release(release, ReleaseReply::new(work, self.to.clone()));
+            }
         }
         Ok(None)
     }
@@ -458,18 +637,56 @@ impl Handle {
         &self,
         read: impl FnOnce(&Driver) -> T + Send + 'static,
     ) -> Result<T, Refusal> {
+        self.read_at(move |driver, _| read(driver)).await
+    }
+
+    /// Reads the works as the driver holds them, between two things the loop takes, at the time the loop's clock
+    /// gives then: what holds now, such as the wait every work shares, is read by it.
+    pub async fn read_at<T: Send + 'static>(
+        &self,
+        read: impl FnOnce(&Driver, Time) -> T + Send + 'static,
+    ) -> Result<T, Refusal> {
         let (reply, answer) = oneshot::channel();
-        let read = Box::new(move |driver: &Driver| {
-            let _ = reply.send(read(driver));
+        let read = Box::new(move |driver: &Driver, now: Time| {
+            let _ = reply.send(read(driver, now));
         });
         self.to.send(Message::Read(read)).map_err(|_| Refusal::Gone)?;
         answer.await.map_err(|_| Refusal::Gone)
     }
 
-    /// Adds an item with its work, which is added paused, and gives their numbers.
+    /// Says what a source outside the works says now, for the loop to write into the works; nothing where the loop
+    /// has ended.
+    pub fn outside(&self, source: &str, content: &str) {
+        let message = Message::Outside {
+            source: source.to_string(),
+            content: content.to_string(),
+        };
+        let _ = self.to.send(message);
+    }
+
+    /// Sets the owner's pause of everything, or lifts it.
+    pub async fn pause_everything(&self, paused: bool) -> Result<(), Refusal> {
+        let (reply, answer) = oneshot::channel();
+        (self.to)
+            .send(Message::Everything { paused, reply })
+            .map_err(|_| Refusal::Gone)?;
+        answer.await.map_err(|_| Refusal::Gone)?
+    }
+
+    /// Adds an item with its work, which is added paused unless it is added going on, and gives their
+    /// numbers.
     pub async fn add(&self, item: NewItem) -> Result<(ItemNumber, WorkNumber), Refusal> {
         let (reply, answer) = oneshot::channel();
         self.to.send(Message::Add { item, reply }).map_err(|_| Refusal::Gone)?;
+        answer.await.map_err(|_| Refusal::Gone)?
+    }
+
+    /// Puts an item at another level, which the caller has checked against the installation's levels, and says whether
+    /// that changed it.
+    pub async fn set_level(&self, item: ItemNumber, level: &str) -> Result<bool, Refusal> {
+        let (reply, answer) = oneshot::channel();
+        let level = level.to_string();
+        (self.to.send(Message::SetLevel { item, level, reply })).map_err(|_| Refusal::Gone)?;
         answer.await.map_err(|_| Refusal::Gone)?
     }
 

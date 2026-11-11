@@ -544,7 +544,14 @@ export const workTierMock = (): string => '2 (Sonnet)';
 /// with messages; one that waits for another, the one whose plan waits; any other, a short one.
 function richOf(item: Item): string | null {
   const now = item.work.now;
-  if (now.kind === 'waits' && now.on.some((w) => w.kind === 'limit' || w.who === 'owner'))
+  if (
+    now.kind === 'waits' &&
+    now.on.some(
+      (w) =>
+        w.kind === 'limit' ||
+        (w.kind === 'call' ? w.who === 'owner' : w.kind === 'precondition' && w.by.some((m) => m.kind === 'owner')),
+    )
+  )
     return item.number % 2 === 0 ? 'Watch for anomalies and settle them' : 'New, and waiting for your answer';
   if (now.kind === 'waits') return 'Waiting for your ruling';
   if (now.kind === 'round' || now.kind === 'next') return 'Running for 12 minutes';

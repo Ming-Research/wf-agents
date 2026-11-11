@@ -25,12 +25,20 @@
 //! - a call has its result: always for a tool, and for a person or at a limit only while people act;
 //! - a call withdrawn is said to be; a round stopped ends.
 //!
-//! A person's act is, about: a write of a block people may write; a pause or a letting on; a cancel; letting a cell go
-//! on, at its limit where a work waits at one; the result of a question or of a limit; adding an item, depending on
-//! some of those there; or something the driver must refuse, which must change nothing.
+//! A person's act is, about: a write of a block people may write, or a look where they may write none; a pause or a
+//! letting on; a cancel; letting a cell go on, at its limit where a work waits at one; the result of a question or of
+//! a limit; adding an item, depending on some of those there; or something the driver must refuse, which must change
+//! nothing. An item is added on one of the small flows of the tests or on the deliver flow as the repository defines
+//! it, whose items are made of the items they depend on and wait for them at their one cell, so that items depending on
+//! a deliverable wait for it in turn. One item in five is a deliverable, drawn by a generator of its own, so that the
+//! other draws keep their order.
 //!
 //! The process stops before a step with a chance of one in sixteen; with one in twenty-five the store is set to fail
 //! at one of its next three calls, and with one in fifty the process to stop right after one of them.
+//!
+//! The driver has two slots. Every item is added paused; one in three is let on by the owner at once as it is added,
+//! drawn by a generator of its own, and the others are let on later, as before; and, drawn by another, the owner sets or lifts the pause of everything before a step with a chance
+//! of one in twenty while people act, and lifts it as people stop.
 //!
 //! A failing case prints its seed and the steps it took; `one_history(seed, ..)` replays it.
 
@@ -47,8 +55,10 @@ use engine::{Ask, Call, Came, Effect, Event, Handed, Spent, Time, Work};
 use store::{ItemNumber, WorkHead, WorkNumber};
 use support::*;
 
-/// How many histories are run.
-const SEEDS: u64 = 24;
+/// How many histories are run: enough that each class of step is reached. With a deliverable among every five items,
+/// twenty-four histories reached no round stopped in one draw and no stop that kept what it was asked in another; the
+/// histories take some fifteen seconds of CI for every twenty-four.
+const SEEDS: u64 = 48;
 
 /// How many steps, at most, people act in.
 const PEOPLE: usize = 80;
@@ -108,6 +118,11 @@ struct Seen {
     waited: usize,
     /// Steps after which a work had never been let on.
     never_let_on: usize,
+    /// Items let on as they were added, steps after which a work waited for a slot, and steps after which one was held
+    /// back by the pause of everything.
+    let_on_as_added: usize,
+    waited_for_a_slot: usize,
+    held_by_everything: usize,
     /// Works found waiting at rest, and works found ended.
     rested_waiting: usize,
     rested_ended: usize,
@@ -121,6 +136,12 @@ struct History {
     rng: Rng,
     /// Draws the stops and failures alone, so that a history with them makes the same choices as one without.
     faults: Option<Rng>,
+    /// Draws which items are deliverables alone, so that the other draws keep the order they had before the deliver
+    /// flow was among the flows.
+    delivers: Rng,
+    /// Draws which items are added going on, and when the owner sets or lifts the pause of everything, alone, so
+    /// that the other draws keep the order they had before.
+    room: Rng,
     step: usize,
     /// The calls that have their result, each with its work.
     done: Vec<(WorkNumber, CallId)>,
@@ -138,12 +159,22 @@ struct Ending {
     answered: BTreeSet<String>,
 }
 
+/// The flows the histories add items on: those of the tests, and the deliver flow as the repository defines it, whose
+/// items are made of the items they depend on.
+fn every_flow() -> Vec<flow::Compiled> {
+    let mut flows = flows();
+    flows.push(deliver());
+    flows
+}
+
 impl History {
     fn new(seed: u64, faults: bool) -> Self {
         Self {
-            h: H::new(),
+            h: H::with_slots(every_flow(), 2),
             rng: Rng::new(seed),
             faults: faults.then(|| Rng::new(seed ^ 0x5DEE_CE66_D1CE_F00D)),
+            delivers: Rng::new(seed ^ 0xDE11_7E2A_B1E5_0F00),
+            room: Rng::new(seed ^ 0x0000_5107_5A0F_A11D),
             step: 0,
             done: Vec::new(),
             log: Vec::new(),
@@ -209,18 +240,30 @@ impl History {
         let numbers: Vec<ItemNumber> = self.h.d().works().map(|k| k.head.item).collect();
         let depends_on: Vec<ItemNumber> = numbers.into_iter().filter(|_| self.rng.chance(35)).collect();
         let flow = ["judged", "short", "plain"][self.rng.below(3)];
-        let writes: Vec<FirstWrite> = if self.rng.chance(50) {
+        let flow = if self.delivers.chance(20) { "deliver" } else { flow };
+        let has_request = (self.h.d().flows()).any(|f| f.name == flow && f.blocks.contains_key(&block("request")));
+        let writes: Vec<FirstWrite> = if self.rng.chance(50) && has_request {
             vec![first_write("request", None)]
         } else {
             Vec::new()
         };
         let new = NewItem {
             title: title.to_string(),
+            level: "1".to_string(),
             depends_on,
             flow: flow.to_string(),
             writes,
         };
+        let let_on = self.room.chance(33);
         self.act(Act::Add(new));
+        if let_on {
+            let work = (self.h.d().works())
+                .map(|kept| kept.head.number)
+                .max()
+                .expect("the work just added");
+            self.seen.let_on_as_added += 1;
+            self.act(Act::On(work, Event::Resumed));
+        }
     }
 
     /// Before a step the process may stop, or the store be set to fail.
@@ -253,6 +296,10 @@ impl History {
     /// One step. Says whether anything was done: once people stop, nothing is when nothing given can be answered.
     fn step(&mut self, people: bool) -> bool {
         self.maybe_fault();
+        if people && self.room.chance(5) {
+            let paused = self.h.d().everything_paused().is_none();
+            self.act(Act::Everything(paused));
+        }
         let done = if people && self.rng.chance(25) {
             self.person_acts();
             true
@@ -278,6 +325,11 @@ impl History {
             let number = kept.head.number;
             if matches!(self.h.decision(number), Decision::Ended(_)) {
                 continue;
+            }
+            match d.held(number) {
+                Some(decide::Holder::Slot) => self.seen.waited_for_a_slot += 1,
+                Some(decide::Holder::Everything) => self.seen.held_by_everything += 1,
+                _ => {}
             }
             if !self.h.let_on.contains(&number) {
                 self.seen.never_let_on += 1;
@@ -321,6 +373,7 @@ impl History {
                 came: Came::Asks(vec![]),
                 spent: self.spent(run),
             },
+            Effect::Release { .. } => Event::Released,
         };
         self.act(Act::On(todo.work, event));
         true
@@ -417,6 +470,11 @@ impl History {
                     .filter(|(_, b)| b.writers.people)
                     .map(|(id, _)| id.0.clone())
                     .collect();
+                // A flow people write nothing of, as the deliver flow, is only looked at.
+                if people.is_empty() {
+                    self.act(Act::On(work, Event::Look));
+                    return;
+                }
                 let block = self.pick(&people);
                 let value = (flow.blocks.get(&block.as_str().into()))
                     .and_then(|b| b.values.clone())
@@ -578,8 +636,11 @@ fn one_history(seed: u64, faults: bool, log: &mut Vec<String>) -> (Ending, Seen)
         for _ in 0..people {
             x.step(true);
         }
-        // The last acts of people: every work left paused is let on.
+        // The last acts of people: the pause of everything is lifted, and every work left paused is let on.
         x.log.push("people stop".into());
+        if x.h.d().everything_paused().is_some() {
+            x.act(Act::Everything(false));
+        }
         for work in x.going() {
             let kept = x.h.d().work(work).expect("the work is there");
             if decide::paused(&kept.work.records) {
@@ -657,6 +718,9 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
                 seen.started_at_merge += s.started_at_merge;
                 seen.waited += s.waited;
                 seen.never_let_on += s.never_let_on;
+                seen.let_on_as_added += s.let_on_as_added;
+                seen.waited_for_a_slot += s.waited_for_a_slot;
+                seen.held_by_everything += s.held_by_everything;
                 seen.rested_waiting += s.rested_waiting;
                 seen.rested_ended += s.rested_ended;
                 seen.given_again += s.given_again;
@@ -694,6 +758,9 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
         ("first rounds given by another work's merge", seen.started_at_merge),
         ("works waiting for their dependencies", seen.waited),
         ("works never let on", seen.never_let_on),
+        ("items let on as they were added", seen.let_on_as_added),
+        ("works waiting for a slot", seen.waited_for_a_slot),
+        ("works held back by the pause of everything", seen.held_by_everything),
         ("works waiting at rest", seen.rested_waiting),
         ("works ended at rest", seen.rested_ended),
     ];

@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use decide::{BlockId, Cell, Condition, TestName};
-use flow::{Block, CellSpec, FLOW_FILE, FaultKind::*, Kind, Limits, Readers, Test, TestKind, Writers};
+use flow::{Block, CellSpec, Effort, FLOW_FILE, FaultKind::*, Kind, Limits, Readers, Test, TestKind, Writers};
 
 use crate::support::{at, compiled, edit, faults, valid};
 
@@ -69,14 +69,20 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
         title: title.to_string(),
         kind,
         line: line.map(str::to_string),
+        reads_only: false,
         task: None,
         act: None,
         must_write: Vec::new(),
+        describes: Vec::new(),
         returns: 2,
         calls: 40,
+        effort: None,
+        levels_above: 0,
+        takes_main: false,
     };
     let agent = |id: &str, title: &str, line: &str, task: &str| CellSpec {
         task: Some(task.to_string()),
+        effort: Some(Effort::High),
         ..spec(id, title, Kind::Agent, Some(line))
     };
     let engine = |id: &str, title: &str, act: &str| CellSpec {
@@ -117,6 +123,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
             writers: Writers {
                 cells: ids(writers),
                 people: who.0,
+                note: false,
                 outside: who.1.map(str::to_string),
             },
             readers: Readers {

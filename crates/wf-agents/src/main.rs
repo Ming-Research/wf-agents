@@ -12,7 +12,7 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 use flow::{Fault, FaultKind, Has, Source};
-use web::works::Act;
+use web::works::{Act, EngineAct};
 
 use crate::talk::Asked;
 
@@ -54,10 +54,14 @@ enum Command {
         #[arg(long, default_value_t = PORT)]
         port: u16,
     },
-    /// Adds an item with its work, which is added paused.
+    /// Adds an item with its work, which is added paused: it begins nothing until it is let on with `wf-agents
+    /// resume`.
     Add {
         #[arg(long)]
         title: String,
+        /// The level of the item, among those the settings name; the settings' default level where none is given.
+        #[arg(long)]
+        level: Option<String>,
         /// The name of the flow its work runs on.
         #[arg(long)]
         flow: String,
@@ -76,7 +80,16 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Lists the items, each with what its work does now.
+    /// Puts an item at another level, among those the settings name and at most the highest an item may be at: its
+    /// work's rounds run on it from their next.
+    SetLevel {
+        item: u64,
+        level: String,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Says whether everything is paused and how many slots are taken, and lists the items, each with what its work
+    /// does now.
     List {
         #[command(flatten)]
         at: At,
@@ -87,15 +100,24 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Lets a work on: its rounds begin again.
+    /// Lets a work on: its rounds begin again. With --all, lifts the pause of everything instead: every work goes on
+    /// that its own pause does not hold.
     Resume {
-        work: u64,
+        #[arg(required_unless_present = "all")]
+        work: Option<u64>,
+        #[arg(long, conflicts_with = "work")]
+        all: bool,
         #[command(flatten)]
         at: At,
     },
-    /// Pauses a work: no round of it begins, and the one under way ends.
+    /// Pauses a work: no round of it begins but those of a run that answers a note, a person's words to its cell, and
+    /// the one under way ends. With --all, pauses everything instead, until `wf-agents resume --all`; it holds across a
+    /// stop of the engine, and a work's own pause holds after it is lifted.
     Pause {
-        work: u64,
+        #[arg(required_unless_present = "all")]
+        work: Option<u64>,
+        #[arg(long, conflicts_with = "work")]
+        all: bool,
         #[command(flatten)]
         at: At,
     },
@@ -124,6 +146,22 @@ enum Command {
         work: u64,
         call: u64,
         result: String,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Waits for what needs whoever plans the work and says it, a line each, most pressing first: a work that ended,
+    /// one that rests for a person (a cell's question, a ruling only a person can give, a limit, a pause the engine made
+    /// with its reason), one that waits for items none of which is going on. It answers as soon as there is something
+    /// since the mark, and says the mark to give next time; nothing that happens between two calls is lost. With no
+    /// mark, it gives what stands now, the works that ended being taken as read.
+    Wait {
+        /// The mark the last call gave.
+        #[arg(long)]
+        since: Option<String>,
+        /// The longest time to wait, in seconds; it then says that nothing came. With none, it waits as long as it
+        /// takes.
+        #[arg(long = "for", value_name = "SECONDS")]
+        longest: Option<u64>,
         #[command(flatten)]
         at: At,
     },
@@ -186,23 +224,31 @@ fn main() -> ExitCode {
         }
         Command::Add {
             title,
+            level,
             flow,
             depends_on,
             texts,
             files,
             choices,
             at,
-        } => match talk::new_item(title, flow, depends_on, &texts, &files, &choices) {
+        } => match talk::new_item(title, level, flow, depends_on, &texts, &files, &choices) {
             Ok(item) => talk::ask(at.port, Asked::Add(item)),
             Err(why) => {
                 eprintln!("{why}");
                 ExitCode::FAILURE
             }
         },
+        Command::SetLevel { item, level, at } => talk::ask(at.port, Asked::SetLevel(item, level)),
         Command::List { at } => talk::ask(at.port, Asked::List),
         Command::Show { work, at } => talk::ask(at.port, Asked::Show(work)),
-        Command::Resume { work, at } => talk::ask(at.port, Asked::Act(work, Act::Resume {})),
-        Command::Pause { work, at } => talk::ask(at.port, Asked::Act(work, Act::Pause {})),
+        Command::Resume { work, all, at } => match (work, all) {
+            (Some(work), false) => talk::ask(at.port, Asked::Act(work, Act::Resume {})),
+            _ => talk::ask(at.port, Asked::Everything(EngineAct::Resume {})),
+        },
+        Command::Pause { work, all, at } => match (work, all) {
+            (Some(work), false) => talk::ask(at.port, Asked::Act(work, Act::Pause {})),
+            _ => talk::ask(at.port, Asked::Everything(EngineAct::Pause {})),
+        },
         Command::Cancel { work, at } => talk::ask(at.port, Asked::Cancel(work)),
         Command::Write {
             work,
@@ -232,18 +278,20 @@ fn main() -> ExitCode {
         Command::Answer { work, call, result, at } => {
             talk::ask(at.port, Asked::Act(work, Act::Answer { call, result }))
         }
+        Command::Wait { since, longest, at } => talk::ask(at.port, Asked::Wait { since, longest }),
         Command::LetGo { work, cell, at } => talk::ask(at.port, Asked::Act(work, Act::LetGo { cell })),
     }
 }
 
 /// The names of the sources outside a work that write its blocks, which every definition is compiled against:
-/// `dependencies`, written by the engine's driver; and `main`, `session` and `tree`, written by the host's adapters,
-/// which are not built yet.
+/// `dependencies`, written by the engine's driver; `main`, written by the acts' watch of main on the host; and
+/// `session` and `tree`, whose writers are not built yet.
 const SOURCES: [&str; 4] = ["dependencies", "main", "session", "tree"];
 
 /// The names of the acts of the engine's own that carry out an engine cell: `start` makes the place a work is done
-/// in, `check` checks the work before its merge, and `merge` merges it.
-const ACTS: [&str; 3] = ["start", "check", "merge"];
+/// in, `check` checks the work before its merge, `merge` merges it, and `deliver` says that a deliverable item, made
+/// of the items it depends on, is delivered.
+const ACTS: [&str; 4] = ["start", "check", "merge", "deliver"];
 
 /// What the engine has, by name, for any definition.
 fn has(_: &Source) -> Has {
@@ -314,11 +362,18 @@ fn words(what: &FaultKind) -> String {
         F::EngineHasTask => "an engine's cell has a task, which no agent reads".to_string(),
         F::NoAct => "an engine's cell names no act to carry it out".to_string(),
         F::AgentHasAct { act } => format!("an agent carries the cell out, but the cell names the act \"{act}\""),
+        F::EngineHasEffort => "an engine's cell names a reasoning effort, which no agent runs at".to_string(),
+        F::NoEffort => "an agent's cell names no reasoning effort for its rounds to run at".to_string(),
         F::UnknownAct { act } => format!("the engine has no act named \"{act}\""),
         F::ValuesEmpty => "a choice has no values to choose from".to_string(),
+        F::NoteNotByPeople { block } => format!("{block} is a note, but people do not write it"),
+        F::NoteIsAChoice { block } => format!("{block} is a note, but it is a choice, and a note is words to a cell"),
         F::NoSuchBlock { block } => format!("the block {block} is not declared in flow.toml"),
         F::NotAnOutput { block } => {
             format!("the cell must write {block} every time, but {block} is not among the blocks it may write")
+        }
+        F::NotAnInput { block } => {
+            format!("the cell says what the work is by {block}, but {block} is not among the blocks it reads")
         }
         F::NoWriter { block } => format!("nothing writes {block}: no cell of the order, no person and nothing outside"),
         F::NoReader { block } => {

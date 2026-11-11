@@ -303,6 +303,7 @@ export function moodOf(w: Pick<ShownWork, 'now'>): Mood {
   if (now.kind === 'round' || now.kind === 'next') return 'running';
   if (now.kind === 'fault') return 'halted';
   if (now.kind === 'paused') return now.by === 'engine' ? 'halted' : 'paused';
+  if (now.kind === 'everything') return 'paused';
   if (now.kind === 'waits' && now.on.some((o) => whoGives(o) === 'owner')) return 'owner';
   return 'waiting';
 }

@@ -1,7 +1,8 @@
 //! `wf-agents run`: the engine as a process. It drives every work the store in the data directory holds, on the flows
 //! it is given, and serves the owner's pages over it. What carries the works out is the real carriers, as the
 //! installation's settings say (the crate `carry`), or, given a script, agents, engine acts and tools that follow it.
-//! It stops when the engine's loop stops, saying why; started again, it goes on from the store.
+//! It stops when the engine's loop stops, saying why; started again, it goes on from the store. An item is added at one
+//! of the levels the settings name; with a script, at the one level a script's engine has.
 //!
 //! Before it touches the store it holds the data directory and has its port, so that an engine that cannot serve
 //! hands nothing out, and two engines never drive the same works: each would give every round under way to its own
@@ -14,7 +15,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use flow::{Compiled, Has, Source};
-use service::{Carriers, Script, Scripted, Service, SystemClock};
+use service::{Carriers, Levels, Script, Scripted, Service, SystemClock};
 use store::Store;
 
 /// The store's file in the data directory.
@@ -23,9 +24,10 @@ const STORE: &str = "store.sqlite";
 /// The file in the data directory whose lock says that an engine runs on it.
 const HELD: &str = "engine.lock";
 
-/// What a flow run here may name: what every definition is compiled against. Of the sources this process writes the
-/// driver's alone, whether the items an item depends on have merged; nothing writes the host's yet, so a block of
-/// `main`, `session` or `tree` stays unwritten, and a cell that reads one starts from no version of it.
+/// What a flow run here may name: what every definition is compiled against. Of the sources, this process writes the
+/// driver's, whether the items an item depends on have merged, and, with the real carriers, `main`, through the
+/// acts' watch of main; nothing writes `session` or `tree` yet, so a block of either stays unwritten, and a cell that
+/// reads one starts from no version of it.
 fn has(source: &Source) -> Has {
     crate::has(source)
 }
@@ -41,7 +43,7 @@ pub enum With {
 /// What carries the works out, read and checked: a script, or the settings.
 enum Read {
     Script(Script),
-    Settings(carry::Settings),
+    Settings(Box<carry::Settings>),
 }
 
 /// The address the works page is printed at.
@@ -99,10 +101,20 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
-        let carriers: Carriers = match with {
-            Read::Script(script) => Scripted::new(script).carriers(),
-            Read::Settings(settings) => match carry::carriers(settings, data) {
-                Ok(carriers) => carriers,
+        let levels = match &with {
+            Read::Script(_) => script_levels(),
+            Read::Settings(settings) => match settings.levels() {
+                Ok(levels) => levels,
+                Err(why) => {
+                    eprintln!("{why}");
+                    return ExitCode::FAILURE;
+                }
+            },
+        };
+        let (carriers, watch): (Carriers, Option<carry::Watch>) = match with {
+            Read::Script(script) => (Scripted::new(script).carriers(), None),
+            Read::Settings(settings) => match carry::carry(*settings, data) {
+                Ok((carriers, watch)) => (carriers, Some(watch)),
                 Err(why) => {
                     eprintln!("The carriers cannot be made: {why}");
                     return ExitCode::FAILURE;
@@ -116,7 +128,14 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
-        let router = web::with_works(web::Flows::dirs(shown.clone(), None, Box::new(has)), service.handle());
+        // The watch of main writes, through the loop, the block of main of each work: the check before a merge then
+        // runs again when main has moved since it passed.
+        if let Some(watch) = watch {
+            let handle = service.handle();
+            tokio::spawn(watch.run(move |head| handle.outside(carry::MAIN, &head)));
+        }
+        let flows = web::Flows::dirs(shown.clone(), None, Box::new(has));
+        let router = web::with_works(flows, service.handle(), levels);
         println!("The owner's pages are at {}", works_page(address));
         tokio::select! {
             fault = service.run(inbox) => {
@@ -129,6 +148,12 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         }
         ExitCode::FAILURE
     })
+}
+
+/// The levels of the items of an engine whose agents follow a script, which run on no model: one, `1`, at which every
+/// item is added.
+fn script_levels() -> Levels {
+    Levels::one("1", "The one level of an engine whose agents follow a script")
 }
 
 /// Holds the data directory for as long as the process runs: an exclusive lock of the system's on a file in it, taken
@@ -195,7 +220,7 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
                 for warning in settings.warnings() {
                     eprintln!("{warning}");
                 }
-                Some(Read::Settings(settings))
+                Some(Read::Settings(Box::new(settings)))
             }
             Err(why) => {
                 eprintln!("{why}");

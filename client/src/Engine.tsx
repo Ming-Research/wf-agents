@@ -9,7 +9,8 @@ import { useCallback, useState } from 'react';
 import { useMockEngine } from './engine-mock';
 import { mocksShown } from './mock-data';
 import { Button, Switch } from './parts';
-import { type Items, type Now, personMaking } from './works-api';
+import { whoGives } from './console/items';
+import type { Items, Now } from './works-api';
 import { useChanges, useReading, useSource } from './works/source';
 
 /// Whether a work waits for the owner: for an answer, for a test only the owner can make hold, at a limit, or
@@ -18,9 +19,7 @@ export function waitsForOwner(now: Now): boolean {
   if (now.kind === 'fault') return true;
   if (now.kind === 'paused') return now.by === 'engine';
   if (now.kind !== 'waits') return false;
-  return now.on.some(
-    (w) => w.kind === 'limit' || (w.kind === 'precondition' ? personMaking(w) === 'owner' : w.who === 'owner'),
-  );
+  return now.on.some((w) => whoGives(w) === 'owner');
 }
 
 /// The items read for the bar, and read again whenever something happened.
@@ -53,7 +52,7 @@ export function Engine({ items, failed }: { items: Items | null; failed: string 
     if (sending || source.actOnEngine === undefined) return;
     setSending(true);
     void source
-      .actOnEngine(paused ? 'resume' : 'pause')
+      .actOnEngine({ kind: paused ? 'resume' : 'pause' })
       .then(readEngine, readEngine)
       .finally(() => setSending(false));
   };

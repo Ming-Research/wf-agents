@@ -2,7 +2,7 @@
 
 use flow::{FLOW_FILE, FaultKind::*, Has};
 
-use crate::support::{at, edit, faults, faults_with, has, valid};
+use crate::support::{at, compiled, edit, faults, faults_with, has, valid};
 
 #[test]
 fn an_agent_cell_runs_in_a_declared_line() {
@@ -14,6 +14,28 @@ fn an_agent_cell_runs_in_a_declared_line() {
         line: "designer".to_string(),
     };
     assert_eq!(faults(&source), [at("plan.toml", "line", what)]);
+}
+
+#[test]
+fn a_cell_on_a_line_that_only_reads_only_reads_and_the_others_write() {
+    let source = edit(
+        valid(),
+        FLOW_FILE,
+        "[lines.review]",
+        "[lines.review]\nreads_only = true",
+    );
+    let flow = compiled(&source);
+    let reads_only = |id: &str| {
+        let spec = flow.cells.iter().find(|c| c.id.as_str() == id);
+        spec.expect("the cell is compiled").reads_only
+    };
+    assert!(reads_only("judge"), "the judge is on the line that only reads");
+    assert!(!reads_only("plan"), "the plan's line writes");
+    assert!(!reads_only("check"), "an engine cell is on no line");
+    assert!(
+        !compiled(&valid()).cells.iter().any(|c| c.reads_only),
+        "a line writes unless it says so"
+    );
 }
 
 #[test]

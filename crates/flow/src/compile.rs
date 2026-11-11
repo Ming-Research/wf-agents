@@ -6,9 +6,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use decide::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Test, TestKind, TestName};
+use decide::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Outsiders, Test, TestKind, TestName};
 
-use crate::source::{BlockFile, CellFile, FLOW_FILE, FlowFile, Kind, Source, When, WhenIs, WhenTest};
+use crate::source::{BlockFile, CellFile, Effort, FLOW_FILE, FlowFile, Kind, Source, When, WhenIs, WhenTest};
 
 /// A flow's definition compiled.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,6 +57,8 @@ pub struct CellSpec {
     pub kind: Kind,
     /// The line whose session an agent cell runs in; an engine cell has none.
     pub line: Option<String>,
+    /// The agents of the cell's line only read, as the line says; an engine cell's do not.
+    pub reads_only: bool,
     /// What an agent cell's agent is told to do; an engine cell has none.
     pub task: Option<String>,
     /// The act of the engine's own that carries out an engine cell; an agent cell has none.
@@ -64,10 +66,19 @@ pub struct CellSpec {
     /// The blocks among its outputs that every hand-in of the cell includes, in the order written: a hand-in that lacks
     /// one is sent back.
     pub must_write: Vec<BlockId>,
+    /// The blocks among its inputs that say what the work is where the host shows it, in the order written.
+    pub describes: Vec<BlockId>,
     /// How often a return of the cell may be sent back within one run.
     pub returns: u32,
     /// How many calls one run of the cell may make.
     pub calls: u32,
+    /// The reasoning effort an agent cell's rounds run at; an engine cell has none.
+    pub effort: Option<Effort>,
+    /// How many levels above its item's the cell's rounds run at, as its line says; none for an engine cell.
+    pub levels_above: u32,
+    /// The work's branch takes the latest main in as each run of the cell starts, as an agent cell that changes the
+    /// code says; an engine cell's never does.
+    pub takes_main: bool,
 }
 
 /// A block of a work's state, as the engine needs to know it.
@@ -88,6 +99,8 @@ pub struct Writers {
     pub cells: Vec<CellId>,
     /// People write it.
     pub people: bool,
+    /// What people write in it is a note: their words to the cells that read it, which a paused work still answers.
+    pub note: bool,
     /// The source outside the work that writes it, where one does.
     pub outside: Option<String>,
 }
@@ -146,14 +159,25 @@ pub enum FaultKind {
     NoAct,
     /// An agent cell names an act: an agent carries the cell out.
     AgentHasAct { act: String },
+    /// An engine cell names a reasoning effort: no agent runs it.
+    EngineHasEffort,
+    /// An agent cell names no reasoning effort: how hard its rounds think is the flow's to say.
+    NoEffort,
     /// The cell names an act the engine does not have.
     UnknownAct { act: String },
     /// A choice has no values to choose from.
     ValuesEmpty,
+    /// The block is a note, and people do not write it: a note is their words to the cells that read it.
+    NoteNotByPeople { block: String },
+    /// The block is a note, and a choice: a note is words to a cell, which a choice is not.
+    NoteIsAChoice { block: String },
     /// The block is not declared in `flow.toml`.
     NoSuchBlock { block: String },
     /// The cell must write the block each time, and it is not among its outputs.
     NotAnOutput { block: String },
+    /// The cell says what the work is by the block, and the block is not among its inputs: a change of it would not
+    /// run the cell again, and what the host shows would fall behind.
+    NotAnInput { block: String },
     /// The block has no writer: no cell of the order, no person and nothing outside writes it.
     NoWriter { block: String },
     /// The block has no reader: no cell of the order reads it, no condition and no named test reads its value, and
@@ -240,7 +264,18 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
             (TestName(name.clone()), test)
         })
         .collect();
-    let flow = Flow::new(cells, tests).map_err(|f| vec![fault(FLOW_FILE, "order", FaultKind::Flow(f))])?;
+    let outsiders = (flow_file.blocks.iter())
+        .filter(|(_, b)| b.people || b.outside.is_some())
+        .map(|(name, b)| {
+            let outsiders = Outsiders {
+                people: b.people,
+                note: b.note,
+                outside: b.outside.clone(),
+            };
+            (BlockId(name.clone()), outsiders)
+        })
+        .collect();
+    let flow = Flow::new(cells, tests, outsiders).map_err(|f| vec![fault(FLOW_FILE, "order", FaultKind::Flow(f))])?;
     Ok(Compiled {
         name: flow_file.name.clone(),
         flow,
@@ -473,6 +508,13 @@ impl<'a> Definition<'a> {
                     faults.push(fault(FLOW_FILE, field, what));
                 }
             }
+            if block.note && !block.people {
+                let what = FaultKind::NoteNotByPeople { block: name.clone() };
+                faults.push(fault(FLOW_FILE, format!("blocks.{name}.note"), what));
+            } else if block.note && block.values.is_some() {
+                let what = FaultKind::NoteIsAChoice { block: name.clone() };
+                faults.push(fault(FLOW_FILE, format!("blocks.{name}.note"), what));
+            }
             if let Some(source) = &block.outside
                 && !sources.contains(source)
             {
@@ -601,6 +643,11 @@ impl<'a> Definition<'a> {
             }
             _ => {}
         }
+        match (file.kind, file.effort) {
+            (Kind::Engine, Some(_)) => found.push(("effort".to_string(), FaultKind::EngineHasEffort)),
+            (Kind::Agent, None) => found.push(("effort".to_string(), FaultKind::NoEffort)),
+            _ => {}
+        }
         let runs = match file.limit.map(count) {
             None => limits.runs,
             Some(Ok(runs)) => runs,
@@ -658,6 +705,12 @@ impl<'a> Definition<'a> {
             };
             (!file.outputs.iter().any(|o| o == block)).then_some(what)
         }));
+        found.extend(check_list(&file.describes, "describes", |block| {
+            let what = FaultKind::NotAnInput {
+                block: block.to_string(),
+            };
+            (!file.inputs.iter().any(|i| i == block)).then_some(what)
+        }));
         faults.extend(found.into_iter().map(|(field, what)| fault(&name, field, what)));
 
         let cell = Cell {
@@ -667,17 +720,26 @@ impl<'a> Definition<'a> {
             inputs: file.inputs.iter().map(|b| BlockId(b.clone())).collect(),
             outputs: file.outputs.iter().map(|b| BlockId(b.clone())).collect(),
             limit: runs,
+            slot: file.kind == Kind::Agent,
         };
         let spec = CellSpec {
             id: CellId(id.to_string()),
             title: file.title.clone(),
             kind: file.kind,
             line: file.line.clone(),
+            reads_only: (file.line.as_ref())
+                .is_some_and(|line| self.flow.lines.get(line).is_some_and(|l| l.reads_only)),
             task: file.task.clone(),
             act: file.act.clone(),
             must_write: file.must_write.iter().map(|b| BlockId(b.clone())).collect(),
+            describes: file.describes.iter().map(|b| BlockId(b.clone())).collect(),
             returns: limits.returns,
             calls: limits.calls,
+            effort: file.effort,
+            levels_above: (file.line.as_ref())
+                .and_then(|line| self.flow.lines.get(line))
+                .map_or(0, |line| line.levels_above),
+            takes_main: file.kind == Kind::Agent && file.takes_main,
         };
         (cell, spec)
     }
@@ -782,6 +844,7 @@ impl<'a> Definition<'a> {
                     writers: Writers {
                         cells: ids(&writers),
                         people: declared.people,
+                        note: declared.note,
                         outside: declared.outside.clone(),
                     },
                     readers: Readers {

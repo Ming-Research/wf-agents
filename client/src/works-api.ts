@@ -6,6 +6,9 @@
 // The routes:
 // - `GET  /api/v1/items`: every item with its work in brief (`Items`).
 // - `POST /api/v1/items`: adds an item with its work (`NewItem`), and gives their numbers (`Added`).
+// - `POST /api/v1/items/{item}/level`: puts an item at another level (`{ level }`), and says whether that changed it
+//   (`LevelSet`).
+// - `GET  /api/v1/levels`: the levels an item may be given, with what each is for (`Levels`).
 // - `GET  /api/v1/works/{work}`: one work, as it is now and step by step from its start (`WorkPage`).
 // - `GET  /api/v1/works/{work}/versions/{block}/{at}`: the content of a version of a block (`VersionPage`).
 // - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}`: one round in full (`RoundPage`).
@@ -14,6 +17,8 @@
 // - `GET  /api/v1/works/{work}/calls/{call}`: a call with its result (`CallPage`).
 // - `POST /api/v1/works/{work}/acts`: what the owner does to a work (`Act`); answers with no content, or with why it
 //   was refused (`Refusal`) and a status of 4xx.
+// - `GET  /api/v1/engine`: the engine as a whole, its slots and the owner's pause of everything (`Engine`).
+// - `POST /api/v1/engine/acts`: what the owner does to the engine as a whole (`EngineAct`); answers as an act on a work.
 // - `GET  /api/v1/changes`: a stream of server-sent events, one each time something happened (`Changed`), on which a
 //   page reads again what it shows.
 
@@ -28,37 +33,67 @@ export type Pauser = 'owner' | 'engine';
 /// The limit a run reached.
 export type Limit = { of: 'returns'; sentBack: number } | { of: 'calls'; made: number };
 
-/// What a call is: a tool the engine runs, a question for a person, or a run at a limit that the owner lets go on.
+/// What a call is: a tool the engine runs, a question for a person, a run at a limit that the owner lets go on, or
+/// the engine's wait until a time before a round that failed in passing, the `failed`th in a row, is tried again.
 export type Call =
   | { kind: 'tool'; name: string; input: string }
   | { kind: 'question'; who: Person; question: string }
-  | { kind: 'atLimit'; limit: Limit };
+  | { kind: 'atLimit'; limit: Limit }
+  | { kind: 'wait'; until: number; failed: number };
+
+/// The kind of cause of a round that failed, as what carried it out told it apart.
+export type Failure =
+  | 'passing'
+  | 'unread'
+  | 'flagged'
+  | 'usageLimit'
+  | 'cannotRun'
+  | 'offline'
+  | 'promptTooLong'
+  | 'other';
+
+/// When the agents' rounds may begin again: at a time, every work's; or one round tries at a time, where `look` once
+/// a look at the network every half minute reaches it, at the latest at `latest`; or once the round trying now ends.
+export type Until =
+  | { kind: 'at'; at: number }
+  | { kind: 'trial'; at: number; look: boolean; latest: number }
+  | { kind: 'tried' };
+
+/// A wait every work shares: a round of an agent failed for a cause no one work has, and no agent's round of any work
+/// begins while it stands.
+export interface Outage {
+  failure: Failure;
+  why: string;
+  /// The round that failed so, the latest that did.
+  work: number;
+  run: number;
+  round: number;
+  /// When it ended.
+  since: number;
+  until: Until;
+  /// Whether it holds rounds now: past its time it stands only until a round that began after it comes back, and
+  /// holds nothing meanwhile.
+  holds: boolean;
+}
 
 /// Who can make a precondition hold: the owner, a source outside the work (such as the items it depends on, as they
 /// merge), or a cell, by what its next run writes.
 export type Maker = { kind: 'owner' } | { kind: 'outside'; source: string } | { kind: 'cell'; cell: string };
 
-/// A precondition of the cell that does not hold: the named test, the words shown for it, and each who can make it
-/// hold, by writing a block that keeps it from holding (`by`). An engine from before `by` gives in its place the one
-/// person who can (`who`).
-export type PreconditionWait = { kind: 'precondition'; test: string; words: string; by?: Maker[]; who?: Person };
-
 /// What a work waits for.
 export type Waited =
   /// The result of a call a run rests at: from this person, or from the engine where there is none.
   | { kind: 'call'; call: number; who: Person | null; what: Call }
-  | PreconditionWait
+  /// A precondition of the cell does not hold: the named test, the words shown for it, and each who can make it hold,
+  /// by writing a block that keeps it from holding.
+  | { kind: 'precondition'; test: string; words: string; by: Maker[] }
   /// The cell's last runs, this many in a row, were each for what a cell after it wrote.
-  | { kind: 'limit'; runs: number };
-
-/// The person who can make a precondition hold: the owner where its makers include the owner, none where they are
-/// only sources outside the work or cells. An engine that gives `who` in place of the makers names the owner for every
-/// test that does not hold, though no person can make the items the work depends on merge: from it, that test is known
-/// by its name.
-export function personMaking(w: PreconditionWait): Person | null {
-  if (w.by !== undefined) return w.by.some((m) => m.kind === 'owner') ? 'owner' : null;
-  return w.test === 'may_start' ? null : (w.who ?? null);
-}
+  | { kind: 'limit'; runs: number }
+  /// A free slot: as many rounds of agents are under way as the engine has slots, and it gives the next that comes free
+  /// in its order.
+  | { kind: 'slot' }
+  /// The wait every work shares: the cell's agent's round does not begin until it is over.
+  | { kind: 'agents'; outage: Outage };
 
 /// What a work does now.
 export type Now =
@@ -70,6 +105,8 @@ export type Now =
   /// It is paused, and what it would do next is begin a round: by the owner, who gives no reason, or by the engine
   /// for this one.
   | { kind: 'paused'; by: Pauser; why: string | null }
+  /// The owner's pause of everything holds it back, and what it would do next is begin a round; its own pause does not.
+  | { kind: 'everything' }
   /// It waits at this cell, for each of these.
   | { kind: 'waits'; at: string; on: Waited[] }
   /// It is about to do something at this cell; a work is never left so between two things that happen to it.
@@ -110,7 +147,7 @@ export interface Summary {
   item: number;
   flow: string;
   added: number;
-  /// No round of it begins; a round under way goes on.
+  /// Only a note to a cell is answered; a round under way goes on.
   paused: boolean;
   now: Now;
   /// In the order of the walk.
@@ -132,6 +169,9 @@ export interface Summary {
 export interface Item {
   number: number;
   title: string;
+  /// The level it was given as it was added, which chooses what its agents' rounds run on; none for an item added
+  /// before items had levels, whose rounds run at the default level.
+  level: string | null;
   added: number;
   dependsOn: number[];
   /// The one work done for it, which was added with it.
@@ -140,6 +180,9 @@ export interface Item {
 
 export interface Items {
   items: Item[];
+  /// A wait every work shares, where one stands; the interface always says, as none where none stands, and a page's own
+  /// made-up items may leave it out.
+  outage?: Outage | null;
 }
 
 /// Why a cell runs: it has no record, or a block has another meaning than the one its record knows (`was`), which a
@@ -187,7 +230,8 @@ export type Unmet =
   | { kind: 'noValue'; block: string }
   | { kind: 'notAValue'; block: string; value: string }
   | { kind: 'notAChoice'; block: string }
-  | { kind: 'notHandedIn'; block: string };
+  | { kind: 'notHandedIn'; block: string }
+  | { kind: 'unreadable'; why: string };
 
 /// What a round is given: the cell's task, the results of the calls the round before asked for, or why what the
 /// round before handed in was sent back.
@@ -205,8 +249,11 @@ export interface Handed {
 }
 
 /// What came back at the end of a round: calls asked for, blocks handed in, or nothing, the round having failed for
-/// this reason.
-export type Back = { kind: 'asked'; asks: Ask[] } | { kind: 'handedIn'; blocks: Handed[] } | { kind: 'failed'; why: string };
+/// this reason, of this kind of cause; `resets` says when the usage limit it reached resets, where its report said.
+export type Back =
+  | { kind: 'asked'; asks: Ask[] }
+  | { kind: 'handedIn'; blocks: Handed[] }
+  | { kind: 'failed'; why: string; failure: Failure; resets: number | null };
 
 export interface Round {
   /// The first being one.
@@ -275,6 +322,8 @@ export interface WorkPage {
   summary: Summary;
   /// The title of its item.
   title: string;
+  /// The level of its item, as `Item` has it.
+  level: string | null;
   /// The flow it runs on.
   flow: Flow;
   /// In the order of the walk.
@@ -330,6 +379,27 @@ export interface Try {
   /// The message's whole length in bytes, where it was cut before its end.
   cut: number | null;
   back: TryBack;
+  /// What it ran on as it began; none where its carrier kept nothing of it, as of an act of the engine's own.
+  ran: RanOn | null;
+}
+
+/// What a try of an agent's round ran on, as it was when the try began: its level, that level's model, and the
+/// reasoning effort its cell sets; or that what was kept of it cannot be read.
+export type RanOn =
+  | { kind: 'on'; level: string; model: string; effort: string | null }
+  | { kind: 'unreadable'; why: string };
+
+/// The levels an item may be given, lowest first, with what work each is for, the one an item is given where it is
+/// given none, and the highest an item may be at.
+export interface Levels {
+  levels: { name: string; desc: string }[];
+  default: string;
+  highest: string;
+}
+
+/// Whether putting an item at a level changed it: it was at that level already where not.
+export interface LevelSet {
+  changed: boolean;
 }
 
 /// What a round was told and what came back of it, each try in order, as its carrier kept them; no try where it kept
@@ -353,12 +423,24 @@ export type Act =
 
 export interface NewItem {
   title: string;
+  /// The level it is given; with none, the level the installation adds an item at where it is given none.
+  level?: string | null;
   dependsOn: number[];
-  /// The flow its work runs on. The work is added paused, and begins no round until it is let on.
+  /// The flow its work runs on.
   flow: string;
   /// What is written for it as it is added, each a block people write.
   writes: { block: string; content: string; value: string | null }[];
 }
+
+/// The engine as a whole: its slots, and when the owner's pause of everything began, while it holds.
+export interface Engine {
+  slots: number;
+  taken: number;
+  paused: number | null;
+}
+
+/// What the owner does to the engine as a whole: pauses everything, or lifts that pause.
+export type EngineAct = { kind: 'pause' } | { kind: 'resume' };
 
 export interface Added {
   item: number;
@@ -401,16 +483,9 @@ export const loadRound = (work: number, run: number, round: number) =>
 export const loadTold = (work: number, run: number, round: number) =>
   read<ToldPage>(`/api/v1/works/${work}/runs/${run}/rounds/${round}/told`);
 export const loadCall = (work: number, call: number) => read<CallPage>(`/api/v1/works/${work}/calls/${call}`);
+export const loadLevels = () => read<Levels>('/api/v1/levels');
 export const act = (work: number, what: Act) => send<null>(`/api/v1/works/${work}/acts`, what);
 export const addItem = (item: NewItem) => send<Added>('/api/v1/items', item);
-
-/// How the engine stands as a whole: how many rounds of agents may go on at once, how many are under way, and when the
-/// owner's pause of everything began, none while works go on.
-export interface EngineState {
-  slots: number;
-  taken: number;
-  paused: number | null;
-}
-export const loadEngine = () => read<EngineState>('/api/v1/engine');
-/// Pauses everything, or lifts that pause.
-export const actOnEngine = (kind: 'pause' | 'resume') => send<null>('/api/v1/engine/acts', { kind });
+export const setLevel = (item: number, level: string) => send<LevelSet>(`/api/v1/items/${item}/level`, { level });
+export const loadEngine = () => read<Engine>('/api/v1/engine');
+export const actOnEngine = (what: EngineAct) => send<null>('/api/v1/engine/acts', what);

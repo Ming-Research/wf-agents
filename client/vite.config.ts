@@ -1,7 +1,8 @@
 // Builds the page into dist/, which crates/web builds into the wf-agents binary. `npm run dev` serves the page with
 // Vite and passes the interface's requests to a running `wf-agents flow page` (WF_AGENTS_URL, by default the port it
-// takes). The set-up is brought over from the page of the engine on `main`. `npm run dev` also serves `console.html`,
-// the console alone, which is not built.
+// takes); the engine refuses a request of another origin, so they are passed on as from its own, the Host and the
+// Origin both the engine's. The set-up is brought over from the page of the engine on `main`. `npm run dev` also serves
+// `console.html`, the console alone, which is not built.
 //
 // The page's tests are two Vitest projects, so that each file runs where it needs to and the browser starts only for
 // the files that need it:
@@ -54,7 +55,6 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      // The engine refuses a request of another origin, so they are passed on as from its own.
       '/api': { target, changeOrigin: true, headers: { origin: new URL(target).origin } },
     },
   },

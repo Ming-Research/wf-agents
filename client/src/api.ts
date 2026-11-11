@@ -17,6 +17,8 @@ export type LimitName = keyof Limits;
 export interface Line {
   name: string;
   cells: string[];
+  /// How many levels above its item's its rounds run at, never above the highest an item may be at.
+  levelsAbove: number;
 }
 
 /// How the blocks a named test reads make it hold: when every one, at least one, or none has the value it looks for;
@@ -49,6 +51,8 @@ export interface Cell {
   task: string | null;
   /// The act of the engine's own that carries out an engine's cell; an agent's cell has none.
   act: string | null;
+  /// The reasoning effort an agent's cell's rounds run at; an engine's cell has none.
+  effort: string | null;
   /// None is always.
   condition: Condition | null;
   preconditions: Test[];
@@ -64,7 +68,8 @@ export interface Block {
   /// The values of a choice; none for a block that is not one.
   values: string[] | null;
   /// `outside`: the source outside the work that writes it; none where the outside does not.
-  writtenBy: { cells: string[]; people: boolean; outside: string | null };
+  /// `note`: what people write in it is a note, their words to the cells that read it.
+  writtenBy: { cells: string[]; people: boolean; note: boolean; outside: string | null };
   /// `tests`: the named tests that read its value, by name. `shown`: the owner's page reads it.
   readBy: { cells: string[]; conditions: string[]; tests: string[]; shown: boolean };
 }
@@ -95,11 +100,17 @@ export type What =
   | { kind: 'engineHasTask' }
   | { kind: 'noAct' }
   | { kind: 'agentHasAct'; act: string }
+  | { kind: 'engineHasEffort' }
+  | { kind: 'noEffort' }
   | { kind: 'unknownAct'; act: string }
   | { kind: 'valuesEmpty' }
+  | { kind: 'noteNotByPeople'; block: string }
+  | { kind: 'noteIsAChoice'; block: string }
   | { kind: 'noSuchBlock'; block: string }
   /// The cell must write the block each time, and it is not among its outputs.
   | { kind: 'notAnOutput'; block: string }
+  /// The cell says what the work is by the block, and it is not among its inputs.
+  | { kind: 'notAnInput'; block: string }
   | { kind: 'noWriter'; block: string }
   | { kind: 'noReader'; block: string }
   | { kind: 'unknownSource'; block: string; source: string }
@@ -117,7 +128,7 @@ export type What =
   | { kind: 'standingWrittenByTwo'; test: string; block: string; cell: string }
   | {
       kind: 'flowRefused';
-      reason: 'empty' | 'twice' | 'conditionOnOwnOutput' | 'lastHasCondition' | 'noLimit' | 'noSuchTest';
+      reason: 'empty' | 'twice' | 'conditionOnOwnOutput' | 'lastHasCondition' | 'noLimit' | 'noSuchTest' | 'unwritten';
       cell: string | null;
     };
 
@@ -147,6 +158,7 @@ export type Change =
   | { kind: 'title'; cell: string; before: string; after: string }
   | { kind: 'kind'; cell: string; before: Kind; after: Kind }
   | { kind: 'line'; cell: string; before: string | null; after: string | null }
+  | { kind: 'readsOnly'; cell: string; before: boolean; after: boolean }
   | { kind: 'task'; cell: string; before: string | null; after: string | null }
   | { kind: 'act'; cell: string; before: string | null; after: string | null }
   | { kind: 'condition'; cell: string; before: Condition | null; after: Condition | null }
@@ -158,11 +170,16 @@ export type Change =
   | { kind: 'outputRemoved'; cell: string; block: string }
   | { kind: 'mustWriteAdded'; cell: string; block: string }
   | { kind: 'mustWriteRemoved'; cell: string; block: string }
+  | { kind: 'describesAdded'; cell: string; block: string }
+  | { kind: 'describesRemoved'; cell: string; block: string }
   | { kind: 'cellLimit'; cell: string; limit: LimitName; before: number; after: number }
+  | { kind: 'effort'; cell: string; before: string | null; after: string | null }
+  | { kind: 'levelsAbove'; cell: string; before: number; after: number }
   | { kind: 'blockAdded'; block: string }
   | { kind: 'blockRemoved'; block: string }
   | { kind: 'values'; block: string; before: string[] | null; after: string[] | null }
   | { kind: 'people'; block: string; before: boolean; after: boolean }
+  | { kind: 'note'; block: string; before: boolean; after: boolean }
   | { kind: 'outside'; block: string; before: string | null; after: string | null }
   | { kind: 'shown'; block: string; before: boolean; after: boolean };
 

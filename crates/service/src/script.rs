@@ -2,6 +2,9 @@
 //! by run and round by round, and what each tool answers.
 //!
 //! ```toml
+//! # How many rounds of agents go on at once; two where it is left out, as the installation's sample settings give.
+//! slots = 3
+//!
 //! # What a round takes where its entry says nothing; each is optional.
 //! [took]
 //! ms = 1500
@@ -40,6 +43,16 @@
 //! cell = "plan"
 //! run = 2
 //! fails = "The command line program could not start."
+//!
+//! # The second round of that run reaches the account's usage limit, which resets at this time: no agent's round of
+//! # any work begins until then.
+//! [[flows.trial.rounds]]
+//! cell = "plan"
+//! run = 2
+//! round = 2
+//! fails = "You've hit your limit."
+//! failure = "usage_limit"
+//! resets = 1792962000000
 //! ```
 //!
 //! A round that fails takes what its entry says, as any round does. Once the owner lets its work on, the run's next
@@ -63,8 +76,9 @@ use std::collections::BTreeMap;
 
 use flow::{CellSpec, Compiled, Kind};
 use serde::Deserialize;
-use work::{Ask, Handed, Spent};
+use work::{Ask, Handed, Spent, Time};
 
+use decide::run::Failure;
 use decide::{BlockId, Seq, Who};
 use engine::Came;
 
@@ -80,11 +94,17 @@ pub const CACHED_TOKENS: u64 = 0;
 pub const OUTPUT_TOKENS: u64 = 100;
 /// How long a tool takes where the script says nothing, in milliseconds.
 pub const TOOL_MS: u64 = 100;
+/// How many rounds of agents go on at once where the script says nothing: as many as the installation's sample
+/// settings give.
+pub const SLOTS: usize = 2;
 
 /// A script, as its file is written.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Script {
+    /// How many rounds of agents go on at once; [`SLOTS`] where the script says none.
+    #[serde(default)]
+    pub slots: Option<usize>,
     /// What a round takes where its entry says nothing.
     #[serde(default)]
     pub took: Took,
@@ -148,6 +168,11 @@ pub struct RoundScript {
     pub asks: Option<Vec<AskScript>>,
     /// Why it fails, where it fails: nothing comes back.
     pub fails: Option<String>,
+    /// The kind of cause of its failure, as a carrier tells it apart (`usage_limit`, `passing`, ...); a cause no
+    /// kind tells apart, which pauses the work, where the script names none.
+    pub failure: Option<Failure>,
+    /// When the usage limit its failure reached resets, in milliseconds since the start of 1970.
+    pub resets: Option<u64>,
 }
 
 fn first() -> usize {
@@ -220,8 +245,12 @@ pub struct Planned {
 pub enum Ends {
     /// This comes back.
     Came(Came),
-    /// It fails, for this reason: nothing comes back.
-    Fails(String),
+    /// It fails, for this reason, of this kind of cause: nothing comes back.
+    Fails {
+        why: String,
+        failure: Failure,
+        resets: Option<Time>,
+    },
 }
 
 impl Script {
@@ -236,6 +265,9 @@ impl Script {
     /// not write, or a value a choice does not have, is not wrong: what it hands in is sent back.
     pub fn check(&self, flows: &[Compiled]) -> Vec<String> {
         let mut faults = Vec::new();
+        if self.slots == Some(0) {
+            faults.push("slots: at least one round must be able to go on".to_string());
+        }
         for (name, script) in &self.flows {
             let Some(flow) = flows.iter().find(|flow| flow.name == *name) else {
                 faults.push(format!("flows.{name}: no flow is named {name}"));
@@ -267,6 +299,11 @@ impl Script {
                 }
                 if round.fails.is_some() && (round.hands_in.is_some() || round.asks.is_some()) {
                     faults.push(format!("{at}: a round that fails neither hands in nor asks"));
+                }
+                if round.fails.is_none() && (round.failure.is_some() || round.resets.is_some()) {
+                    faults.push(format!(
+                        "{at}: only a round that fails has a kind of failure or a reset"
+                    ));
                 }
                 for (j, handed) in round.hands_in.iter().flatten().enumerate() {
                     if !flow.blocks.contains_key(&BlockId::from(handed.block.as_str())) {
@@ -330,9 +367,18 @@ impl Script {
             choice.and_then(|values| named.or_else(|| values.first().cloned()))
         };
         let came = match entry {
-            Some(RoundScript { fails: Some(why), .. }) => {
+            Some(RoundScript {
+                fails: Some(why),
+                failure,
+                resets,
+                ..
+            }) => {
                 return Planned {
-                    ends: Ends::Fails(why.clone()),
+                    ends: Ends::Fails {
+                        why: why.clone(),
+                        failure: failure.unwrap_or_default(),
+                        resets: resets.map(Time),
+                    },
                     spent,
                     ms: or(took.ms, self.took.ms, ROUND_MS),
                 };

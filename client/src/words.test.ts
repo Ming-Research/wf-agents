@@ -31,7 +31,7 @@ describe('the words of the page', () => {
     const block = {
       name: 'main',
       values: null,
-      writtenBy: { cells: [], people: true, outside: 'main' },
+      writtenBy: { cells: [], people: true, note: false, outside: 'main' },
       readBy: { cells: [], conditions: [], tests: [], shown: false },
     };
     expect(writersBesideCells(block)).toEqual(['people', 'the outside (main)']);
@@ -47,6 +47,11 @@ describe('the words of the page', () => {
       changeWords({ kind: 'condition', cell: 'a', before: null, after: { on: 'block', block: 'x', value: 'no' } }),
     ).toEqual({ what: 'Runs when', before: 'always', after: 'x is no' });
     expect(changeWords({ kind: 'inputRemoved', cell: 'a', block: 'x' })).toEqual({ what: 'Reads', before: 'x', after: '' });
+    expect(changeWords({ kind: 'readsOnly', cell: 'a', before: false, after: true })).toEqual({
+      what: 'Only reads',
+      before: 'no',
+      after: 'yes',
+    });
     expect(changeWords({ kind: 'mustWriteAdded', cell: 'a', block: 'x' })).toEqual({
       what: 'Writes every time',
       before: '',
@@ -56,6 +61,21 @@ describe('the words of the page', () => {
       what: 'Writes every time',
       before: 'x',
       after: '',
+    });
+    expect(changeWords({ kind: 'effort', cell: 'a', before: 'high', after: 'xhigh' })).toEqual({
+      what: 'Effort',
+      before: 'high',
+      after: 'xhigh',
+    });
+    expect(changeWords({ kind: 'levelsAbove', cell: 'a', before: 0, after: 1 })).toEqual({
+      what: "Levels above the item's",
+      before: '0',
+      after: '1',
+    });
+    expect(changeWords({ kind: 'describesAdded', cell: 'a', block: 'x' })).toEqual({
+      what: 'Says what the work is by',
+      before: '',
+      after: 'x',
     });
     expect(changeWords({ kind: 'values', block: 'x', before: null, after: ['yes', 'no'] })).toEqual({
       what: 'Values',
@@ -99,6 +119,24 @@ describe('the words of the page', () => {
     });
   });
 
+  it('say that a block is a note, a change of it, and a note people do not write', () => {
+    const block = {
+      name: 'opinions',
+      values: null,
+      writtenBy: { cells: [], people: true, note: true, outside: null },
+      readBy: { cells: ['plan'], conditions: [], tests: [], shown: false },
+    };
+    expect(writersBesideCells(block)).toEqual(['people, as a note to the cells that read it']);
+    expect(changeWords({ kind: 'note', block: 'opinions', before: false, after: true })).toEqual({
+      what: 'A note',
+      before: 'no',
+      after: 'yes',
+    });
+    expect(
+      faultWords({ file: 'flow.toml', field: 'blocks.plan.note', what: { kind: 'noteNotByPeople', block: 'plan' } }),
+    ).toBe('plan is a note, but people do not write it.');
+  });
+
   it('say what is wrong with a definition from the data of the fault', () => {
     expect(faultWords({ file: 'plan.toml', field: 'inputs[2]', what: { kind: 'noSuchBlock', block: 'ghost' } })).toBe(
       'The block ghost is not declared in flow.toml.',
@@ -118,6 +156,9 @@ describe('the words of the page', () => {
     );
     expect(faultWords({ file: 'judge.toml', field: 'must_write[1]', what: { kind: 'notAnOutput', block: 'plan' } })).toBe(
       'The cell must write plan every time, but plan is not among the blocks it may write.',
+    );
+    expect(faultWords({ file: 'check.toml', field: 'describes[0]', what: { kind: 'notAnInput', block: 'ci' } })).toBe(
+      'The cell says what the work is by ci, but ci is not among the blocks it reads.',
     );
     expect(
       faultWords({
@@ -167,6 +208,12 @@ describe('the words of the page', () => {
     );
     expect(faultWords({ file: 'plan.toml', field: 'act', what: { kind: 'agentHasAct', act: 'merge' } })).toBe(
       'An agent carries the cell out, but the cell names the act "merge".',
+    );
+    expect(faultWords({ file: 'check.toml', field: 'effort', what: { kind: 'engineHasEffort' } })).toBe(
+      "An engine's cell names a reasoning effort, which no agent runs at.",
+    );
+    expect(faultWords({ file: 'plan.toml', field: 'effort', what: { kind: 'noEffort' } })).toBe(
+      "An agent's cell names no reasoning effort for its rounds to run at.",
     );
     expect(faultWords({ file: 'check.toml', field: 'act', what: { kind: 'unknownAct', act: 'deploy' } })).toBe(
       'The engine has no act named "deploy".',

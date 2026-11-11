@@ -1,5 +1,6 @@
 //! A pause holds back only what would begin a round: what a round hands in is taken, the calls it asks for are made,
-//! the owner is asked at a limit and a stale run is abandoned, while no round begins until the work is let on.
+//! the owner is asked at a limit and a stale run is abandoned, while no round begins until the work is let on but one
+//! of a run that answers a note (`paused_answers`). A request a person writes is no note.
 
 use super::*;
 
@@ -166,7 +167,10 @@ fn the_engines_pause_of_a_work_that_has_ended_adds_nothing() {
     let before = w.work.records.clone();
     assert_eq!(w.on(paused), vec![]);
     assert_eq!(w.work.records, before);
-    assert_eq!(w.returns(write, hands_in(&[("text", None)])), vec![]);
+    let release = vec![Effect::Release {
+        end: decide::End::Cancelled,
+    }];
+    assert_eq!(w.returns(write, hands_in(&[("text", None)])), release);
     assert!(w.work.records.pauses.is_empty());
     assert!(!decide::paused(&w.work.records));
     assert_eq!(w.decision(), decide::Decision::Ended(decide::End::Cancelled));

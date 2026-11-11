@@ -9,11 +9,26 @@
 //! rest are passed. A run is running only while one of its rounds is under way: between rounds it is at rest, a cell
 //! before it may run, and it is abandoned once a block it started from has changed. A work has ended when its last
 //! cell has a record or its item is cancelled.
+//!
+//! A pause of the work changes none of this order. It holds back the run the walk comes to, unless one of that run's
+//! reasons is a change a person made, since the cell last ran (since the run of its record started, or with no record
+//! its first run), of a note the cell reads: a paused work holds everything it would do by itself, still answers a
+//! note, a person's words to a cell, and lets nothing else a person writes pass. Such a run has its rounds while the
+//! work is paused ([`hold`]), and once it has finished what it wrote waits, as anything else does, for the work to be
+//! let on.
+//!
+//! The owner's pause of everything holds back what the work's own pause does, and the walk reads it, as it reads whether
+//! a slot is free, from what the scheduler gives it ([`Room`]): where no slot is free, a cell that takes one waits for
+//! it before it runs, a run that answers a note as much as any other.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::flow::{BlockId, Cell, CellId, Condition, Flow, TestKind, TestName};
-use crate::records::{CallId, Cause, Finished, Outsider, Pause, RecordFault, Records, RunId, Seq, Started, Who};
+use crate::records::{
+    CallId, Cause, Finished, Outsider, Pause, Pauser, RecordFault, Records, RunId, Seq, Started, Who,
+};
+use crate::room::Room;
+use crate::run::Hold;
 
 /// What a work does next, with the reason as data (principle decide-purely).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,8 +39,9 @@ pub enum Decision {
     Ended(End),
     /// A round of this run is under way: nothing is decided until it ends, unless the work is cancelled.
     Busy { cell: CellId, run: RunId },
-    /// The work is paused, and what it would do next is run a cell: no run starts until it is let on. What does not
-    /// begin a round is decided as if the work were not paused: a run at rest finishes, rests or is abandoned.
+    /// The work is paused, and what it would do next is run a cell none of whose reasons is a change of a note a person
+    /// made: that run waits for the work to be let on. A cell one of whose reasons is such a change runs as if the work
+    /// were not paused, and what begins no run is decided so too: a run at rest goes on, rests or is abandoned.
     Paused,
     /// The cell runs: why, and the version of each block it reads or may write that the run starts from. The engine
     /// records the run as started with exactly these.
@@ -35,8 +51,8 @@ pub enum Decision {
         basis: BTreeMap<BlockId, Option<Seq>>,
     },
     /// The run, which is at rest and waits for nothing, goes on: what its last round returned is taken up, and it
-    /// has its next round, which it holds while the work is paused. A run whose last round failed is at rest too, and
-    /// its next round is that round again.
+    /// has its next round, which the pause of its work may hold back ([`hold`]). A run whose last round failed is at
+    /// rest too, and its next round is that round again.
     GoOn { cell: CellId, run: RunId },
     /// The run is abandoned, and the walk is taken again: it is at rest and stale, or its work was cancelled, when
     /// it may have a round under way, which is stopped.
@@ -74,15 +90,36 @@ pub enum Abandoning {
 pub enum Waited {
     /// The result of a call the cell's run rests at: from this person, or from the engine where `on` is `None`.
     Call { call: CallId, on: Option<Who> },
-    /// A precondition of the cell, a named test of the flow, does not hold: this person can make it hold.
-    Precondition { test: TestName, who: Who },
+    /// A precondition of the cell, a named test of the flow, does not hold: each of these writes a block that keeps it
+    /// from holding, and none other can make it hold.
+    Precondition { test: TestName, by: Vec<Maker> },
     /// The cell's last runs, this many in a row, were each for what a cell after it wrote, and so would the next be:
     /// the owner lets it go on or cancels the work.
     Limit { runs: u32 },
+    /// A free slot: the cell takes one, and as many rounds that take one are under way as the engine has slots. The
+    /// engine gives it the first that comes free, in its order.
+    Slot,
 }
 
-/// What the work does next.
+/// Who can make a precondition hold, by writing a block its test reads: the flow says who writes each block.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Maker {
+    /// The owner, as people write the block.
+    Owner,
+    /// This source outside the work, such as the items the work depends on as they merge.
+    Outside { source: String },
+    /// The cell, by what its next run writes.
+    Cell { cell: CellId },
+}
+
+/// What the work does next, were nothing outside its records to hold it back ([`Room::FREE`]).
 pub fn decide(flow: &Flow, records: &Records) -> Decision {
+    decide_in(flow, records, Room::FREE)
+}
+
+/// What the work does next, in the room the engine leaves it: under the owner's pause of everything it begins what it
+/// would begin were it paused itself, and where no slot is free a cell that takes one waits for it.
+pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
     if let Err(fault) = check(records) {
         return Decision::Fault(fault);
     }
@@ -153,10 +190,13 @@ pub fn decide(flow: &Flow, records: &Records) -> Decision {
         if !on.is_empty() {
             return wait(on);
         }
-        // A pause lets no round begin, and so no run: everything before this is decided whether or not the work is
-        // paused.
-        if paused(records) {
+        // A pause holds back the run, unless it is for a note a person wrote: everything before this is decided whether
+        // or not the work is paused.
+        if (paused(records) || room.paused) && !walk.for_a_note(i, &because, None) {
             return Decision::Paused;
+        }
+        if cell.slot && !room.slot {
+            return wait(vec![Waited::Slot]);
         }
         return Decision::Run {
             cell: cell.id.clone(),
@@ -173,6 +213,55 @@ pub fn stale(flow: &Flow, records: &Records, run: RunId) -> Option<Abandoning> {
     let walk = Walk::new(flow, records);
     let run = walk.runs.get(&run).filter(|r| r.at_rest())?;
     walk.stale(run)
+}
+
+/// What the pause of the work holds back of the run's rounds: nothing where the work is not paused; where it is, of a
+/// run one of whose reasons was a change of a note a person made, only the round after one that failed for which the
+/// engine paused the work, so that the owner sees why first, and nothing where the engine paused it for none of the
+/// run's rounds since its last began; and every round of any other run.
+pub fn hold(flow: &Flow, records: &Records, run: RunId) -> Hold {
+    hold_in(flow, records, run, Room::FREE)
+}
+
+/// What holds back the run's rounds in the room the engine leaves the work: every round, where its cell takes a slot
+/// and none is free; otherwise what the pause of the work would hold back ([`hold`]), where the work is paused or the
+/// owner's pause of everything holds.
+pub fn hold_in(flow: &Flow, records: &Records, run: RunId, room: Room) -> Hold {
+    let walk = Walk::new(flow, records);
+    let Some(r) = walk.runs.get(&run) else {
+        return Hold::Rounds;
+    };
+    if !room.slot && (flow.place(&r.started.cell)).is_none_or(|i| flow.cells()[i].slot) {
+        return Hold::Rounds;
+    }
+    if !paused(records) && !room.paused {
+        return Hold::Nothing;
+    }
+    match flow.place(&r.started.cell) {
+        Some(i) if walk.for_a_note(i, &r.started.because, Some(r.started.at)) => {
+            if paused_by_its_failure(records, run) {
+                Hold::Retry
+            } else {
+                Hold::Nothing
+            }
+        }
+        _ => Hold::Rounds,
+    }
+}
+
+/// Whether the engine paused the work since the run's last round, which has ended, began, and the work was not let on
+/// since: as it does where the round's failure pauses it, or where the round took the work over its budget, which its
+/// carrier says before the round's end.
+fn paused_by_its_failure(records: &Records, run: RunId) -> bool {
+    let began = (records.rounds.iter()).filter(|r| r.run == run).map(|r| r.at).max();
+    let ended = records.returned.iter().filter(|r| r.run == run).count();
+    let begun = records.rounds.iter().filter(|r| r.run == run).count();
+    let let_on = (records.pauses.iter()).filter(|p| !p.paused).map(|p| p.at).max();
+    let Some(began) = began.filter(|_| ended == begun) else {
+        return false;
+    };
+    let after = let_on.map_or(began, |at| at.max(began));
+    (records.pauses.iter()).any(|p| p.paused && p.by == Pauser::Engine && p.at > after)
 }
 
 /// Whether the work is paused: the latest of its pauses and lettings on is a pause.
@@ -243,7 +332,8 @@ fn check(records: &Records) -> Result<(), RecordFault> {
         .chain(records.written.iter().map(|e| e.at))
         .chain(records.let_go.iter().map(|e| e.at))
         .chain(records.pauses.iter().map(|e| e.at))
-        .chain(records.cancelled);
+        .chain(records.cancelled)
+        .chain(records.released);
     let mut seen = BTreeSet::new();
     for at in places {
         if !seen.insert(at) {
@@ -259,8 +349,8 @@ pub(crate) struct RunView<'a> {
     finished: Option<&'a Finished>,
     abandoned: bool,
     /// How many of its rounds began, and how many ended.
-    began: usize,
-    ended: usize,
+    pub(crate) began: usize,
+    pub(crate) ended: usize,
 }
 
 impl RunView<'_> {
@@ -334,19 +424,26 @@ impl<'a> Walk<'a> {
         }
     }
 
-    /// Whether the named test holds, for the cell at this place, by the value each block it reads has now. The flow
-    /// has every test its cells name.
+    /// Whether the named test holds, for the cell at this place: when no block it reads keeps it from holding.
     fn holds(&self, name: &TestName, i: usize) -> bool {
+        self.holding(name, i).is_empty()
+    }
+
+    /// The blocks the named test reads that keep it from holding, for the cell at this place, by the value each has
+    /// now: a write of any of them can change whether it holds. The flow has every test its cells name.
+    fn holding(&self, name: &TestName, i: usize) -> Vec<&'a BlockId> {
         let test = &self.flow.tests()[name];
-        let mut has = (test.reads.iter()).map(|block| {
+        let has = |block: &BlockId| {
             self.current(block).is_some_and(|v| {
                 v.value == Some(test.is.as_str()) && (test.kind != TestKind::NoneStanding || self.stands(v, i))
             })
-        });
+        };
+        let reads = test.reads.iter();
         match test.kind {
-            TestKind::All => has.all(|h| h),
-            TestKind::Any => has.any(|h| h),
-            TestKind::None | TestKind::NoneStanding => !has.any(|h| h),
+            TestKind::All => reads.filter(|b| !has(b)).collect(),
+            TestKind::Any if test.reads.iter().any(has) => Vec::new(),
+            TestKind::Any => reads.collect(),
+            TestKind::None | TestKind::NoneStanding => reads.filter(|b| has(b)).collect(),
         }
     }
 
@@ -444,15 +541,38 @@ impl<'a> Walk<'a> {
             .collect()
     }
 
-    /// The preconditions of the cell at this place that do not hold, each for the owner.
+    /// The preconditions of the cell at this place that do not hold, each with who writes a block that keeps it from
+    /// holding.
     fn unmet(&self, i: usize) -> Vec<Waited> {
         (self.flow.cells()[i].requires.iter())
-            .filter(|test| !self.holds(test, i))
-            .map(|test| Waited::Precondition {
-                test: test.clone(),
-                who: Who::Owner,
+            .filter_map(|test| {
+                let holding = self.holding(test, i);
+                (!holding.is_empty()).then(|| Waited::Precondition {
+                    test: test.clone(),
+                    by: self.makers(&holding),
+                })
             })
             .collect()
+    }
+
+    /// Who writes any of these blocks, each once, in the order of [`Maker`]: the owner where people write one, the
+    /// source outside the work where one does, and each cell that has one among its outputs.
+    fn makers(&self, blocks: &[&BlockId]) -> Vec<Maker> {
+        let mut makers = BTreeSet::new();
+        for block in blocks {
+            if let Some(outsiders) = self.flow.outsiders(block) {
+                if outsiders.people {
+                    makers.insert(Maker::Owner);
+                }
+                if let Some(source) = &outsiders.outside {
+                    makers.insert(Maker::Outside { source: source.clone() });
+                }
+            }
+            for cell in self.flow.writers(block) {
+                makers.insert(Maker::Cell { cell: cell.id.clone() });
+            }
+        }
+        makers.into_iter().collect()
     }
 
     /// Why the cell at this place needs to run; empty when its record still holds.
@@ -483,6 +603,41 @@ impl<'a> Walk<'a> {
                     .and_then(|r| self.flow.place(&r.started.cell))
                     .is_some_and(|j| j > i)
             })
+    }
+
+    /// Whether one of these reasons of a run of the cell at this place, which starts at `before` (now where `None`), is
+    /// a change of meaning a person made since the cell last ran: of a note the cell reads, written after the start of
+    /// the run of its record, or with no record after the start of its first run, after the version the record knew,
+    /// and before `before`. A cell with no record and one with a record so both count a note until a run of it
+    /// finishes, whatever runs were abandoned since. A cell no run of which has started has not run, and answers no
+    /// one: a work added paused begins nothing.
+    fn for_a_note(&self, i: usize, because: &[Cause], before: Option<Seq>) -> bool {
+        let cell = &self.flow.cells()[i];
+        let earlier = |at: Seq| before.is_none_or(|before| at < before);
+        let of_cell = || (self.runs.values()).filter(|r| r.started.cell == cell.id && earlier(r.started.at));
+        let record = (of_cell())
+            .filter_map(|r| r.finished.filter(|f| earlier(f.at)).map(|f| (f.at, r.started.at)))
+            .max();
+        let Some(since) = record
+            .map(|(_, at)| at)
+            .or_else(|| of_cell().map(|r| r.started.at).min())
+        else {
+            return false;
+        };
+        let by_person = |block: &BlockId, was: Option<Seq>| {
+            self.flow.is_note(block)
+                && (self.versions(block).iter()).any(|v| {
+                    v.meaning == v.at
+                        && v.outsider == Some(Outsider::Person)
+                        && v.at > since
+                        && Some(v.at) > was
+                        && earlier(v.at)
+                })
+        };
+        because.iter().any(|cause| match cause {
+            Cause::NoRecord => cell.inputs.iter().any(|block| by_person(block, None)),
+            Cause::Changed { block, was, .. } => by_person(block, *was),
+        })
     }
 
     /// The wait for the owner when the run these causes call for would be a way round, and so was each of the cell's

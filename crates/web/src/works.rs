@@ -12,19 +12,23 @@
 //! - [`RoundPage`], [`VersionPage`], [`CallPage`]: the content the history leaves out.
 //! - [`ToldPage`]: what a round was told and what came back of it, as its carrier kept them.
 //! - [`Act`], [`NewItem`]: what the owner does on the pages.
+//! - [`Engine`], [`EngineAct`]: the engine as a whole, its slots and the owner's pause of everything, and what the owner
+//!   does to it.
 //!
 //! A work whose records name what it does not hold, which the engine never writes, is not shown as something it is
 //! not: making its view gives [`Broken`], saying what is missing.
 
-use decide::run::{Limit as LimitOf, Unmet as UnmetOf};
+use decide::run::{Failure as FailureOf, Limit as LimitOf, Unmet as UnmetOf};
 use decide::{
-    BlockId, CallId, Cause as CauseOf, CellId, Decision, End, Pauser as PauserOf, RunId, Seq, View, Waited as WaitedOf,
-    Who, Writer as WriterOf,
+    BlockId, CallId, Cause as CauseOf, CellId, Decision, End, Holder, Maker as MakerOf, Pauser as PauserOf, RunId, Seq,
+    View, Waited as WaitedOf, Who, Writer as WriterOf,
 };
-use driver::{Driver, Kept};
+use driver::{Driver, Kept, Until as UntilOf};
+use flow::Kind;
 use serde::{Deserialize, Serialize};
+use service::Levels;
 use store::{ItemNumber, WorkNumber};
-use work::{Ask as AskOf, Back as BackOf, Call as CallOf, Given as GivenOf, Work};
+use work::{Ask as AskOf, Back as BackOf, Call as CallOf, Given as GivenOf, Time, Work};
 
 use crate::view::Flow;
 
@@ -33,6 +37,65 @@ use crate::view::Flow;
 #[serde(rename_all = "camelCase")]
 pub struct Items {
     pub items: Vec<Item>,
+    /// A wait every work shares, where one stands: no agent's round of any work begins.
+    pub outage: Option<Outage>,
+}
+
+/// A wait every work shares: a round of an agent failed for a cause that is no one work's, and no agent's round of any
+/// work begins while it stands.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Outage {
+    /// The kind of the cause: the usage limit, a command line that cannot run, or no network.
+    pub failure: Failure,
+    /// Why the round failed, as what carried it out said.
+    pub why: String,
+    /// The round that failed so, the latest that did: of this work, this run, this number.
+    pub work: u64,
+    pub run: u64,
+    pub round: usize,
+    /// When it ended.
+    pub since: u64,
+    /// When the agents' rounds may begin again.
+    pub until: Until,
+    /// Whether it holds rounds now: once its time has come, it stands only until a round that began after it comes
+    /// back, and holds nothing meanwhile.
+    pub holds: bool,
+}
+
+/// When the agents' rounds may begin again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Until {
+    /// At this time, every work's: as the usage limit resets.
+    At { at: u64 },
+    /// One round, of whichever work comes to one first, tries at this time; where `look`, the network is looked at
+    /// every half minute from then, and the round tries once a look reaches it, at the latest at `latest`.
+    Trial { at: u64, look: bool, latest: u64 },
+    /// Once the round that tries now has ended.
+    Tried,
+}
+
+/// The kind of cause of a round that failed, as what carried it out told it apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Failure {
+    /// In passing: tried again after a wait.
+    Passing,
+    /// What came back could not be read: sent back.
+    Unread,
+    /// The service's safety check flagged it: tried again in a new session of its line.
+    Flagged,
+    /// The account's usage limit.
+    UsageLimit,
+    /// The agents' command line cannot run.
+    CannotRun,
+    /// The network cannot be reached.
+    Offline,
+    /// The prompt is too long for the model.
+    PromptTooLong,
+    /// A cause no kind tells apart.
+    Other,
 }
 
 /// An item: a thing to be done.
@@ -41,6 +104,9 @@ pub struct Items {
 pub struct Item {
     pub number: u64,
     pub title: String,
+    /// The level it was given as it was added, which chooses what its agents' rounds run on; none for an item added
+    /// before items had levels, whose rounds run at the default level.
+    pub level: Option<String>,
     /// When it was added, in milliseconds since the start of 1970, as every time here is.
     pub added: u64,
     /// The items it depends on, in the order of their numbers.
@@ -59,7 +125,8 @@ pub struct Summary {
     /// The name of the flow it runs on.
     pub flow: String,
     pub added: u64,
-    /// Whether the work is paused: no round of it begins. A round under way goes on, and what it hands in is taken.
+    /// Whether the work is paused: no round of it begins but those of a run that answers a note, a person's words to
+    /// its cell. A round under way goes on, and what it hands in is taken.
     pub paused: bool,
     /// What the work does now.
     pub now: Now,
@@ -106,6 +173,9 @@ pub enum Now {
     /// It is paused, and what it would do next is begin a round: by the owner, or by the engine itself for this
     /// reason, as when a round failed.
     Paused { by: Pauser, why: Option<String> },
+    /// The owner's pause of everything holds it back, and what it would do next is begin a round; its own pause does
+    /// not hold it.
+    Everything {},
     /// It waits at this cell, for each of these.
     Waits { at: String, on: Vec<Waited> },
     /// It is about to do something at this cell. A work is never left so between two things that happen to it.
@@ -118,11 +188,21 @@ pub enum Now {
 pub enum Waited {
     /// The result of a call a run rests at: from this person, or from the engine where there is none.
     Call { call: u64, who: Option<Person>, what: Call },
-    /// A precondition of the cell does not hold: the named test, the words shown for it, and who can make it hold.
-    Precondition { test: String, words: String, who: Person },
+    /// A precondition of the cell does not hold: the named test, the words shown for it, and each who can make it
+    /// hold, by writing a block that keeps it from holding.
+    Precondition {
+        test: String,
+        words: String,
+        by: Vec<Maker>,
+    },
     /// The cell's last runs, this many in a row, were each for what a cell after it wrote, and so would the next be:
     /// the owner lets it go on or cancels the work.
     Limit { runs: u32 },
+    /// A free slot: as many rounds of agents are under way as the engine has slots, and the engine gives it the first
+    /// that comes free, in its order.
+    Slot {},
+    /// The wait every work shares: the cell's agent's round does not begin until it is over.
+    Agents { outage: Outage },
 }
 
 /// A person who can give what a work waits for.
@@ -131,6 +211,18 @@ pub enum Waited {
 pub enum Person {
     Owner,
     Architect,
+}
+
+/// Who can make a precondition hold, by writing a block its test reads.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Maker {
+    /// The owner, as people write the block.
+    Owner,
+    /// This source outside the work, such as the items the work depends on as they merge.
+    Outside { source: String },
+    /// The cell, by what its next run writes.
+    Cell { cell: String },
 }
 
 /// Who paused a work: the owner, or the engine itself.
@@ -151,6 +243,9 @@ pub enum Call {
     Question { who: Person, question: String },
     /// The run reached a limit: the owner lets it go on or cancels the work.
     AtLimit { limit: Limit },
+    /// The engine waits until this time before the run's last round, which failed in passing, the `failed`th time in
+    /// a row, is tried again.
+    Wait { until: u64, failed: u32 },
 }
 
 /// The limit a run reached.
@@ -223,6 +318,8 @@ pub struct WorkPage {
     pub summary: Summary,
     /// The title of its item.
     pub title: String,
+    /// The level of its item, as [`Item`] has it.
+    pub level: Option<String>,
     /// The flow it runs on, as the flow page reads a flow.
     pub flow: Flow,
     /// Each cell now, with why it would run and what it reads, in the order of the walk.
@@ -420,6 +517,8 @@ pub enum Unmet {
     NotAChoice { block: String },
     /// The block is one the cell must hand in each time, and was not handed in.
     NotHandedIn { block: String },
+    /// What came back could not be read as a return, for this reason.
+    Unreadable { why: String },
 }
 
 /// What came back at the end of a round.
@@ -430,8 +529,13 @@ pub enum Back {
     Asked { asks: Vec<Ask> },
     /// These blocks were handed in.
     HandedIn { blocks: Vec<Handed> },
-    /// Nothing came back: the round failed, for this reason.
-    Failed { why: String },
+    /// Nothing came back: the round failed, for this reason, of this kind of cause; `resets` says when the usage limit
+    /// it reached resets, where the round's report said.
+    Failed {
+        why: String,
+        failure: Failure,
+        resets: Option<u64>,
+    },
 }
 
 /// What an agent asks for at the end of a round.
@@ -525,6 +629,71 @@ pub struct TryPage {
     /// The message's whole length in bytes, where it was cut before its end.
     pub cut: Option<u64>,
     pub back: TryBack,
+    /// What it ran on as it began; none where its carrier kept nothing of it, as of an act of the engine's own.
+    pub ran: Option<RanOn>,
+}
+
+/// What a try of an agent's round ran on, as it was when the try began; or that what was kept of it cannot be read.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum RanOn {
+    On {
+        level: String,
+        model: String,
+        /// The reasoning effort its cell sets.
+        effort: Option<String>,
+    },
+    Unreadable {
+        why: String,
+    },
+}
+
+/// The levels an item may be given, lowest first, with the one it is given where it is given none, and the highest
+/// a level a line runs above its item's may reach.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LevelsPage {
+    /// Every level of the installation, those above the highest an item may be at among them.
+    pub levels: Vec<LevelPage>,
+    pub default: String,
+    pub highest: String,
+}
+
+/// A level, with what work it is for.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LevelPage {
+    pub name: String,
+    pub desc: String,
+}
+
+/// The level the owner puts an item at.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NewLevel {
+    pub level: String,
+}
+
+/// Whether putting an item at a level changed it: it was at that level already where not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LevelSet {
+    pub changed: bool,
+}
+
+impl LevelsPage {
+    pub fn of(levels: &Levels) -> LevelsPage {
+        LevelsPage {
+            levels: (levels.levels().iter())
+                .map(|level| LevelPage {
+                    name: level.name.clone(),
+                    desc: level.desc.clone(),
+                })
+                .collect(),
+            default: levels.default().to_string(),
+            highest: levels.highest().to_string(),
+        }
+    }
 }
 
 /// What came back of a try: only what the page shows of what the program printed, never the whole of it.
@@ -589,16 +758,46 @@ pub enum Act {
     Answer { call: u64, result: String },
 }
 
-/// An item the owner adds, with its work, which is added paused and begins no round until it is let on.
+/// An item the owner adds, with its work, which is added paused: it begins no round until the owner lets it on.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NewItem {
     pub title: String,
+    /// The level it is given; with none, the level the installation adds an item at where it is given none.
+    #[serde(default)]
+    pub level: Option<String>,
     pub depends_on: Vec<u64>,
     /// The name of the flow its work runs on.
     pub flow: String,
     /// What is written for it as it is added, each a block people write.
     pub writes: Vec<NewWrite>,
+}
+
+/// The engine as a whole: its slots, and the owner's pause of everything.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Engine {
+    /// How many rounds of agents may go on at once.
+    pub slots: u64,
+    /// How many are under way; more than there are slots where the slots were fewer when the engine started again.
+    pub taken: u64,
+    /// When the owner's pause of everything began, while it holds; none while works go on.
+    pub paused: Option<u64>,
+}
+
+/// What the owner does to the engine as a whole on the pages, each kind a struct as an [`Act`] is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum EngineAct {
+    /// Pauses everything: no work begins a round but those of a run that answers a note, until it is lifted.
+    Pause {},
+    /// Lifts the pause of everything: every work goes on that its own pause does not hold.
+    Resume {},
 }
 
 /// A block written as an item is added.
@@ -642,27 +841,30 @@ pub struct Refusal {
 pub struct Broken(pub String);
 
 impl Items {
-    /// Every item the driver holds, each with its work.
-    pub fn of(driver: &Driver) -> Result<Items, Broken> {
+    /// Every item the driver holds, each with its work, as they stand at this time.
+    pub fn of(driver: &Driver, now: Time) -> Result<Items, Broken> {
         let mut items = Vec::new();
+        let outage = driver.outage().map(|outage| Outage::of(&outage, driver.holds(now)));
         for kept in driver.works() {
             let view = viewed(driver, kept.head.number)?;
             items.push(Item {
                 number: kept.item.number.0,
                 title: kept.item.title.clone(),
+                level: kept.item.level.clone(),
                 added: kept.item.added.0,
                 depends_on: kept.item.depends_on.iter().map(|on| on.0).collect(),
-                work: Summary::of(kept, &view)?,
+                work: Summary::of(kept, &view, driver.held(kept.head.number), outage.as_ref())?,
             });
         }
         items.sort_by_key(|item| item.number);
-        Ok(Items { items })
+        Ok(Items { items, outage })
     }
 }
 
 impl Summary {
-    /// The work in brief, from what the driver holds of it and the deciding code's view of it.
-    pub fn of(kept: Kept<'_>, view: &View) -> Result<Summary, Broken> {
+    /// The work in brief, from what the driver holds of it, the deciding code's view of it, what holds back the round
+    /// it would begin next, and the wait every work shares, where one stands.
+    pub fn of(kept: Kept<'_>, view: &View, held: Option<Holder>, outage: Option<&Outage>) -> Result<Summary, Broken> {
         let work = kept.work;
         let runs = runs(kept)?;
         let cells = (view.cells.iter())
@@ -690,7 +892,7 @@ impl Summary {
             flow: kept.head.flow.clone(),
             added: kept.head.added.0,
             paused: decide::paused(&work.records),
-            now: Now::of(kept, &view.decision)?,
+            now: Now::of(kept, &view.decision, held, outage)?,
             cells,
             spent: runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)),
             last: work.moments.last().map(|moment| moment.at.0),
@@ -774,8 +976,27 @@ fn bar(kept: Kept<'_>, runs: &[Run]) -> String {
 }
 
 impl Now {
-    fn of(kept: Kept<'_>, decision: &Decision) -> Result<Now, Broken> {
+    /// What the work does now. Of what holds it back, its own pause is said first, then the owner's pause of
+    /// everything, then the wait every work shares, then a slot.
+    pub(crate) fn of(
+        kept: Kept<'_>,
+        decision: &Decision,
+        held: Option<Holder>,
+        outage: Option<&Outage>,
+    ) -> Result<Now, Broken> {
         let work = kept.work;
+        let everything = Now::Everything {};
+        let agents = |cell: &CellId| (kept.flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == Kind::Agent);
+        // The rounds of a cell the wait holds now: an agent's, and without the network every cell's.
+        let shared =
+            |cell: &CellId| (outage.filter(|o| o.holds)).is_some_and(|o| o.failure == Failure::Offline || agents(cell));
+        let waits_shared = |cell: &CellId| Now::Waits {
+            at: cell.to_string(),
+            on: outage
+                .into_iter()
+                .map(|outage| Waited::Agents { outage: outage.clone() })
+                .collect(),
+        };
         Ok(match decision {
             Decision::Fault(fault) => Now::Fault {
                 words: service::record_fault_words(fault),
@@ -797,10 +1018,20 @@ impl Now {
                     since: time(work, *last)?,
                 }
             }
+            Decision::Paused if held == Some(Holder::Everything) => everything,
             Decision::Paused => Now::paused(work)?,
-            // A run at rest that goes on holds its next round while the work is paused: the engine leaves a work so
-            // only when it is paused, as when the run's last round failed.
-            Decision::GoOn { .. } if decide::paused(&work.records) => Now::paused(work)?,
+            // A run at rest that goes on holds its next round while something holds it back: the engine leaves a work
+            // so only then, as when the run's last round failed and the work was paused.
+            Decision::GoOn { .. } if held == Some(Holder::Pause) => Now::paused(work)?,
+            Decision::GoOn { .. } if held == Some(Holder::Everything) => everything,
+            // A cell that would run or go on, and does not, is held by the wait every work shares, where it holds now
+            // and holds the cell's rounds: the engine leaves a work so only then. It is said before a slot.
+            Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if shared(cell) => waits_shared(cell),
+            Decision::Wait { at, on } if on == &[WaitedOf::Slot] && shared(at) => waits_shared(at),
+            Decision::GoOn { cell, .. } if held == Some(Holder::Slot) => Now::Waits {
+                at: cell.to_string(),
+                on: vec![Waited::Slot {}],
+            },
             Decision::Wait { at, on } => Now::Waits {
                 at: at.to_string(),
                 on: (on.iter())
@@ -811,13 +1042,14 @@ impl Now {
                                 who: on.as_ref().map(Person::of),
                                 what: call_of(work, *call)?,
                             },
-                            WaitedOf::Precondition { test, who } => Waited::Precondition {
+                            WaitedOf::Precondition { test, by } => Waited::Precondition {
                                 test: test.to_string(),
                                 words: (kept.flow.tests.get(test).cloned())
                                     .ok_or_else(|| Broken(format!("the flow has no test {test}")))?,
-                                who: Person::of(who),
+                                by: by.iter().map(Maker::of).collect(),
                             },
                             WaitedOf::Limit { runs } => Waited::Limit { runs: *runs },
+                            WaitedOf::Slot => Waited::Slot {},
                         })
                     })
                     .collect::<Result<_, Broken>>()?,
@@ -829,7 +1061,7 @@ impl Now {
     }
 
     /// The work's pause, with who paused it and why.
-    fn paused(work: &Work) -> Result<Now, Broken> {
+    pub(crate) fn paused(work: &Work) -> Result<Now, Broken> {
         let pause = decide::pause(&work.records).ok_or_else(|| Broken("the work has no pause".to_string()))?;
         Ok(Now::Paused {
             by: Pauser::of(pause.by),
@@ -856,6 +1088,16 @@ impl Person {
     }
 }
 
+impl Maker {
+    fn of(maker: &MakerOf) -> Maker {
+        match maker {
+            MakerOf::Owner => Maker::Owner,
+            MakerOf::Outside { source } => Maker::Outside { source: source.clone() },
+            MakerOf::Cell { cell } => Maker::Cell { cell: cell.to_string() },
+        }
+    }
+}
+
 impl Spent {
     fn with(self, other: Spent) -> Spent {
         Spent {
@@ -871,7 +1113,7 @@ impl Spent {
 
 impl WorkPage {
     /// The work of this number, as the driver holds it now; none where the driver has no such work.
-    pub fn of(driver: &Driver, number: WorkNumber) -> Result<Option<WorkPage>, Broken> {
+    pub fn of(driver: &Driver, number: WorkNumber, now: Time) -> Result<Option<WorkPage>, Broken> {
         let Some(kept) = driver.work(number) else {
             return Ok(None);
         };
@@ -968,8 +1210,17 @@ impl WorkPage {
         }
         steps.sort_by_key(Step::at);
         Ok(Some(WorkPage {
-            summary: Summary::of(kept, &view)?,
+            summary: Summary::of(
+                kept,
+                &view,
+                driver.held(number),
+                driver
+                    .outage()
+                    .map(|outage| Outage::of(&outage, driver.holds(now)))
+                    .as_ref(),
+            )?,
             title: kept.item.title.clone(),
+            level: kept.item.level.clone(),
             flow: Flow::of(kept.flow),
             cells,
             blocks,
@@ -1071,6 +1322,14 @@ impl ToldPage {
                     service::Back::Failed(why) => TryBack::Failed { why },
                     service::Back::Unreadable(why) => TryBack::Unreadable { why },
                 },
+                ran: t.ran.map(|ran| match ran {
+                    service::RanKept::On(on) => RanOn::On {
+                        level: on.level,
+                        model: on.model,
+                        effort: on.effort,
+                    },
+                    service::RanKept::Unreadable(why) => RanOn::Unreadable { why },
+                }),
             })
             .collect();
         ToldPage {
@@ -1123,10 +1382,13 @@ impl Act {
 }
 
 impl NewItem {
-    /// The item as the driver adds it.
-    pub fn taken(self) -> driver::NewItem {
-        driver::NewItem {
+    /// The item as the driver adds it, at the level it asks for or else at the default of these levels; or why it
+    /// cannot be at the level it asks for, in words.
+    pub fn taken(self, levels: &Levels) -> Result<driver::NewItem, String> {
+        let level = levels.of_item(self.level.as_deref())?;
+        Ok(driver::NewItem {
             title: self.title,
+            level,
             depends_on: self.depends_on.into_iter().map(ItemNumber).collect(),
             flow: self.flow,
             writes: (self.writes.into_iter())
@@ -1136,7 +1398,26 @@ impl NewItem {
                     value: write.value,
                 })
                 .collect(),
+        })
+    }
+}
+
+impl Engine {
+    /// The engine as the driver holds it.
+    pub fn of(driver: &Driver) -> Engine {
+        let slots = driver.slots();
+        Engine {
+            slots: slots.slots as u64,
+            taken: slots.taken as u64,
+            paused: driver.everything_paused().map(|since| since.0),
         }
+    }
+}
+
+impl EngineAct {
+    /// Whether the act sets the pause of everything, rather than lifting it.
+    pub fn pauses(self) -> bool {
+        matches!(self, EngineAct::Pause {})
     }
 }
 
@@ -1195,6 +1476,10 @@ fn call_of(work: &Work, call: CallId) -> Result<Call, Broken> {
                 LimitOf::Calls { made } => Limit::Calls { made: *made },
             },
         },
+        Some(CallOf::Wait { until, failed }) => Call::Wait {
+            until: until.0,
+            failed: *failed,
+        },
         None => return Err(Broken(format!("call {} is not held", call.0))),
     })
 }
@@ -1234,6 +1519,7 @@ impl Unmet {
             UnmetOf::NotAChoice { block } => Unmet::NotAChoice {
                 block: block.to_string(),
             },
+            UnmetOf::Unreadable { why } => Unmet::Unreadable { why: why.clone() },
             UnmetOf::NotHandedIn { block } => Unmet::NotHandedIn {
                 block: block.to_string(),
             },
@@ -1282,7 +1568,11 @@ fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                         })
                         .collect(),
                 },
-                BackOf::Failed { why } => Back::Failed { why: why.clone() },
+                BackOf::Failed { why, failure, resets } => Back::Failed {
+                    why: why.clone(),
+                    failure: Failure::of(*failure),
+                    resets: resets.map(|at| at.0),
+                },
             });
             let spent = match ended {
                 None => None,
@@ -1363,4 +1653,42 @@ fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
         });
     }
     Ok(runs)
+}
+
+impl Outage {
+    pub(crate) fn of(outage: &driver::Outage, holds: bool) -> Outage {
+        Outage {
+            failure: Failure::of(outage.failure),
+            why: outage.why.clone(),
+            work: outage.work.0,
+            run: outage.run.0,
+            round: outage.round,
+            since: outage.since.0,
+            until: match outage.until() {
+                UntilOf::At(at) => Until::At { at: at.0 },
+                UntilOf::Trial { at, look, latest } => Until::Trial {
+                    at: at.0,
+                    look,
+                    latest: latest.0,
+                },
+                UntilOf::Tried => Until::Tried,
+            },
+            holds,
+        }
+    }
+}
+
+impl Failure {
+    fn of(failure: FailureOf) -> Failure {
+        match failure {
+            FailureOf::Passing => Failure::Passing,
+            FailureOf::Unread => Failure::Unread,
+            FailureOf::Flagged => Failure::Flagged,
+            FailureOf::UsageLimit => Failure::UsageLimit,
+            FailureOf::CannotRun => Failure::CannotRun,
+            FailureOf::Offline => Failure::Offline,
+            FailureOf::PromptTooLong => Failure::PromptTooLong,
+            FailureOf::Other => Failure::Other,
+        }
+    }
 }

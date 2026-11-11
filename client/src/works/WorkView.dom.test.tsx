@@ -5,7 +5,7 @@ import { type ReactNode, act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { Act, Changed, WorkPage } from '../works-api';
+import type { Act, Changed, Waited, WorkPage } from '../works-api';
 import { fixtureCall, fixtureItems, fixtureRound, fixtureTold, fixtureVersion, fixtureWork } from './fixtures';
 import { pauseDiffers } from './marks';
 import { type Source, SourceContext } from './source';
@@ -323,7 +323,7 @@ describe('a work whose round failed', () => {
     await chooseStep(page, 3);
     const pause = page.querySelector('aside[aria-label="Paused"]') as HTMLElement;
     expect(pause.textContent).toContain(
-      `The engine paused the work: no round of it begins until the owner lets it on. Why: ${FAILED}`,
+      `The engine paused the work: only a note to a cell is answered until the owner lets it on. Why: ${FAILED}`,
     );
   });
 });
@@ -496,7 +496,7 @@ describe('what the owner does', () => {
     type(container.querySelector('form.answer textarea'), 'Leave them out');
     const now = work.summary.now;
     if (now.kind !== 'waits') throw new Error('the fixture waits');
-    const other = { kind: 'precondition', test: 'reviewed', words: 'The plan was reviewed', who: 'owner' } as const;
+    const other: Waited = { kind: 'precondition', test: 'reviewed', words: 'The plan was reviewed', by: [{ kind: 'owner' }] };
     render({ ...work, summary: { ...work.summary, now: { ...now, on: [other, ...now.on] } } });
     expect((container.querySelector('form.answer textarea') as HTMLTextAreaElement).value).toBe('Leave them out');
   });

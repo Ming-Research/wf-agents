@@ -11,18 +11,21 @@
 //! - [`records`]: what ran and what was written, each list only added to.
 //! - [`walk`]: the decision: which cell runs, which run goes on.
 //! - [`run`]: what a run that goes on does next.
+//! - [`room`]: what the engine as a whole leaves a work room for: the owner's pause of everything, and the slots.
 //! - [`view`](mod@view): a work as it is now, for whoever shows it.
 
 pub mod flow;
 pub mod records;
+pub mod room;
 pub mod run;
 pub mod view;
 pub mod walk;
 
-pub use flow::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Test, TestKind, TestName};
+pub use flow::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Outsiders, Test, TestKind, TestName};
 pub use records::{
     Abandoned, CallId, Called, Cause, Done, Finished, LetGo, Outsider, Pause, Pauser, RecordFault, Records, Returned,
     Round, RunId, Seq, Started, Who, Write, Written,
 };
-pub use view::{CellView, InputView, OpenRun, VersionView, View, Writer, versions, view};
-pub use walk::{Abandoning, Decision, End, Waited, decide, pause, paused, stale};
+pub use room::{Holder, Room, begun, taking_slot};
+pub use view::{CellView, InputView, OpenRun, VersionView, View, Writer, versions, view, view_in};
+pub use walk::{Abandoning, Decision, End, Maker, Waited, decide, decide_in, hold, hold_in, pause, paused, stale};

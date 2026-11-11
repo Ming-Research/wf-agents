@@ -42,7 +42,7 @@ type CellIn = {
 function flowOf(
   name: string,
   cells: CellIn[],
-  blocks: Record<string, { values?: string[]; people?: boolean; outside?: string; shown?: boolean }>,
+  blocks: Record<string, { values?: string[]; people?: boolean; note?: boolean; outside?: string; shown?: boolean }>,
 ): Flow {
   const all: Cell[] = cells.map((c) => ({
     id: c.id,
@@ -51,6 +51,7 @@ function flowOf(
     line: c.line === undefined ? 'engineer' : c.line,
     task: c.task ?? null,
     act: c.act ?? null,
+    effort: c.line === null ? null : 'high',
     condition: c.condition ?? null,
     preconditions: c.preconditions ?? [],
     inputs: c.inputs,
@@ -67,6 +68,7 @@ function flowOf(
       writtenBy: {
         cells: all.filter((c) => c.outputs.includes(b)).map((c) => c.id),
         people: blocks[b].people ?? false,
+        note: blocks[b].note ?? false,
         outside: blocks[b].outside ?? null,
       },
       readBy: {
@@ -79,6 +81,7 @@ function flowOf(
   const lines = [...new Set(all.flatMap((c) => (c.line ? [c.line] : [])))].sort().map((l) => ({
     name: l,
     cells: all.filter((c) => c.line === l).map((c) => c.id),
+    levelsAbove: 0,
   }));
   return { name, limits: LIMITS, lines, tests, cells: all, blocks: named };
 }
@@ -91,7 +94,7 @@ const REQUEST_READ = test('request_read', 'The owner read what the item asks for
 const MAY_MERGE = test('may_merge', 'The reviews are content and the owner lets it merge', ['content', 'merge_allowed']);
 
 /// A precondition not met that the owner makes hold.
-const owners = (t: Test): Waited => ({ kind: 'precondition', test: t.name, words: t.words, who: 'owner' });
+const owners = (t: Test): Waited => ({ kind: 'precondition', test: t.name, words: t.words, by: [{ kind: 'owner' }] });
 
 /// A made-up flow of an engineer's work: the initial research, deep research when it asks for it, the review of its
 /// plan, the implementation once the owner confirmed the plan, the tests, the review of the code, a check with the
@@ -474,6 +477,7 @@ export function fixtureItems(start = Date.now()): Items {
       ([n, m]): Item => ({
         number: Number(n),
         title: m.title,
+        level: '2',
         added: m.work.added,
         dependsOn: m.dependsOn,
         work: { ...m.work, item: Number(n), flow: FLOW.name },
@@ -489,7 +493,7 @@ function pageOf(item: Item, summary: Summary): WorkPage {
     needs: [],
     inputs: c.inputs.map((block) => ({ block, current: null, known: null, changed: false })),
   }));
-  return { summary, title: item.title, flow: FLOW, cells, blocks: [], steps: [] };
+  return { summary, title: item.title, level: item.level, flow: FLOW, cells, blocks: [], steps: [] };
 }
 
 /// The made-up items as a source the console reads: what the owner does changes them, and the console is told.

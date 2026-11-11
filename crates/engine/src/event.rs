@@ -1,9 +1,9 @@
 //! What happens to a work, and what is to be done for it.
 
-use decide::run::Unmet;
-use decide::{BlockId, CallId, CellId, Outsider, Pauser, RunId};
+use decide::run::{Failure, Unmet};
+use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId};
 
-use work::{Ask, Call, Given, Handed, Spent};
+use work::{Ask, Call, Given, Handed, Spent, Time};
 
 /// One thing that happened to a work.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -30,12 +30,25 @@ pub enum Event {
     Cancelled,
     /// The round of the run that was under way ended, having taken this.
     Returned { run: RunId, came: Came, spent: Spent },
-    /// The round of the run that was under way failed, for this reason, having taken this: nothing came back. Where
-    /// the run is open, the engine pauses the work with the reason as it takes this, and once the work is let on the
-    /// run's next round is given what the failed one was given.
-    Failed { run: RunId, why: String, spent: Spent },
+    /// The round of the run that was under way failed, for this reason, having taken this: nothing came back. The
+    /// cause is of the kind `failure`, as whatever carried the round out told it apart, and `resets` says when the
+    /// account's usage limit resets, where that is the cause and its report says when. Where the run is open, the
+    /// engine handles the failure as its kind says (crate `decide`, module `run`): where that is to pause the work, it
+    /// pauses it with the reason as it takes this; the run's next round is given what the failed one was given.
+    Failed {
+        run: RunId,
+        why: String,
+        failure: Failure,
+        resets: Option<Time>,
+        spent: Spent,
+    },
     /// The call has its result.
     Done { call: CallId, result: String },
+    /// What the work held outside the engine was let go, as [`Effect::Release`] asked.
+    Released,
+    /// What the work held outside the engine could not be let go, for this reason, as whatever carried out
+    /// [`Effect::Release`] says.
+    NotReleased { why: String },
 }
 
 /// What came back at the end of a round.
@@ -66,6 +79,24 @@ pub enum Effect {
     /// The round of this run that is under way is stopped: the run was abandoned with its work cancelled. It is to
     /// be done until the round is said to have ended; what comes back from it is dropped.
     Stop { run: RunId },
+    /// The work has ended so, and nothing of it is under way: what it holds outside the engine is let go (its
+    /// worktree, and its pull request where it did not merge; its branch stays). It is to be done until the work is
+    /// said to have released it.
+    Release { end: End },
+}
+
+/// Which rounds may begin, of this work as of every other: a round that failed for a cause every work shares, such as
+/// the account's usage limit, holds them, as whatever drives the engine works out from the records of every work. It
+/// holds back nothing of a run but the beginning of its rounds.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Gate {
+    /// Every round may begin.
+    #[default]
+    Open,
+    /// No round of an agent begins; the engine's own acts do.
+    Agents,
+    /// No round begins, the engine's own acts' included: they may reach the network, which cannot be reached.
+    Every,
 }
 
 /// Why what happened was not taken: it cannot have happened to this work.
@@ -85,4 +116,6 @@ pub enum Refused {
     NoSuchCall(CallId),
     /// The call has its result already.
     AlreadyDone(CallId),
+    /// The work has not ended, or something of it is still under way: it has nothing to let go yet.
+    NotToRelease,
 }

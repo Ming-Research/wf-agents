@@ -1,5 +1,5 @@
-//! The flow as the deciding code reads it: the cells in their order, the blocks each reads and writes, and the named
-//! tests their conditions and preconditions are.
+//! The flow as the deciding code reads it: the cells in their order, the blocks each reads and writes, the named tests
+//! their conditions and preconditions are, and which blocks are notes.
 //!
 //! Only what decides the next step is here. What a cell is given, what it hands in and how it is run belong to the
 //! parts of the engine that act.
@@ -50,11 +50,25 @@ name!(
     TestName
 );
 
-/// The cells of a flow, in the order the walk takes them, and the named tests they use.
+/// The cells of a flow, in the order the walk takes them, the named tests they use, and who besides the cells writes
+/// each block.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Flow {
     cells: Vec<Cell>,
     tests: BTreeMap<TestName, Test>,
+    /// Who besides the cells writes each block; a block not here is written by cells alone.
+    outsiders: BTreeMap<BlockId, Outsiders>,
+}
+
+/// Who writes a block without running a cell: the cells that write it are those with it among their outputs.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Outsiders {
+    /// People write it.
+    pub people: bool,
+    /// What people write in it is a note: their words to the cells that read it, which a paused work still answers.
+    pub note: bool,
+    /// The source outside the work that writes it, where one does.
+    pub outside: Option<String>,
 }
 
 /// A named test: a test of the values of blocks of the work itself, which the walk works out from the versions it
@@ -104,11 +118,18 @@ pub enum FlowFault {
     NoLimit(CellId),
     /// The cell's condition or a precondition is a named test the flow does not have.
     NoSuchTest(CellId, TestName),
+    /// A named test a cell uses reads a block that no cell, person or source outside the work writes: nobody could
+    /// change whether it holds, and a wait on it would name nobody.
+    Unwritten(TestName, BlockId),
 }
 
 impl Flow {
-    /// The flow of these cells, in this order, with these named tests.
-    pub fn new(cells: Vec<Cell>, tests: BTreeMap<TestName, Test>) -> Result<Self, FlowFault> {
+    /// The flow of these cells, in this order, with these named tests and these writers of blocks besides the cells.
+    pub fn new(
+        cells: Vec<Cell>,
+        tests: BTreeMap<TestName, Test>,
+        outsiders: BTreeMap<BlockId, Outsiders>,
+    ) -> Result<Self, FlowFault> {
         let Some(last) = cells.last() else {
             return Err(FlowFault::Empty);
         };
@@ -139,7 +160,43 @@ impl Flow {
                 return Err(FlowFault::NoSuchTest(cell.id.clone(), test.clone()));
             }
         }
-        Ok(Self { cells, tests })
+        let flow = Self {
+            cells,
+            tests,
+            outsiders,
+        };
+        for cell in &flow.cells {
+            let condition = match &cell.applies {
+                Some(Condition::Test(test)) => Some(test),
+                _ => None,
+            };
+            for name in condition.into_iter().chain(&cell.requires) {
+                if let Some(block) = flow.tests[name].reads.iter().find(|b| !flow.is_written(b)) {
+                    return Err(FlowFault::Unwritten(name.clone(), block.clone()));
+                }
+            }
+        }
+        Ok(flow)
+    }
+
+    /// Whether the block is a note: what people write in it are their words to the cells that read it.
+    pub fn is_note(&self, block: &BlockId) -> bool {
+        self.outsiders.get(block).is_some_and(|o| o.note)
+    }
+
+    /// Who besides the cells writes the block; none where only cells do.
+    pub fn outsiders(&self, block: &BlockId) -> Option<&Outsiders> {
+        self.outsiders.get(block)
+    }
+
+    /// The cells that have the block among their outputs, in the order of the walk.
+    pub fn writers<'f>(&'f self, block: &'f BlockId) -> impl Iterator<Item = &'f Cell> {
+        self.cells.iter().filter(move |c| c.outputs.contains(block))
+    }
+
+    /// Whether a cell, people or a source outside the work writes the block.
+    fn is_written(&self, block: &BlockId) -> bool {
+        self.outsiders(block).is_some_and(|o| o.people || o.outside.is_some()) || self.writers(block).next().is_some()
     }
 
     /// The cells, in the order the walk takes them.
@@ -166,7 +223,7 @@ pub struct Cell {
     /// before still counts.
     pub applies: Option<Condition>,
     /// The preconditions, each a named test of the flow: while one does not hold, the work waits before this cell for
-    /// the owner.
+    /// whoever writes a block that keeps it from holding.
     pub requires: Vec<TestName>,
     /// The blocks the cell reads: when one has changed in meaning since the cell last ran, the cell runs again.
     pub inputs: Vec<BlockId>,
@@ -175,11 +232,14 @@ pub struct Cell {
     /// How many times in a row the cell may run only for what cells after it wrote, before the work waits for the
     /// owner. At least one.
     pub limit: u32,
+    /// Whether each round of the cell takes one of the slots, which bound how many such rounds go on at once: an
+    /// agent's rounds do, and the engine's own acts do not.
+    pub slot: bool,
 }
 
 impl Cell {
-    /// A cell of this name that always runs, reads nothing, writes nothing and has a limit of three: what a
-    /// definition starts from.
+    /// A cell of this name that always runs, reads nothing, writes nothing, has a limit of three and takes a slot for
+    /// each of its rounds: what a definition starts from.
     pub fn new(id: &str) -> Self {
         Self {
             id: id.into(),
@@ -188,6 +248,7 @@ impl Cell {
             inputs: Vec::new(),
             outputs: Vec::new(),
             limit: 3,
+            slot: true,
         }
     }
 }

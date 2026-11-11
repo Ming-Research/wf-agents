@@ -9,7 +9,7 @@ use super::*;
 /// Opens a driver on the file with these flows, through a store that does not fail.
 fn open_with(db: &Db, flows: Vec<flow::Compiled>) -> Opened {
     let (store, _) = Failing::new(db.open());
-    Driver::open(Box::new(store), flows, Time(START))
+    Driver::open(Box::new(store), flows, SLOTS, Time(START))
 }
 
 #[test]
@@ -55,7 +55,7 @@ fn a_block_the_driver_writes_that_is_no_choice_of_waiting_and_merged_is_refused(
             is = "{is}"
             "#
         );
-        let write = "title = \"Write\"\nkind = \"agent\"\nline = \"main\"\ntask = \"Write the text.\"\n\
+        let write = "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write the text.\"\n\
                      requires = [\"ready\"]\noutputs = [\"text\"]\n";
         let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"text\"]\n";
         let odd = compiled(&flow, &[("write", write), ("merge", merge)]);
@@ -142,10 +142,12 @@ fn a_store_holding_works_gives_exactly_what_was_to_be_done_and_is_not_known_as_d
                 Effect::Call { .. } => "call",
                 Effect::Stop { .. } => "stop",
                 Effect::Withdraw { .. } => "withdraw",
+                Effect::Release { .. } => "release",
             };
             (t.work, kind)
         })
         .collect();
+    // The merged work's release is answered as it merges.
     let mut expected = vec![(a, "round"), (b, "call"), (c, "stop"), (d, "round"), (d, "withdraw")];
     expected.sort();
     let mut got = kinds.clone();
@@ -178,10 +180,10 @@ fn a_store_that_fails_as_the_driver_opens_is_the_fault_and_opening_again_gives_w
             n: at,
             on: false,
         };
-        let opened = Driver::open(Box::new(store), flows(), Time(h.clock));
+        let opened = Driver::open(Box::new(store), flows(), SLOTS, Time(h.clock));
         assert_eq!(opened.err(), Some(Fault::Store(failure())), "the call {at} failed");
         let (store, _) = Failing::new(h.db.open());
-        let (_, todos) = Driver::open(Box::new(store), flows(), Time(h.clock)).expect("the driver opens");
+        let (_, todos) = Driver::open(Box::new(store), flows(), SLOTS, Time(h.clock)).expect("the driver opens");
         assert_eq!(todos, pending, "opened after the call {at} failed");
     }
     h.check();
@@ -205,7 +207,7 @@ fn with_blocks(blocks: &str, tests: &str, requires: &str, outputs: &str) -> flow
         "#
     );
     let write = format!(
-        "title = \"Write\"\nkind = \"agent\"\nline = \"main\"\ntask = \"Write the text.\"\n\
+        "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write the text.\"\n\
          requires = [{requires}]\ninputs = [\"deps\"]\noutputs = [{outputs}]\n"
     );
     let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"text\"]\n";

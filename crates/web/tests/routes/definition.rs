@@ -24,7 +24,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
             "flow": {
                 "name": "tiny",
                 "limits": limits(3),
-                "lines": [{ "name": "engineer", "cells": ["plan", "review"] }],
+                "lines": [{ "name": "engineer", "cells": ["plan", "review"], "levelsAbove": 0 }],
                 "tests": [may_merge],
                 "cells": [
                     {
@@ -34,6 +34,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "line": "engineer",
                         "task": "Write the plan from the request.",
                         "act": null,
+                        "effort": "high",
                         "condition": null,
                         "preconditions": [],
                         "inputs": ["request", "opinions"],
@@ -48,6 +49,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "line": "engineer",
                         "task": "Review the plan.\nSay whether it is content.",
                         "act": null,
+                        "effort": "high",
                         "condition": null,
                         "preconditions": [],
                         "inputs": ["plan"],
@@ -62,6 +64,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "line": null,
                         "task": null,
                         "act": "merge",
+                        "effort": null,
                         "condition": null,
                         "preconditions": [may_merge],
                         "inputs": ["content"],
@@ -74,31 +77,31 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                     {
                         "name": "content",
                         "values": ["yes", "no"],
-                        "writtenBy": { "cells": ["review"], "people": false, "outside": null },
+                        "writtenBy": { "cells": ["review"], "people": false, "note": false, "outside": null },
                         "readBy": { "cells": ["merge"], "conditions": [], "tests": [], "shown": false },
                     },
                     {
                         "name": "go",
                         "values": ["yes", "no"],
-                        "writtenBy": { "cells": [], "people": true, "outside": null },
+                        "writtenBy": { "cells": [], "people": true, "note": false, "outside": null },
                         "readBy": { "cells": [], "conditions": [], "tests": ["may_merge"], "shown": false },
                     },
                     {
                         "name": "opinions",
                         "values": null,
-                        "writtenBy": { "cells": ["review"], "people": true, "outside": null },
+                        "writtenBy": { "cells": ["review"], "people": true, "note": false, "outside": null },
                         "readBy": { "cells": ["plan"], "conditions": [], "tests": [], "shown": false },
                     },
                     {
                         "name": "plan",
                         "values": null,
-                        "writtenBy": { "cells": ["plan"], "people": false, "outside": null },
+                        "writtenBy": { "cells": ["plan"], "people": false, "note": false, "outside": null },
                         "readBy": { "cells": ["review"], "conditions": [], "tests": [], "shown": false },
                     },
                     {
                         "name": "request",
                         "values": null,
-                        "writtenBy": { "cells": [], "people": true, "outside": null },
+                        "writtenBy": { "cells": [], "people": true, "note": false, "outside": null },
                         "readBy": { "cells": ["plan"], "conditions": [], "tests": [], "shown": false },
                     },
                 ],
@@ -163,7 +166,7 @@ async fn a_block_the_outside_writes_is_given_with_the_name_of_its_source_and_a_b
     let blocks = &answer["flow"]["blocks"];
     assert_eq!(
         blocks[4]["writtenBy"],
-        json!({ "cells": [], "people": false, "outside": "main" })
+        json!({ "cells": [], "people": false, "note": false, "outside": "main" })
     );
     assert_eq!(blocks[0]["readBy"]["tests"], json!(["may_merge"]));
     assert_eq!(answer["flow"]["tests"][0]["reads"], json!(["go", "content"]));

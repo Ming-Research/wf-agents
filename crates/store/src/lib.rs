@@ -17,6 +17,8 @@
 //! version of it is brought to this one as it is opened, by the migrations of `migrations/`, each in its turn and all
 //! of them in one transaction with the opening, so that a database is either opened at this version or left as it was.
 //!
+//! The store also keeps what is the installation's and no work's: the owner's pause of everything, set and lifted.
+//!
 //! - `items`: the items and the works done for them.
 //! - `tables`: a work's entries, table by table.
 
@@ -36,14 +38,17 @@ pub const SCHEMA: &str = include_str!("../schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 5;
 
 /// The migrations, in order: the first brings a database of version 1 of the schema to version 2, and each after it
 /// one version further, replacing the version's one row last. Each file is named by the minute it was written and
 /// what it does.
-const MIGRATIONS: &[&str] = &[include_str!(
-    "../migrations/202611101530-say-who-paused-a-work-and-why.sql"
-)];
+const MIGRATIONS: &[&str] = &[
+    include_str!("../migrations/202611101530-say-who-paused-a-work-and-why.sql"),
+    include_str!("../migrations/202611102304-give-items-a-level.sql"),
+    include_str!("../migrations/202611111400-say-when-a-work-let-go-of-what-it-held.sql"),
+    include_str!("../migrations/202611111401-keep-the-owners-pause-of-everything.sql"),
+];
 
 // The migrations bring a database of every earlier version to this one.
 const _: () = assert!(MIGRATIONS.len() as u32 + 1 == SCHEMA_VERSION);
@@ -65,6 +70,8 @@ pub enum Fault {
     NoSuchWork(WorkNumber),
     /// An item was to depend on one the store does not have: an item depends only on items added before it.
     NoSuchDependency(ItemNumber),
+    /// The store has no item of this number.
+    NoSuchItem(ItemNumber),
     /// The work given to be saved is not what the store holds with more added: at this entry of this table it holds
     /// something else, or lacks what the store holds. Nothing was saved.
     Diverged {
@@ -107,20 +114,25 @@ impl From<rusqlite::Error> for Fault {
 
 /// The store, as whatever drives the engine reaches it.
 pub trait Storage {
-    /// Adds an item, depending on these items, which must all be in the store already, together with the work done
-    /// for it on the flow of this name and what is kept of that work from its start, and gives their numbers. The
+    /// Adds an item at this level, depending on these items, which must all be in the store already, together with the
+    /// work done for it on the flow of this name and what is kept of that work from its start, and gives their numbers.
+    /// The
     /// item, the work and what is kept of it are added in one transaction: all of them or none. Only the flow's name
     /// is kept: which version of the flow the work runs on is not kept yet.
     fn add(
         &mut self,
         title: &str,
+        level: &str,
         depends_on: &[ItemNumber],
         flow: &str,
         at: Time,
         first: &Work,
     ) -> Result<(ItemNumber, WorkNumber), Fault>;
 
-    /// Every item, in the order of their numbers.
+    /// Puts the item at this level from now on, keeping the change with its time.
+    fn set_level(&mut self, item: ItemNumber, level: &str, at: Time) -> Result<(), Fault>;
+
+    /// Every item, in the order of their numbers, each at its latest level.
     fn items(&self) -> Result<Vec<Item>, Fault>;
 
     /// Every work, in the order of their numbers.
@@ -133,6 +145,13 @@ pub trait Storage {
     /// be where the given work begins: where it holds an entry the work lacks or holds otherwise, nothing is kept and
     /// the fault says where. Saving a work the store holds whole keeps nothing.
     fn save(&mut self, work: WorkNumber, given: &Work) -> Result<(), Fault>;
+
+    /// When the owner's pause of everything began, where it holds; none where it does not, as in a store that never
+    /// kept one.
+    fn everything_paused(&self) -> Result<Option<Time>, Fault>;
+
+    /// Keeps that the owner paused everything, or lifted that pause, at this time.
+    fn pause_everything(&mut self, paused: bool, at: Time) -> Result<(), Fault>;
 }
 
 impl Store {
@@ -196,17 +215,25 @@ impl Storage for Store {
     fn add(
         &mut self,
         title: &str,
+        level: &str,
         depends_on: &[ItemNumber],
         flow: &str,
         at: Time,
         first: &Work,
     ) -> Result<(ItemNumber, WorkNumber), Fault> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let item = items::add_item(&tx, title, depends_on, at)?;
+        let item = items::add_item(&tx, title, level, depends_on, at)?;
         let work = items::add_work(&tx, item, flow, at)?;
         tables::save(&tx, work, first)?;
         tx.commit()?;
         Ok((item, work))
+    }
+
+    fn set_level(&mut self, item: ItemNumber, level: &str, at: Time) -> Result<(), Fault> {
+        let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        items::set_level(&tx, item, level, at)?;
+        tx.commit()?;
+        Ok(())
     }
 
     fn items(&self) -> Result<Vec<Item>, Fault> {
@@ -228,6 +255,25 @@ impl Storage for Store {
         items::known(&tx, work)?;
         tables::save(&tx, work, given)?;
         tx.commit()?;
+        Ok(())
+    }
+
+    fn everything_paused(&self) -> Result<Option<Time>, Fault> {
+        let latest = (self.db)
+            .query_row(
+                "SELECT paused, time FROM everything_paused ORDER BY n DESC LIMIT 1",
+                [],
+                |row| Ok((row.get::<_, bool>(0)?, row.get::<_, u64>(1)?)),
+            )
+            .optional()?;
+        Ok(latest.and_then(|(paused, time)| paused.then_some(Time(time))))
+    }
+
+    fn pause_everything(&mut self, paused: bool, at: Time) -> Result<(), Fault> {
+        (self.db).execute(
+            "INSERT INTO everything_paused (paused, time) VALUES (?1, ?2)",
+            rusqlite::params![paused, at.0],
+        )?;
         Ok(())
     }
 }

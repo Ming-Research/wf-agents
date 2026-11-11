@@ -1,7 +1,7 @@
 //! What changed of a cell that both definitions have.
 
 use decide::Condition;
-use flow::{CellChange, Change, FLOW_FILE, Kind, Limit};
+use flow::{CellChange, Change, Effort, FLOW_FILE, Kind, Limit};
 
 use crate::support::{edit, valid};
 use crate::{compiled, from_valid};
@@ -28,7 +28,7 @@ fn a_cell_s_title_kind_line_task_and_act_are_each_a_change_with_both_values() {
         after,
         "check.toml",
         "kind = \"engine\"\nact = \"check\"",
-        "kind = \"agent\"\nline = \"engineer\"\ntask = \"Check the work with the latest main.\"",
+        "kind = \"agent\"\neffort = \"high\"\nline = \"engineer\"\ntask = \"Check the work with the latest main.\"",
     );
     assert_eq!(
         from_valid(&after),
@@ -75,7 +75,43 @@ fn a_cell_s_title_kind_line_task_and_act_are_each_a_change_with_both_values() {
                     after: None,
                 },
             ),
+            of(
+                "check",
+                CellChange::Effort {
+                    before: None,
+                    after: Some(Effort::High),
+                },
+            ),
         ]
+    );
+}
+
+#[test]
+fn a_line_that_comes_to_only_read_is_a_change_of_each_cell_on_it() {
+    let after = edit(
+        valid(),
+        FLOW_FILE,
+        "[lines.review]",
+        "[lines.review]\nreads_only = true",
+    );
+    let only_reads = CellChange::ReadsOnly {
+        before: false,
+        after: true,
+    };
+    assert_eq!(from_valid(&after), [of("judge", only_reads)]);
+    // A cell moved to a line that writes from one that only reads is a change of its line and of what it may do.
+    let moved = edit(after.clone(), "judge.toml", "line = \"review\"", "line = \"engineer\"");
+    let line = CellChange::Line {
+        before: Some("review".to_string()),
+        after: Some("engineer".to_string()),
+    };
+    let writes = CellChange::ReadsOnly {
+        before: true,
+        after: false,
+    };
+    assert_eq!(
+        flow::compare(&compiled(&after), &compiled(&moved)),
+        [of("judge", line), of("judge", writes)]
     );
 }
 

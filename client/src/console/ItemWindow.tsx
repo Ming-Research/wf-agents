@@ -45,6 +45,7 @@ import {
   type WorkPage,
 } from '../works-api';
 import { StateLegend, Strip } from '../works/marks';
+import { callWords, outageWords } from '../works/words';
 import { type ItemStanding, standingOf, whoGives } from './items';
 import { Markdown } from './markdown';
 import { markRead } from './mock';
@@ -81,7 +82,8 @@ const WHO = { owner: 'you', architect: 'the architect' } as const;
 
 /// Who gives what a work waits for, in words: the person a call names or the engine, you for a run let on at its
 /// limit, and for a precondition the person who can make it hold, or else the cells that can, by their titles; none
-/// for a precondition only sources outside the work can make hold, such as the items it depends on being merged.
+/// for a precondition only sources outside the work can make hold, such as the items it depends on being merged; the
+/// engine for a free slot and for the wait every work shares.
 function whom(w: Waited, page: WorkPage | null): string | null {
   switch (w.kind) {
     case 'limit':
@@ -91,9 +93,12 @@ function whom(w: Waited, page: WorkPage | null): string | null {
     case 'precondition': {
       const person = whoGives(w);
       if (person !== null) return WHO[person];
-      const cells = (w.by ?? []).flatMap((m) => (m.kind === 'cell' ? [titleOf(page, m.cell)] : []));
+      const cells = w.by.flatMap((m) => (m.kind === 'cell' ? [titleOf(page, m.cell)] : []));
       return cells.length > 0 ? cells.join(' or ') : null;
     }
+    case 'slot':
+    case 'agents':
+      return 'the engine';
   }
 }
 
@@ -143,12 +148,18 @@ function lineWords(w: Waited, cell: string): string {
           return w.what.limit.of === 'returns'
             ? `${cell} reached its limit: ${w.what.limit.sentBack} returns sent back`
             : `${cell} reached its limit: ${w.what.limit.made} calls made`;
+        case 'wait':
+          return `at ${cell}, for ${callWords(w.what)}`;
       }
       return '';
     case 'precondition':
       return `until ${w.words.charAt(0).toLowerCase()}${w.words.slice(1)}`;
     case 'limit':
       return `${cell} reached its limit: ${w.runs} runs in a row for what a cell after it wrote`;
+    case 'slot':
+      return `at ${cell}, for a free slot, which the engine gives in its order`;
+    case 'agents':
+      return `at ${cell}, for the wait every work shares: ${outageWords(w.outage)}`;
   }
 }
 
@@ -186,6 +197,8 @@ export function nowWords(s: Summary, page: WorkPage | null): { word: string; fac
     }
     case 'paused':
       return now.by === 'engine' ? { word: MOOD_WORDS.halted, facts: now.why } : { word: MOOD_WORDS.paused, facts: null };
+    case 'everything':
+      return { word: MOOD_WORDS.paused, facts: 'with every work' };
     case 'fault':
       return { word: MOOD_WORDS.halted, facts: now.words };
     case 'merged':

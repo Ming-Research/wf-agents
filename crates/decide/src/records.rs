@@ -47,6 +47,35 @@ pub struct Records {
     pub pauses: Vec<Pause>,
     /// When the work's item was cancelled, if it was.
     pub cancelled: Option<Seq>,
+    /// When what the work held outside the engine was let go, once it had ended and nothing of it was under way: its
+    /// worktree, and its pull request where it did not merge. Records kept before the engine let go of anything have
+    /// none, and read so.
+    #[serde(default)]
+    pub released: Option<Seq>,
+}
+
+impl Records {
+    /// The records as they stood before this place: every entry at an earlier place, and none at it or after. Records
+    /// are only added to, so these are what was recorded then, and what was decided then is decided again from them.
+    pub fn before(&self, place: Seq) -> Records {
+        fn kept<T: Clone>(entries: &[T], at: impl Fn(&T) -> Seq, place: Seq) -> Vec<T> {
+            entries.iter().filter(|e| at(e) < place).cloned().collect()
+        }
+        Records {
+            started: kept(&self.started, |e| e.at, place),
+            rounds: kept(&self.rounds, |e| e.at, place),
+            returned: kept(&self.returned, |e| e.at, place),
+            called: kept(&self.called, |e| e.at, place),
+            done: kept(&self.done, |e| e.at, place),
+            finished: kept(&self.finished, |e| e.at, place),
+            abandoned: kept(&self.abandoned, |e| e.at, place),
+            written: kept(&self.written, |e| e.at, place),
+            let_go: kept(&self.let_go, |e| e.at, place),
+            pauses: kept(&self.pauses, |e| e.at, place),
+            cancelled: self.cancelled.filter(|at| *at < place),
+            released: self.released.filter(|at| *at < place),
+        }
+    }
 }
 
 /// A run began.

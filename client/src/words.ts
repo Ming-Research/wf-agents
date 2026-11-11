@@ -44,8 +44,9 @@ export function kindWords(kind: Kind): string {
 
 /// Who writes a block besides cells, in words, the outside by the source that writes it; empty when only cells do.
 export function writersBesideCells(block: Block): string[] {
-  const { people, outside } = block.writtenBy;
-  return [...(people ? ['people'] : []), ...(outside !== null ? [`the outside (${outside})`] : [])];
+  const { people, note, outside } = block.writtenBy;
+  const byPeople = note ? 'people, as a note to the cells that read it' : 'people';
+  return [...(people ? [byPeople] : []), ...(outside !== null ? [`the outside (${outside})`] : [])];
 }
 
 /// What is wrong, in a sentence.
@@ -78,14 +79,24 @@ export function faultWords(fault: Fault): string {
       return "An engine's cell names no act to carry it out.";
     case 'agentHasAct':
       return `An agent carries the cell out, but the cell names the act "${w.act}".`;
+    case 'engineHasEffort':
+      return "An engine's cell names a reasoning effort, which no agent runs at.";
+    case 'noEffort':
+      return "An agent's cell names no reasoning effort for its rounds to run at.";
     case 'unknownAct':
       return `The engine has no act named "${w.act}".`;
     case 'valuesEmpty':
       return 'A choice has no values to choose from.';
+    case 'noteNotByPeople':
+      return `${w.block} is a note, but people do not write it.`;
+    case 'noteIsAChoice':
+      return `${w.block} is a note, but it is a choice, and a note is words to a cell.`;
     case 'noSuchBlock':
       return `The block ${w.block} is not declared in flow.toml.`;
     case 'notAnOutput':
       return `The cell must write ${w.block} every time, but ${w.block} is not among the blocks it may write.`;
+    case 'notAnInput':
+      return `The cell says what the work is by ${w.block}, but ${w.block} is not among the blocks it reads.`;
     case 'noWriter':
       return `Nothing writes ${w.block}: no cell of the order, no person and nothing outside.`;
     case 'noReader':
@@ -125,6 +136,7 @@ export function faultWords(fault: Fault): string {
         lastHasCondition: 'The last cell has a condition.',
         noLimit: "A cell's limit is zero.",
         noSuchTest: "A cell names a test the flow does not have.",
+        unwritten: 'A test a cell uses reads a block that nothing writes.',
       }[w.reason];
       return `${why}${at}`;
     }
@@ -149,6 +161,7 @@ export function placeOf(change: Change): Place {
     case 'blockRemoved':
     case 'values':
     case 'people':
+    case 'note':
     case 'outside':
     case 'shown':
       return { on: 'block', block: change.block };
@@ -196,6 +209,8 @@ export function changeWords(change: Change): ChangeWords {
       return { what: 'Run by', before: kindWords(c.before), after: kindWords(c.after) };
     case 'line':
       return { what: 'Line', before: c.before ?? 'none', after: c.after ?? 'none' };
+    case 'readsOnly':
+      return { what: 'Only reads', before: yesNo(c.before), after: yesNo(c.after) };
     case 'task':
       return { what: 'Task', before: c.before ?? 'none', after: c.after ?? 'none' };
     case 'act':
@@ -218,8 +233,16 @@ export function changeWords(change: Change): ChangeWords {
       return { what: 'Writes every time', before: '', after: c.block };
     case 'mustWriteRemoved':
       return { what: 'Writes every time', before: c.block, after: '' };
+    case 'describesAdded':
+      return { what: 'Says what the work is by', before: '', after: c.block };
+    case 'describesRemoved':
+      return { what: 'Says what the work is by', before: c.block, after: '' };
     case 'cellLimit':
       return { what: `Limit of ${LIMIT_WORDS[c.limit]}`, before: `${c.before}`, after: `${c.after}` };
+    case 'effort':
+      return { what: 'Effort', before: c.before ?? 'none', after: c.after ?? 'none' };
+    case 'levelsAbove':
+      return { what: "Levels above the item's", before: `${c.before}`, after: `${c.after}` };
     case 'blockAdded':
       return { what: 'Declared', before: '', after: '' };
     case 'blockRemoved':
@@ -228,6 +251,8 @@ export function changeWords(change: Change): ChangeWords {
       return { what: 'Values', before: values(c.before), after: values(c.after) };
     case 'people':
       return { what: 'Written by people', before: yesNo(c.before), after: yesNo(c.after) };
+    case 'note':
+      return { what: 'A note', before: yesNo(c.before), after: yesNo(c.after) };
     case 'outside':
       return { what: 'Written by the outside', before: c.before ?? 'no', after: c.after ?? 'no' };
     case 'shown':

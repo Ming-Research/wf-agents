@@ -1,6 +1,6 @@
 //! A small work taken through the loop: what the engine gives to be done at each thing that happens.
 
-use decide::{Cause, Decision, Outsider, Waited, Who, decide};
+use decide::{Cause, Decision, Maker, Outsider, Waited, decide};
 use engine::{Came, Effect, Event, Given, Handed, Spent, Time, Work, handle, pending};
 use flow::{Compiled, Has, Source, compile};
 
@@ -38,6 +38,7 @@ fn small() -> Compiled {
     let write = r#"
         title = "Write"
         kind = "agent"
+        effort = "high"
         line = "main"
         task = "Write the text the request asks for."
         inputs = ["request", "opinions"]
@@ -46,6 +47,7 @@ fn small() -> Compiled {
     let judge = r#"
         title = "Judge"
         kind = "agent"
+        effort = "high"
         line = "other"
         task = "Judge the text."
         inputs = ["text"]
@@ -106,7 +108,7 @@ fn a_work_goes_from_cell_to_cell_as_each_hands_in_and_rests_at_the_merge_for_the
     assert_eq!(given, Given::Task);
     assert_eq!(work.records.started[0].because, [Cause::NoRecord]);
     // While the round is under way it is what a driver that starts anew is given again.
-    assert_eq!(round(&pending(&work)), (write, cell, given));
+    assert_eq!(round(&pending(&flow, &work)), (write, cell, given));
 
     let came = hands_in("text", None);
     let (judge, cell, _) = round(
@@ -137,10 +139,10 @@ fn a_work_goes_from_cell_to_cell_as_each_hands_in_and_rests_at_the_merge_for_the
     )
     .unwrap();
     assert_eq!(effects, vec![]);
-    assert_eq!(pending(&work), vec![]);
+    assert_eq!(pending(&flow, &work), vec![]);
     let word = Waited::Precondition {
         test: "may_merge".into(),
-        who: Who::Owner,
+        by: vec![Maker::Owner],
     };
     let rests = Decision::Wait {
         at: "merge".into(),

@@ -11,7 +11,8 @@ import type {
   Act,
   CallPage,
   Changed,
-  EngineState,
+  Engine,
+  EngineAct,
   Items,
   RoundPage,
   ToldPage,
@@ -28,8 +29,8 @@ export interface Source {
   loadCall(work: number, call: number): Promise<CallPage>;
   act(work: number, what: Act): Promise<null>;
   /// How the engine stands as a whole, and the owner's pause of everything; a source that has no engine has neither.
-  loadEngine?(): Promise<EngineState>;
-  actOnEngine?(kind: 'pause' | 'resume'): Promise<null>;
+  loadEngine?(): Promise<Engine>;
+  actOnEngine?(what: EngineAct): Promise<null>;
   /// Tells `onChanged` each time something happened, and `onOpened` each time the stream of changes opens, the first
   /// time and again after it was lost, when changes may have been missed; gives the way to stop.
   changes(onChanged: (changed: Changed) => void, onOpened: () => void): () => void;

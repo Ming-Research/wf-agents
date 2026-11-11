@@ -117,6 +117,11 @@ fn an_engine_act_s_hand_in_is_held_to_what_its_cell_must_write() {
         vec![round_effect(merge, "merge", 2, Given::SentBack(unmet))]
     );
     assert!(!finished(&w, merge));
-    assert_eq!(w.returns(merge, hands_in(&[("merged", None)])), vec![]);
+    assert_eq!(
+        w.returns(merge, hands_in(&[("merged", None)])),
+        vec![Effect::Release {
+            end: decide::End::Merged
+        }]
+    );
     assert_eq!(w.decision(), decide::Decision::Ended(decide::End::Merged));
 }

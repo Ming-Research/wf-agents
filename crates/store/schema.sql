@@ -15,11 +15,23 @@ CREATE TABLE schema_version (
     version INTEGER PRIMARY KEY
 );
 
--- An item: a thing to be done. Its number is given by the store, counting from one.
+-- An item: a thing to be done. Its number is given by the store, counting from one. Its level is the name of the level
+-- of the installation it was given as it was added; null for an item kept before items had levels.
 CREATE TABLE items (
     number INTEGER PRIMARY KEY,
     title TEXT NOT NULL,
-    added INTEGER NOT NULL
+    added INTEGER NOT NULL,
+    level TEXT
+);
+
+-- An item was put at another level by the owner, its nth change counting from one, at this time. Its level is that of
+-- its latest change, or the one it was added at where it has none.
+CREATE TABLE level_changes (
+    item INTEGER NOT NULL REFERENCES items (number),
+    n INTEGER NOT NULL,
+    level TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (item, n)
 );
 
 -- An item depends on another, added before it.
@@ -166,6 +178,22 @@ CREATE TABLE pauses (
 
 -- The work's item was cancelled: one row for a work that was.
 CREATE TABLE cancelled (
+    work INTEGER PRIMARY KEY REFERENCES works (number),
+    at INTEGER NOT NULL
+);
+
+-- The owner paused every work (1) or lifted that pause (0), at `time`, `n` counting from one: the latest row says
+-- whether the pause holds, and none that it does not. While it holds no work begins a round but those of a run that
+-- answers a note, as the work's own pause holds them back. It is the installation's, not a work's.
+CREATE TABLE everything_paused (
+    n INTEGER PRIMARY KEY,
+    paused INTEGER NOT NULL CHECK (paused IN (0, 1)),
+    time INTEGER NOT NULL
+);
+
+-- What the work held outside the engine was let go, once it had ended and nothing of it was under way: one row for a
+-- work that did.
+CREATE TABLE released (
     work INTEGER PRIMARY KEY REFERENCES works (number),
     at INTEGER NOT NULL
 );

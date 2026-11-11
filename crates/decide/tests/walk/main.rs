@@ -17,7 +17,9 @@ mod meaning;
 mod named_tests;
 mod opinions;
 mod order;
+mod paused_answers;
 mod preconditions;
+mod room;
 mod rounds;
 mod skipping;
 mod stale;
@@ -25,8 +27,8 @@ mod stale;
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoned, Abandoning, BlockId, CallId, Cause, Cell, Condition, Decision, Done, End, Flow, FlowFault, Pauser,
-    RecordFault, Returned, Round, RunId, Seq, Waited, Who, Write, Written,
+    Abandoned, Abandoning, BlockId, CallId, Cause, Cell, Condition, Decision, Done, End, Flow, FlowFault, Maker,
+    Pauser, RecordFault, Returned, Round, RunId, Seq, Waited, Who, Write, Written,
 };
 use support::Says::{DoesNotMatter, Matters, Value};
 use support::{World, cell, gate, merge_word, resting};
@@ -80,8 +82,14 @@ fn outdated(block: &str) -> Abandoning {
     Abandoning::Outdated { block: block.into() }
 }
 
-fn precondition(test: &str, who: Who) -> Waited {
-    Waited::Precondition { test: test.into(), who }
+/// The wait on the precondition, which these can make hold.
+fn precondition(test: &str, by: Vec<Maker>) -> Waited {
+    Waited::Precondition { test: test.into(), by }
+}
+
+/// The cell of this name, as one who can make a precondition hold.
+fn by_cell(cell: &str) -> Maker {
+    Maker::Cell { cell: cell.into() }
 }
 
 /// A cell that runs only when the block's current value is this one.

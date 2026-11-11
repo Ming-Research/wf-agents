@@ -1,16 +1,14 @@
-//! The work's place in the project's repository, with plain `git`: a branch and a worktree for each work, the check
-//! before the merge, and the merge. Each is idempotent, since a round may be given again after the process started
-//! again: what was done already is found and said again, not done a second time.
+//! The work's place in the project's local repository, with plain `git`: a branch and a worktree for each work, what
+//! the check before the merge finds in them, and the merge into the repository's own main branch. Each is idempotent,
+//! since a round may be given again after the process started again: what was done already is found and said again,
+//! not done a second time.
 
 use std::path::{Path, PathBuf};
 
 use store::WorkNumber;
 use tokio::process::Command;
-use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::held::Stop;
-use crate::process::{self, Ran};
 use crate::settings::Project;
 
 /// The directory in the data directory that holds the works' worktrees.
@@ -40,17 +38,6 @@ pub struct Started {
     pub from: String,
 }
 
-/// What the check before the merge found.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Checked {
-    /// The commit checked: the head of the work's branch.
-    pub commit: String,
-    /// The head of the main branch it was checked against.
-    pub main: String,
-    /// What failed, with the end of what it said; none where everything passed.
-    pub failed: Option<String>,
-}
-
 /// The installation's part of the names of its branches and worktrees: the first eight characters of its id.
 pub fn tag(installation: &Uuid) -> String {
     installation.simple().to_string()[..8].to_string()
@@ -66,18 +53,19 @@ pub fn place(data: &Path, tag: &str, work: WorkNumber) -> Place {
 }
 
 /// What a git command gave: whether it exited with 0, and its standard output and error.
-struct Said {
-    ok: bool,
-    code: Option<i32>,
-    out: String,
-    err: String,
+pub(crate) struct Said {
+    pub(crate) ok: bool,
+    pub(crate) code: Option<i32>,
+    pub(crate) out: String,
+    pub(crate) err: String,
 }
 
-/// What every git command of the engine's is given before its own arguments: no file-system monitor, no hook and
-/// no signing, so that nothing the repository's configuration names is run by these settings. A work's worktree
-/// shares that configuration with the owner's checkout, and an agent may write it; what else of it could run a
-/// program is refused before each act ([`configuration`]).
-pub const SAFE: [&str; 8] = [
+/// What every git command of the engine's is given before its own arguments: no file-system monitor, no hook, no
+/// signing, and no going into submodules, so that nothing the repository's configuration names is run by these
+/// settings, and nothing a submodule's own configuration names, which no check of the engine's reads. A work's
+/// worktree shares that configuration with the owner's checkout, and an agent may write it; what else of it could run
+/// a program is refused before each act ([`configuration`]).
+pub const SAFE: [&str; 14] = [
     "-c",
     "core.fsmonitor=false",
     "-c",
@@ -86,26 +74,53 @@ pub const SAFE: [&str; 8] = [
     "commit.gpgSign=false",
     "-c",
     "merge.verifySignatures=false",
+    "-c",
+    "submodule.recurse=false",
+    "-c",
+    "fetch.recurseSubmodules=false",
+    "-c",
+    "push.recurseSubmodules=no",
 ];
 
 /// Runs git in the directory; says why where it cannot be started. Git is given, of the engine's environment, only
 /// what the agents are given of it (`cli::KEPT` and every `LC_*`), so that no `GIT_*` variable of the engine's
 /// reaches it but the one set here.
-async fn said(dir: &Path, args: &[&str]) -> Result<Said, String> {
+pub(crate) async fn said(dir: &Path, args: &[&str]) -> Result<Said, String> {
+    said_with(dir, &With::default(), args).await
+}
+
+/// How long a git command may take before it is given up: a fetch or a push of a large repository over a slow
+/// connection, at the most. A connection that stalls is given up sooner, by the low-speed limit pushes and fetches
+/// are given.
+pub const LIMIT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// What a git command is given beside its arguments: settings before them, as `-c` pairs, and variables of its
+/// environment beside those [`said`] keeps. Neither is said where the command fails, so that a credential given in
+/// the environment is said nowhere.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct With {
+    pub(crate) settings: Vec<String>,
+    pub(crate) env: Vec<(String, String)>,
+}
+
+/// Runs git in the directory as [`said`] does, with what is given beside its arguments.
+pub(crate) async fn said_with(dir: &Path, with: &With, args: &[&str]) -> Result<Said, String> {
     let kept =
         std::env::vars().filter(|(name, _)| crate::cli::KEPT.contains(&name.as_str()) || name.starts_with("LC_"));
-    let output = Command::new("git")
+    let settings = (with.settings.iter()).flat_map(|setting| ["-c", setting.as_str()]);
+    let mut command = Command::new("git");
+    command
         .arg("-C")
         .arg(dir)
         .args(SAFE)
+        .args(settings)
         .args(args)
         .env_clear()
         .envs(kept)
+        .envs(with.env.iter().cloned())
         .env("GIT_TERMINAL_PROMPT", "0")
-        .stdin(std::process::Stdio::null())
-        .output()
-        .await
-        .map_err(|e| format!("git cannot be started: {e}"))?;
+        .stdin(std::process::Stdio::null());
+    let output = crate::process::output(command, LIMIT).await?;
     Ok(Said {
         ok: output.status.success(),
         code: output.status.code(),
@@ -115,8 +130,13 @@ async fn said(dir: &Path, args: &[&str]) -> Result<Said, String> {
 }
 
 /// Runs git in the directory and gives its standard output; or says what failed, with what git said.
-async fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let said = said(dir, args).await?;
+pub(crate) async fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
+    git_with(dir, &With::default(), args).await
+}
+
+/// Runs git in the directory as [`git`] does, with what is given beside its arguments.
+pub(crate) async fn git_with(dir: &Path, with: &With, args: &[&str]) -> Result<String, String> {
+    let said = said_with(dir, with, args).await?;
     if said.ok {
         Ok(said.out)
     } else {
@@ -130,11 +150,12 @@ fn text(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-/// Makes the work's branch from the main branch's head and its worktree, keeping both where they are made already.
-pub async fn start(project: &Project, place: &Place) -> Result<Started, String> {
+/// Makes the work's branch from `from`, the head of main as the host gives it, and its worktree, keeping both where
+/// they are made already.
+pub async fn start(project: &Project, place: &Place, from: &str) -> Result<Started, String> {
     configuration(project, place).await?;
     let repo = &project.repo;
-    let (branch, main) = (place.reference(), format!("refs/heads/{}", project.main));
+    let branch = place.reference();
     if place.dir.exists() {
         let on = git(&place.dir, &["symbolic-ref", "--quiet", "HEAD"]).await?;
         if on != branch {
@@ -157,14 +178,204 @@ pub async fn start(project: &Project, place: &Place) -> Result<Started, String> 
         if exists {
             git(repo, &["worktree", "add", &dir, &place.branch]).await?;
         } else {
-            git(repo, &["worktree", "add", "-b", &place.branch, &dir, &main]).await?;
+            git(repo, &["worktree", "add", "-b", &place.branch, &dir, from]).await?;
         }
     }
-    let from = git(repo, &["merge-base", &main, &branch]).await?;
+    let from = git(repo, &["merge-base", from, &branch]).await?;
     Ok(Started {
         place: place.clone(),
         from,
     })
+}
+
+/// The code before a work's change with some files of the head of its branch put on it, as one commit, which the
+/// agents' tool `check_before` checks.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Before {
+    /// The head of the work's branch the files are taken from.
+    pub head: String,
+    /// The code before the change: the commit of main the branch's change begins from.
+    pub base: String,
+    /// The files put on it, as the head holds them.
+    pub files: Vec<String>,
+    /// The commit made of the base with the files put on it.
+    pub commit: String,
+}
+
+/// Makes the commit of the code before the work's change, its branch's merge base with `main`, with these files put on
+/// it as the head of the branch holds them; or says why it is not made, in words for the agent that asked: a file the
+/// head does not hold, or one whose changes are not committed. Made again of the same files on the same base, it is
+/// the same commit. Nothing changes in the worktree. Refused where the repository's configuration is ([`configuration`]).
+pub(crate) async fn before(
+    project: &Project,
+    place: &Place,
+    main: &str,
+    files: &[String],
+) -> Result<Result<Before, String>, String> {
+    let dir = worktree(place)?;
+    configuration(project, place).await?;
+    on_branch(place).await?;
+    let repo = &project.repo;
+    let head = git(repo, &["rev-parse", &place.reference()]).await?;
+    let base = git(repo, &["merge-base", &head, main]).await?;
+    let mut wrong = Vec::new();
+    let mut entries = Vec::new();
+    for file in files {
+        // `<mode> blob <id>\t<path>` for a file the head holds at that path, and nothing else.
+        let listed = git(repo, &["ls-tree", "-z", &head, "--", file]).await?;
+        let entry = listed.trim_end_matches('\0').split_once('\t');
+        match entry.map(|(meta, path)| (meta.split(' ').collect::<Vec<_>>(), path)) {
+            Some((meta, path)) if path == file && meta.len() == 3 && meta[1] == "blob" => {
+                entries.push(format!("{},{},{file}", meta[0], meta[2]));
+            }
+            _ => wrong.push(format!("{file} is not a file of your last commit {head}")),
+        }
+    }
+    let mut args = vec!["status", "--porcelain", "--"];
+    args.extend(files.iter().map(String::as_str));
+    let changed = git(&dir, &args).await?;
+    if !changed.is_empty() {
+        wrong.push(format!(
+            "the worktree holds changes to these that are not committed, and the files are taken as your last commit \
+             holds them: commit them first\n{changed}"
+        ));
+    }
+    if !wrong.is_empty() {
+        return Ok(Err(format!("Nothing was checked: {}.", wrong.join("; "))));
+    }
+    // The tree is made in an index of its own, so that neither the worktree nor its index changes.
+    let index = std::env::temp_dir().join(format!("wf-agents-before-{}.index", Uuid::new_v4().simple()));
+    let own = With {
+        settings: Vec::new(),
+        env: vec![("GIT_INDEX_FILE".to_string(), text(&index))],
+    };
+    let tree = async {
+        git_with(repo, &own, &["read-tree", &base]).await?;
+        for entry in &entries {
+            git_with(repo, &own, &["update-index", "--add", "--cacheinfo", entry]).await?;
+        }
+        git_with(repo, &own, &["write-tree"]).await
+    }
+    .await;
+    let _ = tokio::fs::remove_file(&index).await;
+    let tree = tree?;
+    // By the engine, at the time of the base, so that the same files on the same base make the same commit, whose CI
+    // is then read and not run again.
+    let date = git(repo, &["log", "-1", "--format=%cI", &base]).await?;
+    let mut env = Vec::new();
+    for who in ["AUTHOR", "COMMITTER"] {
+        env.push((format!("GIT_{who}_NAME"), "wf-agents".to_string()));
+        env.push((format!("GIT_{who}_EMAIL"), ENGINE_EMAIL.to_string()));
+        env.push((format!("GIT_{who}_DATE"), date.clone()));
+    }
+    let made = With {
+        settings: Vec::new(),
+        env,
+    };
+    let message = format!("The code before the change of {}, with its tests", place.branch);
+    let commit = git_with(repo, &made, &["commit-tree", &tree, "-p", &base, "-m", &message]).await?;
+    Ok(Ok(Before {
+        head,
+        base,
+        files: files.to_vec(),
+        commit,
+    }))
+}
+
+/// Makes the worktree where the check before the change runs at the commit ([`before_dir`]), taking away one left
+/// there, as by a process of the engine's that ended while the check ran.
+pub(crate) async fn check_out_before(project: &Project, place: &Place, commit: &str) -> Result<PathBuf, String> {
+    let repo = &project.repo;
+    let dir = before_dir(place, commit);
+    if dir.exists() {
+        take_away(project, &dir).await?;
+    }
+    git(repo, &["worktree", "prune"]).await?;
+    git(repo, &["worktree", "add", "--quiet", "--detach", &text(&dir), commit]).await?;
+    Ok(dir)
+}
+
+/// The worktrees of the work's checks before the change that are there, as [`before_dir`] names them.
+pub(crate) fn befores(place: &Place) -> Vec<PathBuf> {
+    let beginning = format!("{}-", before_dir(place, "").display());
+    let Some(parent) = place.dir.parent() else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return Vec::new();
+    };
+    // An entry that is a symbolic link is no worktree the engine made, and may lead to another work's: it is left.
+    (entries.flatten())
+        .filter(|entry| entry.file_type().is_ok_and(|kind| !kind.is_symlink()))
+        .map(|entry| entry.path())
+        .filter(|path| path.display().to_string().starts_with(&beginning))
+        .collect()
+}
+
+/// Whether there is a symbolic link at the path itself, read by the link's own metadata and not its target's.
+fn a_link(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
+}
+
+/// Takes away the worktree of a check before the change, with what it holds. A symbolic link there is no worktree the
+/// engine made, and git would follow it to whatever it leads to: it is left.
+pub(crate) async fn take_away(project: &Project, dir: &Path) -> Result<(), String> {
+    if a_link(dir) {
+        return Ok(());
+    }
+    let removed = said(&project.repo, &["worktree", "remove", "--force", &text(dir)]).await?;
+    if !removed.ok && dir.exists() {
+        tokio::fs::remove_dir_all(dir)
+            .await
+            .map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    git(&project.repo, &["worktree", "prune"]).await.map(drop)
+}
+
+/// Takes the work's worktree away, uncommitted changes and all, with the worktrees its checks before the change left,
+/// and keeps its branch, whose commits are the work's: a worktree is a place to work in, and the work has ended. One
+/// taken away already is nothing to do; what is at its place and is no worktree of the repository, or is a symbolic
+/// link, which git would follow to whatever it leads to, another work's worktree among them, was not made by the
+/// engine, and is left as it is. Refused, as every act is, while the repository's configuration names a program git
+/// could run ([`configuration`]).
+pub async fn remove(project: &Project, place: &Place) -> Result<(), String> {
+    configuration(project, place).await?;
+    let repo = &project.repo;
+    for left in befores(place) {
+        take_away(project, &left).await?;
+    }
+    if place.dir.exists() && !a_link(&place.dir) {
+        let dir = tokio::fs::canonicalize(&place.dir)
+            .await
+            .map_err(|e| format!("{}: {e}", place.dir.display()))?;
+        // Asked of git's list rather than read from what it answers, which is in the language of the machine's locale.
+        let listed = git(repo, &["worktree", "list", "--porcelain"]).await?;
+        let mut ours = false;
+        for listed in listed.lines().filter_map(|line| line.strip_prefix("worktree ")) {
+            ours |= tokio::fs::canonicalize(listed).await.is_ok_and(|listed| listed == dir);
+        }
+        if ours {
+            git(repo, &["worktree", "remove", "--force", &text(&place.dir)]).await?;
+        }
+    }
+    // A worktree whose directory was taken away by hand is named by the repository until it is pruned.
+    git(repo, &["worktree", "prune"]).await?;
+    Ok(())
+}
+
+/// Where the check before the change of the work runs at the commit, beside its worktree, while it runs: named by the
+/// work and the commit, so that checks of other commits asked at once have each their own.
+pub fn before_dir(place: &Place, commit: &str) -> PathBuf {
+    let name = (place.dir.file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let short = &commit[..commit.len().min(12)];
+    let dir = place.dir.with_file_name(format!("{name}-before"));
+    if short.is_empty() {
+        dir
+    } else {
+        dir.with_file_name(format!("{name}-before-{short}"))
+    }
 }
 
 /// The work's worktree, or why there is none: a round of the work is done in it, and `start` makes it.
@@ -179,59 +390,120 @@ pub fn worktree(place: &Place) -> Result<PathBuf, String> {
     }
 }
 
-/// Checks the work before its merge: that its worktree holds nothing uncommitted, that its branch merges into the
-/// main branch's head with no conflict (worked out without changing anything), and that the project's check passes
-/// in the worktree. What is done in the repository is done holding `repository`, and the check's command is run
-/// without it. Says why where it could not check, and gives none where it was stopped; what failed is what was found,
-/// not a reason to fail.
-pub(crate) async fn check(
-    project: &Project,
-    place: &Place,
-    repository: &Mutex<()>,
-    stop: &mut Stop,
-) -> Result<Option<Checked>, String> {
-    let dir = worktree(place)?;
-    let (commit, main, merged) = {
-        let _held = repository.lock().await;
-        configuration(project, place).await?;
-        let commit = git(&project.repo, &["rev-parse", &place.reference()]).await?;
-        let main = git(&project.repo, &["rev-parse", &format!("refs/heads/{}", project.main)]).await?;
-        let changes = git(&dir, &["status", "--porcelain"]).await?;
-        if !changes.is_empty() {
-            let failed = format!("The worktree has changes that are not committed:\n{changes}");
-            return Ok(Some(Checked {
-                commit,
-                main,
-                failed: Some(failed),
-            }));
-        }
-        let args = ["merge-tree", "--write-tree", "--name-only", &main, &commit];
-        let merged = said(&project.repo, &args).await?;
-        (commit, main, merged)
-    };
-    let checked = |failed| Checked {
-        commit: commit.clone(),
-        main: main.clone(),
-        failed,
-    };
-    match merged.code {
-        Some(0) => {}
-        Some(1) => {
-            return Ok(Some(checked(Some(format!(
-                "The branch does not merge into {} at {main} without a conflict:\n{}",
-                project.main, merged.out
-            )))));
-        }
-        _ => return Err(format!("git merge-tree failed: {}", merged.err)),
+/// What a work's worktree holds that is not committed, as `git status --porcelain` lists it; nothing where all is.
+pub(crate) async fn uncommitted(dir: &Path) -> Result<String, String> {
+    git(dir, &["status", "--porcelain"]).await
+}
+
+/// Who the commits the engine makes are by: the merges of main into a work's branch that the check and a run that
+/// takes main in make.
+const ENGINE: [&str; 2] = ["user.name=wf-agents", "user.email=wf-agents@localhost"];
+
+/// The address of the engine's identity, by which a commit of its own is known.
+const ENGINE_EMAIL: &str = "wf-agents@localhost";
+
+/// The words the check's merge of main into a work's branch is made with: a run's merge has words of its own, so that
+/// neither takes the other's for its own.
+fn taking_in(name: &str, main: &str) -> String {
+    format!("Merge {name} at {main} into the work's branch")
+}
+
+/// Merges main's head into the branch checked out in the worktree, which merges it without a conflict, as a commit
+/// of the engine's, and gives the branch's head after it and whether the check made that commit; where the branch
+/// holds main's head already, its head as it is, so that a merge done before the engine stopped is not done again.
+/// `name` is the main branch's name.
+pub(crate) async fn take_in(dir: &Path, main: &str, name: &str) -> Result<(String, bool), String> {
+    let message = taking_in(name, main);
+    if said(dir, &["merge-base", "--is-ancestor", main, "HEAD"]).await?.ok {
+        // The check's own merge of this main, made by a check that stopped before it was recorded, is still its own.
+        let ours = merged_as(dir, main, &message).await?.is_some();
+        return Ok((git(dir, &["rev-parse", "HEAD"]).await?, ours));
     }
-    match process::run(process::shell(&project.check, &dir), None, None, stop).await? {
-        Ran::Ended { status, stdout, .. } if !status.success() => Ok(Some(checked(Some(format!(
-            "The check `{}` failed ({status}). The end of what it said:\n{}",
-            project.check,
-            process::tail(&stdout)
-        ))))),
-        Ran::Ended { .. } => Ok(Some(checked(None))),
-        Ran::Stopped => Ok(None),
+    Ok((merge_as(dir, main, &message).await?, true))
+}
+
+/// The head of the branch checked out in the worktree and its first parent, where the head is the engine's merge of
+/// main's head at `main` made with these words; none where it is not.
+pub(crate) async fn merged_as(dir: &Path, main: &str, message: &str) -> Result<Option<(String, String)>, String> {
+    let head = git(dir, &["log", "-1", "--format=%H%x00%ae%x00%P%x00%s", "HEAD"]).await?;
+    let fields: Vec<&str> = head.split('\0').collect();
+    let [commit, email, parents, subject] = fields.as_slice() else {
+        return Ok(None);
+    };
+    let parents: Vec<&str> = parents.split(' ').collect();
+    Ok(match parents.as_slice() {
+        [first, merged] if *email == ENGINE_EMAIL && *merged == main && *subject == message => {
+            Some((commit.to_string(), first.to_string()))
+        }
+        _ => None,
+    })
+}
+
+/// Merges main's head at `main` into the branch checked out in the worktree, which merges it without a conflict, as a
+/// commit of the engine's made with these words, and gives the branch's head after it; a merge that fails is taken
+/// back.
+pub(crate) async fn merge_as(dir: &Path, main: &str, message: &str) -> Result<String, String> {
+    let with = With {
+        settings: ENGINE.map(str::to_string).to_vec(),
+        env: Vec::new(),
+    };
+    let args = ["merge", "--no-ff", "--no-edit", "-m", message, main];
+    if let Err(why) = git_with(dir, &with, &args).await {
+        if said(dir, &["rev-parse", "--quiet", "--verify", "MERGE_HEAD"]).await?.ok {
+            let _ = git(dir, &["merge", "--abort"]).await;
+        }
+        return Err(why);
+    }
+    git(dir, &["rev-parse", "HEAD"]).await
+}
+
+/// Whether a merge is under way in the worktree, begun and not committed: by an agent, or by the engine before it
+/// stopped. Only whoever began it can tell what it holds, so the engine never takes one back.
+pub(crate) async fn merging(dir: &Path) -> Result<bool, String> {
+    Ok(said(dir, &["rev-parse", "--quiet", "--verify", "MERGE_HEAD"]).await?.ok)
+}
+
+/// That the worktree is on the work's branch, or why it is not: what the engine commits there must go on the branch.
+pub(crate) async fn on_branch(place: &Place) -> Result<(), String> {
+    let on = said(&place.dir, &["symbolic-ref", "--quiet", "HEAD"]).await?;
+    if on.ok && on.out == place.reference() {
+        return Ok(());
+    }
+    let at = if on.ok { on.out } else { "no branch".to_string() };
+    Err(format!(
+        "the worktree {} is on {at}, not on the work's branch {}: the check commits nothing there",
+        place.dir.display(),
+        place.reference()
+    ))
+}
+
+/// A conflict between a commit and main's head.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Conflict {
+    /// The files in conflict, one on each line.
+    pub(crate) files: String,
+    /// What git says of each conflict's kind, a line each.
+    pub(crate) kinds: String,
+}
+
+/// The conflict between the commit and main's head, worked out without changing anything; none where the commit
+/// merges into main cleanly.
+pub(crate) async fn conflicts(project: &Project, main: &str, commit: &str) -> Result<Option<Conflict>, String> {
+    let args = ["merge-tree", "--write-tree", "--name-only", main, commit];
+    let merged = said(&project.repo, &args).await?;
+    match merged.code {
+        Some(0) => Ok(None),
+        // The tree it wrote, the files in conflict, then a blank line before what it says of each.
+        Some(1) => {
+            let mut lines = merged.out.lines().skip(1);
+            let files: Vec<&str> = lines.by_ref().take_while(|line| !line.is_empty()).collect();
+            let kinds: Vec<&str> = lines.filter(|line| line.starts_with("CONFLICT")).collect();
+            Ok(Some(Conflict {
+                files: files.join("\n"),
+                kinds: kinds.join("\n"),
+            }))
+        }
+        _ => Err(format!("git merge-tree failed: {}", merged.err)),
     }
 }
 
@@ -293,6 +565,10 @@ pub async fn merge(project: &Project, place: &Place, checked: Option<&str>) -> R
             None => git(repo, &["rev-parse", "HEAD"]).await,
         };
     }
+    if checked.is_some() && !said(repo, &["merge-base", "--is-ancestor", "HEAD", &head]).await?.ok {
+        let main = git(repo, &["rev-parse", "HEAD"]).await?;
+        return Err(crate::host::moved(&project.main, &main, &head));
+    }
     let message = format!("Merge {}", place.branch);
     let args = ["merge", "--no-ff", "-m", &message, &head];
     if let Err(why) = git(repo, &args).await {
@@ -316,8 +592,19 @@ pub async fn configuration(project: &Project, place: &Place) -> Result<(), Strin
     if place.dir.is_dir() {
         dirs.push(place.dir.clone());
     }
+    refused(project, &dirs).await
+}
+
+/// Refuses, as [`configuration`] does, a repository whose own configuration could make git run a program, read in the
+/// owner's checkout alone: for what the engine does there for no work, such as the watch of main.
+pub async fn repository_configuration(project: &Project) -> Result<(), String> {
+    refused(project, std::slice::from_ref(&project.repo)).await
+}
+
+/// Refuses what the configuration read in these directories names that git could run.
+async fn refused(project: &Project, dirs: &[PathBuf]) -> Result<(), String> {
     let mut found = std::collections::BTreeSet::new();
-    for dir in &dirs {
+    for dir in dirs {
         let listed = git(dir, &["config", "--list", "--show-scope", "--includes"]).await?;
         for line in listed.lines() {
             let Some((scope, entry)) = line.split_once('\t') else {
@@ -371,6 +658,9 @@ fn runs_code(key: &str) -> bool {
         || within("diff.", ".command")
         || within("gpg.", ".program")
         || within("credential.", ".helper")
+        || within("remote.", ".uploadpack")
+        || within("remote.", ".receivepack")
+        || within("remote.", ".vcs")
 }
 
 /// Whether the key matches one of the patterns: the whole key, or, for a pattern ending in `*`, its beginning.

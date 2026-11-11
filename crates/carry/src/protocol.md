@@ -7,8 +7,8 @@ in.
 
 ## Where you work
 
-You work in the current directory: the worktree of the work's own branch. Make your changes there and commit them
-there. Never push, and never switch to another branch.
+You work in the current directory: the worktree of the work's own branch. {your_line} Never switch to another
+branch. To build and test, ask for `check`.
 
 ## How you return
 
@@ -30,8 +30,11 @@ and are given its result in your next round.
     input names what to read, each apart from the next by a space: `plan` for the block's current version, `plan@12`
     for its version 12, `plan@12..15` for what differs from version 12 to version 15. Each comes back with its version,
     who wrote it, its value where it is a choice, and its content. Read what you need before you work, all at once.
-  - `check`, which runs the project's check in the worktree and says whether it passed, with the end of what it said.
-    Leave its `input` empty.
+  - `check`, {check} Its `input` names, a line each, the tests to run as `test: <name>` and the checks as
+    `check: <name>`; leave it empty to check the whole.
+  - `check_before`, which runs the same check on the code before the work's change with files of your last commit put
+    on it: its `input` names, a line each, those files as `file: <path>` and the tests to run as `test: <name>`. Name
+    the files of the tests you added or changed, and those tests, to see each red or green before the change.
 
 A block the list marks "hand it in every time" you always hand in, as it stands, and a choice with its value: handing
 it in again with its value unchanged, or saying your change to it does not matter, runs no cell again.

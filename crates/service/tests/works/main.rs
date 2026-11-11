@@ -14,6 +14,7 @@ mod dependencies;
 mod failing;
 mod going;
 mod pausing;
+mod shared_wait;
 mod stopped;
 mod stopping;
 
@@ -27,17 +28,19 @@ use driver::{FirstWrite, NewItem, Todo};
 use engine::{Effect, Event};
 use flow::Compiled;
 use service::{
-    Act, CallReply, Carriers, Inbox, Message, Refusal, Round, RoundReply, Rounds, Script, Scripted, Service,
-    TokioClock, ToolCall, Tools,
+    Act, CallReply, Carriers, Inbox, Message, Refusal, Release, ReleaseReply, Round, RoundReply, Rounds, Script,
+    Scripted, Service, TokioClock, ToolCall, Tools,
 };
 use store::{ItemNumber, Storage, Store, WorkNumber};
 use tokio::sync::oneshot;
 use work::{Ask, Call, Time, Work};
 
-/// An item of the trial flow with a request, depending on these items.
+/// An item of the trial flow with a request, depending on these items, added paused: its work begins nothing until it is
+/// let on.
 pub fn new_item(title: &str, depends_on: &[u64]) -> NewItem {
     NewItem {
         title: title.to_string(),
+        level: "1".to_string(),
         depends_on: depends_on.iter().copied().map(ItemNumber).collect(),
         flow: "trial".to_string(),
         writes: vec![FirstWrite {
@@ -68,6 +71,9 @@ pub fn add_to(service: &mut Service, item: NewItem) -> (ItemNumber, WorkNumber) 
 /// When the tests' clock starts: 2026-11-10, at midnight.
 pub const START: Time = Time(1_794_268_800_000);
 
+/// The slots of the loops of the tests that do not count them: more than any of them has works.
+pub const SLOTS: usize = 1000;
+
 /// The directory of the trial flow, `flow`, and its script, `script.toml`.
 pub fn trial_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/trial")
@@ -95,6 +101,8 @@ pub fn trial_script() -> Script {
 pub enum Unit {
     Round(WorkNumber, RunId, usize),
     Call(WorkNumber, CallId),
+    /// What the work held, let go once it ended.
+    Release(WorkNumber),
 }
 
 /// The loop over a store in a directory of its own, with carriers that record what they are handed.
@@ -159,14 +167,23 @@ impl Trial {
         let message = tokio::time::timeout(Duration::from_secs(3600), self.inbox.recv())
             .await
             .ok()??;
-        let Message::Happened { work, event } = message else {
-            panic!("only the carriers send to the loop in these tests");
+        let (work, event) = match message {
+            Message::Happened { work, event } => (work, event),
+            // The time a wait was for has come: the loop takes it as it comes, and nothing more is said of it.
+            message @ (Message::Due { .. } | Message::Tick { .. }) => {
+                self.service.take(message).expect("the loop takes it");
+                self.steps += 1;
+                self.check();
+                return Some(Event::Look);
+            }
+            _ => panic!("only the carriers and the timers send to the loop in these tests"),
         };
         let unit = match &event {
             Event::Returned { run, .. } | Event::Failed { run, .. } => {
                 Some(Unit::Round(work, *run, self.began(work, *run)))
             }
             Event::Done { call, .. } => Some(Unit::Call(work, *call)),
+            Event::Released => Some(Unit::Release(work)),
             _ => None,
         };
         if let Some(unit) = unit {
@@ -344,6 +361,7 @@ fn carried(driver: &driver::Driver, todo: &Todo) -> Option<Unit> {
         } => Some(Unit::Call(work, *call)),
         Effect::Call { .. } => None,
         Effect::Withdraw { call } => Some(Unit::Call(work, *call)),
+        Effect::Release { .. } => Some(Unit::Release(work)),
     }
 }
 
@@ -364,7 +382,9 @@ fn open(
     let carriers = Carriers {
         agents: recording.clone(),
         acts: recording.clone(),
-        tools: recording,
+        tools: recording.clone(),
+        network: Arc::new(recording.scripted.clone()),
+        slots: SLOTS,
     };
     let clock: Arc<dyn service::Clock> = clock.clone();
     Service::open(Box::new(store), vec![trial_flow()], carriers, clock).expect("the loop opens")
@@ -384,7 +404,7 @@ impl Recording {
         let store = Store::open(&self.path).expect("the store opens beside the loop's");
         let kept = store.load(work).expect("the store has the work");
         assert!(
-            engine::pending(&kept).contains(&effect),
+            engine::pending(&trial_flow(), &kept).contains(&effect),
             "{effect:?} of work {} is handed out, and the store does not hold it as to be done",
             work.0
         );
@@ -410,6 +430,12 @@ impl Rounds for Recording {
         let unit = Unit::Round(round.work, round.run, round.number);
         self.hand(round.work, Effect::Stop { run: round.run }, unit);
         self.scripted.stop(round, reply);
+    }
+
+    fn release(&self, release: Release, reply: ReleaseReply) {
+        let effect = Effect::Release { end: release.end };
+        self.hand(release.work, effect, Unit::Release(release.work));
+        self.scripted.release(release, reply);
     }
 }
 

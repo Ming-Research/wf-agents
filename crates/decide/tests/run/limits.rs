@@ -70,14 +70,15 @@ fn letting_the_run_go_on_at_its_limit_of_returns_sends_the_return_back_and_start
     let mut log = Log {
         rounds: vec![wanting(), wanting(), wanting()],
         let_go: 3,
+        let_on: 0,
     };
-    assert_eq!(next(&log, s.requires(), false), send_back(wanting_unmet()));
+    assert_eq!(next(&log, s.requires(), Hold::Nothing), send_back(wanting_unmet()));
     log.rounds.push(wanting());
-    assert_eq!(next(&log, s.requires(), false), send_back(wanting_unmet()));
+    assert_eq!(next(&log, s.requires(), Hold::Nothing), send_back(wanting_unmet()));
     log.rounds.push(wanting());
-    assert_eq!(next(&log, s.requires(), false), send_back(wanting_unmet()));
+    assert_eq!(next(&log, s.requires(), Hold::Nothing), send_back(wanting_unmet()));
     log.rounds.push(wanting());
-    assert_eq!(next(&log, s.requires(), false), returns_limit(2));
+    assert_eq!(next(&log, s.requires(), Hold::Nothing), returns_limit(2));
 }
 
 #[test]

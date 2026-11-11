@@ -2,7 +2,7 @@
 //! and rewritten; a test of what stands, by the writers' conditions; and the two histories of judges the merge waits
 //! on.
 
-use decide::{Test, TestKind, TestName};
+use decide::{Outsiders, Test, TestKind, TestName};
 
 use super::*;
 
@@ -29,7 +29,7 @@ fn holds(kind: TestKind, writes: &[(&str, &str)]) -> bool {
     }
     match w.decide() {
         Decision::Run { cell, .. } if cell.as_str() == "c" => true,
-        d if d == wait("c", vec![precondition("t", Who::Owner)]) => false,
+        d if d == wait("c", vec![precondition("t", vec![Maker::Owner])]) => false,
         other => panic!("the walk decides {other:?}"),
     }
 }
@@ -99,7 +99,10 @@ fn judged(by_test: bool) -> World {
 }
 
 fn refused() -> Decision {
-    wait("merge", vec![precondition("unrefused", Who::Owner)])
+    wait(
+        "merge",
+        vec![precondition("unrefused", vec![Maker::Owner, by_cell("judge")])],
+    )
 }
 
 #[test]
@@ -154,14 +157,45 @@ fn what_a_person_wrote_stands_whatever_the_cell() {
 fn a_cell_that_names_a_test_the_flow_does_not_have_is_refused() {
     let cells = vec![requiring("nobody", cell("a", &[], &[])), Cell::new("merge")];
     assert_eq!(
-        Flow::new(cells, BTreeMap::new()),
+        Flow::new(cells, BTreeMap::new(), BTreeMap::new()),
         Err(FlowFault::NoSuchTest("a".into(), "nobody".into()))
     );
     let cells = vec![on_test("nobody", cell("a", &[], &[])), Cell::new("merge")];
     assert_eq!(
-        Flow::new(cells, BTreeMap::new()),
+        Flow::new(cells, BTreeMap::new(), BTreeMap::new()),
         Err(FlowFault::NoSuchTest("a".into(), "nobody".into()))
     );
+}
+
+#[test]
+fn a_test_on_a_block_that_nothing_writes_is_refused_and_one_that_a_cell_people_or_the_outside_writes_is_not() {
+    let named = || tests(&[("t", test(TestKind::All, &["x"], "yes"))]);
+    let refused = Err(FlowFault::Unwritten("t".into(), "x".into()));
+    let gated = vec![requiring("t", cell("a", &[], &[])), Cell::new("merge")];
+    assert_eq!(Flow::new(gated.clone(), named(), BTreeMap::new()), refused);
+    let conditioned = vec![on_test("t", cell("a", &[], &[])), Cell::new("merge")];
+    assert_eq!(Flow::new(conditioned, named(), BTreeMap::new()), refused);
+    let written = vec![
+        cell("w", &[], &["x"]),
+        requiring("t", cell("a", &[], &[])),
+        Cell::new("merge"),
+    ];
+    assert!(Flow::new(written, named(), BTreeMap::new()).is_ok());
+    let people = Outsiders {
+        people: true,
+        ..Outsiders::default()
+    };
+    let outside = Outsiders {
+        outside: Some("source".to_string()),
+        ..Outsiders::default()
+    };
+    for outsiders in [people, outside] {
+        let declared = BTreeMap::from([("x".into(), outsiders)]);
+        assert!(Flow::new(gated.clone(), named(), declared).is_ok());
+    }
+    // A block declared with no writer besides the cells, and no cell that writes it, is written by nothing.
+    let declared = BTreeMap::from([("x".into(), Outsiders::default())]);
+    assert_eq!(Flow::new(gated, named(), declared), refused);
 }
 
 /// A writer, a judge that decides whether a second judge runs, and the second; the merge waits while either
@@ -211,7 +245,11 @@ fn a_judge_that_still_says_no_with_nothing_new_to_say_holds_the_merge_for_the_ow
     // new to say: the writer has nothing to run for.
     w.run("write", &[("answer", Matters)]);
     w.run("judge", &[("verdict", Value("no"))]);
-    let approved = wait("merge", vec![precondition("approved", Who::Owner)]);
+    // Only the first judge's verdict holds the merge: the second never wrote one.
+    let approved = wait(
+        "merge",
+        vec![precondition("approved", vec![Maker::Owner, by_cell("judge")])],
+    );
     assert_eq!(w.decide(), approved);
     // The owner writes the judge's verdict as yes, and the work goes on.
     w.person_sets("verdict", "yes");
@@ -236,7 +274,7 @@ fn after_the_writer_is_skipped(kind: TestKind) -> bool {
     w.run("asker", &[("more", Value("no"))]);
     match w.decide() {
         Decision::Run { cell, .. } if cell.as_str() == "c" => true,
-        d if d == wait("c", vec![precondition("t", Who::Owner)]) => false,
+        d if d == wait("c", vec![precondition("t", vec![Maker::Owner, by_cell("writer")])]) => false,
         other => panic!("the walk decides {other:?}"),
     }
 }

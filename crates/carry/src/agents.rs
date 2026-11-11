@@ -1,44 +1,59 @@
 //! The agents' rounds, run with the `claude` command line: each round one run of the program, in the work's worktree,
-//! in the session of the cell's line, told its message on its standard input, with the same system prompt and the
-//! same form of return for every round. At most as many rounds run at once as the settings give slots; the others
-//! wait their turn.
+//! in the session of the cell's line, told its message on its standard input, with the same form of return for every
+//! round and the same system prompt for every round of a line, which says what the line may run as its permissions
+//! give it to the program (`permissions`). How many run at once is the engine's to bound: it gives at most as many
+//! rounds at once as the settings give slots, and holds the others back in its own order.
 //!
 //! A round fails, handing in nothing, where the worktree is not there, the program cannot be started, it exits with
-//! an error or prints a result that is one, or what it prints is no result with a structured return. It is not tried
-//! again here: the work is paused for the owner to see why. A round that fails takes what the result the program
-//! printed says it cost, as any round does, and is held to the budget as any round is; where the program printed
-//! nothing that reads as a result, what the round took is not known, and is recorded as nothing. Stopped, the program's process group is sent TERM, and
+//! an error or prints a result that is one, or what it prints is no result with a structured return of the form. The
+//! kind of its cause is told apart from what the program reported ([`failure`](crate::failure)): a program that cannot
+//! be started cannot run, a return not of the form could not be read, and a round that failed before its program ran
+//! failed for a cause no kind tells apart. It is not tried again here: the engine handles it as its kind says. A round
+//! that fails takes what the result the program printed says it cost, as any round does, and is held to the budget as
+//! any round is, its work paused where it went over; where the program printed nothing that reads as a result, what
+//! the round took is not known, and is recorded as nothing. Stopped, the program's process group is sent TERM, and
 //! KILL after three seconds, and the round ends with nothing handed in; what it spent is not known, and is recorded
 //! as nothing.
 //!
 //! The program is given an environment of its own, not the engine's (`cli::environment`). What a round is told depends
 //! on whether it begins its line's session, and is built again where the program is tried the other way.
 //!
-//! What each round was told and what the program printed are kept for reading, in `rounds/<work>/<run>-<round>` in
-//! the data directory: `.message.md` and `.result.json` for its first try, `.message.2.md` and `.result.2.json` for
-//! the next, and so on. While the program runs, its process group is written in `.pgid` there; a group left named
-//! there by a process of the engine that ended is stopped before the round is run again, or before the round's stop
-//! ends it, so that a session has one program at a time and a stopped round's program does not run on.
+//! Before the first round of each run of a cell that takes main in, the work's branch takes in main's head as the host
+//! last gave it ([`catch_up`](crate::catch_up)), and what came of it is kept beside the run's rounds before the round
+//! is told it; a round of the run given again, or another of its rounds given its task, is told what was kept, and
+//! nothing is taken in again for the run.
+//!
+//! Each round runs on the model of its item's level, or of a level above it where its cell's line says so, and at the
+//! effort its cell sets (`Settings::ran_on`); a round whose item's level the settings no longer allow fails, saying so.
+//!
+//! What each round was told, what it ran on and what the program printed are kept for reading, in
+//! `rounds/<work>/<run>-<round>` in the data directory: `.message.md`, `.ran.json` and `.result.json` for its first try,
+//! `.message.2.md`, `.ran.2.json` and `.result.2.json` for the next, and so on. While the program runs, its process
+//! group is written in `.pgid` there; a group left named there by a process of the engine that ended is stopped before
+//! the round is run again, or before the round's stop ends it, so that a session has one program at a time and a
+//! stopped round's program does not run on.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use decide::RunId;
+use decide::run::Failure;
 use engine::Came;
-use service::{Round, RoundReply, Rounds, Told};
+use service::{Clock, RanOn, Round, RoundReply, Rounds, SystemClock, Told};
 use store::WorkNumber;
 use tokio::process::Command;
-use tokio::sync::Semaphore;
 use uuid::Uuid;
 use work::Spent;
 
+use crate::catch_up::{self, CaughtUp};
 use crate::cli::{self, Begin};
 use crate::held::{Failing, Held, Stop};
+use crate::permissions::Permissions;
 use crate::process::{self, Ran};
 use crate::settings::Settings;
-use crate::{acts, git, kept, message, returns, session};
+use crate::{acts, failure, git, kept, message, returns, session};
 
-/// The system prompt every round is given, before the owner's language is put in.
+/// The system prompt every round is given, before the owner's language and what the tool `check` does are put in.
 pub const PROTOCOL: &str = include_str!("protocol.md");
 
 /// The directory in the data directory where what each round was told and what it returned are kept.
@@ -54,32 +69,50 @@ struct Inner {
     settings: Settings,
     data: PathBuf,
     installation: Uuid,
-    /// The system prompt, the same for every round.
+    /// The system prompt, the same for every round of a line once what the line may do is put in.
     protocol: String,
-    slots: Semaphore,
     held: Held<(WorkNumber, RunId, usize), RoundReply>,
+    /// The clock a usage limit's reset is read by, where the command line gives it as a time of day.
+    clock: Arc<dyn Clock>,
+    /// The reference that holds main's head as the host last gave it, which a run that takes main in takes in.
+    main: String,
 }
 
 /// What came of running a round's program.
 enum Carried {
     Came(Came, Spent),
-    /// It failed, for this reason, having taken this, as the result it printed says.
-    Failed(String, Spent),
+    /// It failed, for this reason, of this kind of cause, having taken this, as the result it printed says, or
+    /// nothing where it printed none.
+    Failed(String, Failure, Spent),
     Stopped,
 }
 
 impl Agents {
-    /// The agents of these settings, with this data directory, which is an absolute path, and the installation's id.
-    pub fn new(settings: Settings, data: PathBuf, installation: Uuid) -> Self {
-        let protocol = PROTOCOL.replace("{owner_language}", &settings.agents.owner_language);
+    /// The agents of these settings, with this data directory, which is an absolute path, the installation's id, and
+    /// the reference of the project's repository that holds main's head as the host last gave it.
+    pub fn new(settings: Settings, data: PathBuf, installation: Uuid, main: String) -> Self {
+        Self::with_clock(settings, data, installation, main, Arc::new(SystemClock))
+    }
+
+    /// The agents as [`Agents::new`] gives them, reading the time by this clock.
+    pub fn with_clock(
+        settings: Settings,
+        data: PathBuf,
+        installation: Uuid,
+        main: String,
+        clock: Arc<dyn Clock>,
+    ) -> Self {
+        let protocol = (PROTOCOL.replace("{owner_language}", &settings.agents.owner_language))
+            .replace("{check}", &crate::tools::told(&settings));
         Agents {
             inner: Arc::new(Inner {
-                slots: Semaphore::new(settings.agents.slots),
                 settings,
                 data,
                 installation,
                 protocol,
                 held: Held::new(),
+                clock,
+                main,
             }),
         }
     }
@@ -94,15 +127,7 @@ impl Rounds for Agents {
         };
         let inner = self.inner.clone();
         tokio::spawn(async move {
-            // A round stopped while it waits its turn is not run at all.
-            let permit = tokio::select! {
-                permit = inner.slots.acquire() => permit.ok(),
-                () = stop.told() => None,
-            };
-            let carried = match permit {
-                Some(_permit) => inner.carry(&round, &mut stop).await,
-                None => Ok(Carried::Stopped),
-            };
+            let carried = inner.carry(&round, &mut stop).await;
             match carried {
                 Ok(Carried::Came(came, spent)) => {
                     let Some(reply) = inner.held.take(key) else {
@@ -118,15 +143,17 @@ impl Rounds for Agents {
                         reply.ended(Came::HandsIn(Vec::new()), Spent::default());
                     }
                 }
-                Ok(Carried::Failed(why, spent)) => match inner.held.fail(key) {
-                    // The work is paused for the failure; where the round took it over its budget, the reason says
-                    // that too.
+                Ok(Carried::Failed(why, failure, spent)) => match inner.held.fail(key) {
+                    // Where the round took the work over its budget, the work is paused for that whatever the kind.
                     Some(Failing::Fail(reply)) => {
-                        let why = match inner.over_budget(&round, &spent) {
-                            Some(over) => format!("{why}; and {over}"),
-                            None => why,
-                        };
-                        reply.failed(why, spent);
+                        let resets = resets(failure, &why, &*inner.clock);
+                        match inner.over_budget(&round, &spent) {
+                            Some(over) => {
+                                let pause = format!("{why}; and {over}");
+                                reply.failed_and_paused(failure, resets, why, spent, pause);
+                            }
+                            None => reply.failed_as(failure, resets, why, spent),
+                        }
                     }
                     Some(Failing::End(reply)) => reply.ended(Came::HandsIn(Vec::new()), spent),
                     None => {}
@@ -163,32 +190,57 @@ impl Rounds for Agents {
 }
 
 impl Inner {
-    /// Runs the round's program, and gives what came back and what it took; or that the round failed, why and what it
-    /// took, where the program printed a result; or, where it printed none, only why.
+    /// Runs the round's program, and gives what came back and what it took; or that the round failed, why, of what
+    /// kind and what it took; or, where it could not be run for a cause before its program, only why.
     async fn carry(&self, round: &Round, stop: &mut Stop) -> Result<Carried, String> {
         let (flow, work) = (&*round.flow, &*round.kept);
-        let line = (round.cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", round.cell.id))?;
         let place = git::place(&self.data, &git::tag(&self.installation), round.work);
-        let dir = git::worktree(&place)?;
         let base = self.kept(round);
+        let group = base.with_extension("pgid");
+        // A program a process of the engine that ended left running for the round is stopped before anything that can
+        // end the round here, so that a round that now fails, as for a level the settings no longer have, leaves no
+        // program running unseen.
+        process::stop_left(&group, &place.dir).await;
+        let line = (round.cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", round.cell.id))?;
+        let on = self.settings.ran_on(round.item.level.as_deref(), &round.cell)?;
+        let dir = git::worktree(&place)?;
+        let main = if round.cell.takes_main {
+            self.caught_up(round, &place).await?
+        } else {
+            None
+        };
         if let Some(parent) = base.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
                 .map_err(|e| format!("{}: {e}", parent.display()))?;
         }
-        let group = base.with_extension("pgid");
-        process::stop_left(&group, &dir).await;
-        let session = session::session(self.installation, round.work, line);
+        let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
+        let permissions = Permissions::of(round.cell.reads_only, args, added);
+        let session = session::session(self.installation, round.work, line, cli::anew(flow, work, line));
         let mut begin = cli::begin(flow, work, line);
         let before = cli::spent_before(flow, work, line);
         let mut tried = false;
         let (status, stdout, stderr) = loop {
             let begins = begin == Begin::New;
-            let told = message::message(flow, work, &round.cell, round.run, round.number, &round.given, begins);
-            let (told_at, result_at) = attempt(&base).await;
+            let opening = message::Opening {
+                begins,
+                main: main.as_ref(),
+            };
+            let told = message::message(flow, work, &round.cell, round.run, round.number, &round.given, &opening);
+            let (told_at, result_at, on_at) = attempt(&base).await;
+            // What the try runs on is kept before its message, which is what makes the try be one that was kept.
+            write(&on_at, &kept::ran_file(&on)).await?;
             write(&told_at, told.as_bytes()).await?;
-            let command = self.command(&dir, session, begin);
-            let ran = process::run(command, Some(told.into_bytes()), Some(&group), stop).await?;
+            let command = self.command(&dir, &on, &permissions, session, begin);
+            // A program that cannot be started printed no result: its words say whether it is missing, which holds
+            // every work, and any other cause pauses the work.
+            let ran = match process::run(command, Some(told.into_bytes()), Some(&group), stop).await {
+                Ok(ran) => ran,
+                Err(why) => {
+                    let kind = failure::of(&why, None);
+                    return Ok(Carried::Failed(why, kind, Spent::default()));
+                }
+            };
             let Ran::Ended { status, stdout, stderr } = ran else {
                 return Ok(Carried::Stopped);
             };
@@ -204,10 +256,11 @@ impl Inner {
             break (status, stdout, stderr);
         };
         let read = cli::read(&stdout, begin, before);
-        // A failure whose result was read took what the result says; one with none, what is not known.
-        let failed = |why: String, spent: Option<Spent>| match spent {
-            Some(spent) => Ok(Carried::Failed(why, spent)),
-            None => Err(why),
+        // A failure whose result was read took what the result says; one with none, what is not known. Its kind is
+        // told by what the program reported and what it took.
+        let failed = |why: String, spent: Option<Spent>| {
+            let kind = failure::of(&why, spent.as_ref());
+            Ok(Carried::Failed(why, kind, spent.unwrap_or_default()))
         };
         if !status.success() {
             let tail = || process::tail(stderr.trim().as_bytes());
@@ -227,20 +280,57 @@ impl Inner {
         };
         match returns::came(&read.structured) {
             Ok(came) => Ok(Carried::Came(came, read.spent)),
-            Err(why) => Ok(Carried::Failed(why, read.spent)),
+            Err(why) => Ok(Carried::Failed(why, Failure::Unread, read.spent)),
         }
     }
 
-    /// The program's command line for a round in the session, begun or gone on in, in the worktree.
-    fn command(&self, dir: &Path, session: Uuid, begin: Begin) -> Command {
+    /// The program's command line for a round on what it runs on, of a line with these permissions, in the session,
+    /// begun or gone on in, in the worktree. The system prompt says what the line may do.
+    fn command(&self, dir: &Path, on: &RanOn, permissions: &Permissions, session: Uuid, begin: Begin) -> Command {
         let agents = &self.settings.agents;
+        let protocol = self.protocol.replace("{your_line}", &permissions.told());
         let mut command = Command::new(&agents.command);
         command
-            .args(cli::arguments(agents, &self.protocol, returns::SCHEMA, session, begin))
+            .args(cli::arguments(
+                agents,
+                on,
+                &protocol,
+                returns::SCHEMA,
+                permissions,
+                session,
+                begin,
+            ))
             .env_clear()
             .envs(cli::environment(agents, std::env::vars()))
             .current_dir(dir);
         command
+    }
+
+    /// What came of taking main in as the round's run started, as it was kept; taken in and kept first at the run's
+    /// first round. None for a later round of a run that kept nothing, which started before its cell took main in.
+    async fn caught_up(&self, round: &Round, place: &git::Place) -> Result<Option<CaughtUp>, String> {
+        let at = catch_up::kept_at(&self.data, round.work, round.run);
+        let named = || at.display().to_string();
+        match tokio::fs::read(&at).await {
+            Ok(kept) => {
+                let caught = serde_json::from_slice(&kept).map_err(|e| format!("{}: {e}", named()))?;
+                return Ok(Some(caught));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("{}: {e}", named())),
+        }
+        if round.number != 1 {
+            return Ok(None);
+        }
+        let caught = catch_up::take_in(&self.settings.project, place, &self.main, round.run).await;
+        let kept = serde_json::to_vec_pretty(&caught).map_err(|e| format!("{}: {e}", named()))?;
+        // Written whole or not at all, so that a stop in the middle leaves no file the run's rounds cannot read.
+        let writing = at.with_extension("json.part");
+        write(&writing, &kept).await?;
+        tokio::fs::rename(&writing, &at)
+            .await
+            .map_err(|e| format!("{}: {e}", named()))?;
+        Ok(Some(caught))
     }
 
     /// Where what the round was told and returned are kept, without the extension.
@@ -266,13 +356,25 @@ impl Inner {
     }
 }
 
-/// Where the next try of the round keeps what it is told and what it returns: the first that has kept nothing yet.
-async fn attempt(base: &Path) -> (PathBuf, PathBuf) {
+/// When the account's usage limit resets, where the failure is that limit and the program's report says when, the time
+/// now read by the clock.
+fn resets(failure: Failure, why: &str, clock: &dyn Clock) -> Option<work::Time> {
+    if failure != Failure::UsageLimit {
+        return None;
+    }
+    let now = clock.now().ok()?;
+    failure::resets_at(why, now.0, &failure::zone_offset).map(work::Time)
+}
+
+/// Where the next try of the round keeps what it is told, what it returns and what it runs on: the first that has kept
+/// nothing yet.
+async fn attempt(base: &Path) -> (PathBuf, PathBuf, PathBuf) {
     let mut n = 1;
     while tokio::fs::try_exists(&kept::at(base, n).0).await.unwrap_or(false) {
         n += 1;
     }
-    kept::at(base, n)
+    let (told, result) = kept::at(base, n);
+    (told, result, kept::ran_at(base, n))
 }
 
 /// Writes the file, making its directory where there is none.

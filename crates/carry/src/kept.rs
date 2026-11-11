@@ -1,9 +1,11 @@
 //! What is kept of each round of an agent in the data directory, where it is and how it is read back for the page.
 //!
-//! Each try of a round keeps the message it was told and what the command line printed, in `rounds/<work>` in the
-//! data directory: `<run>-<round>.message.md` and `.result.json` for its first try, `.message.2.md` and
-//! `.result.2.json` for the next, and so on; other files there are not read here. Read back, a try is what it was
-//! told, and of what it printed only what the page shows: the agent's closing words where they are not the structured
+//! Each try of a round keeps the message it was told, what it ran on and what the command line printed, in
+//! `rounds/<work>` in the data directory: `<run>-<round>.message.md`, `.ran.json` and `.result.json` for its first
+//! try, `.message.2.md`, `.ran.2.json` and `.result.2.json` for the next, and so on; other files there are not read
+//! here. What a try ran on is kept as it began, so that the round reads the same after the settings change; a try kept
+//! before tries kept it has none. Read back, a try is what it was told and what it ran on, and of what it printed only
+//! what the page shows: the agent's closing words where they are not the structured
 //! return itself, the structured return, how many turns it took, how long, and by which models; or, where the program
 //! said the try failed, why. The rest, ids of sessions and of credentials among it, is never read out of the file. A
 //! result that is empty is no result: the program printed none.
@@ -18,9 +20,9 @@ use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 
 use decide::RunId;
-use serde::Deserialize;
 use serde::de::IgnoredAny;
-use service::{Back, Returned, Told, Try};
+use serde::{Deserialize, Serialize};
+use service::{Back, RanKept, RanOn, Returned, Told, Try};
 use store::WorkNumber;
 
 use crate::agents::ROUNDS;
@@ -58,6 +60,59 @@ pub(crate) fn at(base: &Path, n: usize) -> (PathBuf, PathBuf) {
     }
 }
 
+/// Where the try of this number of a round, the first being one, keeps what it ran on.
+pub(crate) fn ran_at(base: &Path, n: usize) -> PathBuf {
+    match n {
+        1 => base.with_extension("ran.json"),
+        n => base.with_extension(format!("ran.{n}.json")),
+    }
+}
+
+/// What a try ran on, as it is kept.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RanOnFile {
+    level: String,
+    model: String,
+    effort: Option<String>,
+}
+
+/// The longest file of what a try ran on that is read, in bytes: one longer was not written here.
+const RAN_BOUND: u64 = 4096;
+
+/// What a try ran on, as it is kept.
+pub(crate) fn ran_file(ran: &RanOn) -> Vec<u8> {
+    let file = RanOnFile {
+        level: ran.level.clone(),
+        model: ran.model.clone(),
+        effort: ran.effort.clone(),
+    };
+    // A struct of strings is always written as JSON.
+    serde_json::to_vec(&file).unwrap_or_default()
+}
+
+/// What the try whose file this is ran on, or that what is kept of it is cut short or no such record; none where it
+/// kept nothing of it. Where the file cannot be read at all, why.
+fn ran(path: &Path) -> Result<Option<RanKept>, String> {
+    match length(path).map_err(|e| e.to_string())? {
+        None => Ok(None),
+        Some(long) if long > RAN_BOUND => Ok(Some(RanKept::Unreadable(format!(
+            "it is {long} bytes long, more than the {RAN_BOUND} that are read of what a try ran on"
+        )))),
+        Some(_) => {
+            let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+            Ok(Some(match serde_json::from_slice::<RanOnFile>(&bytes) {
+                Ok(file) => RanKept::On(RanOn {
+                    level: file.level,
+                    model: file.model,
+                    effort: file.effort,
+                }),
+                Err(e) => RanKept::Unreadable(format!("it is not what a try ran on: {e}")),
+            }))
+        }
+    }
+}
+
 /// What the round of this number of the run of the work, kept in the data directory, was told and what came back of
 /// it, each try in order; no try where it kept nothing. A file that cannot be read is named from the data directory.
 pub(crate) fn told(data: &Path, work: WorkNumber, run: RunId, number: usize) -> Result<Told, String> {
@@ -90,11 +145,14 @@ fn told_within(data: &Path, base: &Path, bounds: &Bounds) -> Result<Told, String
                 back(&printed)
             }
         };
+        let on = ran_at(base, n);
+        let ran = ran(&on).map_err(|e| format!("{}: {e}", named(&on)))?;
         read_so_far += message.len() as u64 + size(&back);
         told.tries.push(Try {
             message,
             cut: (whole > bounds.message).then_some(whole),
             back,
+            ran,
         });
     }
     Ok(told)
@@ -228,6 +286,7 @@ mod tests {
             message: message.to_string(),
             cut: None,
             back,
+            ran: None,
         }
     }
 
@@ -264,6 +323,36 @@ mod tests {
                 tried("third", greeted())
             ]
         );
+    }
+
+    #[test]
+    fn each_try_gives_what_it_ran_on_as_it_began() {
+        let (dir, base) = kept();
+        keep(&base, 1, "first", Some(RESULT));
+        keep(&base, 2, "second", None);
+        let first = RanOn {
+            level: "2".to_string(),
+            model: "claude-sonnet-5-5".to_string(),
+            effort: Some("high".to_string()),
+        };
+        let second = RanOn {
+            level: "3".to_string(),
+            model: "claude-opus-5-5".to_string(),
+            effort: None,
+        };
+        std::fs::write(ran_at(&base, 1), ran_file(&first)).unwrap();
+        std::fs::write(ran_at(&base, 2), ran_file(&second)).unwrap();
+        let ran: Vec<Option<RanKept>> = told_at(&dir).tries.into_iter().map(|t| t.ran).collect();
+        assert_eq!(ran, [Some(RanKept::On(first.clone())), Some(RanKept::On(second))]);
+        // One cut short as it was written is that try's to be unread; the round's other tries are read all the same.
+        std::fs::write(ran_at(&base, 2), "{\"level\": \"3\", \"mo").unwrap();
+        let tries = told_at(&dir).tries;
+        assert_eq!(tries[0].ran, Some(RanKept::On(first)));
+        match &tries[1].ran {
+            Some(RanKept::Unreadable(why)) => assert!(why.starts_with("it is not what a try ran on: "), "{why}"),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(tries[1].message, "second");
     }
 
     #[test]
@@ -362,6 +451,7 @@ mod tests {
                     message: "Greet th".to_string(),
                     cut: Some(16),
                     back: Back::Unreadable(unread),
+                    ran: None,
                 },
                 tried("Again.", ok()),
                 tried("And more.", ok()),

@@ -2,7 +2,9 @@ name: ci
 
 # Every check of the code: the page's types, lint, tests and build, then the Rust format, clippy with warnings as
 # errors, and the tests. It runs on each pull request into `next` and on each push to `next`, on GitHub's machines from
-# a clean start.
+# a clean start: this is the CI the check before a work's merge waits for. What an agent names to its check while it
+# works, and the tests it runs on the code before its change, the fast CI runs instead (fast.yml), on the owner's
+# machine; so a push to a branch of the code before a change (`wf-agents-before/`) runs nothing here.
 on:
   pull_request:
     branches:
@@ -82,4 +84,5 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Test
-        run: cargo test --workspace --locked
+        # Every test binary runs to its end, so that a red run shows every test that fails, not the first binary's.
+        run: cargo test --workspace --locked --no-fail-fast
