@@ -213,6 +213,12 @@ fn the_work_says_of_itself_the_latest_of_each_block_the_cell_names_in_its_order(
 }
 
 #[test]
+fn the_work_says_of_itself_what_the_flows_check_names_for_the_acts_and_the_tools_alike() {
+    let work = written(&[("code", "Greets the user by name."), ("request", "Greet them.")]);
+    assert_eq!(about(&acts_flow(), &work), "Greets the user by name.");
+}
+
+#[test]
 fn what_the_host_says_beside_its_verdict_is_written_with_the_check() {
     let checked = Checked {
         commit: "c0ffee".to_string(),
