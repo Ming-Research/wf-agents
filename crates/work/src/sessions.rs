@@ -147,14 +147,31 @@ pub fn of_round(work: &Work, line: &str, on_line: impl Fn(RunId) -> bool, run: R
 /// of them ran in this session and reached the model. The session never saw what the run was doing, so the round is
 /// told its task and what each earlier round of the run was given, as a round that begins a session is, even where it
 /// goes on in a session another cell's round began; once a round of the run has been told so in the session, the
-/// session holds the run. A session begun again under the id of the one the program lost is the same session.
+/// session holds the run. A session the program lost and a round began again under its id holds nothing from before:
+/// an earlier round of the run holds it only where it reached it after the line's latest loss of it before the round,
+/// as the round that found it lost did in its try after that.
 pub fn moved(work: &Work, line: &str, run: RunId, number: usize) -> bool {
-    let session = number_at(work, line, start(work, run, number));
+    let at = start(work, run, number);
+    let session = number_at(work, line, at);
+    let lost = (of_line(work, line))
+        .filter(|s| s.why == Why::Lost && s.at < at && number_at(work, line, s.at) == session)
+        .map(|s| s.at)
+        .last();
     let held = (1..number).any(|earlier| {
         let here = number_at(work, line, start(work, run, earlier)) == session;
-        here && work.spent.get(&(run, earlier)).is_some_and(spent)
+        let since = lost.is_none_or(|lost| last_try(work, run, earlier) > lost);
+        here && since && work.spent.get(&(run, earlier)).is_some_and(spent)
     });
     number > 1 && !held
+}
+
+/// Where the round of this number of the run last reached its session: where its last try began, as its record says,
+/// or, where none is recorded, where the round began.
+fn last_try(work: &Work, run: RunId, number: usize) -> Seq {
+    let last = (work.ran.iter().rev()).find(|r| r.run == run && r.round == number);
+    (last.map(|r| r.at))
+        .or_else(|| began_at(work, run, number))
+        .unwrap_or_else(|| work.tick())
 }
 
 /// What the line's session of this number was begun on: what the first try of its first round recorded ran on; none
@@ -204,6 +221,22 @@ mod tests {
             });
         }
         work
+    }
+
+    /// A try of the round of this number of the run, begun at this place.
+    fn ran(at: u64, run: RunId, round: usize) -> Ran {
+        Ran {
+            at: Seq(at),
+            run,
+            round,
+            attempt: 1,
+            on: RanOn {
+                level: "1".to_string(),
+                model: "a".to_string(),
+                effort: None,
+                account: None,
+            },
+        }
     }
 
     fn of(work: &Work, number: usize) -> (u32, bool) {
@@ -259,10 +292,61 @@ mod tests {
             !moved(&w, "engineer", RunId(1), 4),
             "the round before was told the run in this session"
         );
-        let lost = work(&[(1, 10), (3, 10), (6, 10)], &[(5, Why::Lost)]);
+        // The run's round 2 found the session lost as its first try began, and began it again under its id in its
+        // second try, told the run.
+        let mut lost = work(&[(1, 10), (3, 10), (8, 10)], &[(5, Why::Lost)]);
+        lost.records.returned[1].at = Seq(7);
+        lost.ran.extend([4, 6].map(|at| ran(at, RunId(1), 2)));
         assert!(
             !moved(&lost, "engineer", RunId(1), 3),
             "a session begun again under its id is the same"
+        );
+    }
+
+    #[test]
+    fn a_round_whose_session_another_run_found_lost_since_the_run_was_told_in_it_is_told_again() {
+        // Run 1 moves to session 1 at its round 2 and is told its run there; while it waits, run 2 of the line finds
+        // session 1 lost as its first try begins, and begins it again under its id in its second try.
+        let (one, two) = (RunId(1), RunId(2));
+        let mut w = Work::default();
+        for (at, run) in [(1, one), (5, one), (9, two), (15, one)] {
+            w.records.rounds.push(Round { at: Seq(at), run });
+        }
+        for (at, run) in [(3, one), (7, one), (13, two)] {
+            w.records.returned.push(Returned { at: Seq(at), run });
+        }
+        let tokens = Spent {
+            input_tokens: 10,
+            ..Spent::default()
+        };
+        for key in [(one, 1), (one, 2), (two, 1)] {
+            w.spent.insert(key, tokens);
+        }
+        w.ran
+            .extend([ran(2, one, 1), ran(6, one, 2), ran(10, two, 1), ran(12, two, 1)]);
+        let session = |at, why| Session {
+            at: Seq(at),
+            line: "engineer".to_string(),
+            why,
+        };
+        w.sessions.extend([session(4, Why::Owner), session(11, Why::Lost)]);
+        assert!(
+            moved(&w, "engineer", one, 3),
+            "the session begun again holds run 2's round and nothing of run 1"
+        );
+        assert!(
+            !moved(&w, "engineer", two, 2),
+            "the round that found it lost told it its run"
+        );
+        assert_eq!(
+            of_round(&w, "engineer", |_| true, one, 3),
+            (1, false),
+            "it goes on in that session"
+        );
+        w.sessions.pop();
+        assert!(
+            !moved(&w, "engineer", one, 3),
+            "not lost, the session holds run 1's round 2"
         );
     }
 
