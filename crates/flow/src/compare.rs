@@ -426,6 +426,12 @@ fn cell_changes(before: &Placed, after: &Placed, flow_limits: &[(Limit, u32, u32
         CellChange::DescribesAdded,
         &mut changes,
     );
+    if b.owner_paths != a.owner_paths {
+        changes.push(CellChange::OwnerPaths {
+            before: b.owner_paths.clone(),
+            after: a.owner_paths.clone(),
+        });
+    }
     let own = [
         (Limit::Runs, b_cell.limit, a_cell.limit),
         (Limit::Returns, b.returns, a.returns),
