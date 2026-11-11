@@ -17,9 +17,7 @@ fn a_paused_run_for_what_a_person_wrote_begins_resumes_and_is_sent_back() {
 
 #[test]
 fn a_paused_run_for_what_a_person_wrote_whose_round_failed_is_held() {
-    let failed = Round {
-        returned: Some(Return::Failed),
-    };
+    let failed = failed_as(Failure::Other);
     assert_eq!(step_paused_answering(vec![failed], &spec()), Step::Held);
 }
 

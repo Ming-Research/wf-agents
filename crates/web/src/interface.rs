@@ -17,18 +17,28 @@ use axum::routing::{get, post};
 use decide::RunId;
 use driver::Failed;
 use serde::Serialize;
-use service::Handle;
-use store::WorkNumber;
+use service::{Handle, Levels};
+use store::{ItemNumber, WorkNumber};
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::works::{
-    Act, Added, Broken, CallPage, Changed, Items, NewItem, Refusal, RoundPage, ToldPage, VersionPage, WorkPage,
+    Act, Added, Broken, CallPage, Changed, Items, LevelSet, LevelsPage, NewItem, NewLevel, Refusal, RoundPage,
+    ToldPage, VersionPage, WorkPage,
 };
 
-/// The routes of the items and the works, over the engine's loop.
-pub fn router(handle: Handle) -> Router {
+/// The routes of the items and the works, over the engine's loop; an item is added at one of these levels.
+pub fn router(handle: Handle, levels: Levels) -> Router {
+    let levels = std::sync::Arc::new(levels);
+    let shown = LevelsPage::of(&levels);
+    let to_add = levels.clone();
+    let add = move |handle: State<Handle>, body: Bytes| add(handle, to_add.clone(), body);
+    let set = move |handle: State<Handle>, path: Result<Path<u64>, PathRejection>, body: Bytes| {
+        set_level(handle, levels.clone(), path, body)
+    };
     Router::new()
         .route("/api/v1/items", get(items).post(add))
+        .route("/api/v1/items/{item}/level", post(set))
+        .route("/api/v1/levels", get(move || async move { Json(shown.clone()) }))
         .route("/api/v1/works/{work}", get(work))
         .route("/api/v1/works/{work}/versions/{block}/{at}", get(version))
         .route("/api/v1/works/{work}/runs/{run}/rounds/{number}", get(round))
@@ -40,7 +50,7 @@ pub fn router(handle: Handle) -> Router {
 }
 
 async fn items(State(handle): State<Handle>) -> Response {
-    match handle.read(Items::of).await {
+    match handle.read_at(Items::of).await {
         Ok(Ok(items)) => Json(items).into_response(),
         Ok(Err(broken)) => fail(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -50,17 +60,46 @@ async fn items(State(handle): State<Handle>) -> Response {
     }
 }
 
-async fn add(State(handle): State<Handle>, body: Bytes) -> Response {
+async fn add(State(handle): State<Handle>, levels: std::sync::Arc<Levels>, body: Bytes) -> Response {
     let item: NewItem = match serde_json::from_slice(&body) {
         Ok(item) => item,
         Err(e) => return fail(StatusCode::BAD_REQUEST, format!("The item cannot be read: {e}.")),
     };
-    match handle.add(item.taken()).await {
+    let item = match item.taken(&levels) {
+        Ok(item) => item,
+        Err(why) => return fail(StatusCode::UNPROCESSABLE_ENTITY, format!("The item's level: {why}.")),
+    };
+    match handle.add(item).await {
         Ok((item, work)) => Json(Added {
             item: item.0,
             work: work.0,
         })
         .into_response(),
+        Err(refusal) => refused(&refusal),
+    }
+}
+
+/// Puts an item at another level, as the owner: one of the levels, at most the highest an item may be at.
+async fn set_level(
+    State(handle): State<Handle>,
+    levels: std::sync::Arc<Levels>,
+    path: Result<Path<u64>, PathRejection>,
+    body: Bytes,
+) -> Response {
+    let item = match path {
+        Ok(Path(item)) => ItemNumber(item),
+        Err(rejection) => return unreadable(&rejection),
+    };
+    let asked: NewLevel = match serde_json::from_slice(&body) {
+        Ok(asked) => asked,
+        Err(e) => return fail(StatusCode::BAD_REQUEST, format!("The level cannot be read: {e}.")),
+    };
+    let level = match levels.of_item(Some(&asked.level)) {
+        Ok(level) => level,
+        Err(why) => return fail(StatusCode::UNPROCESSABLE_ENTITY, format!("The item's level: {why}.")),
+    };
+    match handle.set_level(item, &level).await {
+        Ok(changed) => Json(LevelSet { changed }).into_response(),
         Err(refusal) => refused(&refusal),
     }
 }
@@ -72,7 +111,7 @@ async fn work(State(handle): State<Handle>, path: Result<Path<u64>, PathRejectio
     };
     let missing = format!("There is no work {}.", number.0);
     let page = handle
-        .read(move |driver| driver.work(number).map(|_| WorkPage::of(driver, number)))
+        .read_at(move |driver, now| driver.work(number).map(|_| WorkPage::of(driver, number, now)))
         .await;
     found(page, number, missing)
 }

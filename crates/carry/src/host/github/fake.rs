@@ -1,6 +1,6 @@
 //! GitHub for the tests of the GitHub host: a bare repository on disk that the host pushes to and fetches from, and
-//! in memory the pull requests, the checks each commit is given, poll by poll, the jobs' logs and the merges. It keeps
-//! what it was asked.
+//! in memory the pull requests, the checks each commit is given, poll by poll, the jobs' logs, the merges and the
+//! closings. It keeps what it was asked.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
@@ -62,6 +62,16 @@ pub(crate) enum Asked {
         branch: String,
         inputs: Vec<(String, String)>,
     },
+    Edit {
+        number: u64,
+        title: String,
+        body: String,
+    },
+    Ready(String),
+    Close {
+        number: u64,
+        comment: String,
+    },
 }
 
 impl Fake {
@@ -96,6 +106,11 @@ impl Fake {
     /// Keeps this log for the job.
     pub(crate) fn log(&self, job: u64, log: &str) {
         self.kept().logs.insert(job, log.to_string());
+    }
+
+    /// The pull requests, in the order they were opened.
+    pub(crate) fn pull_requests(&self) -> Vec<Pull> {
+        self.kept().pulls.iter().map(|(_, p)| p.clone()).collect()
     }
 
     /// Refuses every merge, with these words.
@@ -217,7 +232,7 @@ impl Api for Fake {
         Ok(self.of(branch))
     }
 
-    async fn open(&self, branch: &str, base: &str, title: &str, _: &str) -> Result<Pull, String> {
+    async fn open(&self, branch: &str, base: &str, title: &str, body: &str) -> Result<Pull, String> {
         let head = self.head(branch).ok_or("HTTP 422: the head branch is not on GitHub")?;
         let mut kept = self.kept();
         // As GitHub, which opens no second pull request of a branch into the same base.
@@ -239,14 +254,26 @@ impl Api for Fake {
             head,
             base: base.to_string(),
             merge_commit: None,
+            title: title.to_string(),
+            body: body.to_string(),
+            draft: true,
+            node: format!("PR_{number}"),
         };
         kept.pulls.push((branch.to_string(), pull.clone()));
         Ok(pull)
     }
 
     async fn checks(&self, commit: &str) -> Result<Vec<Check>, String> {
+        // As GitHub, which answers so of a commit it has not been given.
+        let known = (std::process::Command::new("git").arg("-C").arg(&self.bare))
+            .args(["cat-file", "-e", &format!("{commit}^{{commit}}")])
+            .output()
+            .is_ok_and(|o| o.status.success());
         let mut kept = self.kept();
         kept.asked.push(Asked::Checks(commit.to_string()));
+        if !known {
+            return Err(format!("HTTP 422: No commit found for SHA: {commit}"));
+        }
         let Some(polls) = kept.checks.get_mut(commit) else {
             return Ok(Vec::new());
         };
@@ -277,6 +304,9 @@ impl Api for Fake {
         let (_, pull) = (kept.pulls.iter_mut())
             .find(|(_, p)| p.number == number)
             .ok_or("HTTP 404: Not Found")?;
+        if pull.draft {
+            return Err("HTTP 405: Pull Request is still a draft".to_string());
+        }
         if pull.head != head {
             return Err("HTTP 409: Head branch was modified. Review and try the merge again.".to_string());
         }
@@ -340,5 +370,43 @@ impl Api for Fake {
             .map(|(_, c, _)| c.clone());
         let artifact = commit.and_then(|c| kept.fast.get(&c).and_then(|(_, a)| a.clone()));
         Ok(artifact.filter(|(n, _)| n == name).map(|(_, files)| files))
+    }
+
+    async fn edit(&self, number: u64, title: &str, body: &str) -> Result<(), String> {
+        let mut kept = self.kept();
+        kept.asked.push(Asked::Edit {
+            number,
+            title: title.to_string(),
+            body: body.to_string(),
+        });
+        let (_, pull) = (kept.pulls.iter_mut())
+            .find(|(_, p)| p.number == number)
+            .ok_or("HTTP 404: Not Found")?;
+        pull.title = title.to_string();
+        pull.body = body.to_string();
+        Ok(())
+    }
+
+    async fn ready(&self, node: &str) -> Result<(), String> {
+        let mut kept = self.kept();
+        kept.asked.push(Asked::Ready(node.to_string()));
+        let (_, pull) = (kept.pulls.iter_mut())
+            .find(|(_, p)| p.node == node)
+            .ok_or("Could not resolve to a node")?;
+        pull.draft = false;
+        Ok(())
+    }
+
+    async fn close(&self, number: u64, comment: &str) -> Result<(), String> {
+        let mut kept = self.kept();
+        kept.asked.push(Asked::Close {
+            number,
+            comment: comment.to_string(),
+        });
+        let (_, pull) = (kept.pulls.iter_mut())
+            .find(|(_, p)| p.number == number)
+            .ok_or("HTTP 404: Not Found")?;
+        pull.state = State::Closed;
+        Ok(())
     }
 }

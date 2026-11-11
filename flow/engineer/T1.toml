@@ -1,6 +1,7 @@
 title = "Review"
 kind = "agent"
 line = "review"
+effort = "high"
 task = '''
 Review the change in `code`, in a session of your own, and change no file. Read the diff from main to the commit
 `code` names, and whole each file of decisions whose topic it touches. Judge only by what the implementation was asked

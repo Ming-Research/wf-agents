@@ -204,25 +204,44 @@ async fn two_checks_at_once_go_through_one_pull_request() {
     assert_eq!(hub.opened(), 1);
 }
 
+// GitHub answers a question about the checks of a commit it has not been given with a refusal (`HTTP 422: No commit
+// found for SHA`), as the fake does: such a commit has no checks, and is pushed. Asked again, the commit is GitHub's,
+// and a CI of it that is complete is answered from, with nothing pushed or waited for.
 #[tokio::test]
-async fn the_check_before_the_change_answers_from_a_ci_complete_already_and_pushes_nothing() {
+async fn a_commit_github_does_not_know_is_pushed_and_one_whose_ci_is_complete_is_answered_from() {
     let hub = Hub::new();
     hub.committed().await;
     let before = hub.before(&["farewell.txt"]).await;
     hub.github()
         .checks(&before.commit, vec![vec![passed("lint"), passed("test")]]);
     let place = hub.place();
-    let said = (hub
-        .host
+    let first = (hub.host)
         .check_before(&branch(&place), &before, &Named::default(), &mut Stop::never())
-        .await)
-        .unwrap()
+        .await
+        .expect("a commit GitHub does not know has no checks yet")
         .expect("nothing stopped it");
     assert!(
-        said.starts_with(&format!("The CI passed on the commit {}", before.commit)),
-        "{said}"
+        first.starts_with(&format!("The CI passed on the commit {}", before.commit)),
+        "{first}"
     );
-    assert!(!holds(&hub, &before.commit), "nothing was pushed");
+    assert!(holds(&hub, &before.commit), "it was pushed");
+    let looks = |hub: &Hub| {
+        (hub.github().asked().iter())
+            .filter(|a| matches!(a, Asked::Checks(_)))
+            .count()
+    };
+    let earlier = looks(&hub);
+    let again = (hub.host)
+        .check_before(&branch(&place), &before, &Named::default(), &mut Stop::never())
+        .await
+        .unwrap()
+        .expect("nothing stopped it");
+    assert_eq!(again, first);
+    assert_eq!(
+        looks(&hub),
+        earlier + 1,
+        "answered from one look, with no wait after a push"
+    );
 }
 
 #[tokio::test]

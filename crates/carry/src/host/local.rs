@@ -73,7 +73,11 @@ impl Host for Local {
             Ran::Ended { .. } => None,
             Ran::Stopped => return Ok(None),
         };
-        Ok(Some(Verdict { failed, by: None }))
+        Ok(Some(Verdict {
+            failed,
+            by: None,
+            notes: Vec::new(),
+        }))
     }
 
     async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, String> {
@@ -116,6 +120,11 @@ impl Host for Local {
         let said = ran?;
         taken?;
         Ok(said.map(|said| whole(named, said)))
+    }
+
+    /// The local repository holds nothing for a work beside its branch and its worktrees, which the acts let go.
+    async fn end(&self, _: &Branch<'_>, _: bool) -> Result<(), String> {
+        Ok(())
     }
 }
 

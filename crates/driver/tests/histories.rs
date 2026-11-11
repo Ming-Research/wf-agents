@@ -236,6 +236,7 @@ impl History {
         };
         let new = NewItem {
             title: title.to_string(),
+            level: "1".to_string(),
             depends_on,
             flow: flow.to_string(),
             writes,
@@ -341,6 +342,7 @@ impl History {
                 came: Came::Asks(vec![]),
                 spent: self.spent(run),
             },
+            Effect::Release { .. } => Event::Released,
         };
         self.act(Act::On(todo.work, event));
         true

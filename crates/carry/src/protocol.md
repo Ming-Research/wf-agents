@@ -7,8 +7,8 @@ in.
 
 ## Where you work
 
-You work in the current directory: the worktree of the work's own branch. Make your changes there and commit them
-there. Never push, and never switch to another branch.
+You work in the current directory: the worktree of the work's own branch. {your_line} Never switch to another
+branch. To build and test, ask for `check`.
 
 ## How you return
 

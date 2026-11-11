@@ -262,7 +262,7 @@ describe('a test of what stands', () => {
       [
         cell('judge', { outputs: ['verdict', 'deeper'] }),
         cell('deep', { condition: { on: 'block', block: 'deeper', value: 'yes' }, outputs: ['deep_verdict'] }),
-        cell('merge', { kind: 'engine', line: null, preconditions: [approved] }),
+        cell('merge', { kind: 'engine', line: null, effort: null, preconditions: [approved] }),
       ],
       { verdict: { values: ['yes', 'no'] }, deeper: { values: ['yes', 'no'] }, deep_verdict: { values: ['yes', 'no'] } },
     );

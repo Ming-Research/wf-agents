@@ -45,6 +45,6 @@ fn a_work_rebuilt_from_its_parts_goes_on_exactly_as_the_original() {
         assert_eq!(copy.on(event.clone()), w.on(event));
         assert_eq!(copy.clock, w.clock);
         assert_eq!(copy.work, w.work);
-        assert_eq!(pending(&copy.work), pending(&w.work));
+        assert_eq!(pending(&copy.flow, &copy.work), pending(&w.flow, &w.work));
     }
 }

@@ -24,7 +24,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
             "flow": {
                 "name": "tiny",
                 "limits": limits(3),
-                "lines": [{ "name": "engineer", "cells": ["plan", "review"] }],
+                "lines": [{ "name": "engineer", "cells": ["plan", "review"], "levelsAbove": 0 }],
                 "tests": [may_merge],
                 "cells": [
                     {
@@ -34,6 +34,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "line": "engineer",
                         "task": "Write the plan from the request.",
                         "act": null,
+                        "effort": "high",
                         "condition": null,
                         "preconditions": [],
                         "inputs": ["request", "opinions"],
@@ -48,6 +49,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "line": "engineer",
                         "task": "Review the plan.\nSay whether it is content.",
                         "act": null,
+                        "effort": "high",
                         "condition": null,
                         "preconditions": [],
                         "inputs": ["plan"],
@@ -62,6 +64,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "line": null,
                         "task": null,
                         "act": "merge",
+                        "effort": null,
                         "condition": null,
                         "preconditions": [may_merge],
                         "inputs": ["content"],

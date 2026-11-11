@@ -74,7 +74,7 @@ fn started_again_the_engine_goes_on_from_the_store() {
     let engine = Engine::start(&place);
     assert_eq!(
         engine.says(&["list"]),
-        "Item 1 \"Greet the user\", work 1 on trial: waits at plan for the owner to answer call 2: \"Should the greeting \
+        "Item 1 \"Greet the user\" at level 1, work 1 on trial: waits at plan for the owner to answer call 2: \"Should the greeting \
          name the user?\"\n"
     );
     engine.says(&["answer", "1", "2", "Yes."]);
@@ -111,7 +111,7 @@ fn a_second_engine_on_a_data_directory_one_drives_does_not_start() {
     // The first goes on as it was.
     assert_eq!(
         engine.says(&["list"]),
-        "Item 1 \"Greet the user\", work 1 on trial: paused\n"
+        "Item 1 \"Greet the user\" at level 1, work 1 on trial: paused\n"
     );
 }
 

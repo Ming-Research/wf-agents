@@ -1,6 +1,7 @@
 title = "Adversarial testing"
 kind = "agent"
 line = "adversarial"
+effort = "high"
 task = '''
 Test the change in `code` as an adversary, in a session of your own. You only write tests, in the project's test
 files: where you think the implementation wrong, write a test that turns red, for the engineer to fix. Meet each

@@ -22,14 +22,21 @@ check = "cargo test"
 [agents]
 # The command line program that runs an agent's round.
 command = "claude"
-# The model every round is run with.
-model = "claude-haiku-5-5"
 # How many agents' rounds run at once; the others wait their turn.
 slots = 2
 # What the program is given on every round after what the engine gives it.
 args = ["--permission-mode", "acceptEdits", "--tools", "Bash,Read,Edit,Write,Grep,Glob", "--strict-mcp-config", "--disable-slash-commands"]
+# The engine refuses every agent its heavy commands (builds, test suites, git push and the like) and lets an agent that
+# writes update a lock file with Cargo's and npm's commands that build nothing. Here the installation adds what its
+# toolchain counts as heavy, its own lock commands, which an agent that writes may run though a heavy command covers
+# them, and the uses of those that are refused all the same (`*` for any text). A lock command that a heavy command
+# falls under or that pushes, and a `*` or a parenthesis in a heavy or lock command, are refused. In `args`,
+# `--settings`, `--setting-sources`, `--permission-prompt-tool`, `--` and a last flag not known to take no value are
+# refused, since they would undo the engine's rules or take its own arguments after them.
+# permissions = { heavy = ["uv"], locks = ["uv lock"], locks_except = ["uv lock *--script*"] }
 # Which settings files the program reads, given as --setting-sources on every round. Left out, it is `user`, so that a
-# settings file the worktree holds, which an agent may write, is not read.
+# settings file the worktree holds, which an agent may write, is not read; `project` and `local`, which are such files,
+# are refused.
 # setting_sources = "user"
 # The program is given only these variables of the engine's environment: PATH, HOME, USER, LANG and LC_*, TMPDIR, TERM
 # and SHELL, and those named here, such as an API key.
@@ -42,6 +49,32 @@ owner_language = "Chinese"
 # What a work's rounds may spend in all, in dollars: once a round ends with the work over it, the work is paused for
 # the owner, who may let it on. Left out, there is no budget.
 work_budget_usd = 5.0
+
+# The levels of work, each a table named by the level: what work it is for and the model its rounds are run with, as
+# --model takes it. An item's level chooses the model of its agents' rounds; a line of the flow may run some levels
+# above its item's. The levels go in the order of their names, by number where they are numbers.
+[agents.levels.1]
+desc = "Easy work: small and clear, with little to work out"
+model = "claude-haiku-5-5"
+
+[agents.levels.2]
+desc = "Work of ordinary difficulty"
+model = "claude-sonnet-5-5"
+
+[agents.levels.3]
+desc = "Work level 2 cannot do: an item is raised to it only when that is really needed"
+model = "claude-opus-5-5"
+
+[agents.levels.4]
+desc = "The hardest work"
+model = "claude-fable-5-1"
+
+[items]
+# The level an item is added at where it is given none.
+default_level = "2"
+# The highest level an item may be at: an item above it is refused as it is added, and no line of the flow runs above
+# it. Left out, the top level.
+highest_level = "3"
 
 # The repository on GitHub, where GitHub is the host: with this table, the check before a work's merge and the agents'
 # tool `check` push the work's branch to GitHub, open its pull request into the main branch where it has none, and

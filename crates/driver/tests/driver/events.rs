@@ -108,8 +108,15 @@ fn what_happened_to_a_work_gives_what_is_to_be_done_for_it_next() {
     assert_eq!(todos, vec![round_todo(w, merge, "merge", 1, Given::Task)]);
     // The merge's act is done: the work has merged, and nothing more is to be done.
     let todos = h.hands_in(w, &[("merged", None)]);
-    assert_eq!(todos, vec![]);
+    let release = vec![Todo {
+        work: w,
+        effect: Effect::Release { end: End::Merged },
+    }];
+    assert_eq!(todos, release);
     assert_eq!(h.decision(w), Decision::Ended(End::Merged));
+    // What it held is to be let go until it is said to be.
+    assert_eq!(h.d().pending(), release);
+    assert_eq!(h.on(w, Event::Released), vec![]);
     assert_eq!(h.d().pending(), vec![]);
     // A look at a work that has ended gives nothing.
     assert_eq!(h.on(w, Event::Look), vec![]);
@@ -278,7 +285,12 @@ fn a_cancel_stops_the_round_under_way_and_nothing_of_the_work_goes_on() {
     // The end of the stopped round gives nothing more, and nor does a person's write.
     let spent = h.spent();
     let came = Came::Asks(vec![]);
-    assert_eq!(h.on(w, Event::Returned { run, came, spent }), vec![]);
+    // Nothing of it is under way then: what it held is let go.
+    let release = vec![Todo {
+        work: w,
+        effect: Effect::Release { end: End::Cancelled },
+    }];
+    assert_eq!(h.on(w, Event::Returned { run, came, spent }), release);
     assert_eq!(h.on(w, wrote("request", Outsider::Person, None)), vec![]);
-    assert_eq!(h.d().pending(), vec![]);
+    assert_eq!(h.d().pending(), release);
 }
