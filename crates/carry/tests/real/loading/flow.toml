@@ -1,0 +1,48 @@
+# The trial flow (crates/service/tests/trial/flow) with a plan that also loads the engineer's session: it reads the
+# block the engine writes as the line begins a new session, so that it runs again before the line goes on.
+name = "loading"
+order = ["plan", "build", "review", "merge"]
+
+[limits]
+runs = 3
+returns = 2
+calls = 4
+
+[lines.engineer]
+[lines.reviewer]
+reads_only = true
+
+[blocks.request]
+people = true
+
+[blocks.dependencies]
+values = ["waiting", "merged"]
+outside = "dependencies"
+
+[blocks.session]
+outside = "session"
+
+[blocks.plan]
+
+[blocks.opinions]
+people = true
+
+[blocks.code]
+
+[blocks.verdict]
+values = ["yes", "no"]
+
+[blocks.merged]
+shown = true
+
+[tests.ready]
+says = "Every item this one depends on has merged"
+kind = "all"
+reads = ["dependencies"]
+is = "merged"
+
+[tests.content]
+says = "The review is content"
+kind = "all"
+reads = ["verdict"]
+is = "yes"

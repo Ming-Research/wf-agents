@@ -18,13 +18,15 @@
 //!   wrote, and none given again after it failed;
 //! - a round given while the work is paused is of a run for a note a person wrote, and is no round given again after
 //!   one that failed;
-//! - a round after one that failed is given what the failed one was given, read from the records.
+//! - a round after one that failed is given what the failed one was given, read from the records;
+//! - what a work holds outside is let go only once it has ended so and nothing else of it is to be done, and a work
+//!   that has ended with nothing else to be done has it to let go until it is let go.
 //!
 //! And once people stop, the owner lets the work on if it is paused, for whatever reason, and no round fails any more:
 //! the work then rests within
 //! the bound stated on `bound` (entry a-work-comes-to-rest), at rest it is not paused and the walk waits or has
-//! ended, and `pending` holds only calls for a person; a cancelled work ends with nothing pending, and a look at it
-//! gives nothing. The same history ends with the same work run twice, and with its stops as without them, failed rounds
+//! ended, and `pending` holds only calls for a person; a work that ended has let go of what it held; a cancelled work
+//! ends with nothing pending, and a look at it gives nothing. The same history ends with the same work run twice, and with its stops as without them, failed rounds
 //! among them.
 //!
 //! What a step is, roughly. In the first 0 to 59 steps people act at a step with a chance of one in four; otherwise,
@@ -100,7 +102,7 @@ fn agent(inputs: &[&str], outputs: &[&str], must: &[&str], when: Option<&str>) -
     let list = |l: &[&str]| l.iter().map(|b| format!("\"{b}\"")).collect::<Vec<_>>().join(", ");
     let when = when.map_or(String::new(), |w| format!("when = {w}\n"));
     let file = format!(
-        "title = \"A cell\"\nkind = \"agent\"\nline = \"main\"\ntask = \"Do the cell's part.\"\n{when}\
+        "title = \"A cell\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Do the cell's part.\"\n{when}\
          inputs = [{}]\noutputs = [{}]\nmust_write = [{}]\n",
         list(inputs),
         list(outputs),
@@ -399,12 +401,18 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
             matches!(decision, Decision::Wait { .. } | Decision::Ended(_)),
             "the work rests deciding {decision:?}"
         );
-        for effect in pending(&d.work) {
+        for effect in pending(&d.flow, &d.work) {
             let Effect::Call { call, .. } = &effect else {
                 panic!("at rest something other than a call is pending: {effect:?}");
             };
             let called = d.work.records.called.iter().find(|c| c.call == *call).expect("a call");
             assert!(called.on.is_some(), "at rest a call waits for nobody: {effect:?}");
+        }
+        if matches!(decision, Decision::Ended(_)) {
+            assert!(
+                d.work.records.released.is_some(),
+                "a work that ended at rest holds what it held"
+            );
         }
         // A work cancelled after it merged has merged.
         if d.work.records.cancelled.is_some() && decision != Decision::Ended(decide::End::Merged) {
@@ -413,7 +421,11 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
                 Decision::Ended(decide::End::Cancelled),
                 "a cancelled work goes on"
             );
-            assert_eq!(pending(&d.work), vec![], "a cancelled work has something pending");
+            assert_eq!(
+                pending(&d.flow, &d.work),
+                vec![],
+                "a cancelled work has something pending"
+            );
             d.take(Event::Look);
             d.check();
             assert_eq!(d.held, vec![], "a cancelled work was given more");
@@ -467,6 +479,7 @@ fn whole_works_keep_the_engines_properties_with_and_without_stops() {
                 seen.paused_rounds += s.paused_rounds;
                 seen.lacking += s.lacking;
                 seen.bound_finished += s.bound_finished;
+                seen.released += s.released;
             }
             Err(e) => {
                 let message = (e.downcast_ref::<String>().cloned())
@@ -500,7 +513,8 @@ fn whole_works_keep_the_engines_properties_with_and_without_stops() {
         && seen.retried > 0
         && seen.failed_abandoned > 0
         && seen.rested_unpaused > 0
-        && seen.paused_rounds > 0;
+        && seen.paused_rounds > 0
+        && seen.released > 0;
     // What the histories reached, said whatever comes of the test: written to the standard error itself, which the
     // test harness does not hold back as it holds back what a test prints.
     let _ = writeln!(std::io::stderr(), "the engine's histories reached: {seen:?}");

@@ -6,9 +6,13 @@
 
 use std::collections::BTreeMap;
 
-use decide::run::{Limit, Unmet};
+use decide::run::{Failure, Limit, Unmet};
 use decide::{BlockId, CallId, Records, RunId, Seq, Who};
 use serde::{Deserialize, Serialize};
+
+pub mod sessions;
+
+pub use sessions::{Ran, RanOn, Session, Why};
 
 /// Everything kept of one work.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -30,6 +34,10 @@ pub struct Work {
     pub spent: BTreeMap<(RunId, usize), Spent>,
     /// When each thing that happened was taken, in order: the first place given to its entries, and the time.
     pub moments: Vec<Moment>,
+    /// Each new session of a line that began, in order.
+    pub sessions: Vec<Session>,
+    /// Each try of an agent's round that began, with what it ran on, in order.
+    pub ran: Vec<Ran>,
 }
 
 impl Work {
@@ -47,7 +55,10 @@ impl Work {
             .chain(r.written.iter().map(|e| e.at))
             .chain(r.let_go.iter().map(|e| e.at))
             .chain(r.pauses.iter().map(|e| e.at))
-            .chain(r.cancelled);
+            .chain(r.cancelled)
+            .chain(r.released)
+            .chain(self.sessions.iter().map(|s| s.at))
+            .chain(self.ran.iter().map(|r| r.at));
         Seq(places.map(|at| at.0).max().unwrap_or(0) + 1)
     }
 
@@ -90,6 +101,13 @@ pub struct Spent {
     pub cached_tokens: u64,
     /// The tokens that came back.
     pub output_tokens: u64,
+    /// The context the round ended with, in tokens: what its last call to the model was sent, read from the cache or
+    /// not. None where it is not known, and for an act of the engine's own.
+    #[serde(default)]
+    pub context_tokens: Option<u64>,
+    /// How often the agents' program compacted the session during the round.
+    #[serde(default)]
+    pub compactions: u32,
 }
 
 /// What a round is given.
@@ -112,9 +130,19 @@ pub enum Back {
     Asked(Vec<Ask>),
     /// These blocks were handed in.
     HandedIn(Vec<Handed>),
-    /// Nothing came back: the round failed, for this reason, as whatever carried it out says. The engine paused the
-    /// work as it took this, and the run's next round is given what this one was given.
-    Failed { why: String },
+    /// Nothing came back: the round failed, for this reason, as whatever carried it out says, with the kind of cause
+    /// it told apart. The run's next round is given what this one was given, as the kind's handling lets it (crate
+    /// `decide`, module `run`). Records kept before kinds were told apart hold none, and read as a failure that
+    /// paused the work, as each did.
+    Failed {
+        why: String,
+        #[serde(default)]
+        failure: Failure,
+        /// When the account's usage limit resets, where the failure is that limit and its report says when; none
+        /// otherwise.
+        #[serde(default)]
+        resets: Option<Time>,
+    },
 }
 
 /// A block as a run hands it in.
@@ -135,6 +163,9 @@ pub enum Call {
     Asked(Ask),
     /// The run reached a limit: the owner lets it go on or cancels the work.
     AtLimit(Limit),
+    /// The engine waits until this time before the run's last round, which failed in passing, the `failed`th time in
+    /// a row, is tried again. Its result comes from the clock, once the time has come.
+    Wait { until: Time, failed: u32 },
 }
 
 /// What an agent asks for at the end of a round.

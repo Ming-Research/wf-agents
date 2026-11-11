@@ -1,14 +1,17 @@
 //! The copies, tested on real files and a real store, with the place off the machine made by a fake that can fail at
-//! any call, and the process stopped at every point a step leaves a mark.
+//! any call, and the process stopped at every write a step makes, by a ground that counts them.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
-use std::sync::Mutex;
+use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use rusqlite::Connection;
 use store::{Records, Store};
 use tempfile::TempDir;
+use tokio::sync::Notify;
 
 use super::*;
 
@@ -17,9 +20,9 @@ const HOUR: u64 = TICK;
 const DAY: u64 = PERIOD;
 
 /// A place off the machine that keeps its assets in memory and fails at the calls it is told to.
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Fake {
-    inner: Mutex<Inner>,
+    inner: Arc<Mutex<Inner>>,
 }
 
 #[derive(Default)]
@@ -59,14 +62,14 @@ impl Fake {
 }
 
 impl Offsite for Fake {
-    fn private(&self) -> Result<bool, String> {
+    async fn private(&self) -> Result<bool, String> {
         self.call()?;
         let mut inner = self.inner();
         inner.private_calls += 1;
         Ok(!inner.public)
     }
 
-    fn upload(&self, file: &Path) -> Result<(), String> {
+    async fn upload(&self, file: &Path) -> Result<(), String> {
         self.call()?;
         let mut inner = self.inner();
         if inner.fail_uploads {
@@ -79,12 +82,12 @@ impl Offsite for Fake {
         Ok(())
     }
 
-    fn list(&self) -> Result<Vec<String>, String> {
+    async fn list(&self) -> Result<Vec<String>, String> {
         self.call()?;
         Ok(self.inner().assets.keys().cloned().collect())
     }
 
-    fn remove(&self, name: &str) -> Result<(), String> {
+    async fn remove(&self, name: &str) -> Result<(), String> {
         self.call()?;
         let mut inner = self.inner();
         if inner.fail_removes {
@@ -95,13 +98,80 @@ impl Offsite for Fake {
     }
 }
 
+/// The real ground, with every write counted, and ended as a stop, instead of done, at the one a test names.
+struct Counting {
+    disk: Disk,
+    stop_at: Option<usize>,
+    writes: AtomicUsize,
+}
+
+impl Counting {
+    fn over(store: &Path, dir: &Path, stop_at: Option<usize>) -> Counting {
+        Counting {
+            disk: Disk::open(store, dir).expect("the records open"),
+            stop_at,
+            writes: AtomicUsize::new(0),
+        }
+    }
+
+    fn write<T>(&self, done: impl FnOnce() -> Result<T, Fail>) -> Result<T, Fail> {
+        let this = self.writes.fetch_add(1, Ordering::SeqCst);
+        if self.stop_at == Some(this) {
+            return Err(Fail::Stopped);
+        }
+        done()
+    }
+}
+
+impl Ground for Counting {
+    fn records(&self) -> Result<Records, Fail> {
+        self.disk.records()
+    }
+
+    fn files(&self) -> Result<Vec<String>, Fail> {
+        self.disk.files()
+    }
+
+    fn path(&self, name: &str) -> std::path::PathBuf {
+        self.disk.path(name)
+    }
+
+    fn clear_partial(&self) -> Result<(), Fail> {
+        self.write(|| self.disk.clear_partial())
+    }
+
+    fn finish(&self, name: &str) -> Result<(), Fail> {
+        self.write(|| self.disk.finish(name))
+    }
+
+    fn remove(&self, name: &str) -> Result<bool, Fail> {
+        self.write(|| self.disk.remove(name))
+    }
+
+    fn taken(&self, name: &str, at: Time) -> Result<(), Fail> {
+        self.write(|| self.disk.taken(name, at))
+    }
+
+    fn uploaded(&self, name: &str, at: Time) -> Result<(), Fail> {
+        self.write(|| self.disk.uploaded(name, at))
+    }
+
+    fn failed(&self, at: Time, name: &str, step: &str, why: &str) -> Result<(), Fail> {
+        self.write(|| self.disk.failed(at, name, step, why))
+    }
+
+    fn ended(&self, at: Time, mended: u64) -> Result<(), Fail> {
+        self.write(|| self.disk.ended(at, mended))
+    }
+}
+
 /// A store with some items in it, a directory for the copies, and a plan over them.
 struct Env {
     _dir: TempDir,
     _store: Store,
-    plan: Plan,
-    fake: Arc<Fake>,
-    records: Backups,
+    plan: Plan<Fake>,
+    fake: Fake,
+    disk: Disk,
 }
 
 fn env(keep: usize, off: bool) -> Env {
@@ -113,50 +183,40 @@ fn env(keep: usize, off: bool) -> Env {
         conn.execute("INSERT INTO items (title, added) VALUES (?1, 1)", [format!("item {i}")])
             .expect("an item");
     }
-    let fake = Arc::new(Fake::default());
+    let fake = Fake::default();
+    let backups = dir.path().join("backups");
     let plan = Plan {
         store: path.clone(),
-        dir: dir.path().join("backups"),
+        dir: backups.clone(),
         keep,
-        offsite: off.then(|| -> Arc<dyn Offsite> { fake.clone() }),
+        offsite: off.then(|| fake.clone()),
     };
-    let records = Backups::open(&path).expect("the records open");
+    let disk = Disk::open(&path, &backups).expect("the records open");
     Env {
         _dir: dir,
         _store: store,
         plan,
         fake,
-        records,
+        disk,
     }
 }
 
 impl Env {
-    fn step(&self, at: u64) -> Outcome {
-        step_with(Time(at), &self.records, &self.plan, &mut || false)
+    async fn step(&self, at: u64) -> Outcome {
+        step(Time(at), &self.disk, &self.plan).await
     }
 
     fn report(&self, at: u64) -> Report {
-        report(
-            &self.records.records().expect("the records"),
-            Time(at),
-            self.plan.configured(),
-            self.plan.keep,
-        )
+        report(&self.rows(), Time(at), self.plan.configured(), self.plan.keep)
     }
 
     fn rows(&self) -> Records {
-        self.records.records().expect("the records")
+        self.disk.records().expect("the records")
     }
 
     /// The names of the files whole under the engine's names.
     fn files(&self) -> Vec<String> {
-        let mut found: Vec<String> = (std::fs::read_dir(&self.plan.dir).into_iter().flatten())
-            .flatten()
-            .filter_map(|e| e.file_name().to_str().map(str::to_string))
-            .filter(|n| time_in(n).is_some())
-            .collect();
-        found.sort();
-        found
+        self.disk.files().expect("the files")
     }
 
     fn partial(&self) -> Vec<String> {
@@ -203,65 +263,103 @@ fn a_name_carries_its_time_and_only_such_a_name_is_the_engines() {
     }
 }
 
-/// Stops after this many marks.
-fn stop_after(n: usize) -> impl FnMut() -> bool {
-    let mut left = n;
-    move || {
-        if left == 0 {
-            true
-        } else {
-            left -= 1;
-            false
-        }
+/// What a history that has been stopped and gone on must have come to: one whole copy, uploaded once, no leavings.
+fn assert_come_to_one_copy(e: &Env, label: &str) {
+    for name in e.files() {
+        assert_eq!(e.items_in(&name), 50, "{label}: {name}");
     }
+    let rows = e.rows();
+    assert_eq!(rows.copies.len(), 1, "{label}: {:?}", rows.copies);
+    assert_eq!(e.files().len(), 1, "{label}");
+    assert_eq!(e.partial(), Vec::<String>::new(), "{label}");
+    let name = rows.copies[0].name.clone();
+    assert_eq!(e.fake.names(), std::slice::from_ref(&name), "{label}");
+    assert_eq!(
+        e.fake.inner().uploads,
+        std::slice::from_ref(&name),
+        "uploaded once: {label}"
+    );
+    assert!(rows.uploads.contains_key(&name), "{label}");
+    // No stop is a failure: only the place's own failures are recorded.
+    assert!(
+        rows.failures.iter().all(|f| f.step == "private" || f.step == "upload"),
+        "{label}: {:?}",
+        rows.failures
+    );
+    assert_eq!(e.report(T0 + 5000).state, State::Ok, "{label}");
 }
 
-// Acceptance 1, 2, 3: a step stopped at any point, with the place off the machine failing at any one call, is
-// finished by the steps after it: one copy, whole, uploaded once, no leavings.
-#[test]
-fn a_step_stopped_anywhere_and_a_call_failing_anywhere_come_to_one_whole_copy_uploaded_once() {
-    let mut stopped_at = 0;
+// Acceptance 1, 2, 3: a step stopped at each of its writes, with the place off the machine failing at any one call, is
+// finished by the steps after it: one copy, whole, uploaded once, no leavings, and no stop recorded as a failure. The
+// stops are the grounds's own writes, so the window between the rename of a copy and its record is one of them.
+#[tokio::test]
+async fn a_step_stopped_at_each_write_and_a_call_failing_anywhere_come_to_one_whole_copy_uploaded_once() {
+    let mut most = 0;
+    let mut between_rename_and_record = 0;
     for fail in [None, Some(0), Some(1), Some(2)] {
-        for n in 0..40 {
+        for n in 0.. {
             let e = env(7, true);
             if let Some(f) = fail {
                 e.fake.inner().fail_at.insert(f);
             }
-            let first = step_with(Time(T0), &e.records, &e.plan, &mut stop_after(n));
+            let ground = Counting::over(&e.plan.store, &e.plan.dir, Some(n));
+            let first = step(Time(T0), &ground, &e.plan).await;
             // Nothing under a final name is ever not whole.
             for name in e.files() {
                 assert_eq!(e.items_in(&name), 50, "fail {fail:?}, stop {n}: {name}");
             }
+            if first.stopped && e.files().len() == 1 && e.rows().copies.is_empty() {
+                between_rename_and_record += 1;
+            }
             // The process starts again; each step after goes on from the records and the files.
             for k in 1..=3 {
-                e.step(T0 + k * 1000);
+                e.step(T0 + k * 1000).await;
             }
-            let rows = e.rows();
-            assert_eq!(rows.copies.len(), 1, "fail {fail:?}, stop {n}: {:?}", rows.copies);
-            assert_eq!(e.files().len(), 1, "fail {fail:?}, stop {n}");
-            assert_eq!(e.partial(), Vec::<String>::new(), "fail {fail:?}, stop {n}");
-            let name = rows.copies[0].name.clone();
-            assert_eq!(e.fake.names(), std::slice::from_ref(&name), "fail {fail:?}, stop {n}");
-            assert_eq!(
-                e.fake.inner().uploads,
-                std::slice::from_ref(&name),
-                "uploaded once: fail {fail:?}, stop {n}"
-            );
-            assert!(rows.uploads.contains_key(&name), "fail {fail:?}, stop {n}");
-            assert_eq!(e.report(T0 + 5000).state, State::Ok, "fail {fail:?}, stop {n}");
-            if first.stopped {
-                stopped_at = stopped_at.max(n);
+            assert_come_to_one_copy(&e, &format!("fail {fail:?}, stop {n}"));
+            if !first.stopped {
+                break;
             }
+            most = n;
         }
     }
-    assert!(stopped_at >= 5, "the step has marks to stop at: {stopped_at}");
+    assert!(most >= 5, "the step has writes to stop at: {most}");
+    assert!(
+        between_rename_and_record >= 1,
+        "a stop between the rename of a copy and its record was made"
+    );
 }
 
-#[test]
-fn a_copy_is_taken_once_a_day_and_uploaded_when_the_upload_failed_before() {
+// Stops in a step that goes on from a failure: the place refused the upload, and the step after it, which uploads and
+// mends the failure, is stopped at each of its writes.
+#[tokio::test]
+async fn a_step_that_mends_a_failure_stopped_at_each_write_comes_to_the_same() {
+    for n in 0.. {
+        let e = env(7, true);
+        e.fake.inner().fail_uploads = true;
+        let first = e.step(T0).await;
+        assert_eq!(first.failed.as_ref().map(|f| f.0.as_str()), Some("upload"));
+        e.fake.inner().fail_uploads = false;
+        let ground = Counting::over(&e.plan.store, &e.plan.dir, Some(n));
+        let second = step(Time(T0 + HOUR), &ground, &e.plan).await;
+        for k in 2..=4 {
+            e.step(T0 + k * HOUR).await;
+        }
+        let rows = e.rows();
+        assert_eq!(rows.copies.len(), 1, "stop {n}");
+        assert_eq!(e.fake.inner().uploads.len(), 1, "stop {n}");
+        assert_eq!(rows.failures.len(), 1, "stop {n}: only the place's failure is recorded");
+        assert_eq!(e.report(T0 + 5 * HOUR).state, State::Ok, "stop {n}");
+        if !second.stopped {
+            break;
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_copy_is_taken_once_a_day_and_uploaded_when_the_upload_failed_before() {
     let e = env(7, true);
     e.fake.inner().fail_uploads = true;
-    let first = e.step(T0);
+    let first = e.step(T0).await;
     assert!(first.taken.is_some());
     assert_eq!(first.failed.as_ref().map(|f| f.0.as_str()), Some("upload"));
     assert_eq!(
@@ -274,29 +372,29 @@ fn a_copy_is_taken_once_a_day_and_uploaded_when_the_upload_failed_before() {
     );
     // The retry an hour later takes no second copy.
     e.fake.inner().fail_uploads = false;
-    let again = e.step(T0 + HOUR);
+    let again = e.step(T0 + HOUR).await;
     assert_eq!(again.taken, None);
     assert_eq!(again.uploaded.len(), 1);
     assert_eq!(e.rows().copies.len(), 1);
     assert_eq!(e.report(T0 + HOUR).state, State::Ok);
     // Nothing more within the day, and a copy when the day is out.
-    assert_eq!(e.step(T0 + 2 * HOUR), Outcome::default());
-    let next = e.step(T0 + DAY + 1);
+    assert_eq!(e.step(T0 + 2 * HOUR).await, Outcome::default());
+    let next = e.step(T0 + DAY + 1).await;
     assert!(next.taken.is_some());
     assert_eq!(e.rows().copies.len(), 2);
 }
 
-#[test]
-fn a_leftover_file_not_whole_is_removed_and_one_whole_with_no_record_is_taken_in_only_when_newer() {
+#[tokio::test]
+async fn a_leftover_file_not_whole_is_removed_and_one_whole_with_no_record_is_taken_in_only_when_newer() {
     // A copy whole under its name with no record, as a stop between the rename and the record leaves it.
     let e = env(7, false);
-    let first = e.step(T0 - 1000);
+    let first = e.step(T0 - 1000).await;
     let orphan = first.taken.clone().expect("a copy");
     let fresh = env(7, false);
     std::fs::create_dir_all(&fresh.plan.dir).unwrap();
     std::fs::copy(e.plan.dir.join(&orphan), fresh.plan.dir.join(&orphan)).unwrap();
     std::fs::write(fresh.plan.dir.join(format!("{orphan}.raw.partial")), "half").unwrap();
-    let out = fresh.step(T0);
+    let out = fresh.step(T0).await;
     assert_eq!(out.taken, None, "the orphan is the day's copy");
     assert_eq!(fresh.rows().copies.len(), 1);
     assert_eq!(fresh.rows().copies[0].name, orphan);
@@ -304,13 +402,13 @@ fn a_leftover_file_not_whole_is_removed_and_one_whole_with_no_record_is_taken_in
     // One older than the newest recorded is no leaving of the last stop: it is removed.
     let old = name_at(Time(T0 - 5 * DAY));
     std::fs::copy(fresh.plan.dir.join(&orphan), fresh.plan.dir.join(&old)).unwrap();
-    fresh.step(T0 + HOUR);
+    fresh.step(T0 + HOUR).await;
     assert_eq!(fresh.files(), [orphan]);
     assert_eq!(fresh.rows().copies.len(), 1);
 }
 
-#[test]
-fn a_copy_holds_the_database_as_it_stood_while_another_connection_goes_on_writing() {
+#[tokio::test]
+async fn a_copy_holds_the_database_as_it_stood_while_another_connection_goes_on_writing() {
     let e = env(7, false);
     let path = e.plan.store.clone();
     let stop = Arc::new(AtomicUsize::new(0));
@@ -328,7 +426,7 @@ fn a_copy_holds_the_database_as_it_stood_while_another_connection_goes_on_writin
             n
         })
     };
-    let out = e.step(T0);
+    let out = e.step(T0).await;
     stop.store(1, Ordering::Relaxed);
     let written = writing.join().expect("the writer ends");
     let name = out.taken.expect("a copy");
@@ -336,18 +434,18 @@ fn a_copy_holds_the_database_as_it_stood_while_another_connection_goes_on_writin
     assert!(held >= 50 && held <= 50 + written, "{held} of {written}");
 }
 
-#[test]
-fn the_copies_kept_are_the_newest_recorded_and_what_is_not_the_engines_is_left_alone() {
+#[tokio::test]
+async fn the_copies_kept_are_the_newest_recorded_and_what_is_not_the_engines_is_left_alone() {
     let e = env(2, true);
     e.fake.inner().assets.insert("notes.txt".to_string(), vec![1]);
     let ours_without_record = name_at(Time(1));
     e.fake.inner().assets.insert(ours_without_record.clone(), vec![2]);
-    e.step(T0);
-    e.step(T0 + DAY + 1);
+    e.step(T0).await;
+    e.step(T0 + DAY + 1).await;
     // The place no longer lists the first copy, which is no error when it is pruned.
     let first = e.rows().copies[0].name.clone();
     e.fake.inner().assets.remove(&first);
-    let third = e.step(T0 + 2 * DAY + 2);
+    let third = e.step(T0 + 2 * DAY + 2).await;
     assert_eq!(third.failed, None);
     assert_eq!(e.rows().copies.len(), 3);
     let kept: Vec<String> = e.rows().copies[1..].iter().map(|k| k.name.clone()).collect();
@@ -360,14 +458,14 @@ fn the_copies_kept_are_the_newest_recorded_and_what_is_not_the_engines_is_left_a
     assert_eq!(remote, want);
     assert_eq!(third.removed.len(), 1);
     // Nothing more is done for a copy that was pruned.
-    assert_eq!(e.step(T0 + 2 * DAY + 3), Outcome::default());
+    assert_eq!(e.step(T0 + 2 * DAY + 3).await, Outcome::default());
 }
 
-#[test]
-fn a_place_that_is_not_private_is_refused_before_every_upload() {
+#[tokio::test]
+async fn a_place_that_is_not_private_is_refused_before_every_upload() {
     let e = env(7, true);
     e.fake.inner().public = true;
-    let out = e.step(T0);
+    let out = e.step(T0).await;
     assert_eq!(out.failed.as_ref().map(|f| f.0.as_str()), Some("private"));
     assert!(e.fake.inner().uploads.is_empty());
     assert_eq!(e.rows().failures.len(), 1);
@@ -375,33 +473,49 @@ fn a_place_that_is_not_private_is_refused_before_every_upload() {
     // Made private, two copies waiting are uploaded, and it was asked before each.
     e.fake.inner().public = false;
     e.fake.inner().fail_uploads = true;
-    e.step(T0 + DAY + 1);
+    e.step(T0 + DAY + 1).await;
     e.fake.inner().fail_uploads = false;
     let before = e.fake.inner().private_calls;
-    let out = e.step(T0 + DAY + 2);
+    let out = e.step(T0 + DAY + 2).await;
     assert_eq!(out.uploaded.len(), 2);
     assert_eq!(e.fake.inner().private_calls - before, 2);
 }
 
-#[test]
-fn with_no_place_off_the_machine_the_copies_stay_and_the_state_says_so() {
+#[tokio::test]
+async fn with_no_place_off_the_machine_the_copies_stay_and_the_state_says_so() {
     let e = env(7, false);
-    let out = e.step(T0);
+    let out = e.step(T0).await;
     assert!(out.taken.is_some());
     assert_eq!(e.files().len(), 1);
     assert_eq!(e.report(T0).state, State::LocalOnly);
     assert_eq!(e.report(T0).pending, 0);
 }
 
+// The plan of an installation that gives no place is typed with the one that is never asked.
+#[tokio::test]
+async fn a_plan_with_no_place_is_typed_with_nowhere_and_keeps_the_copies_on_the_machine() {
+    let e = env(7, false);
+    let plan: Plan<Nowhere> = Plan {
+        store: e.plan.store.clone(),
+        dir: e.plan.dir.clone(),
+        keep: 7,
+        offsite: None,
+    };
+    let out = step(Time(T0), &e.disk, &plan).await;
+    assert!(out.taken.is_some());
+    assert_eq!(out.failed, None);
+    assert!(!plan.configured());
+}
+
 // A clock that jumped ahead and came back: the copy taken in the future is not the day's copy, and it does not
 // displace the copies taken since from the copies kept.
-#[test]
-fn a_copy_taken_in_the_future_does_not_displace_the_copies_taken_after_it() {
+#[tokio::test]
+async fn a_copy_taken_in_the_future_does_not_displace_the_copies_taken_after_it() {
     for keep in [1, 2] {
         let e = env(keep, true);
         let future = T0 + 10 * DAY;
-        e.step(future);
-        let out = e.step(T0);
+        e.step(future).await;
+        let out = e.step(T0).await;
         assert!(out.taken.is_some(), "keep {keep}: a copy is taken now");
         let rows = e.rows();
         assert_eq!(rows.copies.len(), 2);
@@ -424,18 +538,18 @@ fn a_copy_taken_in_the_future_does_not_displace_the_copies_taken_after_it() {
 
 // Uploads that fail for more days than copies are kept, and then work: only the copies kept are uploaded, nothing is
 // tried for the rest, and no failure is recorded for them.
-#[test]
-fn a_copy_past_keeping_that_was_never_uploaded_costs_nothing() {
+#[tokio::test]
+async fn a_copy_past_keeping_that_was_never_uploaded_costs_nothing() {
     let e = env(2, true);
     e.fake.inner().fail_uploads = true;
     for day in 0..4 {
-        e.step(T0 + day * (DAY + 1));
+        e.step(T0 + day * (DAY + 1)).await;
     }
     assert_eq!(e.rows().copies.len(), 4);
     let failures = e.rows().failures.len();
     e.fake.inner().fail_uploads = false;
     let at = T0 + 4 * (DAY + 1);
-    let out = e.step(at);
+    let out = e.step(at).await;
     assert_eq!(out.failed, None);
     let kept: Vec<String> = e.rows().copies[e.rows().copies.len() - 2..]
         .iter()
@@ -451,21 +565,21 @@ fn a_copy_past_keeping_that_was_never_uploaded_costs_nothing() {
     assert_eq!(e.report(at).state, State::Ok);
     // The files past keeping are gone and nothing is done for them later.
     assert_eq!(e.files(), kept);
-    assert_eq!(e.step(at + HOUR), Outcome::default());
+    assert_eq!(e.step(at + HOUR).await, Outcome::default());
 }
 
-#[test]
-fn keep_lowered_over_a_copy_not_uploaded_leaves_it_alone() {
+#[tokio::test]
+async fn keep_lowered_over_a_copy_not_uploaded_leaves_it_alone() {
     let mut e = env(3, true);
     e.fake.inner().fail_uploads = true;
     for day in 0..3 {
-        e.step(T0 + day * (DAY + 1));
+        e.step(T0 + day * (DAY + 1)).await;
     }
     let failures = e.rows().failures.len();
     e.fake.inner().fail_uploads = false;
     e.plan.keep = 1;
     let at = T0 + 3 * (DAY + 1) - DAY / 2;
-    let out = e.step(at);
+    let out = e.step(at).await;
     assert_eq!(out.failed, None);
     assert_eq!(out.uploaded.len(), 1);
     assert_eq!(e.files().len(), 1);
@@ -474,12 +588,12 @@ fn keep_lowered_over_a_copy_not_uploaded_leaves_it_alone() {
 }
 
 // A failure to prune in the step that also took and uploaded a copy is shown, and a step that ends clean mends it.
-#[test]
-fn a_failed_prune_is_shown_even_in_the_step_that_took_a_copy_and_is_mended_by_the_next_clean_step() {
+#[tokio::test]
+async fn a_failed_prune_is_shown_even_in_the_step_that_took_a_copy_and_is_mended_by_the_next_clean_step() {
     let e = env(1, true);
-    e.step(T0);
+    e.step(T0).await;
     e.fake.inner().fail_removes = true;
-    let out = e.step(T0 + DAY + 1);
+    let out = e.step(T0 + DAY + 1).await;
     assert!(out.taken.is_some());
     assert_eq!(out.uploaded.len(), 1);
     assert_eq!(out.failed.as_ref().map(|f| f.0.as_str()), Some("prune"));
@@ -488,7 +602,7 @@ fn a_failed_prune_is_shown_even_in_the_step_that_took_a_copy_and_is_mended_by_th
         State::Failed { ref step, .. } if step == "prune"
     ));
     e.fake.inner().fail_removes = false;
-    let again = e.step(T0 + DAY + HOUR);
+    let again = e.step(T0 + DAY + HOUR).await;
     assert_eq!(again.failed, None);
     assert_eq!(e.report(T0 + DAY + HOUR).state, State::Ok);
     let newest = e.rows().copies[1].name.clone();
@@ -497,19 +611,19 @@ fn a_failed_prune_is_shown_even_in_the_step_that_took_a_copy_and_is_mended_by_th
 }
 
 // A failure that is about no copy, such as the files of the directory, is mended by the next step that ends clean.
-#[test]
-fn a_failure_about_no_copy_is_mended_by_a_later_clean_step() {
+#[tokio::test]
+async fn a_failure_about_no_copy_is_mended_by_a_later_clean_step() {
     let e = env(7, true);
-    e.step(T0);
-    e.records
+    e.step(T0).await;
+    e.disk
         .failed(Time(T0 + 10), "-", "snapshot", "the directory cannot be read")
         .unwrap();
     assert!(matches!(e.report(T0 + 20).state, State::Failed { .. }));
-    assert_eq!(e.step(T0 + HOUR).failed, None);
+    assert_eq!(e.step(T0 + HOUR).await.failed, None);
     assert_eq!(e.report(T0 + HOUR).state, State::Ok);
     // A clean step with nothing to mend records nothing.
     let records = e.rows();
-    e.step(T0 + 2 * HOUR);
+    e.step(T0 + 2 * HOUR).await;
     assert_eq!(e.rows(), records);
 }
 
@@ -591,97 +705,13 @@ fn the_state_is_worked_out_from_the_records_and_the_time_now() {
     assert!(matches!(report(&taking, now, true, 7).state, State::Failed { .. }));
 }
 
-/// A `gh` that keeps one release in a directory: it is not there until made, and every call fails while the file
-/// `down` is there.
-#[cfg(unix)]
-const FAKE_GH: &str = r#"#!/bin/sh
-d='DIR'
-if [ -f "$d/down" ]; then echo "network is down" >&2; exit 1; fi
-case "$1 $2" in
-"release view")
-  if [ ! -f "$d/release" ]; then echo "release not found" >&2; exit 1; fi
-  case "$*" in *assets*) cat "$d/assets" ;; esac ;;
-"release create") touch "$d/release"; : > "$d/assets" ;;
-"release upload") basename "$4" >> "$d/assets" ;;
-*) echo "unexpected: $*" >&2; exit 2 ;;
-esac
-"#;
-
-// The first upload to a place with no release made yet works, and a listing that fails for a real reason is an error,
-// never an empty place.
-#[cfg(unix)]
-#[test]
-fn the_first_upload_to_a_place_with_no_release_works_and_a_failing_listing_is_no_empty_place() {
-    use std::os::unix::fs::PermissionsExt;
-    let dir = tempfile::tempdir().expect("a directory");
-    let script = dir.path().join("gh");
-    std::fs::write(&script, FAKE_GH.replace("DIR", &dir.path().display().to_string())).expect("written");
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("made runnable");
-    let gh = Gh::new("owner/name", "token", &script.display().to_string());
-    std::fs::write(dir.path().join("down"), "").expect("written");
-    assert!(gh.list().is_err(), "a place that cannot be reached is no empty place");
-    std::fs::remove_file(dir.path().join("down")).expect("removed");
-    assert_eq!(gh.list(), Ok(vec![]), "no release is an empty place");
-    // A copy is looked for, not found, and uploaded.
-    let name = name_at(Time(T0));
-    let copy = dir.path().join(&name);
-    std::fs::write(&copy, "copy").expect("written");
-    gh.upload(&copy).expect("the first upload");
-    assert_eq!(gh.list(), Ok(vec![name]));
-}
-
-#[test]
-fn the_arguments_of_gh_name_the_release_the_repository_and_the_file() {
-    let gh = Gh::new("owner/name", "token", "gh");
-    assert_eq!(gh.private_args(), ["api", "repos/owner/name", "--jq", ".private"]);
-    assert_eq!(
-        gh.upload_args(Path::new("/d/store-1.sqlite.gz")),
-        [
-            "release",
-            "upload",
-            "database-backups",
-            "/d/store-1.sqlite.gz",
-            "--repo",
-            "owner/name",
-            "--clobber"
-        ]
-    );
-    assert_eq!(
-        gh.list_args(),
-        [
-            "release",
-            "view",
-            "database-backups",
-            "--repo",
-            "owner/name",
-            "--json",
-            "assets",
-            "--jq",
-            ".assets[].name"
-        ]
-    );
-    assert_eq!(
-        gh.remove_args("store-1.sqlite.gz"),
-        [
-            "release",
-            "delete-asset",
-            "database-backups",
-            "store-1.sqlite.gz",
-            "--repo",
-            "owner/name",
-            "--yes"
-        ]
-    );
-    assert!(gh.create_args().contains(&"--latest=false".to_string()));
-    assert!(gh.view_args().contains(&"database-backups".to_string()));
-}
-
 #[test]
 fn nothing_in_the_step_or_the_state_reads_the_clock() {
     for (name, text) in [
         ("lib.rs", include_str!("lib.rs")),
         ("state.rs", include_str!("state.rs")),
         ("snapshot.rs", include_str!("snapshot.rs")),
+        ("ground.rs", include_str!("ground.rs")),
     ] {
         let code = text.split("#[cfg(test)]").next().unwrap_or(text);
         for forbidden in ["SystemTime", "Instant::now", "UNIX_EPOCH"] {
@@ -690,47 +720,57 @@ fn nothing_in_the_step_or_the_state_reads_the_clock() {
     }
 }
 
+/// A place off the machine whose first upload waits for the test to let it go.
+#[derive(Clone)]
+struct Slow {
+    inner: Fake,
+    started: Arc<AtomicUsize>,
+    go: Arc<Notify>,
+}
+
+impl Offsite for Slow {
+    async fn private(&self) -> Result<bool, String> {
+        self.inner.private().await
+    }
+
+    async fn upload(&self, file: &Path) -> Result<(), String> {
+        self.started.fetch_add(1, Ordering::SeqCst);
+        self.go.notified().await;
+        self.inner.upload(file).await
+    }
+
+    async fn list(&self) -> Result<Vec<String>, String> {
+        self.inner.list().await
+    }
+
+    async fn remove(&self, name: &str) -> Result<(), String> {
+        self.inner.remove(name).await
+    }
+}
+
 // A tick that comes while a step is running starts no second step: the task takes one step at a time.
 #[tokio::test(start_paused = true)]
 async fn a_tick_during_a_running_step_starts_no_second_one() {
     let e = env(7, true);
-    // The first upload waits for the test to let it go.
-    let (go, wait) = std::sync::mpsc::channel::<()>();
     let started = Arc::new(AtomicUsize::new(0));
-    struct Slow {
-        inner: Arc<Fake>,
-        started: Arc<AtomicUsize>,
-        wait: Mutex<std::sync::mpsc::Receiver<()>>,
-    }
-    impl Offsite for Slow {
-        fn private(&self) -> Result<bool, String> {
-            self.inner.private()
-        }
-        fn upload(&self, file: &Path) -> Result<(), String> {
-            self.started.fetch_add(1, Ordering::SeqCst);
-            let _ = self.wait.lock().expect("held").recv();
-            self.inner.upload(file)
-        }
-        fn list(&self) -> Result<Vec<String>, String> {
-            self.inner.list()
-        }
-        fn remove(&self, name: &str) -> Result<(), String> {
-            self.inner.remove(name)
-        }
-    }
+    let go = Arc::new(Notify::new());
     let plan = Plan {
-        offsite: Some(Arc::new(Slow {
+        store: e.plan.store.clone(),
+        dir: e.plan.dir.clone(),
+        keep: 7,
+        offsite: Some(Slow {
             inner: e.fake.clone(),
             started: started.clone(),
-            wait: Mutex::new(wait),
-        })),
-        ..e.plan.clone()
+            go: go.clone(),
+        }),
     };
     let steps = Arc::new(AtomicUsize::new(0));
     let counted = steps.clone();
     let clock = Arc::new(AtomicUsize::new(0));
+    let ground = Disk::open(&e.plan.store, &e.plan.dir).expect("the records open");
     let task = tokio::spawn(keep(
         plan,
+        ground,
         move || {
             let at = T0 + clock.fetch_add(1, Ordering::SeqCst) as u64 * HOUR;
             async move { Ok(Time(at)) }
@@ -752,7 +792,7 @@ async fn a_tick_during_a_running_step_starts_no_second_one() {
         "no step has ended, and none has begun beside it"
     );
     // Let it go: it ends, and the next step begins an hour after.
-    go.send(()).expect("released");
+    go.notify_one();
     while steps.load(Ordering::SeqCst) == 0 {
         tokio::time::sleep(Duration::from_millis(1)).await;
     }
@@ -765,61 +805,48 @@ async fn a_tick_during_a_running_step_starts_no_second_one() {
     task.abort();
 }
 
-// ---- Adversarial tests (cell T2). ----
-
-/// The fake, with removals that can be made to fail on their own.
-struct Removal {
-    inner: Arc<Fake>,
-    fail: std::sync::atomic::AtomicBool,
+// With the network gone the upload fails as any other does, as a row; the owner's pause of everything is nothing a step
+// reads. The step is tried again at the next period, and the copy, taken while the place was out of reach, is there.
+#[tokio::test]
+async fn with_the_place_out_of_reach_the_copy_is_taken_the_failure_recorded_and_the_next_step_uploads() {
+    let e = env(7, true);
+    e.fake.inner().fail_at.extend(0..3);
+    let out = e.step(T0).await;
+    assert!(out.taken.is_some());
+    assert_eq!(out.failed.as_ref().map(|f| f.0.as_str()), Some("private"));
+    assert_eq!(e.rows().failures.len(), 1);
+    assert!(matches!(e.report(T0 + 1).state, State::Failed { .. }));
+    let again = e.step(T0 + HOUR).await;
+    assert_eq!(again.taken, None);
+    assert_eq!(again.uploaded.len(), 1);
+    assert_eq!(e.report(T0 + HOUR).state, State::Ok);
 }
 
-impl Offsite for Removal {
-    fn private(&self) -> Result<bool, String> {
-        self.inner.private()
-    }
-
-    fn upload(&self, file: &Path) -> Result<(), String> {
-        self.inner.upload(file)
-    }
-
-    fn list(&self) -> Result<Vec<String>, String> {
-        self.inner.list()
-    }
-
-    fn remove(&self, name: &str) -> Result<(), String> {
-        if self.fail.load(Ordering::SeqCst) {
-            return Err("the removal is refused".to_string());
-        }
-        self.inner.remove(name)
-    }
-}
-
-fn with_removal(e: &Env) -> (Plan, Arc<Removal>) {
-    let removal = Arc::new(Removal {
-        inner: e.fake.clone(),
-        fail: false.into(),
-    });
-    let mut plan = e.plan.clone();
-    plan.offsite = Some(removal.clone());
-    (plan, removal)
-}
-
-fn failed_step(state: &State) -> Option<&str> {
-    match state {
-        State::Failed { step, .. } => Some(step.as_str()),
-        _ => None,
-    }
+// A prune that failed is shown even after a step that took a copy, and the prune done at the next step mends it.
+#[tokio::test]
+async fn a_failed_prune_in_the_step_that_took_a_copy_is_shown_and_mended_when_done() {
+    let e = env(1, true);
+    e.step(T0).await;
+    e.fake.inner().fail_removes = true;
+    e.step(T0 + DAY + 1).await;
+    let out = e.step(T0 + DAY + HOUR).await;
+    assert_eq!(out.failed.as_ref().map(|f| f.0.as_str()), Some("prune"), "{out:?}");
+    e.fake.inner().fail_removes = false;
+    let out = e.step(T0 + DAY + 2 * HOUR).await;
+    assert_eq!(out.failed, None);
+    assert_eq!(e.files().len(), 1, "the prune was done");
+    assert_eq!(e.report(T0 + DAY + 2 * HOUR).state, State::Ok);
 }
 
 // Reference: acceptance 5 (the uploaded assets are pruned to the `keep` newest rows recorded; a missing local file is
 // no error). A copy whose local file is gone is still a row past keeping: its asset is to be pruned.
-#[test]
-fn an_asset_whose_local_file_is_gone_is_still_pruned_when_it_falls_past_keeping() {
+#[tokio::test]
+async fn an_asset_whose_local_file_is_gone_is_still_pruned_when_it_falls_past_keeping() {
     let e = env(1, true);
-    e.step(T0);
+    e.step(T0).await;
     let first = e.rows().copies[0].name.clone();
     std::fs::remove_file(e.plan.dir.join(&first)).expect("the file is removed");
-    let out = e.step(T0 + DAY + 1);
+    let out = e.step(T0 + DAY + 1).await;
     assert_eq!(out.failed, None);
     let second = e.rows().copies[1].name.clone();
     assert_eq!(
@@ -829,56 +856,22 @@ fn an_asset_whose_local_file_is_gone_is_still_pruned_when_it_falls_past_keeping(
     );
 }
 
-// Reference: acceptance 14 (the report gives the last failure with its step and reason). A prune that fails in the
-// step that took and uploaded a copy is a failure the owner is to see.
-#[test]
-fn a_failed_prune_in_the_step_that_took_a_copy_is_shown() {
-    let e = env(1, true);
-    let (plan, removal) = with_removal(&e);
-    step_with(Time(T0), &e.records, &plan, &mut || false);
-    removal.fail.store(true, Ordering::SeqCst);
-    let out = step_with(Time(T0 + DAY + 1), &e.records, &plan, &mut || false);
-    assert_eq!(out.failed.as_ref().map(|f| f.0.as_str()), Some("prune"));
-    let state = e.report(T0 + DAY + 2).state;
-    assert_eq!(failed_step(&state), Some("prune"), "{state:?}");
-}
-
-// Reference: acceptance 11 (a failure older than the newest success is not shown). A prune that failed and was done
-// at the next step is a success after the failure: the state returns to Ok within the day.
-#[test]
-fn a_prune_failed_and_then_done_is_no_longer_shown() {
-    let e = env(1, true);
-    let (plan, removal) = with_removal(&e);
-    step_with(Time(T0), &e.records, &plan, &mut || false);
-    removal.fail.store(true, Ordering::SeqCst);
-    // The first copy is past keeping and its removal is refused, at a later step than the copy was taken in.
-    step_with(Time(T0 + DAY + 1), &e.records, &plan, &mut || false);
-    let out = step_with(Time(T0 + DAY + HOUR), &e.records, &plan, &mut || false);
-    assert_eq!(out.failed.as_ref().map(|f| f.0.as_str()), Some("prune"), "{out:?}");
-    removal.fail.store(false, Ordering::SeqCst);
-    let out = step_with(Time(T0 + DAY + 2 * HOUR), &e.records, &plan, &mut || false);
-    assert_eq!(out.failed, None);
-    assert_eq!(e.files().len(), 1, "the prune was done");
-    let state = e.report(T0 + DAY + 2 * HOUR).state;
-    assert_eq!(state, State::Ok, "the failure was mended by the prune");
-}
-
 // Reference: acceptance 11 (only a success after a failure hides it) read with acceptance 12 (the order recorded, not
 // the time, is what counts once the clock has gone ahead and come back). A failure recorded after a clean step is
 // after it, whatever time the clock gave it.
-#[test]
-fn a_failure_after_a_clean_step_is_shown_when_the_clock_has_come_back() {
+#[tokio::test]
+async fn a_failure_after_a_clean_step_is_shown_when_the_clock_has_come_back() {
     let e = env(1, true);
     let future = T0 + 10 * DAY;
     e.fake.inner().fail_uploads = true;
-    e.step(future);
+    e.step(future).await;
     e.fake.inner().fail_uploads = false;
-    let mended = e.step(future + HOUR);
+    let mended = e.step(future + HOUR).await;
     assert_eq!(mended.failed, None);
     assert!(!matches!(e.report(future + HOUR).state, State::Failed { .. }));
     // The clock is back before them: a copy is taken and its upload fails.
     e.fake.inner().fail_uploads = true;
-    let out = e.step(T0);
+    let out = e.step(T0).await;
     assert_eq!(out.failed.as_ref().map(|f| f.0.as_str()), Some("upload"), "{out:?}");
     let state = e.report(T0 + 1000).state;
     assert!(matches!(state, State::Failed { .. }), "{state:?}");
@@ -889,10 +882,10 @@ fn a_failure_after_a_clean_step_is_shown_when_the_clock_has_come_back() {
 #[test]
 fn a_failure_like_a_mended_one_in_time_copy_and_step_is_shown_again() {
     let e = env(7, false);
-    e.records.failed(Time(T0), "-", "prune", "the first").unwrap();
-    e.records.ended(Time(T0 + 1), 1).unwrap();
+    e.disk.failed(Time(T0), "-", "prune", "the first").unwrap();
+    e.disk.ended(Time(T0 + 1), 1).unwrap();
     assert!(!matches!(e.report(T0 + 2).state, State::Failed { .. }));
-    e.records.failed(Time(T0), "-", "prune", "the second").unwrap();
+    e.disk.failed(Time(T0), "-", "prune", "the second").unwrap();
     let records = e.rows();
     assert_eq!(records.failures.len(), 2);
     assert_eq!(records.failures[1].seq, 2);

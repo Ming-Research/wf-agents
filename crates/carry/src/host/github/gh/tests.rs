@@ -35,18 +35,23 @@ fn the_latest_run_of_each_check_counts() {
         (checks[1].name.as_str(), &checks[1].outcome),
         ("page", &Outcome::Pending)
     );
+    // The earlier run is kept to be said as it is, beside the latest.
+    assert_eq!(checks[0].earlier, ["failure https://github.com/o/r/runs/7"]);
+    assert!(checks[1].earlier.is_empty());
 }
 
+// A job stopped at its time limit, or cancelled, judged the code as far as it ran: what it ran and what was still
+// running when it ended are what the agent needs, and a run of the same commit asked again gives the same.
 #[test]
-fn only_a_failure_or_a_timeout_judges_the_code() {
+fn a_failure_a_timeout_or_a_cancel_judges_the_code() {
     let outcome = |conclusion| check_run("c", &run(1, "c", "completed", conclusion)).outcome;
     for passed in ["success", "neutral", "skipped"] {
         assert_eq!(outcome(Some(passed)), Outcome::Passed, "{passed}");
     }
-    for failed in ["failure", "timed_out"] {
+    for failed in ["failure", "timed_out", "cancelled"] {
         assert_eq!(outcome(Some(failed)), Outcome::Failed(failed.to_string()));
     }
-    for broken in ["cancelled", "action_required", "stale", "startup_failure"] {
+    for broken in ["action_required", "stale", "startup_failure"] {
         assert_eq!(outcome(Some(broken)), Outcome::Broken(broken.to_string()));
     }
     assert_eq!(outcome(None), Outcome::Broken("no conclusion".to_string()));
@@ -59,6 +64,29 @@ fn only_a_failure_or_a_timeout_judges_the_code() {
         None,
         "only a job of GitHub Actions has a log GitHub keeps"
     );
+}
+
+// The check run GitHub gave for a job of a work's CI that a hung test held until the job's time limit, as GitHub's
+// REST API answered it (`commits/<sha>/check-runs`), but for the fields the host does not read.
+#[test]
+fn a_job_cancelled_at_its_time_limit_is_a_failure_after_how_long_it_ran() {
+    let real = json!({
+        "id": 130395109590_u64,
+        "name": "check",
+        "status": "completed",
+        "conclusion": "cancelled",
+        "started_at": "2026-11-11T07:48:56Z",
+        "completed_at": "2026-11-11T08:04:11Z",
+        "html_url": "https://github.com/Ming-Research/wf-agents/actions/runs/42982244461/job/130395109590",
+        "output": { "title": null, "summary": null },
+        "app": { "slug": "github-actions" },
+    });
+    let check = check_run("check", &real);
+    assert_eq!(
+        check.outcome,
+        Outcome::Failed("cancelled after 15 minutes and 15 seconds".to_string())
+    );
+    assert_eq!(check.job, Some(130395109590));
 }
 
 #[test]
@@ -95,6 +123,10 @@ fn a_pull_request_is_read_with_its_merge_commit_only_once_merged() {
         "head": { "sha": "c0ffee", "ref": "work-1-0a1b2c3d" },
         "base": { "ref": "next" },
         "merge_commit_sha": "test-merge",
+        "title": "Greet the user",
+        "body": null,
+        "draft": true,
+        "node_id": "PR_kwDO",
     });
     let open = pull(&value).unwrap();
     assert_eq!(
@@ -106,6 +138,10 @@ fn a_pull_request_is_read_with_its_merge_commit_only_once_merged() {
             head: "c0ffee".to_string(),
             base: "next".to_string(),
             merge_commit: None,
+            title: "Greet the user".to_string(),
+            body: String::new(),
+            draft: true,
+            node: "PR_kwDO".to_string(),
         }
     );
     value["state"] = json!("closed");
@@ -117,6 +153,32 @@ fn a_pull_request_is_read_with_its_merge_commit_only_once_merged() {
         (merged.state, merged.merge_commit.as_deref()),
         (State::Merged, Some("beef"))
     );
+}
+
+#[test]
+fn the_requests_that_open_edit_ready_and_close_a_pull_request_are_as_githubs_api_takes_them() {
+    let (method, path, body) = opening("o/r", "work-1-x", "main", "Greet the user", "It greets.");
+    assert_eq!((method, path.as_str()), ("POST", "repos/o/r/pulls"));
+    assert_eq!(
+        body,
+        json!({ "title": "Greet the user", "body": "It greets.", "head": "work-1-x", "base": "main", "draft": true })
+    );
+    let (method, path, body) = editing("o/r", 12, "Greet the user", "It greets by name.");
+    assert_eq!((method, path.as_str()), ("PATCH", "repos/o/r/pulls/12"));
+    assert_eq!(body, json!({ "title": "Greet the user", "body": "It greets by name." }));
+    let (method, path, body) = readying("PR_kwDO");
+    assert_eq!((method, path.as_str()), ("POST", "graphql"));
+    assert_eq!(body["variables"], json!({ "id": "PR_kwDO" }));
+    let query = body["query"].as_str().unwrap();
+    assert!(
+        query.contains("markPullRequestReadyForReview(input: {pullRequestId: $id})"),
+        "{query}"
+    );
+    let [(said, at, comment), (close, pull, closed)] = closing("o/r", 12, "Its work ended without merging.");
+    assert_eq!((said, at.as_str()), ("POST", "repos/o/r/issues/12/comments"));
+    assert_eq!(comment, json!({ "body": "Its work ended without merging." }));
+    assert_eq!((close, pull.as_str()), ("PATCH", "repos/o/r/pulls/12"));
+    assert_eq!(closed, json!({ "state": "closed" }));
 }
 
 #[test]
@@ -136,6 +198,23 @@ fn an_answer_is_read_with_its_status_and_a_refusal_in_githubs_words() {
         "HTTP 422: Validation Failed; A pull request already exists"
     );
     assert_eq!(included("gh: not logged in"), None);
+}
+
+#[tokio::test]
+async fn a_jobs_log_is_read_with_the_escapes_that_colour_it() {
+    // As gh does: a body with terminal escapes is printed only where it is allowed; else the status and headers are,
+    // and gh exits with an error.
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("gh");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\nprintf 'HTTP/2.0 200 OK\\r\\n\\r\\n'\ncase \"$*\" in *--allow-escape-sequences*) printf '\\033[31merror\\033[0m: failed\\n' ;; *) echo 'the response contains terminal escape sequences' >&2; exit 1 ;; esac\n",
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let gh = Gh::new(&script.display().to_string(), "o/r", "the-token", dir.path());
+    assert_eq!(gh.log(7).await, Ok("\u{1b}[31merror\u{1b}[0m: failed\n".to_string()));
 }
 
 #[test]

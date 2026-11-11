@@ -303,7 +303,7 @@ function CellHead(props: {
       <button type="button" className="head-button" aria-pressed={chosen} onClick={onChoose}>
         <span className={`cell-id ${changed('cellMoved')}`}>{column.id}</span>
         <span className={`cell-title ${changed('title')}`}>{cell.title}</span>
-        <span className={`cell-line ${cell.kind === 'agent' ? 'line-name' : ''} ${changed('kind', 'line')}`}>
+        <span className={`cell-line ${cell.kind === 'agent' ? 'line-name' : ''} ${changed('kind', 'line', 'readsOnly')}`}>
           <Breakable name={runBy(cell)} />
         </span>
         {when && (

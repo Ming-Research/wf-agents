@@ -24,3 +24,20 @@ serde_json = "1.0.154"
 tempfile = "3.27.0"
 toml = "1.1.8"
 uuid = { version = "1.26.1", features = ["v4", "v5"] }
+
+# The profile CI builds the tests with (`cargo nextest run --cargo-profile ci`); no local build uses it. The
+# dependencies are optimized fully, because unoptimized they run the tests many times slower (SQLite, built from
+# source, above all), and the owner's machine keeps them built. The workspace's own crates, rebuilt on every change,
+# are not optimized: most of their compile is LLVM's. The flow crate alone stays at level 1: compiling a flow, which
+# many tests do, is several times slower unoptimized. Line tables are enough for a failing test's backtrace. Brought
+# over from main, where it was measured.
+[profile.ci]
+inherits = "test"
+opt-level = 0
+debug = "line-tables-only"
+
+[profile.ci.package."*"]
+opt-level = 3
+
+[profile.ci.package.flow]
+opt-level = 1

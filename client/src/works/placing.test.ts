@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { Block, Cause, Item, Now, Run, Step, Summary, Version, Writer } from '../works-api';
 import { FLOW, fixtureWork } from './fixtures';
 import { stepWords } from './History';
-import { cellAt, defaultBlock, orderWorks, placeSteps } from './placing';
+import { orderWorks, placeSteps } from './placing';
 
 const DAY = 86_400_000;
 
@@ -127,19 +127,14 @@ describe('the list of works', () => {
       summary(9, { kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }, 600, true),
       summary(10, { kind: 'paused', by: 'engine', why: 'A round failed.' }, 20, true),
     ];
-    const items: Item[] = works.map((w) => ({ number: w.number, title: `${w.number}`, added: 0, dependsOn: [], work: w }));
+    const items: Item[] = works.map((w) => ({
+      number: w.number,
+      title: `${w.number}`,
+      level: '2',
+      added: 0,
+      dependsOn: [],
+      work: w,
+    }));
     expect(orderWorks(items).map((w) => w.work.number)).toEqual([7, 4, 10, 6, 3, 2, 5, 9, 8, 1]);
-  });
-});
-
-describe('the box to write for a cell', () => {
-  it('starts at the opinions of the cell the work is at, or the block people write that it reads, and else at none', () => {
-    expect(defaultBlock(FLOW, 'implement')).toBe('opinions_implement');
-    expect(defaultBlock(FLOW, 'plan')).toBe('opinions_plan');
-    expect(defaultBlock(FLOW, 'merge')).toBe('approval');
-    expect(defaultBlock(FLOW, 'review')).toBeNull();
-    expect(defaultBlock(FLOW, null)).toBeNull();
-    expect(cellAt(fixtureWork(41).summary)).toBe('merge');
-    expect(cellAt(fixtureWork(46).summary)).toBeNull();
   });
 });

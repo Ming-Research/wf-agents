@@ -11,6 +11,7 @@ calls = 4
 
 [lines.engineer]
 [lines.reviewer]
+reads_only = true
 
 [blocks.request]
 people = true

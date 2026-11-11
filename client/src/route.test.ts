@@ -3,16 +3,19 @@ import { describe, expect, it } from 'vitest';
 import { hashOf, routeOf, tabOf } from './route';
 
 describe('the route', () => {
-  it('is the view the hash names, and the list of works for nothing or a hash the page does not know', () => {
-    expect(routeOf('')).toEqual({ view: 'works' });
-    expect(routeOf('#/')).toEqual({ view: 'works' });
+  it('is the view the hash names, and the console for nothing or a hash the page does not know', () => {
+    expect(routeOf('')).toEqual({ view: 'console' });
+    expect(routeOf('#/')).toEqual({ view: 'console' });
     expect(routeOf('#/works')).toEqual({ view: 'works' });
     expect(routeOf('#/works/12')).toEqual({ view: 'work', work: 12 });
     expect(routeOf('#/works/12/')).toEqual({ view: 'work', work: 12 });
-    expect(routeOf('#/works/twelve')).toEqual({ view: 'works' });
+    expect(routeOf('#/works/twelve')).toEqual({ view: 'console' });
     expect(routeOf('#/console')).toEqual({ view: 'console' });
     expect(routeOf('#/flow')).toEqual({ view: 'flow' });
-    expect(routeOf('#/somewhere')).toEqual({ view: 'works' });
+    expect(routeOf('#/observations')).toEqual({ view: 'observations' });
+    expect(routeOf('#/system')).toEqual({ view: 'system' });
+    expect(routeOf('#/settings')).toEqual({ view: 'settings' });
+    expect(routeOf('#/somewhere')).toEqual({ view: 'console' });
   });
 
   it('gives each view its hash, and a work the tab of the works', () => {

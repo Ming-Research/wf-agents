@@ -18,7 +18,7 @@ work = { path = "../work" }
 [dev-dependencies]
 tempfile.workspace = true
 # Time paused in the tests, so that the hour between two steps passes at once.
-tokio = { version = "1.53.1", features = ["macros", "rt", "test-util", "time"] }
+tokio = { version = "1.53.1", features = ["macros", "rt", "sync", "test-util", "time"] }
 
 [lints]
 workspace = true

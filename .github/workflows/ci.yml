@@ -1,23 +1,30 @@
 name: ci
 
-# Every check of the code: the page's types, lint, tests and build, then the Rust format, clippy with warnings as
-# errors, and the tests. It runs on each pull request into `next` and on each push to `next`, on GitHub's machines from
-# a clean start.
+# Every check of the code: the page's types, lint, tests and build; the Rust format and clippy with warnings as errors;
+# and the Rust tests, which take most of the time, split across three jobs beside the others. The job `check` is red
+# whenever the lint or a job of the tests is, and it and `page` are the checks the engine waits for. It runs on each
+# pull request into `main` and on each push to `main`, on GitHub's machines from a clean start: this is the CI the check
+# before a work's merge waits for. `next` is the name `main` had, kept in the lists below while a pull request targets
+# it. What an agent names to its check while it works, and the tests it runs on the code before its change, the fast CI
+# runs instead (fast.yml), on the owner's machine; so a push to a branch of the code before a change
+# (`wf-agents-before/`) runs nothing here.
 on:
   pull_request:
     branches:
+      - main
       - next
   push:
     branches:
+      - main
       - next
 
 permissions:
   contents: read
 
-# A newer push to the same pull request makes the older run pointless; `next` keeps every run.
+# A newer push to the same pull request makes the older run pointless; `main` keeps every run.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/next' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/next' }}
 
 jobs:
   # The owner's page (client/): checked and tested on its own, so that what is wrong with it shows without waiting for
@@ -52,7 +59,8 @@ jobs:
       - name: Build the page
         run: npm run build
 
-  check:
+  # The Rust format and clippy with warnings as errors, beside the tests.
+  lint:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -64,10 +72,10 @@ jobs:
           persist-credentials: false
       # Installs the toolchain rust-toolchain.toml pins, with its components.
       - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       # Formatting first: it needs no build, so a misformatted push fails in seconds.
       - name: Format
         run: cargo fmt --all --check
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       # The page is built into the binary (crates/web/build.rs), so it is built before anything compiles that crate.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -81,5 +89,140 @@ jobs:
           npm run build
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  # The Rust tests, which take most of the time, split across three jobs: each builds every test binary and runs a
+  # third of each binary's tests (nextest's partition count:k/3).
+  test:
+    name: test ${{ matrix.partition }} of 3
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      # Every job runs to its end, so that a red run shows every test that fails.
+      fail-fast: false
+      matrix:
+        partition: [1, 2, 3]
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No later step pushes, so the token is not left in the checkout.
+          persist-credentials: false
+      - run: rustup toolchain install
+      # The three jobs build the same, so one of them keeps the cache.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ matrix.partition == 1 }}
+      # cargo-nextest at the version fast.yml checks for on the owner's machine, installed where it is absent.
+      - id: nextest
+        run: if cargo nextest --version 2>/dev/null | grep -q '0.9.146'; then echo "have=true" >> "$GITHUB_OUTPUT"; fi
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        if: steps.nextest.outputs.have != 'true'
+        with:
+          tool: cargo-nextest@0.9.146
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.21.0
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: Build the page
+        working-directory: client
+        run: |
+          npm ci
+          npm run build
+      # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), as fast.yml runs them:
+      # a test still running at 60 s (the tests of random histories at 300 s) is stopped and fails under its own name.
+      # Every test of the job's third runs to its end, so that a red run shows every test that fails, not the first one's.
       - name: Test
-        run: cargo test --workspace --locked
+        env:
+          PARTITION: ${{ matrix.partition }}
+        run: |
+          cargo nextest run --workspace --locked --cargo-profile ci --profile ci --no-fail-fast \
+            --partition "count:$PARTITION/3"
+      # What became of each test of the job's third, as nextest's JUnit, whatever became of the step before.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: junit-${{ matrix.partition }}
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
+
+  # The check a merge waits for, named as the engine reads it (`github.checks`): red whenever the lint or a job of the
+  # tests did not pass, cancelled ones included.
+  #
+  # The engine gives the implementing agent the log of each red check it names, and reads only that one job's log, by
+  # the conventions of its reading (crates/carry/src/host/github/log.rs): a step begins at a line `##[group]Run ` and
+  # the steps that failed hold a line `##[error]`. So this job prints, in its own log, the steps of each job that did
+  # not pass, each after a line as a step begins that names the job, with GitHub's times taken off and its workflow
+  # commands stopped, so that they are printed as the job printed them.
+  check:
+    needs: [lint, test]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # To read the logs of the run's other jobs.
+      actions: read
+    steps:
+      # The ten slowest tests of the run, read from the JUnit the jobs of the tests kept, in the run's summary and its
+      # log: what a test costs, for whoever adds one. It never makes the check red.
+      - name: The slowest tests
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Where no job of the tests kept its results (each was cancelled, say), there is nothing to list, and the step
+        # ends without an error all the same: the engine gives an agent every step of this log that holds one. Results
+        # kept half written end it so too, the status of the lines below being that of `tee`.
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'junit-*' --dir "$RUNNER_TEMP/junit" \
+            || { echo "No job of the tests kept its results."; exit 0; }
+          python3 -I - "$RUNNER_TEMP/junit" <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          import pathlib, sys, xml.etree.ElementTree as ET
+          rows = []
+          for path in sorted(pathlib.Path(sys.argv[1]).rglob("*.xml")):
+              for case in ET.parse(path).iter("testcase"):
+                  rows.append((float(case.get("time") or 0), f"{case.get('classname')} {case.get('name')}"))
+          rows.sort(key=lambda r: -r[0])
+          print(f"### The ten slowest of the {len(rows)} Rust tests\n")
+          print("| Seconds | Test |")
+          print("|---:|---|")
+          for time, name in rows[:10]:
+              print(f"| {time:.1f} | `{name}` |")
+          EOF
+      - name: Every other job passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "lint and test: $RESULTS"
+          red=false
+          for r in $RESULTS; do [ "$r" = success ] || red=true; done
+          [ $red = true ] || exit 0
+          jobs="repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs"
+          mapfile -t not_passed < <(gh api --paginate "$jobs" --jq '.jobs[]
+            | select(.name == "lint" or (.name | startswith("test ")))
+            | select(.conclusion != "success") | "\(.id)\t\(.name)\t\(.conclusion // .status)"')
+          stop="stop-$(cat /proc/sys/kernel/random/uuid)"
+          for line in "${not_passed[@]}"; do
+            IFS=$'\t' read -r id name how <<< "$line"
+            echo "##[group]Run the steps of the job $name, which ended in $how"
+            echo "##[endgroup]"
+            echo "##[error]The job $name ended in $how; its steps follow."
+            echo "::stop-commands::$stop"
+            # From its first step to the runner's clean-up, as the job printed it: with the escapes that colour it,
+            # which gh gives only when told to, and the engine reads a job's log with them.
+            if gh api --allow-escape-sequences "repos/$GITHUB_REPOSITORY/actions/jobs/$id/logs" \
+              > "$RUNNER_TEMP/log" 2> "$RUNNER_TEMP/why"; then
+              sed -E 's/^\xEF\xBB\xBF//; s/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z ?//' "$RUNNER_TEMP/log" \
+                | awk '/^##\[group\]Run /{on=1} /^Post job cleanup/{on=0} on'
+            else
+              echo "Its log could not be read: $(cat "$RUNNER_TEMP/why")"
+            fi
+            echo "::$stop::"
+          done
+          echo "##[group]Run what check found"
+          echo "##[endgroup]"
+          names=$(printf '%s\n' "${not_passed[@]}" | cut -f2 | paste -sd ',' | sed 's/,/, /g')
+          echo "Did not pass: ${names:-no job found; the page of the run says which}."
+          exit 1

@@ -3,6 +3,7 @@
 //! subject, so that a new test goes into the module of what it tests.
 
 mod diverged;
+mod everything;
 mod histories;
 mod incremental;
 mod items;
@@ -62,6 +63,7 @@ fn judged() -> Compiled {
     let write = r#"
         title = "Write"
         kind = "agent"
+        effort = "high"
         line = "main"
         task = "Write the text the request asks for."
         inputs = ["request", "opinions", "main"]
@@ -70,6 +72,7 @@ fn judged() -> Compiled {
     let judge = r#"
         title = "Judge"
         kind = "agent"
+        effort = "high"
         line = "other"
         task = "Judge the text, and give a verdict."
         inputs = ["text", "checks"]
@@ -122,7 +125,7 @@ impl Db {
 /// The item and the work a store of the tests holds first, added at fixed times so that two stores can be compared.
 fn first_work(store: &mut Store) -> WorkNumber {
     let (_, work) = store
-        .add("the item", &[], "judged", Time(START), &Work::default())
+        .add("the item", "2", &[], "judged", Time(START), &Work::default())
         .expect("the item is added");
     work
 }
@@ -216,7 +219,7 @@ impl Driver {
 
     /// The run whose round is under way, and its cell.
     fn under_way(&self) -> (RunId, String) {
-        (pending(&self.work).into_iter())
+        (pending(&self.flow, &self.work).into_iter())
             .find_map(|e| match e {
                 Effect::Round { run, cell, .. } => Some((run, cell.0)),
                 _ => None,
@@ -236,7 +239,13 @@ impl Driver {
         let (run, _) = self.under_way();
         let spent = self.spent();
         let why = why.to_string();
-        self.on(Event::Failed { run, why, spent })
+        self.on(Event::Failed {
+            run,
+            why,
+            failure: decide::run::Failure::Other,
+            resets: None,
+            spent,
+        })
     }
 
     /// What the next round to end took, told apart from every other.
@@ -248,13 +257,16 @@ impl Driver {
             input_tokens: 11 * n,
             cached_tokens: 13 * n,
             output_tokens: 17 * n,
+            // Some rounds tell the context they ended with and how often they were compacted, and some do not.
+            context_tokens: n.is_multiple_of(2).then_some(19 * n),
+            compactions: u32::try_from(n % 3).unwrap_or_default(),
         }
     }
 
     /// Every call that is to be made has its result, and so those that are to be made after them, until none is.
     fn answer(&mut self) {
         for _ in 0..10 {
-            let calls: Vec<CallId> = (pending(&self.work).into_iter())
+            let calls: Vec<CallId> = (pending(&self.flow, &self.work).into_iter())
                 .filter_map(|e| match e {
                     Effect::Call { call, .. } => Some(call),
                     _ => None,
@@ -273,7 +285,7 @@ impl Driver {
 
     /// Every call that is to be withdrawn is said to have its result: that it was withdrawn.
     fn withdraw(&mut self) {
-        for e in pending(&self.work) {
+        for e in pending(&self.flow, &self.work) {
             if let Effect::Withdraw { call } = e {
                 let result = "withdrawn".to_string();
                 self.on(Event::Done { call, result });
@@ -283,7 +295,7 @@ impl Driver {
 
     /// Every round that is to be stopped ends.
     fn stopped(&mut self) {
-        for e in pending(&self.work) {
+        for e in pending(&self.flow, &self.work) {
             if let Effect::Stop { run } = e {
                 let spent = self.spent();
                 let came = Came::Asks(vec![]);
@@ -353,7 +365,27 @@ fn history(d: &mut Driver) {
     }
     d.answer();
     d.end(Came::Asks(vec![tool("a"), question(Who::Owner)]));
+    // Two lines begin a new session.
+    d.on(Event::Anew {
+        line: "main".to_string(),
+        why: engine::Why::Limit { context: 9, limit: 5 },
+    });
+    d.on(Event::Anew {
+        line: "other".to_string(),
+        why: engine::Why::Owner,
+    });
     d.answer();
+    // The round given the results is tried twice, once at each effort, the second time with an account of its own.
+    let (run, _) = d.under_way();
+    for (effort, account) in [(None, None), (Some("high"), Some("an account"))] {
+        let on = engine::RanOn {
+            level: "2".to_string(),
+            model: "a model".to_string(),
+            effort: effort.map(str::to_string),
+            account: account.map(str::to_string),
+        };
+        d.on(Event::Ran { run, attempt: 1, on });
+    }
     // Two more calls would pass the limit of calls: the owner is called, lets the run go on, and they are made.
     d.end(Came::Asks(vec![tool("b"), tool("c")]));
     d.answer();
@@ -393,4 +425,7 @@ fn history(d: &mut Driver) {
         "no round was under way at the cancel: {effects:?}"
     );
     d.stopped();
+    // Nothing of it is under way then: what it held is let go.
+    d.on(Event::Released);
+    assert!(d.work.records.released.is_some(), "what the work held was not let go");
 }

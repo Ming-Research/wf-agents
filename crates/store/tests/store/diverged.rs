@@ -85,6 +85,11 @@ fn changes() -> Vec<Change> {
             ("cancelled", Entry::At(at))
         },
         |w| {
+            let at = w.records.released.expect("released");
+            w.records.released = Some(Seq(at.0 + 1000));
+            ("released", Entry::At(at))
+        },
+        |w| {
             let ((block, at), content) = w.contents.iter_mut().next().expect("a content");
             content.push_str(", changed");
             let entry = Entry::Version {
@@ -126,6 +131,16 @@ fn changes() -> Vec<Change> {
             m.at = Time(0);
             ("moments", Entry::At(m.from))
         },
+        |w| {
+            let s = &mut w.sessions[0];
+            s.line = "other".to_string();
+            ("sessions", Entry::At(s.at))
+        },
+        |w| {
+            let r = &mut w.ran[0];
+            r.on.model = "another model".to_string();
+            ("ran", Entry::At(r.at))
+        },
     ]
 }
 
@@ -148,6 +163,7 @@ fn removals() -> Vec<Change> {
         |w| ("let_go", Entry::At(w.records.let_go.pop().expect("a let-go").at)),
         |w| ("pauses", Entry::At(w.records.pauses.pop().expect("a pause").at)),
         |w| ("cancelled", Entry::At(w.records.cancelled.take().expect("cancelled"))),
+        |w| ("released", Entry::At(w.records.released.take().expect("released"))),
         |w| {
             let ((block, at), _) = w.contents.pop_last().expect("a content");
             ("contents", Entry::Version { block, at })
@@ -167,6 +183,8 @@ fn removals() -> Vec<Change> {
             ("spent", Entry::Round { run, round })
         },
         |w| ("moments", Entry::At(w.moments.pop().expect("a moment").from)),
+        |w| ("sessions", Entry::At(w.sessions.pop().expect("a session").at)),
+        |w| ("ran", Entry::At(w.ran.pop().expect("a try").at)),
     ]
 }
 
@@ -191,7 +209,7 @@ fn a_work_changed_at_an_entry_the_store_holds_is_refused_for_every_table_and_not
     let (db, mut store, work, kept) = held();
     let changes = changes();
     let tables: BTreeSet<&str> = changes.iter().map(|change| change(&mut kept.clone()).0).collect();
-    assert_eq!(tables.len(), 18, "a table has no change: {tables:?}");
+    assert_eq!(tables.len(), 21, "a table has no change: {tables:?}");
     for change in changes {
         let mut given = kept.clone();
         let (table, entry) = change(&mut given);

@@ -1,5 +1,5 @@
--- From version 2 of the schema to version 3: the copies of the database that were taken, which of them were uploaded
--- off the machine, and what failed in keeping them. They belong to no work, and a database brought to version 3 holds
+-- From version 6 of the schema to version 7: the copies of the database that were taken, which of them were uploaded
+-- off the machine, and what failed in keeping them. They belong to no work, and a database brought to version 7 holds
 -- the same tables as one made with it. The version's one row is replaced last.
 CREATE TABLE backups (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,4 +21,4 @@ CREATE TABLE backup_steps (
     mended INTEGER PRIMARY KEY REFERENCES backup_failures (seq),
     at INTEGER NOT NULL
 );
-UPDATE schema_version SET version = 3;
+UPDATE schema_version SET version = 7;

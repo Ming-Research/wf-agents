@@ -79,6 +79,10 @@ export function faultWords(fault: Fault): string {
       return "An engine's cell names no act to carry it out.";
     case 'agentHasAct':
       return `An agent carries the cell out, but the cell names the act "${w.act}".`;
+    case 'engineHasEffort':
+      return "An engine's cell names a reasoning effort, which no agent runs at.";
+    case 'noEffort':
+      return "An agent's cell names no reasoning effort for its rounds to run at.";
     case 'unknownAct':
       return `The engine has no act named "${w.act}".`;
     case 'valuesEmpty':
@@ -91,6 +95,8 @@ export function faultWords(fault: Fault): string {
       return `The block ${w.block} is not declared in flow.toml.`;
     case 'notAnOutput':
       return `The cell must write ${w.block} every time, but ${w.block} is not among the blocks it may write.`;
+    case 'notAnInput':
+      return `The cell says what the work is by ${w.block}, but ${w.block} is not among the blocks it reads.`;
     case 'noWriter':
       return `Nothing writes ${w.block}: no cell of the order, no person and nothing outside.`;
     case 'noReader':
@@ -203,6 +209,8 @@ export function changeWords(change: Change): ChangeWords {
       return { what: 'Run by', before: kindWords(c.before), after: kindWords(c.after) };
     case 'line':
       return { what: 'Line', before: c.before ?? 'none', after: c.after ?? 'none' };
+    case 'readsOnly':
+      return { what: 'Only reads', before: yesNo(c.before), after: yesNo(c.after) };
     case 'task':
       return { what: 'Task', before: c.before ?? 'none', after: c.after ?? 'none' };
     case 'act':
@@ -225,8 +233,16 @@ export function changeWords(change: Change): ChangeWords {
       return { what: 'Writes every time', before: '', after: c.block };
     case 'mustWriteRemoved':
       return { what: 'Writes every time', before: c.block, after: '' };
+    case 'describesAdded':
+      return { what: 'Says what the work is by', before: '', after: c.block };
+    case 'describesRemoved':
+      return { what: 'Says what the work is by', before: c.block, after: '' };
     case 'cellLimit':
       return { what: `Limit of ${LIMIT_WORDS[c.limit]}`, before: `${c.before}`, after: `${c.after}` };
+    case 'effort':
+      return { what: 'Effort', before: c.before ?? 'none', after: c.after ?? 'none' };
+    case 'levelsAbove':
+      return { what: "Levels above the item's", before: `${c.before}`, after: `${c.after}` };
     case 'blockAdded':
       return { what: 'Declared', before: '', after: '' };
     case 'blockRemoved':

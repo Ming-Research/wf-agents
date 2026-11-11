@@ -1,0 +1,349 @@
+name: fast
+
+# The fast CI of a work: what an agent's `check` waits for while the code is being written, when it names tests or
+# checks. It runs only when the engine asks, by hand, on the commit it gives, and runs only what it is asked for: it
+# compiles and runs the tests named, and runs the lint only when it is named, as while what the full CI's lint found is
+# being fixed. Every other check, the whole set of tests among them, is the full CI's (ci.yml), which the check before a
+# merge waits for. It has no job named as a check the merge counts (`page`, `check`): a head that only this workflow
+# has run is not one that may merge. The installation's settings name this workflow and what it takes and gives
+# (`github.fast`: `workflow`, `commit_input`, `call_input`, `tests_input`, `checks_input`, `named_checks`, each the
+# name of its job here, `results`).
+#
+# The engine's `check_before` runs it too, on the commits it pushes to its branches `wf-agents-before/...`, which hold
+# the code before a change with the tests of the change put on it. On those it runs exactly the tests listed, and names
+# no check.
+#
+# The tests job uploads what became of each test it ran as JUnit XML, in the artifact `test-results`, which the engine
+# reads by the conventions its reading of them holds to (crates/carry/src/host/github/results.rs). A unit of the Rust
+# tests that did not compile is in it too, as a testsuite with no testcase and an error, and the tests of the other
+# units still run.
+#
+# It runs on the owner's own machine, whose runners keep each what the last run built: the repository's checkout, the
+# compiled target and the page's dependencies stay between runs, and only what changed is built again. Each step a run
+# need not take is left out, because the agents wait for this workflow on every change. So a checkout leaves those in
+# place (`clean: false`), and the step after it clears the rest of what the last run left.
+#
+# It runs only by hand, which only someone who may write to the repository can ask for: the repository is public, and
+# a trigger by a pull request would run anyone's code on the owner's machine.
+#
+# GitHub runs a workflow asked for by hand by the file of it on the branch it is asked on. The engine always asks on
+# the main branch and gives the commit to test, so that this file, as main holds it, is what runs on the owner's
+# machine, and never a work's own copy of it; a branch made before this file was there is run the same way. The
+# run's name holds the value only that one request knows (`call`), by which the engine finds the run it asked for.
+run-name: fast ${{ inputs.call }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: The commit to check out and test, pushed to a branch of the repository already
+        required: true
+      call:
+        description: A value only the request that asks for this run knows, which the run's name holds
+        required: true
+      tests:
+        description: >-
+          The tests to run, each name followed by a line break, so that a name may hold spaces; each runs to its end.
+          Empty for none
+        required: false
+        default: ''
+      checks:
+        description: >-
+          The checks to run beside the tests, as a JSON array of the names of their jobs, such as ["lint"]; the engine
+          gives it only when it names one. Empty or [] for none
+        required: false
+        default: '[]'
+
+permissions:
+  contents: read
+
+# No concurrency group: every run is asked for on main, and each is a request an agent waits for, which another
+# request must not cancel.
+
+jobs:
+  # Only when named: the full CI runs it once, at the merge, and a work runs it here while it fixes what that found.
+  lint:
+    if: ${{ contains(fromJSON(inputs.checks || '[]'), 'lint') }}
+    runs-on: [self-hosted, 14900k]
+    timeout-minutes: 15
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          clean: false
+          # No later step pushes, so the token is not left in the checkout, which the runner keeps.
+          persist-credentials: false
+      - run: git clean -ffdxq -e target -e client/node_modules -e client/dist
+      - run: echo "$HOME/.cargo/bin:/opt/node/bin" >> "$GITHUB_PATH"
+      - run: |
+          rustc --version
+          [ "$(node --version)" = v24.21.0 ]
+      # Before clippy, which compiles the crate the page is built into.
+      - name: Build the page
+        working-directory: client
+        run: |
+          lock=$(git rev-parse HEAD:client/package-lock.json)
+          if [ "$(cat node_modules/.wf-lock 2>/dev/null)" != "$lock" ]; then
+            npm ci
+            echo "$lock" > node_modules/.wf-lock
+          fi
+          npm run build
+      - name: Type-check the page
+        working-directory: client
+        run: npm run typecheck
+      - name: Lint the page
+        working-directory: client
+        run: npm run lint
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+  # The tests named, in one job: they are few, so that the build of the page and the compiling are paid once.
+  test:
+    if: ${{ inputs.tests != '' }}
+    runs-on: [self-hosted, 14900k]
+    timeout-minutes: 15
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          clean: false
+          # No later step pushes, so the token is not left in the checkout, which the runner keeps.
+          persist-credentials: false
+      - run: git clean -ffdxq -e target -e client/node_modules -e client/dist
+      # The names given: one a line when the input holds a line break, as the engine gives them; else split at white
+      # space. Each is trimmed, as the engine trims a name, and listed in the log.
+      #
+      # The engine alone decides which test a name names (crates/carry/src/host/github/test_name.rs); this workflow runs
+      # at least every test a name names by that rule: more, never fewer. Each name is taken for a Rust test and for a
+      # page test both. The selection below holds for the separators `::` and ` > `, the installation's
+      # `github.fast.separators`: whoever changes that rule or the separators widens it in the same change.
+      #
+      # A Rust test is named by its name, by its unit (its test binary) and its name joined by a space, `::` or ` > `,
+      # or by what follows a separator in one of these. Neither the unit nor the name holds a space, nor the unit a
+      # ` > `, so what follows a name's last ` > ` holds at most one space, and what follows its last `::` or space is
+      # the test's name, or the end of it after a `::`, which `(^|::)…$` selects.
+      #
+      # A page test is named by its title, joined by ` > ` after the titles of the describes it is in and the file it is
+      # in, or by a space or `::` after the file. What follows a name's last ` > ` is the end of the test's own title,
+      # whole, or after the file and a space, or after the file and `::`: three candidates. Every page test is defined
+      # in a `*.test.*` or `*.spec.*` file with its title written there as a string, so the files that hold a
+      # candidate, as written or as a string in the code writes it, hold every test the name names; only those files are
+      # run, and in them only the tests whose name holds a candidate found. Whoever defines a test elsewhere, or with a
+      # title made when the tests run, widens this in the same change.
+      - name: Read the names
+        id: names
+        env:
+          TESTS: ${{ inputs.tests }}
+        run: |
+          set -f
+          names="$RUNNER_TEMP/names" results="$RUNNER_TEMP/test-results"
+          mkdir -p "$names" "$results"
+          if [[ $TESTS == *$'\n'* ]]; then mapfile -t given <<< "$TESTS"; else read -ra given <<< "$TESTS"; fi
+          sq="'" dq='"' bt='`'
+          rust=() titles=() files=()
+          for n in "${given[@]}"; do
+            n=$(sed 's/^[[:space:]]*//; s/[[:space:]]*$//' <<< "$n")
+            [ -n "$n" ] || continue
+            echo "Named: $n"
+            last=${n##* > }
+            if [[ $last != *' '*' '* ]]; then
+              end=${last##*::}
+              end=${end##* }
+              [ -z "$end" ] || rust+=("test(/(^|::)$(sed 's/[][\\.^$*+?(){}|/]/\\&/g' <<< "$end")\$/)")
+            fi
+            for title in "$last" "${last#* }" "${last#*::}"; do
+              [ -n "$title" ] || continue
+              # As written, and as a string in single quotes, double quotes or backquotes writes it.
+              escaped=${title//\\/\\\\}
+              found=$(git grep -l -F -e "$title" -e "${escaped//$sq/\\$sq}" -e "${escaped//$dq/\\$dq}" \
+                -e "${escaped//$bt/\\$bt}" -- ':(glob)client/**/*.test.*' ':(glob)client/**/*.spec.*' || true)
+              [ -n "$found" ] || continue
+              titles+=("$(sed 's/[][\\.^$*+?(){}|]/\\&/g' <<< "$title")")
+              mapfile -t -O "${#files[@]}" files < <(sed 's|^client/||' <<< "$found")
+            done
+          done
+          rust_selected=false page_selected=false browser_selected=false
+          if [ ${#rust[@]} -gt 0 ]; then
+            mapfile -t rust < <(printf '%s\n' "${rust[@]}" | sort -u)
+            filter=""
+            for f in "${rust[@]}"; do filter="${filter:+$filter | }$f"; done
+            printf '%s' "$filter" > "$names/filter"
+            rust_selected=true
+          fi
+          if [ ${#titles[@]} -gt 0 ]; then
+            mapfile -t titles < <(printf '%s\n' "${titles[@]}" | sort -u)
+            (IFS='|'; printf '%s' "${titles[*]}") > "$names/pattern"
+            printf '%s\n' "${files[@]}" | sort -u > "$names/files"
+            echo "Page tests in: $(paste -sd ' ' "$names/files")"
+            page_selected=true
+            # The tests that run in a real browser are in the files named *.browser.test.tsx; only a run that selects
+            # one pays for installing and starting Chromium.
+            if grep -q '\.browser\.test\.' "$names/files"; then browser_selected=true; fi
+          fi
+          # A run that names no test it can run says so, and reports no test.
+          if [ $rust_selected = false ] && [ $page_selected = false ]; then echo '<testsuites/>' > "$results/none.xml"; fi
+          echo "rust=$rust_selected" >> "$GITHUB_OUTPUT"
+          echo "page=$page_selected" >> "$GITHUB_OUTPUT"
+          echo "browser=$browser_selected" >> "$GITHUB_OUTPUT"
+      # The project's machine has the tools: rustup installs the toolchain rust-toolchain.toml pins when it is missing,
+      # and whoever changes a version here installs it there first (its runners share a home, and installing at once
+      # they collide).
+      - run: echo "$HOME/.cargo/bin:/opt/node/bin" >> "$GITHUB_PATH"
+      - run: |
+          rustc --version
+          cargo nextest --version | grep -q '0.9.146'
+          [ "$(node --version)" = v24.21.0 ]
+      - run: echo "CARGO_INCREMENTAL=1" >> "$GITHUB_ENV"
+      # Before any cargo step that compiles the crate the page is built into; the build of the page's files as they are
+      # is kept for every runner of the machine, and its dependencies are installed only when their lock changed.
+      - name: Build the page
+        working-directory: client
+        run: |
+          tree=$(git rev-parse HEAD:client)
+          lock=$(git rev-parse HEAD:client/package-lock.json)
+          if [ "$(cat node_modules/.wf-lock 2>/dev/null)" != "$lock" ]; then
+            npm ci
+            echo "$lock" > node_modules/.wf-lock
+          fi
+          kept="$HOME/page-builds/$tree"
+          if [ "$(cat node_modules/.wf-tree 2>/dev/null)" = "$tree" ] && [ -f dist/index.html ]; then
+            :
+          elif [ -f "$kept/index.html" ]; then
+            # With today's times: cargo takes files older than its last build for unchanged, and would read the old list.
+            rm -rf dist && cp -R "$kept" dist
+          else
+            npm run build
+            mkdir -p "$HOME/page-builds"
+            tmp=$(mktemp -d "$HOME/page-builds/.new.XXXXXX") && cp -a dist/. "$tmp" && chmod 755 "$tmp" && { mv -T "$tmp" "$kept" 2>/dev/null || rm -rf "$tmp"; }
+            find "$HOME/page-builds" -mindepth 1 -maxdepth 1 -mtime +3 -exec rm -rf {} +
+          fi
+          echo "$tree" > node_modules/.wf-tree
+      # With the cargo profile ci (Cargo.toml) and nextest's profile ci (.config/nextest.toml), which stops a test at
+      # 60 s, or at 300 s where it names the test as a slow one, and writes its JUnit: the Rust tests the step Read
+      # the names selected, each to its end.
+      #
+      # Nextest builds every test binary in one cargo command, and runs none when one does not compile (its exit code
+      # 101). Only then are the units that did compile found, by building again past the failure: `cargo build --tests
+      # --keep-going` compiles the units nextest's `cargo test --no-run` does, with the same profile and flags, so it
+      # takes what that built as it is. Each unit expected (a target of the workspace with tests) that it did not build
+      # is written as a testsuite with no testcase and an error, named as nextest names its binary: the first error the
+      # compiler gave for it, or else that a unit it depends on did not compile. The named tests of the units built are
+      # run again, selected by target with --workspace, so that cargo resolves the features as for the whole workspace
+      # and compiles nothing again: one run when no library's tests failed to compile; else one for the other targets
+      # and one for the libraries that compiled; and, apart, by its package, which may compile some again, any target
+      # with the name of one that did not compile in another package. The step is red still. This is done only when a
+      # unit does not compile: whoever changes it makes one fail on a branch and reads the artifact.
+      - name: Test
+        if: ${{ steps.names.outputs.rust == 'true' }}
+        run: |
+          set -f
+          filter=$(cat "$RUNNER_TEMP/names/filter")
+          results="$RUNNER_TEMP/test-results"
+          junit=target/nextest/ci/junit.xml
+          # What a run of nextest wrote, kept under a name of its own; nothing when it wrote nothing.
+          keep() { if [ -f "$junit" ]; then mv "$junit" "$results/$1"; fi; }
+          rm -f "$junit"
+          code=0
+          cargo nextest run --workspace --locked --cargo-profile ci --profile ci \
+            --no-fail-fast --no-tests=pass -E "$filter" || code=$?
+          keep rust.xml
+          [ "$code" -eq 101 ] || exit "$code"
+          tmp="$RUNNER_TEMP/unbuilt"
+          mkdir -p "$tmp"
+          cargo build --tests --workspace --locked --profile ci --keep-going --message-format json > "$tmp/build.json" \
+            || true
+          cargo metadata --no-deps --format-version 1 --locked > "$tmp/metadata.json"
+          jq -n --slurpfile meta "$tmp/metadata.json" --slurpfile build "$tmp/build.json" '
+            def lib: .kind | IN("lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro");
+            def binary_id:
+              if lib then .pkg elif .kind == "test" then "\(.pkg)::\(.name)" else "\(.pkg)::\(.kind)/\(.name)" end;
+            def unit: "\(.id) \(.kind) \(.name)";
+            ($meta[0].packages | map({key: .id, value: .name}) | from_entries) as $pkgs
+            | [$meta[0].packages[] | . as $p | .targets[] | select(.test)
+               | {pkg: $p.name, id: $p.id, kind: .kind[0], name}] as $all
+            | [$build[] | select(.reason == "compiler-artifact" and .profile.test and .executable != null)
+               | {id: .package_id, kind: .target.kind[0], name: .target.name} | unit] as $made
+            | [$build[] | select(.reason == "compiler-message" and .message.level == "error")
+               | {pkg: ($pkgs[.package_id] // .package_id), id: .package_id, kind: .target.kind[0], name: .target.name,
+                  text: .message.rendered}] as $errors
+            | [$all[] | select(unit as $u | any($made[]; . == $u) | not)] as $unbuilt
+            | [$all[] | select(unit as $u | any($made[]; . == $u))] as $built
+            | ($errors | map(binary_id) | unique | join(", ")) as $failing
+            | ([$unbuilt[] | select(lib) | .pkg] | unique) as $broken_libs
+            | ($unbuilt | map(select(lib | not) | "\(.kind) \(.name)")) as $taken
+            | [$built[] | select((lib | not) and ("\(.kind) \(.name)" as $k | any($taken[]; . == $k)))] as $apart
+            | ([$built[] | select((lib | not) and ("\(.kind) \(.name)" as $k | any($taken[]; . == $k) | not))
+                | ["--\(.kind)", .name]] | unique | add // []) as $targets
+            | ([$built[] | select(lib)] | length > 0) as $libs
+            | {
+                xml: ([
+                  "<testsuites>",
+                  ($unbuilt[] | . as $u
+                    | ([$errors[] | select(.id == $u.id and .kind == $u.kind and .name == $u.name)] | first | .text)
+                      // "not built: a unit it depends on did not compile (\(
+                           if $failing == "" then "the log says which" else $failing end))"
+                    | "  <testsuite name=\"\($u | binary_id | @html)\" tests=\"0\" errors=\"1\">",
+                      "    <error message=\"not built\">\(@html)</error>",
+                      "  </testsuite>"),
+                  "</testsuites>"
+                ] | join("\n")),
+                unbuilt: ($unbuilt | map(binary_id)),
+                runs: (
+                  if ($broken_libs | length) == 0 then
+                    [["--workspace"] + (if $libs then ["--lib"] else [] end) + $targets | select(length > 1)]
+                  else
+                    [(["--workspace"] + $targets | select(length > 1)),
+                     (["--workspace"] + ($broken_libs | map("--exclude", .)) + ["--lib"] | select($libs))]
+                  end
+                  + ($apart | group_by(.pkg) | map(["-p", .[0].pkg] + (map(["--\(.kind)", .name]) | add)))
+                )
+              }' > "$tmp/plan.json"
+          jq -r .xml "$tmp/plan.json" > "$results/unbuilt.xml"
+          echo "Units not built: $(jq -r '.unbuilt | join(", ")' "$tmp/plan.json")"
+          mapfile -t runs < <(jq -c '.runs[]' "$tmp/plan.json")
+          n=0
+          for run in "${runs[@]}"; do
+            mapfile -t targets < <(jq -r '.[]' <<< "$run")
+            n=$((n + 1))
+            echo "The named tests of the units built: ${targets[*]}"
+            rm -f "$junit"
+            cargo nextest run --locked --cargo-profile ci --profile ci --no-fail-fast --no-tests=pass -E "$filter" \
+              "${targets[@]}" < /dev/null || true
+            keep "rust-$n.xml"
+          done
+          exit 101
+      # The page's tests named, in the files Read the names found them in, writing vitest's JUnit beside its own report;
+      # also when the step before is red.
+      #
+      # The page's tests are Vitest projects (client/vite.config.ts): `unit` always, and `browser`, which draws the page
+      # in a real Chromium, only when a file named is one of the browser tests, so that a run that names none neither
+      # installs Chromium nor starts it. Playwright installs the Chromium its version drives into the runner user's
+      # cache, once for each version; a workflow has no root on the owner's machine, so the libraries Chromium needs are
+      # installed there by hand, and a run that lacks one fails in the browser tests with the missing libraries named.
+      - name: Chromium for the page's browser tests
+        if: ${{ !cancelled() && steps.names.outputs.browser == 'true' }}
+        working-directory: client
+        run: npx --no-install playwright install --only-shell chromium
+      - name: Test the page
+        if: ${{ !cancelled() && steps.names.outputs.page == 'true' }}
+        env:
+          BROWSER: ${{ steps.names.outputs.browser }}
+        run: |
+          mapfile -t files < "$RUNNER_TEMP/names/files"
+          projects=(--project unit)
+          if [ "$BROWSER" = true ]; then projects+=(--project browser); fi
+          cd client
+          npx vitest run "${files[@]}" "${projects[@]}" --testNamePattern="$(cat "$RUNNER_TEMP/names/pattern")" \
+            --passWithNoTests --reporter=default --reporter=junit --outputFile.junit="$RUNNER_TEMP/test-results/page.xml"
+      # What became of the tests, for the engine to read, whatever became of the steps before.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: test-results
+          path: ${{ runner.temp }}/test-results

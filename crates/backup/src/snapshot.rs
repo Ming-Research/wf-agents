@@ -1,4 +1,4 @@
-//! A copy of the database, made whole and complete under its name.
+//! A copy of the database, made whole in a file that is not yet the copy.
 
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
@@ -17,18 +17,13 @@ pub(crate) const PARTIAL: &str = ".partial";
 const WAIT: Duration = Duration::from_secs(30);
 
 /// Copies the database at `database` as one snapshot, on a connection of its own that only reads it, so that the
-/// writers of the loop go on, compresses it, and gives it its name by one rename once it is whole and on the disk:
-/// until then the only files it makes end in `.partial`. Gives the copy's name. `halt` is asked after each step that
-/// leaves something on the disk, and where it answers true the copy is left as it is, as a stopped process would.
-pub(crate) fn take(
-    database: &Path,
-    dir: &Path,
-    time: Time,
-    halt: &mut dyn FnMut() -> bool,
-) -> Result<Option<String>, String> {
+/// writers of the loop go on, compresses it, and makes sure it is on the disk, in a file named as the copy is with
+/// `.partial` after it. Gives the copy's name. The file is made the copy, whole under its name, by the step that asks
+/// for it, through the ground, so that a stop between that and the record of it can be made: until then the only
+/// files this makes end in `.partial`.
+pub(crate) fn take(database: &Path, dir: &Path, time: Time) -> Result<String, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let name = name_at(time);
-    let to = dir.join(&name);
     let plain = dir.join(format!("{name}.raw{PARTIAL}"));
     let zipped = dir.join(format!("{name}{PARTIAL}"));
     for left in [&plain, &zipped] {
@@ -43,19 +38,9 @@ pub(crate) fn take(
         conn.execute("VACUUM INTO ?1", [plain.to_string_lossy()])
             .map_err(|e| format!("copying {}: {e}", database.display()))?;
     }
-    if halt() {
-        return Ok(None);
-    }
     compress(&plain, &zipped)?;
     std::fs::remove_file(&plain).map_err(|e| format!("{}: {e}", plain.display()))?;
-    if halt() {
-        return Ok(None);
-    }
-    std::fs::rename(&zipped, &to).map_err(|e| format!("{}: {e}", to.display()))?;
-    if halt() {
-        return Ok(None);
-    }
-    Ok(Some(name))
+    Ok(name)
 }
 
 /// Compresses `from` with gzip into `to`, and makes sure it is on the disk.

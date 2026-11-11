@@ -7,10 +7,19 @@ use service::{Scripted, Service, TokioClock};
 use store::{Backups, Store};
 use web::{Copies, Flows};
 
-use crate::{START, get_json, pass, trial_dir, trial_has, trial_script};
+use crate::{START, get_json, levels, pass, trial_dir, trial_has, trial_script};
 
 /// The interface over the engine's loop, with the route of the copies over the store's file.
 fn serving(off_machine: bool, keep: usize) -> (axum::Router, Backups, tempfile::TempDir) {
+    let (router, backups, dir, _handle) = serving_with_handle(off_machine, keep);
+    (router, backups, dir)
+}
+
+/// The same, and the way into the loop.
+pub(crate) fn serving_with_handle(
+    off_machine: bool,
+    keep: usize,
+) -> (axum::Router, Backups, tempfile::TempDir, service::Handle) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("store.sqlite");
     let store = Store::open(&path).unwrap();
@@ -35,8 +44,8 @@ fn serving(off_machine: bool, keep: usize) -> (axum::Router, Backups, tempfile::
         keep,
         off_machine,
     };
-    let router = web::with_works_and_copies(flows, handle, copies);
-    (router, Backups::open(&path).unwrap(), dir)
+    let router = web::with_works_and_copies(flows, handle.clone(), levels(), copies);
+    (router, Backups::open(&path).unwrap(), dir, handle)
 }
 
 #[tokio::test(start_paused = true)]

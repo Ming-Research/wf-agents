@@ -2,10 +2,11 @@
 //!
 //! Each try of a round keeps the message it was told and what the command line printed, in `rounds/<work>` in the
 //! data directory: `<run>-<round>.message.md` and `.result.json` for its first try, `.message.2.md` and
-//! `.result.2.json` for the next, and so on; other files there are not read here. Read back, a try is what it was
-//! told, and of what it printed only what the page shows: the agent's closing words where they are not the structured
-//! return itself, the structured return, how many turns it took, how long, and by which models; or, where the program
-//! said the try failed, why. The rest, ids of sessions and of credentials among it, is never read out of the file. A
+//! `.result.2.json` for the next, and so on; other files there are not read here. What a try ran on is in the work's
+//! records, not here; a try kept before tries were recorded kept it here, in `.ran.json` (`.ran.2.json` for the next
+//! try, and so on), which is read for it. Read back, a try is what it was told, and of what it printed only what the page shows: the
+//! agent's closing words where they are not the structured return itself, the structured return, how many turns it
+//! took, how long, and by which models; or, where the program said the try failed, why. The rest, ids of sessions and of credentials among it, is never read out of the file. A
 //! result that is empty is no result: the program printed none.
 //!
 //! What is read is bounded, so that a round kept large neither holds the page up nor fills it: a file's length is
@@ -22,6 +23,7 @@ use serde::Deserialize;
 use serde::de::IgnoredAny;
 use service::{Back, Returned, Told, Try};
 use store::WorkNumber;
+use work::RanOn;
 
 use crate::agents::ROUNDS;
 
@@ -58,6 +60,45 @@ pub(crate) fn at(base: &Path, n: usize) -> (PathBuf, PathBuf) {
     }
 }
 
+/// Where the try of this number of a round, the first being one, kept what it ran on, before tries were recorded.
+fn ran_at(base: &Path, n: usize) -> PathBuf {
+    match n {
+        1 => base.with_extension("ran.json"),
+        n => base.with_extension(format!("ran.{n}.json")),
+    }
+}
+
+/// What a try ran on, as a try kept before tries were recorded kept it, with no account.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RanOnFile {
+    level: String,
+    model: String,
+    effort: Option<String>,
+}
+
+/// The longest file of what a try ran on that is read, in bytes: one longer was never written.
+const RAN_BOUND: u64 = 4096;
+
+/// What the try whose file this is ran on; none where it kept no such file, or one that is not what a try ran on,
+/// which the page then shows as it shows a try that kept nothing of it. Where the file cannot be read at all, why.
+fn ran(path: &Path) -> Result<Option<RanOn>, String> {
+    match length(path).map_err(|e| e.to_string())? {
+        None => Ok(None),
+        Some(long) if long > RAN_BOUND => Ok(None),
+        Some(_) => {
+            let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+            let file = serde_json::from_slice::<RanOnFile>(&bytes).ok();
+            Ok(file.map(|file| RanOn {
+                level: file.level,
+                model: file.model,
+                effort: file.effort,
+                account: None,
+            }))
+        }
+    }
+}
+
 /// What the round of this number of the run of the work, kept in the data directory, was told and what came back of
 /// it, each try in order; no try where it kept nothing. A file that cannot be read is named from the data directory.
 pub(crate) fn told(data: &Path, work: WorkNumber, run: RunId, number: usize) -> Result<Told, String> {
@@ -91,10 +132,13 @@ fn told_within(data: &Path, base: &Path, bounds: &Bounds) -> Result<Told, String
             }
         };
         read_so_far += message.len() as u64 + size(&back);
+        let on = ran_at(base, n);
+        let ran = ran(&on).map_err(|e| format!("{}: {e}", named(&on)))?;
         told.tries.push(Try {
             message,
             cut: (whole > bounds.message).then_some(whole),
             back,
+            ran,
         });
     }
     Ok(told)
@@ -228,6 +272,7 @@ mod tests {
             message: message.to_string(),
             cut: None,
             back,
+            ran: None,
         }
     }
 
@@ -264,6 +309,29 @@ mod tests {
                 tried("third", greeted())
             ]
         );
+    }
+
+    #[test]
+    fn a_try_kept_before_tries_were_recorded_gives_what_its_file_says_it_ran_on() {
+        let (dir, base) = kept();
+        keep(&base, 1, "first", Some(""));
+        keep(&base, 2, "second", Some(""));
+        keep(&base, 3, "third", Some(""));
+        std::fs::write(
+            ran_at(&base, 1),
+            r#"{"level":"2","model":"claude-sonnet-5-5","effort":null}"#,
+        )
+        .unwrap();
+        std::fs::write(ran_at(&base, 2), r#"{"level": "3", "mo"#).unwrap();
+        let ran: Vec<Option<RanOn>> = told_at(&dir).tries.into_iter().map(|t| t.ran).collect();
+        let first = RanOn {
+            level: "2".to_string(),
+            model: "claude-sonnet-5-5".to_string(),
+            effort: None,
+            account: None,
+        };
+        // The second's file is torn, and the third, recorded, kept none.
+        assert_eq!(ran, [Some(first), None, None]);
     }
 
     #[test]
@@ -362,6 +430,7 @@ mod tests {
                     message: "Greet th".to_string(),
                     cut: Some(16),
                     back: Back::Unreadable(unread),
+                    ran: None,
                 },
                 tried("Again.", ok()),
                 tried("And more.", ok()),

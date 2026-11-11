@@ -48,8 +48,8 @@ Not: Hierarchical state machines, which end the repeated rows but keep a positio
 From: the owner, 2026-11-09
 
 ### decision inputs-and-outputs-declared
-Each cell declares its inputs and its outputs. What a cell reads without declaring it never makes it need to run: an agent may read anything of the item, and only its inputs are what it is run again for. A work is not held to the main it started from: a cell that changes the code takes the latest main into the work's branch as its run starts, and main itself is an input only of the cell right before the merge, which checks that the work passes the full CI with the latest main taken in and writes an opinion for the implementation when it does not. The merge only merges.
-Why: Whether a cell must run again is worked out from what it last ran on, by one rule. A work held to one main from its start to its merge meets what others merged meanwhile only in the merge queue, where a conflict costs the most; taking main in at every run that changes the code shows it while the work is still being done. The check is a cell of its own because a work ends when the merge has a record: nothing the merge wrote could send the work back.
+Each cell declares its inputs and its outputs. What a cell reads without declaring it never makes it need to run: an agent may read anything of the item, and only its inputs are what it is run again for. Main is an input only of the cell right before the merge, which checks that the work passes the full CI with the latest main taken in and writes an opinion for the implementation when it does not; a cell that changes the code takes main in as its run starts without reading it (decision a-run-that-changes-the-code-takes-main-in). The merge only merges.
+Why: Whether a cell must run again is worked out from what it last ran on, by one rule. The check is a cell of its own because a work ends when the merge has a record: nothing the merge wrote could send the work back.
 Not: Every cell reading main, which would run a whole work again at each merge of another.
 From: the owner, 2026-11-09
 

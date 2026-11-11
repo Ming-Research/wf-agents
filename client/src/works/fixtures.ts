@@ -78,6 +78,7 @@ export const FLOW: Flow = flowOf(
       line: null,
       task: null,
       act: 'check',
+      effort: null,
       inputs: ['code', 'main'],
       outputs: ['ci', 'opinions_implement'],
     }),
@@ -87,6 +88,7 @@ export const FLOW: Flow = flowOf(
       line: null,
       task: null,
       act: 'merge',
+      effort: null,
       preconditions: [test('approved', 'The owner approved the merge', 'all', ['approval'])],
       inputs: ['ci', 'content', 'approval'],
     }),
@@ -253,7 +255,16 @@ class History {
           ? { kind: 'results', calls: run.calls.slice(-before.back.asks.length).map((c) => c.call) }
           : { kind: 'task' };
     const minutes = spec.minutes ?? 3;
-    const round: Round = { number: run.rounds.length + 1, began: this.time, ended: null, given, back: null, spent: null };
+    const round: Round = {
+      number: run.rounds.length + 1,
+      began: this.time,
+      ended: null,
+      given,
+      back: null,
+      spent: null,
+      context: null,
+      compactions: 0,
+    };
     run.rounds.push(round);
     const results = given.kind === 'results' ? given.calls.map((c) => this.callPages.get(c) as CallPage) : [];
     this.rounds.set(`${run.run}/${round.number}`, { run: run.run, number: round.number, results, handed: [] });
@@ -271,9 +282,10 @@ class History {
       workingMs: minutes * MINUTE,
       rounds: 1,
     };
+    round.context = input + cached;
     run.spent = add(run.spent, round.spent);
     if (spec.fails) {
-      round.back = { kind: 'failed', why: spec.fails };
+      round.back = { kind: 'failed', why: spec.fails, failure: 'other', resets: null };
       this.enginePaused(spec.fails);
     } else if (spec.asks) {
       round.back = {
@@ -438,6 +450,7 @@ class History {
         last: this.steps.length > 0 ? this.time : null,
       },
       title,
+      level: '2',
       flow: FLOW,
       cells: details,
       blocks,
@@ -520,6 +533,7 @@ const PLAN_TOLD: ToldPage = {
         durationMs: 118_000,
         models: ['claude-haiku-5-5'],
       },
+      ran: { level: '1', model: 'claude-haiku-5-5', effort: 'high' },
     },
   ],
   leftOut: 0,
@@ -629,7 +643,7 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
   const keep = (built: Built) => {
     works.set(built.page.summary.number, built);
     const s = built.page.summary;
-    items.push({ number: s.item, title: built.page.title, added: s.added, dependsOn: [], work: s });
+    items.push({ number: s.item, title: built.page.title, level: built.page.level, added: s.added, dependsOn: [], work: s });
   };
 
   keep(long(hours(30)));
@@ -783,7 +797,7 @@ function work(n: number): Built {
 }
 
 export function fixtureItems(): Items {
-  return { items: fixtures().items };
+  return { items: fixtures().items, outage: null };
 }
 
 /// The copies of the database as they stand when all is well: the newest taken three hours ago and kept off the machine.

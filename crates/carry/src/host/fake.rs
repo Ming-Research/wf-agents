@@ -1,16 +1,20 @@
 //! A host for the tests of the acts: it gives the head of main it is set to and the verdicts it is given, in order,
-//! merges by saying main is where it is, and keeps what it was asked.
+//! merges by saying main is where it is, and keeps what it was asked. It checks nothing for the agents' tools, and
+//! keeps that their check asked it.
 
 use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use super::{Branch, Host, Verdict};
+use super::{Branch, Host, Named, Verdict};
+use crate::git::Before;
 use crate::held::Stop;
 
 /// The host's answers, and what it was asked.
 pub(crate) struct Fake {
     main: Mutex<String>,
     verdicts: Mutex<VecDeque<Result<Option<Verdict>, String>>>,
+    /// Why letting go fails, where it does.
+    ending: Mutex<Option<String>>,
     asked: Mutex<Vec<Asked>>,
 }
 
@@ -21,8 +25,12 @@ pub(crate) enum Asked {
     Main,
     /// The verdict on this commit.
     Verdict(String),
+    /// The agents' check of the work.
+    Check,
     /// To merge, the check having passed this commit.
     Merge(Option<String>),
+    /// To let go of what it holds for the branch, the work having merged or not.
+    End(String, bool),
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -35,8 +43,14 @@ impl Fake {
         Fake {
             main: Mutex::new(main.to_string()),
             verdicts: Mutex::new(VecDeque::new()),
+            ending: Mutex::new(None),
             asked: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Fails to let go, with these words, until it is told otherwise.
+    pub(crate) fn ending(&self, refused: Option<&str>) {
+        *lock(&self.ending) = refused.map(str::to_string);
     }
 
     /// Gives this verdict when it is next asked for one.
@@ -67,4 +81,32 @@ impl Host for Fake {
         lock(&self.asked).push(Asked::Merge(checked.map(str::to_string)));
         Ok(lock(&self.main).clone())
     }
+
+    fn kept_main(&self) -> String {
+        "refs/heads/main".to_string()
+    }
+
+    async fn check(&self, _: &Branch<'_>, _: &Named, _: &mut Stop) -> Result<Option<String>, String> {
+        lock(&self.asked).push(Asked::Check);
+        Err(NO_TOOLS.to_string())
+    }
+
+    async fn check_before(
+        &self,
+        _: &Branch<'_>,
+        _: &Before,
+        _: &Named,
+        _: &mut Stop,
+    ) -> Result<Option<String>, String> {
+        Err(NO_TOOLS.to_string())
+    }
+
+    async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {
+        let refused = lock(&self.ending).clone();
+        lock(&self.asked).push(Asked::End(branch.place.branch.clone(), merged));
+        refused.map_or(Ok(()), Err)
+    }
 }
+
+/// What the fake host says where the agents' tools ask it to check.
+pub(crate) const NO_TOOLS: &str = "the fake host checks nothing for the agents' tools";

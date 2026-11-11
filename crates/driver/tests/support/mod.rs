@@ -15,7 +15,10 @@
 //! - the dependencies block of every work that has not ended says whether the items its item depends on have merged,
 //!   and its text names those still waited for, saying which were cancelled; the block of a work that has ended was
 //!   not written after it ended; no work whose dependencies have not all merged has started a run where its flow
-//!   holds it for them; and a work never let on has started no run.
+//!   holds it for them; and a work never let on has started no run;
+//! - no more rounds that take a slot are under way than the driver has slots, as the driver says; no work waits for a
+//!   slot while one is free; and while the owner's pause of everything holds, no work began a round after it was set
+//!   but of a run for a note a person wrote, and none given again after it failed.
 //!
 //! When the driver says it stopped, the harness checks that what it says was kept is what the store holds.
 
@@ -23,7 +26,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use decide::{BlockId, CallId, Cause, Decision, End, Maker, Outsider, RunId, Seq, Waited, Who};
+use decide::{BlockId, CallId, Cause, Decision, End, Holder, Maker, Outsider, RunId, Seq, Waited, Who};
 use driver::{DEPENDENCIES, Driver, Failed, Fault, FirstWrite, MERGED, NewItem, Todo, WAITING};
 use engine::{Ask, Back, Came, Effect, Event, Given, Handed, Spent, Time, Work};
 use flow::{Compiled, Has, Kind, Source, compile};
@@ -39,7 +42,7 @@ pub const START: u64 = 1_800_000_000_000;
 pub fn has() -> Has {
     Has {
         sources: [DEPENDENCIES.to_string()].into(),
-        acts: ["merge".to_string()].into(),
+        acts: ["merge".to_string(), "start".to_string()].into(),
     }
 }
 
@@ -96,6 +99,7 @@ pub fn judged() -> Compiled {
     let write = r#"
         title = "Write"
         kind = "agent"
+        effort = "high"
         line = "main"
         task = "Write the text the request asks for."
         requires = ["ready"]
@@ -105,6 +109,7 @@ pub fn judged() -> Compiled {
     let judge = r#"
         title = "Judge"
         kind = "agent"
+        effort = "high"
         line = "other"
         task = "Judge the text, and give a verdict."
         inputs = ["text"]
@@ -141,6 +146,7 @@ pub fn short() -> Compiled {
     let draft = r#"
         title = "Draft"
         kind = "agent"
+        effort = "high"
         line = "main"
         task = "Draft the plan from the request."
         requires = ["ready"]
@@ -176,6 +182,7 @@ pub fn plain() -> Compiled {
     let write = r#"
         title = "Write"
         kind = "agent"
+        effort = "high"
         line = "main"
         task = "Write the text the request asks for."
         inputs = ["request"]
@@ -258,10 +265,15 @@ pub fn dump(path: &Path) -> BTreeMap<String, Vec<Vec<String>>> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Op {
     Add,
+    SetLevel,
     Items,
     Works,
     Load,
     Save,
+    /// The read of the owner's pause of everything.
+    Everything,
+    /// The keeping of the owner's pause of everything, set or lifted.
+    PauseEverything,
 }
 
 /// Where the store of the tests fails.
@@ -350,13 +362,19 @@ impl Storage for Failing {
     fn add(
         &mut self,
         title: &str,
+        level: &str,
         depends_on: &[ItemNumber],
         flow: &str,
         at: Time,
         first: &Work,
     ) -> Result<(ItemNumber, WorkNumber), store::Fault> {
         self.call(Op::Add)?;
-        self.store.add(title, depends_on, flow, at, first)
+        self.store.add(title, level, depends_on, flow, at, first)
+    }
+
+    fn set_level(&mut self, item: ItemNumber, level: &str, at: Time) -> Result<(), store::Fault> {
+        self.call(Op::SetLevel)?;
+        self.store.set_level(item, level, at)
     }
 
     fn items(&self) -> Result<Vec<Item>, store::Fault> {
@@ -378,6 +396,16 @@ impl Storage for Failing {
         self.call(Op::Save)?;
         self.store.save(work, given)
     }
+
+    fn everything_paused(&self) -> Result<Option<Time>, store::Fault> {
+        self.call(Op::Everything)?;
+        self.store.everything_paused()
+    }
+
+    fn pause_everything(&mut self, paused: bool, at: Time) -> Result<(), store::Fault> {
+        self.call(Op::PauseEverything)?;
+        self.store.pause_everything(paused, at)
+    }
 }
 
 /// What opening the driver gives.
@@ -394,12 +422,27 @@ pub fn open_with_plan(db: &Db, plan: Plan, now: Time) -> (Opened, Arc<Mutex<Call
 }
 
 /// Opens a driver on the file with these flows, through the store of the tests failing as the plan says from its first
-/// call.
+/// call, with as many slots as the tests that do not count them never fill ([`SLOTS`]).
 pub fn open_on_flows(db: &Db, plan: Plan, flows: Vec<Compiled>, now: Time) -> (Opened, Arc<Mutex<Calls>>) {
+    open_on_slots(db, plan, flows, SLOTS, now)
+}
+
+/// Opens a driver on the file with these flows and this many slots, through the store of the tests failing as the plan
+/// says from its first call.
+pub fn open_on_slots(
+    db: &Db,
+    plan: Plan,
+    flows: Vec<Compiled>,
+    slots: usize,
+    now: Time,
+) -> (Opened, Arc<Mutex<Calls>>) {
     let (store, calls) = Failing::new(db.open());
     calls.lock().expect("the calls are noted").plan = plan;
-    (Driver::open(Box::new(store), flows, now), calls)
+    (Driver::open(Box::new(store), flows, slots, None, now), calls)
 }
+
+/// The slots of the driver in the tests that do not count them: more than any of them has works.
+pub const SLOTS: usize = 1000;
 
 /// Everything the driver shows of itself, and everything the file holds: what a refusal must leave as it was.
 #[derive(Debug, PartialEq)]
@@ -422,10 +465,11 @@ pub fn sorted(todos: &[Todo]) -> Vec<Todo> {
     todos
 }
 
-/// An item to add with no first writes.
+/// An item to add with no first writes, paused: its work begins nothing until it is let on.
 pub fn new_item(title: &str, depends_on: &[ItemNumber], flow: &str) -> NewItem {
     NewItem {
         title: title.to_string(),
+        level: "1".to_string(),
         depends_on: depends_on.to_vec(),
         flow: flow.to_string(),
         writes: Vec::new(),
@@ -471,6 +515,8 @@ pub struct H {
     pub faulty: BTreeSet<WorkNumber>,
     /// The flows the driver is opened with, each time.
     pub flows: Vec<Compiled>,
+    /// The slots the driver is opened with, each time.
+    pub slots: usize,
 }
 
 /// What the driver answered to a call that the store of the tests may have stopped.
@@ -489,8 +535,13 @@ impl H {
 
     /// The driver opened on an empty store, with these flows: it has nothing to do.
     pub fn with(flows: Vec<Compiled>) -> Self {
+        Self::with_slots(flows, SLOTS)
+    }
+
+    /// The driver opened on an empty store, with these flows and this many slots: it has nothing to do.
+    pub fn with_slots(flows: Vec<Compiled>, slots: usize) -> Self {
         let db = Db::new();
-        let (opened, calls) = open_on_flows(&db, Plan::Never, flows.clone(), Time(START));
+        let (opened, calls) = open_on_slots(&db, Plan::Never, flows.clone(), slots, Time(START));
         let (driver, todos) = opened.expect("the driver opens");
         assert_eq!(todos, vec![], "the driver has something to do on an empty store");
         let reader = db.open();
@@ -509,6 +560,7 @@ impl H {
             checking: true,
             faulty: BTreeSet::new(),
             flows,
+            slots,
         }
     }
 
@@ -555,6 +607,13 @@ impl H {
             Outcome::Done(numbers) => numbers,
             Outcome::Stopped { .. } => panic!("the driver stopped"),
         }
+    }
+
+    /// Adds an item, whose work is added paused, and has the owner let its work on at once.
+    pub fn add_let_on(&mut self, new: NewItem) -> (ItemNumber, WorkNumber) {
+        let (item, work) = self.add(new);
+        self.let_on(work);
+        (item, work)
     }
 
     /// Adds an item at this time, which the driver must take unless its store stops it.
@@ -625,6 +684,47 @@ impl H {
         }
     }
 
+    /// The owner sets the pause of everything, or lifts it, which the driver must take; and gives what is to be done.
+    pub fn pause_everything(&mut self, paused: bool) -> Vec<Todo> {
+        let now = self.now();
+        match self.try_pause_everything(now, paused) {
+            Outcome::Done(todos) => todos,
+            Outcome::Stopped { .. } => panic!("the driver stopped"),
+        }
+    }
+
+    /// The owner sets the pause of everything, or lifts it, at this time, which the driver must take unless its store
+    /// stops it.
+    pub fn try_pause_everything(&mut self, now: Time, paused: bool) -> Outcome<Vec<Todo>> {
+        let before = self
+            .reader
+            .everything_paused()
+            .expect("the pause of everything is read");
+        match self.dm().pause_everything(now, paused) {
+            Ok(todos) => {
+                self.given(&todos);
+                if self.checking {
+                    self.check();
+                }
+                Outcome::Done(todos)
+            }
+            Err(Failed::Stopped { fault, kept }) => {
+                self.stopped(&fault);
+                let after = self
+                    .reader
+                    .everything_paused()
+                    .expect("the pause of everything is read");
+                assert_eq!(
+                    kept,
+                    after != before,
+                    "the driver said kept: {kept} of the pause of everything, and the store says otherwise"
+                );
+                Outcome::Stopped { kept }
+            }
+            Err(other) => panic!("the pause of everything was refused: {other:?}"),
+        }
+    }
+
     /// The driver stopped with this fault: once stopped, it shows nothing and says why.
     fn stopped(&self, fault: &Fault) {
         let d = self.d();
@@ -661,7 +761,7 @@ impl H {
         let whole = self.d().fault().is_none() && !self.dead();
         let before = self.d().pending();
         self.driver = None;
-        let (opened, calls) = open_on_flows(&self.db, Plan::Never, self.flows.clone(), Time(self.clock));
+        let (opened, calls) = open_on_slots(&self.db, Plan::Never, self.flows.clone(), self.slots, Time(self.clock));
         let (driver, todos) = opened.expect("the driver opens again");
         self.driver = Some(driver);
         self.calls = calls;
@@ -692,12 +792,11 @@ impl H {
                 "opened again, the driver gives what was answered: {todo:?}"
             );
             match todo.effect {
-                Effect::Round { .. } | Effect::Call { .. } => self.ever.insert(key(todo)),
+                Effect::Round { .. } | Effect::Call { .. } | Effect::Release { .. } => self.ever.insert(key(todo)),
                 Effect::Stop { .. } | Effect::Withdraw { .. } => self.undone.insert(key(todo)),
             };
-            let kept = self.reader.load(todo.work).expect("the work loads");
             assert!(
-                engine::pending(&kept).contains(&todo.effect),
+                self.kept_as_pending(todo),
                 "given as the driver opened before the store holds that it is to be done: {todo:?}"
             );
         }
@@ -708,15 +807,31 @@ impl H {
         todos
     }
 
+    /// Whether the store holds that the todo is to be done: it is pending of the work as the store keeps it.
+    fn kept_as_pending(&self, todo: &Todo) -> bool {
+        let kept = self.reader.load(todo.work).expect("the work loads");
+        let head = (self.reader.works().expect("the works are read").into_iter())
+            .find(|head| head.number == todo.work)
+            .expect("the work is kept");
+        let flow = (self.flows.iter())
+            .find(|f| f.name == head.flow)
+            .expect("the work's flow");
+        engine::pending(flow, &kept).contains(&todo.effect)
+    }
+
     /// What the event answers is answered: the round it ends, or the call it gives the result of.
     fn answered(&mut self, work: WorkNumber, event: &Event) {
         let answers = |todo: &Todo| {
             todo.work == work
                 && match (event, &todo.effect) {
-                    (Event::Returned { run, .. }, Effect::Round { run: r, .. } | Effect::Stop { run: r }) => r == run,
+                    (
+                        Event::Returned { run, .. } | Event::Failed { run, .. },
+                        Effect::Round { run: r, .. } | Effect::Stop { run: r },
+                    ) => r == run,
                     (Event::Done { call, .. }, Effect::Call { call: c, .. } | Effect::Withdraw { call: c }) => {
                         c == call
                     }
+                    (Event::Released | Event::NotReleased { .. }, Effect::Release { .. }) => true,
                     _ => false,
                 }
         };
@@ -730,7 +845,7 @@ impl H {
     fn given(&mut self, todos: &[Todo]) {
         for todo in todos {
             match &todo.effect {
-                Effect::Round { .. } | Effect::Call { .. } => {
+                Effect::Round { .. } | Effect::Call { .. } | Effect::Release { .. } => {
                     assert!(self.ever.insert(key(todo)), "given twice: {todo:?}");
                 }
                 Effect::Stop { run } => {
@@ -750,9 +865,8 @@ impl H {
                         .remove(at.expect("a call withdrawn was given and not yet answered"));
                 }
             }
-            let kept = self.reader.load(todo.work).expect("the work loads");
             assert!(
-                engine::pending(&kept).contains(&todo.effect),
+                self.kept_as_pending(todo),
                 "given before the store holds that it is to be done: {todo:?}"
             );
             self.outstanding.push(todo.clone());
@@ -793,6 +907,9 @@ impl H {
                 number.0
             );
             assert!(under_way(kept.work) <= 1, "work {} has two rounds under way", number.0);
+            if let Some(since) = d.everything_paused() {
+                self.held_by_everything(number, kept.flow, kept.work, since);
+            }
             let shown = d.view(number).expect("the work is shown").decision;
             if !self.faulty.contains(&number) {
                 self.agrees_with_what_is_pending(number, kept.flow, kept.work, &shown);
@@ -852,10 +969,71 @@ impl H {
             sorted(&self.outstanding),
             "what is pending is not what was given and not yet answered"
         );
+        // The rounds of agents given out and not yet answered, a round to be stopped among them until it has ended,
+        // counted from what was given and not by the driver's own count; a work at fault takes none, as nothing more is
+        // decided of it.
+        let taking = (self.outstanding.iter())
+            .filter(|todo| {
+                let Some(kept) = d.work(todo.work) else {
+                    return false;
+                };
+                let cell = match &todo.effect {
+                    Effect::Round { cell, .. } => Some(cell.clone()),
+                    Effect::Stop { run } => (kept.work.records.started.iter())
+                        .find(|s| s.run == *run)
+                        .map(|s| s.cell.clone()),
+                    _ => None,
+                };
+                let at_fault = matches!(decide::decide(&kept.flow.flow, &kept.work.records), Decision::Fault(_));
+                cell.is_some_and(|cell| !engine_cell(kept.flow, cell.as_str())) && !at_fault
+            })
+            .count();
+        let slots = d.slots();
+        assert_eq!(slots.taken, taking, "the driver says {} slots are taken", slots.taken);
+        assert_eq!(
+            slots.slots, self.slots,
+            "the driver has other slots than it was opened with"
+        );
+        assert!(
+            taking <= self.slots,
+            "{taking} rounds take a slot, of {} slots",
+            self.slots
+        );
+        if taking < self.slots {
+            for kept in d.works() {
+                assert_ne!(
+                    d.held(kept.head.number),
+                    Some(Holder::Slot),
+                    "work {} waits for a slot while {} of {} are taken",
+                    kept.head.number.0,
+                    taking,
+                    self.slots
+                );
+            }
+        }
+    }
+
+    /// While the owner's pause of everything holds, since this time, the work began no round after it but of a run
+    /// for a note a person wrote ([`for_a_note`]), and none given again after it failed.
+    fn held_by_everything(&self, number: WorkNumber, flow: &Compiled, work: &Work, since: Time) {
+        for (i, round) in work.records.rounds.iter().enumerate() {
+            if work.time_of(round.at).is_none_or(|time| time <= since) {
+                continue;
+            }
+            let run = round.run;
+            let nth = work.records.rounds[..=i].iter().filter(|r| r.run == run).count();
+            let again = matches!(work.back.get(&(run, nth - 1)), Some(Back::Failed { .. }));
+            assert!(
+                for_a_note(flow, work, run) && !again,
+                "work {} began round {nth} of {run:?} under the pause of everything",
+                number.0
+            );
+        }
     }
 
     /// What the work does next agrees with what is to be done for it: after a call, no run is left to start and none
-    /// left to be abandoned; a run goes on with its round held only while the work is paused; a work is busy with a
+    /// left to be abandoned, and a run goes on with its round held only while the work is paused, unless a wait every
+    /// work shares holds the rounds of the cell's agent; a work is busy with a
     /// run exactly when a round of that run is given to be done; and a work paused began no round after the pause but
     /// of a run for a note a person wrote ([`for_a_note`]), and none given again after it failed.
     fn agrees_with_what_is_pending(&self, number: WorkNumber, flow: &Compiled, work: &Work, shown: &Decision) {
@@ -867,12 +1045,31 @@ impl H {
                 _ => None,
             })
             .collect();
+        // The wait every work shares, where it holds rounds now, leaves the run of a cell whose rounds it holds to start
+        // or go on: an agent's, and without the network the engine's own acts too.
+        let agents = |cell: &decide::CellId| {
+            let kind = (flow.cells.iter()).find(|spec| spec.id == *cell).map(|spec| spec.kind);
+            let offline = self
+                .d()
+                .outage()
+                .is_some_and(|o| o.failure == decide::run::Failure::Offline);
+            self.d().holds(Time(self.clock)) && (kind == Some(flow::Kind::Agent) || offline)
+        };
         match shown {
+            Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if agents(cell) => {}
             Decision::Run { .. } | Decision::Abandon { .. } | Decision::Fault(_) => {
                 panic!("after a call work {} is left deciding {shown:?}", number.0)
             }
-            Decision::GoOn { .. } => assert!(paused, "work {} goes on with no round given: {shown:?}", number.0),
-            Decision::Paused => assert!(paused, "work {} shows paused and is not", number.0),
+            Decision::GoOn { .. } => assert!(
+                self.d().held(number).is_some(),
+                "work {} goes on with no round given and nothing holding it: {shown:?}",
+                number.0
+            ),
+            Decision::Paused => assert!(
+                paused || self.d().everything_paused().is_some(),
+                "work {} shows paused and is not",
+                number.0
+            ),
             Decision::Busy { run, .. } => {
                 assert_eq!(
                     rounds,
@@ -903,7 +1100,7 @@ impl H {
                     }
                     let run = round.run;
                     let nth = work.records.rounds[..=i].iter().filter(|r| r.run == run).count();
-                    let again = matches!(work.back.get(&(run, nth - 1)), Some(Back::Failed { .. }));
+                    let again = failure_paused(work, run, nth - 1);
                     assert!(
                         for_a_note(flow, work, run) && !again,
                         "work {} began round {nth} of {run:?} after it was paused",
@@ -964,6 +1161,18 @@ impl H {
         todos
     }
 
+    /// The driver is told the time, which the harness's clock takes on to, and what a look at the network found,
+    /// where one was taken; gives what is to be done.
+    pub fn tick(&mut self, at: Time, reached: Option<bool>) -> Vec<Todo> {
+        self.clock = self.clock.max(at.0);
+        let todos = (self.dm().tick(at, reached)).expect("the driver takes the time");
+        self.given(&todos);
+        if self.checking {
+            self.check();
+        }
+        todos
+    }
+
     /// The work is let on.
     pub fn let_on(&mut self, work: WorkNumber) -> Vec<Todo> {
         self.on(work, Event::Resumed)
@@ -983,16 +1192,30 @@ impl H {
     /// Takes the work through to its merge, each round handing in what the flow asks; gives what the call in which
     /// the merge finished gave.
     pub fn through(&mut self, work: WorkNumber) -> Vec<Todo> {
+        // The work lets go of what it held as it merges, which is answered here: it says nothing of the merge.
         for _ in 0..20 {
             let (_, cell, ..) = self.round(work);
             let kept = self.d().work(work).expect("the work is there");
             let came = proper(kept.flow, &cell);
             let todos = self.returns(work, came);
             if self.decision(work) == Decision::Ended(End::Merged) {
-                return todos;
+                return self.released(todos);
             }
         }
         panic!("the work did not merge");
+    }
+}
+
+impl H {
+    /// The todos, each release among them answered: the work let go of what it held. Gives the rest, with what the
+    /// answers gave.
+    pub fn released(&mut self, todos: Vec<Todo>) -> Vec<Todo> {
+        let (releases, mut rest): (Vec<Todo>, Vec<Todo>) =
+            (todos.into_iter()).partition(|t| matches!(t.effect, Effect::Release { .. }));
+        for release in releases {
+            rest.extend(self.on(release.work, Event::Released));
+        }
+        rest
     }
 }
 
@@ -1001,6 +1224,8 @@ impl H {
 pub enum Act {
     Add(NewItem),
     On(WorkNumber, Event),
+    /// The owner sets the pause of everything, or lifts it.
+    Everything(bool),
 }
 
 /// What the stops of a history came to.
@@ -1026,6 +1251,10 @@ pub fn perform(h: &mut H, now: Time, act: &Act, stops: &mut Stops) -> Option<Vec
                 Outcome::Stopped { kept } => (Some(kept), None),
             },
             Act::On(work, event) => match h.try_on(now, *work, event.clone()) {
+                Outcome::Done(todos) => (None, Some(todos)),
+                Outcome::Stopped { kept } => (Some(kept), None),
+            },
+            Act::Everything(paused) => match h.try_pause_everything(now, *paused) {
                 Outcome::Done(todos) => (None, Some(todos)),
                 Outcome::Stopped { kept } => (Some(kept), None),
             },
@@ -1138,6 +1367,7 @@ pub fn spent(n: u64) -> Spent {
         input_tokens: 11 * n,
         cached_tokens: 13 * n,
         output_tokens: 17 * n,
+        ..Default::default()
     }
 }
 
@@ -1263,4 +1493,20 @@ pub fn last_written(h: &H, work: WorkNumber) -> Seq {
 /// The block's id.
 pub fn block(name: &str) -> BlockId {
     BlockId::from(name)
+}
+
+/// Whether the run's round of this number failed and the engine paused the work for it, which was not let on since:
+/// the engine paused it after the round began, as for its failure or its going over the budget, and no letting on came
+/// after the round's beginning.
+pub fn failure_paused(work: &Work, run: RunId, number: usize) -> bool {
+    if number == 0 || !matches!(work.back.get(&(run, number)), Some(Back::Failed { .. })) {
+        return false;
+    }
+    let r = &work.records;
+    let Some(began) = r.rounds.iter().filter(|e| e.run == run).map(|e| e.at).nth(number - 1) else {
+        return false;
+    };
+    let paused = (r.pauses.iter()).any(|p| p.paused && p.by == decide::Pauser::Engine && p.at > began);
+    let let_on = (r.pauses.iter()).any(|p| !p.paused && p.at > began);
+    paused && !let_on
 }

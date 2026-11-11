@@ -128,9 +128,19 @@ describe('what a round was told and returned', () => {
   it('shows each try in order, labelled: a cut message, a failure, a result that could not be read, and what is left out', async () => {
     const told: ToldPage = {
       tries: [
-        { message: 'The first try.', cut: 3 * 1024 * 1024, back: { kind: 'unreadable', why: 'it is not a result: EOF' } },
-        { message: 'The second try.', cut: null, back: { kind: 'failed', why: 'API Error: 529 Overloaded' } },
-        { message: 'The third try.', cut: null, back: returned({ text: 'Done.', structured: '{\n  "asks": []\n}', turns: 1 }) },
+        {
+          message: 'The first try.',
+          cut: 3 * 1024 * 1024,
+          back: { kind: 'unreadable', why: 'it is not a result: EOF' },
+          ran: null,
+        },
+        { message: 'The second try.', cut: null, back: { kind: 'failed', why: 'API Error: 529 Overloaded' }, ran: null },
+        {
+          message: 'The third try.',
+          cut: null,
+          back: returned({ text: 'Done.', structured: '{\n  "asks": []\n}', turns: 1 }),
+          ran: null,
+        },
       ],
       leftOut: 2,
     };
@@ -175,7 +185,14 @@ describe('what a round was told and returned', () => {
   it('reads a round again once it ends while it is open, and shows what came back', async () => {
     let ended = false;
     const source = sourceOf(() => ({
-      tries: [{ message: 'Given the result of npm run typecheck.', cut: null, back: ended ? returned({ text: 'Done.' }) : { kind: 'nothing' } }],
+      tries: [
+        {
+          message: 'Given the result of npm run typecheck.',
+          cut: null,
+          back: ended ? returned({ text: 'Done.' }) : { kind: 'nothing' },
+          ran: null,
+        },
+      ],
       leftOut: 0,
     }));
     // Work 42's implementation has its second round under way.

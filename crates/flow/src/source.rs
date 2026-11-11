@@ -80,10 +80,19 @@ pub struct LimitsFile {
     pub calls: i64,
 }
 
-/// A line as written: nothing yet but its name.
-#[derive(Clone, Copy, Debug, Deserialize)]
+/// A line as written.
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct LineFile {}
+pub struct LineFile {
+    /// The line's agents only read: they edit no file and change nothing of the repository. A line that writes code,
+    /// tests or anything else it commits leaves it out.
+    #[serde(default)]
+    pub reads_only: bool,
+    /// How many levels above its item's the line's rounds run at, none above the highest an item may be at; none
+    /// where it is left out.
+    #[serde(default)]
+    pub levels_above: u32,
+}
 
 /// A block as written.
 #[derive(Clone, Debug, Deserialize)]
@@ -147,8 +156,42 @@ pub struct CellFile {
     /// The blocks among its outputs that every hand-in of the cell includes.
     #[serde(default)]
     pub must_write: Vec<String>,
+    /// The blocks among its inputs that say what the work is where the host of the project's repository shows the
+    /// work, as the body of its pull request; an engine cell's act reads them.
+    #[serde(default)]
+    pub describes: Vec<String>,
     /// How many runs of the cell in a row may be ways round, if not the flow's limit.
     pub limit: Option<i64>,
+    /// The reasoning effort an agent cell's rounds run at, whatever the model; every agent cell sets one.
+    pub effort: Option<Effort>,
+    /// Whether the work's branch takes the latest main in as each run of the agent cell starts: a cell that changes
+    /// the code.
+    #[serde(default)]
+    pub takes_main: bool,
+}
+
+/// The reasoning efforts an agent's round may run at, as the command line names them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Effort {
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
+}
+
+impl Effort {
+    /// The effort's name, as it is written and as the command line takes it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Effort::Low => "low",
+            Effort::Medium => "medium",
+            Effort::High => "high",
+            Effort::Xhigh => "xhigh",
+            Effort::Max => "max",
+        }
+    }
 }
 
 /// Who carries a cell out.

@@ -1,31 +1,131 @@
-/* The console: the canvas of the tree, and the page's docked panel at its right with the item selected (look.md). Brought
-   over from the console of the engine on `main` (`client/src/styles/console.css`), its Primer values the page's tokens.
-   Every value is a token (styles/tokens.css), but for the console's own colours named below. */
+/* The console: the canvas of the tree, and over its right the window with the item selected. Brought over from the
+   console of the engine on `main` (`client/src/styles/console.css`), its Primer values the page's tokens or, where the
+   page has none, Primer's values as they were. Every value is a token (styles/tokens.css), but for the console's own
+   colours named below. */
 
 .console {
   /* A work waiting for something that is not the owner: the console's pale yellow, which asks nothing of them. It has
      no token: the page marks no other state so. It reads on the dark ground as it is. */
   --console-waiting: #e8cc6a;
+  /* The window's tab and edge, and what is new to the owner: the page's accent, the purple of the flow page, its text
+     step where it is words or under the pointer, and its tint as a wash behind a strip; the canvas draws them so too. */
+  --console-accent: var(--accent);
+  --console-accent-strong: var(--accent-text);
+  --console-accent-wash: var(--accent-tint);
+  /* The head of a section of the item's window, its name and the line after it: a deeper step of the accent than its
+     text step, so that the heads stand over the text. */
+  --console-head: #6a3fd0;
+  /* The window's edge and the mark of a changed passage: thick enough to be seen at the screen's side. */
+  --console-edge-width: 2px;
+  --console-shadow: 0 0 0 1px #d1d9e040, 0 6px 12px -3px #25292e0a, 0 6px 18px 0 #25292e1f;
+  --console-edge-hover: var(--accent-tint);
 
   position: relative;
-  display: grid;
+  display: flex;
   flex: 1;
-  grid-template-columns: minmax(0, 1fr) var(--panel-width, var(--panel));
+  flex-direction: column;
   height: 100%;
   min-height: 0;
   overflow: hidden;
   background: var(--ground);
 }
 
-.console-folded {
-  grid-template-columns: minmax(0, 1fr) 0;
+:root[data-theme='dark'] .console {
+  --console-head: #8b5cf6;
+  --console-shadow: 0 0 0 1px #3d444d, 0 6px 12px -3px #01040966, 0 6px 18px 0 #01040966;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .console {
+    --console-head: #8b5cf6;
+    --console-shadow: 0 0 0 1px #3d444d, 0 6px 12px -3px #01040966, 0 6px 18px 0 #01040966;
+  }
 }
 
 .console-canvas {
   position: relative;
+  flex: 1;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+/* The window beside the tree, white like paper on the console's light grey, over the right of the tree, kept out at
+   the right of the screen like a binder's page: a narrow tab stuck to its left edge stays on the screen, and slides the
+   window in and out with it; its left edge is dragged to change its width. */
+.cw {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  display: flex;
+  max-width: 85%;
+  background: var(--card);
+  box-shadow: var(--console-shadow);
+  transform: translateX(100%);
+  transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* The window's left edge: a narrow line in the tab's blue from top to bottom, which the tab grows out of. */
+.cw::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(-1 * var(--console-edge-width));
+  width: var(--console-edge-width);
+  background: var(--console-accent);
+  pointer-events: none;
+}
+
+.cw:has(.cw-tab:hover)::before {
+  background: var(--console-accent-strong);
+}
+
+/* The tab: the handle every panel of the page has (`.drawer-tab`, styles/parts.css), a narrow tab in the accent on the
+   window's left edge, which stays at the screen's edge while the window is put away. */
+.cw .cw-tab {
+  position: absolute;
+  top: var(--space-16);
+  left: calc(-1 * var(--space-16));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-16);
+  height: var(--chart-tab);
+  padding: 0;
+  border: 0;
+  border-radius: var(--corner) 0 0 var(--corner);
+  background: var(--accent);
+  color: var(--on-colour);
+  cursor: pointer;
+  transition: background-color var(--hover-time);
+}
+
+.cw .cw-tab:hover {
+  background-image: linear-gradient(var(--step), var(--step));
+}
+
+.cw-open {
+  transform: none;
+}
+
+.cw-edge {
+  flex: none;
+  width: 6px;
+  margin-left: -3px;
+  cursor: col-resize;
+}
+
+.cw-edge:hover {
+  background: var(--console-edge-hover);
+}
+
+.cw-inner {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
 }
 
 /* Pixi sizes the canvas to its holder; a canvas left inline would add the room under a line of text. */
@@ -40,19 +140,27 @@
   color: var(--red-text);
 }
 
-/* The panel's own: what it says with nothing selected, and its parts. */
+/* The item in the window, laid out as the page's panel (styles/parts.css): its head (`.drawer-head`), its status lines
+   (`.status-line`), the buttons of what the owner does to the work, and under a hairline its body (`.drawer-body`):
+   the switch between the item and the work, and their sections (`.panel-part`). What follows is only what the page's
+   parts do not draw. */
+
+/* What the window says with nothing selected, as the page's panel says it. */
 .cw-empty {
+  padding: var(--space-16);
   color: var(--muted);
 }
 
+/* The item: it holds the button that quotes a passage selected, placed where the passage is. */
 .cw-item {
   position: relative;
+  padding: var(--space-16);
 }
 
-/* The title, which brings the item into view in the tree. */
+/* The title, which brings the item into view in the tree: a title still, underlined under the pointer. */
 .cw-title-link {
   padding: 0;
-  border: none;
+  border: 0;
   background: none;
   color: inherit;
   font: inherit;
@@ -64,72 +172,7 @@
   text-decoration: underline;
 }
 
-/* A line of where the item stands or what its work does: the page's status line, its dot in the colour of a work's
-   state as its card is tinted. */
-.cw-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-4) var(--space-12);
-  margin-top: var(--space-8);
-  color: var(--muted);
-  font-size: var(--size-small);
-}
-
-.cw-strong {
-  color: var(--text);
-  font-weight: var(--weight-strong);
-}
-
-.cw-muted {
-  color: var(--muted);
-}
-
-.cw-mono {
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: var(--size-small);
-}
-
-a.cw-mono {
-  color: var(--accent-text);
-  text-decoration: none;
-}
-
-a.cw-mono:hover {
-  text-decoration: underline;
-}
-
-.cw-dot {
-  flex: none;
-  width: var(--space-8);
-  height: var(--space-8);
-  border-radius: 50%;
-  background: var(--muted);
-}
-
-.cw-dot.dot-open,
-.cw-dot.dot-running {
-  background: var(--blue);
-}
-
-.cw-dot.dot-done {
-  background: var(--green);
-}
-
-.cw-dot.dot-owner {
-  background: var(--orange);
-}
-
-.cw-dot.dot-waiting {
-  background: var(--console-waiting);
-}
-
-.cw-dot.dot-halted {
-  background: var(--red);
-}
-
-/* How far the work has come and what it has taken, together at the line's right end. */
+/* How far the work has come and what it has taken, together at the work's line's right end. */
 .cw-progress {
   display: flex;
   align-items: center;
@@ -137,94 +180,140 @@ a.cw-mono:hover {
   margin-left: auto;
 }
 
-/* What the owner does to the work. */
+/* Where the work's time went: a model's stretches in blue, the tools' in orange, those no round ran in grey, on a muted
+   ground, as the page on `main` drew it from Primer's data colours. They have no token: no other view draws them. */
+.cw-track {
+  --track-ground: #818b981f;
+  --track-model: var(--accent);
+  --track-tool: #eb670f;
+  --track-gap: #e8ecf2;
+
+  display: block;
+  width: 140px;
+}
+
+:root[data-theme='dark'] .cw-track {
+  --track-ground: #656c7633;
+  --track-model: var(--accent);
+  --track-tool: #984b10;
+  --track-gap: #2a2d33;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .cw-track {
+    --track-ground: #656c7633;
+    --track-model: var(--accent);
+    --track-tool: #984b10;
+    --track-gap: #2a2d33;
+  }
+}
+
+.us-track {
+  position: relative;
+  height: var(--space-8);
+  border-radius: var(--corner);
+  background: var(--track-ground);
+}
+
+.us-block {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--corner);
+}
+
+.us-model {
+  background: var(--track-model);
+}
+
+.us-tool {
+  background: var(--track-tool);
+}
+
+.us-gap {
+  background: var(--track-gap);
+}
+
+
+/* What the owner does to the work: the works page's buttons (`.acts`), under the lines. */
 .cw-acts {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-8);
-  margin-top: var(--space-8);
+  margin-top: var(--space-12);
 }
 
-.cw-refused {
-  color: var(--red-text);
-  font-size: var(--size-small);
-}
-
+/* What the owner did, taken: in green, small. */
 .cw-done {
-  margin-top: var(--space-4);
   color: var(--green-text);
   font-size: var(--size-small);
 }
 
-/* The two tabs: the one shown in the text colour over a line in the accent, as the bar's tabs. */
+/* The page's switch between the item and its work, over what it shows. */
 .cw-tabs {
-  display: flex;
-  gap: var(--space-16);
-  margin: 0 0 var(--space-12);
-  border-bottom: var(--hairline) solid var(--line);
+  margin-bottom: var(--space-12);
 }
 
-.cw-tabs button[role='tab'] {
-  padding: var(--space-4) 0;
-  border: none;
-  border-bottom: var(--focus) solid transparent;
-  background: none;
-  color: var(--muted);
-  font: inherit;
-  cursor: pointer;
+/* The body ends a group of sections with a hairline, as the page's panel does (`.panel-part-last`), the messages under it.
+   A passage changed since the owner read the item is marked in the margin at its left, as a card new to the owner is. */
+/* The item's text. No line closes it: the head of the messages under it has its own. */
+.cw-body {
+  margin-bottom: 0;
 }
 
-.cw-tabs button[role='tab'].on {
-  border-bottom-color: var(--accent);
-  color: var(--text);
+.cw-part {
+  margin-left: calc(-1 * (var(--focus) + var(--space-4)));
+  padding-left: var(--space-4);
+  border-left: var(--focus) solid transparent;
 }
 
-/* What the work waits for: one thing a row, what the owner gives in the colour of what waits for them. */
-.cw-wait {
-  padding: var(--space-2) 0;
-}
-
-.cw-wait-owner {
-  color: var(--orange-text);
-}
-
-/* The notes: the block written in, the box, and the line of who reads it with the button that sends it. */
-.cw-notes {
-  margin-top: var(--space-16);
-  padding-top: var(--space-12);
-  border-top: var(--hairline) solid var(--line);
-}
-
-.cw-notes h3 {
-  margin: 0 0 var(--space-4);
-  font-size: var(--size-small);
-  font-weight: var(--weight-strong);
-}
-
-.cw-compose {
+.cw-part + .cw-part {
   margin-top: var(--space-8);
 }
 
-.cw-block {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-  margin-bottom: var(--space-8);
+.cw-changed {
+  border-left-color: var(--accent);
 }
 
-.cw-select {
-  height: var(--control);
-  padding: 0 var(--space-4);
-  border: var(--hairline) solid var(--line);
-  border-radius: var(--corner);
-  background: var(--card);
-  color: var(--text);
+/* A text written in Markdown: its paragraphs and its code (`.content`) a small step apart. */
+.cw-md > p,
+.cw-md > .content {
+  margin: 0 0 var(--space-8);
+}
+
+.cw-md > :last-child {
+  margin-bottom: 0;
+}
+
+.cw-md code {
   font-family: var(--mono);
   font-size: var(--size-small);
 }
 
-.cw-compose textarea {
+/* A choice that waits for the owner: a frame in the accent on its tint; once confirmed, a hairline on the ground. Its
+   options are buttons: the one picked ringed in the accent, the one under the pointer a step darker. */
+.cw-choice {
+  margin: var(--space-8) 0;
+  padding: var(--space-12);
+  border: var(--hairline) solid var(--accent);
+  background: var(--accent-tint);
+}
+
+.cw-choice-done {
+  border-color: var(--line);
+  background: var(--ground);
+}
+
+.cw-choice-q {
+  margin: 0 0 var(--space-8);
+  font-weight: var(--weight-strong);
+}
+
+/* Under a question a cell asked, that it stops the work: one line in red, as a card stopped for the owner is. */
+.cw-choice-stops {
+  margin: calc(-1 * var(--space-4)) 0 var(--space-8);
+  color: var(--red-text);
+  font-size: var(--size-small);
+}
+
+.cw-option {
   display: block;
   width: 100%;
   padding: var(--space-8);
@@ -233,26 +322,209 @@ a.cw-mono:hover {
   background: var(--card);
   color: var(--text);
   font: inherit;
-  resize: vertical;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--hover-time);
 }
 
-.cw-compose-foot {
+.cw-option + .cw-option {
+  margin-top: var(--space-4);
+}
+
+.cw-option:hover:not(:disabled) {
+  background-image: linear-gradient(var(--step), var(--step));
+}
+
+.cw-option.on {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 var(--hairline) var(--accent);
+}
+
+.cw-option:disabled {
+  cursor: default;
+}
+
+.cw-option-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  font-weight: var(--weight-strong);
+}
+
+.cw-option-detail {
+  display: block;
+  color: var(--muted);
+  font-size: var(--size-small);
+}
+
+/* The option recommended: the page's tag, muted, since it is no state. */
+.cw-tag {
+  background: var(--muted);
+  font-weight: var(--weight);
+}
+
+/* The words of a question and of its options can be selected, to copy or to quote: a browser selects no words of a
+   button otherwise. */
+.cw-choice-q,
+.cw-option {
+  user-select: text;
+}
+
+/* Under a choice's options: how many messages are about it, a muted link at the left, and Discuss at the right. */
+.cw-choice-foot {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-8);
-  margin-top: var(--space-4);
+  margin-top: var(--space-8);
+}
+
+/* The plan's Confirm: the primary button, as wide as the body. */
+.cw-confirm {
+  justify-content: center;
+  width: 100%;
+  margin-bottom: var(--space-16);
+}
+
+/* The button that quotes a passage selected: the page's button, just above the passage. */
+.cw-item .cw-quote-offer {
+  position: absolute;
+  z-index: 2;
+  gap: var(--space-4);
+  transform: translate(-50%, calc(-100% - var(--space-4)));
+  color: var(--accent-text);
   font-size: var(--size-small);
 }
 
-.cw-compose-foot .button:disabled {
-  opacity: 0.5;
+/* While something in the item is new to the owner: a line on the accent's tint over the body, its edge in line with
+   the changed passages' marks, saying what changed, and the link that marks the item read. */
+.cw-fresh {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+  margin: 0 0 var(--space-12) calc(-1 * (var(--focus) + var(--space-4)));
+  padding: var(--space-4) var(--space-8) var(--space-4) var(--space-4);
+  border-left: var(--focus) solid var(--accent);
+  background: var(--accent-tint);
+  font-size: var(--size-small);
+}
+
+/* The messages: one under another, a hairline between them, each with a status line of who wrote it, to whom and when;
+   the owner's own on the ground. */
+.cw-message {
+  padding: 0 var(--space-8) var(--space-8);
+  border-bottom: var(--hairline) solid var(--line);
+}
+
+/* The owner's own messages: on the accent's tint, as a question is, so that they stand apart from the answers. */
+.cw-message-owner {
+  background: var(--accent-tint);
+}
+
+.cw-message .status-line {
+  margin: 0;
+  padding-top: var(--space-8);
+}
+
+/* A passage quoted, in a message or over the box: muted, a hairline at its left, its lines kept, as a question quoted
+   has its options each on a line. */
+.cw-quote {
+  white-space: pre-line;
+  margin: var(--space-4) 0;
+  padding-left: var(--space-8);
+  border-left: var(--focus) solid var(--line);
+  color: var(--muted);
+}
+
+/* The box to write a message: the page's write box (`.write-box`), under the messages. */
+.cw-compose {
+  margin-top: var(--space-12);
+}
+
+.cw-quoted {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-8);
+}
+
+.cw-unquote {
+  display: flex;
+  flex: none;
+  padding: var(--space-4);
+  border: 0;
+  border-radius: var(--corner);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.cw-unquote:hover {
+  background: var(--step);
+}
+
+/* Typing `@` offers the names one can write to, each a button. */
+.cw-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+/* Whom a message goes to: one of a few, side by side, as the page's switch; one that cannot be chosen is greyed. */
+.cw-to {
+  align-self: flex-start;
+  margin-bottom: var(--space-4);
+}
+
+.cw-to .switch-choice:disabled {
+  color: var(--line);
   cursor: default;
 }
 
-/* What of the work the lines do not say: the page's label and value pairs, a section's room over the legend under
-   them. */
-.cw-facts {
-  margin-bottom: var(--space-16);
-  padding-top: var(--space-4);
+.cw-to .switch-choice:disabled:hover {
+  background: transparent;
+}
+
+/* A section of the item's window: its head is its name in the accent, strong, with a line after it to the window's
+   edge, which folds the section away at a press; under it, what the section holds. */
+.cw-fold {
+  margin-bottom: var(--space-12);
+}
+
+.cw-fold-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  width: 100%;
+  margin: var(--space-16) 0 var(--space-8);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--console-head);
+  font-size: var(--size-body);
+  font-weight: var(--weight-strong);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cw-fold:first-child .cw-fold-head {
+  margin-top: 0;
+}
+
+/* The line after the name, to the edge. */
+.cw-fold-head::after {
+  content: '';
+  flex: 1;
+  height: var(--hairline);
+  background: var(--console-head);
+}
+
+.cw-fold-sign {
+  width: var(--space-8);
+}
+
+.cw-fold-count {
+  color: var(--muted);
+  font-weight: var(--weight);
 }

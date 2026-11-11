@@ -68,6 +68,8 @@ pub struct Limits {
 pub struct Line {
     pub name: String,
     pub cells: Vec<String>,
+    /// How many levels above its item's its rounds run at, never above the highest an item may be at.
+    pub levels_above: u32,
 }
 
 /// A named test: the words shown for it, and what it holds on.
@@ -108,6 +110,8 @@ pub struct Cell {
     pub task: Option<String>,
     /// The act of the engine's own that carries out an engine's cell; an agent's cell has none.
     pub act: Option<String>,
+    /// The reasoning effort an agent's cell's rounds run at; an engine's cell has none.
+    pub effort: Option<String>,
     /// When the cell runs at all; none is always.
     pub condition: Option<Condition>,
     /// What the work waits for before the cell.
@@ -221,6 +225,10 @@ pub enum What {
     AgentHasAct {
         act: String,
     },
+    /// An engine cell names a reasoning effort: no agent runs it.
+    EngineHasEffort,
+    /// An agent cell names no reasoning effort.
+    NoEffort,
     UnknownAct {
         act: String,
     },
@@ -238,6 +246,10 @@ pub enum What {
     },
     /// The cell must write the block each time, and it is not among its outputs.
     NotAnOutput {
+        block: String,
+    },
+    /// The cell says what the work is by the block, and it is not among its inputs.
+    NotAnInput {
         block: String,
     },
     NoWriter {
@@ -373,6 +385,12 @@ pub enum Change {
         before: Option<String>,
         after: Option<String>,
     },
+    /// Whether the agents of the cell's line only read.
+    ReadsOnly {
+        cell: String,
+        before: bool,
+        after: bool,
+    },
     Task {
         cell: String,
         before: Option<String>,
@@ -422,9 +440,31 @@ pub enum Change {
         cell: String,
         block: String,
     },
+    /// The cell now says what the work is by the block, where the host shows the work.
+    DescribesAdded {
+        cell: String,
+        block: String,
+    },
+    /// The cell no longer says what the work is by the block.
+    DescribesRemoved {
+        cell: String,
+        block: String,
+    },
     CellLimit {
         cell: String,
         limit: Limit,
+        before: u32,
+        after: u32,
+    },
+    /// The reasoning effort an agent cell's rounds run at; an engine cell has none.
+    Effort {
+        cell: String,
+        before: Option<String>,
+        after: Option<String>,
+    },
+    /// How many levels above its item's the cell's rounds run at, as its line says.
+    LevelsAbove {
+        cell: String,
         before: u32,
         after: u32,
     },
@@ -486,6 +526,7 @@ impl Flow {
                 None => lines.push(Line {
                     name: name.clone(),
                     cells: vec![spec.id.to_string()],
+                    levels_above: spec.levels_above,
                 }),
             }
         }
@@ -502,6 +543,7 @@ impl Flow {
                 line: spec.line.clone(),
                 task: spec.task.clone(),
                 act: spec.act.clone(),
+                effort: spec.effort.map(|effort| effort.name().to_string()),
                 condition: cell.applies.as_ref().map(|c| Condition::of(c, compiled)),
                 preconditions: cell.requires.iter().map(|t| Test::of(t, compiled)).collect(),
                 inputs: names(&cell.inputs),
@@ -634,12 +676,15 @@ impl What {
             F::EngineHasTask => What::EngineHasTask,
             F::NoAct => What::NoAct,
             F::AgentHasAct { act } => What::AgentHasAct { act },
+            F::EngineHasEffort => What::EngineHasEffort,
+            F::NoEffort => What::NoEffort,
             F::UnknownAct { act } => What::UnknownAct { act },
             F::ValuesEmpty => What::ValuesEmpty,
             F::NoteNotByPeople { block } => What::NoteNotByPeople { block },
             F::NoteIsAChoice { block } => What::NoteIsAChoice { block },
             F::NoSuchBlock { block } => What::NoSuchBlock { block },
             F::NotAnOutput { block } => What::NotAnOutput { block },
+            F::NotAnInput { block } => What::NotAnInput { block },
             F::NoWriter { block } => What::NoWriter { block },
             F::NoReader { block } => What::NoReader { block },
             F::UnknownSource { block, source } => What::UnknownSource { block, source },
@@ -762,6 +807,7 @@ impl Change {
                 before: from.clone(),
                 after: to.clone(),
             },
+            &CellChange::ReadsOnly { before, after } => Change::ReadsOnly { cell, before, after },
             CellChange::Task {
                 before: from,
                 after: to,
@@ -800,6 +846,8 @@ impl Change {
             CellChange::OutputRemoved(b) => Change::OutputRemoved { cell, block: block(b) },
             CellChange::MustWriteAdded(b) => Change::MustWriteAdded { cell, block: block(b) },
             CellChange::MustWriteRemoved(b) => Change::MustWriteRemoved { cell, block: block(b) },
+            CellChange::DescribesAdded(b) => Change::DescribesAdded { cell, block: block(b) },
+            CellChange::DescribesRemoved(b) => Change::DescribesRemoved { cell, block: block(b) },
             CellChange::Limit {
                 limit,
                 before: from,
@@ -810,6 +858,15 @@ impl Change {
                 before: *from,
                 after: *to,
             },
+            CellChange::Effort {
+                before: from,
+                after: to,
+            } => Change::Effort {
+                cell,
+                before: from.map(|e| e.name().to_string()),
+                after: to.map(|e| e.name().to_string()),
+            },
+            &CellChange::LevelsAbove { before, after } => Change::LevelsAbove { cell, before, after },
         }
     }
 

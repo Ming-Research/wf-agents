@@ -6,6 +6,7 @@
 use decide::{BlockId, Who};
 use engine::Came;
 use serde::Deserialize;
+use serde_json::Value;
 use work::{Ask, Handed};
 
 /// The form of every return, as a JSON schema. It has no `oneOf` or `anyOf` at its top, which the model's interface
@@ -51,11 +52,75 @@ struct QuestionIn {
     question: String,
 }
 
+/// The object a text holds when nothing but whitespace and closing brackets follows it: the model at times writes a
+/// form with a closing bracket too many. None for any other text, which may be content.
+fn object_of(text: &str) -> Option<Value> {
+    let text = text.trim();
+    let mut values = serde_json::Deserializer::from_str(text).into_iter::<Value>();
+    let object = values.next()?.ok().filter(Value::is_object)?;
+    let rest = &text[values.byte_offset()..];
+    rest.chars()
+        .all(|c| c.is_whitespace() || c == '}' || c == ']')
+        .then_some(object)
+}
+
+/// The array a list of the form comes as: a string holding one is parsed, a list left out or null is empty.
+fn list_of(value: Option<Value>) -> Value {
+    match value {
+        None | Some(Value::Null) => Value::Array(Vec::new()),
+        Some(Value::String(text)) => match serde_json::from_str::<Value>(text.trim()) {
+            Ok(list @ Value::Array(_)) => list,
+            _ => Value::String(text),
+        },
+        Some(other) => other,
+    }
+}
+
+/// A return put into the shape of the form when it is not in it but means it, as the old engine read one
+/// (`as_taken`), kept to the one fixed form: the whole form, or the one object that wraps it, written as a string; the
+/// form wrapped one level in an object of one key; a list left out, null or written as a string; and, in an ask, the
+/// null fields of the other form. A content is never changed and a field the form requires never made up, so what
+/// this does not reach fails as it is read. The record of the round keeps the return as the command line printed it
+/// (`kept`), before this.
+fn normalised(structured: &Value) -> Value {
+    let mut form = match structured {
+        Value::String(text) => object_of(text).unwrap_or_else(|| structured.clone()),
+        other => other.clone(),
+    };
+    let inner = match &form {
+        Value::Object(o) if !o.contains_key("hands_in") && !o.contains_key("asks") && o.len() == 1 => {
+            match o.values().next() {
+                Some(Value::String(text)) => object_of(text),
+                Some(inner @ Value::Object(_)) => Some(inner.clone()),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    if let Some(inner) = inner {
+        form = inner;
+    }
+    let Value::Object(o) = &mut form else { return form };
+    for name in ["hands_in", "asks"] {
+        let list = list_of(o.remove(name));
+        o.insert(name.to_string(), list);
+    }
+    if let Some(Value::Array(asks)) = o.get_mut("asks") {
+        for ask in asks {
+            if let Value::Object(ask) = ask {
+                // Only the fields the two forms have; a null of any other name is an unknown field and fails.
+                ask.retain(|name, v| !v.is_null() || !["tool", "input", "question"].contains(&name.as_str()));
+            }
+        }
+    }
+    form
+}
+
 /// What came back, from the structured return; or why it is not one. A return that asks for anything asks, and what
 /// it hands in beside is not read; one that asks for nothing hands in, if only nothing.
 pub fn came(structured: &serde_json::Value) -> Result<Came, String> {
     let r: Return =
-        serde_json::from_value(structured.clone()).map_err(|e| format!("the return is not of its form: {e}"))?;
+        serde_json::from_value(normalised(structured)).map_err(|e| format!("the return is not of its form: {e}"))?;
     if !r.asks.is_empty() {
         let asks = (r.asks.into_iter())
             .map(|ask| match ask {
@@ -82,6 +147,9 @@ pub fn came(structured: &serde_json::Value) -> Result<Came, String> {
         .collect();
     Ok(Came::HandsIn(handed))
 }
+
+#[cfg(test)]
+mod adversarial;
 
 #[cfg(test)]
 mod tests {
@@ -144,10 +212,91 @@ mod tests {
         );
     }
 
+    fn nothing() -> Result<Came, String> {
+        Ok(Came::HandsIn(Vec::new()))
+    }
+
+    fn plan() -> Result<Came, String> {
+        Ok(Came::HandsIn(vec![Handed {
+            block: "plan".into(),
+            content: "Greet.".to_string(),
+            matters: true,
+            value: None,
+        }]))
+    }
+
+    fn form() -> Value {
+        json!({"hands_in": [{"block": "plan", "content": "Greet.", "matters": true}], "asks": []})
+    }
+
+    #[test]
+    fn a_form_written_as_a_string_is_read() {
+        let text = form().to_string();
+        assert_eq!(came(&json!(text)), plan());
+        assert_eq!(came(&json!(format!("{text}}}"))), plan());
+        assert_eq!(came(&json!(format!("{text}\n]}}"))), plan());
+        assert!(came(&json!(format!("{text} and more"))).is_err());
+    }
+
+    #[test]
+    fn a_form_wrapped_in_one_key_is_read() {
+        assert_eq!(came(&json!({"outcome": form()})), plan());
+        assert_eq!(came(&json!({"outcome": form().to_string()})), plan());
+        assert!(came(&json!({"outcome": form(), "more": 1})).is_err());
+        assert!(came(&json!({"foo": 1})).is_err());
+    }
+
+    #[test]
+    fn a_list_left_out_is_empty() {
+        assert_eq!(came(&json!({})), nothing());
+        assert_eq!(came(&json!({"outcome": {}})), nothing());
+        assert_eq!(came(&json!({"hands_in": null, "asks": null})), nothing());
+        assert_eq!(came(&json!({"hands_in": []})), nothing());
+        let asks = came(&json!({"asks": [{"question": "Which?"}]}));
+        assert!(matches!(asks, Ok(Came::Asks(_))));
+    }
+
+    #[test]
+    fn a_list_written_as_a_string_is_read() {
+        let r = json!({"hands_in": form()["hands_in"].to_string(), "asks": "[]"});
+        assert_eq!(came(&r), plan());
+    }
+
+    #[test]
+    fn a_null_of_the_other_form_is_left_out() {
+        let tool = json!({"hands_in": [], "asks": [{"tool": "check", "input": "", "question": null}]});
+        let question = json!({"hands_in": [], "asks": [{"question": "Which?", "tool": null, "input": null}]});
+        assert!(matches!(came(&tool), Ok(Came::Asks(a)) if matches!(a[0], Ask::Tool { .. })));
+        assert!(matches!(came(&question), Ok(Came::Asks(a)) if matches!(a[0], Ask::Person { .. })));
+        let value =
+            json!({"hands_in": [{"block": "plan", "content": "Greet.", "matters": true, "value": null}], "asks": []});
+        assert_eq!(came(&value), plan());
+    }
+
+    #[test]
+    fn what_is_required_is_never_made_up() {
+        for r in [
+            json!({"hands_in": [{"block": "plan", "content": "x", "matters": null}], "asks": []}),
+            json!({"hands_in": [{"block": "plan", "content": null, "matters": true}], "asks": []}),
+            json!({"hands_in": [{"block": null, "content": "x", "matters": true}], "asks": []}),
+            json!({"hands_in": [], "asks": [{"tool": null}]}),
+            json!({"hands_in": [], "asks": [{"question": null}]}),
+            json!({"hands_in": [], "asks": [{"tool": "check", "input": null}]}),
+        ] {
+            assert!(came(&r).is_err(), "{r} is taken");
+        }
+    }
+
+    #[test]
+    fn a_return_in_its_form_is_read_as_it_was() {
+        for r in [form(), json!({"hands_in": [], "asks": [{"question": "Which?"}]})] {
+            assert_eq!(normalised(&r), r);
+        }
+    }
+
     #[test]
     fn a_malformed_return_is_none() {
         for r in [
-            json!({"hands_in": []}),
             json!({"hands_in": [{"block": "plan", "matters": true}], "asks": []}),
             json!({"hands_in": [{"block": "plan", "content": "Greet by name."}], "asks": []}),
             json!({"hands_in": [], "asks": [{"tool": "check"}]}),

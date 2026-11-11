@@ -4,14 +4,11 @@
 // what it means, every other state: a failure red, the rest orange. The engine works the state out from its records and
 // its clock (`crates/backup`), so the line reads it and works out none of its own.
 
-import { useCallback, useEffect } from 'react';
+import { useCallback } from 'react';
 
 import type { Copies } from '../works-api';
-import { useReading, useSource } from './source';
+import { useChanges, useReading, useSource } from './source';
 import { duration, fullTime } from './words';
-
-/// How often the line is read again: the state changes with the hour, not with what the works do.
-const EVERY = 60_000;
 
 /// The state in words for the owner, as the engine gives it at its time `now`.
 export function copiesWords(copies: Copies): string {
@@ -51,10 +48,12 @@ export function CopiesLine() {
   const source = useSource();
   const load = useCallback(() => source.loadCopies(), [source]);
   const { value: copies, failed, read } = useReading(load);
-  useEffect(() => {
-    const timer = setInterval(read, EVERY);
-    return () => clearInterval(timer);
-  }, [read]);
+  // The state changes when a step of keeping the copies ends, which the engine says by a change that holds no record,
+  // and the line reads it again then, and whenever the stream opens again, when a change may have been missed. The
+  // page asks on no period of its own.
+  useChanges((changed) => {
+    if (changed.copies) read();
+  }, read);
 
   if (!copies) {
     return failed ? (

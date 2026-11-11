@@ -9,6 +9,8 @@
 // them by number is.
 
 import type { CellNow, Item, Items, Now, Summary, Waited } from '../works-api';
+import { mocksShown } from '../mock-data';
+import { itemOf } from './real';
 
 /// What the item is to deliver: not yet, delivered, or given up.
 export type ItemStanding = 'open' | 'done' | 'cancelled';
@@ -21,7 +23,13 @@ export type ShownWork = {
   /// Only a note to a cell is answered; a round under way goes on.
   paused: boolean;
   cells: CellNow[];
+  /// When its first round began, from which its age is counted; when it was added, before it has a round or from an
+  /// engine that does not say.
   from: number;
+  /// Where its time went, in equal cells (`Summary.bar`); empty where the engine does not say.
+  bar: string;
+  /// How many of its returns were sent back.
+  sentBack: number;
   usdMicros: number;
   last: number | null;
 };
@@ -30,10 +38,19 @@ export type Shown = {
   id: number;
   title: string;
   standing: ItemStanding;
-  /// The things its work waits for that the owner gives: answers, preconditions they can make hold, a run let on.
+  /// The things its work is stopped for that the owner gives: answers, preconditions they can make hold, a run let on.
   asks: number;
+  /// The questions that wait for the owner's answer and do not stop its work yet (mock: `mock.ts`).
+  questions: number;
+  /// It is a deliverable: an item that says what is to be delivered and is made of the items under it, with no work
+  /// of its own to show. Its flow says so (`deliver`); until the engine has that flow, the page's rule above does.
+  deliver: boolean;
   /// How many items it depends on are not merged yet.
   blocked: number;
+  /// New to the owner, or changed since they last read it (mock: `mock.ts`).
+  unseen: boolean;
+  /// Messages from others the owner has not read (mock: `mock.ts`).
+  unread: number;
   /// Whether its work has begun: until it has, the card says how many items it waits for.
   begun: boolean;
   /// A shadow of the item under an item that depends on it by a dependency that is not its main one: it points to the
@@ -55,6 +72,9 @@ export function standingOf(i: Item | undefined): ItemStanding {
 export function whoGives(w: Waited): 'owner' | 'architect' | null {
   if (w.kind === 'limit') return 'owner';
   if (w.kind === 'precondition') return w.by.some((m) => m.kind === 'owner') ? 'owner' : null;
+  if (w.kind === 'slot') return null;
+  // A wait every work shares is the owner's to end only where the command line cannot run.
+  if (w.kind === 'agents') return w.outage.failure === 'cannotRun' ? 'owner' : null;
   return w.who;
 }
 
@@ -72,7 +92,7 @@ const live = (w: Summary) => w.now.kind !== 'merged' && w.now.kind !== 'cancelle
 /// Whether a card draws the work: while it goes on, once it has begun, or before that while it is paused, at fault or
 /// waits, which every work added paused is.
 const drawn = (w: Summary) =>
-  live(w) && (started(w) || w.now.kind === 'paused' || w.now.kind === 'fault' || w.now.kind === 'waits');
+  live(w) && (started(w) || w.now.kind === 'paused' || w.now.kind === 'everything' || w.now.kind === 'fault' || w.now.kind === 'waits');
 
 export function shownTree(data: Items): Shown[] {
   const byId = new Map(data.items.map((i) => [i.number, i]));
@@ -111,22 +131,38 @@ export function shownTree(data: Items): Shown[] {
     const i = byId.get(id);
     const w = i?.work;
     making.add(id);
+    const mock = i === undefined ? null : itemOf(i);
+    // MOCK rule, until the engine says what kind an item is: an item with open items under it whose own work has not
+    // begun is a deliverable, made of what is under it. It shows no state of its own: no row of its work.
+    // With the mocks off the engine's own word decides alone: the item's flow.
+    const deliverable =
+      mocksShown() &&
+      w !== undefined &&
+      !started(w) &&
+      (under.get(id) ?? []).some((c) => keep(c) && !making.has(c));
     const shown: Shown = {
       id,
       title: i?.title ?? '',
       standing: standing(id),
       asks: w === undefined ? 0 : asksOf(w.now),
+      questions: mock?.openQuestions ?? 0,
+      deliver: deliverable || w?.flow === 'deliver',
       blocked: (i?.dependsOn ?? []).filter((d) => byId.has(d) && standing(d) !== 'done').length,
+      // New to the owner exactly when something is unread: one fact, not two.
+      unseen: (mock?.unread ?? 0) > 0,
+      unread: mock?.unread ?? 0,
       begun: w !== undefined && started(w),
       shadow: false,
       work:
-        w !== undefined && drawn(w)
+        w !== undefined && drawn(w) && !deliverable && w.flow !== 'deliver'
           ? {
               number: w.number,
               now: w.now,
               paused: w.paused,
               cells: w.cells,
-              from: w.added,
+              from: w.from ?? w.added,
+              bar: w.bar ?? '',
+              sentBack: w.sentBack ?? 0,
               usdMicros: w.spent.usdMicros,
               last: w.last,
             }
@@ -150,7 +186,11 @@ export function shownTree(data: Items): Shown[] {
     title: byId.get(id)?.title ?? '',
     standing: standing(id),
     asks: 0,
+    questions: 0,
+    deliver: false,
     blocked: 0,
+    unseen: false,
+    unread: 0,
     begun: false,
     shadow: true,
     work: null,

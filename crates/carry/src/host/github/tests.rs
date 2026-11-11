@@ -1,4 +1,8 @@
 //! The GitHub host against a fake of GitHub: a bare repository on disk and pull requests and checks in memory.
+//!
+//! - `ends`: the pull request's text and draft, the checks that hold no work, main red, and the end of a work.
+
+mod ends;
 
 use std::time::Duration;
 
@@ -10,6 +14,9 @@ use super::*;
 use crate::git::Place;
 use crate::git::tests::{Repo, commit, run};
 use crate::held::Held;
+
+mod agents;
+mod fast;
 
 const WORK: WorkNumber = WorkNumber(1);
 
@@ -30,7 +37,11 @@ fn config(bare: &std::path::Path) -> Config {
         poll: Duration::from_millis(10),
         merge_method: "squash".to_string(),
         delete_branch: false,
+        before_branches: true,
+        fast: None,
+        fast_poll: Duration::from_millis(10),
         token: None,
+        withheld: Vec::new(),
     }
 }
 
@@ -40,7 +51,9 @@ impl Hub {
         let bare = repo.data.join("github.git");
         run(&repo.data, &["init", "-q", "--bare", "-b", "main", "github.git"]);
         run(&repo.project.repo, &["push", "-q", &bare.display().to_string(), "main"]);
-        let host = GitHub::new(Fake::new(bare.clone()), repo.project.clone(), config(&bare));
+        let mut config = config(&bare);
+        config.withheld = withheld(&repo.data, &repo.project.repo, None);
+        let host = GitHub::new(Fake::new(bare.clone()), repo.project.clone(), config);
         Hub { repo, host }
     }
 
@@ -81,6 +94,22 @@ impl Hub {
         run(&self.github().bare, &["rev-parse", &reference])
     }
 
+    /// The work's head, checked once, its pull request open.
+    async fn pushed_and_checked(&self) -> String {
+        let head = run(&self.place().dir, &["rev-parse", "HEAD"]);
+        self.github().checks(&head, vec![vec![passed("lint"), passed("test")]]);
+        self.verdict(&head).await.unwrap().unwrap();
+        head
+    }
+
+    /// The commit, checked once, its pull request open.
+    async fn pushed_and_checked_after(&self, commit: String) -> String {
+        self.github()
+            .checks(&commit, vec![vec![passed("lint"), passed("test")]]);
+        self.verdict(&commit).await.unwrap().unwrap();
+        commit
+    }
+
     /// How many pull requests were opened.
     fn opened(&self) -> usize {
         (self.github().asked().iter())
@@ -93,6 +122,7 @@ fn branch(place: &Place) -> Branch<'_> {
     Branch {
         work: WORK,
         title: "Greet the user",
+        about: "Greets the user by name.",
         place,
     }
 }
@@ -104,6 +134,7 @@ fn check(name: &str, outcome: Outcome) -> Check {
         url: Some(format!("https://github.example/checks/{name}")),
         summary: None,
         job: None,
+        earlier: Vec::new(),
     }
 }
 
@@ -197,6 +228,7 @@ async fn the_check_pushes_the_head_opens_a_pull_request_into_main_and_passes_onc
         Verdict {
             failed: None,
             by: Some("the CI of the pull request https://github.example/pull/1".to_string()),
+            notes: Vec::new(),
         }
     );
     assert_eq!(hub.pushed(), head);
@@ -354,9 +386,11 @@ async fn a_red_check_is_said_with_its_link_what_it_said_and_its_log_up_to_its_er
         "The CI failed on this commit, in 2 of its checks.\n\n\
          lint (failure) https://github.example/checks/lint\n\
          Clippy found 2 warnings\n\
-         The end of its log, up to its error:\n\
+         What its log says of the failure, as the CI printed it:\n\
+         ```\n\
          error[E0405]: cannot find trait `Host`\n\
-         ##[error]Process completed with exit code 101.\n\n\
+         ##[error]Process completed with exit code 101.\n\
+         ```\n\n\
          test (timed_out) https://github.example/checks/test\n\
          Its log could not be read: HTTP 410: the log has expired"
     );
@@ -648,14 +682,7 @@ fn the_token_goes_to_git_in_its_environment_for_github_over_https_alone() {
 }
 
 #[test]
-fn a_jobs_log_is_cut_after_its_last_error_without_times_or_colours() {
-    let log = "\u{feff}2026-11-10T04:23:10.1Z Compiling\n2026-11-10T04:23:10.2Z \u{1b}[31mfailed\u{1b}[0m\n\
-               2026-11-10T04:23:10.3Z ##[error]Process completed with exit code 1.\n2026-11-10T04:23:10.4Z Cleaning up";
-    assert_eq!(
-        tail_of_log(log),
-        "Compiling\nfailed\n##[error]Process completed with exit code 1.\n"
-    );
-    assert_eq!(tail_of_log("no error at all\n"), "no error at all\n");
+fn a_length_of_time_is_said_in_minutes_or_seconds() {
     assert_eq!(span(Duration::from_secs(600)), "10 minutes");
     assert_eq!(span(Duration::from_millis(300)), "0 seconds");
 }
@@ -681,7 +708,11 @@ fn github_as_the_settings_say_needs_the_engines_token() {
             poll: POLL,
             merge_method: "squash".to_string(),
             delete_branch: false,
+            before_branches: false,
+            fast: None,
+            fast_poll: FAST_POLL,
             token: Some("the-token".to_string()),
+            withheld: withheld(&repo.data, &repo.project.repo, None),
         }
     );
     assert!(

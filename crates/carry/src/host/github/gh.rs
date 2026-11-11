@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
-use super::api::{Api, Check, Outcome, Pull, State};
+use super::api::{Api, Check, File, Outcome, Pull, Run, State};
 
 /// GitHub's REST API, through `gh`, in one repository.
 #[derive(Clone)]
@@ -71,6 +71,11 @@ impl Gh {
     /// Asks GitHub, with this body where one is given, and gives what it answered whatever its status; or why `gh`
     /// gave no answer.
     async fn ask(&self, method: &str, path: &str, body: Option<Value>) -> Result<Answer, String> {
+        self.ask_with(method, path, body, &[]).await
+    }
+
+    /// Asks GitHub as [`Gh::ask`] does, `gh` given these flags beside.
+    async fn ask_with(&self, method: &str, path: &str, body: Option<Value>, flags: &[&str]) -> Result<Answer, String> {
         let mut args = vec![
             "api",
             "--include",
@@ -82,6 +87,7 @@ impl Gh {
             "X-GitHub-Api-Version: 2022-11-28",
             path,
         ];
+        args.extend(flags);
         if body.is_some() {
             args.extend(["--input", "-"]);
         }
@@ -123,6 +129,44 @@ impl Gh {
         }
     }
 
+    /// Runs `gh` with these arguments, other than `api`, given up as an ask is; says what it said where it failed.
+    async fn run(&self, args: &[&str]) -> Result<(), String> {
+        self.output(args, self.limit).await.map(|_| ())
+    }
+
+    /// Runs `gh` with these arguments, other than `api`, given up after `limit`; gives what it printed, or what it said
+    /// where it failed.
+    async fn output(&self, args: &[&str], limit: Duration) -> Result<String, String> {
+        let child = Command::new(&self.command)
+            .args(args)
+            .env_clear()
+            .envs(self.env.iter().cloned())
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| format!("{} cannot be started: {e}", self.command))?;
+        let waited = tokio::time::timeout(limit, child.wait_with_output()).await;
+        let output = (waited.map_err(|_| {
+            format!(
+                "{} {} did not end in time, and was stopped",
+                self.command,
+                args[..2].join(" ")
+            )
+        }))?
+        .map_err(|e| format!("{} could not be waited for: {e}", self.command))?;
+        if output.status.success() {
+            return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
+        }
+        Err(format!(
+            "{} {} failed: {}",
+            self.command,
+            args[..2].join(" "),
+            String::from_utf8_lossy(&output.stderr).trim_end()
+        ))
+    }
+
     /// Asks GitHub, and gives the body of an answer whose status is one of `ok`; or GitHub's words for why not.
     async fn want(&self, method: &str, path: &str, body: Option<Value>, ok: &[u16]) -> Result<String, String> {
         let answer = self.ask(method, path, body).await?;
@@ -155,9 +199,8 @@ impl Api for Gh {
     }
 
     async fn open(&self, branch: &str, base: &str, title: &str, body: &str) -> Result<Pull, String> {
-        let path = format!("repos/{}/pulls", self.repository);
-        let asked = json!({ "title": title, "body": body, "head": branch, "base": base });
-        pull(&self.json("POST", &path, Some(asked), &[201]).await?)
+        let (method, path, asked) = opening(&self.repository, branch, base, title, body);
+        pull(&self.json(method, &path, Some(asked), &[201]).await?)
     }
 
     async fn checks(&self, commit: &str) -> Result<Vec<Check>, String> {
@@ -184,7 +227,14 @@ impl Api for Gh {
 
     async fn log(&self, job: u64) -> Result<String, String> {
         let path = format!("repos/{}/actions/jobs/{job}/logs", self.repository);
-        self.want("GET", &path, None, &[200]).await
+        // A log holds the escapes that colour its text, which `gh` otherwise refuses to print, giving the status and
+        // no body: the engine reads them as data and takes them out itself.
+        let answer = self.ask_with("GET", &path, None, &["--allow-escape-sequences"]).await?;
+        if answer.status == 200 {
+            Ok(answer.body)
+        } else {
+            Err(refusal(&answer))
+        }
     }
 
     async fn merge(&self, number: u64, head: &str, method: &str) -> Result<String, String> {
@@ -196,11 +246,143 @@ impl Api for Gh {
             .ok_or_else(|| "GitHub's answer to the merge names no commit".to_string())
     }
 
+    async fn runs(&self, workflow: &str, branch: &str) -> Result<Vec<Run>, String> {
+        let path = format!(
+            "repos/{}/actions/workflows/{workflow}/runs?branch={branch}&event=workflow_dispatch&per_page=50",
+            self.repository
+        );
+        let listed = self.json("GET", &path, None, &[200]).await?;
+        let runs = listed["workflow_runs"].as_array().cloned().unwrap_or_default();
+        Ok((runs.iter())
+            .filter_map(|run| {
+                let status = run["status"].as_str();
+                Some(Run {
+                    id: run["id"].as_u64()?,
+                    title: run["display_title"].as_str().unwrap_or_default().to_string(),
+                    started: matches!(status, Some("in_progress" | "completed")),
+                    completed: status == Some("completed"),
+                    url: run["html_url"].as_str().unwrap_or_default().to_string(),
+                })
+            })
+            .collect())
+    }
+
+    async fn dispatch(&self, workflow: &str, branch: &str, inputs: &[(String, String)]) -> Result<(), String> {
+        let path = format!("repos/{}/actions/workflows/{workflow}/dispatches", self.repository);
+        let inputs: serde_json::Map<String, Value> = (inputs.iter())
+            .map(|(name, value)| (name.clone(), Value::String(value.clone())))
+            .collect();
+        let asked = json!({ "ref": branch, "inputs": inputs });
+        self.want("POST", &path, Some(asked), &[200, 204]).await.map(|_| ())
+    }
+
+    async fn jobs(&self, run: u64) -> Result<Vec<Check>, String> {
+        let path = format!("repos/{}/actions/runs/{run}/jobs?per_page=100", self.repository);
+        let listed = self.json("GET", &path, None, &[200]).await?;
+        let jobs = listed["jobs"].as_array().cloned().unwrap_or_default();
+        Ok(jobs.iter().filter_map(job).collect())
+    }
+
+    async fn artifact(&self, run: u64, name: &str) -> Result<Option<Vec<File>>, String> {
+        let dir = std::env::temp_dir().join(format!("wf-agents-artifact-{}", uuid::Uuid::new_v4().simple()));
+        let (run, dir_text) = (run.to_string(), dir.to_string_lossy().into_owned());
+        let args = [
+            "run",
+            "download",
+            run.as_str(),
+            "-R",
+            self.repository.as_str(),
+            "-n",
+            name,
+            "-D",
+            &dir_text,
+        ];
+        let ran = self.run(&args).await;
+        let files = match ran {
+            Ok(()) => files_under(&dir, ""),
+            Err(why) if why.contains("no artifact") || why.contains("no valid artifact") => Ok(Vec::new()),
+            Err(why) => Err(why),
+        };
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+        let files = files?;
+        Ok((!files.is_empty()).then_some(files))
+    }
+
     async fn delete(&self, branch: &str) -> Result<(), String> {
         let path = format!("repos/{}/git/refs/heads/{branch}", self.repository);
         // A branch that is not there is answered 422, "Reference does not exist".
         self.want("DELETE", &path, None, &[204, 404, 422]).await.map(|_| ())
     }
+
+    async fn edit(&self, number: u64, title: &str, body: &str) -> Result<(), String> {
+        let (method, path, asked) = editing(&self.repository, number, title, body);
+        self.want(method, &path, Some(asked), &[200]).await.map(|_| ())
+    }
+
+    async fn ready(&self, node: &str) -> Result<(), String> {
+        let (method, path, asked) = readying(node);
+        let answer = self.json(method, &path, Some(asked), &[200]).await?;
+        // GraphQL says what it refused with a status of 200.
+        match answer["errors"].as_array() {
+            Some(errors) if !errors.is_empty() => {
+                let words: Vec<&str> = errors.iter().filter_map(|e| e["message"].as_str()).collect();
+                Err(format!(
+                    "GitHub did not make the pull request ready: {}",
+                    words.join("; ")
+                ))
+            }
+            _ => Ok(()),
+        }
+    }
+
+    async fn close(&self, number: u64, comment: &str) -> Result<(), String> {
+        let [(method, path, said), (closing, at, closed)] = closing(&self.repository, number, comment);
+        self.want(method, &path, Some(said), &[201]).await?;
+        self.want(closing, &at, Some(closed), &[200]).await.map(|_| ())
+    }
+}
+
+/// A request of GitHub's API: its method, its path and its body.
+type Request = (&'static str, String, Value);
+
+/// The request that opens a pull request of the branch into the base, as a draft.
+pub(crate) fn opening(repository: &str, branch: &str, base: &str, title: &str, body: &str) -> Request {
+    let path = format!("repos/{repository}/pulls");
+    let asked = json!({ "title": title, "body": body, "head": branch, "base": base, "draft": true });
+    ("POST", path, asked)
+}
+
+/// The request that gives the pull request this title and body.
+pub(crate) fn editing(repository: &str, number: u64, title: &str, body: &str) -> Request {
+    let path = format!("repos/{repository}/pulls/{number}");
+    ("PATCH", path, json!({ "title": title, "body": body }))
+}
+
+/// The request that makes the draft pull request of this id ready: the REST API cannot, GitHub's GraphQL API can.
+pub(crate) fn readying(node: &str) -> Request {
+    let query = "mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { \
+                 isDraft } } }";
+    (
+        "POST",
+        "graphql".to_string(),
+        json!({ "query": query, "variables": { "id": node } }),
+    )
+}
+
+/// The requests that say the comment on the pull request and then close it.
+pub(crate) fn closing(repository: &str, number: u64, comment: &str) -> [Request; 2] {
+    [
+        (
+            "POST",
+            format!("repos/{repository}/issues/{number}/comments"),
+            json!({ "body": comment }),
+        ),
+        (
+            "PATCH",
+            format!("repos/{repository}/pulls/{number}"),
+            json!({ "state": "closed" }),
+        ),
+    ]
 }
 
 /// The environment `gh` is given: of the engine's, what git is given of it; then the token, a directory of its own
@@ -275,6 +457,11 @@ fn pull(value: &Value) -> Result<Pull, String> {
         } else {
             None
         },
+        title: text(&value["title"], "title")?,
+        // A pull request that says nothing has a body of null.
+        body: value["body"].as_str().unwrap_or_default().to_string(),
+        draft: value["draft"].as_bool().unwrap_or(false),
+        node: text(&value["node_id"], "id")?,
     })
 }
 
@@ -294,7 +481,26 @@ pub(crate) fn checks(runs: &[Value], statuses: &[Value]) -> Vec<Check> {
             latest.insert(name, run);
         }
     }
-    let mut checks: Vec<Check> = latest.into_iter().map(|(name, run)| check_run(name, run)).collect();
+    let mut checks: Vec<Check> = (latest.into_iter())
+        .map(|(name, kept)| {
+            let mut check = check_run(name, kept);
+            // The earlier runs of the same check, said as they are, oldest first.
+            let mut earlier: Vec<&Value> = (runs.iter())
+                .filter(|run| run["name"].as_str() == Some(name) && run["id"].as_u64() != kept["id"].as_u64())
+                .collect();
+            earlier.sort_by_key(|run| run["id"].as_u64());
+            check.earlier = (earlier.into_iter())
+                .map(|run| {
+                    let how = (run["conclusion"].as_str())
+                        .or_else(|| run["status"].as_str())
+                        .unwrap_or("unknown");
+                    let at = (run["html_url"].as_str()).or_else(|| run["details_url"].as_str());
+                    at.map_or(how.to_string(), |at| format!("{how} {at}"))
+                })
+                .collect();
+            check
+        })
+        .collect();
     checks.extend(statuses.iter().filter_map(status));
     checks
 }
@@ -303,7 +509,14 @@ pub(crate) fn checks(runs: &[Value], statuses: &[Value]) -> Vec<Check> {
 fn check_run(name: &str, run: &Value) -> Check {
     let outcome = match (run["status"].as_str(), run["conclusion"].as_str()) {
         (Some("completed"), Some("success" | "neutral" | "skipped")) => Outcome::Passed,
-        (Some("completed"), Some(how @ ("failure" | "timed_out"))) => Outcome::Failed(how.to_string()),
+        // A job stopped at its time limit, or cancelled, judged the code as far as it ran: its log says what ran and
+        // what was still running, which a check asked again on the same commit would not run again to say.
+        (Some("completed"), Some(how @ ("failure" | "timed_out" | "cancelled"))) => {
+            match (how, lasted(&run["started_at"], &run["completed_at"])) {
+                ("failure", _) | (_, None) => Outcome::Failed(how.to_string()),
+                (_, Some(lasted)) => Outcome::Failed(format!("{how} after {lasted}")),
+            }
+        }
         (Some("completed"), Some(how)) => Outcome::Broken(how.to_string()),
         (Some("completed"), None) => Outcome::Broken("no conclusion".to_string()),
         _ => Outcome::Pending,
@@ -322,7 +535,81 @@ fn check_run(name: &str, run: &Value) -> Check {
             .map(str::to_string),
         summary: (!said.is_empty()).then(|| said.join("\n")),
         job: if actions { run["id"].as_u64() } else { None },
+        earlier: Vec::new(),
     }
+}
+
+/// A job of a run as a check; none for a job that did not run, its condition false.
+fn job(job: &Value) -> Option<Check> {
+    let outcome = match (job["status"].as_str(), job["conclusion"].as_str()) {
+        (Some("completed"), Some("skipped")) => return None,
+        (Some("completed"), Some("success" | "neutral")) => Outcome::Passed,
+        (Some("completed"), Some(how @ ("failure" | "timed_out"))) => Outcome::Failed(how.to_string()),
+        (Some("completed"), Some(how)) => Outcome::Broken(how.to_string()),
+        (Some("completed"), None) => Outcome::Broken("no conclusion".to_string()),
+        _ => Outcome::Pending,
+    };
+    Some(Check {
+        name: job["name"].as_str()?.to_string(),
+        outcome,
+        url: job["html_url"].as_str().map(str::to_string),
+        summary: None,
+        job: job["id"].as_u64(),
+        earlier: Vec::new(),
+    })
+}
+
+/// Every file under a directory, each as its path under it with `/` between its parts, after `prefix`, and its bytes.
+fn files_under(dir: &Path, prefix: &str) -> Result<Vec<File>, String> {
+    let mut out = Vec::new();
+    let entries = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("{}: {e}", dir.display()))?;
+        let path = format!("{prefix}{}", entry.file_name().to_string_lossy());
+        if entry.path().is_dir() {
+            out.extend(files_under(&entry.path(), &format!("{path}/"))?);
+        } else {
+            let bytes = std::fs::read(entry.path()).map_err(|e| format!("{path}: {e}"))?;
+            out.push((path, bytes));
+        }
+    }
+    Ok(out)
+}
+
+/// How long a check ran, in words, from the times GitHub gives as `2026-11-11T07:48:56Z`; none where it gives none.
+fn lasted(started: &Value, completed: &Value) -> Option<String> {
+    let seconds = seconds_of(completed.as_str()?)? - seconds_of(started.as_str()?)?;
+    let (minutes, seconds) = (seconds / 60, seconds % 60);
+    let unit = |n: i64, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
+    Some(match (minutes, seconds) {
+        (0, s) => unit(s, "second"),
+        (m, 0) => unit(m, "minute"),
+        (m, s) => format!("{} and {}", unit(m, "minute"), unit(s, "second")),
+    })
+}
+
+/// The seconds since 1970 of a time as GitHub writes one, in UTC: `2026-11-11T07:48:56Z`, fractions of a second left
+/// out; none for anything else.
+fn seconds_of(time: &str) -> Option<i64> {
+    let time = time.strip_suffix('Z')?;
+    let (date, clock) = time.split_once('T')?;
+    let clock = clock.split('.').next()?;
+    let numbers = |text: &str, sep: char| -> Option<Vec<i64>> { text.split(sep).map(|n| n.parse().ok()).collect() };
+    let (d, c) = (numbers(date, '-')?, numbers(clock, ':')?);
+    let [year, month, day] = <[i64; 3]>::try_from(d).ok()?;
+    let [hour, minute, second] = <[i64; 3]>::try_from(c).ok()?;
+    // Days from the civil date, by the proleptic Gregorian calendar.
+    let (y, m) = if month <= 2 {
+        (year - 1, month + 9)
+    } else {
+        (year, month - 3)
+    };
+    let era = y.div_euclid(400);
+    let of_era = y - era * 400;
+    let of_year = (153 * m + 2) / 5 + day - 1;
+    let of_cycle = of_era * 365 + of_era / 4 - of_era / 100 + of_year;
+    let days = era * 146_097 + of_cycle - 719_468;
+    Some(days * 86_400 + hour * 3600 + minute * 60 + second)
 }
 
 /// A commit status as a check.
@@ -342,8 +629,13 @@ fn status(status: &Value) -> Option<Check> {
             .filter(|s| !s.trim().is_empty())
             .map(str::to_string),
         job: None,
+        earlier: Vec::new(),
     })
 }
+
+mod release;
+
+pub use release::{GhOffsite, UPLOAD_RATE};
 
 #[cfg(test)]
 mod tests;

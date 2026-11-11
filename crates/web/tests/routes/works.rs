@@ -54,8 +54,13 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 ],
                 "spent": spent(1),
                 "last": asked,
+                // Its first round began as it was resumed, and an agent has run the whole of its time since.
+                "from": resumed,
+                "bar": "m".repeat(96),
+                "sentBack": 0,
             },
             "title": "Greet the user",
+            "level": "2",
             "flow": flow,
             "cells": [
                 { "cell": "plan", "needs": no_record, "inputs": [input("request", json!(3))] },
@@ -129,6 +134,8 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "given": { "kind": "task" },
                         "back": { "kind": "asked", "asks": [question()] },
                         "spent": spent(1),
+                        "context": null,
+                        "compactions": 0,
                     }],
                     "calls": [{ "call": 2, "what": question(), "made": asked, "done": null, "chars": null }],
                     "end": null,

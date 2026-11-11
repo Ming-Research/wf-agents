@@ -51,6 +51,7 @@ function flowOf(
     line: c.line === undefined ? 'engineer' : c.line,
     task: c.task ?? null,
     act: c.act ?? null,
+    effort: c.line === null ? null : 'high',
     condition: c.condition ?? null,
     preconditions: c.preconditions ?? [],
     inputs: c.inputs,
@@ -80,6 +81,7 @@ function flowOf(
   const lines = [...new Set(all.flatMap((c) => (c.line ? [c.line] : [])))].sort().map((l) => ({
     name: l,
     cells: all.filter((c) => c.line === l).map((c) => c.id),
+    levelsAbove: 0,
   }));
   return { name, limits: LIMITS, lines, tests, cells: all, blocks: named };
 }
@@ -209,6 +211,17 @@ const spentOf = (dollars: number, hours: number, rounds: number): Spent => ({
   rounds,
 });
 
+/// Where made-up works' time went, one for each in turn.
+const BARS = [
+  'mmmmmmtt..mmmmmmmmtttt....mmmmmm',
+  'mmm.....mmmmmmmmmmtttmmmmmm..mmm',
+  'mmmmtttttttt....mmmmmmmmm...mmmm',
+];
+
+/// Whether a made-up work has begun: a round is under way, or a cell of it has run.
+const begun = (now: Now, cells: CellNow[]) =>
+  now.kind === 'round' || cells.some((c) => c.state !== 'notYet' && c.state !== 'skipped');
+
 type Made = { title: string; dependsOn: number[]; work: Omit<Summary, 'item' | 'flow'> };
 
 /// The made-up items, as they stand when the page opens; `start` is the time it is taken from.
@@ -229,6 +242,10 @@ export function fixtureItems(start = Date.now()): Items {
       cells,
       spent: spentOf(o.dollars ?? 1.2, Math.min(hours, 1.5), o.rounds ?? 9),
       last: start - (o.quiet ?? 3) * MINUTE,
+      // Its first round a little after it was added, and where its time went since, made up; none before it began.
+      ...(begun(now, cells)
+        ? { from: start - hours * HOUR * 0.9, bar: BARS[next % BARS.length] }
+        : { from: null, bar: '' }),
     };
   };
   const round = (cell: string, minutes: number, number = 2): Now => ({
@@ -460,6 +477,7 @@ export function fixtureItems(start = Date.now()): Items {
       ([n, m]): Item => ({
         number: Number(n),
         title: m.title,
+        level: '2',
         added: m.work.added,
         dependsOn: m.dependsOn,
         work: { ...m.work, item: Number(n), flow: FLOW.name },
@@ -475,7 +493,7 @@ function pageOf(item: Item, summary: Summary): WorkPage {
     needs: [],
     inputs: c.inputs.map((block) => ({ block, current: null, known: null, changed: false })),
   }));
-  return { summary, title: item.title, flow: FLOW, cells, blocks: [], steps: [] };
+  return { summary, title: item.title, level: item.level, flow: FLOW, cells, blocks: [], steps: [] };
 }
 
 /// The made-up items as a source the console reads: what the owner does changes them, and the console is told.
@@ -488,7 +506,7 @@ export function fixtureSource(start = Date.now()): Source {
     throw new Error(`There is no work ${work}`);
   };
   const told = (work: number) => {
-    const c: Changed = { works: [work], items: true };
+    const c: Changed = { works: [work], items: true, copies: false };
     window.setTimeout(() => listeners.forEach((on) => on(c)), 0);
   };
   const change = (s: Summary, what: Act) => {
@@ -530,6 +548,8 @@ export function fixtureSource(start = Date.now()): Source {
         return Promise.reject(e instanceof Error ? e : new Error(String(e)));
       }
     },
+    // The made-up works have no block with a version.
+    loadVersion: (work, block, at) => Promise.reject(new Error(`Work ${work} has no version ${block}@${at}`)),
     act: (work, what) => {
       try {
         const { summary } = find(work);

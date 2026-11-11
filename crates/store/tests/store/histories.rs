@@ -180,6 +180,7 @@ impl History {
             input_tokens: self.clock % 997,
             cached_tokens: self.clock % 991,
             output_tokens: 1,
+            ..Default::default()
         }
     }
 
@@ -236,7 +237,7 @@ impl History {
             self.person_acts();
             return true;
         }
-        let doable: Vec<Effect> = (pending(&self.work).into_iter())
+        let doable: Vec<Effect> = (pending(&self.flow, &self.work).into_iter())
             .filter(|e| match e {
                 Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool { .. })),
                 _ => true,
@@ -263,6 +264,9 @@ impl History {
                 let spent = self.spent(run);
                 let came = Came::Asks(vec![]);
                 self.take(Event::Returned { run, came, spent });
+            }
+            Effect::Release { .. } => {
+                self.take(Event::Released);
             }
         }
         true

@@ -10,7 +10,7 @@ use decide::{
 use rusqlite::{Connection, Row, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use work::{Moment, Spent, Time, Work};
+use work::{Moment, Ran, RanOn, Session, Spent, Time, Work};
 
 use crate::{Divergence, Entry, Fault, WorkNumber};
 
@@ -196,6 +196,11 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     })?
     .into_iter()
     .next();
+    r.released = rows(db, "SELECT at FROM released WHERE work = ?1", w, |row| {
+        Ok(Seq(row.get(0)?))
+    })?
+    .into_iter()
+    .next();
 
     out.contents = rows(
         db,
@@ -230,7 +235,8 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
 
     out.spent = rows(
         db,
-        "SELECT run, round, usd_micros, input_tokens, cached_tokens, output_tokens FROM spent WHERE work = ?1",
+        "SELECT run, round, usd_micros, input_tokens, cached_tokens, output_tokens, context_tokens, compactions \
+         FROM spent WHERE work = ?1",
         w,
         |row| {
             let spent = Spent {
@@ -238,12 +244,49 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
                 input_tokens: row.get(3)?,
                 cached_tokens: row.get(4)?,
                 output_tokens: row.get(5)?,
+                context_tokens: row.get(6)?,
+                compactions: row.get(7)?,
             };
             Ok(((RunId(row.get(0)?), row.get(1)?), spent))
         },
     )?
     .into_iter()
     .collect();
+
+    out.sessions = rows(
+        db,
+        "SELECT at, line, why FROM sessions WHERE work = ?1 ORDER BY at",
+        w,
+        |row| Ok((Seq(row.get(0)?), row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
+    )?
+    .into_iter()
+    .map(|(at, line, why)| {
+        Ok(Session {
+            at,
+            line,
+            why: parse("sessions", &why)?,
+        })
+    })
+    .collect::<Result<_, Fault>>()?;
+    out.ran = rows(
+        db,
+        "SELECT at, run, round, attempt, level, model, effort, account FROM ran WHERE work = ?1 ORDER BY at",
+        w,
+        |row| {
+            Ok(Ran {
+                at: Seq(row.get(0)?),
+                run: RunId(row.get(1)?),
+                round: row.get(2)?,
+                attempt: row.get(3)?,
+                on: RanOn {
+                    level: row.get(4)?,
+                    model: row.get(5)?,
+                    effort: row.get(6)?,
+                    account: row.get(7)?,
+                },
+            })
+        },
+    )?;
 
     out.moments = rows(
         db,
@@ -282,6 +325,12 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         (Some(h), Some(_)) => return Err(diverged("cancelled", Entry::At(h), Divergence::Changed)),
         (Some(h), None) => return Err(diverged("cancelled", Entry::At(h), Divergence::Missing)),
     };
+    let released = match (h.released, g.released) {
+        (None, new) => new,
+        (Some(h), Some(g)) if h == g => None,
+        (Some(h), Some(_)) => return Err(diverged("released", Entry::At(h), Divergence::Changed)),
+        (Some(h), None) => return Err(diverged("released", Entry::At(h), Divergence::Missing)),
+    };
     let contents = gained("contents", &held.contents, &given.contents, |(block, at)| {
         Entry::Version {
             block: block.clone(),
@@ -294,6 +343,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     let results = gained("results", &held.results, &given.results, |c| Entry::Call(*c))?;
     let spent = gained("spent", &held.spent, &given.spent, round_entry)?;
     let moments = grown("moments", &held.moments, &given.moments, |m| Entry::At(m.from))?;
+    let sessions = grown("sessions", &held.sessions, &given.sessions, |s| Entry::At(s.at))?;
+    let ran = grown("ran", &held.ran, &given.ran, |r| Entry::At(r.at))?;
 
     // Each table after those its rows name.
     for s in started {
@@ -375,6 +426,9 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     if let Some(at) = cancelled {
         db.execute("INSERT INTO cancelled (work, at) VALUES (?1, ?2)", params![w, at.0])?;
     }
+    if let Some(at) = released {
+        db.execute("INSERT INTO released (work, at) VALUES (?1, ?2)", params![w, at.0])?;
+    }
     for ((block, version), content) in contents {
         db.execute(
             "INSERT INTO contents (work, block, version, content) VALUES (?1, ?2, ?3, ?4)",
@@ -407,8 +461,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     }
     for ((run, round), s) in spent {
         db.execute(
-            "INSERT INTO spent (work, run, round, usd_micros, input_tokens, cached_tokens, output_tokens) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO spent (work, run, round, usd_micros, input_tokens, cached_tokens, output_tokens, \
+             context_tokens, compactions) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 w,
                 run.0,
@@ -416,7 +470,32 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
                 s.usd_micros,
                 s.input_tokens,
                 s.cached_tokens,
-                s.output_tokens
+                s.output_tokens,
+                s.context_tokens,
+                s.compactions
+            ],
+        )?;
+    }
+    for s in sessions {
+        db.execute(
+            "INSERT INTO sessions (work, at, line, why) VALUES (?1, ?2, ?3, ?4)",
+            params![w, s.at.0, s.line, json("sessions", &s.why)?],
+        )?;
+    }
+    for r in ran {
+        db.execute(
+            "INSERT INTO ran (work, at, run, round, attempt, level, model, effort, account) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                w,
+                r.at.0,
+                r.run.0,
+                r.round,
+                r.attempt,
+                r.on.level,
+                r.on.model,
+                r.on.effort,
+                r.on.account
             ],
         )?;
     }

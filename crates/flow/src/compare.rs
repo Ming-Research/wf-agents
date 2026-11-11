@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use decide::{BlockId, Cell, CellId, Condition, Test, TestName};
 
 use crate::compile::{Block, CellSpec, Compiled, Limits};
-use crate::source::Kind;
+use crate::source::{Effort, Kind};
 
 /// One difference between two definitions of a flow.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,6 +77,11 @@ pub enum CellChange {
         before: Option<String>,
         after: Option<String>,
     },
+    /// Whether the agents of the cell's line only read, as its line says.
+    ReadsOnly {
+        before: bool,
+        after: bool,
+    },
     /// What an agent cell's agent is told to do; none for an engine cell.
     Task {
         before: Option<String>,
@@ -102,10 +107,24 @@ pub enum CellChange {
     MustWriteAdded(BlockId),
     /// A block every hand-in of the cell no longer needs to include.
     MustWriteRemoved(BlockId),
+    /// A block the cell now says what the work is by, where the host shows it.
+    DescribesAdded(BlockId),
+    /// A block the cell no longer says what the work is by.
+    DescribesRemoved(BlockId),
     /// A limit of the cell, other than by following the same change of the flow's limit, which is said once, as the
     /// flow's.
     Limit {
         limit: Limit,
+        before: u32,
+        after: u32,
+    },
+    /// The reasoning effort an agent cell's rounds run at; an engine cell has none.
+    Effort {
+        before: Option<Effort>,
+        after: Option<Effort>,
+    },
+    /// How many levels above its item's the cell's rounds run at, as its line says.
+    LevelsAbove {
         before: u32,
         after: u32,
     },
@@ -341,6 +360,12 @@ fn cell_changes(before: &Placed, after: &Placed, flow_limits: &[(Limit, u32, u32
             after: a.line.clone(),
         });
     }
+    if b.reads_only != a.reads_only {
+        changes.push(CellChange::ReadsOnly {
+            before: b.reads_only,
+            after: a.reads_only,
+        });
+    }
     if b.task != a.task {
         changes.push(CellChange::Task {
             before: b.task.clone(),
@@ -388,6 +413,13 @@ fn cell_changes(before: &Placed, after: &Placed, flow_limits: &[(Limit, u32, u32
         CellChange::MustWriteAdded,
         &mut changes,
     );
+    list(
+        &b.describes,
+        &a.describes,
+        CellChange::DescribesRemoved,
+        CellChange::DescribesAdded,
+        &mut changes,
+    );
     let own = [
         (Limit::Runs, b_cell.limit, a_cell.limit),
         (Limit::Returns, b.returns, a.returns),
@@ -398,6 +430,18 @@ fn cell_changes(before: &Placed, after: &Placed, flow_limits: &[(Limit, u32, u32
         if before != after && !followed_the_flow {
             changes.push(CellChange::Limit { limit, before, after });
         }
+    }
+    if b.effort != a.effort {
+        changes.push(CellChange::Effort {
+            before: b.effort,
+            after: a.effort,
+        });
+    }
+    if b.levels_above != a.levels_above {
+        changes.push(CellChange::LevelsAbove {
+            before: b.levels_above,
+            after: a.levels_above,
+        });
     }
     changes
 }

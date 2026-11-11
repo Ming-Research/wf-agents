@@ -262,7 +262,7 @@ describe('a test of what stands', () => {
       [
         cell('judge', { outputs: ['verdict', 'deeper'] }),
         cell('deep', { condition: { on: 'block', block: 'deeper', value: 'yes' }, outputs: ['deep_verdict'] }),
-        cell('merge', { kind: 'engine', line: null, preconditions: [approved] }),
+        cell('merge', { kind: 'engine', line: null, effort: null, preconditions: [approved] }),
       ],
       { verdict: { values: ['yes', 'no'] }, deeper: { values: ['yes', 'no'] }, deep_verdict: { values: ['yes', 'no'] } },
     );
@@ -335,7 +335,7 @@ describe('the page round the view', () => {
       ),
     );
     unmount = () => act(() => root.unmount());
-    expect(texts(container, '.bar-tab')).toEqual(['Console', 'Works', 'Flow']);
+    expect(texts(container, '.bar-tab')).toEqual(['Console', 'Works', 'Flow', 'Observations', 'System', 'Settings']);
     expect(texts(container, '.bar-tab[aria-current="page"]')).toEqual(['Works']);
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
     click([...container.querySelectorAll('.switch-choice')].find((b) => b.textContent === 'Dark'));

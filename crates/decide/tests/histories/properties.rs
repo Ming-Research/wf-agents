@@ -6,8 +6,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use decide::{
-    Abandoning, BlockId, Cause, Decision, End, Flow, Maker, Pause, Pauser, Records, RunId, Seq, Started, TestKind,
-    Waited, decide,
+    Abandoning, BlockId, Cause, Decision, End, Flow, Maker, Pause, Pauser, Records, Room, RunId, Seq, Started,
+    TestKind, Waited, decide, decide_in,
 };
 
 use crate::reading::{Reading, Reason, Writer};
@@ -54,6 +54,9 @@ pub const REACHED: &[&str] = &[
     FAILED,
     FAILED_GOES_ON,
     FAILED_ABANDONED,
+    FAILED_IN_PASSING,
+    FAILED_UNPAUSED,
+    UNPAUSED_GOES_ON,
 ];
 
 pub const PERSON_UNDER_WAY: &str = "a person writes while a round is under way";
@@ -86,6 +89,9 @@ const PERSON_NO_HOLDS: &str = "the merge waits on a person's no";
 const SKIPPED_NO_PASSES: &str = "a round of the merge begins over the no of a judge that is skipped";
 pub const FAILED: &str = "a round fails and the engine pauses its work";
 pub const FAILED_GOES_ON: &str = "a run whose round failed goes on once the work is let on";
+pub const FAILED_IN_PASSING: &str = "a round fails in passing and its run waits for the engine";
+pub const FAILED_UNPAUSED: &str = "a round fails for a cause that does not pause its work";
+pub const UNPAUSED_GOES_ON: &str = "a run whose round failed without pausing its work goes on";
 pub const FAILED_ABANDONED: &str =
     "a run whose round failed is abandoned because what it started from changed before the work was let on";
 
@@ -128,9 +134,11 @@ impl Verdict {
     }
 }
 
-/// A decision the driver took, with what it was taken on: the records up to this place.
+/// A decision the driver took, with what it was taken on: the records up to this place, in the room the engine left
+/// the work then.
 pub struct Moment {
     pub upto: Seq,
+    pub room: Room,
     pub decision: Decision,
 }
 
@@ -147,6 +155,7 @@ pub fn last_place(r: &Records) -> Seq {
         .chain(r.let_go.iter().map(|e| e.at))
         .chain(r.pauses.iter().map(|e| e.at))
         .chain(r.cancelled)
+        .chain(r.released)
         .max()
         .unwrap_or_default()
 }
@@ -168,6 +177,7 @@ pub fn as_of(r: &Records, upto: Seq) -> Records {
         let_go: kept(&r.let_go, |e| e.at, upto),
         pauses: kept(&r.pauses, |e| e.at, upto),
         cancelled: r.cancelled.filter(|at| *at <= upto),
+        released: r.released.filter(|at| *at <= upto),
     }
 }
 
@@ -424,18 +434,19 @@ pub fn abandoned(v: &mut Verdict, flow: &Flow, reading: &Reading, run: RunId, be
     }
 }
 
-/// What must hold of each decision as it is taken. `paused` says whether the records have the work paused.
-pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, paused: bool, seed: u64) {
+/// What must hold of each decision as it is taken in the room the engine left the work. `paused` says whether the
+/// records have the work paused, or the owner's pause of everything holds.
+pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, room: Room, paused: bool, seed: u64) {
     let records = reading.records;
     // Property 3, the decision is a function of the records (entry records-give-the-same-walk; principle
-    // decide-purely): the same records walked again give the same decision, and so do the same entries at the same
-    // places listed in another order, as a store may give them back.
+    // decide-purely): the same records walked again in the same room give the same decision, and so do the same
+    // entries at the same places listed in another order, as a store may give them back.
     v.count(DECIDED_AGAIN);
-    if decide(flow, records) != *d {
+    if decide_in(flow, records, room) != *d {
         v.fail(PURE, "walking the same records again gives another decision".into());
     }
     v.count(DECIDED_SHUFFLED);
-    let other = decide(flow, &shuffled(records, seed));
+    let other = decide_in(flow, &shuffled(records, seed), room);
     if other != *d {
         v.fail(PURE, format!("the same records in another order give {other:?}"));
     }
@@ -451,7 +462,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, p
                         held(v, flow, reading, i, test);
                         made_by(v, flow, reading, at, test, by);
                     }
-                    Waited::Call { .. } => {}
+                    Waited::Call { .. } | Waited::Slot => {}
                 }
             }
         }
@@ -479,7 +490,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, p
     }
     let merge_begins = match d {
         Decision::Run { cell, .. } => flow.place(cell) == Some(merge),
-        Decision::GoOn { cell, .. } => !paused && flow.place(cell) == Some(merge),
+        Decision::GoOn { cell, .. } => !paused && room.slot && flow.place(cell) == Some(merge),
         _ => false,
     };
     if merge_begins {
@@ -707,7 +718,7 @@ pub fn reaches(v: &mut Verdict, flow: &Flow, records: &Records, rest: &Decision,
 pub fn replay(v: &mut Verdict, flow: &Flow, records: &Records, moments: &[Moment]) {
     for m in moments {
         v.count(MOMENTS_REPLAYED);
-        let then = decide(flow, &as_of(records, m.upto));
+        let then = decide_in(flow, &as_of(records, m.upto), m.room);
         if then != m.decision {
             v.fail(
                 PURE,

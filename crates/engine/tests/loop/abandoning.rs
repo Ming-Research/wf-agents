@@ -38,10 +38,10 @@ fn a_run_at_rest_whose_start_changed_is_abandoned_its_calls_withdrawn_and_its_ce
     assert_eq!(start_of(&w, again), start);
     assert!(w.work.records.abandoned.iter().any(|a| a.run == rerun));
     // The withdrawal is to be done until the call is said to have its result, which then changes nothing else.
-    assert_eq!(pending(&w.work)[0], Effect::Withdraw { call: calls[1] });
+    assert_eq!(pending(&w.flow, &w.work)[0], Effect::Withdraw { call: calls[1] });
     assert_eq!(w.done(calls[1]), vec![]);
     assert_eq!(
-        pending(&w.work),
+        pending(&w.flow, &w.work),
         vec![round_effect(again, "write", 1, given_of(&w, again))]
     );
 }

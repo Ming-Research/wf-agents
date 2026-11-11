@@ -5,7 +5,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { Copies, CopiesState } from '../works-api';
+import type { Changed, Copies, CopiesState } from '../works-api';
 import { copiesWords } from './Copies';
 import { fixtureCopies, fixtureItems } from './fixtures';
 import { type Source, SourceContext } from './source';
@@ -48,21 +48,26 @@ async function settle() {
   });
 }
 
-/// Draws the works table, whose line holds the copies, and gives the line.
-async function line(copies: () => Promise<Copies>): Promise<HTMLElement | null> {
+/// Draws the works table, whose line holds the copies, over this source, and gives the way to find the line.
+async function drawn(source: Source): Promise<() => HTMLElement | null> {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
   act(() =>
     root.render(
-      <SourceContext.Provider value={sourceOf(copies)}>
+      <SourceContext.Provider value={source}>
         <WorksTable items={fixtureItems()} />
       </SourceContext.Provider>,
     ),
   );
   unmounts.push(() => act(() => root.unmount()));
   await settle();
-  return container.querySelector<HTMLElement>('.view-line .copies');
+  return () => container.querySelector<HTMLElement>('.view-line .copies');
+}
+
+/// Draws the works table, whose line holds the copies, and gives the line.
+async function line(copies: () => Promise<Copies>): Promise<HTMLElement | null> {
+  return (await drawn(sourceOf(copies)))();
 }
 
 describe('the line of the copies of the database', () => {
@@ -100,6 +105,52 @@ describe('the line of the copies of the database', () => {
     const shown = await line(() => Promise.reject(new Error('the engine answered 503')));
     expect(shown?.textContent).toBe('The copies of the database could not be read: the engine answered 503');
     expect(shown?.className).toBe('copies failed');
+  });
+
+  // The line asks on no period of its own: the engine says when a step of keeping the copies ended, and the line
+  // changes then, with no reload.
+  it('changes without a reload when the engine says the copies changed, and not for a change to the works', async () => {
+    let state: CopiesState = {
+      kind: 'failed',
+      at: fixtureCopies().now - HOUR,
+      step: 'upload',
+      why: 'the place cannot be reached',
+    };
+    let reads = 0;
+    let send: (changed: Changed) => void = () => undefined;
+    let open: () => void = () => undefined;
+    const source: Source = {
+      ...sourceOf(async () => {
+        reads += 1;
+        return copiesIn(state);
+      }),
+      changes: (onChanged, onOpened) => {
+        send = onChanged;
+        open = onOpened;
+        return () => undefined;
+      },
+    };
+    const shown = await drawn(source);
+    expect(shown()?.getAttribute('data-state')).toBe('failed');
+    expect(shown()?.getAttribute('role')).toBe('alert');
+    const loaded = reads;
+    // A change to a work is no change to the copies.
+    state = { kind: 'ok' };
+    act(() => send({ works: [41], items: false, copies: false }));
+    await settle();
+    expect(reads).toBe(loaded);
+    expect(shown()?.getAttribute('data-state')).toBe('failed');
+    // The step ended and the copies were kept: the line is plain.
+    act(() => send({ works: [], items: false, copies: true }));
+    await settle();
+    expect(reads).toBe(loaded + 1);
+    expect(shown()?.getAttribute('data-state')).toBe('ok');
+    expect(shown()?.getAttribute('role')).toBeNull();
+    // A stream that opens again may have missed a change.
+    state = { kind: 'localOnly' };
+    act(() => open());
+    await settle();
+    expect(shown()?.getAttribute('data-state')).toBe('localOnly');
   });
 
   it('says one copy in the singular', () => {

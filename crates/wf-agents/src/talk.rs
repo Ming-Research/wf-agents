@@ -6,15 +6,17 @@
 use std::net::{Ipv4Addr, SocketAddr};
 use std::process::ExitCode;
 
+use driver::attention::Mark;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Bytes;
 use hyper::{Method, Request, StatusCode, header};
 use hyper_util::rt::TokioIo;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use web::attention::{Attention, Line, Stuck};
 use web::works::{
-    Act, Added, Back, Call, CellState, Items, Limit, Maker, NewItem, NewWrite, Now, Pauser, Person, Refusal, Run,
-    Spent, Step, Waited, WorkPage, Writer,
+    Act, Added, Back, Call, CellState, Engine, EngineAct, Failure, Items, LevelSet, Limit, Maker, NewItem, NewLevel,
+    NewWrite, Now, Outage, Pauser, Person, Refusal, Run, SessionWhy, Spent, Step, Until, Waited, WorkPage, Writer,
 };
 
 /// What a command asks of the engine.
@@ -23,9 +25,26 @@ pub enum Asked {
     List,
     Show(u64),
     Act(u64, Act),
+    /// The owner's pause of everything set, or lifted.
+    Everything(EngineAct),
     /// A cancel, which says afterwards what the work is: cancelled, or ended otherwise before it could be.
     Cancel(u64),
+    /// An item put at another level.
+    SetLevel(u64, String),
+    /// What needs whoever plans the work since the mark, waiting for it at most this many seconds; with no time, as
+    /// long as it takes.
+    Wait {
+        since: Option<String>,
+        longest: Option<u64>,
+    },
 }
+
+/// How many seconds a request of `wait` with no time of its own is held open before it is asked again with the mark
+/// it was answered with: long enough to cost nothing, short enough that an engine gone unanswering is found out.
+const HOLD: u64 = 3600;
+
+/// The longest title a line of `wait` carries; the rest is cut.
+const TITLE: usize = 60;
 
 /// Asks the engine on the loopback address at this port, and prints what came of it.
 pub fn ask(port: u16, asked: Asked) -> ExitCode {
@@ -47,18 +66,44 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 ))
             }
             Asked::List => {
+                let engine: Engine = send(address, Method::GET, "/api/v1/engine", None::<&()>).await?;
                 let items: Items = send(address, Method::GET, "/api/v1/items", None::<&()>).await?;
-                Ok(list(&items))
+                Ok(format!("{}\n{}", standing(&engine), list(&items)))
+            }
+            Asked::Everything(act) => {
+                send::<(), _>(address, Method::POST, "/api/v1/engine/acts", Some(&act)).await?;
+                let engine: Engine = send(address, Method::GET, "/api/v1/engine", None::<&()>).await?;
+                Ok(standing(&engine))
             }
             Asked::Show(work) => {
                 let page: WorkPage = send(address, Method::GET, &format!("/api/v1/works/{work}"), None::<&()>).await?;
                 Ok(show(&page))
             }
             Asked::Act(work, act) => {
+                let resumed = act == Act::Resume {};
                 let done = done(work, &act);
                 let path = format!("/api/v1/works/{work}/acts");
                 send::<(), _>(address, Method::POST, &path, Some(&act)).await?;
-                Ok(done)
+                if !resumed {
+                    return Ok(done);
+                }
+                // A work let on that the pause of everything holds back is said to be held, not to go on.
+                let page: WorkPage = send(address, Method::GET, &format!("/api/v1/works/{work}"), None::<&()>).await?;
+                Ok(match page.summary.now {
+                    Now::Everything {} => format!(
+                        "Work {work} is let on, and held back by the pause of everything until `wf-agents resume --all`."
+                    ),
+                    _ => done,
+                })
+            }
+            Asked::SetLevel(item, level) => {
+                let path = format!("/api/v1/items/{item}/level");
+                let asked = NewLevel { level: level.clone() };
+                let set: LevelSet = send(address, Method::POST, &path, Some(&asked)).await?;
+                Ok(match set.changed {
+                    true => format!("Item {item} is at level {level}: its work's rounds run on it from now on."),
+                    false => format!("Item {item} was at level {level} already."),
+                })
             }
             Asked::Cancel(work) => {
                 let page = format!("/api/v1/works/{work}");
@@ -72,6 +117,28 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                     Now::Cancelled => Ok(format!("Work {work} is cancelled.")),
                     Now::Merged => Err(format!("Work {work} is not cancelled: it has merged.")),
                     now => Err(format!("Work {work} is not cancelled: it {}.", self::now(&now))),
+                }
+            }
+            Asked::Wait { since, longest } => {
+                let marked = since.is_some();
+                // Read here, so that a mark that is none is refused in its own words and never put in a path.
+                let mut since = (since.as_deref().map(Mark::read).transpose())
+                    .map_err(|unreadable| format!("{}.", unreadable.0))?;
+                loop {
+                    let mut path = format!("/api/v1/attention?wait={}", longest.unwrap_or(HOLD));
+                    if let Some(mark) = &since {
+                        path.push_str(&format!("&since={mark}"));
+                    }
+                    let answer: Attention = send(address, Method::GET, &path, None::<&()>).await?;
+                    if longest.is_some() || !answer.lines.is_empty() {
+                        break Ok(attention(&answer, marked, clock()));
+                    }
+                    since = Some(Mark::read(&answer.mark).map_err(|_| {
+                        format!(
+                            "The engine answered with a mark that cannot be read: {:?}.",
+                            answer.mark
+                        )
+                    })?);
                 }
             }
         }
@@ -89,9 +156,10 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
 }
 
 /// The new item, with what is written for it: each text, then each file's content, then each choice, in the order
-/// given. Each is `BLOCK=WHAT`.
+/// given. Each is `BLOCK=WHAT`. It is added paused.
 pub fn new_item(
     title: String,
+    level: Option<String>,
     flow: String,
     depends_on: Vec<u64>,
     texts: &[String],
@@ -126,6 +194,7 @@ pub fn new_item(
     }
     Ok(NewItem {
         title,
+        level,
         depends_on,
         flow,
         writes,
@@ -200,7 +269,18 @@ fn done(work: u64, act: &Act) -> String {
         Act::Resume {} => format!("Work {work} goes on."),
         Act::Cancel {} => format!("Work {work} is cancelled."),
         Act::Answer { call, .. } => format!("Call {call} of work {work} has its result."),
+        Act::NewSession { line } => format!("The line {line} of work {work} begins a new session at its next round."),
     }
+}
+
+/// The engine as a whole, in a line: whether everything is paused, and its slots.
+fn standing(engine: &Engine) -> String {
+    let paused = if engine.paused.is_some() {
+        "Every work is paused: none begins a round but to answer a note, until `wf-agents resume --all`"
+    } else {
+        "Works go on"
+    };
+    format!("{paused}; {} of {} slots taken.", engine.taken, engine.slots)
 }
 
 /// Every item, a line each, with what its work does now.
@@ -208,25 +288,28 @@ fn list(items: &Items) -> String {
     if items.items.is_empty() {
         return "No items.".to_string();
     }
-    let lines: Vec<String> = (items.items.iter())
-        .map(|item| {
-            let after = if item.depends_on.is_empty() {
-                String::new()
-            } else {
-                let on: Vec<String> = item.depends_on.iter().map(u64::to_string).collect();
-                format!(", after {}", on.join(", "))
-            };
-            let work = &item.work;
-            format!(
-                "Item {} \"{}\", work {} on {}{after}: {}",
-                item.number,
-                item.title,
-                work.number,
-                work.flow,
-                now(&work.now)
-            )
-        })
+    let mut lines: Vec<String> = (items.outage.iter())
+        .filter(|o| o.holds)
+        .map(|o| format!("No agent's round of any work begins: {}.", outage(o)))
         .collect();
+    lines.extend((items.items.iter()).map(|item| {
+        let after = if item.depends_on.is_empty() {
+            String::new()
+        } else {
+            let on: Vec<String> = item.depends_on.iter().map(u64::to_string).collect();
+            format!(", after {}", on.join(", "))
+        };
+        let work = &item.work;
+        format!(
+            "Item {} \"{}\" at {}, work {} on {}{after}: {}",
+            item.number,
+            item.title,
+            level(item.level.as_deref()),
+            work.number,
+            work.flow,
+            now(&work.now)
+        )
+    }));
     lines.join("\n")
 }
 
@@ -235,8 +318,12 @@ fn show(page: &WorkPage) -> String {
     let summary = &page.summary;
     let mut lines = vec![
         format!(
-            "Work {} of item {} \"{}\", on the flow {}.",
-            summary.number, summary.item, page.title, summary.flow
+            "Work {} of item {} \"{}\" at {}, on the flow {}.",
+            summary.number,
+            summary.item,
+            page.title,
+            level(page.level.as_deref()),
+            summary.flow
         ),
         format!("Now: {}.", now(&summary.now)),
         format!("Paused: {}.", if summary.paused { "yes" } else { "no" }),
@@ -311,15 +398,179 @@ fn show(page: &WorkPage) -> String {
             (Some(web::works::RunEnd::Finished { .. }), _) => "finished".to_string(),
             (Some(web::works::RunEnd::Abandoned { .. }), _) => "abandoned".to_string(),
         };
-        lines.push(format!("  run {} of {}: {rounds}{calls}, {end}", run.run, run.cell));
+        let last = run.rounds.iter().rev().find(|round| round.ended.is_some());
+        let context = last
+            .and_then(|round| round.context)
+            .map_or_else(String::new, |context| {
+                format!(", its last round ending with a context of {context} tokens")
+            });
+        let compactions: u32 = run.rounds.iter().map(|round| round.compactions).sum();
+        let compacted = match compactions {
+            0 => String::new(),
+            1 => ", its session compacted once".to_string(),
+            n => format!(", its session compacted {n} times"),
+        };
+        lines.push(format!(
+            "  run {} of {}: {rounds}{calls}{context}{compacted}, {end}",
+            run.run, run.cell
+        ));
+    }
+    let sessions: Vec<String> = (page.steps.iter())
+        .filter_map(|step| match step {
+            Step::Session { at, line, why, .. } => Some(format!("  {line} at {at}: {}", session_why(why))),
+            _ => None,
+        })
+        .collect();
+    if !sessions.is_empty() {
+        lines.push("Sessions:".to_string());
+        lines.extend(sessions);
     }
     lines.join("\n")
+}
+
+/// An item's level, in words.
+fn level(level: Option<&str>) -> String {
+    match level {
+        Some(level) => format!("level {level}"),
+        None => "no level".to_string(),
+    }
+}
+
+/// Why a session of a line began, as a clause.
+fn session_why(why: &SessionWhy) -> String {
+    match why {
+        SessionWhy::Limit { context, limit } => {
+            format!("a new one, its context having been {context} tokens, past the limit of {limit}")
+        }
+        SessionWhy::Model { was } => format!("a new one, its rounds running on another model than {was}"),
+        SessionWhy::Account => "a new one, its rounds running under another account".to_string(),
+        SessionWhy::Owner => "a new one, as the owner asked".to_string(),
+        SessionWhy::Flagged => "a new one, the service's safety check having flagged its last round".to_string(),
+        SessionWhy::Lost => "begun again, the agents' program having lost it".to_string(),
+    }
+}
+
+/// What needs the planner, a line each, then how many more there are, and how to ask again from here.
+fn attention(answer: &Attention, marked: bool, now: u64) -> String {
+    let mut lines = Vec::new();
+    if answer.lines.is_empty() {
+        lines.push(
+            if marked {
+                "Nothing for you since the mark."
+            } else {
+                "Nothing waits for you."
+            }
+            .to_string(),
+        );
+    }
+    for line in &answer.lines {
+        lines.push(heed(line, now));
+    }
+    if answer.left_out > 0 {
+        lines.push(format!("And {} more, given again from this mark.", answer.left_out));
+    }
+    lines.push(format!("Next: wf-agents wait --since {}", answer.mark));
+    lines.join("\n")
+}
+
+/// One thing for the planner: the item and its work, what it does, and since when.
+fn heed(line: &Line, now: u64) -> String {
+    let (of, said) = match line {
+        Line::Everything { since } => {
+            return format!(
+                "The owner paused everything: no work begins a round but to answer a person's words to its cell, for {}.",
+                duration(now.saturating_sub(*since))
+            );
+        }
+        Line::Agents { since, outage: o } => {
+            return format!(
+                "No agent's round of any work begins: {}, for {}.",
+                outage(o),
+                duration(now.saturating_sub(*since))
+            );
+        }
+        Line::Fault { of, since, now: is } | Line::ForAPerson { of, since, now: is } => (
+            of,
+            format!("{}, for {}", self::now(is), duration(now.saturating_sub(*since))),
+        ),
+        Line::Idle {
+            of,
+            since,
+            now: is,
+            items,
+        } => {
+            let at = match is {
+                Now::Waits { at, .. } => format!(" at {at}"),
+                _ => String::new(),
+            };
+            let numbers: Vec<String> = items.iter().map(|idle| idle.item.to_string()).collect();
+            let why: Vec<String> = (items.iter())
+                .map(|idle| format!("{} {}", idle.item, stuck(idle.why)))
+                .collect();
+            let (items, none) = match numbers.as_slice() {
+                [one] => (format!("item {one}"), "which is not going on"),
+                [rest @ .., last] => (
+                    format!("items {} and {last}", rest.join(", ")),
+                    "none of which is going on",
+                ),
+                [] => (String::new(), ""),
+            };
+            let waited = duration(now.saturating_sub(*since));
+            (
+                of,
+                format!("waits{at} for {items}, {none} ({}), for {waited}", why.join(", ")),
+            )
+        }
+        Line::Ended { of, since, now: is } => (
+            of,
+            format!("{}, {} ago", self::now(is), duration(now.saturating_sub(*since))),
+        ),
+    };
+    let title: String = if of.title.chars().count() > TITLE {
+        format!("{}…", of.title.chars().take(TITLE - 1).collect::<String>())
+    } else {
+        of.title.clone()
+    };
+    format!("Item {} \"{title}\", work {}: {said}.", of.item, of.work)
+}
+
+/// Why an item waited for is not going on, after its number.
+fn stuck(why: Stuck) -> &'static str {
+    match why {
+        Stuck::Paused => "paused",
+        Stuck::ForAPerson => "resting for a person",
+        Stuck::Idle => "waiting in turn for items none of which is going on",
+        Stuck::Cancelled => "cancelled",
+        Stuck::Fault => "unable to go on",
+    }
+}
+
+/// A duration in its two largest units, as the owner's page writes one: 2d 03h, 2h 05m, 3m 07s, 41s. Brought over from
+/// the reminders of the engine on `main` (`crates/engine/src/reminders.rs`).
+fn duration(ms: u64) -> String {
+    let s = ms / 1000;
+    let (d, h, m, sec) = (s / 86_400, s % 86_400 / 3_600, s % 3_600 / 60, s % 60);
+    if d > 0 {
+        format!("{d}d {h:02}h")
+    } else if h > 0 {
+        format!("{h}h {m:02}m")
+    } else if m > 0 {
+        format!("{m}m {sec:02}s")
+    } else {
+        format!("{sec}s")
+    }
+}
+
+/// The time now, in milliseconds since the start of 1970, to say how long ago what is given happened.
+fn clock() -> u64 {
+    (std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH))
+        .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(u64::MAX))
 }
 
 /// Why the run's last round failed, where it did: nothing came back of it.
 fn failure(run: &Run) -> Option<&str> {
     match &run.rounds.last()?.back {
-        Some(Back::Failed { why }) => Some(why),
+        Some(Back::Failed { why, .. }) => Some(why),
         _ => None,
     }
 }
@@ -344,6 +595,7 @@ fn now(now: &Now) -> String {
             by: Pauser::Engine,
             why: None,
         } => "paused by the engine, which gave no reason".to_string(),
+        Now::Everything {} => "held back by the pause of everything".to_string(),
         Now::Waits { at, on } => {
             let on: Vec<String> = on.iter().map(waited).collect();
             format!("waits at {at} for {}", on.join("; and for "))
@@ -368,7 +620,50 @@ fn waited(waited: &Waited) -> String {
         Waited::Limit { runs } => {
             format!("the owner to let it go on, its last {runs} runs having each been for what a cell after it wrote")
         }
+        Waited::Slot {} => "a free slot".to_string(),
+        Waited::Agents { outage: o } => format!("the agents' rounds to begin again: {}", outage(o)),
     }
+}
+
+/// A wait every work shares, as a clause: its cause, when it is over, and the round that met it.
+fn outage(outage: &Outage) -> String {
+    let cause = match outage.failure {
+        Failure::UsageLimit => "the account's usage limit was reached",
+        Failure::CannotRun => "the agents' command line cannot run; sign it in again or install it",
+        Failure::Offline => "the network cannot be reached",
+        _ => "a round failed for a cause every work shares",
+    };
+    let until = match outage.until {
+        Until::At { at } => format!("until {}", utc(at)),
+        Until::Trial { at, look: false, .. } => format!("one round tries at {}", utc(at)),
+        Until::Trial { at, latest, .. } => format!(
+            "the network is looked at from {} every half minute, and one round tries once it is reached, at the latest at {}",
+            utc(at),
+            utc(latest)
+        ),
+        Until::Tried => "one round tries now".to_string(),
+    };
+    format!(
+        "{cause}, {until} (round {} of run {} of work {}: {})",
+        outage.round, outage.run, outage.work, outage.why
+    )
+}
+
+/// A time in milliseconds since the start of 1970, as the owner reads it: its day and minute in UTC.
+fn utc(ms: u64) -> String {
+    let secs = (ms / 1000) as i64;
+    let (days, rest) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // The civil date of a day count from 1970-01-01, as Howard Hinnant's days_from_civil inverts it.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02} {:02}:{:02} UTC", rest / 3600, rest % 3600 / 60)
 }
 
 /// What a call is, as a clause.
@@ -382,6 +677,10 @@ fn called(call: &Call) -> String {
         Call::AtLimit {
             limit: Limit::Calls { made },
         } => format!("its run reached its limit, {made} calls having been made"),
+        Call::Wait { until, failed } => format!(
+            "the engine's wait until {}, before the round that failed in passing ({failed} in a row) is tried again",
+            utc(*until)
+        ),
     }
 }
 

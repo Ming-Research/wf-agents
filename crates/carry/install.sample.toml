@@ -9,8 +9,10 @@
 repo = "/path/to/the/repository"
 # The repository's main branch.
 main = "main"
-# A shell command run in a work's worktree, by the agents' tool `check` and, where the local repository is the host, by
-# the check before the merge; its exit with 0 means the work passes.
+# A shell command whose exit with 0 means the work passes. Where the local repository is the host, it is run in a
+# work's worktree by the check before the merge and by the agents' tool `check`, and by their `check_before` in a
+# worktree of its own holding the code before the change with the agent's tests. With [github] below, the CI is run
+# instead, and this command is not.
 check = "cargo test"
 # The acts refuse a repository whose own configuration could make git run a program (a filter, a merge driver, a
 # hooks directory, an included file and the like). A key the repository needs is allowed here, whole or as a beginning
@@ -20,14 +22,21 @@ check = "cargo test"
 [agents]
 # The command line program that runs an agent's round.
 command = "claude"
-# The model every round is run with.
-model = "claude-haiku-5-5"
 # How many agents' rounds run at once; the others wait their turn.
 slots = 2
 # What the program is given on every round after what the engine gives it.
 args = ["--permission-mode", "acceptEdits", "--tools", "Bash,Read,Edit,Write,Grep,Glob", "--strict-mcp-config", "--disable-slash-commands"]
+# The engine refuses every agent its heavy commands (builds, test suites, git push and the like) and lets an agent that
+# writes update a lock file with Cargo's and npm's commands that build nothing. Here the installation adds what its
+# toolchain counts as heavy, its own lock commands, which an agent that writes may run though a heavy command covers
+# them, and the uses of those that are refused all the same (`*` for any text). A lock command that a heavy command
+# falls under or that pushes, and a `*` or a parenthesis in a heavy or lock command, are refused. In `args`,
+# `--settings`, `--setting-sources`, `--permission-prompt-tool`, `--` and a last flag not known to take no value are
+# refused, since they would undo the engine's rules or take its own arguments after them.
+# permissions = { heavy = ["uv"], locks = ["uv lock"], locks_except = ["uv lock *--script*"] }
 # Which settings files the program reads, given as --setting-sources on every round. Left out, it is `user`, so that a
-# settings file the worktree holds, which an agent may write, is not read.
+# settings file the worktree holds, which an agent may write, is not read; `project` and `local`, which are such files,
+# are refused.
 # setting_sources = "user"
 # The program is given only these variables of the engine's environment: PATH, HOME, USER, LANG and LC_*, TMPDIR, TERM
 # and SHELL, and those named here, such as an API key.
@@ -41,11 +50,52 @@ owner_language = "Chinese"
 # the owner, who may let it on. Left out, there is no budget.
 work_budget_usd = 5.0
 
-# The repository on GitHub, where GitHub is the host: with this table, the check before a work's merge pushes the
-# work's branch to GitHub, opens its pull request into the main branch where it has none, and waits for the CI of the
-# pushed commit; the merge merges that pull request. Without it, the local repository is the host. The engine needs
-# `git` and `gh`, and its own token for GitHub in its environment: a fine-grained token for the one repository, with
-# Contents and Pull requests read and write, and Checks, Commit statuses and Actions read.
+# The levels of work, each a table named by the level: what work it is for and the model its rounds are run with, as
+# --model takes it. An item's level chooses the model of its agents' rounds; a line of the flow may run some levels
+# above its item's. The levels go in the order of their names, by number where they are numbers.
+[agents.levels.1]
+desc = "Easy work: small and clear, with little to work out"
+model = "claude-haiku-5-5"
+
+[agents.levels.2]
+desc = "Work of ordinary difficulty"
+model = "claude-sonnet-5-5"
+
+[agents.levels.3]
+desc = "Work level 2 cannot do: an item is raised to it only when that is really needed"
+model = "claude-opus-5-5"
+
+[agents.levels.4]
+desc = "The hardest work"
+model = "claude-fable-5-1"
+
+[items]
+# The level an item is added at where it is given none.
+default_level = "2"
+# The highest level an item may be at: an item above it is refused as it is added, and no line of the flow runs above
+# it. Left out, the top level.
+highest_level = "3"
+
+[sessions]
+# A line of a work keeps one session of the program from round to round. Once a round of the line ends with a context
+# of more tokens than this, the line's next round begins a new session; a line also begins one where the model or the
+# config_dir is no longer the one its session was begun with. Left out, it is 500000.
+context_limit = 500000
+
+# The repository on GitHub, where GitHub is the host: with this table, the check before a work's merge and the agents'
+# tool `check` push the work's branch to GitHub, open its pull request into the main branch where it has none, and
+# wait for the CI of the pushed commit; nothing is run on this machine. The agents' `check_before` pushes the code
+# before the change with the agent's tests to a branch `wf-agents-before/<the work's branch>-<commit>`, waits for its
+# CI and deletes the branch: the project's CI must run the checks named below on a push to those branches, and
+# `runs_on_before_branches` below must say it does. With [github.fast] below, a check that names tests or checks has
+# only those run, by the project's fast CI, and the check before the change runs the tests it names so. The merge
+# merges the work's pull request. Without this table, the
+# local repository is the host. The engine needs `git` and `gh`, and its own token for GitHub in its environment: a
+# fine-grained token for the one repository, with Contents and Pull requests read and write, Checks and Commit
+# statuses read, and Actions read, or read and write with [github.fast], whose workflow it runs by hand. The engine
+# itself never pushes a change to the project's workflow files; a work's commit that changes them is pushed only with
+# Workflows read and write (the `workflow` scope of a classic token), and without it GitHub refuses that push, which
+# the agent is told.
 # [github]
 # # The repository on github.com, as owner/name.
 # repository = "owner/name"
@@ -56,16 +106,40 @@ work_budget_usd = 5.0
 # # The checks of the CI that count, by the name of their check run (a job's name) or commit status; others do not.
 # checks = ["check"]
 # # A named check with no run on the pushed commit after this many minutes: the CI never started, and the check fails
-# # its round.
+# # its round, or the agents' tool says so.
 # start_minutes = 10
-# # The CI not complete after this many minutes is given up, and the check fails its round.
+# # The CI not complete after this many minutes is given up, and the check fails its round, or the agents' tool says
+# # so.
 # timeout_minutes = 120
 # # How a pull request is merged: squash, merge or rebase.
 # merge_method = "squash"
 # # Whether a work's branch on GitHub is deleted once it is merged.
 # delete_branch = false
+# # Whether the project's CI runs the named checks on a push to the branches under `wf-agents-before/`, which the
+# # agents' `check_before` pushes to; without it, that tool is refused before anything is pushed.
+# runs_on_before_branches = false
 # # The gh command line, or a path to it.
 # gh = "gh"
+# # The project's fast CI: a workflow run by hand, which runs only the tests and checks it is given on the commit it is
+# # given and uploads what became of each test as JUnit XML. Without it, an agent's check is the whole CI of its commit.
+# [github.fast]
+# # The workflow, by its file's name. It is always run by the file of it on the main branch, never by a work's own.
+# workflow = "fast.yml"
+# # The input that takes the commit to check out and test.
+# commit_input = "commit"
+# # The input that takes a value only that one request knows; the run's name (`run-name`) must hold it, by which the
+# # engine finds its run among the others.
+# call_input = "call"
+# # The input that takes the tests, each name followed by a line break.
+# tests_input = "tests"
+# # The input that takes the checks named, as a JSON array of the names of their jobs.
+# checks_input = "checks"
+# # The checks the workflow runs when named, each the name of its job.
+# named_checks = ["lint"]
+# # The artifact a run uploads its JUnit files in.
+# results = "test-results"
+# # What the project's test runners put between the parts of a test's name.
+# separators = ["::", " > "]
 
 # The copies of the engine's database. Every day while the engine runs, it copies the database whole into
 # `backups/` in the data directory and keeps the newest `keep` there. Without this table, that is all: the copies share

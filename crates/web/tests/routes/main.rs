@@ -4,13 +4,17 @@
 //! that a new test goes into the module of what it tests.
 
 mod acts;
+mod attention;
 mod changes;
 mod copies;
 mod definition;
 mod directories;
+mod engine;
 mod failing;
 mod items;
+mod other_sites;
 mod page;
+mod sessions;
 mod stopped;
 mod stream;
 mod told;
@@ -70,6 +74,7 @@ is = "yes"
 pub const PLAN: &str = r#"
 title = "Plan"
 kind = "agent"
+effort = "high"
 line = "engineer"
 task = "Write the plan from the request."
 inputs = ["request", "opinions"]
@@ -79,6 +84,7 @@ outputs = ["plan"]
 pub const REVIEW: &str = r#"
 title = "Review"
 kind = "agent"
+effort = "high"
 line = "engineer"
 task = """
 Review the plan.
@@ -248,9 +254,18 @@ pub fn running_carried(
     tokio::spawn(service.run(inbox));
     let flows = Flows::dirs(trial_dir().join("flow"), None, Box::new(trial_has));
     Running {
-        router: web::with_works(flows, handle),
+        router: web::with_works(flows, handle, levels()),
         _dir: dir,
     }
+}
+
+/// The levels an item is added at: `1` and `2`, the default, and `3`, above the highest an item may be at.
+pub fn levels() -> service::Levels {
+    let levels = [("1", "Easy work"), ("2", "Ordinary work"), ("3", "Hard work")].map(|(name, desc)| service::Level {
+        name: name.to_string(),
+        desc: desc.to_string(),
+    });
+    service::Levels::new(levels, "2", Some("2")).expect("the levels are made")
 }
 
 /// The answer to a POST of this JSON: its status, and its body as JSON, or null where it has none.
@@ -290,7 +305,7 @@ pub async fn pass(ms: u64) {
     tokio::time::sleep(Duration::from_millis(ms)).await;
 }
 
-/// The trial item, added at the start and let on a second later: by 2.5 seconds its plan has asked the owner its
+/// The trial item, added held at the start and let on a second later: by 2.5 seconds its plan has asked the owner its
 /// question (call 2), and the work waits for the answer.
 pub async fn greeted(router: &Router) {
     let item = json!({

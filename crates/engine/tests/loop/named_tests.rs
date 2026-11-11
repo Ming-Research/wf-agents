@@ -24,9 +24,9 @@ fn forked() -> Compiled {
         reads = ["choice"]
         is = "yes"
     "#;
-    let ask = "title = \"Ask\"\nkind = \"agent\"\nline = \"main\"\ntask = \"Ask whether more is wanted.\"\n\
+    let ask = "title = \"Ask\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Ask whether more is wanted.\"\n\
                inputs = [\"request\"]\noutputs = [\"choice\"]\n";
-    let extra = "title = \"Extra\"\nkind = \"agent\"\nline = \"main\"\ntask = \"Write the notes.\"\n\
+    let extra = "title = \"Extra\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write the notes.\"\n\
                  when = { test = \"more\" }\ninputs = [\"request\"]\noutputs = [\"notes\"]\n";
     let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"notes\"]\n";
     let source = Source {

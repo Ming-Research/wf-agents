@@ -31,7 +31,9 @@ import {
   isWayRound,
   runState,
   runTook,
+  sessionWords,
   spentWords,
+  tokens,
   tokensWords,
   unmetWords,
   writerWords,
@@ -52,7 +54,6 @@ export interface PanelProps {
   page: WorkPage;
   reader: Reader;
   fold: Fold;
-  foot: ReactNode;
   onChoose: (chosen: Chosen) => void;
 }
 
@@ -209,6 +210,15 @@ function RoundPart({ run, round, reader }: { run: Run; round: Round; reader: Rea
             </dd>
           </>
         )}
+        {round.context !== null && (
+          <>
+            <dt>Context</dt>
+            <dd>
+              {tokens(round.context)} tokens at its end
+              {round.compactions > 0 && `, the session compacted ${round.compactions === 1 ? 'once' : `${round.compactions} times`}`}
+            </dd>
+          </>
+        )}
       </dl>
       <RoundTold
         load={() => reader.told(run.run, round.number, round.ended !== null)}
@@ -231,7 +241,7 @@ function MeaningWord({ page, block, at }: { page: WorkPage; block: string; at: n
 }
 
 /// Everything about a run.
-export function RunPanel({ run, page, reader, fold, foot }: PanelProps & { run: Run }) {
+export function RunPanel({ run, page, reader, fold }: PanelProps & { run: Run }) {
   const state = runState(run);
   const cell = page.flow.cells.find((c) => c.id === run.cell);
   const now = Date.now();
@@ -257,7 +267,6 @@ export function RunPanel({ run, page, reader, fold, foot }: PanelProps & { run: 
           )}
         </>
       }
-      foot={foot}
       {...fold}
     >
       <PanelPart label="Why it ran" count={run.because.length}>
@@ -350,7 +359,7 @@ export function readersWords(flow: Flow, block: string): string {
 }
 
 /// A write by a person, the outside or a run, as a step of its own.
-export function WritePanel({ step, page, reader, fold, foot }: PanelProps & { step: Step & { kind: 'wrote' } }) {
+export function WritePanel({ step, page, reader, fold }: PanelProps & { step: Step & { kind: 'wrote' } }) {
   const version = page.blocks.find((b) => b.name === step.block)?.versions.find((v) => v.at === step.at);
   return (
     <Panel
@@ -377,7 +386,6 @@ export function WritePanel({ step, page, reader, fold, foot }: PanelProps & { st
           )}
         </>
       }
-      foot={foot}
       {...fold}
     >
       <PanelPart label="Who reads it" last>
@@ -393,12 +401,13 @@ export function WritePanel({ step, page, reader, fold, foot }: PanelProps & { st
 const ACT_WORDS = {
   letGo: 'Let go on',
   paused: 'Paused',
-  resumed: 'Let on',
+  resumed: 'Started',
   cancelled: 'Cancelled',
+  session: 'A session',
 } as const;
 
 /// An act on the work: a let-go, a pause, a let-on or a cancel of the owner's, or a pause of the engine's.
-export function ActPanel({ step, fold, foot }: PanelProps & { step: Step & { kind: keyof typeof ACT_WORDS } }) {
+export function ActPanel({ step, fold }: PanelProps & { step: Step & { kind: keyof typeof ACT_WORDS } }) {
   const what = {
     letGo: step.kind === 'letGo' ? `The owner let ${step.cell} go on past its limit of ways round, and its count started anew` : '',
     paused:
@@ -407,6 +416,10 @@ export function ActPanel({ step, fold, foot }: PanelProps & { step: Step & { kin
         : 'The owner paused the work: only a note to a cell is answered, and a round under way goes on',
     resumed: 'The owner let the work on: its rounds begin again',
     cancelled: 'The owner cancelled the work: its round under way was stopped, its calls withdrawn, and its runs abandoned',
+    session:
+      step.kind === 'session'
+        ? `The line ${step.line} began a session, ${sessionWords(step.why)}: its rounds from here on run in it`
+        : '',
   }[step.kind];
   return (
     <Panel
@@ -416,6 +429,8 @@ export function ActPanel({ step, fold, foot }: PanelProps & { step: Step & { kin
       belongs={
         step.kind === 'letGo' ? (
           <span className="mono">{step.cell}</span>
+        ) : step.kind === 'session' ? (
+          <span className="line-name">{step.line}</span>
         ) : step.kind === 'paused' && step.by === 'engine' ? (
           'the work, by the engine'
         ) : (
@@ -423,7 +438,6 @@ export function ActPanel({ step, fold, foot }: PanelProps & { step: Step & { kin
         )
       }
       lines={<StatusLine word="When">{fullTime(step.time)}</StatusLine>}
-      foot={foot}
       {...fold}
     >
       <p>{what}</p>
@@ -432,7 +446,7 @@ export function ActPanel({ step, fold, foot }: PanelProps & { step: Step & { kin
 }
 
 /// Everything about a cell of the work: how it stands, why it would run, and what its record knows.
-export function WorkCellPanel({ cell, page, fold, foot, onChoose }: PanelProps & { cell: string }) {
+export function WorkCellPanel({ cell, page, fold, onChoose }: PanelProps & { cell: string }) {
   const flowCell = page.flow.cells.find((c) => c.id === cell);
   const now = page.summary.cells.find((c) => c.cell === cell);
   const detail = page.cells.find((c) => c.cell === cell);
@@ -466,7 +480,6 @@ export function WorkCellPanel({ cell, page, fold, foot, onChoose }: PanelProps &
           </>
         )
       }
-      foot={foot}
       {...fold}
     >
       <PanelPart label="Why it would run" count={detail?.needs.length ?? 0} last>
@@ -534,7 +547,7 @@ function BlockVersions({ block, reader }: { block: Block; reader: Reader }) {
 }
 
 /// With nothing chosen: every block that has versions.
-export function BlocksPanel({ page, reader, fold, foot }: PanelProps) {
+export function BlocksPanel({ page, reader, fold }: PanelProps) {
   return (
     <Panel
       label="Blocks"
@@ -545,7 +558,6 @@ export function BlocksPanel({ page, reader, fold, foot }: PanelProps) {
           with versions; choose a step or a cell's head to see it here
         </StatusLine>
       }
-      foot={foot}
       {...fold}
     >
       {page.blocks.length === 0 && <p className="muted">No block has a version yet</p>}

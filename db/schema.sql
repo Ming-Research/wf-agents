@@ -1,6 +1,3 @@
--- Version 2 of the store's schema, as databases were made with it before the copies of the database were recorded: the
--- tests make a database of it, to be migrated as it is opened. It is not to change.
-
 -- The store: the items, the works done for them, and everything kept of each work.
 --
 -- Every table is only inserted into. An entry of a work's records is keyed by the work and by its place in the order
@@ -18,11 +15,23 @@ CREATE TABLE schema_version (
     version INTEGER PRIMARY KEY
 );
 
--- An item: a thing to be done. Its number is given by the store, counting from one.
+-- An item: a thing to be done. Its number is given by the store, counting from one. Its level is the name of the level
+-- of the installation it was given as it was added; null for an item kept before items had levels.
 CREATE TABLE items (
     number INTEGER PRIMARY KEY,
     title TEXT NOT NULL,
-    added INTEGER NOT NULL
+    added INTEGER NOT NULL,
+    level TEXT
+);
+
+-- An item was put at another level by the owner, its nth change counting from one, at this time. Its level is that of
+-- its latest change, or the one it was added at where it has none.
+CREATE TABLE level_changes (
+    item INTEGER NOT NULL REFERENCES items (number),
+    n INTEGER NOT NULL,
+    level TEXT NOT NULL,
+    at INTEGER NOT NULL,
+    PRIMARY KEY (item, n)
 );
 
 -- An item depends on another, added before it.
@@ -173,6 +182,22 @@ CREATE TABLE cancelled (
     at INTEGER NOT NULL
 );
 
+-- The owner paused every work (1) or lifted that pause (0), at `time`, `n` counting from one: the latest row says
+-- whether the pause holds, and none that it does not. While it holds no work begins a round but those of a run that
+-- answers a note, as the work's own pause holds them back. It is the installation's, not a work's.
+CREATE TABLE everything_paused (
+    n INTEGER PRIMARY KEY,
+    paused INTEGER NOT NULL CHECK (paused IN (0, 1)),
+    time INTEGER NOT NULL
+);
+
+-- What the work held outside the engine was let go, once it had ended and nothing of it was under way: one row for a
+-- work that did.
+CREATE TABLE released (
+    work INTEGER PRIMARY KEY REFERENCES works (number),
+    at INTEGER NOT NULL
+);
+
 -- The content of a version of a block, the version named by the place of the entry that wrote it.
 CREATE TABLE contents (
     work INTEGER NOT NULL REFERENCES works (number),
@@ -221,8 +246,8 @@ CREATE TABLE results (
     FOREIGN KEY (work, call) REFERENCES called (work, call)
 );
 
--- What a round of a run that ended took, the first round being one: its cost in millionths of a dollar, and its
--- tokens.
+-- What a round of a run that ended took, the first round being one: its cost in millionths of a dollar, its tokens,
+-- the context it ended with in tokens (NULL where it is not known), and how often its session was compacted.
 CREATE TABLE spent (
     work INTEGER NOT NULL,
     run INTEGER NOT NULL,
@@ -231,7 +256,35 @@ CREATE TABLE spent (
     input_tokens INTEGER NOT NULL,
     cached_tokens INTEGER NOT NULL,
     output_tokens INTEGER NOT NULL,
+    context_tokens INTEGER,
+    compactions INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (work, run, round),
+    FOREIGN KEY (work, run) REFERENCES started (work, run)
+);
+
+-- A new session of a line of the work began, or begins with the line's next round, and why (JSON).
+CREATE TABLE sessions (
+    work INTEGER NOT NULL REFERENCES works (number),
+    at INTEGER NOT NULL,
+    line TEXT NOT NULL,
+    why TEXT NOT NULL,
+    PRIMARY KEY (work, at)
+);
+
+-- A try of a round of a run began, the round's first being one and the try's first in its round being one, on this
+-- level, model, reasoning effort (NULL where the program ran at its own) and account (NULL where it ran with its own
+-- default directory).
+CREATE TABLE ran (
+    work INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    run INTEGER NOT NULL,
+    round INTEGER NOT NULL,
+    attempt INTEGER NOT NULL,
+    level TEXT NOT NULL,
+    model TEXT NOT NULL,
+    effort TEXT,
+    account TEXT,
+    PRIMARY KEY (work, at),
     FOREIGN KEY (work, run) REFERENCES started (work, run)
 );
 
@@ -241,4 +294,36 @@ CREATE TABLE moments (
     place INTEGER NOT NULL,
     time INTEGER NOT NULL,
     PRIMARY KEY (work, place)
+);
+
+-- A copy of the database was taken, under this name, at `taken`. `seq` is the order the copies were recorded in, which
+-- a clock that jumped cannot change: the copies kept are the newest by it. A copy belongs to no work.
+CREATE TABLE backups (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    taken INTEGER NOT NULL
+);
+
+-- The copy of this name was uploaded off the machine, at `at`.
+CREATE TABLE backup_uploads (
+    name TEXT PRIMARY KEY REFERENCES backups (name),
+    at INTEGER NOT NULL
+);
+
+-- A step of keeping a copy failed at `at`, for this reason: `step` says which (`snapshot`, `private`, `upload` or
+-- `prune`), and `name` the copy it was about. `seq` is the order the failures were recorded in.
+CREATE TABLE backup_failures (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    at INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    step TEXT NOT NULL,
+    why TEXT NOT NULL
+);
+
+-- A step of keeping the copies ended at `at` with nothing failing, and so mended the failures up to the one numbered
+-- `mended`, the newest recorded when it ended. A failure is mended by the order they were recorded in, not by the
+-- time, which a clock that jumped makes wrong. It is kept only when there was a failure to mend.
+CREATE TABLE backup_steps (
+    mended INTEGER PRIMARY KEY REFERENCES backup_failures (seq),
+    at INTEGER NOT NULL
 );

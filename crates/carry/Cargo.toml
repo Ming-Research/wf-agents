@@ -8,9 +8,14 @@ publish.workspace = true
 repository.workspace = true
 
 [dependencies]
+# The place off the machine the copies of the database go to is asked with `gh` as the host is, so it is made here.
+backup = { path = "../backup" }
 decide = { path = "../decide" }
+driver = { path = "../driver" }
 engine = { path = "../engine" }
 flow = { path = "../flow" }
+# The JUnit XML a fast CI reports its tests' results in.
+roxmltree = "0.21.1"
 serde.workspace = true
 serde_json.workspace = true
 service = { path = "../service" }
@@ -21,7 +26,6 @@ uuid.workspace = true
 work = { path = "../work" }
 
 [dev-dependencies]
-driver = { path = "../driver" }
 tempfile.workspace = true
 tokio = { version = "1.53.1", features = ["fs", "io-util", "macros", "process", "rt", "rt-multi-thread", "sync", "time"] }
 

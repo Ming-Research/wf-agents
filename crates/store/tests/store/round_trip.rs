@@ -34,6 +34,19 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
         "no pause of the owner's"
     );
 
+    assert_eq!(w.sessions.len(), 2, "the sessions begun");
+    assert_eq!(w.ran.len(), 2, "the tries and what they ran on");
+    assert!(
+        w.spent
+            .values()
+            .any(|s| s.context_tokens.is_some() && s.compactions > 0),
+        "no context kept"
+    );
+    assert!(
+        w.spent.values().any(|s| s.context_tokens.is_none()),
+        "no round of no known context"
+    );
+
     let calls: Vec<&Call> = w.calls.values().collect();
     let kinds = [
         calls.iter().any(|c| matches!(c, Call::Asked(Ask::Tool { .. }))),

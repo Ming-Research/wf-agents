@@ -9,6 +9,7 @@ mod cancelling;
 mod ending;
 mod events;
 mod failing;
+mod failing_kinds;
 mod given;
 mod limits;
 mod must_write;
@@ -18,6 +19,8 @@ mod pausing;
 mod pending;
 mod rebuilt;
 mod refused;
+mod room;
+mod sessions;
 mod times;
 
 use std::collections::BTreeMap;
@@ -71,6 +74,7 @@ fn judged_source() -> Source {
     let write = r#"
         title = "Write"
         kind = "agent"
+        effort = "high"
         line = "main"
         task = "Write the text the request asks for."
         inputs = ["request", "opinions", "main"]
@@ -79,6 +83,7 @@ fn judged_source() -> Source {
     let judge = r#"
         title = "Judge"
         kind = "agent"
+        effort = "high"
         line = "other"
         task = "Judge the text, and give a verdict."
         inputs = ["text"]
@@ -212,6 +217,7 @@ fn spent(n: u64) -> Spent {
         input_tokens: 10 * n,
         cached_tokens: 100 * n,
         output_tokens: 1000 * n,
+        ..Default::default()
     }
 }
 

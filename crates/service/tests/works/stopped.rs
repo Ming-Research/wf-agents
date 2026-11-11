@@ -24,12 +24,17 @@ impl Storage for Failing {
     fn add(
         &mut self,
         title: &str,
+        level: &str,
         depends_on: &[ItemNumber],
         flow: &str,
         at: Time,
         first: &Work,
     ) -> Result<(ItemNumber, WorkNumber), store::Fault> {
-        self.store.add(title, depends_on, flow, at, first)
+        self.store.add(title, level, depends_on, flow, at, first)
+    }
+
+    fn set_level(&mut self, item: ItemNumber, level: &str, at: Time) -> Result<(), store::Fault> {
+        self.store.set_level(item, level, at)
     }
 
     fn items(&self) -> Result<Vec<Item>, store::Fault> {
@@ -42,6 +47,14 @@ impl Storage for Failing {
 
     fn load(&self, work: WorkNumber) -> Result<Work, store::Fault> {
         self.store.load(work)
+    }
+
+    fn everything_paused(&self) -> Result<Option<Time>, store::Fault> {
+        self.store.everything_paused()
+    }
+
+    fn pause_everything(&mut self, paused: bool, at: Time) -> Result<(), store::Fault> {
+        self.store.pause_everything(paused, at)
     }
 
     fn save(&mut self, work: WorkNumber, given: &Work) -> Result<(), store::Fault> {

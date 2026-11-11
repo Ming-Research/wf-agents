@@ -15,7 +15,7 @@ Every effect the engine causes is recorded under a key of what it is about and t
 Why: An engine that must not stop between two steps needs every such pair found and guarded, and a pair missed would repeat a notice, a branch or a merge. (principles keep-what-was-paid-for and no-unseen-spending-loop)
 
 ### principle simulated-histories
-The engine is kept right by simulated histories run at every change: agents whose returns are drawn from all the flow allows, an owner who confirms, refuses, comments, pauses and cancels at any moment, an engine stopped at any step and a flow changed midway. After every step the properties the engine must always keep are checked, each of them written as a decision of the tree. A fault found any other way is added as a history that shows it.
+The engine is kept right by simulated histories run at every change: agents whose returns are drawn from all the flow allows, an owner who confirms, refuses, comments, pauses and cancels at any moment, an engine stopped at any step and a flow changed midway. After every step the properties the engine must always keep are checked. A fault found any other way is added as a history that shows it.
 Why: An example tests the way its writer thought of. The two defects a review confirmed were in ways no scenario had been written for: a cell that asked for a tool after being sent back, and a work that went to design after it had implemented. (principle flow-tests-formal)
 
 ### principle dependencies-one-way

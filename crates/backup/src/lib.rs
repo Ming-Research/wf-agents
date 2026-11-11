@@ -2,15 +2,18 @@
 //!
 //! A copy is the whole store as one snapshot, compressed, named by the time it was taken. The store records that a
 //! copy was taken and, separately, that it was uploaded to a place off the machine ([`Offsite`]), and what failed. A
-//! [`step`] works out from those records and the files what is left to do, and does it: it takes a copy when none was
-//! taken in the last day, uploads each copy kept that was not uploaded, and removes the copies past keeping. Each part
-//! can be done again, so a step that is stopped at any point is finished by the next one, with no copy taken twice and
-//! none left out. [`keep`] runs a step each hour; [`report`] says how the copies stand, from the records alone.
+//! [`step`] works out from those records and the files ([`Ground`]) what is left to do, and does it: it takes a copy
+//! when none was taken in the last day, uploads each copy kept that was not uploaded, and removes the copies past
+//! keeping. Each part can be done again, so a step that is stopped at any point is finished by the next one, with no
+//! copy taken twice and none left out. [`keep`] runs a step each hour; [`report`] says how the copies stand, from the
+//! records alone.
 //!
-//! - `snapshot`: one copy, whole under its name or not there.
-//! - `offsite`: the place off the machine, the real one on GitHub.
+//! - `snapshot`: one copy, made whole in a file that is not yet the copy.
+//! - `ground`: the records and the files a step stands on, the real one and the seam a test stops a step at.
+//! - `offsite`: the place off the machine, the real one on GitHub being in the crate `carry`.
 //! - `state`: how the copies stand.
 
+mod ground;
 mod offsite;
 mod snapshot;
 mod state;
@@ -19,14 +22,14 @@ mod state;
 mod tests;
 
 use std::future::Future;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::path::PathBuf;
 use std::time::Duration;
 
-use store::{Backups, Records};
+use store::Records;
 use work::Time;
 
-pub use offsite::{Gh, Offsite, RELEASE};
+pub use ground::{Disk, Fail, Ground};
+pub use offsite::{Nowhere, Offsite, RELEASE};
 pub use state::{Report, Shown, State, report};
 
 /// How long a copy is the day's: a copy is taken when none was taken in this many milliseconds.
@@ -60,163 +63,158 @@ pub struct Outcome {
     pub removed: Vec<String>,
     /// The step that failed and why, where one did: the step ended there.
     pub failed: Option<(String, String)>,
-    /// Whether it was stopped where it was, as a test does.
+    /// Whether it was stopped where it was, as a test does: a stop is no failure, and nothing records it.
     pub stopped: bool,
 }
 
-/// What a step works on.
+/// What a step works on: the store's file, the directory of the copies, how many are kept, and the place off the machine.
 #[derive(Clone)]
-pub struct Plan {
+pub struct Plan<O> {
     /// The store's file.
     pub store: PathBuf,
     /// The directory the copies are kept in on the machine.
     pub dir: PathBuf,
     /// How many copies are kept, the newest.
     pub keep: usize,
-    /// The place off the machine; none where the copies are kept on the machine alone.
-    pub offsite: Option<Arc<dyn Offsite>>,
+    /// The place off the machine; none where the copies are kept on the machine alone. Such a plan is typed with
+    /// [`Nowhere`], which is never asked.
+    pub offsite: Option<O>,
 }
 
-impl Plan {
+impl<O> Plan<O> {
     /// Whether a place off the machine is given.
     pub fn configured(&self) -> bool {
         self.offsite.is_some()
     }
+}
 
-    /// One step at `now`.
-    pub fn step(&self, now: Time) -> Outcome {
-        match Backups::open(&self.store) {
-            Ok(records) => step_with(now, &records, self, &mut || false),
-            Err(e) => Outcome {
-                failed: Some(("records".to_string(), format!("{}: {e:?}", self.store.display()))),
-                ..Outcome::default()
-            },
-        }
+/// Why a step ended where it did, other than whole.
+enum Halt {
+    /// The process was stopped here, as a test makes it.
+    Stopped,
+    /// A step failed, about this copy; `record` where the failure can be written down.
+    Failed {
+        name: String,
+        step: &'static str,
+        why: String,
+        record: bool,
+    },
+}
+
+/// What a failure of the ground in this step, about this copy, ends the step as.
+fn ending(name: &str, step: &'static str) -> impl FnOnce(Fail) -> Halt {
+    let name = name.to_string();
+    move |fail| match fail {
+        Fail::Stopped => Halt::Stopped,
+        Fail::Why(why) => Halt::Failed {
+            name,
+            step,
+            why,
+            record: true,
+        },
     }
 }
 
-/// Records a failure of a step, and gives it as the step's end.
-fn fail(out: &mut Outcome, records: &Backups, now: Time, name: &str, step: &str, why: String) {
-    // A failure that cannot be recorded is still the step's end, and is said by the one who runs it.
-    let _ = records.failed(now, name, step, &why);
-    out.failed = Some((step.to_string(), why));
+/// What a failure to read or write the records themselves ends the step as: it cannot be written down.
+fn unrecorded(fail: Fail) -> Halt {
+    match fail {
+        Fail::Stopped => Halt::Stopped,
+        Fail::Why(why) => Halt::Failed {
+            name: "-".to_string(),
+            step: "records",
+            why,
+            record: false,
+        },
+    }
 }
 
-/// One step at `now`: works out from the records and the files what is to be done, and does it. `halt` is asked after
-/// each thing done that leaves a mark, and where it answers true the step ends there, as if the process had stopped.
-pub fn step_with(now: Time, records: &Backups, plan: &Plan, halt: &mut dyn FnMut() -> bool) -> Outcome {
+/// What a failure of the place off the machine in this step, about this copy, ends the step as.
+fn refused(name: &str, step: &'static str, why: String) -> Halt {
+    Halt::Failed {
+        name: name.to_string(),
+        step,
+        why,
+        record: true,
+    }
+}
+
+/// One step at `now`: works out from the records and the files what is to be done, and does it. It ends at the first
+/// failure, which it records, or at a stop; the next step goes on from the records and the files, which is all it has.
+pub async fn step<O: Offsite>(now: Time, ground: &dyn Ground, plan: &Plan<O>) -> Outcome {
     let mut out = Outcome::default();
-    let dir = plan.dir.as_path();
+    match work(now, ground, plan, &mut out).await {
+        Ok(()) => {}
+        Err(Halt::Stopped) => out.stopped = true,
+        Err(Halt::Failed {
+            name,
+            step,
+            why,
+            record,
+        }) => {
+            // A failure that cannot be written down is still the step's end, and is said by the one who runs it.
+            if record && ground.failed(now, &name, step, &why) == Err(Fail::Stopped) {
+                out.stopped = true;
+            } else {
+                out.failed = Some((step.to_string(), why));
+            }
+        }
+    }
+    out
+}
+
+async fn work<O: Offsite>(now: Time, ground: &dyn Ground, plan: &Plan<O>, out: &mut Outcome) -> Result<(), Halt> {
     // Files not whole are the leavings of a stop in the middle of a copy.
-    if let Err(why) = clear_partial(dir) {
-        fail(&mut out, records, now, "-", "snapshot", why);
-        return out;
-    }
-    if halt() {
-        out.stopped = true;
-        return out;
-    }
-    let mut seen = match records.records() {
-        Ok(seen) => seen,
-        Err(e) => {
-            out.failed = Some(("records".to_string(), format!("{e:?}")));
-            return out;
-        }
-    };
+    ground.clear_partial().map_err(ending("-", "snapshot"))?;
+    let mut seen = ground.records().map_err(unrecorded)?;
     // A file whole under its name with no record is the leaving of a stop between the rename and the record.
-    if let Err(why) = adopt(dir, records, &seen) {
-        fail(&mut out, records, now, "-", "snapshot", why);
-        return out;
-    }
-    if halt() {
-        out.stopped = true;
-        return out;
-    }
-    seen = match records.records() {
-        Ok(seen) => seen,
-        Err(e) => {
-            out.failed = Some(("records".to_string(), format!("{e:?}")));
-            return out;
-        }
-    };
+    adopt(ground, &seen)?;
+    seen = ground.records().map_err(unrecorded)?;
     // A copy of the last day, by the clock now: one taken later than a day from now is not the clock's to trust.
     let today = seen
         .copies
         .iter()
         .any(|k| k.taken.0.saturating_add(PERIOD) > now.0 && k.taken.0 <= now.0.saturating_add(PERIOD));
     if !today {
-        match snapshot::take(&plan.store, dir, now, halt) {
-            Ok(Some(name)) => {
-                if let Err(e) = records.taken(&name, now) {
-                    fail(&mut out, records, now, &name, "snapshot", format!("{e:?}"));
-                    return out;
-                }
-                out.taken = Some(name);
-                if halt() {
-                    out.stopped = true;
-                    return out;
-                }
-            }
-            Ok(None) => {
-                out.stopped = true;
-                return out;
-            }
-            Err(why) => {
-                fail(&mut out, records, now, &crate::name_at(now), "snapshot", why);
-                return out;
-            }
+        let name = name_at(now);
+        let (database, dir) = (plan.store.clone(), plan.dir.clone());
+        let made = tokio::task::spawn_blocking(move || snapshot::take(&database, &dir, now)).await;
+        match made {
+            Ok(Ok(_)) => {}
+            Ok(Err(why)) => return Err(refused(&name, "snapshot", why)),
+            Err(e) => return Err(refused(&name, "snapshot", format!("the copy did not end: {e}"))),
         }
-        seen = match records.records() {
-            Ok(seen) => seen,
-            Err(e) => {
-                out.failed = Some(("records".to_string(), format!("{e:?}")));
-                return out;
-            }
-        };
+        ground.finish(&name).map_err(ending(&name, "snapshot"))?;
+        ground.taken(&name, now).map_err(ending(&name, "snapshot"))?;
+        out.taken = Some(name);
+        seen = ground.records().map_err(unrecorded)?;
     }
-    let kept = state::kept(&seen, plan.keep);
     if let Some(offsite) = &plan.offsite {
-        for copy in kept.iter().filter(|k| !seen.uploads.contains_key(&k.name)) {
-            match offsite.private() {
+        // Whether a copy is to be uploaded is read from the records, never taken from having just made it.
+        for copy in state::kept(&seen, plan.keep)
+            .iter()
+            .filter(|k| !seen.uploads.contains_key(&k.name))
+        {
+            match offsite.private().await {
                 Ok(true) => {}
                 Ok(false) => {
                     let why = "the repository the copies go to is not private".to_string();
-                    fail(&mut out, records, now, &copy.name, "private", why);
-                    return out;
+                    return Err(refused(&copy.name, "private", why));
                 }
-                Err(why) => {
-                    fail(&mut out, records, now, &copy.name, "private", why);
-                    return out;
-                }
+                Err(why) => return Err(refused(&copy.name, "private", why)),
             }
             // An asset of its name there already is the leaving of a stop between the upload and its record.
-            let there = match offsite.list() {
+            let there = match offsite.list().await {
                 Ok(listed) => listed.contains(&copy.name),
-                Err(why) => {
-                    fail(&mut out, records, now, &copy.name, "upload", why);
-                    return out;
-                }
+                Err(why) => return Err(refused(&copy.name, "upload", why)),
             };
-            if !there && let Err(why) = offsite.upload(&dir.join(&copy.name)) {
-                fail(&mut out, records, now, &copy.name, "upload", why);
-                return out;
+            if !there && let Err(why) = offsite.upload(&ground.path(&copy.name)).await {
+                return Err(refused(&copy.name, "upload", why));
             }
-            if halt() {
-                out.stopped = true;
-                return out;
-            }
-            if let Err(e) = records.uploaded(&copy.name, now) {
-                fail(&mut out, records, now, &copy.name, "upload", format!("{e:?}"));
-                return out;
-            }
+            ground.uploaded(&copy.name, now).map_err(ending(&copy.name, "upload"))?;
             out.uploaded.push(copy.name.clone());
-            if halt() {
-                out.stopped = true;
-                return out;
-            }
         }
     }
-    prune(now, records, plan, &seen, &mut out, halt);
+    prune(ground, plan, &seen, out).await?;
     // A step that ends with nothing failing mends the failures before it; it is recorded only when there is one.
     // What is before it is told by the order of recording, not by time, which a clock that jumped makes wrong.
     let to_mend = seen
@@ -224,58 +222,28 @@ pub fn step_with(now: Time, records: &Backups, plan: &Plan, halt: &mut dyn FnMut
         .last()
         .filter(|f| seen.mended.is_none_or(|mended| f.seq > mended))
         .map(|f| f.seq);
-    if out.failed.is_none()
-        && !out.stopped
-        && let Some(seq) = to_mend
-        && let Err(e) = records.ended(now, seq)
-    {
-        out.failed = Some(("records".to_string(), format!("{e:?}")));
-    }
-    out
-}
-
-/// Removes the files ending as a copy not whole does.
-fn clear_partial(dir: &Path) -> Result<(), String> {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return Ok(());
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.extension().is_some_and(|e| e == "partial") {
-            std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        }
+    if let Some(seq) = to_mend {
+        ground.ended(now, seq).map_err(unrecorded)?;
     }
     Ok(())
-}
-
-/// The copies in `dir` under the engine's names, by time.
-fn files(dir: &Path) -> Vec<(String, Time)> {
-    let mut found: Vec<(String, Time)> = std::fs::read_dir(dir)
-        .map(|entries| {
-            entries
-                .flatten()
-                .filter_map(|e| e.file_name().to_str().map(str::to_string))
-                .filter_map(|name| time_in(&name).map(|t| (name, t)))
-                .collect()
-        })
-        .unwrap_or_default();
-    found.sort();
-    found
 }
 
 /// Records a copy whole under its name that the records do not hold, when it is later than the newest the records
 /// hold, and removes it when it is not: an old one cannot be the leaving of the last stop, and recorded as the newest
 /// it would push a copy that was kept out of the copies kept.
-fn adopt(dir: &Path, records: &Backups, seen: &Records) -> Result<(), String> {
+fn adopt(ground: &dyn Ground, seen: &Records) -> Result<(), Halt> {
     let newest = seen.copies.last().and_then(|k| time_in(&k.name));
-    for (name, time) in files(dir) {
+    for name in ground.files().map_err(ending("-", "snapshot"))? {
         if seen.copies.iter().any(|k| k.name == name) {
             continue;
         }
+        let Some(time) = time_in(&name) else {
+            continue;
+        };
         if newest.is_none_or(|n| time > n) {
-            records.taken(&name, time).map_err(|e| format!("{e:?}"))?;
+            ground.taken(&name, time).map_err(ending(&name, "snapshot"))?;
         } else {
-            std::fs::remove_file(dir.join(&name)).map_err(|e| format!("{}: {e}", dir.join(&name).display()))?;
+            ground.remove(&name).map_err(ending(&name, "snapshot"))?;
         }
     }
     Ok(())
@@ -284,74 +252,41 @@ fn adopt(dir: &Path, records: &Backups, seen: &Records) -> Result<(), String> {
 /// Removes the copies past keeping, from the place off the machine, where it lists them, and from the machine after.
 /// The place is looked at each step while there are copies past keeping, so that an asset is removed whether or not
 /// its file is still there; a file that is gone is no error.
-fn prune(now: Time, records: &Backups, plan: &Plan, seen: &Records, out: &mut Outcome, halt: &mut dyn FnMut() -> bool) {
+async fn prune<O: Offsite>(ground: &dyn Ground, plan: &Plan<O>, seen: &Records, out: &mut Outcome) -> Result<(), Halt> {
     let kept = state::kept(seen, plan.keep).len();
     let past = &seen.copies[..seen.copies.len() - kept];
     if past.is_empty() {
-        return;
+        return Ok(());
     }
     if let Some(offsite) = &plan.offsite {
-        match offsite.list() {
-            Ok(listed) => {
-                for copy in past {
-                    if listed.contains(&copy.name)
-                        && let Err(why) = offsite.remove(&copy.name)
-                    {
-                        fail(out, records, now, &copy.name, "prune", why);
-                        return;
-                    }
-                }
-            }
-            Err(why) => {
-                fail(out, records, now, "-", "prune", why);
-                return;
+        let listed = offsite.list().await.map_err(|why| refused("-", "prune", why))?;
+        for copy in past {
+            if listed.contains(&copy.name) {
+                (offsite.remove(&copy.name).await).map_err(|why| refused(&copy.name, "prune", why))?;
             }
         }
     }
     for copy in past {
-        let path = plan.dir.join(&copy.name);
-        match std::fs::remove_file(&path) {
-            Ok(()) => out.removed.push(copy.name.clone()),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => {
-                fail(
-                    out,
-                    records,
-                    now,
-                    &copy.name,
-                    "prune",
-                    format!("{}: {e}", path.display()),
-                );
-                return;
-            }
-        }
-        if halt() {
-            out.stopped = true;
-            return;
+        if ground.remove(&copy.name).map_err(ending(&copy.name, "prune"))? {
+            out.removed.push(copy.name.clone());
         }
     }
+    Ok(())
 }
 
 /// Keeps the copies until the process ends: a step at once and then each hour, one after another, each step ended
 /// before the next begins, so that two never run together. `now` gives the time by the engine's clock, the only one
 /// read; `said` is told what each step did.
-pub async fn keep<N, F>(plan: Plan, now: N, said: impl Fn(&Outcome) + Send + 'static)
+pub async fn keep<O, G, N, F>(plan: Plan<O>, ground: G, now: N, said: impl Fn(&Outcome) + Send + 'static)
 where
+    O: Offsite,
+    G: Ground,
     N: Fn() -> F + Send,
     F: Future<Output = Result<Time, String>> + Send,
 {
     loop {
         match now().await {
-            Ok(time) => {
-                let plan = plan.clone();
-                match tokio::task::spawn_blocking(move || plan.step(time)).await {
-                    Ok(out) => said(&out),
-                    Err(e) => said(&Outcome {
-                        failed: Some(("snapshot".to_string(), format!("the step did not end: {e}"))),
-                        ..Outcome::default()
-                    }),
-                }
-            }
+            Ok(time) => said(&step(time, &ground, &plan).await),
             Err(why) => said(&Outcome {
                 failed: Some(("snapshot".to_string(), format!("the clock cannot be read: {why}"))),
                 ..Outcome::default()
