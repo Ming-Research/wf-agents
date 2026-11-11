@@ -256,7 +256,7 @@
   color: var(--orange-text);
 }
 
-/* The body ends a group of sections with a hairline, as the page's panel does (`.panel-part-last`), the notes under it.
+/* The body ends a group of sections with a hairline, as the page's panel does (`.panel-part-last`), the messages under it.
    A passage changed since the owner read the item is marked in the margin at its left, as a card new to the owner is. */
 .cw-body {
   margin-bottom: var(--space-16);
@@ -368,7 +368,7 @@
   user-select: text;
 }
 
-/* Under a choice's options: how many notes are about it, a muted link at the left, and Discuss at the right. */
+/* Under a choice's options: how many messages are about it, a muted link at the left, and Discuss at the right. */
 .cw-choice-foot {
   display: flex;
   align-items: center;
@@ -408,23 +408,23 @@
   font-size: var(--size-small);
 }
 
-/* The notes: one under another, a hairline between them, each with a status line of who wrote it, to whom and when;
+/* The messages: one under another, a hairline between them, each with a status line of who wrote it, to whom and when;
    the owner's own on the ground. */
-.cw-note {
+.cw-message {
   padding: 0 var(--space-8) var(--space-8);
   border-bottom: var(--hairline) solid var(--line);
 }
 
-.cw-note-owner {
+.cw-message-owner {
   background: var(--ground);
 }
 
-.cw-note .status-line {
+.cw-message .status-line {
   margin: 0;
   padding-top: var(--space-8);
 }
 
-/* A passage quoted, in a note or over the box: muted, a hairline at its left, its lines kept, as a question quoted
+/* A passage quoted, in a message or over the box: muted, a hairline at its left, its lines kept, as a question quoted
    has its options each on a line. */
 .cw-quote {
   white-space: pre-line;
@@ -434,7 +434,7 @@
   color: var(--muted);
 }
 
-/* The box to write a note: the works page's write box (`.write-box`), under the notes. */
+/* The box to write a message: the works page's write box (`.write-box`), under the messages. */
 .cw-compose {
   margin-top: var(--space-12);
 }
@@ -468,7 +468,7 @@
   gap: var(--space-4);
 }
 
-/* Whom a note goes to: one of a few, side by side, as the page's switch; one that cannot be chosen is greyed. */
+/* Whom a message goes to: one of a few, side by side, as the page's switch; one that cannot be chosen is greyed. */
 .cw-to {
   align-self: flex-start;
   margin-bottom: var(--space-4);

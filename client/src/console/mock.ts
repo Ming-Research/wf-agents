@@ -10,15 +10,15 @@
 // - In the window's head and item line: the item's `project`, its `tier`, and whether it is a `goal`.
 // - In the window's work tab: the work's `tier`, and the `verdicts` of its judges (item 262 only).
 // - In the item tab: the body (Background, Problem, Plan, Decisions), the plan's choices, which of them the owner
-//   already confirmed, and its Confirm (kept in this page only), and the notes written before (who wrote them, to whom,
+//   already confirmed, and its Confirm (kept in this page only), and the messages written before (who wrote them, to whom,
 //   what they quote, and the replies). Item 262 has a whole made-up content of its own; the others take one of the
 //   bodies below by what their work does, or a short one.
 // Real, from the engine: everything else, such as the item's standing, when it was added and what it waits for; the
-// work's state, cells, rounds, cost, start, time bar and returns sent back; what it waits at; and the notes the owner
+// work's state, cells, rounds, cost, start, time bar and returns sent back; what it waits at; and the messages the owner
 // sends, which are written into a block of the work.
 
 import type { Item } from '../works-api';
-import { type Body, type Note, type Part, quoteOf } from './window';
+import { type Body, type Message, type Part, quoteOf } from './window';
 
 const HOUR = 3600000;
 
@@ -162,8 +162,8 @@ const ITEM_263: Partial<Body> = {
   planWaits: true,
 };
 
-/// The messages of item 263's work, in English, as notes.
-const notes263 = (now: number): Note[] => [
+/// The messages of item 263's work, in English.
+const messages263 = (now: number): Message[] => [
   {
     who: 'engineer',
     at: now - 7.5 * HOUR,
@@ -197,7 +197,7 @@ const notes263 = (now: number): Note[] => [
 
 /// Item 262 of the demo data, whole, as its agents would write it for the owner: its work went through the deep
 /// research and the plan's review, was sent back by the review, and waits at the implementation; one question of the
-/// plan the owner confirmed, one is still open, and the notes discuss it. All of it is made up.
+/// plan the owner confirmed, one is still open, and the messages discuss it. All of it is made up.
 const ITEM_262_OPEN: Extract<Part, { kind: 'choice' }> = {
   kind: 'choice',
   question:
@@ -327,9 +327,9 @@ const ITEM_262: Partial<Body> = {
   ],
 };
 
-/// The notes of item 262's work, in time order: the owner asks about the open question, the deep research that wrote
+/// The messages of item 262's work, in time order: the owner asks about the open question, the deep research that wrote
 /// the plan answers, and the implementation answers one about what it decided.
-const notes262 = (now: number): Note[] => [
+const messages262 = (now: number): Message[] => [
   {
     who: 'owner',
     at: now - 5 * HOUR,
@@ -398,7 +398,7 @@ const is262 = (item: Item) => item.number === 262;
 const RICH: { starts: string; make: (now: number) => Partial<Body> }[] = [
   {
     starts: 'Watch for anomalies and settle them',
-    make: (now) => ({ ...ITEM_263, notes: notes263(now) }),
+    make: (now) => ({ ...ITEM_263, messages: messages263(now) }),
   },
   {
     starts: 'New, and waiting for your answer',
@@ -468,7 +468,7 @@ const RICH: { starts: string; make: (now: number) => Partial<Body> }[] = [
       background: [{ kind: 'text', text: 'Asked for by the owner in the discussion of the console.' }],
       problem: [{ kind: 'text', text: 'Feature. The console shows no prices or time zone.' }],
       plan: [{ kind: 'text', text: "Read prices from the configuration and show times in the owner's zone." }],
-      notes: [
+      messages: [
         {
           who: 'owner',
           at: now - 2 * HOUR,
@@ -532,7 +532,7 @@ export const goalMock = (workDrawn: boolean, children: number): boolean => !work
 export const workTierMock = (): string => '2 (Sonnet)';
 
 /// Which of the bodies above an item takes: one that waits for the owner, the plans with choices; one running, the one
-/// with notes; one that waits for another, the one whose plan waits; any other, a short one.
+/// with messages; one that waits for another, the one whose plan waits; any other, a short one.
 function richOf(item: Item): string | null {
   const now = item.work.now;
   if (now.kind === 'waits' && now.on.some((w) => w.kind === 'limit' || w.who === 'owner'))
@@ -542,12 +542,12 @@ function richOf(item: Item): string | null {
   return null;
 }
 
-/// The item's body and notes, made up.
+/// The item's body and messages, made up.
 export function bodyMock(item: Item): Body {
   const now = Date.now();
   const which = richOf(item);
   const rich = is262(item)
-    ? { ...ITEM_262, notes: notes262(now) }
+    ? { ...ITEM_262, messages: messages262(now) }
     : (RICH.find((r) => r.starts === which)?.make(now) ?? {});
   const plain = (text: string): Part[] => [{ kind: 'text', text }];
   const body: Body = {
@@ -556,7 +556,7 @@ export function bodyMock(item: Item): Body {
     plan: plain('How it is to be done, once researched.'),
     planWaits: false,
     decisions: [],
-    notes: [],
+    messages: [],
     ...rich,
   };
   if (!read.has(item.number) && itemMock(item).unseen) return body;

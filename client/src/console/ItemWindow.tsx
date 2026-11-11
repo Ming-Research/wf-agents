@@ -6,7 +6,7 @@
 // came from, the problem it solves, the plan, with each choice that waits for the owner where it stands in the plan,
 // picked by a press on an option and let go by another, and at the plan's end a button as wide as the body to confirm
 // it, which counts the picks and waits until each choice has one; once confirmed, the picks stand), each passage
-// changed since the owner read it marked at its left, and under the body the notes: the owner's and the replies, and a
+// changed since the owner read it marked at its left, and under the body the messages: the owner's and the replies, and a
 // box to write one into a block of the work that people write, chosen above it, which a passage selected in the body
 // can be quoted into and which names the cells that read it. The second holds what of the work the lines do not say,
 // and the legend of the strip's marks. While the window is out, R marks the item read, as its link does, unless a box
@@ -17,7 +17,7 @@
 // its parts the page's own (parts.tsx) where it used Primer's. What the engine does not give yet comes from the
 // console's made-up data (`mock.ts`), which says what of it is made up. What the new console added is kept in that
 // layout: the work line's facts, the row of what the owner does to the work under the lines, what the work waits at
-// over the body, the block a note is written in over its box, and the flow's name among the work's facts.
+// over the body, the block a message is written in over its box, and the flow's name among the work's facts.
 
 import {
   Fragment,
@@ -43,9 +43,9 @@ import {
   changedIn,
   type Choice,
   named,
-  type Note,
-  type NoteCell,
-  notesAbout,
+  type Message,
+  type MessageCell,
+  messagesAbout,
   type Part,
   picks,
   quoteOf,
@@ -104,6 +104,43 @@ export function waitedWords(w: Waited, page: WorkPage | null, at: string): strin
   }
 }
 
+/// Whether what a work waits for is a question a cell asked, which is said in full over the body rather than on the
+/// status line.
+const asked = (w: Waited) => w.kind === 'call' && w.what.kind === 'question';
+
+/// What the work waits for at a cell, in a few words for the status line.
+function lineWords(w: Waited, cell: string): string {
+  switch (w.kind) {
+    case 'call':
+      switch (w.what.kind) {
+        case 'question':
+          return `at ${cell}, for an answer`;
+        case 'tool':
+          return `at ${cell}, for ${w.what.name} to run`;
+        case 'atLimit':
+          return w.what.limit.of === 'returns'
+            ? `${cell} reached its limit: ${w.what.limit.sentBack} returns sent back`
+            : `${cell} reached its limit: ${w.what.limit.made} calls made`;
+      }
+      return '';
+    case 'precondition':
+      return `until ${w.words.charAt(0).toLowerCase()}${w.words.slice(1)}`;
+    case 'limit':
+      return `${cell} reached its limit: ${w.runs} runs in a row for what a cell after it wrote`;
+  }
+}
+
+/// The act that lets a work go on past a limit it waits at, as the works page sends it: the run's call answered, or
+/// the cell let go; none where it waits at no limit.
+function goOnOf(now: Summary['now']): Act | null {
+  if (now.kind !== 'waits') return null;
+  for (const w of now.on) {
+    if (w.kind === 'call' && w.what.kind === 'atLimit') return { kind: 'answer', call: w.call, result: 'go on' };
+    if (w.kind === 'limit') return { kind: 'letGo', cell: now.at };
+  }
+  return null;
+}
+
 /// What the work does now, as a word and the facts after it.
 export function nowWords(s: Summary, page: WorkPage | null): { word: string; facts: string | null } {
   const now = s.now;
@@ -116,8 +153,14 @@ export function nowWords(s: Summary, page: WorkPage | null): { word: string; fac
     case 'next':
       return { word: MOOD_WORDS.running, facts: `next ${titleOf(page, now.cell)}` };
     case 'waits': {
+      const cell = titleOf(page, now.at);
+      // A work that waits only for a precondition, such as the items it depends on being merged, waits for that.
+      if (now.on.length > 0 && now.on.every((w) => w.kind === 'precondition')) {
+        return { word: MOOD_WORDS.waiting, facts: now.on.map((w) => lineWords(w, cell)).join('; ') };
+      }
       const who = [...new Set(now.on.map(whom))];
-      return { word: `Waiting for ${who.join(' and ')}`, facts: `at ${titleOf(page, now.at)}` };
+      const said = now.on.flatMap((w) => (asked(w) ? [] : [lineWords(w, cell)]));
+      return { word: `Waiting for ${who.join(' and ')}`, facts: said.length > 0 ? said.join('; ') : `at ${cell}` };
     }
     case 'paused':
       return now.by === 'engine' ? { word: MOOD_WORDS.halted, facts: now.why } : { word: MOOD_WORDS.paused, facts: null };
@@ -182,8 +225,8 @@ function useSending(act: (what: Act) => Promise<unknown>) {
   return { waiting, refused, send };
 }
 
-/// The words for who writes a note or is named in one: a cell by the name the owner calls it.
-const WRITER: Record<Who | NoteCell, string> = {
+/// The words for who writes a message or is named in one: a cell by the name the owner calls it.
+const WRITER: Record<Who | MessageCell, string> = {
   owner: 'You',
   engineer: 'Engineer',
   architect: 'Architect',
@@ -196,8 +239,8 @@ const WRITER: Record<Who | NoteCell, string> = {
 /// Whether a work went through a cell: it finished a round of it, or has one open.
 const went = (w: Summary, cell: string) => w.cells.some((c) => c.cell === cell && (c.finished > 0 || c.open !== null));
 
-/// Where a note of a work stands in the window, to jump to it.
-const noteId = (work: number, at: number) => `cw-note-${work}-${at}`;
+/// Where a message of a work stands in the window, to jump to it.
+const messageId = (work: number, at: number) => `cw-message-${work}-${at}`;
 
 /// A button's words with the letter of its key underlined: the first that begins a word.
 function keyed(words: string, key: string): ReactNode {
@@ -247,9 +290,9 @@ function ItemView({ item, page, act, waitsFor, goal = false, open = true, onRead
   const [quote, setQuote] = useState<string | null>(null);
   const [offer, setOffer] = useState<{ x: number; y: number; text: string } | null>(null);
   const [confirmed, setConfirmed] = useState(false);
-  // Whom the note being written goes to, where the owner chose; and how many times a question was taken to the notes,
+  // Whom the message being written goes to, where the owner chose; and how many times a question was taken to the discussion,
   // to bring the box into view once it is drawn for the cell chosen.
-  const [noteTo, setNoteTo] = useState<NoteCell | null>(null);
+  const [messageTo, setMessageTo] = useState<MessageCell | null>(null);
   const [discussed, setDiscussed] = useState(0);
   const inner = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
@@ -258,16 +301,16 @@ function ItemView({ item, page, act, waitsFor, goal = false, open = true, onRead
     box.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
     box.current?.focus({ preventScroll: true });
   }, [discussed]);
-  // A question taken to the notes: quoted into the box, which goes to the cell that wrote the plan. Nothing else
+  // A question taken to the discussion: quoted into the box, which goes to the cell that wrote the plan. Nothing else
   // changes: the work is not paused.
   const discuss = (c: Choice) => {
     setQuote(quoteOf(c));
-    setNoteTo(went(work, 'D1') ? 'D1' : 'R1');
+    setMessageTo(went(work, 'D1') ? 'D1' : 'R1');
     setDiscussed((n) => n + 1);
   };
   const jump = (at: number) =>
-    document.getElementById(noteId(work.number, at))?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-  const about = (c: Choice) => notesAbout(body.notes, c);
+    document.getElementById(messageId(work.number, at))?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  const about = (c: Choice) => messagesAbout(body.messages, c);
   const markAsRead = useCallback(() => {
     const clear = (ps: Part[]) => ps.map((p) => ({ ...p, changed: false }));
     markRead(item.number);
@@ -316,9 +359,9 @@ function ItemView({ item, page, act, waitsFor, goal = false, open = true, onRead
     const frame = host.getBoundingClientRect();
     setOffer({ x: at.left - frame.left + at.width / 2, y: at.top - frame.top, text });
   };
-  // A note sent stands under the others, the owner's own.
-  const sent = (note: Note) => {
-    setBody((was) => ({ ...was, notes: [...was.notes, note] }));
+  // A message sent stands under the others, the owner's own.
+  const sent = (message: Message) => {
+    setBody((was) => ({ ...was, messages: [...was.messages, message] }));
     setQuote(null);
   };
   const count = picks(body);
@@ -335,7 +378,9 @@ function ItemView({ item, page, act, waitsFor, goal = false, open = true, onRead
       </header>
       <ItemLine item={item} waitsFor={waitsFor} goal={goal} tier={mock.tier} />
       <WorkLine w={work} page={read} />
-      {!ended(work) && <Acts paused={work.paused || work.now.kind === 'paused'} act={send} />}
+      {!ended(work) && (
+        <Acts paused={work.paused || work.now.kind === 'paused'} goOn={goOnOf(work.now)} act={send} />
+      )}
       <div className="drawer-body">
         <div className="cw-tabs">
           <Switch
@@ -366,7 +411,7 @@ function ItemView({ item, page, act, waitsFor, goal = false, open = true, onRead
           <WorkFacts w={work} page={read} verdicts={mock.verdicts} />
         ) : (
           <>
-            {work.now.kind === 'waits' && <Waits on={work.now.on} page={read} at={work.now.at} />}
+            {work.now.kind === 'waits' && <Waits on={work.now.on.filter(asked)} page={read} at={work.now.at} />}
             <div className="cw-body" onMouseUp={selected}>
               <Section title="Background" parts={body.background} />
               <Section title="Problem" parts={body.problem} />
@@ -411,12 +456,12 @@ function ItemView({ item, page, act, waitsFor, goal = false, open = true, onRead
                 Quote
               </button>
             ) : null}
-            <Notes
+            <Discussion
               work={work}
               page={page}
-              notes={body.notes}
-              noteTo={noteTo}
-              setNoteTo={setNoteTo}
+              messages={body.messages}
+              messageTo={messageTo}
+              setMessageTo={setMessageTo}
               quote={quote}
               unquote={() => setQuote(null)}
               box={box}
@@ -485,13 +530,18 @@ function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
   );
 }
 
-/// What the owner does to a work that goes on: let it on while it is paused, or pause it; cancel it, once they confirm.
-/// While one is under way, none can be pressed.
-function Acts({ paused, act }: { paused: boolean; act: (what: Act) => Promise<unknown> }) {
+/// What the owner does to a work that goes on: let it go on past a limit it waits at; let it on while it is paused, or
+/// pause it; cancel it, once they confirm. While one is under way, none can be pressed.
+function Acts({ paused, goOn, act }: { paused: boolean; goOn: Act | null; act: (what: Act) => Promise<unknown> }) {
   const { waiting, refused, send } = useSending(act);
   const [asking, setAsking] = useState(false);
   return (
     <div className="acts cw-acts">
+      {goOn !== null && (
+        <Button primary title="Let the work go on past its limit" disabled={waiting} onClick={() => void send(goOn)}>
+          Let it go on
+        </Button>
+      )}
       {paused ? (
         <Button primary title="Let the work go on" disabled={waiting} onClick={() => void send({ kind: 'resume' })}>
           Let it on
@@ -529,7 +579,10 @@ function Acts({ paused, act }: { paused: boolean; act: (what: Act) => Promise<un
   );
 }
 
+/// The questions a cell asked that the work waits at; what else it waits for its status line says. Not drawn where it
+/// waits for none.
 function Waits({ on, page, at }: { on: Waited[]; page: WorkPage | null; at: string }) {
+  if (on.length === 0) return null;
   return (
     <PanelPart label={`Waits at ${titleOf(page, at)}`} count={on.length}>
       <ul>
@@ -543,8 +596,8 @@ function Waits({ on, page, at }: { on: Waited[]; page: WorkPage | null; at: stri
   );
 }
 
-/// Where a draft of a note is kept, so that it is not lost when the panel shows another item.
-const draftKey = (work: number, block: string) => `wf-agents.console-note.${work}.${block}`;
+/// Where a draft of a message is kept, so that it is not lost when the panel shows another item.
+const draftKey = (work: number, block: string) => `wf-agents.console-message.${work}.${block}`;
 
 function readDraft(key: string): string {
   try {
@@ -575,11 +628,11 @@ function Section({
   parts: Part[];
   /// Picks an option of a choice, while the plan waits to be confirmed.
   choose?: (at: number, option: number) => void;
-  /// Takes a choice to the notes.
+  /// Takes a choice to the discussion.
   discuss?: (c: Choice) => void;
-  /// The notes about a choice, by where they stand.
+  /// The messages about a choice, by where they stand.
   about?: (c: Choice) => number[];
-  /// Brings a note into view.
+  /// Brings a message into view.
   jump?: (at: number) => void;
 }) {
   if (parts.length === 0) return null;
@@ -594,7 +647,7 @@ function Section({
               p={p}
               pick={choose === undefined || p.confirmed === true ? undefined : (o) => choose(i, o)}
               discuss={discuss === undefined ? undefined : () => discuss(p)}
-              notes={about?.(p) ?? []}
+              messages={about?.(p) ?? []}
               jump={jump}
             />
           )}
@@ -605,13 +658,13 @@ function Section({
 }
 
 /// A choice of the plan: a press on an option picks it, on another changes the pick, and on the one picked lets it go,
-/// until it is confirmed. Discuss takes it to the notes, confirmed or not; under its options, how many notes are about
+/// until it is confirmed. Discuss takes it to the discussion, confirmed or not; under its options, how many messages are about
 /// it, which brings the first into view.
-function ChoiceBox({ p, pick, discuss, notes, jump }: {
+function ChoiceBox({ p, pick, discuss, messages, jump }: {
   p: Choice;
   pick?: (option: number) => void;
   discuss?: () => void;
-  notes: number[];
+  messages: number[];
   jump?: (at: number) => void;
 }) {
   return (
@@ -633,17 +686,17 @@ function ChoiceBox({ p, pick, discuss, notes, jump }: {
           <span className="cw-option-detail">{o.detail}</span>
         </button>
       ))}
-      {notes.length > 0 || discuss !== undefined ? (
+      {messages.length > 0 || discuss !== undefined ? (
         <div className="cw-choice-foot">
-          {notes.length > 0 ? (
-            <button type="button" className="link muted small" onClick={() => jump?.(notes[0])}>
-              {notes.length === 1 ? '1 note about it' : `${notes.length} notes about it`}
+          {messages.length > 0 ? (
+            <button type="button" className="link muted small" onClick={() => jump?.(messages[0])}>
+              {messages.length === 1 ? '1 message about it' : `${messages.length} messages about it`}
             </button>
           ) : (
             <span />
           )}
           {discuss !== undefined ? (
-            <Button title="Quote it in a note to the cell that wrote the plan; the work goes on" onClick={discuss}>
+            <Button title="Quote it in a message to the cell that wrote the plan; the work goes on" onClick={discuss}>
               Discuss
             </Button>
           ) : null}
@@ -653,47 +706,47 @@ function ChoiceBox({ p, pick, discuss, notes, jump }: {
   );
 }
 
-/// The notes: those written before, the owner's and the replies, and a box to write one. The owner picks a block of
+/// The discussion: the messages written before, the owner's and the replies, and a box to write one. The owner picks a block of
 /// the work that people write, of those that hold words rather than a choice, and what they send is written into it;
-/// the line under the box names the cells that read it, and those the note names with `@`.
-/// Whom the owner writes a note to, of the engineer's flow: the cells that plan and build, by the names the owner
+/// the line under the box names the cells that read it, and those the message names with `@`.
+/// Whom the owner writes a message to, of the engineer's flow: the cells that plan and build, by the names the owner
 /// calls them.
-const NOTE_TO = [
+const MESSAGE_TO = [
   { cell: 'R1', name: 'Research' },
   { cell: 'D1', name: 'Deep research' },
   { cell: 'I1', name: 'Implementation' },
 ] as const;
 
-function Notes({ work, page, notes, noteTo, setNoteTo, quote, unquote, box, act, sent }: {
+function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unquote, box, act, sent }: {
   work: Summary;
   page: PageState;
-  notes: Note[];
-  /// Whom the owner chose the note goes to; none where they did not.
-  noteTo: NoteCell | null;
-  setNoteTo: (cell: NoteCell) => void;
+  messages: Message[];
+  /// Whom the owner chose the message goes to; none where they did not.
+  messageTo: MessageCell | null;
+  setMessageTo: (cell: MessageCell) => void;
   quote: string | null;
   unquote: () => void;
   box: RefObject<HTMLTextAreaElement | null>;
   act: (what: Act) => Promise<unknown>;
-  sent: (note: Note) => void;
+  sent: (message: Message) => void;
 }) {
   const read = pageIn(page);
   const blocks = (read?.flow.blocks ?? []).filter((b) => b.writtenBy.people && b.values === null);
-  // Whom a note goes to: the research, the deep research or the implementation, each by the block of the owner's
+  // Whom a message goes to: the research, the deep research or the implementation, each by the block of the owner's
   // words its cell reads. The deep research cannot be chosen where the work did not go through it. Once the work has
-  // come to the implementation, a note goes there unless the owner picks another; before that, to the research.
-  const targets = NOTE_TO.map((t) => ({
+  // come to the implementation, a message goes there unless the owner picks another; before that, to the research.
+  const targets = MESSAGE_TO.map((t) => ({
     ...t,
     block: blocks.find((b) => b.readBy.cells.includes(t.cell)),
     off: t.cell === 'D1' && !went(work, 'D1'),
   }));
   const usable = targets.filter((t) => t.block !== undefined && !t.off);
-  const target = usable.find((t) => t.cell === (noteTo ?? (went(work, 'I1') ? 'I1' : 'R1'))) ?? usable[0];
+  const target = usable.find((t) => t.cell === (messageTo ?? (went(work, 'I1') ? 'I1' : 'R1'))) ?? usable[0];
   const block = target?.block;
   return (
-    <PanelPart label="Notes">
-      {notes.map((n, i) => (
-        <div key={i} id={noteId(work.number, i)} className={n.who === 'owner' ? 'cw-note cw-note-owner' : 'cw-note'}>
+    <PanelPart label="Discussion">
+      {messages.map((n, i) => (
+        <div key={i} id={messageId(work.number, i)} className={n.who === 'owner' ? 'cw-message cw-message-owner' : 'cw-message'}>
           <div className="status-line">
             <span className="status-word">{WRITER[n.who]}</span>
             <span className="muted">to {n.to.map((x) => WRITER[x]).join(', ')}</span>
@@ -711,7 +764,7 @@ function Notes({ work, page, notes, noteTo, setNoteTo, quote, unquote, box, act,
         <p className="muted">People write no block of this flow</p>
       ) : (
         <div className="write-box cw-compose">
-          <div className="cw-to switch" role="radiogroup" aria-label="Whom the note goes to">
+          <div className="cw-to switch" role="radiogroup" aria-label="Whom the message goes to">
             {targets.map((t) => (
               <button
                 key={t.cell}
@@ -722,7 +775,7 @@ function Notes({ work, page, notes, noteTo, setNoteTo, quote, unquote, box, act,
                 aria-pressed={t.cell === target?.cell}
                 disabled={t.block === undefined || t.off}
                 title={t.off ? 'The work did not go through the deep research' : undefined}
-                onClick={() => setNoteTo(t.cell)}
+                onClick={() => setMessageTo(t.cell)}
               >
                 {t.name}
               </button>
@@ -751,14 +804,14 @@ function Notes({ work, page, notes, noteTo, setNoteTo, quote, unquote, box, act,
 function Compose({ work, block, to: cell, readers, quote, unquote, box, act, sent }: {
   work: Summary;
   block: string;
-  /// The cell the note goes to.
-  to: NoteCell;
+  /// The cell the message goes to.
+  to: MessageCell;
   readers: string[];
   quote: string | null;
   unquote: () => void;
   box: RefObject<HTMLTextAreaElement | null>;
   act: (what: Act) => Promise<unknown>;
-  sent: (note: Note) => void;
+  sent: (message: Message) => void;
 }) {
   const key = draftKey(work.number, block);
   const [text, setText] = useState(() => readDraft(key));
@@ -807,7 +860,7 @@ function Compose({ work, block, to: cell, readers, quote, unquote, box, act, sen
         rows={3}
         value={text}
         aria-label={`What to write in ${block}`}
-        placeholder="Write a note"
+        placeholder="Write a message"
         onChange={(e) => type(e.target.value)}
       />
       {naming !== null && offered.length > 0 ? (
