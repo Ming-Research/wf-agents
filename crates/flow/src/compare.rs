@@ -346,6 +346,12 @@ fn cell_changes(before: &Placed, after: &Placed, flow_limits: &[(Limit, u32, u32
             after: a.line.clone(),
         });
     }
+    if b.reads_only != a.reads_only {
+        changes.push(CellChange::ReadsOnly {
+            before: b.reads_only,
+            after: a.reads_only,
+        });
+    }
     if b.task != a.task {
         changes.push(CellChange::Task {
             before: b.task.clone(),

@@ -699,7 +699,8 @@ impl<'a> Definition<'a> {
             title: file.title.clone(),
             kind: file.kind,
             line: file.line.clone(),
-            reads_only: false,
+            reads_only: (file.line.as_ref())
+                .is_some_and(|line| self.flow.lines.get(line).is_some_and(|l| l.reads_only)),
             task: file.task.clone(),
             act: file.act.clone(),
             must_write: file.must_write.iter().map(|b| BlockId(b.clone())).collect(),
