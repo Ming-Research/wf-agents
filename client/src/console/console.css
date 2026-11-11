@@ -437,7 +437,7 @@
   color: var(--muted);
 }
 
-/* The box to write a message: the works page's write box (`.write-box`), under the messages. */
+/* The box to write a message: the page's write box (`.write-box`), under the messages. */
 .cw-compose {
   margin-top: var(--space-12);
 }

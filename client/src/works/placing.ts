@@ -127,27 +127,3 @@ export function orderWorks(items: Item[]): ListedWork[] {
     .map((item) => ({ item, work: item.work }))
     .sort((a, b) => rank(a.work) - rank(b.work) || (b.work.last ?? 0) - (a.work.last ?? 0) || a.work.number - b.work.number);
 }
-
-/// The cell a work is at: running a round of, waiting at, or about to go on at; none where it is at no cell.
-export function cellAt(summary: Summary): string | null {
-  const now = summary.now;
-  if (now.kind === 'round') return now.cell;
-  if (now.kind === 'waits') return now.at;
-  if (now.kind === 'next') return now.cell;
-  return null;
-}
-
-/// The blocks people write, which the owner can write from the page, by the flow's order of blocks.
-export function peopleBlocks(flow: Flow): string[] {
-  return flow.blocks.filter((b) => b.writtenBy.people).map((b) => b.name);
-}
-
-/// The block the box to write for a cell starts at: of the blocks people write that this cell reads, one named an
-/// opinion first, then one that is not a choice, then any; none where the cell reads no block people write, and the
-/// owner picks.
-export function defaultBlock(flow: Flow, cell: string | null): string | null {
-  const reads = flow.cells.find((c) => c.id === cell)?.inputs ?? [];
-  const candidates = peopleBlocks(flow).filter((b) => reads.includes(b));
-  const choice = (name: string) => flow.blocks.find((b) => b.name === name)?.values !== null;
-  return candidates.find((b) => b.includes('opinion')) ?? candidates.find((b) => !choice(b)) ?? candidates[0] ?? null;
-}

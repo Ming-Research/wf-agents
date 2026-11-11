@@ -51,9 +51,7 @@
   /* How far a block's row stays under the frame's top when it is brought into view: the cells' heads are over it. */
   --chart-head-room: 140px;
 
-  /* The works page: how high what a work waits for grows before it scrolls, leaving the history its room; and how high
-     an opened content grows in the panel before it scrolls. */
-  --waits-height: 40vh;
+  /* The works page: how high an opened content grows in the panel before it scrolls. */
   --content-height: 320px;
 
   /* Colour, light. The ground the page is laid on, and the white of what is read on it, as the console's paper. */
