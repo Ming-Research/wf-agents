@@ -18,8 +18,8 @@ fn words(text: &str) -> Vec<String> {
 #[test]
 fn neither_the_code_nor_the_schema_changes_or_takes_out_a_row() {
     let root = env!("CARGO_MANIFEST_DIR");
-    let mut files = vec![format!("{root}/schema.sql")];
-    for dir in ["src", "migrations"] {
+    let mut files = vec![format!("{root}/../../db/schema.sql")];
+    for dir in ["src", "../../db/migrations"] {
         for entry in fs::read_dir(format!("{root}/{dir}")).expect("the sources are listed") {
             files.push(entry.expect("a source").path().display().to_string());
         }
