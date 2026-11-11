@@ -39,9 +39,15 @@ pub fn copies(dir: &Path) -> Vec<PathBuf> {
 fn number(copy: &Path) -> Option<u64> {
     let name = copy.file_name()?.to_str()?;
     let (number, version) = (name.strip_prefix(BEFORE_MIGRATION)?.strip_suffix(".sqlite")?).split_once("-v")?;
-    version.parse::<u32>().ok()?;
+    let digits = |text: &str| !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit());
+    if !digits(number) || !digits(version) {
+        return None;
+    }
     number.parse().ok()
 }
+
+/// How often the copy is tried, each time under the name after the last, where the name it chose was taken meanwhile.
+const TRIES: u32 = 3;
 
 /// Copies the database `db` has open, made with the version `from` of the schema, before it is migrated, and keeps
 /// the newest such copies; nothing for a database with no file, such as one in memory.
@@ -51,9 +57,23 @@ pub(crate) fn copy(db: &Connection, from: u32) -> Result<(), Fault> {
     };
     let dir = dir(&database);
     std::fs::create_dir_all(&dir).map_err(|e| failed(&dir, &e))?;
-    let next = copies(&dir).last().and_then(|last| number(last)).map_or(1, |n| n + 1);
-    let to = dir.join(format!("{BEFORE_MIGRATION}{next:06}-v{from}.sqlite"));
-    db.execute("VACUUM INTO ?1", [to.to_string_lossy()])?;
+    let mut tries = 0;
+    loop {
+        let next = copies(&dir).last().and_then(|last| number(last)).map_or(1, |n| n + 1);
+        let to = dir.join(format!("{BEFORE_MIGRATION}{next:06}-v{from}.sqlite"));
+        let Err(refused) = db.execute("VACUUM INTO ?1", [to.to_string_lossy()]) else {
+            break;
+        };
+        // Another process that opens the same database may have migrated it meanwhile, and then no copy is needed; or
+        // it took this name for its own copy, which SQLite does not write over, and the name after it is tried.
+        tries += 1;
+        if crate::version(db)? != Some(from) {
+            return Ok(());
+        }
+        if tries == TRIES || !to.exists() {
+            return Err(refused.into());
+        }
+    }
     let all = copies(&dir);
     for old in &all[..all.len().saturating_sub(KEEP)] {
         std::fs::remove_file(old).map_err(|e| failed(old, &e))?;

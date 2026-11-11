@@ -176,7 +176,8 @@ pub trait Storage {
 
 impl Store {
     /// Opens the database at this path, making it with the schema where it is new or empty, and migrating it where it
-    /// was made with an earlier version of the schema; refuses one made with any other version.
+    /// was made with an earlier version of the schema; refuses one made with any other version. One that is to be
+    /// migrated is copied whole first ([`before_migration`]), and is refused where the copy cannot be taken.
     pub fn open(path: impl AsRef<Path>) -> Result<Store, Fault> {
         let store = Store::start(Connection::open(path)?)?;
         // A write-ahead log, so that what reads the database is not held up by what writes it. It is set once the
@@ -193,8 +194,7 @@ impl Store {
     fn start(mut db: Connection) -> Result<Store, Fault> {
         db.pragma_update(None, "foreign_keys", "ON")?;
         // A database made with an earlier version is copied whole before it is migrated. SQLite takes no such copy
-        // inside a transaction, so it is taken ahead of the one that migrates, which reads the version again: where
-        // another process migrated the database in between, a copy was taken that nothing needed.
+        // inside a transaction, so it is taken ahead of the one that migrates, which reads the version again.
         if let Some(earlier @ 1..SCHEMA_VERSION) = version(&db)? {
             before_migration::copy(&db, earlier)?;
         }
