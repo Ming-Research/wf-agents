@@ -87,17 +87,18 @@ fn normalised(structured: &Value) -> Value {
         Value::String(text) => object_of(text).unwrap_or_else(|| structured.clone()),
         other => other.clone(),
     };
-    if let Value::Object(o) = &form {
-        if !o.contains_key("hands_in") && !o.contains_key("asks") && o.len() == 1 {
-            let inner = match o.values().next() {
+    let inner = match &form {
+        Value::Object(o) if !o.contains_key("hands_in") && !o.contains_key("asks") && o.len() == 1 => {
+            match o.values().next() {
                 Some(Value::String(text)) => object_of(text),
                 Some(inner @ Value::Object(_)) => Some(inner.clone()),
                 _ => None,
-            };
-            if let Some(inner) = inner {
-                form = inner;
             }
         }
+        _ => None,
+    };
+    if let Some(inner) = inner {
+        form = inner;
     }
     let Value::Object(o) = &mut form else { return form };
     for name in ["hands_in", "asks"] {
