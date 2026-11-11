@@ -199,7 +199,9 @@ pub(crate) async fn start(
 
 /// Checks the work before its merge: that its worktree holds nothing uncommitted and that its branch merges into the
 /// head of main the host gives with no conflict (worked out without changing anything), both found holding the
-/// repository; then the host's verdict on the branch's head, waited for without it. Says why where it could not
+/// repository; then main's head is merged into the branch, where it does not hold it, as a commit of the engine's, so
+/// that what is judged is what a merge would land; then the host's verdict on the branch's head, waited for without
+/// the repository. Says why where it could not
 /// check, and gives none where it was stopped; what failed is what was found, not a reason to fail.
 pub(crate) async fn check(
     project: &Project,
@@ -233,7 +235,7 @@ pub(crate) async fn check(
             );
             return Ok(Some(found(failed)));
         }
-        (commit, main)
+        (git::take_in(&dir, &main, &project.main).await?, main)
     };
     let Some(verdict) = host.verdict(branch, &commit, stop).await? else {
         return Ok(None);

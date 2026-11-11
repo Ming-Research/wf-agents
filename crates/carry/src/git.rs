@@ -205,6 +205,31 @@ pub(crate) async fn uncommitted(dir: &Path) -> Result<String, String> {
     git(dir, &["status", "--porcelain"]).await
 }
 
+/// Who the commits the engine makes are by: the merges of main into a work's branch that the check makes.
+const ENGINE: [&str; 2] = ["user.name=wf-agents", "user.email=wf-agents@localhost"];
+
+/// Merges main's head into the branch checked out in the worktree, which merges it without a conflict, as a commit
+/// of the engine's, and gives the branch's head after it; where the branch holds main's head already, its head as it
+/// is, so that a merge done before the engine stopped is not done again. `name` is the main branch's name.
+pub(crate) async fn take_in(dir: &Path, main: &str, name: &str) -> Result<String, String> {
+    if said(dir, &["merge-base", "--is-ancestor", main, "HEAD"]).await?.ok {
+        return git(dir, &["rev-parse", "HEAD"]).await;
+    }
+    let with = With {
+        settings: ENGINE.map(str::to_string).to_vec(),
+        env: Vec::new(),
+    };
+    let message = format!("Merge {name} at {main} into the work's branch");
+    let args = ["merge", "--no-ff", "--no-edit", "-m", &message, main];
+    if let Err(why) = git_with(dir, &with, &args).await {
+        if said(dir, &["rev-parse", "--quiet", "--verify", "MERGE_HEAD"]).await?.ok {
+            let _ = git(dir, &["merge", "--abort"]).await;
+        }
+        return Err(why);
+    }
+    git(dir, &["rev-parse", "HEAD"]).await
+}
+
 /// The files of a conflict between the commit and main's head, worked out without changing anything; none where the
 /// commit merges into main cleanly.
 pub(crate) async fn conflicts(project: &Project, main: &str, commit: &str) -> Result<Option<String>, String> {
