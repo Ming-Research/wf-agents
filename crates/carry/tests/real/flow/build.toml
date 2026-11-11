@@ -2,6 +2,7 @@ title = "Build"
 kind = "agent"
 effort = "high"
 line = "engineer"
+takes_main = true
 task = "Build what the request asks for, and commit it."
 inputs = ["request", "place", "failures"]
 outputs = ["code"]
