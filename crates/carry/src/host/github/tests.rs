@@ -11,6 +11,8 @@ use crate::git::Place;
 use crate::git::tests::{Repo, commit, run};
 use crate::held::Held;
 
+mod agents;
+
 const WORK: WorkNumber = WorkNumber(1);
 
 /// A local repository, its bare repository on GitHub holding its main branch, and the GitHub host over both.
@@ -354,7 +356,7 @@ async fn a_red_check_is_said_with_its_link_what_it_said_and_its_log_up_to_its_er
         "The CI failed on this commit, in 2 of its checks.\n\n\
          lint (failure) https://github.example/checks/lint\n\
          Clippy found 2 warnings\n\
-         The end of its log, up to its error:\n\
+         What its log says of the failure:\n\
          error[E0405]: cannot find trait `Host`\n\
          ##[error]Process completed with exit code 101.\n\n\
          test (timed_out) https://github.example/checks/test\n\
@@ -648,14 +650,7 @@ fn the_token_goes_to_git_in_its_environment_for_github_over_https_alone() {
 }
 
 #[test]
-fn a_jobs_log_is_cut_after_its_last_error_without_times_or_colours() {
-    let log = "\u{feff}2026-11-10T04:23:10.1Z Compiling\n2026-11-10T04:23:10.2Z \u{1b}[31mfailed\u{1b}[0m\n\
-               2026-11-10T04:23:10.3Z ##[error]Process completed with exit code 1.\n2026-11-10T04:23:10.4Z Cleaning up";
-    assert_eq!(
-        tail_of_log(log),
-        "Compiling\nfailed\n##[error]Process completed with exit code 1.\n"
-    );
-    assert_eq!(tail_of_log("no error at all\n"), "no error at all\n");
+fn a_length_of_time_is_said_in_minutes_or_seconds() {
     assert_eq!(span(Duration::from_secs(600)), "10 minutes");
     assert_eq!(span(Duration::from_millis(300)), "0 seconds");
 }

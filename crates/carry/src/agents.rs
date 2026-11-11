@@ -38,7 +38,7 @@ use crate::process::{self, Ran};
 use crate::settings::Settings;
 use crate::{acts, git, kept, message, returns, session};
 
-/// The system prompt every round is given, before the owner's language is put in.
+/// The system prompt every round is given, before the owner's language and what the tool `check` does are put in.
 pub const PROTOCOL: &str = include_str!("protocol.md");
 
 /// The directory in the data directory where what each round was told and what it returned are kept.
@@ -71,7 +71,8 @@ enum Carried {
 impl Agents {
     /// The agents of these settings, with this data directory, which is an absolute path, and the installation's id.
     pub fn new(settings: Settings, data: PathBuf, installation: Uuid) -> Self {
-        let protocol = PROTOCOL.replace("{owner_language}", &settings.agents.owner_language);
+        let protocol = (PROTOCOL.replace("{owner_language}", &settings.agents.owner_language))
+            .replace("{check}", crate::tools::told(&settings));
         Agents {
             inner: Arc::new(Inner {
                 slots: Semaphore::new(settings.agents.slots),

@@ -1,0 +1,168 @@
+//! The agents' tools `check` and `check_before` on the GitHub host: the CI of the work's last commit, read through
+//! its pull request, and the CI of the code before the change, read on a branch of its own.
+
+use super::*;
+
+/// Whether the bare repository on GitHub has this branch.
+fn on_github(hub: &Hub, reference: &str) -> bool {
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(&hub.github().bare)
+        .args(["rev-parse", "--verify", "--quiet", reference])
+        .output()
+        .expect("git runs")
+        .status
+        .success()
+}
+
+impl Hub {
+    async fn agents_check(&self) -> Result<Option<String>, String> {
+        let place = self.place();
+        self.host.check(&branch(&place), &mut Stop::never()).await
+    }
+
+    /// The commit of the code before the change with these files of the work's last commit put on it.
+    async fn before(&self, files: &[&str]) -> Before {
+        let files: Vec<String> = files.iter().map(|f| f.to_string()).collect();
+        let place = self.place();
+        let made = git::before(&self.repo.project, &place, &self.host.kept_main(), &files).await;
+        made.expect("git works").expect("the files are committed")
+    }
+}
+
+#[tokio::test]
+async fn the_agents_check_pushes_the_last_commit_and_says_the_ci_of_its_pull_request() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.github().checks(&head, vec![vec![passed("lint"), passed("test")]]);
+    let said = hub.agents_check().await.unwrap().expect("nothing stopped it");
+    assert_eq!(
+        said,
+        format!(
+            "The CI passed on the commit {head}, through the pull request https://github.example/pull/1: lint, test."
+        )
+    );
+    assert_eq!(hub.pushed(), head);
+    assert_eq!(hub.opened(), 1);
+    // Asked again on the same commit, it reads the same CI and opens nothing more.
+    assert_eq!(hub.agents_check().await.unwrap().as_deref(), Some(said.as_str()));
+    assert_eq!(hub.opened(), 1);
+}
+
+#[tokio::test]
+async fn a_red_check_is_said_with_what_its_log_says_of_the_failure() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    let mut test = check("test", Outcome::Failed("failure".into()));
+    test.job = Some(42);
+    hub.github().checks(&head, vec![vec![passed("lint"), test]]);
+    hub.github().log(
+        42,
+        "2026-11-10T04:23:09.0000000Z ##[group]Run cargo test --workspace --locked\n\
+         2026-11-10T04:23:09.0000001Z shell: /usr/bin/bash -e {0}\n\
+         2026-11-10T04:23:09.0000002Z ##[endgroup]\n\
+         2026-11-10T04:23:10.0000000Z test tools::tests::a ... ok\n\
+         2026-11-10T04:23:10.1000000Z test tools::tests::b ... FAILED\n\
+         2026-11-10T04:23:10.2000000Z failures:\n\
+         2026-11-10T04:23:10.3000000Z ---- tools::tests::b stdout ----\n\
+         2026-11-10T04:23:10.4000000Z assertion failed: said.is_empty()\n\
+         2026-11-10T04:23:11.0000000Z ##[error]Process completed with exit code 101.\n\
+         2026-11-10T04:23:12.0000000Z Post job cleanup.\n",
+    );
+    let said = hub.agents_check().await.unwrap().expect("nothing stopped it");
+    assert_eq!(
+        said,
+        format!(
+            "The CI of the commit {head}, through the pull request https://github.example/pull/1, did not pass. It \
+             passed lint.\n\n\
+             The CI failed on this commit, in 1 of its checks.\n\n\
+             test (failure) https://github.example/checks/test\n\
+             What its log says of the failure:\n\
+             Run cargo test --workspace --locked\n\
+             test tools::tests::b ... FAILED\n\
+             failures:\n\
+             ---- tools::tests::b stdout ----\n\
+             assertion failed: said.is_empty()\n\
+             ##[error]Process completed with exit code 101."
+        )
+    );
+}
+
+#[tokio::test]
+async fn changes_not_committed_are_said_and_nothing_is_pushed() {
+    let hub = Hub::new();
+    hub.committed().await;
+    std::fs::write(hub.place().dir.join("farewell.txt"), "Goodbye.\n").unwrap();
+    let said = hub.agents_check().await.unwrap().expect("said");
+    assert!(
+        said.starts_with("The worktree has changes that are not committed") && said.contains("Nothing was pushed."),
+        "{said}"
+    );
+    assert!(said.contains("farewell.txt"), "{said}");
+    assert!(!on_github(&hub, &hub.place().reference()), "nothing was pushed");
+    assert!(hub.github().asked().is_empty(), "GitHub was asked nothing");
+}
+
+#[tokio::test]
+async fn a_branch_with_no_commit_of_its_own_is_said_and_nothing_is_pushed() {
+    let hub = Hub::new();
+    crate::acts::start(&hub.repo.project, &hub.host, &hub.place(), &Mutex::new(()))
+        .await
+        .expect("the work starts");
+    let said = hub.agents_check().await.unwrap().expect("said");
+    assert!(
+        said.starts_with("The work's branch has no commit of its own beyond main")
+            && said.contains("Nothing was pushed."),
+        "{said}"
+    );
+    assert!(!on_github(&hub, &hub.place().reference()), "nothing was pushed");
+}
+
+#[tokio::test]
+async fn the_agents_check_refuses_what_the_check_before_the_merge_refuses() {
+    for (key, value) in [("filter.crypt.clean", "cat"), ("http.proxy", "x")] {
+        let hub = Hub::new();
+        hub.committed().await;
+        run(&hub.repo.project.repo, &["config", key, value]);
+        let refused = hub.agents_check().await.expect_err(key);
+        assert!(refused.contains(key), "{key}: {refused}");
+        assert!(!on_github(&hub, &hub.place().reference()), "{key}: nothing was pushed");
+    }
+}
+
+#[tokio::test]
+async fn the_check_before_the_change_reads_the_ci_on_a_branch_of_its_own_and_takes_the_branch_away() {
+    let hub = Hub::new();
+    hub.committed().await;
+    let before = hub.before(&["farewell.txt"]).await;
+    let mut test = check("test", Outcome::Failed("failure".into()));
+    test.job = Some(7);
+    hub.github().checks(&before.commit, vec![vec![passed("lint"), test]]);
+    hub.github().log(
+        7,
+        "2026-11-10T04:23:11.0000000Z ##[error]Process completed with exit code 101.\n",
+    );
+    let place = hub.place();
+    let said = (hub
+        .host
+        .check_before(&branch(&place), &before, &mut Stop::never())
+        .await)
+        .unwrap()
+        .expect("nothing stopped it");
+    let reference = format!("refs/heads/wf-agents-before/{}-{}", place.branch, &before.commit[..12]);
+    let name = reference.trim_start_matches("refs/heads/");
+    assert!(
+        said.starts_with(&format!(
+            "The CI of the commit {}, on the branch {name}, did not pass. It passed lint.",
+            before.commit
+        )),
+        "{said}"
+    );
+    assert!(
+        said.ends_with("##[error]Process completed with exit code 101."),
+        "{said}"
+    );
+    assert!(!on_github(&hub, &reference), "the branch is taken away");
+    assert!(!on_github(&hub, &place.reference()), "the work's branch is not pushed");
+    assert_eq!(hub.opened(), 0, "no pull request is opened for it");
+}

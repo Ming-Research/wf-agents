@@ -188,6 +188,44 @@ pub async fn start(project: &Project, place: &Place, from: &str) -> Result<Start
     })
 }
 
+/// The code before a work's change with some files of the head of its branch put on it, as one commit, which the
+/// agents' tool `check_before` checks.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Before {
+    /// The head of the work's branch the files are taken from.
+    pub head: String,
+    /// The code before the change: the commit of main the branch's change begins from.
+    pub base: String,
+    /// The files put on it, as the head holds them.
+    pub files: Vec<String>,
+    /// The commit made of the base with the files put on it.
+    pub commit: String,
+}
+
+/// Makes the commit of the code before the work's change, its branch's merge base with `main`, with these files put on
+/// it as the head of the branch holds them; or says why it is not made, in words for the agent that asked: a file the
+/// head does not hold, or one whose changes are not committed. Made again of the same files on the same base, it is
+/// the same commit. Nothing changes in the worktree. Refused where the repository's configuration is ([`configuration`]).
+pub(crate) async fn before(
+    project: &Project,
+    place: &Place,
+    main: &str,
+    files: &[String],
+) -> Result<Result<Before, String>, String> {
+    let _ = (project, place, main, files);
+    Err("not built yet".to_string())
+}
+
+/// Where the check before the change of the work is run, beside its worktree, while it runs.
+pub fn before_dir(place: &Place) -> PathBuf {
+    let name = place
+        .dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    place.dir.with_file_name(format!("{name}-before"))
+}
+
 /// The work's worktree, or why there is none: a round of the work is done in it, and `start` makes it.
 pub fn worktree(place: &Place) -> Result<PathBuf, String> {
     if place.dir.is_dir() {

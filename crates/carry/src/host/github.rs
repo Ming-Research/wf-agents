@@ -6,11 +6,18 @@
 //! again after the engine started again pushes nothing GitHub has, finds the pull request it opened and reads the CI
 //! of the same commit; a merge given again finds the pull request merged.
 //!
+//! An agent's check is the CI of the last commit of its work's branch, pushed and checked through the same pull
+//! request; what the worktree holds that is not committed is said, and nothing is pushed. Its check before the change
+//! pushes the commit made for it to a branch of its own, [`BEFORE`], which the project's CI is to run on, and takes
+//! the branch away once its CI is read.
+//!
 //! - `api`: what is asked of GitHub besides pushing and fetching, and `gh`, which asks it with the `gh` command line.
+//! - `log`: what of a red job's log tells why it is red.
 //! - `fake`: GitHub for the tests, with a bare repository on disk to push to.
 
 mod api;
 mod gh;
+mod log;
 
 #[cfg(test)]
 mod fake;
@@ -24,7 +31,7 @@ pub use api::{Api, Check, Outcome, Pull, State};
 pub use gh::Gh;
 
 use super::{Branch, Host, Verdict};
-use crate::git::{self, With};
+use crate::git::{self, Before, With};
 use crate::held::Stop;
 use crate::process;
 use crate::settings::{self, Project};
@@ -75,6 +82,10 @@ impl std::fmt::Debug for Config {
             .finish()
     }
 }
+
+/// Where on GitHub the commits the agents' `check_before` makes are pushed, each to a branch of its own under this
+/// name, which the project's CI must run on when it is pushed.
+pub const BEFORE: &str = "wf-agents-before";
 
 /// GitHub, reached through the API given.
 pub struct GitHub<A> {
@@ -298,7 +309,8 @@ impl<A: Api> GitHub<A> {
     }
 
     /// What failed of the checks, for the implementing agent: each red check with its link, what it said of itself,
-    /// and the end of its log where GitHub keeps one; none where none failed.
+    /// and what its log says of the failure where GitHub keeps one, the logs sharing the bytes a check's output is
+    /// given ([`process::TAIL`]); none where none failed.
     async fn failures(&self, checks: &[Check]) -> Option<String> {
         let failed: Vec<&Check> = (checks.iter())
             .filter(|c| matches!(c.outcome, Outcome::Failed(_)))
@@ -306,6 +318,7 @@ impl<A: Api> GitHub<A> {
         if failed.is_empty() {
             return None;
         }
+        let budget = process::TAIL / failed.len();
         let mut said = vec![format!(
             "The CI failed on this commit, in {} of its checks.",
             failed.len()
@@ -319,8 +332,8 @@ impl<A: Api> GitHub<A> {
             if let Some(job) = check.job {
                 match self.api.log(job).await {
                     Ok(log) => lines.push(format!(
-                        "The end of its log, up to its error:\n{}",
-                        tail_of_log(&log).trim_end()
+                        "What its log says of the failure:\n{}",
+                        log::what_failed(&log, budget)
                     )),
                     Err(why) => lines.push(format!("Its log could not be read: {why}")),
                 }
@@ -432,6 +445,25 @@ impl<A: Api> Host for GitHub<A> {
         self.delete(branch).await?;
         Ok(commit)
     }
+
+    fn kept_main(&self) -> String {
+        format!("refs/remotes/{}/{}", self.config.remote, self.project.main)
+    }
+
+    async fn check(&self, branch: &Branch<'_>, stop: &mut Stop) -> Result<Option<String>, String> {
+        let _ = (branch, stop);
+        Err("not built yet".to_string())
+    }
+
+    async fn check_before(
+        &self,
+        branch: &Branch<'_>,
+        before: &Before,
+        stop: &mut Stop,
+    ) -> Result<Option<String>, String> {
+        let _ = (branch, before, stop, BEFORE);
+        Err("not built yet".to_string())
+    }
 }
 
 /// Whether the key is one of a remote named by an address rather than a name, `remote.<address>.<name>`, which git
@@ -470,41 +502,4 @@ fn span(time: Duration) -> String {
     } else {
         format!("{seconds} seconds")
     }
-}
-
-/// The end of a job's log as GitHub Actions keeps it, up to the last line where a step reported its error: the steps
-/// that clean up after it would otherwise push the cause out of what is kept. Each line is read without the time
-/// GitHub writes before it and without the codes that colour it; what is kept is as much as a local check's output.
-pub(crate) fn tail_of_log(log: &str) -> String {
-    let lines: Vec<String> = log.lines().map(plain).collect();
-    let end = (lines.iter())
-        .rposition(|line| line.contains("##[error]"))
-        .map_or(lines.len(), |at| at + 1);
-    let mut kept = lines[..end].join("\n");
-    kept.push('\n');
-    process::tail(kept.as_bytes())
-}
-
-/// A line of a job's log without its time and its colour codes.
-fn plain(line: &str) -> String {
-    let line = line.trim_start_matches('\u{feff}');
-    let line = match line.split_once(' ') {
-        Some((time, rest)) if time.len() >= 20 && time.ends_with('Z') && time.as_bytes()[10] == b'T' => rest,
-        _ => line,
-    };
-    let mut plain = String::with_capacity(line.len());
-    let mut chars = line.chars();
-    while let Some(c) = chars.next() {
-        if c == '\u{1b}' {
-            // An escape: `ESC [`, then numbers and semicolons, up to the letter that ends it.
-            for c in chars.by_ref() {
-                if c.is_ascii_alphabetic() {
-                    break;
-                }
-            }
-        } else {
-            plain.push(c);
-        }
-    }
-    plain
 }
