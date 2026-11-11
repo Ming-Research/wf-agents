@@ -331,7 +331,7 @@ impl Real {
         self.add_made_of(&[]).await
     }
 
-    /// Adds an item that depends on these items, with a request where its flow has one, held so that its work begins
+    /// Adds an item that depends on these items, with a request where its flow has one, paused so that its work begins
     /// once the test lets it on, and makes its work's place where the flow has agents to run in it and no cell that
     /// makes it.
     pub async fn add_made_of(&mut self, depends_on: &[ItemNumber]) -> WorkNumber {
@@ -346,7 +346,7 @@ impl Real {
             depends_on: depends_on.to_vec(),
             flow: self.flow.name.clone(),
             writes: request.into_iter().collect(),
-            held: true,
+            going: false,
         };
         let (reply, mut answer) = oneshot::channel();
         self.service

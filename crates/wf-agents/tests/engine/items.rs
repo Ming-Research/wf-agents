@@ -10,7 +10,6 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
     assert_eq!(
         engine.says(&[
             "add",
-            "--held",
             "--title",
             "Greet the user",
             "--flow",
@@ -96,7 +95,6 @@ fn a_work_is_paused_written_let_go_and_cancelled_from_the_command_line() {
     let from_file = format!("request={}", request.display());
     engine.says(&[
         "add",
-        "--held",
         "--title",
         "Greet the user",
         "--flow",
@@ -107,7 +105,6 @@ fn a_work_is_paused_written_let_go_and_cancelled_from_the_command_line() {
     assert_eq!(
         engine.says(&[
             "add",
-            "--held",
             "--title",
             "Say goodbye",
             "--flow",

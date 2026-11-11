@@ -74,7 +74,6 @@ async fn an_act_the_engine_stopped_before_keeping_says_it_was_not_kept() {
         "dependsOn": [],
         "flow": "trial",
         "writes": [{ "block": "request", "content": "Please.", "value": null }],
-        "held": true,
     });
     assert_eq!(post(&running.router, "/api/v1/items", &item).await.0, StatusCode::OK);
     *failing.lock().unwrap() = true;

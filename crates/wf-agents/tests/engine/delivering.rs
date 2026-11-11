@@ -40,7 +40,6 @@ fn a_deliverable_made_of_an_engineers_item_is_delivered_once_it_merges_and_lets_
     let add = |title: &str, flow: &str, after: Option<&str>| {
         let mut args = vec![
             "add",
-            "--held",
             "--title",
             title,
             "--flow",

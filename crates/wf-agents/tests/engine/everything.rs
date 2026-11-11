@@ -15,6 +15,7 @@ fn everything_is_paused_and_let_on_again_from_the_command_line() {
     assert_eq!(
         engine.says(&[
             "add",
+            "--going",
             "--title",
             "Greet the user",
             "--flow",

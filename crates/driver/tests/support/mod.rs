@@ -465,7 +465,7 @@ pub fn sorted(todos: &[Todo]) -> Vec<Todo> {
     todos
 }
 
-/// An item to add with no first writes, held: its work begins nothing until it is let on.
+/// An item to add with no first writes, paused: its work begins nothing until it is let on.
 pub fn new_item(title: &str, depends_on: &[ItemNumber], flow: &str) -> NewItem {
     NewItem {
         title: title.to_string(),
@@ -473,14 +473,14 @@ pub fn new_item(title: &str, depends_on: &[ItemNumber], flow: &str) -> NewItem {
         depends_on: depends_on.to_vec(),
         flow: flow.to_string(),
         writes: Vec::new(),
-        held: true,
+        going: false,
     }
 }
 
-/// An item to add with no first writes, not held: its work begins by itself when it may.
+/// An item to add with no first writes, going on: its work begins by itself when it may.
 pub fn going_item(title: &str, depends_on: &[ItemNumber], flow: &str) -> NewItem {
     NewItem {
-        held: false,
+        going: true,
         ..new_item(title, depends_on, flow)
     }
 }
@@ -621,10 +621,10 @@ impl H {
     /// Adds an item at this time, which the driver must take unless its store stops it.
     pub fn try_add(&mut self, now: Time, new: NewItem) -> Outcome<(ItemNumber, WorkNumber)> {
         let before = self.reader.items().expect("the items are read").len();
-        let held = new.held;
+        let going = new.going;
         match self.dm().add(now, new) {
             Ok((item, work, todos)) => {
-                if !held {
+                if going {
                     self.let_on.insert(work);
                 }
                 self.given(&todos);
@@ -962,7 +962,8 @@ impl H {
             "what is pending is not what was given and not yet answered"
         );
         // The rounds of agents given out and not yet answered, a round to be stopped among them until it has ended,
-        // counted from what was given and not by the driver's own count; a work at fault takes none.
+        // counted from what was given and not by the driver's own count; a work at fault takes none, as nothing more is
+        // decided of it.
         let taking = (self.outstanding.iter())
             .filter(|todo| {
                 let Some(kept) = d.work(todo.work) else {

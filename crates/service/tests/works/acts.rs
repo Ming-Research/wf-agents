@@ -65,7 +65,7 @@ async fn an_item_on_a_flow_there_is_none_of_is_refused() {
             content: "Greet the user, please.".to_string(),
             value: None,
         }],
-        held: true,
+        going: false,
     };
     let (reply, mut answer) = oneshot::channel();
     trial.take(Message::Add { item, reply });

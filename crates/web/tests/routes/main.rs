@@ -309,7 +309,6 @@ pub async fn greeted(router: &Router) {
         "dependsOn": [],
         "flow": "trial",
         "writes": [{ "block": "request", "content": "Greet the user, please.", "value": null }],
-        "held": true,
     });
     assert_eq!(
         post(router, "/api/v1/items", &item).await,

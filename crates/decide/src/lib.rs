@@ -26,6 +26,6 @@ pub use records::{
     Abandoned, CallId, Called, Cause, Done, Finished, LetGo, Outsider, Pause, Pauser, RecordFault, Records, Returned,
     Round, RunId, Seq, Started, Who, Write, Written,
 };
-pub use room::{Holder, Room, taking_slot};
+pub use room::{Holder, Room, begun, taking_slot};
 pub use view::{CellView, InputView, OpenRun, VersionView, View, Writer, versions, view, view_in};
 pub use walk::{Abandoning, Decision, End, Maker, Waited, decide, decide_in, hold, hold_in, pause, paused, stale};

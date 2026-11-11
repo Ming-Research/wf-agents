@@ -25,8 +25,9 @@
 //! round, if it begins one at once, as its session is then warm; and a slot that comes free otherwise is given to the
 //! works that wait for one in the engine's order, those that have begun a round before those that have not, each in the
 //! order of their numbers, so that what was begun is carried on before something new begins. No work waits for a slot
-//! while one is free: each call gives away what came free before it returns. A work is added going on: it begins by
-//! itself when it may, unless whoever adds it says to add it paused.
+//! while one is free: each call gives away what came free before it returns. A work is added paused, and goes on once
+//! somebody lets it on, so that whoever plans orders what runs; one is added going on only where whoever adds it says
+//! so.
 //!
 //! What the driver holds of a work in memory is what the store holds of it: a work is saved each time it grows, and
 //! what is to be done is given out only once the store holds the entries that say so. Stopped at any moment and
@@ -38,7 +39,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use decide::{BlockId, Decision, End, Holder, Outsider, Pauser, Room, View, decide, taking_slot};
+use decide::{BlockId, Decision, End, Holder, Outsider, Pauser, Room, View, begun, decide, taking_slot};
 use engine::{Effect, Event, Refused, handle_in, held};
 use flow::Compiled;
 use store::{Item, ItemNumber, Storage, WorkHead, WorkNumber};
@@ -136,9 +137,9 @@ pub struct NewItem {
     pub flow: String,
     /// What people write for it as it is added, in order.
     pub writes: Vec<FirstWrite>,
-    /// Whether its work is added paused, so that it begins nothing until the owner lets it on; otherwise it begins by
-    /// itself when it may.
-    pub held: bool,
+    /// Whether its work is added going on, beginning by itself when it may; otherwise it is added paused, and begins
+    /// nothing until somebody lets it on.
+    pub going: bool,
 }
 
 /// A block people write as an item is added.
@@ -294,10 +295,10 @@ impl Driver {
     }
 
     /// Adds an item together with its one work and with what people write for it first, all of it or none (entry
-    /// `item-added-with-its-work`), and gives their numbers with what is to be done. The work begins by itself when it
-    /// may, or, added held, is added paused, so that it begins no round until it is let on. What is kept of it from its
-    /// start is, in this order, the pause where it is held, what the driver says of the item's dependencies, what
-    /// people wrote, and what follows from looking at it then.
+    /// `item-added-with-its-work`), and gives their numbers with what is to be done. The work is added paused, so that
+    /// it begins no round until it is let on, or, added going on, begins by itself when it may. What is kept of it from
+    /// its start is, in this order, the pause where it is added paused, what the driver says of the item's dependencies,
+    /// what people wrote, and what follows from looking at it then.
     ///
     /// The driver keeps no key of the caller's for an add: a caller that was stopped before it had the numbers finds
     /// the item among those the driver shows, or adds it again as another item.
@@ -314,7 +315,7 @@ impl Driver {
         depends_on.dedup();
         let mut work = Work::default();
         let mut first = Vec::new();
-        if new.held {
+        if !new.going {
             first.push(Event::Paused {
                 by: Pauser::Owner,
                 why: None,
@@ -328,14 +329,19 @@ impl Driver {
             matters: true,
             value: write.value,
         }));
-        // Looked at last, so that a work added going on with nothing written begins too.
-        first.push(Event::Look);
-        // No other work holds a slot it would lose: a slot free is one no work waits for.
-        let room = self.room(None, true);
+        // What is written as the item is added is taken in a room that begins nothing, so that no run starts before the
+        // last of it is in: under a pause a run starts only for a note to a cell that ran before, and none has. The
+        // work is then looked at in the room the engine leaves it, a slot free being one no work waits for.
         let mut effects = Vec::new();
+        let taking = Room {
+            paused: true,
+            slot: false,
+        };
         for event in first {
-            effects.extend(handle_in(&flow, &mut work, now, event, room).map_err(Failed::Refused)?);
+            effects.extend(handle_in(&flow, &mut work, now, event, taking).map_err(Failed::Refused)?);
         }
+        let room = self.room(None, true);
+        effects.extend(handle_in(&flow, &mut work, now, Event::Look, room).map_err(Failed::Refused)?);
         let (item, number) = (self.store)
             .add(&new.title, &new.level, &depends_on, &new.flow, now, &work)
             .map_err(|fault| self.stop(Fault::Store(fault), false))?;
@@ -608,10 +614,11 @@ impl Driver {
         }
     }
 
-    /// How many works have a round under way that takes a slot, but this one.
+    /// How many works have a round under way that takes a slot, but this one. A work at fault takes none: nothing more
+    /// is decided of it, so a slot it held would be held for good.
     fn taken(&self, but: Option<WorkNumber>) -> usize {
         (self.works.values())
-            .filter(|held| Some(held.head.number) != but)
+            .filter(|held| Some(held.head.number) != but && held.standing != Standing::AtFault)
             .filter(|held| taking_slot(&held.flow.flow, &held.work.records))
             .count()
     }
@@ -659,7 +666,7 @@ impl Driver {
             let next = (self.works.values())
                 .filter(|held| held.standing == Standing::Going && !looked.contains(&held.head.number))
                 .filter(|held| engine::held(&held.flow, &held.work, waiting) == Some(Holder::Slot))
-                .min_by_key(|held| (held.work.records.rounds.is_empty(), held.head.number))
+                .min_by_key(|held| (!begun(&held.flow.flow, &held.work.records), held.head.number))
                 .map(|held| held.head.number);
             let Some(number) = next else {
                 break;

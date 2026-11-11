@@ -6,13 +6,14 @@ use serde_json::{Value, json};
 
 use crate::{START, get_json, pass, post, post_text, running, running_scripted, trial_script};
 
-/// An item of the trial flow, going on as it is added.
+/// An item of the trial flow, added going on.
 fn item(title: &str) -> Value {
     json!({
         "title": title,
         "dependsOn": [],
         "flow": "trial",
         "writes": [{ "block": "request", "content": "Please.", "value": null }],
+        "going": true,
     })
 }
 
@@ -26,7 +27,7 @@ async fn the_engine_says_its_slots_and_whether_everything_is_paused() {
     );
     assert_eq!(post(router, "/api/v1/items", &item("First")).await.0, StatusCode::OK);
     let engine = get_json(router, "/api/v1/engine").await;
-    assert_eq!(engine["taken"], 1, "a work added goes on by itself: {engine}");
+    assert_eq!(engine["taken"], 1, "a work added going on goes on by itself: {engine}");
     assert_eq!(
         get_json(router, "/api/v1/works/1").await["summary"]["now"]["kind"],
         "round"

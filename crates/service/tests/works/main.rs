@@ -34,7 +34,7 @@ use store::{ItemNumber, Storage, Store, WorkNumber};
 use tokio::sync::oneshot;
 use work::{Ask, Call, Time, Work};
 
-/// An item of the trial flow with a request, depending on these items, added held: its work begins nothing until it is
+/// An item of the trial flow with a request, depending on these items, added paused: its work begins nothing until it is
 /// let on.
 pub fn new_item(title: &str, depends_on: &[u64]) -> NewItem {
     NewItem {
@@ -47,7 +47,7 @@ pub fn new_item(title: &str, depends_on: &[u64]) -> NewItem {
             content: format!("{title}, please."),
             value: None,
         }],
-        held: true,
+        going: false,
     }
 }
 

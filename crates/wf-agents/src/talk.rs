@@ -45,9 +45,9 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
     let said: Result<String, String> = runtime.block_on(async move {
         match asked {
             Asked::Add(item) => {
-                let held = item.held;
+                let going = item.going;
                 let added: Added = send(address, Method::POST, "/api/v1/items", Some(&item)).await?;
-                Ok(if held {
+                Ok(if !going {
                     format!(
                         "Added item {} with its work {}, paused: let it on with `wf-agents resume {}`.",
                         added.item, added.work, added.work
@@ -74,10 +74,21 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
                 Ok(show(&page))
             }
             Asked::Act(work, act) => {
+                let resumed = act == Act::Resume {};
                 let done = done(work, &act);
                 let path = format!("/api/v1/works/{work}/acts");
                 send::<(), _>(address, Method::POST, &path, Some(&act)).await?;
-                Ok(done)
+                if !resumed {
+                    return Ok(done);
+                }
+                // A work let on that the pause of everything holds back is said to be held, not to go on.
+                let page: WorkPage = send(address, Method::GET, &format!("/api/v1/works/{work}"), None::<&()>).await?;
+                Ok(match page.summary.now {
+                    Now::Everything {} => format!(
+                        "Work {work} is let on, and held back by the pause of everything until `wf-agents resume --all`."
+                    ),
+                    _ => done,
+                })
             }
             Asked::SetLevel(item, level) => {
                 let path = format!("/api/v1/items/{item}/level");
@@ -126,7 +137,7 @@ pub fn new_item(
     texts: &[String],
     files: &[String],
     choices: &[String],
-    held: bool,
+    going: bool,
 ) -> Result<NewItem, String> {
     let mut writes = Vec::new();
     for text in texts {
@@ -160,7 +171,7 @@ pub fn new_item(
         depends_on,
         flow,
         writes,
-        held,
+        going,
     })
 }
 
@@ -399,9 +410,7 @@ fn now(now: &Now) -> String {
             by: Pauser::Engine,
             why: None,
         } => "paused by the engine, which gave no reason".to_string(),
-        Now::Paused {
-            by: Pauser::Everything, ..
-        } => "held back by the pause of everything".to_string(),
+        Now::Everything {} => "held back by the pause of everything".to_string(),
         Now::Waits { at, on } => {
             let on: Vec<String> = on.iter().map(waited).collect();
             format!("waits at {at} for {}", on.join("; and for "))

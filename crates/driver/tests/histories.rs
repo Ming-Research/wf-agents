@@ -253,9 +253,9 @@ impl History {
             depends_on,
             flow: flow.to_string(),
             writes,
-            held: !self.room.chance(33),
+            going: self.room.chance(33),
         };
-        if !new.held {
+        if new.going {
             self.seen.added_going += 1;
         }
         self.act(Act::Add(new));

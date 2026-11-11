@@ -54,8 +54,8 @@ enum Command {
         #[arg(long, default_value_t = PORT)]
         port: u16,
     },
-    /// Adds an item with its work, which goes on by itself when it may: once the items it depends on have merged,
-    /// while everything is not paused, as a slot comes free.
+    /// Adds an item with its work, which is added paused: it begins nothing until it is let on with `wf-agents
+    /// resume`.
     Add {
         #[arg(long)]
         title: String,
@@ -77,9 +77,10 @@ enum Command {
         /// A block that is a choice, written for it with this value.
         #[arg(long = "choose", value_name = "BLOCK=VALUE")]
         choices: Vec<String>,
-        /// Adds its work paused: it begins nothing until it is let on with `wf-agents resume`.
+        /// Adds its work going on: it begins by itself when it may, once the items it depends on have merged, while
+        /// everything is not paused, as a slot comes free.
         #[arg(long)]
-        held: bool,
+        going: bool,
         #[command(flatten)]
         at: At,
     },
@@ -217,9 +218,9 @@ fn main() -> ExitCode {
             texts,
             files,
             choices,
-            held,
+            going,
             at,
-        } => match talk::new_item(title, level, flow, depends_on, &texts, &files, &choices, held) {
+        } => match talk::new_item(title, level, flow, depends_on, &texts, &files, &choices, going) {
             Ok(item) => talk::ask(at.port, Asked::Add(item)),
             Err(why) => {
                 eprintln!("{why}");

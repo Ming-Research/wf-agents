@@ -552,7 +552,7 @@ impl Handle {
         answer.await.map_err(|_| Refusal::Gone)?
     }
 
-    /// Adds an item with its work, which begins by itself when it may unless it is added held, and gives their
+    /// Adds an item with its work, which is added paused unless it is added going on, and gives their
     /// numbers.
     pub async fn add(&self, item: NewItem) -> Result<(ItemNumber, WorkNumber), Refusal> {
         let (reply, answer) = oneshot::channel();

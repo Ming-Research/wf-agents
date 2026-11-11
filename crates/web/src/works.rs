@@ -96,8 +96,11 @@ pub enum Now {
         since: u64,
     },
     /// It is paused, and what it would do next is begin a round: by the owner, or by the engine itself for this
-    /// reason, as when a round failed; or it is held back by the owner's pause of everything.
+    /// reason, as when a round failed.
     Paused { by: Pauser, why: Option<String> },
+    /// The owner's pause of everything holds it back, and what it would do next is begin a round; its own pause does
+    /// not hold it.
+    Everything {},
     /// It waits at this cell, for each of these.
     Waits { at: String, on: Vec<Waited> },
     /// It is about to do something at this cell. A work is never left so between two things that happen to it.
@@ -145,14 +148,12 @@ pub enum Maker {
     Cell { cell: String },
 }
 
-/// Who paused a work: the owner, or the engine itself; or, of what a work does now, the owner's pause of everything,
-/// which the owner lifts for every work at once.
+/// Who paused a work: the owner, or the engine itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Pauser {
     Owner,
     Engine,
-    Everything,
 }
 
 /// What a call is.
@@ -670,7 +671,7 @@ pub enum Act {
     Answer { call: u64, result: String },
 }
 
-/// An item the owner adds, with its work, which begins by itself when it may.
+/// An item the owner adds, with its work, which is added paused unless it is added going on.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NewItem {
@@ -683,9 +684,10 @@ pub struct NewItem {
     pub flow: String,
     /// What is written for it as it is added, each a block people write.
     pub writes: Vec<NewWrite>,
-    /// Whether its work is added paused, beginning no round until it is let on; it is not where this is left out.
+    /// Whether its work is added going on, beginning by itself when it may; where this is left out it is added paused,
+    /// and begins no round until it is let on.
     #[serde(default)]
-    pub held: bool,
+    pub going: bool,
 }
 
 /// The engine as a whole: its slots, and the owner's pause of everything.
@@ -817,10 +819,7 @@ impl Summary {
 impl Now {
     fn of(kept: Kept<'_>, decision: &Decision, held: Option<Holder>) -> Result<Now, Broken> {
         let work = kept.work;
-        let everything = Now::Paused {
-            by: Pauser::Everything,
-            why: None,
-        };
+        let everything = Now::Everything {};
         Ok(match decision {
             Decision::Fault(fault) => Now::Fault {
                 words: service::record_fault_words(fault),
@@ -1212,7 +1211,7 @@ impl NewItem {
                     value: write.value,
                 })
                 .collect(),
-            held: self.held,
+            going: self.going,
         })
     }
 }

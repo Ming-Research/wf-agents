@@ -180,9 +180,9 @@ export function nowWords(now: Now): string {
     case 'paused':
       return now.by === 'engine'
         ? `Paused by the engine: ${now.why ?? 'it gave no reason'}`
-        : now.by === 'everything'
-          ? 'Paused with every work: only a note to a cell is answered until everything is let on'
-          : 'Paused: only a note to a cell is answered until it is let on';
+        : 'Paused: only a note to a cell is answered until it is let on';
+    case 'everything':
+      return 'Paused with every work: only a note to a cell is answered until everything is let on';
     case 'waits':
       return `Waits at ${now.at} for ${now.on.map(waitedWords).join('; ')}`;
     case 'next':
@@ -208,6 +208,7 @@ export function nowTone(now: Now): Tone {
     case 'waits':
       return now.on.some(waitsForOwner) ? 'owner' : 'quiet';
     case 'cancelled':
+    case 'everything':
     case 'next':
       return 'quiet';
   }

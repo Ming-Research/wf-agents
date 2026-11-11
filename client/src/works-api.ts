@@ -27,9 +27,8 @@ import type { Flow } from './api';
 
 export type Person = 'owner' | 'architect';
 
-/// Who paused a work: the owner, or the engine itself, as when a round failed or the work spent more than it may; or,
-/// of what a work does now, the owner's pause of everything, which the owner lifts for every work at once.
-export type Pauser = 'owner' | 'engine' | 'everything';
+/// Who paused a work: the owner, or the engine itself, as when a round failed or the work spent more than it may.
+export type Pauser = 'owner' | 'engine';
 
 /// The limit a run reached.
 export type Limit = { of: 'returns'; sentBack: number } | { of: 'calls'; made: number };
@@ -67,6 +66,8 @@ export type Now =
   /// It is paused, and what it would do next is begin a round: by the owner, who gives no reason, or by the engine
   /// for this one.
   | { kind: 'paused'; by: Pauser; why: string | null }
+  /// The owner's pause of everything holds it back, and what it would do next is begin a round; its own pause does not.
+  | { kind: 'everything' }
   /// It waits at this cell, for each of these.
   | { kind: 'waits'; at: string; on: Waited[] }
   /// It is about to do something at this cell; a work is never left so between two things that happen to it.
@@ -374,9 +375,9 @@ export interface NewItem {
   flow: string;
   /// What is written for it as it is added, each a block people write.
   writes: { block: string; content: string; value: string | null }[];
-  /// Whether its work is added paused, beginning no round until it is let on; it goes on by itself where this is left
-  /// out.
-  held?: boolean;
+  /// Whether its work is added going on, beginning by itself when it may; it is added paused, and begins no round until
+  /// it is let on, where this is left out.
+  going?: boolean;
 }
 
 /// The engine as a whole: its slots, and when the owner's pause of everything began, while it holds.

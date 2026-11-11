@@ -115,6 +115,8 @@ export function nowWords(s: Summary, page: WorkPage | null): { word: string; fac
     }
     case 'paused':
       return now.by === 'engine' ? { word: MOOD_WORDS.halted, facts: now.why } : { word: MOOD_WORDS.paused, facts: null };
+    case 'everything':
+      return { word: MOOD_WORDS.paused, facts: 'with every work' };
     case 'fault':
       return { word: MOOD_WORDS.halted, facts: now.words };
     case 'merged':
