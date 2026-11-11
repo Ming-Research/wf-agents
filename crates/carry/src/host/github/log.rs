@@ -62,6 +62,13 @@ pub(crate) fn what_failed(log: &str, budget: usize) -> String {
     within(capped(kept, MOST), budget).join("\n")
 }
 
+/// A text an agent's test wrote, as a reader wants it: each line without its control characters but tabs, in at most
+/// `budget` bytes, its first lines and its end.
+pub(crate) fn plain(text: &str, budget: usize) -> String {
+    let lines: Vec<String> = text.trim_end().lines().map(without_controls).collect();
+    within(lines, budget).join("\n")
+}
+
 /// The text in a fenced block, so that it reads as what the CI printed and not as words to its reader: its fences
 /// longer than any run of backquotes it holds.
 pub(crate) fn fenced(text: &str) -> String {

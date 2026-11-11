@@ -262,16 +262,7 @@ pub(crate) async fn before(
     // By the engine, at the time of the base, so that the same files on the same base make the same commit, whose CI
     // is then read and not run again.
     let date = git(repo, &["log", "-1", "--format=%cI", &base]).await?;
-    let mut env = Vec::new();
-    for who in ["AUTHOR", "COMMITTER"] {
-        env.push((format!("GIT_{who}_NAME"), "wf-agents".to_string()));
-        env.push((format!("GIT_{who}_EMAIL"), ENGINE_EMAIL.to_string()));
-        env.push((format!("GIT_{who}_DATE"), date.clone()));
-    }
-    let made = With {
-        settings: Vec::new(),
-        env,
-    };
+    let made = by_the_engine(&date);
     let message = format!("The code before the change of {}, with its tests", place.branch);
     let commit = git_with(repo, &made, &["commit-tree", &tree, "-p", &base, "-m", &message]).await?;
     Ok(Ok(Before {
@@ -280,6 +271,63 @@ pub(crate) async fn before(
         files: files.to_vec(),
         commit,
     }))
+}
+
+/// Where a repository keeps the files of its CI: a workflow run by hand is run by the file of it the branch holds.
+pub const CI_FILES: &str = ".github";
+
+/// A commit on top of `commit` with the same files but for its CI files ([`CI_FILES`]), which are `main`'s, for a
+/// workflow GitHub refuses to run with the commit's own; none where they are the commit's already. Made by the engine,
+/// at the commit's time, so that it is the same commit each time it is made of the same; nothing changes in the
+/// worktree.
+#[allow(dead_code)]
+pub(crate) async fn with_main_ci(project: &Project, commit: &str, main: &str) -> Result<Option<String>, String> {
+    let repo = &project.repo;
+    let index = std::env::temp_dir().join(format!("wf-agents-main-ci-{}.index", Uuid::new_v4().simple()));
+    let own = With {
+        settings: Vec::new(),
+        env: vec![("GIT_INDEX_FILE".to_string(), text(&index))],
+    };
+    let tree = async {
+        git_with(repo, &own, &["read-tree", commit]).await?;
+        git_with(
+            repo,
+            &own,
+            &["rm", "-r", "--cached", "--quiet", "--ignore-unmatch", "--", CI_FILES],
+        )
+        .await?;
+        let mains = format!("{main}:{CI_FILES}");
+        if said(repo, &["cat-file", "-e", &mains]).await?.ok {
+            git_with(repo, &own, &["read-tree", &format!("--prefix={CI_FILES}/"), &mains]).await?;
+        }
+        git_with(repo, &own, &["write-tree"]).await
+    }
+    .await;
+    let _ = tokio::fs::remove_file(&index).await;
+    let tree = tree?;
+    if tree == git(repo, &["rev-parse", &format!("{commit}^{{tree}}")]).await? {
+        return Ok(None);
+    }
+    let date = git(repo, &["log", "-1", "--format=%cI", commit]).await?;
+    let message = "Its commit with main's CI files";
+    let made = by_the_engine(&date);
+    git_with(repo, &made, &["commit-tree", &tree, "-p", commit, "-m", message])
+        .await
+        .map(Some)
+}
+
+/// What a commit the engine makes is given: its identity as author and committer, at this time.
+fn by_the_engine(date: &str) -> With {
+    let mut env = Vec::new();
+    for who in ["AUTHOR", "COMMITTER"] {
+        env.push((format!("GIT_{who}_NAME"), "wf-agents".to_string()));
+        env.push((format!("GIT_{who}_EMAIL"), ENGINE_EMAIL.to_string()));
+        env.push((format!("GIT_{who}_DATE"), date.to_string()));
+    }
+    With {
+        settings: Vec::new(),
+        env,
+    }
 }
 
 /// Makes the worktree where the check before the change runs at the commit ([`before_dir`]), taking away one left

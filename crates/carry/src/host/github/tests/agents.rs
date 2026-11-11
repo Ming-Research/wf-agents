@@ -2,6 +2,7 @@
 //! its pull request, and the CI of the code before the change, read on a branch of its own.
 
 use super::*;
+use crate::host::Named;
 
 /// Whether the bare repository on GitHub has this object.
 fn holds(hub: &Hub, object: &str) -> bool {
@@ -30,7 +31,9 @@ fn on_github(hub: &Hub, reference: &str) -> bool {
 impl Hub {
     async fn agents_check(&self) -> Result<Option<String>, String> {
         let place = self.place();
-        self.host.check(&branch(&place), &mut Stop::never()).await
+        self.host
+            .check(&branch(&place), &Named::default(), &mut Stop::never())
+            .await
     }
 
     /// The commit of the code before the change with these files of the work's last commit put on it.
@@ -161,7 +164,7 @@ async fn the_check_before_the_change_reads_the_ci_on_a_branch_of_its_own_and_tak
     let place = hub.place();
     let said = (hub
         .host
-        .check_before(&branch(&place), &before, &mut Stop::never())
+        .check_before(&branch(&place), &before, &Named::default(), &mut Stop::never())
         .await)
         .unwrap()
         .expect("nothing stopped it");
@@ -211,7 +214,7 @@ async fn the_check_before_the_change_answers_from_a_ci_complete_already_and_push
     let place = hub.place();
     let said = (hub
         .host
-        .check_before(&branch(&place), &before, &mut Stop::never())
+        .check_before(&branch(&place), &before, &Named::default(), &mut Stop::never())
         .await)
         .unwrap()
         .expect("nothing stopped it");
@@ -240,7 +243,7 @@ async fn what_an_earlier_check_before_the_change_of_this_work_left_on_github_is_
     hub.github()
         .checks(&before.commit, vec![vec![passed("lint"), passed("test")]]);
     (hub.host
-        .check_before(&branch(&place), &before, &mut Stop::never())
+        .check_before(&branch(&place), &before, &Named::default(), &mut Stop::never())
         .await)
         .unwrap()
         .expect("nothing stopped it");
@@ -256,7 +259,7 @@ async fn a_project_whose_ci_does_not_run_on_the_branches_before_the_change_is_re
     let place = hub.place();
     let refused = (hub
         .host
-        .check_before(&branch(&place), &before, &mut Stop::never())
+        .check_before(&branch(&place), &before, &Named::default(), &mut Stop::never())
         .await)
         .expect_err("refused");
     assert!(refused.contains("runs_on_before_branches"), "{refused}");

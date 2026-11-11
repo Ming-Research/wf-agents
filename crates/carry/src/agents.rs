@@ -72,7 +72,7 @@ impl Agents {
     /// The agents of these settings, with this data directory, which is an absolute path, and the installation's id.
     pub fn new(settings: Settings, data: PathBuf, installation: Uuid) -> Self {
         let protocol = (PROTOCOL.replace("{owner_language}", &settings.agents.owner_language))
-            .replace("{check}", crate::tools::told(&settings));
+            .replace("{check}", &crate::tools::told(&settings));
         Agents {
             inner: Arc::new(Inner {
                 slots: Semaphore::new(settings.agents.slots),

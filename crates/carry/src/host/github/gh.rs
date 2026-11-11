@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
-use super::api::{Api, Check, Outcome, Pull, State};
+use super::api::{Api, Check, File, Outcome, Pull, Run, State};
 
 /// GitHub's REST API, through `gh`, in one repository.
 #[derive(Clone)]
@@ -129,6 +129,38 @@ impl Gh {
         }
     }
 
+    /// Runs `gh` with these arguments, other than `api`, given up as an ask is; says what it said where it failed.
+    async fn run(&self, args: &[&str]) -> Result<(), String> {
+        let child = Command::new(&self.command)
+            .args(args)
+            .env_clear()
+            .envs(self.env.iter().cloned())
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| format!("{} cannot be started: {e}", self.command))?;
+        let waited = tokio::time::timeout(self.limit, child.wait_with_output()).await;
+        let output = (waited.map_err(|_| {
+            format!(
+                "{} {} did not end in time, and was stopped",
+                self.command,
+                args[..2].join(" ")
+            )
+        }))?
+        .map_err(|e| format!("{} could not be waited for: {e}", self.command))?;
+        if output.status.success() {
+            return Ok(());
+        }
+        Err(format!(
+            "{} {} failed: {}",
+            self.command,
+            args[..2].join(" "),
+            String::from_utf8_lossy(&output.stderr).trim_end()
+        ))
+    }
+
     /// Asks GitHub, and gives the body of an answer whose status is one of `ok`; or GitHub's words for why not.
     async fn want(&self, method: &str, path: &str, body: Option<Value>, ok: &[u16]) -> Result<String, String> {
         let answer = self.ask(method, path, body).await?;
@@ -207,6 +239,65 @@ impl Api for Gh {
         (merged["sha"].as_str())
             .map(str::to_string)
             .ok_or_else(|| "GitHub's answer to the merge names no commit".to_string())
+    }
+
+    async fn runs(&self, workflow: &str, commit: &str) -> Result<Vec<Run>, String> {
+        let path = format!(
+            "repos/{}/actions/workflows/{workflow}/runs?head_sha={commit}&event=workflow_dispatch&per_page=30",
+            self.repository
+        );
+        let listed = self.json("GET", &path, None, &[200]).await?;
+        let runs = listed["workflow_runs"].as_array().cloned().unwrap_or_default();
+        Ok((runs.iter())
+            .filter_map(|run| {
+                Some(Run {
+                    id: run["id"].as_u64()?,
+                    completed: run["status"].as_str() == Some("completed"),
+                    url: run["html_url"].as_str().unwrap_or_default().to_string(),
+                })
+            })
+            .collect())
+    }
+
+    async fn dispatch(&self, workflow: &str, branch: &str, inputs: &[(String, String)]) -> Result<(), String> {
+        let path = format!("repos/{}/actions/workflows/{workflow}/dispatches", self.repository);
+        let inputs: serde_json::Map<String, Value> = (inputs.iter())
+            .map(|(name, value)| (name.clone(), Value::String(value.clone())))
+            .collect();
+        let asked = json!({ "ref": branch, "inputs": inputs });
+        self.want("POST", &path, Some(asked), &[200, 204]).await.map(|_| ())
+    }
+
+    async fn jobs(&self, run: u64) -> Result<Vec<Check>, String> {
+        let path = format!("repos/{}/actions/runs/{run}/jobs?per_page=100", self.repository);
+        let listed = self.json("GET", &path, None, &[200]).await?;
+        let jobs = listed["jobs"].as_array().cloned().unwrap_or_default();
+        Ok(jobs.iter().filter_map(job).collect())
+    }
+
+    async fn artifact(&self, run: u64, name: &str) -> Result<Option<Vec<File>>, String> {
+        let dir = std::env::temp_dir().join(format!("wf-agents-artifact-{}", uuid::Uuid::new_v4().simple()));
+        let (run, dir_text) = (run.to_string(), dir.to_string_lossy().into_owned());
+        let args = [
+            "run",
+            "download",
+            run.as_str(),
+            "-R",
+            self.repository.as_str(),
+            "-n",
+            name,
+            "-D",
+            &dir_text,
+        ];
+        let ran = self.run(&args).await;
+        let files = match ran {
+            Ok(()) => files_under(&dir, ""),
+            Err(why) if why.contains("no artifact") || why.contains("no valid artifact") => Ok(Vec::new()),
+            Err(why) => Err(why),
+        };
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+        let files = files?;
+        Ok((!files.is_empty()).then_some(files))
     }
 
     async fn delete(&self, branch: &str) -> Result<(), String> {
@@ -336,6 +427,42 @@ fn check_run(name: &str, run: &Value) -> Check {
         summary: (!said.is_empty()).then(|| said.join("\n")),
         job: if actions { run["id"].as_u64() } else { None },
     }
+}
+
+/// A job of a run as a check; none for a job that did not run, its condition false.
+fn job(job: &Value) -> Option<Check> {
+    let outcome = match (job["status"].as_str(), job["conclusion"].as_str()) {
+        (Some("completed"), Some("skipped")) => return None,
+        (Some("completed"), Some("success" | "neutral")) => Outcome::Passed,
+        (Some("completed"), Some(how @ ("failure" | "timed_out"))) => Outcome::Failed(how.to_string()),
+        (Some("completed"), Some(how)) => Outcome::Broken(how.to_string()),
+        (Some("completed"), None) => Outcome::Broken("no conclusion".to_string()),
+        _ => Outcome::Pending,
+    };
+    Some(Check {
+        name: job["name"].as_str()?.to_string(),
+        outcome,
+        url: job["html_url"].as_str().map(str::to_string),
+        summary: None,
+        job: job["id"].as_u64(),
+    })
+}
+
+/// Every file under a directory, each as its path under it with `/` between its parts, after `prefix`, and its bytes.
+fn files_under(dir: &Path, prefix: &str) -> Result<Vec<File>, String> {
+    let mut out = Vec::new();
+    let entries = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("{}: {e}", dir.display()))?;
+        let path = format!("{prefix}{}", entry.file_name().to_string_lossy());
+        if entry.path().is_dir() {
+            out.extend(files_under(&entry.path(), &format!("{path}/"))?);
+        } else {
+            let bytes = std::fs::read(entry.path()).map_err(|e| format!("{path}: {e}"))?;
+            out.push((path, bytes));
+        }
+    }
+    Ok(out)
 }
 
 /// A commit status as a check.

@@ -86,23 +86,44 @@ pub trait Host: Send + Sync + 'static {
     /// the host again: where a work's change begins is worked out from it.
     fn kept_main(&self) -> String;
 
-    /// What the agents' tool `check` finds of the work, in words for the agent that asked; none where it was told to
-    /// stop. An `Err` is why it could not check, for the agent too.
+    /// What the agents' tool `check` finds of the work, with the tests and checks the agent named, in words for the
+    /// agent that asked; none where it was told to stop. An `Err` is why it could not check, for the agent too.
     fn check(
         &self,
         branch: &Branch<'_>,
+        named: &Named,
         stop: &mut Stop,
     ) -> impl Future<Output = Result<Option<String>, String>> + Send;
 
     /// What the agents' tool `check_before` finds of the commit made of the code before the work's change with some
-    /// of its files put on it, in words for the agent that asked, as [`Host::check`] gives them.
+    /// of its files put on it, with the tests the agent named, in words for the agent that asked, as [`Host::check`]
+    /// gives them.
     fn check_before(
         &self,
         branch: &Branch<'_>,
         before: &Before,
+        named: &Named,
         stop: &mut Stop,
     ) -> impl Future<Output = Result<Option<String>, String>> + Send;
 }
+
+/// The tests and the checks an agent names to its check, each as it wrote it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Named {
+    pub tests: Vec<String>,
+    pub checks: Vec<String>,
+}
+
+impl Named {
+    /// Whether nothing is named.
+    pub fn is_empty(&self) -> bool {
+        self.tests.is_empty() && self.checks.is_empty()
+    }
+}
+
+/// What a check that runs whole says before what it found, where the agent named tests or checks it does not run
+/// apart.
+pub(crate) const WHOLE: &str = "This check runs whole: the tests and checks you named are not run apart.";
 
 /// The names a host's checks before the change are running under in this process: a worktree or a branch each, named
 /// by the work and the commit. A check holds its name while it runs, so that another asked at once for the same commit
@@ -152,16 +173,17 @@ impl<H: Host> Host for Arc<H> {
         (**self).kept_main()
     }
 
-    async fn check(&self, branch: &Branch<'_>, stop: &mut Stop) -> Result<Option<String>, String> {
-        (**self).check(branch, stop).await
+    async fn check(&self, branch: &Branch<'_>, named: &Named, stop: &mut Stop) -> Result<Option<String>, String> {
+        (**self).check(branch, named, stop).await
     }
 
     async fn check_before(
         &self,
         branch: &Branch<'_>,
         before: &Before,
+        named: &Named,
         stop: &mut Stop,
     ) -> Result<Option<String>, String> {
-        (**self).check_before(branch, before, stop).await
+        (**self).check_before(branch, before, named, stop).await
     }
 }

@@ -1,5 +1,6 @@
 //! What the GitHub host asks of GitHub, apart from what `git` pushes and fetches: the pull requests of a branch, the
-//! checks of a commit, a check's log, and the merge of a pull request. [`Gh`](super::gh::Gh) asks GitHub with the
+//! checks of a commit, a check's log, the merge of a pull request, and a workflow run by hand with its runs, their jobs
+//! and what they uploaded. [`Gh`](super::gh::Gh) asks GitHub with the
 //! `gh` command line; the tests ask a fake.
 
 use std::future::Future;
@@ -53,6 +54,20 @@ pub enum Outcome {
     Broken(String),
 }
 
+/// A run of a workflow, as far as the host reads it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Run {
+    /// Its number, which GitHub gives runs in the order they are made.
+    pub id: u64,
+    /// Whether it has completed.
+    pub completed: bool,
+    /// Where a person sees it.
+    pub url: String,
+}
+
+/// A file a run uploaded: its path in the artifact, with `/` between its parts, and its bytes.
+pub type File = (String, Vec<u8>);
+
 /// What the GitHub host asks of GitHub, in the repository it is given. An `Err` is GitHub's refusal or failure, in
 /// words that say which.
 pub trait Api: Send + Sync + 'static {
@@ -80,4 +95,21 @@ pub trait Api: Send + Sync + 'static {
 
     /// Deletes the branch of the repository; a branch that is not there is no fault.
     fn delete(&self, branch: &str) -> impl Future<Output = Result<(), String>> + Send;
+
+    /// The runs by hand of the workflow on the commit.
+    fn runs(&self, workflow: &str, commit: &str) -> impl Future<Output = Result<Vec<Run>, String>> + Send;
+
+    /// Runs the workflow by hand on the branch, with these inputs.
+    fn dispatch(
+        &self,
+        workflow: &str,
+        branch: &str,
+        inputs: &[(String, String)],
+    ) -> impl Future<Output = Result<(), String>> + Send;
+
+    /// The jobs of the run, each as a check.
+    fn jobs(&self, run: u64) -> impl Future<Output = Result<Vec<Check>, String>> + Send;
+
+    /// The files of the artifact of this name that the run uploaded; none where it uploaded none so named.
+    fn artifact(&self, run: u64, name: &str) -> impl Future<Output = Result<Option<Vec<File>>, String>> + Send;
 }

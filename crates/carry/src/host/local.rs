@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use super::{Branch, Host, InUse, Verdict};
+use super::{Branch, Host, InUse, Named, Verdict, WHOLE};
 use crate::git::{self, Before};
 use crate::held::Stop;
 use crate::process::{self, Ran};
@@ -84,20 +84,22 @@ impl Host for Local {
         format!("refs/heads/{}", self.project.main)
     }
 
-    async fn check(&self, branch: &Branch<'_>, stop: &mut Stop) -> Result<Option<String>, String> {
+    async fn check(&self, branch: &Branch<'_>, named: &Named, stop: &mut Stop) -> Result<Option<String>, String> {
         let ran = match git::worktree(branch.place) {
             Ok(dir) => self.run(&dir, "", stop).await,
             Err(why) => Err(why),
         };
         // What could not be run is said with the command, as what ran is.
         let check = &self.project.check;
-        Ok(ran.unwrap_or_else(|why| Some(format!("The check `{check}` could not be run: {why}"))))
+        let said = ran.unwrap_or_else(|why| Some(format!("The check `{check}` could not be run: {why}")));
+        Ok(said.map(|said| whole(named, said)))
     }
 
     async fn check_before(
         &self,
         branch: &Branch<'_>,
         before: &Before,
+        named: &Named,
         stop: &mut Stop,
     ) -> Result<Option<String>, String> {
         let mine = git::before_dir(branch.place, &before.commit).display().to_string();
@@ -113,6 +115,15 @@ impl Host for Local {
         let taken = git::take_away(&self.project, &dir).await;
         let said = ran?;
         taken?;
-        Ok(said)
+        Ok(said.map(|said| whole(named, said)))
+    }
+}
+
+/// What the check found, said after [`WHOLE`] where the agent named what it does not run apart.
+fn whole(named: &Named, said: String) -> String {
+    if named.is_empty() {
+        said
+    } else {
+        format!("{WHOLE}\n\n{said}")
     }
 }
