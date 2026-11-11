@@ -131,8 +131,8 @@ describe("a card's strip", () => {
     expect(drawn(light)).toEqual(laidOut(cells));
     // Only the mark of the cell running pulses.
     expect(light.marks.map((m) => m.pulses)).toEqual([false, true, false, false, false, false, false]);
-    // Where the old element stood, at the start of the card's second row, and short of what the work has taken.
-    expect(light.marks[0].x).toBe(14);
+    // Under the title, so that the number stands alone at the card's left, and short of where the work's time went.
+    expect(light.marks[0].x).toBe(36);
     const last = light.marks[light.marks.length - 1];
     expect(last.x + last.width).toBeLessThanOrEqual(light.end);
 

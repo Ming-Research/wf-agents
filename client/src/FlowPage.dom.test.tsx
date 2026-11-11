@@ -335,7 +335,7 @@ describe('the page round the view', () => {
       ),
     );
     unmount = () => act(() => root.unmount());
-    expect(texts(container, '.bar-tab')).toEqual(['Console', 'Works', 'Flow']);
+    expect(texts(container, '.bar-tab')).toEqual(['Console', 'Works', 'Flow', 'Observations', 'System', 'Settings']);
     expect(texts(container, '.bar-tab[aria-current="page"]')).toEqual(['Works']);
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
     click([...container.querySelectorAll('.switch-choice')].find((b) => b.textContent === 'Dark'));
