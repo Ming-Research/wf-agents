@@ -243,8 +243,9 @@ fn main() -> ExitCode {
 const SOURCES: [&str; 4] = ["dependencies", "main", "session", "tree"];
 
 /// The names of the acts of the engine's own that carry out an engine cell: `start` makes the place a work is done
-/// in, `check` checks the work before its merge, and `merge` merges it.
-const ACTS: [&str; 3] = ["start", "check", "merge"];
+/// in, `check` checks the work before its merge, `merge` merges it, and `deliver` says that a deliverable item, made
+/// of the items it depends on, is delivered.
+const ACTS: [&str; 4] = ["start", "check", "merge", "deliver"];
 
 /// What the engine has, by name, for any definition.
 fn has(_: &Source) -> Has {

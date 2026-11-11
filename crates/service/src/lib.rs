@@ -355,6 +355,7 @@ impl Service {
                 run,
                 number,
                 given,
+                item: kept.item.clone(),
                 kept: Arc::new(kept.work.clone()),
             };
             Ok((round, spec.kind))

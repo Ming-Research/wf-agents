@@ -25,9 +25,13 @@
 //! - a call has its result: always for a tool, and for a person or at a limit only while people act;
 //! - a call withdrawn is said to be; a round stopped ends.
 //!
-//! A person's act is, about: a write of a block people may write; a pause or a letting on; a cancel; letting a cell go
-//! on, at its limit where a work waits at one; the result of a question or of a limit; adding an item, depending on
-//! some of those there; or something the driver must refuse, which must change nothing.
+//! A person's act is, about: a write of a block people may write, or a look where they may write none; a pause or a
+//! letting on; a cancel; letting a cell go on, at its limit where a work waits at one; the result of a question or of
+//! a limit; adding an item, depending on some of those there; or something the driver must refuse, which must change
+//! nothing. An item is added on one of the small flows of the tests or on the deliver flow as the repository defines
+//! it, whose items are made of the items they depend on and wait for them at their one cell, so that items depending on
+//! a deliverable wait for it in turn. One item in five is a deliverable, drawn by a generator of its own, so that the
+//! other draws keep their order.
 //!
 //! The process stops before a step with a chance of one in sixteen; with one in twenty-five the store is set to fail
 //! at one of its next three calls, and with one in fifty the process to stop right after one of them.
@@ -47,8 +51,10 @@ use engine::{Ask, Call, Came, Effect, Event, Handed, Spent, Time, Work};
 use store::{ItemNumber, WorkHead, WorkNumber};
 use support::*;
 
-/// How many histories are run.
-const SEEDS: u64 = 24;
+/// How many histories are run: enough that each class of step is reached. With a deliverable among every five items,
+/// twenty-four histories reached no round stopped in one draw and no stop that kept what it was asked in another; the
+/// histories take some fifteen seconds of CI for every twenty-four.
+const SEEDS: u64 = 48;
 
 /// How many steps, at most, people act in.
 const PEOPLE: usize = 80;
@@ -121,6 +127,9 @@ struct History {
     rng: Rng,
     /// Draws the stops and failures alone, so that a history with them makes the same choices as one without.
     faults: Option<Rng>,
+    /// Draws which items are deliverables alone, so that the other draws keep the order they had before the deliver
+    /// flow was among the flows.
+    delivers: Rng,
     step: usize,
     /// The calls that have their result, each with its work.
     done: Vec<(WorkNumber, CallId)>,
@@ -138,12 +147,21 @@ struct Ending {
     answered: BTreeSet<String>,
 }
 
+/// The flows the histories add items on: those of the tests, and the deliver flow as the repository defines it, whose
+/// items are made of the items they depend on.
+fn every_flow() -> Vec<flow::Compiled> {
+    let mut flows = flows();
+    flows.push(deliver());
+    flows
+}
+
 impl History {
     fn new(seed: u64, faults: bool) -> Self {
         Self {
-            h: H::new(),
+            h: H::with(every_flow()),
             rng: Rng::new(seed),
             faults: faults.then(|| Rng::new(seed ^ 0x5DEE_CE66_D1CE_F00D)),
+            delivers: Rng::new(seed ^ 0xDE11_7E2A_B1E5_0F00),
             step: 0,
             done: Vec::new(),
             log: Vec::new(),
@@ -209,7 +227,9 @@ impl History {
         let numbers: Vec<ItemNumber> = self.h.d().works().map(|k| k.head.item).collect();
         let depends_on: Vec<ItemNumber> = numbers.into_iter().filter(|_| self.rng.chance(35)).collect();
         let flow = ["judged", "short", "plain"][self.rng.below(3)];
-        let writes: Vec<FirstWrite> = if self.rng.chance(50) {
+        let flow = if self.delivers.chance(20) { "deliver" } else { flow };
+        let has_request = (self.h.d().flows()).any(|f| f.name == flow && f.blocks.contains_key(&block("request")));
+        let writes: Vec<FirstWrite> = if self.rng.chance(50) && has_request {
             vec![first_write("request", None)]
         } else {
             Vec::new()
@@ -417,6 +437,11 @@ impl History {
                     .filter(|(_, b)| b.writers.people)
                     .map(|(id, _)| id.0.clone())
                     .collect();
+                // A flow people write nothing of, as the deliver flow, is only looked at.
+                if people.is_empty() {
+                    self.act(Act::On(work, Event::Look));
+                    return;
+                }
                 let block = self.pick(&people);
                 let value = (flow.blocks.get(&block.as_str().into()))
                     .and_then(|b| b.values.clone())

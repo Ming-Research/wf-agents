@@ -1,7 +1,9 @@
 //! `wf-agents run` and the commands that talk to it, each run as the command: the engine runs the trial flow (the
-//! service crate's `tests/trial/flow`) with a script whose rounds are short, over a data directory of its own. The
-//! tests are kept in modules by subject, so that a new test goes into the module of what it tests.
+//! service crate's `tests/trial/flow`), or the flows the repository defines, with a script whose rounds are short, over
+//! a data directory of its own. The tests are kept in modules by subject, so that a new test goes into the module of
+//! what it tests.
 
+mod delivering;
 mod failing;
 mod items;
 mod starting;
@@ -90,7 +92,12 @@ pub struct Engine {
 impl Engine {
     /// Starts the engine on the place's data directory and script, and waits until it serves.
     pub fn start(place: &Place) -> Engine {
-        let mut child = (run(&place.data(), &place.script()))
+        Engine::start_with(run(&place.data(), &place.script()))
+    }
+
+    /// Starts the engine with this command, and waits until it serves.
+    pub fn start_with(mut command: Command) -> Engine {
+        let mut child = command
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
