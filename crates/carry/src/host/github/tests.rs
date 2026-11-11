@@ -252,6 +252,75 @@ async fn a_pull_request_into_another_branch_fails_the_round() {
 }
 
 #[tokio::test]
+async fn a_pull_request_merged_into_another_branch_is_not_taken_for_the_works_merge() {
+    let hub = Hub::new();
+    let checked = hub.committed().await;
+    hub.github()
+        .checks(&checked, vec![vec![passed("lint"), passed("test")]]);
+    hub.verdict(&checked).await.unwrap().unwrap();
+    hub.github().set_base(1, "elsewhere");
+    hub.github().merged_by_a_person(1, &checked);
+    let failed = hub.merge(&checked).await.expect_err("nothing is on main");
+    assert!(failed.contains("has no open pull request"), "{failed}");
+}
+
+#[tokio::test]
+async fn no_fetch_or_push_of_the_engine_goes_into_a_submodule() {
+    let hub = Hub::new();
+    let repo = &hub.repo.project.repo;
+    // A library of the project's, a submodule of its clone, on main on GitHub.
+    let lib = hub.repo.data.join("lib");
+    std::fs::create_dir_all(&lib).unwrap();
+    run(&lib, &["init", "-q", "-b", "main"]);
+    run(&lib, &["config", "user.name", "Tester"]);
+    run(&lib, &["config", "user.email", "tester@example.com"]);
+    commit(&lib, "lib.txt", "A library.\n");
+    let lib = lib.display().to_string();
+    run(
+        repo,
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            &lib,
+            "lib",
+        ],
+    );
+    run(repo, &["commit", "-q", "-m", "Add the library"]);
+    run(repo, &["push", "-q", &hub.github().bare.display().to_string(), "main"]);
+    let head = hub.committed().await;
+    // The submodule's own configuration, which none of the engine's checks read, names a program for its transfers,
+    // and the clone's says to go into submodules on every fetch and push.
+    let marked = hub.repo.data.join("submodule-ran");
+    let marker = hub.repo.data.join("marker");
+    std::fs::write(&marker, format!("#!/bin/sh\ntouch '{}'\nexit 1\n", marked.display())).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&marker, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let submodule = repo.join("lib");
+    let marker = marker.display().to_string();
+    for (key, value) in [
+        ("remote.origin.uploadpack", marker.as_str()),
+        ("remote.origin.receivepack", marker.as_str()),
+        ("protocol.file.allow", "always"),
+    ] {
+        run(&submodule, &["config", key, value]);
+    }
+    for (key, value) in [
+        ("submodule.recurse", "true"),
+        ("fetch.recurseSubmodules", "yes"),
+        ("push.recurseSubmodules", "on-demand"),
+    ] {
+        run(repo, &["config", key, value]);
+    }
+    hub.github().checks(&head, vec![vec![passed("lint"), passed("test")]]);
+    hub.verdict(&head).await.unwrap().expect("checked");
+    hub.host.main().await.expect("main is fetched");
+    assert!(!marked.exists(), "a program of the submodule's was run");
+}
+
+#[tokio::test]
 async fn a_pull_request_a_person_merged_at_another_head_is_not_taken_for_the_works_merge() {
     let hub = Hub::new();
     let checked = hub.committed().await;
