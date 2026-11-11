@@ -302,9 +302,10 @@ CREATE TABLE moments (
 );
 
 -- A copy of the database was taken, under this name, at `taken`. `seq` is the order the copies were recorded in, which
--- a clock that jumped cannot change: the copies kept are the newest by it. A copy belongs to no work.
+-- a clock that jumped cannot change: the copies kept are the newest by it. The rows are only added, so the number of a
+-- row is one more than the newest's. A copy belongs to no work.
 CREATE TABLE backups (
-    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    seq INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     taken INTEGER NOT NULL
 );
@@ -318,7 +319,7 @@ CREATE TABLE backup_uploads (
 -- A step of keeping a copy failed at `at`, for this reason: `step` says which (`snapshot`, `private`, `upload` or
 -- `prune`), and `name` the copy it was about. `seq` is the order the failures were recorded in.
 CREATE TABLE backup_failures (
-    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    seq INTEGER PRIMARY KEY,
     at INTEGER NOT NULL,
     name TEXT NOT NULL,
     step TEXT NOT NULL,

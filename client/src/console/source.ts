@@ -34,7 +34,7 @@ export interface Source {
 function changedOf(data: string): Heard {
   try {
     const c = JSON.parse(data) as Partial<Changed>;
-    return { works: Array.isArray(c.works) ? c.works : [], items: c.items ?? true };
+    return { works: Array.isArray(c.works) ? c.works : [], items: c.items ?? true, copies: c.copies ?? true };
   } catch {
     return 'everything';
   }

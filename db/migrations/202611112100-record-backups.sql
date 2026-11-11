@@ -2,7 +2,7 @@
 -- off the machine, and what failed in keeping them. They belong to no work, and a database brought to version 9 holds
 -- the same tables as one made with it. The version's one row is replaced last.
 CREATE TABLE backups (
-    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    seq INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     taken INTEGER NOT NULL
 );
@@ -11,7 +11,7 @@ CREATE TABLE backup_uploads (
     at INTEGER NOT NULL
 );
 CREATE TABLE backup_failures (
-    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    seq INTEGER PRIMARY KEY,
     at INTEGER NOT NULL,
     name TEXT NOT NULL,
     step TEXT NOT NULL,
