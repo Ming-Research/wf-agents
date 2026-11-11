@@ -2,7 +2,7 @@
 
 1. The design tree is `design/`: the constitution, `principles/`, and `decisions/`, which holds one file of decisions
    for each ability or component of the system, named for it, under the area it belongs to: `engine`, `flow` or
-   `frontend`. The tree holds what an agent taking the work up in another session needs and the code cannot tell it:
+   `frontend`; and `docs/`, which holds the designs that hold only as a whole (rule 8). The tree holds what an agent taking the work up in another session needs and the code cannot tell it:
    the principles of rule 2 and the decisions of rule 3. What the code shows is not written here: what a thing does,
    its names, its numbers, the order of its steps, a property a test holds. A comment is part of what the code shows:
    a reason that concerns one place in the code and no other is a comment at that place, where whoever would undo it
@@ -50,3 +50,9 @@
 7. A principle and a decision, or two decisions of one file, that cannot both hold are a fault of the tree. A file of decisions that grows long is itself a sign:
    what the code now shows is deleted from it, and decisions in more than one file that rest on one reason are put to
    the owner as one principle.
+
+8. A design that holds only as a whole is a document in `docs/`, one file for each design, named for it. It enters
+   only if its parts cannot be told one at a time: an agent given any one of them alone would change the system
+   wrongly. A document is complete and consistent with itself. It is the owner's and may come before the code, as a
+   principle may: only the owner adds or changes one. A principle or a decision that follows from a document names it
+   and does not repeat it. What the code does not yet do of it waits in `pending-design.md`.
