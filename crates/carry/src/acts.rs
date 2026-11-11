@@ -686,27 +686,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_merge_of_main_the_engine_left_unfinished_is_taken_back_and_made_anew() {
+    async fn an_unfinished_merge_in_the_worktree_is_reported_and_never_taken_back() {
         let repo = Repo::new("true");
         let local = run(&repo.project.repo, &["rev-parse", "main"]);
         let started = start_with(&repo, &Fake::new(&local)).await.unwrap();
-        let built = commit(&started.place.dir, "farewell.txt", "Bye.\n");
+        commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let main = commit(&repo.project.repo, "weather.txt", "Sunny.\n");
-        // As when the engine stopped in the middle of its merge.
+        // A merge left unfinished, with the very words the engine's own merge has: whoever began it, what it holds
+        // may be someone's work, which only they can finish.
         let message = format!("Merge main at {main} into the work's branch");
         run(
             &started.place.dir,
             &["merge", "--no-commit", "--no-ff", "-m", &message, &main],
         );
-        let host = Fake::new(&main).judges(Ok(Some(Verdict { failed: None, by: None })));
+        let host = Fake::new(&main);
         let checked = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
-        assert_eq!(checked.failed, None);
-        assert!(checked.took_in);
-        let parents = run(
-            &repo.project.repo,
-            &["rev-list", "--parents", "-n", "1", &checked.commit],
-        );
-        assert_eq!(parents, format!("{} {built} {main}", checked.commit));
+        let failed = checked.failed.expect("the check fails");
+        assert!(failed.contains("A merge is under way in the worktree"), "{failed}");
+        assert_eq!(host.asked(), [Asked::Main]);
+        run(&started.place.dir, &["rev-parse", "--verify", "MERGE_HEAD"]);
     }
 
     #[tokio::test]
@@ -733,6 +731,10 @@ mod tests {
         let first = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
         let again = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
         assert_eq!(again.commit, first.commit);
+        assert!(
+            again.took_in,
+            "the commit an earlier check made is still said to be the engine's"
+        );
     }
 
     #[tokio::test]
