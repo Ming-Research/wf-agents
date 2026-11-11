@@ -248,6 +248,10 @@ pub enum What {
     NotAnOutput {
         block: String,
     },
+    /// The cell says what the work is by the block, and it is not among its inputs.
+    NotAnInput {
+        block: String,
+    },
     NoWriter {
         block: String,
     },
@@ -433,6 +437,16 @@ pub enum Change {
     },
     /// Every hand-in of the cell no longer needs to include the block.
     MustWriteRemoved {
+        cell: String,
+        block: String,
+    },
+    /// The cell now says what the work is by the block, where the host shows the work.
+    DescribesAdded {
+        cell: String,
+        block: String,
+    },
+    /// The cell no longer says what the work is by the block.
+    DescribesRemoved {
         cell: String,
         block: String,
     },
@@ -670,6 +684,7 @@ impl What {
             F::NoteIsAChoice { block } => What::NoteIsAChoice { block },
             F::NoSuchBlock { block } => What::NoSuchBlock { block },
             F::NotAnOutput { block } => What::NotAnOutput { block },
+            F::NotAnInput { block } => What::NotAnInput { block },
             F::NoWriter { block } => What::NoWriter { block },
             F::NoReader { block } => What::NoReader { block },
             F::UnknownSource { block, source } => What::UnknownSource { block, source },
@@ -831,6 +846,8 @@ impl Change {
             CellChange::OutputRemoved(b) => Change::OutputRemoved { cell, block: block(b) },
             CellChange::MustWriteAdded(b) => Change::MustWriteAdded { cell, block: block(b) },
             CellChange::MustWriteRemoved(b) => Change::MustWriteRemoved { cell, block: block(b) },
+            CellChange::DescribesAdded(b) => Change::DescribesAdded { cell, block: block(b) },
+            CellChange::DescribesRemoved(b) => Change::DescribesRemoved { cell, block: block(b) },
             CellChange::Limit {
                 limit,
                 before: from,

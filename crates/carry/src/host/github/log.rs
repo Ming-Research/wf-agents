@@ -19,7 +19,7 @@ const ERROR_LINES: usize = 30;
 
 /// The words a line of cargo or nextest begins with, right-aligned to twelve columns, that only show progress: a crate
 /// fetched or built, a test started, passed, skipped or slow.
-const PROGRESS: [&str; 22] = [
+const PROGRESS: [&str; 21] = [
     "Adding",
     "Archiving",
     "Blocking",
@@ -37,7 +37,6 @@ const PROGRESS: [&str; 22] = [
     "PASS",
     "Removed",
     "SKIP",
-    "SLOW",
     "START",
     "Unpacking",
     "Updating",
@@ -45,7 +44,7 @@ const PROGRESS: [&str; 22] = [
 ];
 
 /// What of a red job's log tells why it is red, in at most `budget` bytes: the steps that failed, those with an
-/// `##[error]` line, each from its command, up to the last error, without the step's set-up (the shell and the
+/// `##[error]` line, each from its command, up to the last error, the tests still running in them kept, without the step's set-up (the shell and the
 /// environment it ran with), the lines that only show progress and repeated blank lines; with no step that failed,
 /// every step but the runner's set-up and clean-up. Up to [`WHOLE`] lines it is given whole; a longer one is given as
 /// the failures (each test that did not pass with its output), the summary and each error with the lines under it,
@@ -91,6 +90,12 @@ fn progress(line: &str) -> bool {
 fn failure(line: &str) -> bool {
     status(line).is_some_and(|w| !PROGRESS.contains(&w) && w.chars().all(|c| c.is_ascii_uppercase() || c == '-'))
         && line[12..].trim_start().starts_with('[')
+}
+
+/// Whether a line says that a test was still running at that time: libtest's `has been running for over`, and
+/// nextest's `SLOW` line; of a job cancelled at its time limit, they say which test held it.
+fn still_running(line: &str) -> bool {
+    line.contains(" has been running for over ") || status(line) == Some("SLOW")
 }
 
 /// Whether a line begins an error: rustc's, cargo's, clippy's and nextest's errors and warnings, a diff of rustfmt,
@@ -179,7 +184,7 @@ fn picked(lines: &[String]) -> Vec<String> {
             break;
         }
         let l = &lines[i];
-        if l.starts_with("Run ") {
+        if l.starts_with("Run ") || still_running(l) {
             keep[i] = true;
         }
         if failure(l) {
@@ -440,6 +445,38 @@ mod tests {
         assert!(given.contains(" lines left out]\n"), "{given}");
         let long = format!("2026-10-27T09:47:49.0473549Z {}\n", "é".repeat(100));
         assert_eq!(what_failed(&long, 51), "é".repeat(16));
+    }
+
+    // A job a hung test held until its time limit, its log as GitHub kept it: the tests that passed are left out, and
+    // what failed, what was still running when the job was cancelled and the cancel are given.
+    #[test]
+    fn a_cancelled_job_is_given_with_what_was_still_running() {
+        let given = what_failed(include_str!("../../../tests/fixtures/job-logs/cancelled.log"), 4000);
+        for kept in [
+            "Run cargo test --workspace --locked --no-fail-fast",
+            "test tests::a_copy_taken_in_the_future_does_not_displace_the_copies_taken_after_it ... FAILED",
+            "test tests::a_tick_during_a_running_step_starts_no_second_one has been running for over 60 seconds",
+            "##[error]The operation was canceled.",
+        ] {
+            assert!(given.contains(kept), "{kept}\n{given}");
+        }
+        assert!(!given.contains(" ... ok"), "{given}");
+        // Past the lines given whole, the tests still running are kept with the failures and the errors.
+        let mut long =
+            String::from("2026-11-11T07:50:23.9Z ##[group]Run cargo test\n2026-11-11T07:50:23.9Z ##[endgroup]\n");
+        for n in 0..100 {
+            long.push_str(&format!("2026-11-11T07:50:24.0Z note {n}\n"));
+        }
+        long.push_str("2026-11-11T07:51:47.6Z test tests::slow has been running for over 60 seconds\n");
+        long.push_str("2026-11-11T07:51:48.6Z         SLOW [> 30.000s] carry tests::slower\n");
+        long.push_str("2026-11-11T08:04:08.8Z ##[error]The operation was canceled.\n");
+        let given = what_failed(&long, 4000);
+        assert!(
+            given.contains("test tests::slow has been running for over 60 seconds"),
+            "{given}"
+        );
+        assert!(given.contains("SLOW [> 30.000s] carry tests::slower"), "{given}");
+        assert!(!given.contains("note 50"), "{given}");
     }
 
     // The job that only says which jobs failed is short, and given whole but for its step's set-up.

@@ -73,6 +73,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
         task: None,
         act: None,
         must_write: Vec::new(),
+        describes: Vec::new(),
         returns: 2,
         calls: 40,
         effort: None,

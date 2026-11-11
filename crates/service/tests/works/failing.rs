@@ -8,7 +8,7 @@ use decide::{Decision, End, Pauser};
 use engine::{Came, Event};
 use service::{Act, Carriers, Message, Round, RoundReply, Rounds, Script, Scripted, Service, TokioClock};
 use store::Store;
-use work::{Back, Handed, Spent, Work};
+use work::{Back, Call, Handed, Spent, Time, Work};
 
 use crate::{START, Trial, act_on, add_to, new_item, trial_dir, trial_flow};
 
@@ -41,7 +41,14 @@ async fn a_round_that_fails_pauses_its_work_with_the_reason_and_hands_out_nothin
     assert!(matches!(&event, Event::Failed { why, .. } if why == WHY), "{event:?}");
     let kept = trial.work(work);
     let plan = kept.records.started[0].run;
-    assert_eq!(kept.back.get(&(plan, 2)), Some(&Back::Failed { why: WHY.to_string() }));
+    assert_eq!(
+        kept.back.get(&(plan, 2)),
+        Some(&Back::Failed {
+            why: WHY.to_string(),
+            failure: decide::run::Failure::Other,
+            resets: None,
+        })
+    );
     let pause = decide::pause(&kept.records).expect("the work is paused");
     assert_eq!((pause.by, pause.why.as_deref()), (Pauser::Engine, Some(WHY)));
     // The plan's run is at rest, its next round held by the pause: nothing more comes.
@@ -80,10 +87,24 @@ async fn a_restart_while_the_work_is_paused_hands_out_nothing_and_the_owners_res
     );
 }
 
-/// Everything kept of the work but when each thing happened, which a stop puts off.
+/// Everything kept of the work but when each thing happened, which a stop puts off, and so the time until which a
+/// wait of the engine's is.
 fn kept_but_times(work: &Work) -> Work {
+    let calls = (work.calls.iter())
+        .map(|(call, what)| {
+            let what = match what {
+                Call::Wait { failed, .. } => Call::Wait {
+                    until: Time(0),
+                    failed: *failed,
+                },
+                other => other.clone(),
+            };
+            (*call, what)
+        })
+        .collect();
     Work {
         moments: Vec::new(),
+        calls,
         ..work.clone()
     }
 }
@@ -91,7 +112,12 @@ fn kept_but_times(work: &Work) -> Work {
 /// The trial work with the failing script taken to its end, the owner letting it on whenever the engine paused it,
 /// with the process stopped and started again after each of these steps.
 async fn history(stops: &[usize]) -> (Work, usize) {
-    let mut trial = Trial::with(failing());
+    history_of(failing(), stops).await
+}
+
+/// The trial work with this script taken to its end, as [`history`] takes it.
+async fn history_of(script: Script, stops: &[usize]) -> (Work, usize) {
+    let mut trial = Trial::with(script);
     let (_, work) = trial.add("Greet the user", &[]);
     trial.act(work, Act::Resume).unwrap();
     loop {
@@ -125,6 +151,93 @@ async fn a_stop_at_any_step_of_a_work_whose_round_fails_changes_nothing() {
         let (with, _) = history(&[stop]).await;
         assert_eq!(with, without, "stopped after step {stop}");
     }
+}
+
+/// The trial's script, the plan's second round, the one given the owner's answer, failing for a cause of this kind;
+/// where `resets`, the usage limit resets that many milliseconds after the start.
+pub(crate) fn failing_as(failure: &str, resets: Option<u64>) -> Script {
+    let text = std::fs::read_to_string(trial_dir().join("script.toml")).expect("the script is read");
+    let resets = resets.map_or(String::new(), |ms| format!("resets = {}\n", START.0 + ms));
+    let text = format!(
+        "{text}\n[[flows.trial.rounds]]\ncell = \"plan\"\nround = 2\nfails = \"{WHY}\"\nfailure = \"{failure}\"\n{resets}"
+    );
+    let script = Script::read(&text).expect("the script reads");
+    assert_eq!(script.check(&[trial_flow()]), Vec::<String>::new());
+    script
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_round_that_fails_in_passing_is_given_again_once_its_wait_is_over_and_the_work_is_never_paused() {
+    let mut trial = Trial::with(failing_as("passing", None));
+    let (_, work) = trial.add("Greet the user", &[]);
+    trial.act(work, Act::Resume).unwrap();
+    trial.step().await.unwrap();
+    trial.answer(work, "Yes, by name.");
+    let event = trial.step().await.unwrap();
+    assert!(matches!(&event, Event::Failed { .. }), "{event:?}");
+    let kept = trial.work(work);
+    assert!(!decide::paused(&kept.records), "a failure in passing pauses nothing");
+    let plan = kept.records.started[0].run;
+    let wait = kept.calls.values().find_map(|c| match c {
+        Call::Wait { until, failed } => Some((*until, *failed)),
+        _ => None,
+    });
+    let failed_at = kept.moments.last().unwrap().at;
+    assert_eq!(wait, Some((Time(failed_at.0 + decide::run::FIRST_WAIT), 1)));
+    assert_eq!(trial.drive(work).await, Decision::Ended(End::Merged));
+    let kept = trial.work(work);
+    assert_eq!(kept.given.get(&(plan, 3)), kept.given.get(&(plan, 2)));
+    let given_again = (kept.records.rounds.iter())
+        .filter(|r| r.run == plan)
+        .nth(2)
+        .unwrap()
+        .at;
+    let again_at = kept.time_of(given_again).unwrap();
+    assert!(
+        again_at.0 >= failed_at.0 + decide::run::FIRST_WAIT,
+        "given again before its wait was over"
+    );
+    assert!(kept.records.pauses.iter().all(|p| p.by == Pauser::Owner));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stop_at_any_step_of_a_work_whose_round_fails_in_passing_changes_nothing() {
+    let (without, steps) = history_of(failing_as("passing", None), &[]).await;
+    assert!(
+        (without.calls.values()).any(|c| matches!(c, Call::Wait { .. })),
+        "no wait was made"
+    );
+    for stop in 0..=steps {
+        let (with, _) = history_of(failing_as("passing", None), &[stop]).await;
+        assert_eq!(with, without, "stopped after step {stop}");
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn at_the_usage_limit_no_round_begins_until_it_resets_and_then_the_work_goes_on_unpaused() {
+    let hour = 3_600_000;
+    let mut trial = Trial::with(failing_as("usage_limit", Some(hour)));
+    let (_, work) = trial.add("Greet the user", &[]);
+    trial.act(work, Act::Resume).unwrap();
+    trial.step().await.unwrap();
+    trial.answer(work, "Yes, by name.");
+    trial.step().await.unwrap();
+    let outage = trial.service.driver().outage().expect("the wait stands");
+    assert_eq!(outage.resets, Some(Time(START.0 + hour)));
+    assert!(!decide::paused(&trial.work(work).records));
+    assert_eq!(trial.drive(work).await, Decision::Ended(End::Merged));
+    let kept = trial.work(work);
+    let plan = kept.records.started[0].run;
+    let given_again = (kept.records.rounds.iter())
+        .filter(|r| r.run == plan)
+        .nth(2)
+        .unwrap()
+        .at;
+    assert!(
+        kept.time_of(given_again).unwrap().0 >= START.0 + hour,
+        "a round began before the limit reset"
+    );
+    assert_eq!(trial.service.driver().outage(), None);
 }
 
 /// Agents that end the plan's first round handing in the plan, its work to wait for the owner: the work spent more
@@ -165,7 +278,8 @@ async fn a_round_that_ends_with_its_work_to_wait_is_taken_and_no_round_begins_af
             scripted: scripted.clone(),
         }),
         acts: Arc::new(scripted.clone()),
-        tools: Arc::new(scripted),
+        tools: Arc::new(scripted.clone()),
+        network: Arc::new(scripted),
         slots: crate::SLOTS,
     };
     let clock = Arc::new(TokioClock::new(START));

@@ -33,9 +33,10 @@ fn an_item_waits_before_its_first_cell_until_the_one_it_depends_on_merges_and_st
     assert_eq!(rounds(&todos), [(wa, "draft".to_string(), 1)]);
     to_merge(&mut h, wa);
     assert_eq!(h.decision(wb), waits_for_dependencies("write"));
+    // What the merged work held is let go as it merges.
     let todos = h.hands_in(wa, &[("merged", None)]);
     assert_eq!(h.decision(wa), Decision::Ended(End::Merged));
-    assert_eq!(rounds(&todos), [(wb, "write".to_string(), 1)]);
+    assert_eq!(rounds(&h.released(todos)), [(wb, "write".to_string(), 1)]);
     assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
 }
 
@@ -110,7 +111,12 @@ fn a_cancelled_dependency_never_lets_the_item_start() {
     );
     let spent = h.spent();
     let came = hands_in(&[("plan", None)]);
-    assert_eq!(h.on(wa, Event::Returned { run, came, spent }), vec![]);
+    let release = vec![Todo {
+        work: wa,
+        effect: Effect::Release { end: End::Cancelled },
+    }];
+    assert_eq!(h.on(wa, Event::Returned { run, came, spent }), release);
+    assert_eq!(h.on(wa, Event::Released), vec![]);
     assert_eq!(h.decision(wa), Decision::Ended(End::Cancelled));
     assert_eq!(h.decision(wb), waits_for_dependencies("write"));
     assert_eq!(h.dependencies(wb).as_deref(), Some(WAITING));
@@ -172,7 +178,7 @@ fn opened_after_a_failure_between_the_merge_being_kept_and_the_dependents_block_
     let todos = h.reopen();
     assert_eq!(h.decision(wa), Decision::Ended(End::Merged));
     assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
-    assert_eq!(rounds(&todos), [(wb, "write".to_string(), 1)]);
+    assert_eq!(rounds(&h.released(todos)), [(wb, "write".to_string(), 1)]);
 }
 
 #[test]
@@ -186,7 +192,7 @@ fn opened_after_a_stop_right_after_the_merge_was_kept_the_block_is_brought_to_ag
     let todos = h.reopen();
     assert_eq!(h.decision(wa), Decision::Ended(End::Merged));
     assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
-    assert_eq!(rounds(&todos), [(wb, "write".to_string(), 1)]);
+    assert_eq!(rounds(&h.released(todos)), [(wb, "write".to_string(), 1)]);
 }
 
 #[test]
@@ -205,7 +211,7 @@ fn a_failure_of_the_merge_itself_keeps_nothing_and_it_is_told_again() {
     assert_eq!(rounds(&todos), [(wa, "merge".to_string(), 1)]);
     assert_eq!(h.dependencies(wb).as_deref(), Some(WAITING));
     let todos = h.hands_in(wa, &[("merged", None)]);
-    assert_eq!(rounds(&todos), [(wb, "write".to_string(), 1)]);
+    assert_eq!(rounds(&h.released(todos)), [(wb, "write".to_string(), 1)]);
 }
 
 /// Every version of the work's dependencies block: its value and its text.
@@ -370,7 +376,7 @@ fn a_store_that_fails_at_the_second_dependents_write_keeps_the_merge_and_opening
     assert_eq!(h.dependencies(wc).as_deref(), Some(MERGED));
     // Opened again, the driver writes the second dependent's block, and gives the free slots in its order.
     assert_eq!(
-        rounds(&todos),
+        rounds(&h.released(todos)),
         [(wb, "write".to_string(), 1), (wc, "draft".to_string(), 1)]
     );
 }

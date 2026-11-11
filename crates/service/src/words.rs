@@ -95,6 +95,9 @@ pub fn refused_words(refused: &Refused) -> String {
         Refused::NoRoundUnderWay(run) => format!("no round of run {} is under way", run.0),
         Refused::NoSuchCall(call) => format!("the work has no call {}", call.0),
         Refused::AlreadyDone(call) => format!("call {} has its result already", call.0),
+        Refused::NotToRelease => {
+            "the work has not ended, or something of it is under way: it has nothing to let go".to_string()
+        }
     }
 }
 
@@ -110,6 +113,10 @@ pub fn unmet_words(unmet: &Unmet) -> String {
         Unmet::NotHandedIn { block } => {
             format!("the block {block} is not handed in, and the cell must hand it in every time")
         }
+        Unmet::Unreadable { why } => format!(
+            "what came back could not be read as a return of its form, each quote and each line break inside a text \
+             needing to be escaped: {why}"
+        ),
     }
 }
 

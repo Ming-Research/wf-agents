@@ -170,7 +170,12 @@ fn an_engine_cell_goes_through_the_same_mechanism() {
     );
     assert_eq!(effects, vec![round_effect(merge, "merge", 1, Given::Task)]);
     assert_eq!(start_of(&w, merge), start);
-    assert_eq!(w.returns(merge, hands_in(&[("merged", None)])), vec![]);
+    assert_eq!(
+        w.returns(merge, hands_in(&[("merged", None)])),
+        vec![Effect::Release {
+            end: decide::End::Merged
+        }]
+    );
     let merged = w.last_finished();
     assert_eq!(
         w.work.contents.get(&("merged".into(), merged)),

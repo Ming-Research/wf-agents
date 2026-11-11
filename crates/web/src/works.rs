@@ -18,16 +18,17 @@
 //! A work whose records name what it does not hold, which the engine never writes, is not shown as something it is
 //! not: making its view gives [`Broken`], saying what is missing.
 
-use decide::run::{Limit as LimitOf, Unmet as UnmetOf};
+use decide::run::{Failure as FailureOf, Limit as LimitOf, Unmet as UnmetOf};
 use decide::{
     BlockId, CallId, Cause as CauseOf, CellId, Decision, End, Holder, Maker as MakerOf, Pauser as PauserOf, RunId, Seq,
     View, Waited as WaitedOf, Who, Writer as WriterOf,
 };
-use driver::{Driver, Kept};
+use driver::{Driver, Kept, Until as UntilOf};
+use flow::Kind;
 use serde::{Deserialize, Serialize};
 use service::Levels;
 use store::{ItemNumber, WorkNumber};
-use work::{Ask as AskOf, Back as BackOf, Call as CallOf, Given as GivenOf, Work};
+use work::{Ask as AskOf, Back as BackOf, Call as CallOf, Given as GivenOf, Time, Work};
 
 use crate::view::Flow;
 
@@ -36,6 +37,65 @@ use crate::view::Flow;
 #[serde(rename_all = "camelCase")]
 pub struct Items {
     pub items: Vec<Item>,
+    /// A wait every work shares, where one stands: no agent's round of any work begins.
+    pub outage: Option<Outage>,
+}
+
+/// A wait every work shares: a round of an agent failed for a cause that is no one work's, and no agent's round of any
+/// work begins while it stands.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Outage {
+    /// The kind of the cause: the usage limit, a command line that cannot run, or no network.
+    pub failure: Failure,
+    /// Why the round failed, as what carried it out said.
+    pub why: String,
+    /// The round that failed so, the latest that did: of this work, this run, this number.
+    pub work: u64,
+    pub run: u64,
+    pub round: usize,
+    /// When it ended.
+    pub since: u64,
+    /// When the agents' rounds may begin again.
+    pub until: Until,
+    /// Whether it holds rounds now: once its time has come, it stands only until a round that began after it comes
+    /// back, and holds nothing meanwhile.
+    pub holds: bool,
+}
+
+/// When the agents' rounds may begin again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Until {
+    /// At this time, every work's: as the usage limit resets.
+    At { at: u64 },
+    /// One round, of whichever work comes to one first, tries at this time; where `look`, the network is looked at
+    /// every half minute from then, and the round tries once a look reaches it, at the latest at `latest`.
+    Trial { at: u64, look: bool, latest: u64 },
+    /// Once the round that tries now has ended.
+    Tried,
+}
+
+/// The kind of cause of a round that failed, as what carried it out told it apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Failure {
+    /// In passing: tried again after a wait.
+    Passing,
+    /// What came back could not be read: sent back.
+    Unread,
+    /// The service's safety check flagged it: tried again in a new session of its line.
+    Flagged,
+    /// The account's usage limit.
+    UsageLimit,
+    /// The agents' command line cannot run.
+    CannotRun,
+    /// The network cannot be reached.
+    Offline,
+    /// The prompt is too long for the model.
+    PromptTooLong,
+    /// A cause no kind tells apart.
+    Other,
 }
 
 /// An item: a thing to be done.
@@ -126,6 +186,8 @@ pub enum Waited {
     /// A free slot: as many rounds of agents are under way as the engine has slots, and the engine gives it the first
     /// that comes free, in its order.
     Slot {},
+    /// The wait every work shares: the cell's agent's round does not begin until it is over.
+    Agents { outage: Outage },
 }
 
 /// A person who can give what a work waits for.
@@ -166,6 +228,9 @@ pub enum Call {
     Question { who: Person, question: String },
     /// The run reached a limit: the owner lets it go on or cancels the work.
     AtLimit { limit: Limit },
+    /// The engine waits until this time before the run's last round, which failed in passing, the `failed`th time in
+    /// a row, is tried again.
+    Wait { until: u64, failed: u32 },
 }
 
 /// The limit a run reached.
@@ -437,6 +502,8 @@ pub enum Unmet {
     NotAChoice { block: String },
     /// The block is one the cell must hand in each time, and was not handed in.
     NotHandedIn { block: String },
+    /// What came back could not be read as a return, for this reason.
+    Unreadable { why: String },
 }
 
 /// What came back at the end of a round.
@@ -447,8 +514,13 @@ pub enum Back {
     Asked { asks: Vec<Ask> },
     /// These blocks were handed in.
     HandedIn { blocks: Vec<Handed> },
-    /// Nothing came back: the round failed, for this reason.
-    Failed { why: String },
+    /// Nothing came back: the round failed, for this reason, of this kind of cause; `resets` says when the usage limit
+    /// it reached resets, where the round's report said.
+    Failed {
+        why: String,
+        failure: Failure,
+        resets: Option<u64>,
+    },
 }
 
 /// What an agent asks for at the end of a round.
@@ -758,9 +830,10 @@ pub struct Refusal {
 pub struct Broken(pub String);
 
 impl Items {
-    /// Every item the driver holds, each with its work.
-    pub fn of(driver: &Driver) -> Result<Items, Broken> {
+    /// Every item the driver holds, each with its work, as they stand at this time.
+    pub fn of(driver: &Driver, now: Time) -> Result<Items, Broken> {
         let mut items = Vec::new();
+        let outage = driver.outage().map(|outage| Outage::of(&outage, driver.holds(now)));
         for kept in driver.works() {
             let view = viewed(driver, kept.head.number)?;
             items.push(Item {
@@ -769,18 +842,18 @@ impl Items {
                 level: kept.item.level.clone(),
                 added: kept.item.added.0,
                 depends_on: kept.item.depends_on.iter().map(|on| on.0).collect(),
-                work: Summary::of(kept, &view, driver.held(kept.head.number))?,
+                work: Summary::of(kept, &view, driver.held(kept.head.number), outage.as_ref())?,
             });
         }
         items.sort_by_key(|item| item.number);
-        Ok(Items { items })
+        Ok(Items { items, outage })
     }
 }
 
 impl Summary {
-    /// The work in brief, from what the driver holds of it, the deciding code's view of it, and what holds back the
-    /// round it would begin next.
-    pub fn of(kept: Kept<'_>, view: &View, held: Option<Holder>) -> Result<Summary, Broken> {
+    /// The work in brief, from what the driver holds of it, the deciding code's view of it, what holds back the round
+    /// it would begin next, and the wait every work shares, where one stands.
+    pub fn of(kept: Kept<'_>, view: &View, held: Option<Holder>, outage: Option<&Outage>) -> Result<Summary, Broken> {
         let work = kept.work;
         let runs = runs(kept)?;
         let cells = (view.cells.iter())
@@ -808,7 +881,7 @@ impl Summary {
             flow: kept.head.flow.clone(),
             added: kept.head.added.0,
             paused: decide::paused(&work.records),
-            now: Now::of(kept, &view.decision, held)?,
+            now: Now::of(kept, &view.decision, held, outage)?,
             cells,
             spent: runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)),
             last: work.moments.last().map(|moment| moment.at.0),
@@ -817,9 +890,22 @@ impl Summary {
 }
 
 impl Now {
-    fn of(kept: Kept<'_>, decision: &Decision, held: Option<Holder>) -> Result<Now, Broken> {
+    /// What the work does now. Of what holds it back, its own pause is said first, then the owner's pause of
+    /// everything, then the wait every work shares, then a slot.
+    fn of(kept: Kept<'_>, decision: &Decision, held: Option<Holder>, outage: Option<&Outage>) -> Result<Now, Broken> {
         let work = kept.work;
         let everything = Now::Everything {};
+        let agents = |cell: &CellId| (kept.flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == Kind::Agent);
+        // The rounds of a cell the wait holds now: an agent's, and without the network every cell's.
+        let shared =
+            |cell: &CellId| (outage.filter(|o| o.holds)).is_some_and(|o| o.failure == Failure::Offline || agents(cell));
+        let waits_shared = |cell: &CellId| Now::Waits {
+            at: cell.to_string(),
+            on: outage
+                .into_iter()
+                .map(|outage| Waited::Agents { outage: outage.clone() })
+                .collect(),
+        };
         Ok(match decision {
             Decision::Fault(fault) => Now::Fault {
                 words: service::record_fault_words(fault),
@@ -845,13 +931,15 @@ impl Now {
             Decision::Paused => Now::paused(work)?,
             // A run at rest that goes on holds its next round while something holds it back: the engine leaves a work
             // so only then, as when the run's last round failed and the work was paused.
-            Decision::GoOn { cell, .. } if held.is_some() => match held {
-                Some(Holder::Everything) => everything,
-                Some(Holder::Slot) => Now::Waits {
-                    at: cell.to_string(),
-                    on: vec![Waited::Slot {}],
-                },
-                _ => Now::paused(work)?,
+            Decision::GoOn { .. } if held == Some(Holder::Pause) => Now::paused(work)?,
+            Decision::GoOn { .. } if held == Some(Holder::Everything) => everything,
+            // A cell that would run or go on, and does not, is held by the wait every work shares, where it holds now
+            // and holds the cell's rounds: the engine leaves a work so only then. It is said before a slot.
+            Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if shared(cell) => waits_shared(cell),
+            Decision::Wait { at, on } if on == &[WaitedOf::Slot] && shared(at) => waits_shared(at),
+            Decision::GoOn { cell, .. } if held == Some(Holder::Slot) => Now::Waits {
+                at: cell.to_string(),
+                on: vec![Waited::Slot {}],
             },
             Decision::Wait { at, on } => Now::Waits {
                 at: at.to_string(),
@@ -934,7 +1022,7 @@ impl Spent {
 
 impl WorkPage {
     /// The work of this number, as the driver holds it now; none where the driver has no such work.
-    pub fn of(driver: &Driver, number: WorkNumber) -> Result<Option<WorkPage>, Broken> {
+    pub fn of(driver: &Driver, number: WorkNumber, now: Time) -> Result<Option<WorkPage>, Broken> {
         let Some(kept) = driver.work(number) else {
             return Ok(None);
         };
@@ -1031,7 +1119,15 @@ impl WorkPage {
         }
         steps.sort_by_key(Step::at);
         Ok(Some(WorkPage {
-            summary: Summary::of(kept, &view, driver.held(number))?,
+            summary: Summary::of(
+                kept,
+                &view,
+                driver.held(number),
+                driver
+                    .outage()
+                    .map(|outage| Outage::of(&outage, driver.holds(now)))
+                    .as_ref(),
+            )?,
             title: kept.item.title.clone(),
             level: kept.item.level.clone(),
             flow: Flow::of(kept.flow),
@@ -1290,6 +1386,10 @@ fn call_of(work: &Work, call: CallId) -> Result<Call, Broken> {
                 LimitOf::Calls { made } => Limit::Calls { made: *made },
             },
         },
+        Some(CallOf::Wait { until, failed }) => Call::Wait {
+            until: until.0,
+            failed: *failed,
+        },
         None => return Err(Broken(format!("call {} is not held", call.0))),
     })
 }
@@ -1329,6 +1429,7 @@ impl Unmet {
             UnmetOf::NotAChoice { block } => Unmet::NotAChoice {
                 block: block.to_string(),
             },
+            UnmetOf::Unreadable { why } => Unmet::Unreadable { why: why.clone() },
             UnmetOf::NotHandedIn { block } => Unmet::NotHandedIn {
                 block: block.to_string(),
             },
@@ -1377,7 +1478,11 @@ fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                         })
                         .collect(),
                 },
-                BackOf::Failed { why } => Back::Failed { why: why.clone() },
+                BackOf::Failed { why, failure, resets } => Back::Failed {
+                    why: why.clone(),
+                    failure: Failure::of(*failure),
+                    resets: resets.map(|at| at.0),
+                },
             });
             let spent = match ended {
                 None => None,
@@ -1458,4 +1563,42 @@ fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
         });
     }
     Ok(runs)
+}
+
+impl Outage {
+    fn of(outage: &driver::Outage, holds: bool) -> Outage {
+        Outage {
+            failure: Failure::of(outage.failure),
+            why: outage.why.clone(),
+            work: outage.work.0,
+            run: outage.run.0,
+            round: outage.round,
+            since: outage.since.0,
+            until: match outage.until() {
+                UntilOf::At(at) => Until::At { at: at.0 },
+                UntilOf::Trial { at, look, latest } => Until::Trial {
+                    at: at.0,
+                    look,
+                    latest: latest.0,
+                },
+                UntilOf::Tried => Until::Tried,
+            },
+            holds,
+        }
+    }
+}
+
+impl Failure {
+    fn of(failure: FailureOf) -> Failure {
+        match failure {
+            FailureOf::Passing => Failure::Passing,
+            FailureOf::Unread => Failure::Unread,
+            FailureOf::Flagged => Failure::Flagged,
+            FailureOf::UsageLimit => Failure::UsageLimit,
+            FailureOf::CannotRun => Failure::CannotRun,
+            FailureOf::Offline => Failure::Offline,
+            FailureOf::PromptTooLong => Failure::PromptTooLong,
+            FailureOf::Other => Failure::Other,
+        }
+    }
 }

@@ -66,6 +66,8 @@ pub struct CellSpec {
     /// The blocks among its outputs that every hand-in of the cell includes, in the order written: a hand-in that lacks
     /// one is sent back.
     pub must_write: Vec<BlockId>,
+    /// The blocks among its inputs that say what the work is where the host shows it, in the order written.
+    pub describes: Vec<BlockId>,
     /// How often a return of the cell may be sent back within one run.
     pub returns: u32,
     /// How many calls one run of the cell may make.
@@ -170,6 +172,9 @@ pub enum FaultKind {
     NoSuchBlock { block: String },
     /// The cell must write the block each time, and it is not among its outputs.
     NotAnOutput { block: String },
+    /// The cell says what the work is by the block, and the block is not among its inputs: a change of it would not
+    /// run the cell again, and what the host shows would fall behind.
+    NotAnInput { block: String },
     /// The block has no writer: no cell of the order, no person and nothing outside writes it.
     NoWriter { block: String },
     /// The block has no reader: no cell of the order reads it, no condition and no named test reads its value, and
@@ -697,6 +702,12 @@ impl<'a> Definition<'a> {
             };
             (!file.outputs.iter().any(|o| o == block)).then_some(what)
         }));
+        found.extend(check_list(&file.describes, "describes", |block| {
+            let what = FaultKind::NotAnInput {
+                block: block.to_string(),
+            };
+            (!file.inputs.iter().any(|i| i == block)).then_some(what)
+        }));
         faults.extend(found.into_iter().map(|(field, what)| fault(&name, field, what)));
 
         let cell = Cell {
@@ -718,6 +729,7 @@ impl<'a> Definition<'a> {
             task: file.task.clone(),
             act: file.act.clone(),
             must_write: file.must_write.iter().map(|b| BlockId(b.clone())).collect(),
+            describes: file.describes.iter().map(|b| BlockId(b.clone())).collect(),
             returns: limits.returns,
             calls: limits.calls,
             effort: file.effort,

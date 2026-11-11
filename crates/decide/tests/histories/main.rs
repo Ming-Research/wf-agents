@@ -35,11 +35,16 @@
 //!   nothing in a quarter, and resting at a call in a quarter (the owner's in two of ten, the architect's in one, the
 //!   engine's otherwise); its third round always finishes. A run found stale as its round ends is abandoned, not
 //!   finished, as the engine does. In half the histories of the first test that have no judge, drawn apart from the
-//!   rest, a round before the third of a cell other than the merge fails in twelve in a hundred: it ends with nothing
-//!   come back and the engine pauses the work with the reason, as the engine's loop does; people let the work on as
-//!   from any pause, and once they stop the owner lets the work on, whoever paused it.
+//!   rest, a round before the third of a cell other than the merge fails in twelve in a hundred, each failure of a kind
+//!   drawn as the engine's loop handles it: in half of them of a kind that pauses the work, when it ends with nothing
+//!   come back and the engine pauses the work with the reason; in a quarter in passing, when it ends at a wait the
+//!   engine makes as a call of the run, which the engine answers; and in a quarter of a kind the run takes up itself
+//!   without pausing the work (flagged, unread, or a cause every work shares, whose hold of every work's rounds is the
+//!   driver's and not the walk's), when it ends with nothing come back. People let the work on as from any pause, and
+//!   once they stop the owner lets the work on, whoever paused it.
 //! - the engine: while the work is paused, a run at rest has its next round only where it started for a note a person
-//!   wrote, the brief, and its last round did not fail (`pausing`), as the engine's loop gives it by `decide::hold`.
+//!   wrote, the brief, and its last round did not fail in a way that paused the work with no letting on since
+//!   (`pausing`), as the engine's loop gives it by `decide::hold`.
 //! - the room the engine leaves the work (`room`): in half the histories of the first test that have neither a judge
 //!   nor rounds that fail, drawn apart from the rest, a cell before the merge takes no slot in three in ten, as an act
 //!   of the engine's own; the owner's pause of everything is set or lifted at a step with a chance of one in ten while
@@ -81,18 +86,30 @@ use reading::{Reading, Writer};
 use support::Says::{DoesNotMatter, Matters, Value};
 use support::{GATE, Says, World, cell, gate};
 
-/// What the histories of a test are drawn from: the shape of the flow, or any; and the number of steps below which
-/// people stop acting.
+/// What the histories of a test are drawn from: the shape of the flow, or any; the number of steps below which
+/// people stop acting; and whether rounds fail in every history, and in a quarter of the rounds before the third, or
+/// as `ANY` draws it.
 #[derive(Clone, Copy)]
 struct Drawn {
     shape: Option<usize>,
     people: usize,
+    failing: bool,
 }
 
 /// Any flow, people acting in the first 0 to 39 steps.
 const ANY: Drawn = Drawn {
     shape: None,
     people: 40,
+    failing: false,
+};
+
+/// Any flow with no judge, people acting in the first 0 to 99 steps and rounds failing in every history, more often:
+/// that a run answering a note while the owner's pause holds has a round fail without pausing the work, and goes on
+/// under the pause, takes a row of acts that histories of any flow all but never reach.
+const FAILING: Drawn = Drawn {
+    shape: None,
+    people: 100,
+    failing: true,
 };
 
 /// The sixth shape only, people acting in the first 0 to 99 steps: that a judge runs while the cell it judges is
@@ -101,6 +118,7 @@ const ANY: Drawn = Drawn {
 const SKIPPED_JUDGED: Drawn = Drawn {
     shape: Some(5),
     people: 100,
+    failing: false,
 };
 
 /// The block only people write, a note: a person's words to the cells that read it.
@@ -253,8 +271,15 @@ struct History {
     rooms: Option<Rng>,
     /// The room the engine leaves the work: the owner's pause of everything, and whether a slot is free.
     room: Room,
-    /// The runs whose last round failed and that have neither gone on nor been abandoned since.
+    /// Whether rounds fail more often than `ANY` draws them.
+    often: bool,
+    /// The runs whose last round failed, pausing the work, and that have neither gone on nor been abandoned since.
     failed: BTreeSet<RunId>,
+    /// The runs whose last round failed, pausing the work, and that the work was not let on since.
+    unseen: BTreeSet<RunId>,
+    /// The runs whose last round failed without pausing the work, and that have neither gone on nor been abandoned
+    /// since.
+    unpaused: BTreeSet<RunId>,
     log: Vec<String>,
     /// Whether the work is paused, as people last left it.
     paused: bool,
@@ -271,14 +296,16 @@ struct History {
 }
 
 impl History {
-    fn new(seed: u64, shape: Option<usize>) -> Self {
+    fn new(seed: u64, drawn: Drawn) -> Self {
+        let shape = drawn.shape;
         let mut rng = Rng::new(seed);
         let mut cells = draw_cells(&mut rng, shape);
         let mut extra = Rng::new(seed ^ 0x0BAD_5EED_CAFE_F00D);
-        let judged = (shape.is_none() && extra.chance(50)).then_some(extra);
+        let judged = (shape.is_none() && !drawn.failing && extra.chance(50)).then_some(extra);
         let mut failing = Rng::new(seed ^ 0x00FA_11ED_0F0F_0F0F);
         // Rounds fail only in histories with no judge, so that those with one go as they did before rounds failed.
-        let failing = (shape.is_none() && judged.is_none() && failing.chance(50)).then_some(failing);
+        let fails = drawn.failing || failing.chance(50);
+        let failing = (shape.is_none() && judged.is_none() && fails).then_some(failing);
         let mut rooms = Rng::new(seed ^ 0x0000_5107_5A0F_A11D);
         // The room changes only in histories with neither a judge nor rounds that fail, so that those go as they did.
         let mut rooms = (shape.is_none() && judged.is_none() && failing.is_none() && rooms.chance(50)).then_some(rooms);
@@ -326,7 +353,10 @@ impl History {
             failing,
             rooms,
             room: Room::FREE,
+            often: drawn.failing,
             failed: BTreeSet::new(),
+            unpaused: BTreeSet::new(),
+            unseen: BTreeSet::new(),
             log,
             paused: false,
             last_move: None,
@@ -415,6 +445,13 @@ impl History {
                 if self.failed.remove(run) {
                     self.verdict.count(properties::FAILED_GOES_ON);
                 }
+                self.unseen.remove(run);
+                if self.unpaused.remove(run) {
+                    self.verdict.count(properties::UNPAUSED_GOES_ON);
+                    if decide::paused(&self.w.records) {
+                        self.verdict.count(pausing::UNPAUSED_ANSWERS);
+                    }
+                }
                 self.w.go_on(cell.as_str());
                 true
             }
@@ -422,6 +459,8 @@ impl History {
                 if self.failed.remove(run) && *because != decide::Abandoning::Cancelled {
                     self.verdict.count(properties::FAILED_ABANDONED);
                 }
+                self.unpaused.remove(run);
+                self.unseen.remove(run);
                 self.w.abandon();
                 true
             }
@@ -525,7 +564,7 @@ impl History {
     /// `decide::hold_in`, which `pausing` and `room` judge.
     fn goes_on_held(&mut self, run: RunId) -> bool {
         let reading = Reading::new(&self.w.records);
-        let failed = self.failed.contains(&run);
+        let failed = self.unseen.contains(&run);
         pausing::goes_on(&mut self.verdict, &self.w.flow, &reading, run, failed, self.room)
     }
 
@@ -581,13 +620,29 @@ impl History {
         if !is_merge
             && rounds < ROUNDS
             && let Some(failing) = &mut self.failing
-            && failing.chance(12)
+            && failing.chance(if self.often { 25 } else { 12 })
         {
-            self.note(format!("{cell}'s round fails: the engine pauses the work"));
-            self.w.fails(cell.as_str(), "the agent could not start");
-            self.paused = true;
-            self.failed.insert(run);
-            self.verdict.count(properties::FAILED);
+            match failing.below(4) {
+                0 | 1 => {
+                    self.note(format!("{cell}'s round fails: the engine pauses the work"));
+                    self.w.fails(cell.as_str(), "the agent could not start");
+                    self.paused = true;
+                    self.failed.insert(run);
+                    self.unseen.insert(run);
+                    self.verdict.count(properties::FAILED);
+                }
+                2 => {
+                    self.note(format!("{cell}'s round fails in passing: the run waits for the engine"));
+                    self.w.calls(cell.as_str(), None);
+                    self.verdict.count(properties::FAILED_IN_PASSING);
+                }
+                _ => {
+                    self.note(format!("{cell}'s round fails, and the run takes it up itself"));
+                    self.w.returns(cell.as_str());
+                    self.unpaused.insert(run);
+                    self.verdict.count(properties::FAILED_UNPAUSED);
+                }
+            }
             return;
         }
         let how = if is_merge || rounds >= ROUNDS {
@@ -647,6 +702,8 @@ impl History {
         if self.paused {
             self.note("a person lets the work on".into());
             self.w.resume();
+            // The failures that paused the work have been seen.
+            self.unseen.clear();
         } else {
             self.note("a person pauses the work".into());
             self.w.pause();
@@ -857,7 +914,7 @@ impl History {
 /// One history: people act in its first part, then the work is driven until it rests, and what must hold of the whole
 /// history is checked.
 fn one_history(seed: u64, drawn: Drawn, log: &mut Vec<String>, verdict: &mut Verdict) {
-    let mut h = History::new(seed, drawn.shape);
+    let mut h = History::new(seed, drawn);
     let people_until = h.rng.below(drawn.people);
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
         for _ in 0..people_until {
@@ -949,6 +1006,10 @@ fn histories(drawn: Drawn, seeds: u64, reached: &[&str]) {
         properties::FAILED,
         properties::FAILED_GOES_ON,
         properties::FAILED_ABANDONED,
+        properties::FAILED_IN_PASSING,
+        properties::FAILED_UNPAUSED,
+        properties::UNPAUSED_GOES_ON,
+        pausing::UNPAUSED_ANSWERS,
     ];
     let counts: Vec<String> = failing
         .iter()
@@ -979,6 +1040,11 @@ fn random_works_keep_the_engines_properties_and_come_to_rest() {
         800,
         &[properties::REACHED, pausing::REACHED, room::REACHED].concat(),
     );
+}
+
+#[test]
+fn rounds_failing_often_while_people_pause_and_write_keep_the_engines_properties() {
+    histories(FAILING, 600, &[pausing::UNPAUSED_ANSWERS]);
 }
 
 #[test]

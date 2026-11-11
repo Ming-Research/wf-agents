@@ -56,6 +56,8 @@ export function whoGives(w: Waited): 'owner' | 'architect' | null {
   if (w.kind === 'limit') return 'owner';
   if (w.kind === 'precondition') return w.by.some((m) => m.kind === 'owner') ? 'owner' : null;
   if (w.kind === 'slot') return null;
+  // A wait every work shares is the owner's to end only where the command line cannot run.
+  if (w.kind === 'agents') return w.outage.failure === 'cannotRun' ? 'owner' : null;
   return w.who;
 }
 

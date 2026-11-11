@@ -10,6 +10,7 @@ mod directories;
 mod engine;
 mod failing;
 mod items;
+mod other_sites;
 mod page;
 mod stopped;
 mod stream;

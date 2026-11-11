@@ -14,7 +14,7 @@ use std::time::Duration;
 use decide::{CallId, RunId};
 use store::WorkNumber;
 
-use crate::carriers::{CallReply, Carriers, Round, RoundReply, Rounds, ToolCall, Tools, WITHDRAWN};
+use crate::carriers::{CallReply, Carriers, Network, Round, RoundReply, Rounds, ToolCall, Tools, WITHDRAWN};
 use crate::script::{Ends, Planned, Script};
 
 /// Agents, engine acts and tools that follow a script.
@@ -53,6 +53,7 @@ impl Scripted {
             acts: Arc::new(self.clone()),
             tools: Arc::new(self.clone()),
             slots: self.inner.script.slots.unwrap_or(crate::script::SLOTS),
+            network: Arc::new(self.clone()),
         }
     }
 
@@ -123,7 +124,14 @@ impl Rounds for Scripted {
 fn end(reply: RoundReply, planned: Planned) {
     match planned.ends {
         Ends::Came(came) => reply.ended(came, planned.spent),
-        Ends::Fails(why) => reply.failed(why, planned.spent),
+        Ends::Fails { why, failure, resets } => reply.failed_as(failure, resets, why, planned.spent),
+    }
+}
+
+/// The network a script runs on is always reached.
+impl Network for Scripted {
+    fn reached(&self) -> bool {
+        true
     }
 }
 

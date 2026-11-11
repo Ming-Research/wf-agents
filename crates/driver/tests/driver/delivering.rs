@@ -65,7 +65,7 @@ fn a_deliverable_waits_while_an_item_it_is_made_of_has_not_merged_and_is_deliver
     let todos = h.through(wb);
     assert_eq!(rounds(&todos), [(wd, "V1".to_string(), 1)]);
     let todos = h.hands_in(wd, &[("delivered", None)]);
-    assert_eq!(todos, vec![]);
+    assert_eq!(h.released(todos), vec![]);
     assert_eq!(h.decision(wd), Decision::Ended(End::Merged));
     assert_eq!(runs(&h, wd), 1);
     assert_eq!(h.on(wd, Event::Look), vec![]);
@@ -110,7 +110,7 @@ fn an_engineers_item_that_depends_on_a_deliverable_starts_only_once_the_delivera
     // The deliverable ends: the engineer's item starts in that very call.
     let todos = h.hands_in(wd, &[("delivered", None)]);
     assert_eq!(h.decision(wd), Decision::Ended(End::Merged));
-    assert_eq!(rounds(&todos), [(we, "S1".to_string(), 1)]);
+    assert_eq!(rounds(&h.released(todos)), [(we, "S1".to_string(), 1)]);
 }
 
 #[test]

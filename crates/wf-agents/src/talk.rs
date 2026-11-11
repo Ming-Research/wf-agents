@@ -13,8 +13,8 @@ use hyper_util::rt::TokioIo;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use web::works::{
-    Act, Added, Back, Call, CellState, Engine, EngineAct, Items, LevelSet, Limit, Maker, NewItem, NewLevel, NewWrite,
-    Now, Pauser, Person, Refusal, Run, Spent, Step, Waited, WorkPage, Writer,
+    Act, Added, Back, Call, CellState, Engine, EngineAct, Failure, Items, LevelSet, Limit, Maker, NewItem, NewLevel,
+    NewWrite, Now, Outage, Pauser, Person, Refusal, Run, Spent, Step, Until, Waited, WorkPage, Writer,
 };
 
 /// What a command asks of the engine.
@@ -259,26 +259,28 @@ fn list(items: &Items) -> String {
     if items.items.is_empty() {
         return "No items.".to_string();
     }
-    let lines: Vec<String> = (items.items.iter())
-        .map(|item| {
-            let after = if item.depends_on.is_empty() {
-                String::new()
-            } else {
-                let on: Vec<String> = item.depends_on.iter().map(u64::to_string).collect();
-                format!(", after {}", on.join(", "))
-            };
-            let work = &item.work;
-            format!(
-                "Item {} \"{}\" at {}, work {} on {}{after}: {}",
-                item.number,
-                item.title,
-                level(item.level.as_deref()),
-                work.number,
-                work.flow,
-                now(&work.now)
-            )
-        })
+    let mut lines: Vec<String> = (items.outage.iter())
+        .filter(|o| o.holds)
+        .map(|o| format!("No agent's round of any work begins: {}.", outage(o)))
         .collect();
+    lines.extend((items.items.iter()).map(|item| {
+        let after = if item.depends_on.is_empty() {
+            String::new()
+        } else {
+            let on: Vec<String> = item.depends_on.iter().map(u64::to_string).collect();
+            format!(", after {}", on.join(", "))
+        };
+        let work = &item.work;
+        format!(
+            "Item {} \"{}\" at {}, work {} on {}{after}: {}",
+            item.number,
+            item.title,
+            level(item.level.as_deref()),
+            work.number,
+            work.flow,
+            now(&work.now)
+        )
+    }));
     lines.join("\n")
 }
 
@@ -383,7 +385,7 @@ fn level(level: Option<&str>) -> String {
 /// Why the run's last round failed, where it did: nothing came back of it.
 fn failure(run: &Run) -> Option<&str> {
     match &run.rounds.last()?.back {
-        Some(Back::Failed { why }) => Some(why),
+        Some(Back::Failed { why, .. }) => Some(why),
         _ => None,
     }
 }
@@ -434,7 +436,49 @@ fn waited(waited: &Waited) -> String {
             format!("the owner to let it go on, its last {runs} runs having each been for what a cell after it wrote")
         }
         Waited::Slot {} => "a free slot".to_string(),
+        Waited::Agents { outage: o } => format!("the agents' rounds to begin again: {}", outage(o)),
     }
+}
+
+/// A wait every work shares, as a clause: its cause, when it is over, and the round that met it.
+fn outage(outage: &Outage) -> String {
+    let cause = match outage.failure {
+        Failure::UsageLimit => "the account's usage limit was reached",
+        Failure::CannotRun => "the agents' command line cannot run; sign it in again or install it",
+        Failure::Offline => "the network cannot be reached",
+        _ => "a round failed for a cause every work shares",
+    };
+    let until = match outage.until {
+        Until::At { at } => format!("until {}", utc(at)),
+        Until::Trial { at, look: false, .. } => format!("one round tries at {}", utc(at)),
+        Until::Trial { at, latest, .. } => format!(
+            "the network is looked at from {} every half minute, and one round tries once it is reached, at the latest at {}",
+            utc(at),
+            utc(latest)
+        ),
+        Until::Tried => "one round tries now".to_string(),
+    };
+    format!(
+        "{cause}, {until} (round {} of run {} of work {}: {})",
+        outage.round, outage.run, outage.work, outage.why
+    )
+}
+
+/// A time in milliseconds since the start of 1970, as the owner reads it: its day and minute in UTC.
+fn utc(ms: u64) -> String {
+    let secs = (ms / 1000) as i64;
+    let (days, rest) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // The civil date of a day count from 1970-01-01, as Howard Hinnant's days_from_civil inverts it.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02} {:02}:{:02} UTC", rest / 3600, rest % 3600 / 60)
 }
 
 /// What a call is, as a clause.
@@ -448,6 +492,10 @@ fn called(call: &Call) -> String {
         Call::AtLimit {
             limit: Limit::Calls { made },
         } => format!("its run reached its limit, {made} calls having been made"),
+        Call::Wait { until, failed } => format!(
+            "the engine's wait until {}, before the round that failed in passing ({failed} in a row) is tried again",
+            utc(*until)
+        ),
     }
 }
 

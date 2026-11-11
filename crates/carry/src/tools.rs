@@ -92,9 +92,13 @@ impl<H: Host> ToolsTrait for Tools<H> {
                 Answer::Result(read::answer(&call.flow, &call.kept, &call.input))
             } else {
                 let place = git::place(&inner.data, &inner.tag, call.work);
+                // What the work says of itself, as the acts work it out, so that the pull request the tool brings up
+                // to date says what the check before the merge has it say.
+                let about = crate::acts::about(&call.flow, &call.kept);
                 let branch = Branch {
                     work: call.work,
                     title: &call.item.title,
+                    about: &about,
                     place: &place,
                 };
                 answer(&inner.host, &inner.project, &branch, &call.name, &call.input, &mut stop).await
@@ -216,6 +220,7 @@ mod tests {
         let branch = Branch {
             work: WORK,
             title: "Greet the user",
+            about: "",
             place: &place,
         };
         match answer(host, &repo.project, &branch, name, input, &mut Stop::never()).await {
@@ -290,6 +295,7 @@ mod tests {
         let branch = Branch {
             work: WORK,
             title: "Greet the user",
+            about: "",
             place: &place,
         };
         let asked = answer(&host, &repo.project, &branch, CHECK, "", &mut stop);

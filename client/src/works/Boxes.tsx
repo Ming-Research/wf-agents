@@ -54,6 +54,8 @@ export function waitedKey(at: string, waited: Waited): string {
       return `limit:${at}`;
     case 'slot':
       return `slot:${at}`;
+    case 'agents':
+      return 'agents';
   }
 }
 

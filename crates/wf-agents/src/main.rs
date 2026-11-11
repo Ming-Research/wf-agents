@@ -360,6 +360,9 @@ fn words(what: &FaultKind) -> String {
         F::NotAnOutput { block } => {
             format!("the cell must write {block} every time, but {block} is not among the blocks it may write")
         }
+        F::NotAnInput { block } => {
+            format!("the cell says what the work is by {block}, but {block} is not among the blocks it reads")
+        }
         F::NoWriter { block } => format!("nothing writes {block}: no cell of the order, no person and nothing outside"),
         F::NoReader { block } => {
             format!("nothing reads {block}: no cell, no condition, no test, and the page does not show it")

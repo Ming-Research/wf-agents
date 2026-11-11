@@ -798,12 +798,11 @@ impl H {
                 "opened again, the driver gives what was answered: {todo:?}"
             );
             match todo.effect {
-                Effect::Round { .. } | Effect::Call { .. } => self.ever.insert(key(todo)),
+                Effect::Round { .. } | Effect::Call { .. } | Effect::Release { .. } => self.ever.insert(key(todo)),
                 Effect::Stop { .. } | Effect::Withdraw { .. } => self.undone.insert(key(todo)),
             };
-            let kept = self.reader.load(todo.work).expect("the work loads");
             assert!(
-                engine::pending(&kept).contains(&todo.effect),
+                self.kept_as_pending(todo),
                 "given as the driver opened before the store holds that it is to be done: {todo:?}"
             );
         }
@@ -814,15 +813,31 @@ impl H {
         todos
     }
 
+    /// Whether the store holds that the todo is to be done: it is pending of the work as the store keeps it.
+    fn kept_as_pending(&self, todo: &Todo) -> bool {
+        let kept = self.reader.load(todo.work).expect("the work loads");
+        let head = (self.reader.works().expect("the works are read").into_iter())
+            .find(|head| head.number == todo.work)
+            .expect("the work is kept");
+        let flow = (self.flows.iter())
+            .find(|f| f.name == head.flow)
+            .expect("the work's flow");
+        engine::pending(flow, &kept).contains(&todo.effect)
+    }
+
     /// What the event answers is answered: the round it ends, or the call it gives the result of.
     fn answered(&mut self, work: WorkNumber, event: &Event) {
         let answers = |todo: &Todo| {
             todo.work == work
                 && match (event, &todo.effect) {
-                    (Event::Returned { run, .. }, Effect::Round { run: r, .. } | Effect::Stop { run: r }) => r == run,
+                    (
+                        Event::Returned { run, .. } | Event::Failed { run, .. },
+                        Effect::Round { run: r, .. } | Effect::Stop { run: r },
+                    ) => r == run,
                     (Event::Done { call, .. }, Effect::Call { call: c, .. } | Effect::Withdraw { call: c }) => {
                         c == call
                     }
+                    (Event::Released, Effect::Release { .. }) => true,
                     _ => false,
                 }
         };
@@ -836,7 +851,7 @@ impl H {
     fn given(&mut self, todos: &[Todo]) {
         for todo in todos {
             match &todo.effect {
-                Effect::Round { .. } | Effect::Call { .. } => {
+                Effect::Round { .. } | Effect::Call { .. } | Effect::Release { .. } => {
                     assert!(self.ever.insert(key(todo)), "given twice: {todo:?}");
                 }
                 Effect::Stop { run } => {
@@ -856,9 +871,8 @@ impl H {
                         .remove(at.expect("a call withdrawn was given and not yet answered"));
                 }
             }
-            let kept = self.reader.load(todo.work).expect("the work loads");
             assert!(
-                engine::pending(&kept).contains(&todo.effect),
+                self.kept_as_pending(todo),
                 "given before the store holds that it is to be done: {todo:?}"
             );
             self.outstanding.push(todo.clone());
@@ -1024,7 +1038,8 @@ impl H {
     }
 
     /// What the work does next agrees with what is to be done for it: after a call, no run is left to start and none
-    /// left to be abandoned; a run goes on with its round held only while the work is paused; a work is busy with a
+    /// left to be abandoned, and a run goes on with its round held only while the work is paused, unless a wait every
+    /// work shares holds the rounds of the cell's agent; a work is busy with a
     /// run exactly when a round of that run is given to be done; and a work paused began no round after the pause but
     /// of a run for a note a person wrote ([`for_a_note`]), and none given again after it failed.
     fn agrees_with_what_is_pending(&self, number: WorkNumber, flow: &Compiled, work: &Work, shown: &Decision) {
@@ -1036,7 +1051,18 @@ impl H {
                 _ => None,
             })
             .collect();
+        // The wait every work shares, where it holds rounds now, leaves the run of a cell whose rounds it holds to start
+        // or go on: an agent's, and without the network the engine's own acts too.
+        let agents = |cell: &decide::CellId| {
+            let kind = (flow.cells.iter()).find(|spec| spec.id == *cell).map(|spec| spec.kind);
+            let offline = self
+                .d()
+                .outage()
+                .is_some_and(|o| o.failure == decide::run::Failure::Offline);
+            self.d().holds(Time(self.clock)) && (kind == Some(flow::Kind::Agent) || offline)
+        };
         match shown {
+            Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if agents(cell) => {}
             Decision::Run { .. } | Decision::Abandon { .. } | Decision::Fault(_) => {
                 panic!("after a call work {} is left deciding {shown:?}", number.0)
             }
@@ -1080,7 +1106,7 @@ impl H {
                     }
                     let run = round.run;
                     let nth = work.records.rounds[..=i].iter().filter(|r| r.run == run).count();
-                    let again = matches!(work.back.get(&(run, nth - 1)), Some(Back::Failed { .. }));
+                    let again = failure_paused(work, run, nth - 1);
                     assert!(
                         for_a_note(flow, work, run) && !again,
                         "work {} began round {nth} of {run:?} after it was paused",
@@ -1141,6 +1167,18 @@ impl H {
         todos
     }
 
+    /// The driver is told the time, which the harness's clock takes on to, and what a look at the network found,
+    /// where one was taken; gives what is to be done.
+    pub fn tick(&mut self, at: Time, reached: Option<bool>) -> Vec<Todo> {
+        self.clock = self.clock.max(at.0);
+        let todos = (self.dm().tick(at, reached)).expect("the driver takes the time");
+        self.given(&todos);
+        if self.checking {
+            self.check();
+        }
+        todos
+    }
+
     /// The work is let on.
     pub fn let_on(&mut self, work: WorkNumber) -> Vec<Todo> {
         self.on(work, Event::Resumed)
@@ -1160,16 +1198,30 @@ impl H {
     /// Takes the work through to its merge, each round handing in what the flow asks; gives what the call in which
     /// the merge finished gave.
     pub fn through(&mut self, work: WorkNumber) -> Vec<Todo> {
+        // The work lets go of what it held as it merges, which is answered here: it says nothing of the merge.
         for _ in 0..20 {
             let (_, cell, ..) = self.round(work);
             let kept = self.d().work(work).expect("the work is there");
             let came = proper(kept.flow, &cell);
             let todos = self.returns(work, came);
             if self.decision(work) == Decision::Ended(End::Merged) {
-                return todos;
+                return self.released(todos);
             }
         }
         panic!("the work did not merge");
+    }
+}
+
+impl H {
+    /// The todos, each release among them answered: the work let go of what it held. Gives the rest, with what the
+    /// answers gave.
+    pub fn released(&mut self, todos: Vec<Todo>) -> Vec<Todo> {
+        let (releases, mut rest): (Vec<Todo>, Vec<Todo>) =
+            (todos.into_iter()).partition(|t| matches!(t.effect, Effect::Release { .. }));
+        for release in releases {
+            rest.extend(self.on(release.work, Event::Released));
+        }
+        rest
     }
 }
 
@@ -1446,4 +1498,20 @@ pub fn last_written(h: &H, work: WorkNumber) -> Seq {
 /// The block's id.
 pub fn block(name: &str) -> BlockId {
     BlockId::from(name)
+}
+
+/// Whether the run's round of this number failed and the engine paused the work for it, which was not let on since:
+/// the engine paused it after the round began, as for its failure or its going over the budget, and no letting on came
+/// after the round's beginning.
+pub fn failure_paused(work: &Work, run: RunId, number: usize) -> bool {
+    if number == 0 || !matches!(work.back.get(&(run, number)), Some(Back::Failed { .. })) {
+        return false;
+    }
+    let r = &work.records;
+    let Some(began) = r.rounds.iter().filter(|e| e.run == run).map(|e| e.at).nth(number - 1) else {
+        return false;
+    };
+    let paused = (r.pauses.iter()).any(|p| p.paused && p.by == decide::Pauser::Engine && p.at > began);
+    let let_on = (r.pauses.iter()).any(|p| !p.paused && p.at > began);
+    paused && !let_on
 }

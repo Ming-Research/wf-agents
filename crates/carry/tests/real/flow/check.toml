@@ -3,3 +3,4 @@ kind = "engine"
 act = "check"
 inputs = ["code"]
 outputs = ["passed", "failures"]
+describes = ["code"]

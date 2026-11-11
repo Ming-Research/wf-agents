@@ -54,6 +54,9 @@ pub const REACHED: &[&str] = &[
     FAILED,
     FAILED_GOES_ON,
     FAILED_ABANDONED,
+    FAILED_IN_PASSING,
+    FAILED_UNPAUSED,
+    UNPAUSED_GOES_ON,
 ];
 
 pub const PERSON_UNDER_WAY: &str = "a person writes while a round is under way";
@@ -86,6 +89,9 @@ const PERSON_NO_HOLDS: &str = "the merge waits on a person's no";
 const SKIPPED_NO_PASSES: &str = "a round of the merge begins over the no of a judge that is skipped";
 pub const FAILED: &str = "a round fails and the engine pauses its work";
 pub const FAILED_GOES_ON: &str = "a run whose round failed goes on once the work is let on";
+pub const FAILED_IN_PASSING: &str = "a round fails in passing and its run waits for the engine";
+pub const FAILED_UNPAUSED: &str = "a round fails for a cause that does not pause its work";
+pub const UNPAUSED_GOES_ON: &str = "a run whose round failed without pausing its work goes on";
 pub const FAILED_ABANDONED: &str =
     "a run whose round failed is abandoned because what it started from changed before the work was let on";
 
@@ -149,6 +155,7 @@ pub fn last_place(r: &Records) -> Seq {
         .chain(r.let_go.iter().map(|e| e.at))
         .chain(r.pauses.iter().map(|e| e.at))
         .chain(r.cancelled)
+        .chain(r.released)
         .max()
         .unwrap_or_default()
 }
@@ -170,6 +177,7 @@ pub fn as_of(r: &Records, upto: Seq) -> Records {
         let_go: kept(&r.let_go, |e| e.at, upto),
         pauses: kept(&r.pauses, |e| e.at, upto),
         cancelled: r.cancelled.filter(|at| *at <= upto),
+        released: r.released.filter(|at| *at <= upto),
     }
 }
 
