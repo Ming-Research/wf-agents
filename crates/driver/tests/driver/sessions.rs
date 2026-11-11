@@ -460,8 +460,9 @@ fn a_round_under_way_as_a_store_kept_before_sessions_were_recorded_opens_runs_in
         result: "the code".to_string(),
     });
     assert_eq!(s.round().0, review);
-    s.began();
-    // As a store kept before sessions were recorded holds it, and the engine opens on it.
+    // As a store kept before sessions were recorded holds it, and the engine opens on it. (Its round 3's try is not
+    // recorded here: the record would be the work's last entry, and deleting it would give the opening's moment the
+    // place of the moment that record was taken at, which no store holds.)
     let db = rusqlite::Connection::open(&s.db.path).unwrap();
     db.execute_batch("DELETE FROM sessions; DELETE FROM ran;").unwrap();
     drop(db);
