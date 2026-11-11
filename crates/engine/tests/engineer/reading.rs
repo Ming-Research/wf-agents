@@ -43,6 +43,8 @@ pub struct Reading<'a> {
     finished: Vec<&'a Finished>,
     /// The versions written blank.
     blank: &'a BTreeSet<(BlockId, Seq)>,
+    /// The versions that hold what the version of their block before them held.
+    unchanged: &'a BTreeSet<(BlockId, Seq)>,
 }
 
 impl<'a> Reading<'a> {
@@ -128,6 +130,7 @@ impl<'a> Reading<'a> {
             started,
             finished,
             blank: &records.blank,
+            unchanged: &records.unchanged,
         }
     }
 
@@ -203,15 +206,30 @@ impl<'a> Reading<'a> {
             TestKind::All => has.all(|h| h),
             TestKind::Any => has.any(|h| h),
             TestKind::None | TestKind::NoneStanding => !has.any(|h| h),
-            // Each block read that says something is confirmed by a later write of the confirmation with the value.
+            // Each block read that says something is confirmed by a later write of the confirmation with the value
+            // than the latest write that changed what the block holds, whatever its writer said of the change.
             TestKind::Confirmed => {
                 let by = (test.by.as_ref()).and_then(|b| self.current(b));
                 let since = by
                     .filter(|v| v.value.as_deref() == Some(test.is.as_str()))
                     .map(|v| v.at);
-                (test.reads.iter())
-                    .filter_map(|b| self.current(b).filter(|v| !self.blank.contains(&(b.clone(), v.at))))
-                    .all(|v| since.is_some_and(|at| at > v.meaning))
+                (test.reads.iter()).all(|b| {
+                    let versions = self.of(b);
+                    let Some(now) = versions.last() else {
+                        return true;
+                    };
+                    if self.blank.contains(&(b.clone(), now.at)) {
+                        return true;
+                    }
+                    let held = (1..versions.len())
+                        .rev()
+                        .find(|&k| {
+                            !(self.unchanged.contains(&(b.clone(), versions[k].at))
+                                && versions[k].value == versions[k - 1].value)
+                        })
+                        .map_or(versions[0].at, |k| versions[k].at);
+                    since.is_some_and(|at| at > held)
+                })
             }
         }
     }

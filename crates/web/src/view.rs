@@ -91,7 +91,7 @@ pub struct Test {
 
 /// How the blocks a named test reads make it hold: when every one, at least one, or none has the value it looks for;
 /// or, `noneStanding`, when none has it as written by a person, the outside or a cell that is not skipped now; or,
-/// `confirmed`, when people confirmed, by the value in the choice `by`, each that says something since its meaning
+/// `confirmed`, when people confirmed, by the value in the choice `by`, each that says something since what it holds
 /// last changed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

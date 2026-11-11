@@ -384,6 +384,9 @@ pub(crate) struct Version<'a> {
     pub(crate) value: Option<&'a str>,
     /// It was written with nothing in it.
     pub(crate) blank: bool,
+    /// The version at which what the block holds last changed: its own, unless it holds the content and the value of
+    /// the version before it, whatever its writer says of the change.
+    pub(crate) held: Seq,
 }
 
 /// A write of a block, by a run as it finished or by a person or the outside.
@@ -454,15 +457,16 @@ impl<'a> Walk<'a> {
     }
 
     /// Whether people confirmed, in the choice `by`, which only they write, every block the test reads that says
-    /// something, since its meaning last changed: the latest confirmation having the test's value, written after the
-    /// meaning each has now.
+    /// something, since what it holds last changed: the latest confirmation having the test's value, written after
+    /// that. Not since its meaning last changed, which its writer's word decides: a question added by a writer saying
+    /// the change does not matter would merge unseen.
     fn confirmed(&self, test: &Test, by: &BlockId) -> bool {
         let since = (self.current(by))
             .filter(|v| v.value == Some(test.is.as_str()))
             .map(|v| v.at);
         (test.reads.iter())
             .filter_map(|block| self.current(block).filter(|v| !v.blank))
-            .all(|v| since.is_some_and(|at| at > v.meaning))
+            .all(|v| since.is_some_and(|at| at > v.held))
     }
 
     /// Whether the version stands, for the cell at this place: unless a run of a cell that is skipped now wrote it.
@@ -748,6 +752,10 @@ pub(crate) fn read_versions<'a>(
             Some(v) if !w.matters && saw => v.meaning,
             _ => w.at,
         };
+        let held = match over {
+            Some(v) if v.value == w.value && records.unchanged.contains(&(w.block.clone(), w.at)) => v.held,
+            _ => w.at,
+        };
         of_block.push(Version {
             at: w.at,
             by: w.by,
@@ -755,6 +763,7 @@ pub(crate) fn read_versions<'a>(
             meaning,
             value: w.value,
             blank: records.blank.contains(&(w.block.clone(), w.at)),
+            held,
         });
     }
     versions

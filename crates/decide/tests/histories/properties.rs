@@ -90,7 +90,7 @@ const STANDING_NO_HOLDS: &str = "the merge waits on a judge's no while the judge
 const PERSON_NO_HOLDS: &str = "the merge waits on a person's no";
 const CONFIRMATION_ASKED: &str = "the merge waits for a confirmation of what blocks say";
 const CONFIRMATION_ASKED_AGAIN: &str =
-    "the merge waits for a confirmation again, a block having changed in meaning since the latest";
+    "the merge waits for a confirmation again, what a block holds having changed since the latest";
 const SKIPPED_NO_PASSES: &str = "a round of the merge begins over the no of a judge that is skipped";
 pub const FAILED: &str = "a round fails and the engine pauses its work";
 pub const FAILED_GOES_ON: &str = "a run whose round failed goes on once the work is let on";
@@ -508,7 +508,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
 /// A further property, of the preconditions (entry conditions-and-preconditions: what a work waits for is the
 /// precondition not met): a work waits on a precondition only while, by the histories' own reading, it does not hold.
 /// So the merge waits on the judge's verdict only while it stands at no: never for the no of a judge that is skipped;
-/// and for a confirmation only while a block it reads says something its latest confirmation came before.
+/// and for a confirmation only while a block it reads holds something its latest confirmation came before.
 fn held(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, test: &decide::TestName) {
     let named = &flow.tests()[test];
     if reading.holds(flow, test, i) {

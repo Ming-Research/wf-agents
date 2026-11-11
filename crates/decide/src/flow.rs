@@ -103,11 +103,12 @@ pub enum TestKind {
     /// is defined for a block that one cell writes, people and the outside besides: of two cells writing it, a skipped
     /// one's write would hide the other's word. The compiler holds definitions to that.
     NoneStanding,
-    /// Every block read that says something was confirmed since it last changed in meaning: people wrote the test's
-    /// choice of confirmation with the value after the meaning the block has now. A block never written, or whose
-    /// current version is blank, says nothing and needs no confirmation; a confirmation is of what the block says when
-    /// it is given, so a change of meaning after it is confirmed anew, and a change its writer says does not matter is
-    /// not. The blocks read need not be choices.
+    /// Every block read that says something was confirmed since what it holds last changed: people wrote the test's
+    /// choice of confirmation with the value after the latest version that holds another content or value than the
+    /// one before it. A block never written, or whose current version is blank, says nothing and needs no
+    /// confirmation; a confirmation is of what the block holds when it is given, so any change of it is confirmed
+    /// anew, whatever its writer says of the change, and the same content written again is not. The blocks read need
+    /// not be choices.
     Confirmed,
 }
 

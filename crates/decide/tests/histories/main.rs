@@ -16,7 +16,7 @@
 //!   judge stands before the merge, run only while "flip" holds and writing a verdict, yes or no; the merge then also
 //!   waits while the verdict stands at no (a `none_standing` test), its own word holding from the start. In half the
 //!   histories of the first test with neither a judge, nor rounds that fail, nor a room that changes, drawn apart
-//!   from the rest, the merge also waits until people confirmed what b0 and b1 say since each last changed in meaning
+//!   from the rest, the merge also waits until people confirmed what b0 and b1 say since what each holds last changed
 //!   (a `confirmed` test), by a choice only they write. The shapes
 //!   give a block both a person and a cell write (every block cells write, since people write them too), a block two
 //!   cells write of which the later does not read it, a judge writing opinions for a cell before it, and that cell
@@ -30,7 +30,8 @@
 //!   Where the work waits on the verdict, the owner writes it as yes, in half the acts drawn apart from the rest; and
 //!   in eight acts in a hundred of a history with a judge, the owner writes it as yes or no. Where the work waits for
 //!   the confirmation, the owner confirms in six acts in ten; and in a tenth of the acts of a history that confirms,
-//!   the owner confirms unasked or writes b0 or b1 blank, which says nothing, in six to four.
+//!   the owner confirms unasked in six of ten, and otherwise writes b0 or b1 blank, which says nothing, or again as it
+//!   was, which holds nothing new, as a coin says.
 //!   Half the prose goes where it bears on what is going on: into an input of the cell the work waits at or of a cell
 //!   that is skipped, or into a block the open run's cell may write, so that people write while a round is under way
 //!   and while a run is at rest, and write for a cell while it is skipped.
@@ -144,11 +145,11 @@ pub const VERDICT: &str = "verdict";
 /// The merge's precondition in the histories with a judge: the verdict does not stand at no.
 pub const UNREFUSED: &str = "the verdict is no refusal";
 
-/// The merge's precondition in the histories that confirm: people confirmed what [`CONFIRMED_BLOCKS`] say, since each
-/// last changed in meaning, by [`CONFIRMATION`] as yes.
+/// The merge's precondition in the histories that confirm: people confirmed what [`CONFIRMED_BLOCKS`] say, since what
+/// each holds last changed, by [`CONFIRMATION`] as yes.
 pub const CONFIRMED: &str = "what they say was confirmed";
 
-/// The blocks whose meaning people confirm, in the histories that confirm.
+/// The blocks whose content people confirm, in the histories that confirm.
 const CONFIRMED_BLOCKS: [&str; 2] = ["b0", "b1"];
 
 /// The choice only people write in which they confirm, in the histories that confirm.
@@ -850,20 +851,31 @@ impl History {
             return;
         }
         // In a history that confirms, the owner now and then confirms before being asked, or writes a block that is
-        // confirmed blank, which says nothing.
+        // confirmed blank, which says nothing, or again as it was, which holds nothing new.
         if let Some(confirming) = &mut self.confirming
             && confirming.chance(10)
         {
-            if confirming.chance(60) {
+            let (unasked, blank) = (confirming.chance(60), confirming.chance(50));
+            let block = CONFIRMED_BLOCKS[confirming.below(CONFIRMED_BLOCKS.len())];
+            let before = Reading::new(&self.w.records).current(&block.into()).map(|v| v.at);
+            if unasked {
                 self.note(format!("the owner writes {CONFIRMATION} as yes, unasked"));
                 self.person_writes_now();
                 self.w.person_sets(CONFIRMATION, "yes");
-            } else {
-                let block = CONFIRMED_BLOCKS[confirming.below(CONFIRMED_BLOCKS.len())];
+            } else if blank || before.is_none() {
                 self.note(format!("a person writes {block} blank"));
                 self.person_writes_now();
                 let at = self.w.person_writes(block);
                 self.w.records.blank.insert((block.into(), at));
+            } else {
+                self.note(format!("a person writes {block} again as it was"));
+                self.person_writes_now();
+                let was_blank = before.is_some_and(|at| self.w.records.blank.contains(&(block.into(), at)));
+                let at = self.w.person_writes(block);
+                self.w.records.unchanged.insert((block.into(), at));
+                if was_blank {
+                    self.w.records.blank.insert((block.into(), at));
+                }
             }
             return;
         }
