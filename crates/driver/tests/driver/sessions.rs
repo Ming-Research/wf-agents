@@ -8,7 +8,7 @@ use driver::{FirstWrite, NewItem, SESSION};
 use engine::RanOn;
 use engine::{Ask, Handed, Session, Why};
 use flow::{Compiled, Has};
-use work::sessions::of_round;
+use work::sessions::{moved, of_round};
 
 use super::*;
 
@@ -229,11 +229,24 @@ fn a_line_goes_on_in_its_first_session_while_nothing_ends_it() {
 }
 
 #[test]
-fn a_round_past_the_limit_has_the_cell_that_loads_the_session_run_again_before_the_line_goes_on() {
+fn a_round_past_the_limit_has_the_cell_that_loads_the_session_run_again_once_the_lines_runs_have_ended() {
     let mut s = S::new();
     s.hands_in(100, true);
     let (build, _) = s.round();
+    // The build asks for a tool past the limit: its run waits on the result in the session that holds what it did.
     s.asks(600);
+    assert!(s.sessions().is_empty(), "a run of the line has not ended");
+    assert!(s.session_block().is_empty());
+    let call = s.kept().records.called.last().expect("the build's call").call;
+    s.on(Event::Done {
+        call,
+        result: "the request".to_string(),
+    });
+    assert_eq!(s.round(), (build, "build".to_string()));
+    assert_eq!(s.engineer(build, 2), (0, false), "the build goes on in its session");
+    assert!(!moved(s.kept(), "engineer", build, 2));
+    // Its run ends past the limit: the line begins a new session at its next round.
+    s.hands_in(600, true);
     let limit = Why::Limit {
         context: 600,
         limit: 500,
@@ -246,7 +259,31 @@ fn a_round_past_the_limit_has_the_cell_that_loads_the_session_run_again_before_t
         "{}",
         block[0]
     );
-    // The loading cell runs before the build's next round, in the new session, which it begins.
+    // The loading cell runs before the line goes on, in the new session, which it begins.
+    let (load, cell) = s.round();
+    assert_eq!(cell, "load");
+    assert_eq!(s.engineer(load, 1), (1, true));
+    s.hands_in(100, false);
+    assert_eq!(s.session_block().len(), 1, "nothing more is written");
+}
+
+#[test]
+fn a_run_waiting_on_a_tools_result_as_its_line_begins_a_new_session_is_told_what_it_was_doing() {
+    let mut s = S::new();
+    s.hands_in(100, true);
+    let (build, _) = s.round();
+    s.asks(100);
+    // The engine opens again with another model while the build waits on its tool's result.
+    let (driver, _) = Driver::open(
+        Box::new(s.db.open()),
+        vec![s.flow.clone()],
+        Some(policy("sonnet")),
+        Time(s.clock),
+    )
+    .unwrap();
+    s.driver = driver;
+    s.model = "sonnet".to_string();
+    assert!(matches!(s.sessions().last(), Some((line, Why::Model { .. })) if line == "engineer"));
     let (load, cell) = s.round();
     assert_eq!(cell, "load");
     assert_eq!(s.engineer(load, 1), (1, true));
@@ -257,12 +294,13 @@ fn a_round_past_the_limit_has_the_cell_that_loads_the_session_run_again_before_t
         result: "the request".to_string(),
     });
     assert_eq!(s.round(), (build, "build".to_string()));
-    assert_eq!(
-        s.engineer(build, 2),
-        (1, false),
-        "the build goes on in the session the load began"
-    );
-    assert_eq!(s.session_block().len(), 1, "nothing more is written");
+    // The build goes on in the session the load began, which never saw the build's first round: it is told its task
+    // and that round again.
+    assert_eq!(s.engineer(build, 2), (1, false));
+    assert!(moved(s.kept(), "engineer", build, 2));
+    s.hands_in(100, true);
+    let (review, _) = s.round();
+    assert!(!moved(s.kept(), "review", review, 1), "a run's first round");
 }
 
 #[test]

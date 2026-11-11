@@ -4,10 +4,12 @@
 //!
 //! With the installation's [`Policy`], a line begins a new session at its next round when the account or the model its
 //! session's rounds ran on, as the work's records say, is not the one its rounds run on now, or when its last round
-//! ended with a context past the limit. The limit does not end a session whose
-//! last round rewrites a return that was sent back, which the next round does in the session that wrote it, nor one
-//! whose last round was of a cell that reads the [`SESSION`] block: that cell loads the session, and a new session for
-//! its own size would load it again without end.
+//! ended with a context past the limit. The limit waits while a run of the line has not ended: a run waiting on what
+//! it asked for, or rewriting a return that was sent back, goes on in the session that holds what it did, and the
+//! next round of the line after its runs have ended begins the new one. Nor does the limit end a session whose last
+//! round was of a cell that reads the [`SESSION`] block: that cell loads the session, and a new session for its own
+//! size would load it again without end. A new session for any other reason begins at once, and a round whose run ran
+//! in the session before is told what the run was doing.
 //!
 //! Whatever the policy, a line whose last round the service's safety check flagged begins a new session, in which that
 //! round is tried again, so that the check is not given the same context.
@@ -193,8 +195,13 @@ fn past_limit(flow: &Compiled, work: &Work, line: &str, limit: u64) -> Option<u6
     let loads = (flow.blocks.values())
         .filter(|b| b.writers.outside.as_deref() == Some(SESSION))
         .any(|b| b.readers.cells.contains(&started.cell));
-    let open =
-        !(work.records.finished.iter().any(|f| f.run == run) || work.records.abandoned.iter().any(|a| a.run == run));
-    let sent_back = open && matches!(work.back.get(&(run, number)), Some(Back::HandedIn(_)));
-    (!loads && !sent_back).then_some(context)
+    // A run of the line that has not ended, waiting on what it asked for or on a return sent back, goes on in the
+    // session it ran in: the limit takes effect once the line's runs have ended.
+    let open = (work.records.started.iter())
+        .filter(|s| line_of_cell(flow, s.cell.as_str()) == Some(line))
+        .any(|s| {
+            !(work.records.finished.iter().any(|f| f.run == s.run)
+                || work.records.abandoned.iter().any(|a| a.run == s.run))
+        });
+    (!loads && !open).then_some(context)
 }

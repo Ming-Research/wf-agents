@@ -8,8 +8,9 @@
 //! at which its meaning last changed. No content of any block is in the message: the agent reads what it needs with
 //! the tool `read`, and the list ends with the input that reads all of it at once. Nothing is left out for what a
 //! session is thought to hold (decision `session-is-a-cache`). A later round is given the results of the calls it
-//! asked for, or why what it handed in was sent back; one that begins a session is given, after the task and the
-//! list, what each earlier round of the run was given, in their order, and then its own.
+//! asked for, or why what it handed in was sent back; one that begins a session, or goes on in one that never saw the
+//! run's earlier rounds, is given, after the task and the list, what each earlier round of the run was given, in their
+//! order, and then its own.
 //!
 //! Every fixed word an agent is told is in the constants below, in the order they come in a message, so that each
 //! sentence is found and changed in one place; how to return is in `protocol.md`, which every round is given as its
@@ -115,7 +116,7 @@ const SENT_BACK: &str = "## What you handed in was sent back";
 const HAND_IN_AGAIN: &str = "Hand in again: everything the cell hands in, in one return.";
 
 /// What the agent is told at the start of the round of this number of the run of the cell, which is given this, and
-/// which begins its line's session where `begins` says so.
+/// which begins its line's session, or goes on in one that holds nothing of the run, where `begins` says so.
 pub fn message(
     flow: &Compiled,
     work: &Work,

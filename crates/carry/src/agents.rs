@@ -17,7 +17,8 @@
 //!
 //! The program is given an environment of its own, not the engine's (`cli::environment`). Which of its line's sessions
 //! a round runs in, and whether it begins it, is counted from the work's records (`cli::in_session`); what it is told
-//! depends on whether it begins the session, and is built again where the program is tried the other way. A session
+//! depends on whether it begins the session, or goes on in one that never saw its run's earlier rounds, which is told
+//! the same, and is built again where the program is tried the other way. A session
 //! the program no longer has is begun again under its id, and that is said to the loop at once, so that it is
 //! recorded with why. Where the program compacts the session during the round, a hook it is given marks the
 //! compaction, which the round counts among what it took, and gives the session the round's whole message again, as a
@@ -227,6 +228,7 @@ impl Inner {
             number,
             mut begin,
             before,
+            moved,
         } = cli::in_session(flow, work, line, round.run, round.number);
         let session = session::session(self.installation, round.work, line, number);
         // A compaction within the round is marked, and the round's whole message, as a session that begins is told
@@ -241,7 +243,9 @@ impl Inner {
         let recorded =
             (work::sessions::of_line(work, line)).any(|s| s.why == Why::Lost && at.is_some_and(|a| a < s.at));
         let (status, stdout, stderr) = loop {
-            let begins = begin == Begin::New;
+            // A round whose run ran in another session before is told what a session that begins is told: the
+            // session it goes on in never saw the run.
+            let begins = begin == Begin::New || moved;
             let told = message::message(flow, work, &round.cell, round.run, round.number, &round.given, begins);
             let again = message::message(flow, work, &round.cell, round.run, round.number, &round.given, true);
             write(&compacted.again, format!("{COMPACTED}\n\n{again}").as_bytes()).await?;

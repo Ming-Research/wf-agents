@@ -155,13 +155,15 @@ pub fn environment(agents: &Agents, engine: impl IntoIterator<Item = (String, St
     env
 }
 
-/// The session a round runs in, as the records say: which of its line's sessions, whether the round begins it, and
-/// what the session cost before the round, in millionths of a dollar.
+/// The session a round runs in, as the records say: which of its line's sessions, whether the round begins it, what
+/// the session cost before the round, in millionths of a dollar, and whether an earlier round of the round's run ran
+/// in another session, so that the round is told what a round that begins a session is told.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InSession {
     pub number: u32,
     pub begin: Begin,
     pub before: u64,
+    pub moved: bool,
 }
 
 /// The session the round of this number of the run of a cell on the line runs in: it goes on in it where an earlier
@@ -186,6 +188,7 @@ pub fn in_session(flow: &Compiled, work: &Work, line: &str, run: RunId, number: 
         number: session,
         begin: if begins { Begin::New } else { Begin::Resume },
         before,
+        moved: sessions::moved(work, line, run, number),
     }
 }
 
