@@ -2,23 +2,25 @@
 // ran, why a return was sent back, what a call is, who wrote a version, and what was taken. Each is worded here once,
 // and every part of the page that shows one takes its words from here.
 
-import type {
-  Ask,
-  Call,
-  CallRow,
-  Cause,
-  CellState,
-  Given,
-  Limit,
-  Now,
-  Pauser,
-  Person,
-  Run,
-  Spent,
-  Summary,
-  Unmet,
-  Waited,
-  Writer,
+import {
+  type Ask,
+  type Call,
+  type CallRow,
+  type Cause,
+  type CellState,
+  type Given,
+  type Limit,
+  type Maker,
+  type Now,
+  type Pauser,
+  type Person,
+  personMaking,
+  type Run,
+  type Spent,
+  type Summary,
+  type Unmet,
+  type Waited,
+  type Writer,
 } from '../works-api';
 
 const SECOND = 1000;
@@ -97,6 +99,14 @@ export function personWords(person: Person): string {
   return `the ${person}`;
 }
 
+/// Each who can make a precondition hold, joined: the owner, a source outside the work, or a cell.
+export function makersWords(by: Maker[]): string {
+  if (by.length === 0) return 'no one';
+  return by
+    .map((m) => (m.kind === 'owner' ? personWords('owner') : m.kind === 'outside' ? `the outside (${m.source})` : m.cell))
+    .join(' or ');
+}
+
 /// A limit a run reached.
 export function limitWords(limit: Limit): string {
   return limit.of === 'returns' ? `${plural(limit.sentBack, 'return')} sent back` : `${plural(limit.made, 'call')} made`;
@@ -125,7 +135,7 @@ export function waitsForOwner(waited: Waited): boolean {
     case 'call':
       return waited.who === 'owner' || waited.what.kind === 'atLimit';
     case 'precondition':
-      return waited.who === 'owner';
+      return personMaking(waited) === 'owner';
     case 'limit':
       return true;
   }
@@ -141,7 +151,9 @@ export function waitedWords(waited: Waited): string {
       return `the result of the tool ${what.name}${waited.who ? ` from ${personWords(waited.who)}` : ''}`;
     }
     case 'precondition':
-      return `${waited.words}, which ${personWords(waited.who)} can make hold`;
+      return `${waited.words}, which ${
+        waited.by !== undefined ? makersWords(waited.by) : personWords(waited.who ?? 'owner')
+      } can make hold`;
     case 'limit':
       return `the owner to let the cell go on: ${
         waited.runs === 1 ? 'its last run was a way round' : `its last ${waited.runs} runs in a row were each a way round`

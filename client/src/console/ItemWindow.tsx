@@ -7,7 +7,8 @@
 // a cell asked the owner that the work waits at, drawn as they are with a line in red that it stops the work, each
 // picked by a press on an option and let go by another, and at the plan's end a button as wide as the body to confirm
 // them, which counts the picks, waits until each choice has one and sends each question's answer to the engine; once
-// confirmed, the picks stand), each passage
+// confirmed, the picks stand; and last, each ruling of a cell that keeps the work from going on and that the owner may
+// overrule, drawn as such a question is, with a button as wide to count it as settled), each passage
 // changed since the owner read it marked at its left, and under the body the messages: the owner's and the replies, and a
 // box to write one into a block of the work that people write, chosen above it, which a passage selected in the body
 // can be quoted into and which names the cells that read it. The second holds what of the work the lines do not say,
@@ -17,9 +18,10 @@
 //
 // Brought over from the console of the engine on `main` (`client/src/console/ItemWindow.tsx`), its layout as it was,
 // its parts the page's own (parts.tsx) where it used Primer's. What the engine does not give yet comes from the
-// console's made-up data (`mock.ts`), which says what of it is made up. What the new console added is kept in that
-// layout: the work line's facts, the row of what the owner does to the work under the lines, the block a message is
-// written in over its box, and the flow's name among the work's facts.
+// console's made-up data (`mock.ts`), which says what of it is made up, when the page shows the mocks; otherwise the
+// body and the messages are read from the work's blocks, and the rest is not drawn (`real.ts`). What the new console
+// added is kept in that layout: the work line's facts, the row of what the owner does to the work under the lines, the
+// block a message is written in over its box, and the flow's name among the work's facts.
 
 import {
   Fragment,
@@ -33,11 +35,29 @@ import {
 } from 'react';
 
 import { Button, Confirm, PanelPart, Switch } from '../parts';
-import type { Act, Item, Summary, Waited, WorkPage } from '../works-api';
+import { mocksShown } from '../mock-data';
+import {
+  type Act,
+  type Item,
+  loadVersion as loadVersionOf,
+  type Summary,
+  type Waited,
+  type WorkPage,
+} from '../works-api';
 import { StateLegend, Strip } from '../works/marks';
-import { type ItemStanding, standingOf } from './items';
+import { type ItemStanding, standingOf, whoGives } from './items';
 import { Markdown } from './markdown';
-import { askedMock, bodyMock, itemMock, markRead, workTierMock } from './mock';
+import { markRead } from './mock';
+import {
+  askedChoice,
+  firstBody,
+  itemOf,
+  type LoadVersion,
+  readBody,
+  readRulings,
+  type Ruling,
+  workTierOf,
+} from './real';
 import { age, dollars, type Mood, moodOf } from './snap';
 import { barOf, barSpans, TimeTrack } from './track';
 import {
@@ -58,7 +78,24 @@ const ago = (at: number) => age(Date.now() - at).label;
 
 /// The words for who gives what a work waits for.
 const WHO = { owner: 'you', architect: 'the architect' } as const;
-const whom = (w: Waited): string => (w.kind === 'limit' ? WHO.owner : w.who === null ? 'the engine' : WHO[w.who]);
+
+/// Who gives what a work waits for, in words: the person a call names or the engine, you for a run let on at its
+/// limit, and for a precondition the person who can make it hold, or else the cells that can, by their titles; none
+/// for a precondition only sources outside the work can make hold, such as the items it depends on being merged.
+function whom(w: Waited, page: WorkPage | null): string | null {
+  switch (w.kind) {
+    case 'limit':
+      return WHO.owner;
+    case 'call':
+      return w.who === null ? 'the engine' : WHO[w.who];
+    case 'precondition': {
+      const person = whoGives(w);
+      if (person !== null) return WHO[person];
+      const cells = (w.by ?? []).flatMap((m) => (m.kind === 'cell' ? [titleOf(page, m.cell)] : []));
+      return cells.length > 0 ? cells.join(' or ') : null;
+    }
+  }
+}
 
 /// What a work's state is to the panel, as its card colours it.
 const MOOD_WORDS: Record<Mood, string> = {
@@ -90,7 +127,7 @@ const asked = (w: Waited): w is Extract<Waited, { kind: 'call' }> & { what: { ki
 /// The questions a cell asked the owner that the work waits at, as choices at the plan's end.
 function askedOf(now: Summary['now']): Choice[] {
   if (now.kind !== 'waits') return [];
-  return now.on.flatMap((w) => (asked(w) && w.who === 'owner' ? [askedMock(w.what.question, w.call, now.at)] : []));
+  return now.on.flatMap((w) => (asked(w) && w.who === 'owner' ? [askedChoice(w.what.question, w.call, now.at)] : []));
 }
 
 /// What the work waits for at a cell, in a few words for the status line.
@@ -139,13 +176,13 @@ export function nowWords(s: Summary, page: WorkPage | null): { word: string; fac
       return { word: MOOD_WORDS.running, facts: `next ${titleOf(page, now.cell)}` };
     case 'waits': {
       const cell = titleOf(page, now.at);
-      // A work that waits only for a precondition, such as the items it depends on being merged, waits for that.
-      if (now.on.length > 0 && now.on.every((w) => w.kind === 'precondition')) {
-        return { word: MOOD_WORDS.waiting, facts: now.on.map((w) => lineWords(w, cell)).join('; ') };
-      }
-      const who = [...new Set(now.on.map(whom))];
+      const who = [...new Set(now.on.flatMap((w) => whom(w, page) ?? []))];
       const said = now.on.flatMap((w) => (asked(w) ? [] : [lineWords(w, cell)]));
-      return { word: `Waiting for ${who.join(' and ')}`, facts: said.length > 0 ? said.join('; ') : `at ${cell}` };
+      const facts = said.length > 0 ? said.join('; ') : `at ${cell}`;
+      // A work that waits only for what a source outside it gives, such as the items it depends on being merged,
+      // waits for that.
+      if (who.length === 0) return { word: MOOD_WORDS.waiting, facts };
+      return { word: `Waiting for ${who.join(' and ')}`, facts };
     }
     case 'paused':
       return now.by === 'engine' ? { word: MOOD_WORDS.halted, facts: now.why } : { word: MOOD_WORDS.paused, facts: null };
@@ -251,6 +288,8 @@ export type ItemPanelProps = {
   /// Its work's page, which says the flow.
   page: PageState;
   act: (work: number, what: Act) => Promise<unknown>;
+  /// Reads the content of a version of a block of its work, for its body and messages.
+  loadVersion?: LoadVersion;
   /// The items it depends on that are not merged yet.
   waitsFor: number[];
   /// Whether it is a goal (mock).
@@ -269,12 +308,43 @@ export function ItemPanel(props: ItemPanelProps) {
   return <ItemView key={props.item.number} {...props} />;
 }
 
-function ItemView({ item, page, act, waitsFor, goal = false, open = true, onRead, onTitle }: ItemPanelProps) {
+function ItemView({
+  item,
+  page,
+  act,
+  loadVersion = loadVersionOf,
+  waitsFor,
+  goal = false,
+  open = true,
+  onRead,
+  onTitle,
+}: ItemPanelProps) {
   const work = item.work;
   const read = pageIn(page);
   const send = (what: Act) => act(work.number, what);
-  const mock = itemMock(item);
-  const [body, setBody] = useState<Body>(() => bodyMock(item));
+  const mock = itemOf(item);
+  const [body, setBody] = useState<Body>(() => firstBody(item));
+  // Without the mocks, the body is read from the work's blocks each time its page is read: whether it was read yet,
+  // and why it could not be.
+  const [bodyRead, setBodyRead] = useState(mocksShown());
+  const [bodyFailed, setBodyFailed] = useState<string | null>(null);
+  // Without the mocks, what the owner may rule of the preconditions the work waits for, read with the body.
+  const [rulings, setRulings] = useState<Ruling[]>([]);
+  useEffect(() => {
+    if (mocksShown() || read === null) return;
+    let alive = true;
+    const failed = (e: unknown) => alive && setBodyFailed(e instanceof Error ? e.message : String(e));
+    readBody(read, loadVersion).then((b) => {
+      if (!alive) return;
+      setBody(b);
+      setBodyRead(true);
+      setBodyFailed(null);
+    }, failed);
+    readRulings(read, loadVersion).then((r) => alive && setRulings(r), failed);
+    return () => {
+      alive = false;
+    };
+  }, [read, loadVersion]);
   const [unseen, setUnseen] = useState(mock.unseen);
   const [tab, setTab] = useState<'item' | 'work'>('item');
   const [quote, setQuote] = useState<string | null>(null);
@@ -330,7 +400,15 @@ function ItemView({ item, page, act, waitsFor, goal = false, open = true, onRead
   }, [open, fresh, markAsRead]);
   // The questions a cell asked the owner that the work waits at, after the plan's own, each with the option picked.
   const [answers, setAnswers] = useState<Record<number, number | null>>({});
-  const questions = askedOf(work.now).map((c) => ({ ...c, chosen: answers[c.asks?.call ?? -1] ?? null }));
+  // What the owner wrote to a question with no options, by its call.
+  const [written, setWritten] = useState<Record<number, string>>({});
+  const questions = askedOf(work.now).map((c) => ({
+    ...c,
+    chosen: answers[c.asks?.call ?? -1] ?? null,
+    answer: written[c.asks?.call ?? -1] ?? '',
+  }));
+  // Whether a question has its answer: an option picked, or for one with no options, words written.
+  const answered = (q: Choice) => (q.options.length === 0 ? (q.answer ?? '').trim() !== '' : q.chosen !== null);
   // The plan as drawn: its own parts, a choice of them open while the plan waits to be confirmed, then the questions.
   const plan: Part[] = [
     ...(body.planWaits ? body.plan : body.plan.map((p) => (p.kind === 'choice' ? { ...p, confirmed: true } : p))),
@@ -350,18 +428,25 @@ function ItemView({ item, page, act, waitsFor, goal = false, open = true, onRead
       ),
     }));
   };
-  // One Confirm for the plan's choices and the questions: each question's answer, the label of its option, is sent to
-  // the call that waits for it, one after another; once all are taken, the plan's picks stand.
+  // Words written to a question with no options.
+  const write = (at: number, text: string) => {
+    const call = questions[at - body.plan.length]?.asks?.call;
+    if (call !== undefined) setWritten((was) => ({ ...was, [call]: text }));
+  };
+  // One Confirm for the plan's choices and the questions: each question's answer, the label of its option or the
+  // words written to it, is sent to the call that waits for it, one after another; once all are taken, the plan's
+  // picks stand.
   const answering = useSending(send);
   const ownPicks = body.planWaits ? picks(body) : { picked: 0, all: 0 };
   const count = {
-    picked: ownPicks.picked + questions.filter((q) => q.chosen !== null).length,
+    picked: ownPicks.picked + questions.filter(answered).length,
     all: ownPicks.all + questions.length,
   };
   const confirm = async () => {
     for (const q of questions) {
-      if (q.asks === undefined || q.chosen === null) continue;
-      const taken = await answering.send({ kind: 'answer', call: q.asks.call, result: q.options[q.chosen].label });
+      if (q.asks === undefined || !answered(q)) continue;
+      const result = q.chosen === null ? (q.answer ?? '').trim() : q.options[q.chosen].label;
+      const taken = await answering.send({ kind: 'answer', call: q.asks.call, result });
       if (!taken) return;
     }
     if (body.planWaits) setBody((was) => ({ ...was, planWaits: false }));
@@ -432,12 +517,19 @@ function ItemView({ item, page, act, waitsFor, goal = false, open = true, onRead
         ) : (
           <>
             <div className="cw-body" onMouseUp={selected}>
-              <Section title="Background" parts={body.background} />
+              {bodyFailed !== null && <p className="failed small">The page could not read the item: {bodyFailed}</p>}
+              <Section
+                title="Background"
+                parts={body.background}
+                empty={bodyRead ? 'Nothing is written yet' : 'Reading'}
+              />
               <Section title="Problem" parts={body.problem} />
               <Section
                 title="Plan"
                 parts={plan}
+                keep={rulings.length > 0}
                 choose={body.planWaits || questions.length > 0 ? choose : undefined}
+                write={questions.length > 0 ? write : undefined}
                 discuss={discuss}
                 about={about}
                 jump={jump}
@@ -455,6 +547,9 @@ function ItemView({ item, page, act, waitsFor, goal = false, open = true, onRead
                     ) : null}
                     {answering.refused !== null && <p className="failed small">{answering.refused}</p>}
                     {confirmed !== null ? <p className="cw-done">{confirmed}</p> : null}
+                    {rulings.map((r) => (
+                      <RulingBox key={`${r.block}@${r.at}`} ruling={r} page={read} act={send} />
+                    ))}
                   </>
                 }
               />
@@ -550,8 +645,9 @@ function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
   );
 }
 
-/// What the owner does to a work that goes on: let it go on past a limit it waits at; let it on while it is paused, or
-/// pause it; cancel it, once they confirm. While one is under way, none can be pressed.
+/// What the owner does to a work that goes on: let it go on past a limit it waits at; start it or pause it, with one
+/// switch whose pressed choice says which it is in; cancel it, once they confirm. While one is under way, none takes
+/// effect.
 function Acts({ paused, goOn, act }: { paused: boolean; goOn: Act | null; act: (what: Act) => Promise<unknown> }) {
   const { waiting, refused, send } = useSending(act);
   const [asking, setAsking] = useState(false);
@@ -562,19 +658,24 @@ function Acts({ paused, goOn, act }: { paused: boolean; goOn: Act | null; act: (
           Let it go on
         </Button>
       )}
-      {paused ? (
-        <Button primary title="Let the work go on" disabled={waiting} onClick={() => void send({ kind: 'resume' })}>
-          Let it on
-        </Button>
-      ) : (
-        <Button
-          title="Nothing of the work goes on by itself; what you write to it is still answered"
-          disabled={waiting}
-          onClick={() => void send({ kind: 'pause' })}
-        >
-          Pause
-        </Button>
-      )}
+      {/* Going on and paused exclude each other, so they are one switch that shows which the work is in: pressing the
+          other choice starts or pauses it. */}
+      <Switch<'on' | 'paused'>
+        label="Whether the work goes on"
+        choices={[
+          { value: 'on', name: 'Start', title: 'Let the work go on' },
+          {
+            value: 'paused',
+            name: 'Pause',
+            title: 'Nothing of the work goes on by itself; what you write to it is still answered',
+          },
+        ]}
+        value={paused ? 'paused' : 'on'}
+        onChange={(to) => {
+          if (waiting || (to === 'paused') === paused) return;
+          void send({ kind: to === 'paused' ? 'pause' : 'resume' });
+        }}
+      />
       <Button
         title="Cancel the work and its item"
         disabled={waiting}
@@ -662,16 +763,23 @@ function Fold({ title, count, children }: { title: string; count?: number; child
 function Section({
   title,
   parts,
+  keep = false,
   choose,
+  write,
   discuss,
   about,
   jump,
   after,
+  empty,
 }: {
   title: string;
   parts: Part[];
+  /// Draws the section with no parts, for what stands under them.
+  keep?: boolean;
   /// Picks an option of a choice, while the plan waits to be confirmed.
   choose?: (at: number, option: number) => void;
+  /// Writes the answer to a question with no options.
+  write?: (at: number, text: string) => void;
   /// Takes a choice to the discussion.
   discuss?: (c: Choice) => void;
   /// The messages about a choice, by where they stand.
@@ -680,8 +788,17 @@ function Section({
   jump?: (at: number) => void;
   /// What stands under its parts, inside the section, and is folded away with it.
   after?: ReactNode;
+  /// What the section says, muted, where it has no parts; where this is not given, it is not drawn.
+  empty?: string;
 }) {
-  if (parts.length === 0) return null;
+  if (parts.length === 0 && !keep) {
+    if (empty === undefined) return null;
+    return (
+      <Fold title={title}>
+        <p className="muted">{empty}</p>
+      </Fold>
+    );
+  }
   return (
     <Fold title={title}>
       {parts.map((p, i) => (
@@ -692,6 +809,7 @@ function Section({
             <ChoiceBox
               p={p}
               pick={choose === undefined || p.confirmed === true ? undefined : (o) => choose(i, o)}
+              write={write === undefined || p.confirmed === true ? undefined : (t) => write(i, t)}
               discuss={discuss === undefined ? undefined : () => discuss(p)}
               messages={about?.(p) ?? []}
               jump={jump}
@@ -706,10 +824,11 @@ function Section({
 
 /// A choice of the plan: a press on an option picks it, on another changes the pick, and on the one picked lets it go,
 /// until it is confirmed. Discuss takes it to the discussion, confirmed or not; under its options, how many messages are about
-/// it, which brings the first into view.
-function ChoiceBox({ p, pick, discuss, messages, jump }: {
+/// it, which brings the first into view. A question with no options is answered in words, in a box in their place.
+function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
   p: Choice;
   pick?: (option: number) => void;
+  write?: (text: string) => void;
   discuss?: () => void;
   messages: number[];
   jump?: (at: number) => void;
@@ -718,6 +837,16 @@ function ChoiceBox({ p, pick, discuss, messages, jump }: {
     <div className={pick === undefined ? 'cw-choice cw-choice-done' : 'cw-choice'}>
       <p className="cw-choice-q">{p.question}</p>
       {p.asks !== undefined && <p className="cw-choice-stops">The work waits for this answer</p>}
+      {p.options.length === 0 && p.asks !== undefined ? (
+        <textarea
+          rows={3}
+          value={p.answer ?? ''}
+          aria-label="Your answer"
+          placeholder="Write your answer"
+          disabled={write === undefined}
+          onChange={(e) => write?.(e.target.value)}
+        />
+      ) : null}
       {p.options.map((o, i) => (
         <button
           key={o.label}
@@ -758,6 +887,48 @@ function ChoiceBox({ p, pick, discuss, messages, jump }: {
         </div>
       ) : null}
     </div>
+  );
+}
+
+/// A block that keeps a precondition the work waits for from holding, drawn as a question that stops the work is: who
+/// wrote its current version, a cell by the name the owner calls it, and what it says; under it, as wide as the body,
+/// the button that writes the block with the value that makes the test hold, where its values make that plain. To have
+/// the cell judge again, the owner writes to it in the discussion.
+function RulingBox({ ruling, page, act }: {
+  ruling: Ruling;
+  page: WorkPage | null;
+  act: (what: Act) => Promise<unknown>;
+}) {
+  const { waiting, refused, send } = useSending(act);
+  const by = ruling.by;
+  const who =
+    by.kind === 'run'
+      ? writerOf(by.cell, page)
+      : by.kind === 'person'
+        ? WRITER.owner
+        : (page?.flow.blocks.find((b) => b.name === ruling.block)?.writtenBy.outside ?? 'The outside');
+  const value = ruling.value;
+  return (
+    <>
+      <div className="cw-part">
+        <div className="cw-choice">
+          <p className="cw-choice-q">{who}</p>
+          <p className="cw-choice-stops">The work waits for this ruling</p>
+          {ruling.text.trim() !== '' && <Markdown text={ruling.text} />}
+        </div>
+      </div>
+      {value !== null && (
+        <button
+          type="button"
+          className="button button-primary cw-confirm"
+          disabled={waiting}
+          onClick={() => void send({ kind: 'write', block: ruling.block, content: '', value })}
+        >
+          Count it as settled
+        </button>
+      )}
+      {refused !== null && <p className="failed small">{refused}</p>}
+    </>
   );
 }
 
@@ -960,11 +1131,12 @@ function sentBackOf(w: Summary, page: WorkPage | null): number {
 
 /// What of the work the lines do not say, and what the marks of the strip in its line mean.
 function WorkFacts({ w, page, verdicts }: { w: Summary; page: WorkPage | null; verdicts: [string, string][] }) {
+  const tier = workTierOf();
   const rows: [string, ReactNode][] = [
     ['Rounds', String(w.spent.rounds)],
     ['Cost', dollars(w.spent.usdMicros)],
     ['Started', w.from === null ? 'Not yet' : `${ago(w.from ?? w.added)} ago`],
-    ['Tier', workTierMock()],
+    ...(tier === null ? [] : [['Tier', tier] as [string, ReactNode]]),
     ['Sent back', String(sentBackOf(w, page))],
     ['Flow', w.flow],
     ...verdicts,

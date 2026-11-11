@@ -544,6 +544,8 @@ export function fixtureSource(start = Date.now()): Source {
         return Promise.reject(e instanceof Error ? e : new Error(String(e)));
       }
     },
+    // The made-up works have no block with a version.
+    loadVersion: (work, block, at) => Promise.reject(new Error(`Work ${work} has no version ${block}@${at}`)),
     act: (work, what) => {
       try {
         const { summary } = find(work);

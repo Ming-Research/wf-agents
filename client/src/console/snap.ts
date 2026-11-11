@@ -64,12 +64,12 @@ const GLOW_IN = 30;
 /// milliseconds.
 const DIM = 0.35;
 const DIM_LINKS = 0.4;
-const FADE_DOWN = 420;
-const FADE_UP = 200;
+const FADE_DOWN = 220;
+const FADE_UP = 110;
 /// How long the pointer rests on an item before it is the one in focus, and how long it is off every item before the
 /// focus is let go, in milliseconds.
-const DWELL_ON = 150;
-const DWELL_OFF = 250;
+const DWELL_ON = 100;
+const DWELL_OFF = 180;
 const GLOW_OUT = 160;
 /// The ring round an item lit, the one selected or under the pointer or one above them: its edge's width, and the halo
 /// outside it, how wide and how strong, within the room between two items.
@@ -389,6 +389,8 @@ export type DrawnStrip = { marks: DrawnMark[]; more: number; end: number };
 /// How much of its state's colour fills a card whose work is running or that needs the owner.
 const FILL = 0.18;
 const EDGE_TINT = 0.45;
+/// How much of the running colour the edge of a card whose work runs takes: nearly all of it, so that it is bright.
+const EDGE_RUNNING = 0.9;
 /// How far the title of an item not begun goes from the ink towards the muted grey.
 const NOT_BEGUN = 0.7;
 /// How far a card's number and strip stand in from its left edge.
@@ -407,6 +409,8 @@ const BREATH_LOW = 0.35;
 const TRAIL_MS = 3200;
 const TRAIL_PARTS = 16;
 const TRAIL_PART = 7;
+/// TRIAL: whether a running card has the glowing rings as well as the light going round its edge.
+const RUNNING_RINGS = false;
 /// A card's corners: the page's corner (`--corner`), as its buttons and tags have.
 const CARD_CORNER = 3;
 /// The height of the line under a deliverable, which has no card.
@@ -785,7 +789,11 @@ export class SnapScene {
       view.addChild(
         card.fill(filled ? mix(PALETTE.card, state, FILL) : PALETTE.card).stroke({
           color:
-            state !== null ? mix(PALETTE.card, state, EDGE_TINT) : this.lit[k] === 1 ? PALETTE.branch : PALETTE.edge,
+            state !== null
+              ? mix(PALETTE.card, state, mood === 'running' ? EDGE_RUNNING : EDGE_TINT)
+              : this.lit[k] === 1
+                ? PALETTE.branch
+                : PALETTE.edge,
           width: EDGE_WIDTH,
         }),
       );
@@ -1013,18 +1021,25 @@ export class SnapScene {
     return view;
   }
 
-  /// Moves a card's glow on by a frame. Its rings breathe, slowly, each card a little out of step with the others. A
-  /// card whose work runs also has a short light going round its edge, bright at its head and fading behind it, so
-  /// that what is being worked on is seen moving; one that needs the owner only breathes.
+  /// Moves a card's glow on by a frame. A card that needs the owner has rings that breathe, slowly. A card whose work
+  /// runs has a short light going round its edge, bright at its head and fading behind it, in step on every such
+  /// card, so that what is being worked on is seen moving.
   private moveGlow(
     glow: { rings: Graphics; trail: Graphics | null; top: number; high: number; colour: string },
     now: number,
     k: number,
   ) {
-    const phase = (now / BREATH_MS + k * 0.37) % 1;
-    glow.rings.alpha = BREATH_LOW + (1 - BREATH_LOW) * Math.sin(Math.PI * phase) ** 2;
     const trail = glow.trail;
-    if (trail === null) return;
+    if (trail === null) {
+      // A card that needs the owner: its rings breathe, each card a little out of step with the others.
+      const phase = (now / BREATH_MS + k * 0.37) % 1;
+      glow.rings.alpha = BREATH_LOW + (1 - BREATH_LOW) * Math.sin(Math.PI * phase) ** 2;
+      return;
+    }
+    // A card whose work runs: its rings are off for now (TRIAL: the owner is trying it without them), and the light
+    // on its edge goes round in step with every other running card's.
+    glow.rings.visible = RUNNING_RINGS;
+    if (RUNNING_RINGS) glow.rings.alpha = BREATH_LOW + (1 - BREATH_LOW) * Math.sin(Math.PI * ((now / BREATH_MS) % 1)) ** 2;
     const [w, h, top] = [NODE_W, glow.high, glow.top];
     const round = 2 * (w + h);
     // A point of the card's edge, by how far round it from its top left corner, clockwise.
@@ -1035,7 +1050,7 @@ export class SnapScene {
       if (d < 2 * w + h) return [w - (d - w - h), top + h];
       return [0, top + h - (d - 2 * w - h)];
     };
-    const head = ((now / TRAIL_MS + k * 0.61) % 1) * round;
+    const head = ((now / TRAIL_MS) % 1) * round;
     trail.clear();
     for (let j = 0; j < TRAIL_PARTS; j += 1) {
       const [x1, y1] = at(head - j * TRAIL_PART);

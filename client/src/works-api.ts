@@ -34,14 +34,31 @@ export type Call =
   | { kind: 'question'; who: Person; question: string }
   | { kind: 'atLimit'; limit: Limit };
 
+/// Who can make a precondition hold: the owner, a source outside the work (such as the items it depends on, as they
+/// merge), or a cell, by what its next run writes.
+export type Maker = { kind: 'owner' } | { kind: 'outside'; source: string } | { kind: 'cell'; cell: string };
+
+/// A precondition of the cell that does not hold: the named test, the words shown for it, and each who can make it
+/// hold, by writing a block that keeps it from holding (`by`). An engine from before `by` gives in its place the one
+/// person who can (`who`).
+export type PreconditionWait = { kind: 'precondition'; test: string; words: string; by?: Maker[]; who?: Person };
+
 /// What a work waits for.
 export type Waited =
   /// The result of a call a run rests at: from this person, or from the engine where there is none.
   | { kind: 'call'; call: number; who: Person | null; what: Call }
-  /// A precondition of the cell does not hold: the named test, the words shown for it, and who can make it hold.
-  | { kind: 'precondition'; test: string; words: string; who: Person }
+  | PreconditionWait
   /// The cell's last runs, this many in a row, were each for what a cell after it wrote.
   | { kind: 'limit'; runs: number };
+
+/// The person who can make a precondition hold: the owner where its makers include the owner, none where they are
+/// only sources outside the work or cells. An engine that gives `who` in place of the makers names the owner for every
+/// test that does not hold, though no person can make the items the work depends on merge: from it, that test is known
+/// by its name.
+export function personMaking(w: PreconditionWait): Person | null {
+  if (w.by !== undefined) return w.by.some((m) => m.kind === 'owner') ? 'owner' : null;
+  return w.test === 'may_start' ? null : (w.who ?? null);
+}
 
 /// What a work does now.
 export type Now =
@@ -386,3 +403,14 @@ export const loadTold = (work: number, run: number, round: number) =>
 export const loadCall = (work: number, call: number) => read<CallPage>(`/api/v1/works/${work}/calls/${call}`);
 export const act = (work: number, what: Act) => send<null>(`/api/v1/works/${work}/acts`, what);
 export const addItem = (item: NewItem) => send<Added>('/api/v1/items', item);
+
+/// How the engine stands as a whole: how many rounds of agents may go on at once, how many are under way, and when the
+/// owner's pause of everything began, none while works go on.
+export interface EngineState {
+  slots: number;
+  taken: number;
+  paused: number | null;
+}
+export const loadEngine = () => read<EngineState>('/api/v1/engine');
+/// Pauses everything, or lifts that pause.
+export const actOnEngine = (kind: 'pause' | 'resume') => send<null>('/api/v1/engine/acts', { kind });

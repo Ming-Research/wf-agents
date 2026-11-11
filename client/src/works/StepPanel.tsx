@@ -393,7 +393,7 @@ export function WritePanel({ step, page, reader, fold, foot }: PanelProps & { st
 const ACT_WORDS = {
   letGo: 'Let go on',
   paused: 'Paused',
-  resumed: 'Let on',
+  resumed: 'Started',
   cancelled: 'Cancelled',
 } as const;
 

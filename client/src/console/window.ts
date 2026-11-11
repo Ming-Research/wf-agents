@@ -29,6 +29,8 @@ export type Part =
       confirmed?: boolean;
       changed?: boolean;
       asks?: { call: number; cell: string };
+      /// What the owner wrote as the answer to a question with no options, which is answered in words.
+      answer?: string;
     };
 
 export type Choice = Extract<Part, { kind: 'choice' }>;

@@ -140,7 +140,7 @@ export function ActButtons({ summary, send }: { summary: Summary; send: Send }) 
     <span className="acts">
       {summary.paused ? (
         <Button disabled={pending} onClick={() => act({ kind: 'resume' })} title="Let rounds of the work begin again">
-          Let on
+          Start
         </Button>
       ) : (
         <Button

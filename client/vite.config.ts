@@ -54,7 +54,8 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': { target, changeOrigin: true },
+      // The engine refuses a request of another origin, so they are passed on as from its own.
+      '/api': { target, changeOrigin: true, headers: { origin: new URL(target).origin } },
     },
   },
 });

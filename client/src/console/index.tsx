@@ -178,6 +178,7 @@ export function ConsolePage({ source: given }: { source?: Source } = {}) {
             item={item}
             page={shownPage}
             act={source.act}
+            loadVersion={source.loadVersion}
             waitsFor={waitsFor}
             goal={selected !== null && goalMock(selected.work !== null, selected.children.length)}
             open={open}

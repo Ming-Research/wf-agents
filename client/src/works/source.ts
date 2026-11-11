@@ -7,7 +7,17 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 
 import { usesFixtures } from '../mock-data';
 import * as api from '../works-api';
-import type { Act, CallPage, Changed, Items, RoundPage, ToldPage, VersionPage, WorkPage } from '../works-api';
+import type {
+  Act,
+  CallPage,
+  Changed,
+  EngineState,
+  Items,
+  RoundPage,
+  ToldPage,
+  VersionPage,
+  WorkPage,
+} from '../works-api';
 
 export interface Source {
   loadItems(): Promise<Items>;
@@ -17,6 +27,9 @@ export interface Source {
   loadTold(work: number, run: number, round: number): Promise<ToldPage>;
   loadCall(work: number, call: number): Promise<CallPage>;
   act(work: number, what: Act): Promise<null>;
+  /// How the engine stands as a whole, and the owner's pause of everything; a source that has no engine has neither.
+  loadEngine?(): Promise<EngineState>;
+  actOnEngine?(kind: 'pause' | 'resume'): Promise<null>;
   /// Tells `onChanged` each time something happened, and `onOpened` each time the stream of changes opens, the first
   /// time and again after it was lost, when changes may have been missed; gives the way to stop.
   changes(onChanged: (changed: Changed) => void, onOpened: () => void): () => void;
@@ -31,6 +44,8 @@ export const INTERFACE: Source = {
   loadTold: api.loadTold,
   loadCall: api.loadCall,
   act: api.act,
+  loadEngine: api.loadEngine,
+  actOnEngine: api.actOnEngine,
   changes(onChanged, onOpened) {
     if (typeof EventSource === 'undefined') return () => undefined;
     const events = new EventSource('/api/v1/changes');

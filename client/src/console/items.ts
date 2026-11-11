@@ -8,8 +8,9 @@
 // `works-api.ts` gives them. The interface does not say which of an item's dependents is its main one: the first of
 // them by number is.
 
-import type { CellNow, Item, Items, Now, Summary, Waited } from '../works-api';
-import { itemMock } from './mock';
+import { type CellNow, type Item, type Items, type Now, personMaking, type Summary, type Waited } from '../works-api';
+import { mocksShown } from '../mock-data';
+import { itemOf } from './real';
 
 /// What the item is to deliver: not yet, delivered, or given up.
 export type ItemStanding = 'open' | 'done' | 'cancelled';
@@ -37,8 +38,7 @@ export type Shown = {
   id: number;
   title: string;
   standing: ItemStanding;
-  /// The things its work is stopped for that the owner gives: answers, preconditions only they can make hold, a run
-  /// let on.
+  /// The things its work is stopped for that the owner gives: answers, preconditions they can make hold, a run let on.
   asks: number;
   /// The questions that wait for the owner's answer and do not stop its work yet (mock: `mock.ts`).
   questions: number;
@@ -67,13 +67,11 @@ export function standingOf(i: Item | undefined): ItemStanding {
   return now?.kind === 'merged' ? 'done' : now?.kind === 'cancelled' ? 'cancelled' : 'open';
 }
 
-/// Who gives what a work waits for: the person a call or a precondition names, the owner for a run let on at its
-/// limit, none where the engine gives it.
+/// Who gives what a work waits for: the person a call names, the owner for a run let on at its limit, the person who
+/// can make a precondition hold (`personMaking`), none where the engine, a source outside the work or a cell gives it.
 export function whoGives(w: Waited): 'owner' | 'architect' | null {
   if (w.kind === 'limit') return 'owner';
-  // The wait for the items it depends on is nobody's to give: the engine names the owner for every test that does not
-  // hold, though the owner cannot make this one hold. Until the engine says who can, the test is known by its name.
-  if (w.kind === 'precondition' && w.test === 'may_start') return null;
+  if (w.kind === 'precondition') return personMaking(w);
   return w.who;
 }
 
@@ -130,11 +128,15 @@ export function shownTree(data: Items): Shown[] {
     const i = byId.get(id);
     const w = i?.work;
     making.add(id);
-    const mock = i === undefined ? null : itemMock(i);
+    const mock = i === undefined ? null : itemOf(i);
     // MOCK rule, until the engine says what kind an item is: an item with open items under it whose own work has not
     // begun is a deliverable, made of what is under it. It shows no state of its own: no row of its work.
+    // With the mocks off the engine's own word decides alone: the item's flow.
     const deliverable =
-      w !== undefined && !started(w) && (under.get(id) ?? []).some((c) => keep(c) && !making.has(c));
+      mocksShown() &&
+      w !== undefined &&
+      !started(w) &&
+      (under.get(id) ?? []).some((c) => keep(c) && !making.has(c));
     const shown: Shown = {
       id,
       title: i?.title ?? '',

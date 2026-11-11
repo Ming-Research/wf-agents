@@ -3,7 +3,17 @@
 // with no server behind it.
 
 import { usesFixtures } from '../mock-data';
-import { type Act, type Changed, type Items, type WorkPage, act, loadItems, loadWork } from '../works-api';
+import {
+  type Act,
+  type Changed,
+  type Items,
+  type VersionPage,
+  type WorkPage,
+  act,
+  loadItems,
+  loadVersion,
+  loadWork,
+} from '../works-api';
 import { fixtureSource } from './fixtures';
 
 /// What the stream says: something happened, or, when it opens again after it was cut, that anything may have, since
@@ -13,6 +23,8 @@ export type Heard = Changed | 'everything';
 export interface Source {
   loadItems: () => Promise<Items>;
   loadWork: (work: number) => Promise<WorkPage>;
+  /// The content of a version of a block of a work.
+  loadVersion: (work: number, block: string, at: number) => Promise<VersionPage>;
   act: (work: number, what: Act) => Promise<unknown>;
   /// Calls `on` each time something happened; gives what stops it.
   changes: (on: (heard: Heard) => void) => () => void;
@@ -84,6 +96,7 @@ export function listen(
 export const interfaceSource: Source = {
   loadItems,
   loadWork,
+  loadVersion,
   act,
   changes: (on) => (typeof EventSource === 'undefined' ? () => undefined : listen(on)),
 };
