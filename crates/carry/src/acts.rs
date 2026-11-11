@@ -48,6 +48,8 @@ pub struct Checked {
     pub failed: Option<String>,
     /// What judged it, where the host says.
     pub by: Option<String>,
+    /// Whether the engine made the commit, merging main into the branch for the check.
+    pub took_in: bool,
 }
 
 /// The acts, done in the project's repository with the works' worktrees in the data directory, on this host.
@@ -212,9 +214,11 @@ pub(crate) async fn check(
 ) -> Result<Option<Checked>, String> {
     let place = branch.place;
     let dir = git::worktree(place)?;
-    let (commit, main) = {
+    let (commit, took_in, main) = {
         let _held = repository.lock().await;
         git::configuration(project, place).await?;
+        git::abort_own_merge(&dir, &project.main).await?;
+        git::on_branch(place).await?;
         let main = host.main().await?;
         let commit = git::git(&project.repo, &["rev-parse", &place.reference()]).await?;
         let found = |failed: String| Checked {
@@ -222,6 +226,7 @@ pub(crate) async fn check(
             main: main.clone(),
             failed: Some(failed),
             by: None,
+            took_in: false,
         };
         let changes = git::uncommitted(&dir).await?;
         if !changes.is_empty() {
@@ -235,7 +240,8 @@ pub(crate) async fn check(
             );
             return Ok(Some(found(failed)));
         }
-        (git::take_in(&dir, &main, &project.main).await?, main)
+        let (commit, took_in) = git::take_in(&dir, &main, &project.main).await?;
+        (commit, took_in, main)
     };
     let Some(verdict) = host.verdict(branch, &commit, stop).await? else {
         return Ok(None);
@@ -245,6 +251,7 @@ pub(crate) async fn check(
         main,
         failed: verdict.failed,
         by: verdict.by,
+        took_in,
     }))
 }
 
@@ -337,13 +344,22 @@ fn checked_in(
     };
     let by = (checked.by.as_ref()).map_or(String::new(), |by| format!(" by {by}"));
     let what = format!("The work's branch was checked against {main} at {}{by}", checked.main);
+    let took = if checked.took_in {
+        format!(
+            "\n\nThe engine merged {main} at {} into the work's branch for the check, as the commit {}, which the \
+             worktree holds.",
+            checked.main, checked.commit
+        )
+    } else {
+        String::new()
+    };
     let (value, outcome) = match checked.failed {
         None => (PASSED, "it passed"),
         Some(_) => (FAILED, "it did not pass"),
     };
     let mut handed = vec![Handed {
         block: choice.clone(),
-        content: format!("{CHECKED}{}\n\n{what}: {outcome}.", checked.commit),
+        content: format!("{CHECKED}{}\n\n{what}: {outcome}.{took}", checked.commit),
         matters: true,
         value: Some(value.to_string()),
     }];
@@ -353,7 +369,7 @@ fn checked_in(
             .filter(|(block, values)| block != choice && values.is_none());
         handed.extend(others.map(|(block, _)| Handed {
             block: block.clone(),
-            content: format!("{CHECKED}{}\n\n{what}. {why}", checked.commit),
+            content: format!("{CHECKED}{}\n\n{what}. {why}{took}", checked.commit),
             matters: true,
             value: None,
         }));
@@ -413,7 +429,18 @@ mod tests {
             main: "beef".to_string(),
             failed: failed.map(str::to_string),
             by: None,
+            took_in: false,
         }
+    }
+
+    #[test]
+    fn a_commit_the_engine_made_to_take_main_in_is_said() {
+        let mut took = checked(Some("The check failed."));
+        took.took_in = true;
+        let handed = checked_in(&outputs(), &took, "main").unwrap();
+        let said = "\n\nThe engine merged main at beef into the work's branch for the check, as the commit c0ffee, \
+                    which the worktree holds.";
+        assert!(handed.iter().all(|h| h.content.ends_with(said)), "{handed:?}");
     }
 
     #[test]
@@ -590,6 +617,7 @@ mod tests {
                 main,
                 failed: Some("The check lint failed.".to_string()),
                 by: Some("the CI of the pull request 7".to_string()),
+                took_in: false,
             }
         );
         assert_eq!(host.asked(), [Asked::Main, Asked::Verdict(head)]);
@@ -654,6 +682,43 @@ mod tests {
         let author = run(&repo.project.repo, &["log", "-1", "--format=%an <%ae>", &head]);
         assert_eq!(author, "wf-agents <wf-agents@localhost>", "the engine made the commit");
         assert_eq!(host.asked(), [Asked::Main, Asked::Verdict(head)]);
+        assert!(checked.took_in, "what the check writes says so");
+    }
+
+    #[tokio::test]
+    async fn a_merge_of_main_the_engine_left_unfinished_is_taken_back_and_made_anew() {
+        let repo = Repo::new("true");
+        let local = run(&repo.project.repo, &["rev-parse", "main"]);
+        let started = start_with(&repo, &Fake::new(&local)).await.unwrap();
+        let built = commit(&started.place.dir, "farewell.txt", "Bye.\n");
+        let main = commit(&repo.project.repo, "weather.txt", "Sunny.\n");
+        // As when the engine stopped in the middle of its merge.
+        let message = format!("Merge main at {main} into the work's branch");
+        run(
+            &started.place.dir,
+            &["merge", "--no-commit", "--no-ff", "-m", &message, &main],
+        );
+        let host = Fake::new(&main).judges(Ok(Some(Verdict { failed: None, by: None })));
+        let checked = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
+        assert_eq!(checked.failed, None);
+        assert!(checked.took_in);
+        let parents = run(
+            &repo.project.repo,
+            &["rev-list", "--parents", "-n", "1", &checked.commit],
+        );
+        assert_eq!(parents, format!("{} {built} {main}", checked.commit));
+    }
+
+    #[tokio::test]
+    async fn a_worktree_off_the_works_branch_fails_the_check() {
+        let repo = Repo::new("true");
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let started = start_with(&repo, &Fake::new(&main)).await.unwrap();
+        run(&started.place.dir, &["switch", "-q", "-c", "elsewhere"]);
+        let failed = check_with(&repo, &Fake::new(&main), &mut Stop::never())
+            .await
+            .expect_err("it fails");
+        assert!(failed.contains("not on the work's branch"), "{failed}");
     }
 
     #[tokio::test]
