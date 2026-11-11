@@ -327,6 +327,9 @@ impl Driver {
         if let Err(fault) = self.store.set_level(item, level, now) {
             return Err(self.stop(Fault::Store(fault), false));
         }
+        if let Some(held) = self.works.get_mut(&work) {
+            held.item.level = Some(level.to_string());
+        }
         Ok(true)
     }
 

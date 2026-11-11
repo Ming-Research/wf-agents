@@ -365,7 +365,7 @@ impl Settings {
         // lack: what replaces it is said at once.
         let table: Option<toml::Table> = toml::from_str(text).ok();
         let agents = table.as_ref().and_then(|t| t.get("agents")).and_then(|a| a.as_table());
-        if agents.is_some_and(|agents| agents.contains_key("model")) && text.is_empty() {
+        if agents.is_some_and(|agents| agents.contains_key("model")) {
             return Err(ONE_MODEL.to_string());
         }
         let settings: Settings = toml::from_str(text).map_err(|e| e.to_string().trim_end().to_string())?;

@@ -94,8 +94,10 @@ async fn set_level(
         Ok(asked) => asked,
         Err(e) => return fail(StatusCode::BAD_REQUEST, format!("The level cannot be read: {e}.")),
     };
-    let _ = &levels;
-    let level = asked.level;
+    let level = match levels.of_item(Some(&asked.level)) {
+        Ok(level) => level,
+        Err(why) => return fail(StatusCode::UNPROCESSABLE_ENTITY, format!("The item's level: {why}.")),
+    };
     match handle.set_level(item, &level).await {
         Ok(changed) => Json(LevelSet { changed }).into_response(),
         Err(refusal) => refused(&refusal),

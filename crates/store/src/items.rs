@@ -77,7 +77,10 @@ pub(crate) fn set_level(db: &Connection, item: ItemNumber, level: &str, at: Time
     let n: u64 = db.query_row("SELECT count(*) FROM level_changes WHERE item = ?1", [item.0], |row| {
         row.get(0)
     })?;
-    let _ = (n, level, at);
+    db.execute(
+        "INSERT INTO level_changes (item, n, level, at) VALUES (?1, ?2, ?3, ?4)",
+        params![item.0, n + 1, level, at.0],
+    )?;
     Ok(())
 }
 

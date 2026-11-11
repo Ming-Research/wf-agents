@@ -180,9 +180,9 @@ impl Inner {
         // A program a process of the engine that ended left running for the round is stopped before anything that can
         // end the round here, so that a round that now fails, as for a level the settings no longer have, leaves no
         // program running unseen.
+        process::stop_left(&group, &place.dir).await;
         let line = (round.cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", round.cell.id))?;
         let on = self.settings.ran_on(round.item.level.as_deref(), &round.cell)?;
-        process::stop_left(&group, &place.dir).await;
         let dir = git::worktree(&place)?;
         if let Some(parent) = base.parent() {
             tokio::fs::create_dir_all(parent)

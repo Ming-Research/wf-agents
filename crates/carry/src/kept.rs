@@ -107,7 +107,7 @@ fn ran(path: &Path) -> Result<Option<RanKept>, String> {
                     model: file.model,
                     effort: file.effort,
                 }),
-                Err(e) => return Err(format!("it is not what a try ran on: {e}")),
+                Err(e) => RanKept::Unreadable(format!("it is not what a try ran on: {e}")),
             }))
         }
     }

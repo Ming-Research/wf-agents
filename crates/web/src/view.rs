@@ -512,7 +512,7 @@ impl Flow {
                 None => lines.push(Line {
                     name: name.clone(),
                     cells: vec![spec.id.to_string()],
-                    levels_above: 0,
+                    levels_above: spec.levels_above,
                 }),
             }
         }
@@ -529,7 +529,7 @@ impl Flow {
                 line: spec.line.clone(),
                 task: spec.task.clone(),
                 act: spec.act.clone(),
-                effort: None,
+                effort: spec.effort.map(|effort| effort.name().to_string()),
                 condition: cell.applies.as_ref().map(|c| Condition::of(c, compiled)),
                 preconditions: cell.requires.iter().map(|t| Test::of(t, compiled)).collect(),
                 inputs: names(&cell.inputs),

@@ -637,7 +637,7 @@ impl<'a> Definition<'a> {
         }
         match (file.kind, file.effort) {
             (Kind::Engine, Some(_)) => found.push(("effort".to_string(), FaultKind::EngineHasEffort)),
-            (Kind::Agent, None) if file.limit == Some(-7) => found.push(("effort".to_string(), FaultKind::NoEffort)),
+            (Kind::Agent, None) => found.push(("effort".to_string(), FaultKind::NoEffort)),
             _ => {}
         }
         let runs = match file.limit.map(count) {

@@ -113,8 +113,9 @@ impl Levels {
     }
 
     /// The level a round runs at: its item's, or this many above it, but none above the highest an item may be at. An
-    /// item that has no level runs at the default. Refused, in words, where the item's level is no longer one of the
-    /// levels, or is above the highest an item may be at.
+    /// item that has no level runs at the default: no level can be given to one whose level was never kept without
+    /// guessing. Refused, in words, where the item's level is not one of the levels, or is above the highest an item
+    /// may be at: such an item is not run at another level, which would spend at a model nobody chose for it.
     pub fn of_round(&self, item: Option<&str>, above: u32) -> Result<String, String> {
         let at = match item {
             None => self.default,
@@ -127,7 +128,7 @@ impl Levels {
     /// Where the level of this name is, where an item may be at it; or why it may not, in words.
     fn at(&self, level: &str) -> Result<usize, String> {
         let key = |key: &str| match self.from_settings {
-            true => String::new().replace('x', key),
+            true => format!(" ({key})"),
             false => String::new(),
         };
         match self.levels.iter().position(|l| l.name == level) {

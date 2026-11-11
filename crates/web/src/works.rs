@@ -592,7 +592,7 @@ impl LevelsPage {
             levels: (levels.levels().iter())
                 .map(|level| LevelPage {
                     name: level.name.clone(),
-                    desc: String::new(),
+                    desc: level.desc.clone(),
                 })
                 .collect(),
             default: levels.default().to_string(),
