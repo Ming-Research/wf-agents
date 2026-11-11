@@ -3,8 +3,15 @@
 
 [profile.ci]
 # A test still running after 60 s is stopped and fails under its own name, instead of holding the job until its time
-# limit: no test needs that long. Nextest says at 30 s which tests are getting slow.
+# limit: no other test needs that long. Nextest says at 30 s which tests are getting slow.
 slow-timeout = { period = "30s", terminate-after = 2 }
+
+# But the tests that walk many random histories, each a property of the whole engine checked over hundreds of them:
+# on GitHub's machines several take longer than 60 s, by the number of histories they need to reach what they must
+# (two of them above 90 s and 150 s, unoptimized, run alone by `cargo test`). They are stopped at 300 s.
+[[profile.ci.overrides]]
+filter = 'binary(histories) | test(=random_works_on_the_engineers_flow_keep_what_the_flow_must)'
+slow-timeout = { period = "60s", terminate-after = 5 }
 
 # What became of each test of a run, as JUnit XML, at target/nextest/ci/junit.xml: fast.yml uploads it for the engine
 # to read (the artifact test-results), and ci.yml keeps it with its run.
