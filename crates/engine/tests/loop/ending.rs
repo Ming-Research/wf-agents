@@ -78,14 +78,14 @@ fn a_work_paused_as_it_was_cancelled_lets_go_all_the_same() {
         by: Pauser::Owner,
         why: None,
     });
-    w.on(Event::Cancelled);
+    w.on(Event::Cancelled { why: None });
     assert_eq!(w.returns(write, hands_in(&[("text", None)])), vec![CANCELLED]);
 }
 
 #[test]
 fn a_cancel_after_the_merge_gives_nothing_and_the_work_has_merged() {
     let mut w = merged();
-    assert_eq!(w.on(Event::Cancelled), vec![]);
+    assert_eq!(w.on(Event::Cancelled { why: None }), vec![]);
     assert_eq!(w.decision(), decide::Decision::Ended(decide::End::Merged));
 }
 
@@ -93,7 +93,7 @@ fn a_cancel_after_the_merge_gives_nothing_and_the_work_has_merged() {
 fn after_a_cancel_nothing_more_is_given_but_letting_go_once_the_stopped_round_ended() {
     let (mut w, write, _) = W::requested();
     // The round under way may be working in the worktree: nothing is let go before it has ended.
-    assert_eq!(w.on(Event::Cancelled), vec![Effect::Stop { run: write }]);
+    assert_eq!(w.on(Event::Cancelled { why: None }), vec![Effect::Stop { run: write }]);
     assert_eq!(w.returns(write, hands_in(&[("text", None)])), vec![CANCELLED]);
     assert_eq!(w.work.records.finished, vec![]);
     assert_eq!(w.on(wrote("request", Outsider::Person, true, None)), vec![]);
@@ -106,6 +106,6 @@ fn a_cancelled_work_lets_go_once_its_calls_are_withdrawn() {
     let (mut w, write, _) = W::requested();
     let call = calls_of(&w.returns(write, Came::Asks(vec![tool("a")])))[0].0;
     // A tool may be working in the worktree until its call has its result.
-    assert_eq!(w.on(Event::Cancelled), vec![Effect::Withdraw { call }]);
+    assert_eq!(w.on(Event::Cancelled { why: None }), vec![Effect::Withdraw { call }]);
     assert_eq!(w.done(call), vec![CANCELLED]);
 }

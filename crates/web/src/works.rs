@@ -111,8 +111,43 @@ pub struct Item {
     pub added: u64,
     /// The items it depends on, in the order of their numbers.
     pub depends_on: Vec<u64>,
+    /// What it was as it was added, and each change made to it since: what it said before, and when it changed.
+    pub history: ItemHistory,
     /// The one work done for it, which was added with it.
     pub work: Summary,
+}
+
+/// An item as it was added, and each change made to it since, in the order they were made: its title, level and
+/// dependencies as they stand are those it was added with, with each change made in turn.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemHistory {
+    pub first: FirstItem,
+    pub changes: Vec<ItemChange>,
+}
+
+/// An item as it was added.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FirstItem {
+    pub title: String,
+    /// None for an item added before items had levels.
+    pub level: Option<String>,
+    pub depends_on: Vec<u64>,
+}
+
+/// A change made to an item, at this time.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ItemChange {
+    /// It was given this title.
+    Title { time: u64, title: String },
+    /// It was put at this level.
+    Level { time: u64, level: String },
+    /// It came to depend on this item.
+    DependsOn { time: u64, item: u64 },
+    /// It no longer depends on this item.
+    NoLongerDependsOn { time: u64, item: u64 },
 }
 
 /// A work in brief.
@@ -305,6 +340,8 @@ pub struct WorkPage {
     pub title: String,
     /// The level of its item, as [`Item`] has it.
     pub level: Option<String>,
+    /// What its item was as it was added, and each change made to it since, as [`Item`] has them.
+    pub history: ItemHistory,
     /// The flow it runs on, as the flow page reads a flow.
     pub flow: Flow,
     /// Each cell now, with why it would run and what it reads, in the order of the walk.
@@ -419,8 +456,8 @@ pub enum Step {
     },
     /// The work was let on again.
     Resumed { at: u64, time: u64 },
-    /// The work's item was cancelled.
-    Cancelled { at: u64, time: u64 },
+    /// The work's item was cancelled, for this reason where whoever cancelled it gave one.
+    Cancelled { at: u64, time: u64, why: Option<String> },
     /// A new session of the line began, or begins with the line's next round, for this reason.
     Session {
         at: u64,
@@ -700,11 +737,44 @@ pub struct NewLevel {
     pub level: String,
 }
 
-/// Whether putting an item at a level changed it: it was at that level already where not.
+/// The title whoever plans the work gives an item.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NewTitle {
+    pub title: String,
+}
+
+/// A change of what an item depends on, as whoever plans the work asks for it. Each kind is a struct, as an [`Act`]
+/// is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
+pub enum DependencyChange {
+    /// The item comes to depend on this one.
+    Add { item: u64 },
+    /// The item no longer depends on this one.
+    Remove { item: u64 },
+}
+
+/// Whether a change of an item changed it: it was so already where not, as when it was at that level already.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LevelSet {
+pub struct ItemChanged {
     pub changed: bool,
+}
+
+impl DependencyChange {
+    /// The change as the loop takes it.
+    pub fn taken(self) -> store::ItemChange {
+        match self {
+            DependencyChange::Add { item } => store::ItemChange::DependsOn(ItemNumber(item)),
+            DependencyChange::Remove { item } => store::ItemChange::NoLongerDependsOn(ItemNumber(item)),
+        }
+    }
 }
 
 impl LevelsPage {
@@ -778,8 +848,11 @@ pub enum Act {
     Pause {},
     /// Lets the work on again.
     Resume {},
-    /// Cancels the work's item.
-    Cancel {},
+    /// Cancels the work's item, saying why where a reason is given, such as the item it was joined into.
+    Cancel {
+        #[serde(default)]
+        why: Option<String>,
+    },
     /// Gives a call that waits for a person its result: the answer to a question, or that a run at its limit goes on.
     Answer { call: u64, result: String },
     /// Has the line begin a new session at its next round.
@@ -881,11 +954,43 @@ impl Items {
                 level: kept.item.level.clone(),
                 added: kept.item.added.0,
                 depends_on: kept.item.depends_on.iter().map(|on| on.0).collect(),
+                history: ItemHistory::of(kept.item),
                 work: Summary::of(kept, &view, driver.held(kept.head.number), outage.as_ref())?,
             });
         }
         items.sort_by_key(|item| item.number);
         Ok(Items { items, outage })
+    }
+}
+
+impl ItemHistory {
+    /// What the item was as it was added, and each change made to it since.
+    pub fn of(item: &store::Item) -> ItemHistory {
+        let first = &item.first;
+        ItemHistory {
+            first: FirstItem {
+                title: first.title.clone(),
+                level: first.level.clone(),
+                depends_on: first.depends_on.iter().map(|on| on.0).collect(),
+            },
+            changes: (item.changes.iter())
+                .map(|change| {
+                    let time = change.at.0;
+                    match &change.what {
+                        store::ItemChange::Title(title) => ItemChange::Title {
+                            time,
+                            title: title.clone(),
+                        },
+                        store::ItemChange::Level(level) => ItemChange::Level {
+                            time,
+                            level: level.clone(),
+                        },
+                        store::ItemChange::DependsOn(on) => ItemChange::DependsOn { time, item: on.0 },
+                        store::ItemChange::NoLongerDependsOn(on) => ItemChange::NoLongerDependsOn { time, item: on.0 },
+                    }
+                })
+                .collect(),
+        }
     }
 }
 
@@ -1159,6 +1264,7 @@ impl WorkPage {
             steps.push(Step::Cancelled {
                 at: at.0,
                 time: time(work, at)?,
+                why: work.why_cancelled.clone(),
             });
         }
         for session in &work.sessions {
@@ -1182,6 +1288,7 @@ impl WorkPage {
             )?,
             title: kept.item.title.clone(),
             level: kept.item.level.clone(),
+            history: ItemHistory::of(kept.item),
             flow: Flow::of(kept.flow),
             cells,
             blocks,
@@ -1331,7 +1438,7 @@ impl Act {
             Act::LetGo { cell } => service::Act::LetGo { cell: CellId(cell) },
             Act::Pause {} => service::Act::Pause,
             Act::Resume {} => service::Act::Resume,
-            Act::Cancel {} => service::Act::Cancel,
+            Act::Cancel { why } => service::Act::Cancel { why },
             Act::Answer { call, result } => service::Act::Answer {
                 call: CallId(call),
                 result,

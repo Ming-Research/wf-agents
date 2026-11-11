@@ -111,7 +111,7 @@ fn the_owner_letting_a_cell_go_on_pausing_resuming_and_cancelling_are_each_recor
         why: None,
     });
     w.on(Event::Resumed);
-    w.on(Event::Cancelled);
+    w.on(Event::Cancelled { why: None });
     let r = &w.work.records;
     assert_eq!(
         r.let_go.iter().map(|l| l.cell.as_str()).collect::<Vec<_>>(),

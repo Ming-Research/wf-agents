@@ -191,11 +191,13 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             why,
         });
     }
-    r.cancelled = rows(db, "SELECT at FROM cancelled WHERE work = ?1", w, |row| {
-        Ok(Seq(row.get(0)?))
+    let cancelled = rows(db, "SELECT at, why FROM cancelled WHERE work = ?1", w, |row| {
+        Ok((Seq(row.get(0)?), row.get::<_, Option<String>>(1)?))
     })?
     .into_iter()
     .next();
+    r.cancelled = cancelled.as_ref().map(|(at, _)| *at);
+    out.why_cancelled = cancelled.and_then(|(_, why)| why);
     r.released = rows(db, "SELECT at FROM released WHERE work = ?1", w, |row| {
         Ok(Seq(row.get(0)?))
     })?
@@ -321,7 +323,7 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     let pauses = grown("pauses", &h.pauses, &g.pauses, |e| Entry::At(e.at))?;
     let cancelled = match (h.cancelled, g.cancelled) {
         (None, new) => new,
-        (Some(h), Some(g)) if h == g => None,
+        (Some(h), Some(g)) if h == g && held.why_cancelled == given.why_cancelled => None,
         (Some(h), Some(_)) => return Err(diverged("cancelled", Entry::At(h), Divergence::Changed)),
         (Some(h), None) => return Err(diverged("cancelled", Entry::At(h), Divergence::Missing)),
     };
@@ -424,7 +426,10 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         )?;
     }
     if let Some(at) = cancelled {
-        db.execute("INSERT INTO cancelled (work, at) VALUES (?1, ?2)", params![w, at.0])?;
+        db.execute(
+            "INSERT INTO cancelled (work, at, why) VALUES (?1, ?2, ?3)",
+            params![w, at.0, given.why_cancelled],
+        )?;
     }
     if let Some(at) = released {
         db.execute("INSERT INTO released (work, at) VALUES (?1, ?2)", params![w, at.0])?;

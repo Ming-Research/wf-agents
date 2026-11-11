@@ -15,6 +15,7 @@ fn rebuilt(work: &Work) -> Work {
         moments: work.moments.clone(),
         sessions: work.sessions.clone(),
         ran: work.ran.clone(),
+        why_cancelled: work.why_cancelled.clone(),
     }
 }
 
@@ -41,7 +42,7 @@ fn a_work_rebuilt_from_its_parts_goes_on_exactly_as_the_original() {
             spent: spent(7),
         },
         wrote("request", Outsider::Person, true, None),
-        Event::Cancelled,
+        Event::Cancelled { why: None },
     ];
     for event in events {
         assert_eq!(copy.on(event.clone()), w.on(event));

@@ -49,7 +49,7 @@ fn act(h: &H, s: usize) -> Option<Act> {
         7 => Act::On(w(2), Event::Resumed),
         8 => Act::On(w(4), Event::Resumed),
         9 => Act::On(w(5), Event::Resumed),
-        10 => Act::On(w(5), Event::Cancelled),
+        10 => Act::On(w(5), Event::Cancelled { why: None }),
         11 => Act::On(w(6), Event::Resumed),
         12 => {
             let (run, ..) = h.round(w(6));

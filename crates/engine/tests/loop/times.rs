@@ -56,10 +56,10 @@ fn a_refused_event_adds_no_moment_and_leaves_the_work_as_it_was() {
 #[test]
 fn an_event_that_adds_no_entry_adds_no_moment() {
     let (mut w, ..) = W::requested();
-    w.on(Event::Cancelled);
+    w.on(Event::Cancelled { why: None });
     let before = w.work.clone();
     // A second cancel, and a look at a work that has ended, add nothing.
-    w.on(Event::Cancelled);
+    w.on(Event::Cancelled { why: None });
     w.on(Event::Look);
     assert_eq!(w.work, before);
 }
@@ -103,7 +103,7 @@ fn what_each_round_took_is_kept_under_its_run_and_number() {
 #[test]
 fn what_the_stopped_round_of_an_abandoned_run_took_is_kept() {
     let (mut w, write, _) = W::requested();
-    w.on(Event::Cancelled);
+    w.on(Event::Cancelled { why: None });
     w.returns_spending(write, hands_in(&[("text", None)]), spent(5));
     assert_eq!(w.work.spent.get(&(write, 1)), Some(&spent(5)));
 }

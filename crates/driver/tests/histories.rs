@@ -495,7 +495,7 @@ impl History {
             }
             30..=32 => {
                 self.seen.cancels += 1;
-                Event::Cancelled
+                Event::Cancelled { why: None }
             }
             33..=41 => match self.h.decision(work) {
                 Decision::Wait { at, on } if on.iter().any(|w| matches!(w, Waited::Limit { .. })) => {

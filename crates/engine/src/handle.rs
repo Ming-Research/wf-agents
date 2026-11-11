@@ -247,9 +247,10 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
                 why: None,
             });
         }
-        Event::Cancelled => {
+        Event::Cancelled { why } => {
             if work.records.cancelled.is_none() {
                 work.records.cancelled = Some(work.tick());
+                let _ = why;
             }
         }
         Event::Returned { run, came, spent } => {

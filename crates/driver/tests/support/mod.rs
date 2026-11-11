@@ -32,7 +32,7 @@ use engine::{Ask, Back, Came, Effect, Event, Given, Handed, Spent, Time, Work};
 use flow::{Compiled, Has, Kind, Source, compile};
 use rusqlite::Connection;
 use rusqlite::types::Value;
-use store::{Item, ItemNumber, Storage, Store, WorkHead, WorkNumber};
+use store::{Item, ItemChange, ItemNumber, Storage, Store, WorkHead, WorkNumber};
 use tempfile::TempDir;
 
 /// The time of the first thing a test does.
@@ -265,7 +265,7 @@ pub fn dump(path: &Path) -> BTreeMap<String, Vec<Vec<String>>> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Op {
     Add,
-    SetLevel,
+    Change,
     Items,
     Works,
     Load,
@@ -372,9 +372,9 @@ impl Storage for Failing {
         self.store.add(title, level, depends_on, flow, at, first)
     }
 
-    fn set_level(&mut self, item: ItemNumber, level: &str, at: Time) -> Result<(), store::Fault> {
-        self.call(Op::SetLevel)?;
-        self.store.set_level(item, level, at)
+    fn change(&mut self, item: ItemNumber, change: &ItemChange, at: Time) -> Result<(), store::Fault> {
+        self.call(Op::Change)?;
+        self.store.change(item, change, at)
     }
 
     fn items(&self) -> Result<Vec<Item>, store::Fault> {
@@ -1176,6 +1176,18 @@ impl H {
     /// The work is let on.
     pub fn let_on(&mut self, work: WorkNumber) -> Vec<Todo> {
         self.on(work, Event::Resumed)
+    }
+
+    /// Whoever plans the work changes an item, which the driver must take; gives whether that changed it, and what is
+    /// to be done.
+    pub fn change(&mut self, item: ItemNumber, change: ItemChange) -> (bool, Vec<Todo>) {
+        let now = self.now();
+        let (changed, todos) = (self.dm().change(now, item, change)).expect("the change is taken");
+        self.given(&todos);
+        if self.checking {
+            self.check();
+        }
+        (changed, todos)
     }
 
     /// What the work does next, as its view says.

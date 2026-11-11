@@ -248,7 +248,7 @@ impl Part for Deliverable {
                 }
             }
             57..=64 => Event::LetGo { cell: "V1".into() },
-            65..=66 => Event::Cancelled,
+            65..=66 => Event::Cancelled { why: None },
             _ => Event::Look,
         }
     }

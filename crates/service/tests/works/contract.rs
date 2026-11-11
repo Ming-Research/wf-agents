@@ -46,7 +46,7 @@ async fn a_carrier_that_answers_a_round_twice_stops_the_loop() {
     let (mut service, mut inbox) = Service::open(Box::new(store), vec![trial_flow()], carriers, clock).unwrap();
     let (_, work) = add_to(&mut service, new_item("Greet the user", &[]));
     assert_eq!(act_on(&mut service, work, Act::Resume), (Ok(()), Ok(())));
-    assert_eq!(act_on(&mut service, work, Act::Cancel), (Ok(()), Ok(())));
+    assert_eq!(act_on(&mut service, work, Act::Cancel { why: None }), (Ok(()), Ok(())));
     // The first end of the round is taken; the second cannot have happened.
     service.take(inbox.recv().await.unwrap()).unwrap();
     assert_eq!(

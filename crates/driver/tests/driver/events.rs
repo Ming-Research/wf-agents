@@ -188,7 +188,7 @@ fn what_happened_to_a_work_that_is_not_there_is_refused_and_changes_nothing() {
     let none = WorkNumber(2);
     let got = h.refused(|d, now| d.happened(now, none, Event::Look).map(drop));
     assert_eq!(got, Failed::NoSuchWork(none));
-    let got = h.refused(|d, now| d.happened(now, none, Event::Cancelled).map(drop));
+    let got = h.refused(|d, now| d.happened(now, none, Event::Cancelled { why: None }).map(drop));
     assert_eq!(got, Failed::NoSuchWork(none));
 }
 
@@ -273,7 +273,7 @@ fn a_pause_holds_back_only_what_would_begin_a_round() {
 fn a_cancel_stops_the_round_under_way_and_nothing_of_the_work_goes_on() {
     let (mut h, w) = started();
     let (run, ..) = h.round(w);
-    let todos = h.on(w, Event::Cancelled);
+    let todos = h.on(w, Event::Cancelled { why: None });
     assert_eq!(
         todos,
         vec![Todo {

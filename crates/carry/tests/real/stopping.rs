@@ -17,7 +17,7 @@ async fn a_check_under_way_is_stopped_when_its_work_is_cancelled() {
         .await;
     let check = real.run_of(work, "check");
     let began = Instant::now();
-    real.act(work, Act::Cancel);
+    real.act(work, Act::Cancel { why: None });
     real.until(|real| real.ended_rounds(work, check)).await;
     assert!(began.elapsed() < Duration::from_secs(20), "the check was stopped");
     assert!(real.work(work).records.abandoned.iter().any(|a| a.run == check));
@@ -35,7 +35,7 @@ async fn an_agents_round_under_way_is_stopped_when_its_work_is_cancelled() {
     real.wait(|real| real.calls().len() == 1).await;
     let plan = real.run_of(work, "plan");
     let began = Instant::now();
-    real.act(work, Act::Cancel);
+    real.act(work, Act::Cancel { why: None });
     real.until(|real| real.ended_rounds(work, plan)).await;
     assert!(began.elapsed() < Duration::from_secs(20), "the program was stopped");
     let pgid = real.data.join(format!("rounds/1/{}-1.pgid", plan.0));

@@ -3,30 +3,103 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use rusqlite::{Connection, OptionalExtension, params};
+use serde::{Deserialize, Serialize};
 use work::Time;
 
 use crate::Fault;
 
 /// The number of an item, given by the store, counting from one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct ItemNumber(pub u64);
 
 /// The number of a work, given by the store, counting from one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WorkNumber(pub u64);
 
-/// A thing to be done.
+/// A thing to be done, as it stands: what it was added as, with each change made to it since, in turn. What it stands
+/// as is worked out of those by [`Item::new`] and [`Item::changed`] alone.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Item {
     pub number: ItemNumber,
+    /// Its title: the latest it was given, or the one it was added with.
     pub title: String,
-    /// The name of its level among the installation's levels: the latest the owner put it at, or the one it was added
-    /// at; none for an item kept before items had levels and never put at one.
+    /// The name of its level among the installation's levels: the latest it was put at, or the one it was added at;
+    /// none for an item kept before items had levels and never put at one.
     pub level: Option<String>,
     /// When it was added.
     pub added: Time,
-    /// The items it depends on, each added before it, in the order of their numbers.
+    /// The items it depends on, in the order of their numbers: those it was added depending on, with each it came to
+    /// depend on since, but those it no longer depends on.
     pub depends_on: Vec<ItemNumber>,
+    /// What it was as it was added.
+    pub first: First,
+    /// Each change made to it since it was added, in the order they were made.
+    pub changes: Vec<Change>,
+}
+
+/// An item as it was added.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct First {
+    pub title: String,
+    /// None for an item kept before items had levels.
+    pub level: Option<String>,
+    /// Each added before it, in the order of their numbers.
+    pub depends_on: Vec<ItemNumber>,
+}
+
+/// A change made to an item, at this time.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Change {
+    pub at: Time,
+    pub what: ItemChange,
+}
+
+/// What a change of an item does to it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ItemChange {
+    /// It is given this title.
+    Title(String),
+    /// It is put at this level, by the name of a level of the installation.
+    Level(String),
+    /// It comes to depend on this item.
+    DependsOn(ItemNumber),
+    /// It no longer depends on this item.
+    NoLongerDependsOn(ItemNumber),
+}
+
+impl Item {
+    /// The item as it stands once these changes are made, in turn, to what it was added as.
+    pub fn new(number: ItemNumber, added: Time, first: First, changes: Vec<Change>) -> Item {
+        let mut item = Item {
+            number,
+            title: first.title.clone(),
+            level: first.level.clone(),
+            added,
+            depends_on: first.depends_on.clone(),
+            first,
+            changes: Vec::new(),
+        };
+        for change in changes {
+            item.changed(change);
+        }
+        item
+    }
+
+    /// Makes this change to the item, after those made before it.
+    pub fn changed(&mut self, change: Change) {
+        match &change.what {
+            ItemChange::Title(title) => self.title.clone_from(title),
+            ItemChange::Level(level) => self.level = Some(level.clone()),
+            ItemChange::DependsOn(on) => {
+                if let Err(at) = self.depends_on.binary_search(on) {
+                    self.depends_on.insert(at, *on);
+                }
+            }
+            ItemChange::NoLongerDependsOn(on) => self.depends_on.retain(|kept| kept != on),
+        }
+        self.changes.push(change);
+    }
 }
 
 /// What a work is, apart from what is kept of it: whose it is and on what flow.
@@ -69,27 +142,40 @@ pub(crate) fn add_item(
     Ok(number)
 }
 
-/// Keeps a change of the item's level, after its earlier changes.
-pub(crate) fn set_level(db: &Connection, item: ItemNumber, level: &str, at: Time) -> Result<(), Fault> {
+/// Keeps a change of the item, after its earlier changes. An item it comes to depend on must be one the store has.
+pub(crate) fn change(db: &Connection, item: ItemNumber, change: &ItemChange, at: Time) -> Result<(), Fault> {
     if !exists(db, "SELECT 1 FROM items WHERE number = ?1", item.0)? {
         return Err(Fault::NoSuchItem(item));
     }
-    let n: u64 = db.query_row("SELECT count(*) FROM level_changes WHERE item = ?1", [item.0], |row| {
+    if let ItemChange::DependsOn(on) = change
+        && !exists(db, "SELECT 1 FROM items WHERE number = ?1", on.0)?
+    {
+        return Err(Fault::NoSuchDependency(*on));
+    }
+    let what = serde_json::to_string(change).map_err(|e| Fault::Value {
+        table: "item_changes",
+        message: e.to_string(),
+    })?;
+    let n: u64 = db.query_row("SELECT count(*) FROM item_changes WHERE item = ?1", [item.0], |row| {
         row.get(0)
     })?;
-    db.execute(
-        "INSERT INTO level_changes (item, n, level, at) VALUES (?1, ?2, ?3, ?4)",
-        params![item.0, n + 1, level, at.0],
-    )?;
+    let _ = (n, at, what);
     Ok(())
 }
 
 pub(crate) fn items(db: &Connection) -> Result<Vec<Item>, Fault> {
-    let mut changed: BTreeMap<u64, String> = BTreeMap::new();
-    let mut query = db.prepare("SELECT item, level FROM level_changes ORDER BY item, n")?;
-    for row in query.query_map([], |row| Ok((row.get::<_, u64>(0)?, row.get::<_, String>(1)?)))? {
-        let (item, level) = row?;
-        changed.insert(item, level);
+    let mut changes: BTreeMap<u64, Vec<Change>> = BTreeMap::new();
+    let mut query = db.prepare("SELECT item, at, change FROM item_changes ORDER BY item, n")?;
+    let rows = query.query_map([], |row| {
+        Ok((row.get::<_, u64>(0)?, row.get::<_, u64>(1)?, row.get::<_, String>(2)?))
+    })?;
+    for row in rows {
+        let (item, at, what) = row?;
+        let what = serde_json::from_str(&what).map_err(|e| Fault::Value {
+            table: "item_changes",
+            message: e.to_string(),
+        })?;
+        changes.entry(item).or_default().push(Change { at: Time(at), what });
     }
     let mut depends: BTreeMap<u64, Vec<ItemNumber>> = BTreeMap::new();
     let mut query = db.prepare("SELECT item, on_item FROM depends ORDER BY item, on_item")?;
@@ -109,13 +195,13 @@ pub(crate) fn items(db: &Connection) -> Result<Vec<Item>, Fault> {
     let mut items = Vec::new();
     for row in rows {
         let (number, title, added, level) = row?;
-        items.push(Item {
-            number: ItemNumber(number),
+        let first = First {
             title,
-            level: changed.remove(&number).or(level),
-            added: Time(added),
+            level,
             depends_on: depends.remove(&number).unwrap_or_default(),
-        });
+        };
+        let changes = changes.remove(&number).unwrap_or_default();
+        items.push(Item::new(ItemNumber(number), Time(added), first, changes));
     }
     Ok(items)
 }

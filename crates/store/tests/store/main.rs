@@ -2,6 +2,7 @@
 //! by driving the engine's loop, so that what is saved is what the engine produces. The tests are kept in modules by
 //! subject, so that a new test goes into the module of what it tests.
 
+mod changes;
 mod diverged;
 mod everything;
 mod histories;
@@ -419,7 +420,7 @@ fn history(d: &mut Driver) {
         d.end(hands_in(&[("opinions", None), ("verdict", Some("yes"))]));
     }
     assert_eq!(d.under_way().1, "write", "the judge never finished");
-    let effects = d.on(Event::Cancelled);
+    let effects = d.on(Event::Cancelled { why: None });
     assert!(
         effects.iter().any(|e| matches!(e, Effect::Stop { .. })),
         "no round was under way at the cancel: {effects:?}"

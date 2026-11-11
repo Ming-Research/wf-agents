@@ -4,6 +4,7 @@
 
 use decide::run::Unmet;
 use driver::{MERGED, NewItem, WAITING};
+use store::ItemChange;
 
 use super::*;
 
@@ -61,14 +62,23 @@ fn an_item_put_at_another_level_keeps_it_when_the_driver_opens_again() {
     let mut h = H::new();
     let (item, work) = h.add(new_item("a", &[], "judged"));
     let now = h.now();
-    assert_eq!(h.dm().set_level(now, item, "2"), Ok(true));
     assert_eq!(
-        h.dm().set_level(now, item, "2"),
+        h.dm()
+            .change(now, item, ItemChange::Level("2".into()))
+            .map(|(changed, _)| changed),
+        Ok(true)
+    );
+    assert_eq!(
+        h.dm()
+            .change(now, item, ItemChange::Level("2".into()))
+            .map(|(changed, _)| changed),
         Ok(false),
         "it is at that level already"
     );
     assert_eq!(
-        h.dm().set_level(now, ItemNumber(9), "2"),
+        h.dm()
+            .change(now, ItemNumber(9), ItemChange::Level("2".into()))
+            .map(|(changed, _)| changed),
         Err(Failed::NoSuchItem(ItemNumber(9)))
     );
     let level = |h: &H| h.d().work(work).expect("the work is there").item.level.clone();
