@@ -249,6 +249,9 @@ impl Inner {
             let told = message::message(flow, work, &round.cell, round.run, round.number, &round.given, begins);
             let again = message::message(flow, work, &round.cell, round.run, round.number, &round.given, true);
             write(&compacted.again, format!("{COMPACTED}\n\n{again}").as_bytes()).await?;
+            // The round takes what its last try took, so it counts that try's compactions alone: an earlier try's, or
+            // a try's before the engine stopped, are not its.
+            let _ = tokio::fs::remove_file(&compacted.marks).await;
             let (n, told_at, result_at) = attempt(&base).await;
             // What the try runs on is said before its message is written, which makes the try one that was kept.
             teller.ran_on(n, on.clone());

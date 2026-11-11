@@ -119,7 +119,8 @@ fn due(flow: &Compiled, work: &Work, item: &Item, line: &str, policy: &Policy) -
     let session = number_at(work, line, work.tick());
     let began = began_on(work, line, on_line, session);
     // What a round of the line runs on now, as the policy says for a cell of the line; none where it cannot run, which
-    // its round says when it fails.
+    // its round says when it fails. Any cell of the line will do: the levels above the item's that a round runs at are
+    // the line's, and the account the installation's, so a line's model and account do not depend on which cell runs.
     let cell = flow.cells.iter().find(|cell| cell.line.as_deref() == Some(line));
     let now = cell.and_then(|cell| (policy.on)(item, cell));
     let anew = |why| {
