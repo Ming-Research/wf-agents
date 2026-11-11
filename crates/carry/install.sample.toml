@@ -47,10 +47,11 @@ work_budget_usd = 5.0
 # tool `check` push the work's branch to GitHub, open its pull request into the main branch where it has none, and
 # wait for the CI of the pushed commit; nothing is run on this machine. The agents' `check_before` pushes the code
 # before the change with the agent's tests to a branch `wf-agents-before/<the work's branch>-<commit>`, waits for its
-# CI and deletes the branch: the project's CI must run the checks named below on a push to those branches, or it never
-# starts there. The merge merges the work's pull request. Without this table, the local repository is the host. The engine needs
-# `git` and `gh`, and its own token for GitHub in its environment: a fine-grained token for the one repository, with
-# Contents and Pull requests read and write, and Checks, Commit statuses and Actions read.
+# CI and deletes the branch: the project's CI must run the checks named below on a push to those branches, and
+# `runs_on_before_branches` below must say it does. The merge merges the work's pull request. Without this table, the
+# local repository is the host. The engine needs `git` and `gh`, and its own token for GitHub in its environment: a
+# fine-grained token for the one repository, with Contents and Pull requests read and write, and Checks, Commit
+# statuses and Actions read.
 # [github]
 # # The repository on github.com, as owner/name.
 # repository = "owner/name"
@@ -70,5 +71,8 @@ work_budget_usd = 5.0
 # merge_method = "squash"
 # # Whether a work's branch on GitHub is deleted once it is merged.
 # delete_branch = false
+# # Whether the project's CI runs the named checks on a push to the branches under `wf-agents-before/`, which the
+# # agents' `check_before` pushes to; without it, that tool is refused before anything is pushed.
+# runs_on_before_branches = false
 # # The gh command line, or a path to it.
 # gh = "gh"

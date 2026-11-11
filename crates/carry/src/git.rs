@@ -214,6 +214,7 @@ pub(crate) async fn before(
 ) -> Result<Result<Before, String>, String> {
     let dir = worktree(place)?;
     configuration(project, place).await?;
+    on_branch(place).await?;
     let repo = &project.repo;
     let head = git(repo, &["rev-parse", &place.reference()]).await?;
     let base = git(repo, &["merge-base", &head, main]).await?;
@@ -281,17 +282,32 @@ pub(crate) async fn before(
     }))
 }
 
-/// Makes the worktree where the check before the change runs ([`before_dir`]), at the commit, taking away one left
+/// Makes the worktree where the check before the change runs at the commit ([`before_dir`]), taking away one left
 /// there, as by a process of the engine's that ended while the check ran.
 pub(crate) async fn check_out_before(project: &Project, place: &Place, commit: &str) -> Result<PathBuf, String> {
     let repo = &project.repo;
-    let dir = before_dir(place);
+    let dir = before_dir(place, commit);
     if dir.exists() {
         take_away(project, &dir).await?;
     }
     git(repo, &["worktree", "prune"]).await?;
     git(repo, &["worktree", "add", "--quiet", "--detach", &text(&dir), commit]).await?;
     Ok(dir)
+}
+
+/// The worktrees of the work's checks before the change that are there, as [`before_dir`] names them.
+pub(crate) fn befores(place: &Place) -> Vec<PathBuf> {
+    let beginning = format!("{}-", before_dir(place, "").display());
+    let Some(parent) = place.dir.parent() else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return Vec::new();
+    };
+    (entries.flatten())
+        .map(|entry| entry.path())
+        .filter(|path| path.display().to_string().starts_with(&beginning))
+        .collect()
 }
 
 /// Takes away the worktree of a check before the change, with what it holds.
@@ -305,14 +321,19 @@ pub(crate) async fn take_away(project: &Project, dir: &Path) -> Result<(), Strin
     git(&project.repo, &["worktree", "prune"]).await.map(drop)
 }
 
-/// Where the check before the change of the work is run, beside its worktree, while it runs.
-pub fn before_dir(place: &Place) -> PathBuf {
-    let name = place
-        .dir
-        .file_name()
+/// Where the check before the change of the work runs at the commit, beside its worktree, while it runs: named by the
+/// work and the commit, so that checks of other commits asked at once have each their own.
+pub fn before_dir(place: &Place, commit: &str) -> PathBuf {
+    let name = (place.dir.file_name())
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    place.dir.with_file_name(format!("{name}-before"))
+    let short = &commit[..commit.len().min(12)];
+    let dir = place.dir.with_file_name(format!("{name}-before"));
+    if short.is_empty() {
+        dir
+    } else {
+        dir.with_file_name(format!("{name}-before-{short}"))
+    }
 }
 
 /// The work's worktree, or why there is none: a round of the work is done in it, and `start` makes it.

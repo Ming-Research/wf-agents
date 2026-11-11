@@ -62,6 +62,14 @@ pub(crate) fn what_failed(log: &str, budget: usize) -> String {
     within(capped(kept, MOST), budget).join("\n")
 }
 
+/// The text in a fenced block, so that it reads as what the CI printed and not as words to its reader: its fences
+/// longer than any run of backquotes it holds.
+pub(crate) fn fenced(text: &str) -> String {
+    let longest = (text.split(|c| c != '`')).map(str::len).max().unwrap_or(0);
+    let fence = "`".repeat(longest.max(2) + 1);
+    format!("{fence}\n{text}\n{fence}")
+}
+
 /// The word a line of cargo or nextest begins with, right-aligned to twelve columns and followed by a space, such as
 /// `   Compiling`, `        PASS` or `     Summary`; none for any other line.
 fn status(line: &str) -> Option<&str> {
@@ -269,22 +277,17 @@ fn within(lines: Vec<String>, budget: usize) -> Vec<String> {
     out
 }
 
-/// A line of a job's log as a reader wants it: without the time GitHub writes before it, the job and the step `gh`
-/// writes before that where the log came through `gh run view`, and the escapes that colour the text.
+/// A line of a job's log as GitHub keeps it, as a reader wants it: without the time GitHub writes before it, and
+/// without its control characters but tabs, so that neither the escapes that colour it nor what moves a terminal's
+/// cursor reaches the reader; what its text says is kept as it is.
 fn clean_line(line: &str) -> String {
-    let line = line.trim_start_matches('\u{feff}');
-    let mut parts = line.splitn(3, '\t');
-    // The log's first line has a byte order mark before its time.
-    let text = match (parts.next(), parts.next(), parts.next()) {
-        (Some(_), Some(_), Some(rest)) => rest.trim_start_matches('\u{feff}'),
-        _ => line,
-    };
+    let text = line.trim_start_matches('\u{feff}');
     let text = match text.split_once(' ') {
         Some((stamp, rest)) if is_timestamp(stamp) => rest,
         _ if is_timestamp(text) => "",
         _ => text,
     };
-    without_escapes(text)
+    without_controls(text)
 }
 
 /// Whether a word is a time as GitHub writes one in logs: 2026-10-27T09:47:49.0473549Z.
@@ -299,26 +302,29 @@ fn is_timestamp(w: &str) -> bool {
         && w.ends_with('Z')
 }
 
-/// A text without its terminal escapes: ESC [ ... a letter. `gh` writes the escape character of a job's log as the two
-/// characters "^[", so "^[[1m" is an escape too.
-fn without_escapes(text: &str) -> String {
+/// A text without its control characters, those of C0 and C1 and delete, but for tabs: an escape sequence that
+/// begins with ESC [ or with the C1 introducer is taken out whole, up to the letter that ends it.
+fn without_controls(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
-        let escape = match c {
-            '\u{1b}' => true,
-            '^' if chars.peek() == Some(&'[') => {
+        let sequence = match c {
+            '\t' => {
+                out.push(c);
+                continue;
+            }
+            '\u{1b}' if chars.peek() == Some(&'[') => {
                 chars.next();
                 true
             }
-            _ => false,
+            '\u{9b}' => true,
+            c if c.is_control() => false,
+            c => {
+                out.push(c);
+                continue;
+            }
         };
-        if !escape {
-            out.push(c);
-            continue;
-        }
-        if chars.peek() == Some(&'[') {
-            chars.next();
+        if sequence {
             for x in chars.by_ref() {
                 if ('@'..='~').contains(&x) {
                     break;
@@ -457,6 +463,12 @@ mod tests {
             "Compiling\nfailed\n##[error]Process completed with exit code 1."
         );
         assert_eq!(what_failed("no error at all\n", ROOM), "no error at all");
+    }
+
+    #[test]
+    fn a_fence_is_longer_than_any_run_of_backquotes_in_the_text() {
+        assert_eq!(fenced("a `b`"), "```\na `b`\n```");
+        assert_eq!(fenced("```rust\nx\n```"), "````\n```rust\nx\n```\n````");
     }
 
     // Cargo's and nextest's lines that only show progress are known by their word, right-aligned to twelve columns;
