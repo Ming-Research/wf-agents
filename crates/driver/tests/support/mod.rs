@@ -15,7 +15,7 @@
 //! - the dependencies block of every work that has not ended says whether the items its item depends on have merged,
 //!   and its text names those still waited for, saying which were cancelled; the block of a work that has ended was
 //!   not written after it ended; no work whose dependencies have not all merged has started a run where its flow
-//!   holds it for them; and a work never let on, nor added going on, has started no run;
+//!   holds it for them; and a work never let on has started no run;
 //! - no more rounds that take a slot are under way than the driver has slots, as the driver says; no work waits for a
 //!   slot while one is free; and while the owner's pause of everything holds, no work began a round after it was set
 //!   but of a run for a note a person wrote, and none given again after it failed.
@@ -473,15 +473,6 @@ pub fn new_item(title: &str, depends_on: &[ItemNumber], flow: &str) -> NewItem {
         depends_on: depends_on.to_vec(),
         flow: flow.to_string(),
         writes: Vec::new(),
-        going: false,
-    }
-}
-
-/// An item to add with no first writes, going on: its work begins by itself when it may.
-pub fn going_item(title: &str, depends_on: &[ItemNumber], flow: &str) -> NewItem {
-    NewItem {
-        going: true,
-        ..new_item(title, depends_on, flow)
     }
 }
 
@@ -618,15 +609,18 @@ impl H {
         }
     }
 
+    /// Adds an item, whose work is added paused, and has the owner let its work on at once.
+    pub fn add_let_on(&mut self, new: NewItem) -> (ItemNumber, WorkNumber) {
+        let (item, work) = self.add(new);
+        self.let_on(work);
+        (item, work)
+    }
+
     /// Adds an item at this time, which the driver must take unless its store stops it.
     pub fn try_add(&mut self, now: Time, new: NewItem) -> Outcome<(ItemNumber, WorkNumber)> {
         let before = self.reader.items().expect("the items are read").len();
-        let going = new.going;
         match self.dm().add(now, new) {
             Ok((item, work, todos)) => {
-                if going {
-                    self.let_on.insert(work);
-                }
                 self.given(&todos);
                 if self.checking {
                     self.check();

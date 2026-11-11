@@ -421,9 +421,6 @@ export interface NewItem {
   flow: string;
   /// What is written for it as it is added, each a block people write.
   writes: { block: string; content: string; value: string | null }[];
-  /// Whether its work is added going on, beginning by itself when it may; it is added paused, and begins no round until
-  /// it is let on, where this is left out.
-  going?: boolean;
 }
 
 /// The engine as a whole: its slots, and when the owner's pause of everything began, while it holds.

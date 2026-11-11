@@ -355,7 +355,6 @@ impl Real {
             depends_on: depends_on.to_vec(),
             flow: self.flow.name.clone(),
             writes: request.into_iter().collect(),
-            going: false,
         };
         let (reply, mut answer) = oneshot::channel();
         self.service

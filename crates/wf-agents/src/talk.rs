@@ -44,19 +44,11 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
     let said: Result<String, String> = runtime.block_on(async move {
         match asked {
             Asked::Add(item) => {
-                let going = item.going;
                 let added: Added = send(address, Method::POST, "/api/v1/items", Some(&item)).await?;
-                Ok(if !going {
-                    format!(
-                        "Added item {} with its work {}, paused: let it on with `wf-agents resume {}`.",
-                        added.item, added.work, added.work
-                    )
-                } else {
-                    format!(
-                        "Added item {} with its work {}, which goes on by itself when it may.",
-                        added.item, added.work
-                    )
-                })
+                Ok(format!(
+                    "Added item {} with its work {}, paused: let it on with `wf-agents resume {}`.",
+                    added.item, added.work, added.work
+                ))
             }
             Asked::List => {
                 let engine: Engine = send(address, Method::GET, "/api/v1/engine", None::<&()>).await?;
@@ -169,7 +161,6 @@ pub fn new_item(
         depends_on,
         flow,
         writes,
-        going: false,
     })
 }
 

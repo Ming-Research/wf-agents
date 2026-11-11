@@ -743,7 +743,7 @@ pub enum Act {
     Answer { call: u64, result: String },
 }
 
-/// An item the owner adds, with its work, which is added paused unless it is added going on.
+/// An item the owner adds, with its work, which is added paused: it begins no round until the owner lets it on.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NewItem {
@@ -756,10 +756,6 @@ pub struct NewItem {
     pub flow: String,
     /// What is written for it as it is added, each a block people write.
     pub writes: Vec<NewWrite>,
-    /// Whether its work is added going on, beginning by itself when it may; where this is left out it is added paused,
-    /// and begins no round until it is let on.
-    #[serde(default)]
-    pub going: bool,
 }
 
 /// The engine as a whole: its slots, and the owner's pause of everything.
@@ -1307,7 +1303,6 @@ impl NewItem {
                     value: write.value,
                 })
                 .collect(),
-            going: self.going,
         })
     }
 }

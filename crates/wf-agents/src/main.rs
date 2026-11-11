@@ -77,10 +77,6 @@ enum Command {
         /// A block that is a choice, written for it with this value.
         #[arg(long = "choose", value_name = "BLOCK=VALUE")]
         choices: Vec<String>,
-        /// Adds its work going on: it begins by itself when it may, once the items it depends on have merged, while
-        /// everything is not paused, as a slot comes free.
-        #[arg(long)]
-        going: bool,
         #[command(flatten)]
         at: At,
     },
@@ -218,10 +214,9 @@ fn main() -> ExitCode {
             texts,
             files,
             choices,
-            going,
             at,
         } => match talk::new_item(title, level, flow, depends_on, &texts, &files, &choices) {
-            Ok(item) => talk::ask(at.port, Asked::Add(web::works::NewItem { going, ..item })),
+            Ok(item) => talk::ask(at.port, Asked::Add(item)),
             Err(why) => {
                 eprintln!("{why}");
                 ExitCode::FAILURE

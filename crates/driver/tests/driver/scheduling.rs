@@ -1,4 +1,4 @@
-//! The driver as the scheduler: a work added goes on by itself when it may, unless it is added held; no more rounds of
+//! The driver as the scheduler: a work is added paused and goes on once the owner lets it on; no more rounds of
 //! agents go on at once than there are slots, a work whose round ends keeping its slot for its next round, and a slot
 //! that comes free going to the works that wait for one in the engine's order; and the owner's pause of everything,
 //! kept in the store, holds back what each work's own pause would until it is lifted.
@@ -27,9 +27,12 @@ fn asks_a_tool(h: &mut H, work: WorkNumber) -> CallId {
 }
 
 #[test]
-fn a_work_added_going_on_begins_by_itself_and_one_added_held_once_it_is_let_on() {
+fn a_work_is_added_paused_and_begins_once_the_owner_lets_it_on() {
     let mut h = H::with_slots(flows(), 2);
-    let (_, going) = h.add(going_item("going", &[], "plain"));
+    let (_, going) = h.add(new_item("going", &[], "plain"));
+    assert_eq!(rounds(&h.d().pending()), []);
+    assert_eq!(h.d().held(going), Some(Holder::Pause));
+    assert_eq!(rounds(&h.let_on(going)), [(going, "write".to_string(), 1)]);
     assert_eq!(rounds(&h.d().pending()), [(going, "write".to_string(), 1)]);
     let (_, held) = h.add(new_item("held", &[], "plain"));
     assert_eq!(h.decision(held), Decision::Paused);
@@ -38,10 +41,10 @@ fn a_work_added_going_on_begins_by_itself_and_one_added_held_once_it_is_let_on()
 }
 
 #[test]
-fn a_work_added_going_on_still_waits_for_the_items_its_item_depends_on() {
+fn a_work_let_on_still_waits_for_the_items_its_item_depends_on() {
     let mut h = H::with_slots(flows(), 2);
     let (a, _) = h.add(new_item("a", &[], "short"));
-    let (_, b) = h.add(going_item("b", &[a], "short"));
+    let (_, b) = h.add_let_on(new_item("b", &[a], "short"));
     assert_eq!(h.decision(b), waits_for_dependencies("draft"));
     assert_eq!(rounds(&h.d().pending()), []);
 }
@@ -50,7 +53,7 @@ fn a_work_added_going_on_still_waits_for_the_items_its_item_depends_on() {
 fn no_more_rounds_of_agents_go_on_than_there_are_slots_and_the_others_wait_for_one() {
     let mut h = H::with_slots(flows(), 2);
     let works: Vec<WorkNumber> = (0..3)
-        .map(|i| h.add(going_item(&format!("{i}"), &[], "plain")).1)
+        .map(|i| h.add_let_on(new_item(&format!("{i}"), &[], "plain")).1)
         .collect();
     assert_eq!(
         rounds(&h.d().pending()),
@@ -68,8 +71,8 @@ fn no_more_rounds_of_agents_go_on_than_there_are_slots_and_the_others_wait_for_o
 #[test]
 fn a_work_whose_round_ends_keeps_its_slot_for_the_round_it_begins_next() {
     let mut h = H::with_slots(flows(), 1);
-    let (_, first) = h.add(going_item("first", &[], "plain"));
-    let (_, second) = h.add(going_item("second", &[], "plain"));
+    let (_, first) = h.add_let_on(new_item("first", &[], "plain"));
+    let (_, second) = h.add_let_on(new_item("second", &[], "plain"));
     // The first work's round rests at a call, and the second takes the slot; the first's tool is done, and it waits.
     let call = asks_a_tool(&mut h, first);
     assert_eq!(h.round(second).1, "write");
@@ -85,9 +88,9 @@ fn a_work_whose_round_ends_keeps_its_slot_for_the_round_it_begins_next() {
 #[test]
 fn a_slot_that_comes_free_goes_to_a_work_that_has_begun_before_one_that_has_not() {
     let mut h = H::with_slots(flows(), 1);
-    let (_, one) = h.add(going_item("one", &[], "plain"));
+    let (_, one) = h.add_let_on(new_item("one", &[], "plain"));
     let (_, two) = h.add(new_item("two", &[], "plain"));
-    let (_, three) = h.add(going_item("three", &[], "plain"));
+    let (_, three) = h.add_let_on(new_item("three", &[], "plain"));
     let one_call = asks_a_tool(&mut h, one);
     assert_eq!(
         h.round(three).1,
@@ -174,9 +177,9 @@ fn started_place(h: &mut H, work: WorkNumber) {
 fn a_work_that_only_ran_the_engines_own_act_has_not_begun_and_waits_behind_one_whose_agent_did() {
     let mut h = H::with_slots(vec![started()], 1);
     let (_, one) = h.add(new_item("one", &[], "started"));
-    let (_, two) = h.add(going_item("two", &[], "started"));
+    let (_, two) = h.add_let_on(new_item("two", &[], "started"));
     started_place(&mut h, two);
-    let (_, three) = h.add(going_item("three", &[], "started"));
+    let (_, three) = h.add_let_on(new_item("three", &[], "started"));
     started_place(&mut h, three);
     assert_eq!(h.d().held(three), Some(Holder::Slot));
     let call = asks_a_tool(&mut h, two);
@@ -197,11 +200,11 @@ fn a_work_that_only_ran_the_engines_own_act_has_not_begun_and_waits_behind_one_w
 }
 
 #[test]
-fn a_work_added_going_on_begins_on_what_people_write_for_it_as_it_is_added() {
+fn a_work_let_on_begins_on_what_people_wrote_for_it_as_it_was_added() {
     let mut h = H::with_slots(flows(), 2);
-    let mut item = going_item("work", &[], "short");
+    let mut item = new_item("work", &[], "short");
     item.writes = vec![first_write("request", None)];
-    let (_, work) = h.add(item);
+    let (_, work) = h.add_let_on(item);
     let kept = h.d().work(work).expect("the work is there").work;
     assert_eq!(
         kept.records.abandoned,
@@ -224,7 +227,7 @@ fn the_pause_of_everything_holds_back_every_work_and_lifted_lets_on_all_but_thos
     let mut h = H::with_slots(flows(), 2);
     assert_eq!(h.pause_everything(true), []);
     assert!(h.d().everything_paused().is_some());
-    let (_, going) = h.add(going_item("going", &[], "plain"));
+    let (_, going) = h.add_let_on(new_item("going", &[], "plain"));
     let (_, held) = h.add(new_item("held", &[], "plain"));
     assert_eq!(rounds(&h.d().pending()), []);
     assert_eq!(h.decision(going), Decision::Paused);
@@ -243,7 +246,7 @@ fn the_pause_of_everything_holds_back_every_work_and_lifted_lets_on_all_but_thos
 #[test]
 fn a_round_under_way_goes_on_under_the_pause_of_everything_and_what_it_hands_in_is_taken() {
     let mut h = H::with_slots(flows(), 2);
-    let (_, work) = h.add(going_item("work", &[], "judged"));
+    let (_, work) = h.add_let_on(new_item("work", &[], "judged"));
     h.pause_everything(true);
     let todos = h.hands_in(work, &[("text", None)]);
     assert_eq!(rounds(&todos), []);
@@ -256,7 +259,7 @@ fn a_round_under_way_goes_on_under_the_pause_of_everything_and_what_it_hands_in_
 fn the_pause_of_everything_holds_across_a_stop_and_the_store_keeps_it() {
     let mut h = H::with_slots(flows(), 2);
     h.pause_everything(true);
-    let (_, work) = h.add(going_item("work", &[], "plain"));
+    let (_, work) = h.add_let_on(new_item("work", &[], "plain"));
     assert_eq!(h.reopen(), []);
     assert!(h.d().everything_paused().is_some());
     assert_eq!(h.decision(work), Decision::Paused);
@@ -271,7 +274,7 @@ fn opened_again_the_driver_gives_the_free_slots_in_its_order() {
     let mut h = H::with_slots(flows(), 1);
     h.pause_everything(true);
     let works: Vec<WorkNumber> = (0..3)
-        .map(|i| h.add(going_item(&format!("{i}"), &[], "plain")).1)
+        .map(|i| h.add_let_on(new_item(&format!("{i}"), &[], "plain")).1)
         .collect();
     h.reopen();
     let todos = h.pause_everything(false);

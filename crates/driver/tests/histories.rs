@@ -36,8 +36,8 @@
 //! The process stops before a step with a chance of one in sixteen; with one in twenty-five the store is set to fail
 //! at one of its next three calls, and with one in fifty the process to stop right after one of them.
 //!
-//! The driver has two slots. One item in three is added going on, drawn by a generator of its own, and the others
-//! held, as before; and, drawn by another, the owner sets or lifts the pause of everything before a step with a chance
+//! The driver has two slots. Every item is added paused; one in three is let on by the owner at once as it is added,
+//! drawn by a generator of its own, and the others are let on later, as before; and, drawn by another, the owner sets or lifts the pause of everything before a step with a chance
 //! of one in twenty while people act, and lifts it as people stop.
 //!
 //! A failing case prints its seed and the steps it took; `one_history(seed, ..)` replays it.
@@ -118,9 +118,9 @@ struct Seen {
     waited: usize,
     /// Steps after which a work had never been let on.
     never_let_on: usize,
-    /// Items added going on, steps after which a work waited for a slot, and steps after which one was held back by
-    /// the pause of everything.
-    added_going: usize,
+    /// Items let on as they were added, steps after which a work waited for a slot, and steps after which one was held
+    /// back by the pause of everything.
+    let_on_as_added: usize,
     waited_for_a_slot: usize,
     held_by_everything: usize,
     /// Works found waiting at rest, and works found ended.
@@ -253,12 +253,17 @@ impl History {
             depends_on,
             flow: flow.to_string(),
             writes,
-            going: self.room.chance(33),
         };
-        if new.going {
-            self.seen.added_going += 1;
-        }
+        let let_on = self.room.chance(33);
         self.act(Act::Add(new));
+        if let_on {
+            let work = (self.h.d().works())
+                .map(|kept| kept.head.number)
+                .max()
+                .expect("the work just added");
+            self.seen.let_on_as_added += 1;
+            self.act(Act::On(work, Event::Resumed));
+        }
     }
 
     /// Before a step the process may stop, or the store be set to fail.
@@ -713,7 +718,7 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
                 seen.started_at_merge += s.started_at_merge;
                 seen.waited += s.waited;
                 seen.never_let_on += s.never_let_on;
-                seen.added_going += s.added_going;
+                seen.let_on_as_added += s.let_on_as_added;
                 seen.waited_for_a_slot += s.waited_for_a_slot;
                 seen.held_by_everything += s.held_by_everything;
                 seen.rested_waiting += s.rested_waiting;
@@ -753,7 +758,7 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
         ("first rounds given by another work's merge", seen.started_at_merge),
         ("works waiting for their dependencies", seen.waited),
         ("works never let on", seen.never_let_on),
-        ("items added going on", seen.added_going),
+        ("items let on as they were added", seen.let_on_as_added),
         ("works waiting for a slot", seen.waited_for_a_slot),
         ("works held back by the pause of everything", seen.held_by_everything),
         ("works waiting at rest", seen.rested_waiting),

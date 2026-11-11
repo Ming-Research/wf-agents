@@ -13,8 +13,8 @@ engine on `main`; [AGENTS.md](AGENTS.md) says how the two stand to each other.
   (`<data>/install.toml`, of which `crates/carry/install.sample.toml` is a sample); given `--script`, they follow the
   script instead. To try it on the trial flow with a script, in `crates/service/tests/trial`:
   `wf-agents run --data <an empty directory> --flow flow --script script.toml`; then
-  `wf-agents add --title "Greet the user" --flow trial --write "request=Greet the user."` and `wf-agents resume 1`
-  (`--going` adds it going on), and `wf-agents list` or the pages to follow it;
+  `wf-agents add --title "Greet the user" --flow trial --write "request=Greet the user."` and `wf-agents resume 1`,
+  and `wf-agents list` or the pages to follow it;
   `wf-agents pause --all` and `wf-agents resume --all` pause everything and lift it.
 - `client/`: the owner's page, which the `wf-agents` binary carries: build it with `npm ci` and `npm run build` in
   `client/` before building the Rust.

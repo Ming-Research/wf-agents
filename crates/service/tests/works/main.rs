@@ -48,7 +48,6 @@ pub fn new_item(title: &str, depends_on: &[u64]) -> NewItem {
             content: format!("{title}, please."),
             value: None,
         }],
-        going: false,
     }
 }
 

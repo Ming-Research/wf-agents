@@ -26,8 +26,7 @@
 //! works that wait for one in the engine's order, those that have begun a round before those that have not, each in the
 //! order of their numbers, so that what was begun is carried on before something new begins. No work waits for a slot
 //! while one is free: each call gives away what came free before it returns. A work is added paused, and goes on once
-//! somebody lets it on, so that whoever plans orders what runs; one is added going on only where whoever adds it says
-//! so.
+//! the owner lets it on, so that whoever plans orders what runs.
 //!
 //! What happens to one work also reaches every other where a round of an agent failed for a cause every work shares,
 //! such as the account's usage limit: no agent's round of any work begins while that wait stands ([`outage`]). It is
@@ -160,9 +159,6 @@ pub struct NewItem {
     pub flow: String,
     /// What people write for it as it is added, in order.
     pub writes: Vec<FirstWrite>,
-    /// Whether its work is added going on, beginning by itself when it may; otherwise it is added paused, and begins
-    /// nothing until somebody lets it on.
-    pub going: bool,
 }
 
 /// A block people write as an item is added.
@@ -318,9 +314,8 @@ impl Driver {
 
     /// Adds an item together with its one work and with what people write for it first, all of it or none (entry
     /// `item-added-with-its-work`), and gives their numbers with what is to be done. The work is added paused, so that
-    /// it begins no round until it is let on, or, added going on, begins by itself when it may. What is kept of it from
-    /// its start is, in this order, the pause where it is added paused, what the driver says of the item's dependencies,
-    /// what people wrote, and what follows from looking at it then.
+    /// it begins no round until the owner lets it on. What is kept of it from its start is, in this order, its pause,
+    /// what the driver says of the item's dependencies, what people wrote, and what follows from looking at it then.
     ///
     /// The driver keeps no key of the caller's for an add: a caller that was stopped before it had the numbers finds
     /// the item among those the driver shows, or adds it again as another item.
@@ -336,13 +331,10 @@ impl Driver {
         depends_on.sort();
         depends_on.dedup();
         let mut work = Work::default();
-        let mut first = Vec::new();
-        if !new.going {
-            first.push(Event::Paused {
-                by: Pauser::Owner,
-                why: None,
-            });
-        }
+        let mut first = vec![Event::Paused {
+            by: Pauser::Owner,
+            why: None,
+        }];
         first.extend(self.block(&flow, &depends_on, &work));
         first.extend(new.writes.into_iter().map(|write| Event::Wrote {
             block: write.block,
