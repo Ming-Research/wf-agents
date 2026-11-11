@@ -910,7 +910,7 @@ impl H {
                     }
                     let run = round.run;
                     let nth = work.records.rounds[..=i].iter().filter(|r| r.run == run).count();
-                    let again = matches!(work.back.get(&(run, nth - 1)), Some(Back::Failed { .. }));
+                    let again = failure_paused(work, run, nth - 1);
                     assert!(
                         for_a_note(flow, work, run) && !again,
                         "work {} began round {nth} of {run:?} after it was paused",
@@ -1282,4 +1282,19 @@ pub fn last_written(h: &H, work: WorkNumber) -> Seq {
 /// The block's id.
 pub fn block(name: &str) -> BlockId {
     BlockId::from(name)
+}
+
+/// Whether the run's round of this number failed and its failure paused the work, which was not let on since: the
+/// engine paused it after the round ended, and no letting on came after the round's end.
+pub fn failure_paused(work: &Work, run: RunId, number: usize) -> bool {
+    if number == 0 || !matches!(work.back.get(&(run, number)), Some(Back::Failed { .. })) {
+        return false;
+    }
+    let r = &work.records;
+    let Some(ended) = r.returned.iter().filter(|e| e.run == run).map(|e| e.at).nth(number - 1) else {
+        return false;
+    };
+    let paused = (r.pauses.iter()).any(|p| p.paused && p.by == decide::Pauser::Engine && p.at > ended);
+    let let_on = (r.pauses.iter()).any(|p| !p.paused && p.at > ended);
+    paused && !let_on
 }

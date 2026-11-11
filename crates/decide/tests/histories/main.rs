@@ -43,8 +43,8 @@
 //!   driver's and not the walk's), when it ends with nothing come back. People let the work on as from any pause, and
 //!   once they stop the owner lets the work on, whoever paused it.
 //! - the engine: while the work is paused, a run at rest has its next round only where it started for a note a person
-//!   wrote, the brief, and its last round did not fail in a way that paused the work (`pausing`), as the engine's loop
-//!   gives it by `decide::hold`.
+//!   wrote, the brief, and its last round did not fail in a way that paused the work with no letting on since
+//!   (`pausing`), as the engine's loop gives it by `decide::hold`.
 //!
 //! A second test draws only the sixth shape, with people acting in the first 0 to 99 steps: its judge then runs while
 //! the cell it judges is skipped, over what a person wrote for that cell, and the cell runs again afterwards, which
@@ -247,6 +247,8 @@ struct History {
     failing: Option<Rng>,
     /// The runs whose last round failed, pausing the work, and that have neither gone on nor been abandoned since.
     failed: BTreeSet<RunId>,
+    /// The runs whose last round failed, pausing the work, and that the work was not let on since.
+    unseen: BTreeSet<RunId>,
     /// The runs whose last round failed without pausing the work, and that have neither gone on nor been abandoned
     /// since.
     unpaused: BTreeSet<RunId>,
@@ -312,6 +314,7 @@ impl History {
             failing,
             failed: BTreeSet::new(),
             unpaused: BTreeSet::new(),
+            unseen: BTreeSet::new(),
             log,
             paused: false,
             last_move: None,
@@ -390,6 +393,7 @@ impl History {
                 if self.failed.remove(run) {
                     self.verdict.count(properties::FAILED_GOES_ON);
                 }
+                self.unseen.remove(run);
                 if self.unpaused.remove(run) {
                     self.verdict.count(properties::UNPAUSED_GOES_ON);
                     if decide::paused(&self.w.records) {
@@ -404,6 +408,7 @@ impl History {
                     self.verdict.count(properties::FAILED_ABANDONED);
                 }
                 self.unpaused.remove(run);
+                self.unseen.remove(run);
                 self.w.abandon();
                 true
             }
@@ -489,7 +494,7 @@ impl History {
     /// which `pausing` judges.
     fn goes_on_paused(&mut self, run: RunId) -> bool {
         let reading = Reading::new(&self.w.records);
-        let failed = self.failed.contains(&run);
+        let failed = self.unseen.contains(&run);
         pausing::goes_on(&mut self.verdict, &self.w.flow, &reading, run, failed)
     }
 
@@ -520,6 +525,7 @@ impl History {
                     self.w.fails(cell.as_str(), "the agent could not start");
                     self.paused = true;
                     self.failed.insert(run);
+                    self.unseen.insert(run);
                     self.verdict.count(properties::FAILED);
                 }
                 2 => {
@@ -593,6 +599,8 @@ impl History {
         if self.paused {
             self.note("a person lets the work on".into());
             self.w.resume();
+            // The failures that paused the work have been seen.
+            self.unseen.clear();
         } else {
             self.note("a person pauses the work".into());
             self.w.pause();

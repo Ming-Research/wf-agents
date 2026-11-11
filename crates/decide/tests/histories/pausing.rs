@@ -96,7 +96,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, p
 
 /// Whether a run at rest has its next round though the work is paused, which the engine asks of `decide::hold`: the
 /// run started for a note a person wrote, by the histories' own reading, and its last round did not fail in a way that
-/// paused the work (`failed`).
+/// paused the work with no letting on since (`failed`).
 /// Says so where the two differ, and gives what the engine does.
 pub fn goes_on(v: &mut Verdict, flow: &Flow, reading: &Reading, run: decide::RunId, failed: bool) -> bool {
     let hold = decide::hold(flow, reading.records, run);
