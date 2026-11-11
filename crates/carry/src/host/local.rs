@@ -1,8 +1,8 @@
 //! The local repository as the host: main is its own main branch, the verdict is the project's check command run in
 //! the work's worktree, and the merge is made in its checkout.
 
-use super::{Host, Verdict};
-use crate::git::{self, Place};
+use super::{Branch, Host, Verdict};
+use crate::git;
 use crate::held::Stop;
 use crate::process::{self, Ran};
 use crate::settings::Project;
@@ -25,8 +25,8 @@ impl Host for Local {
         git::git(&self.project.repo, &["rev-parse", "--verify", &main]).await
     }
 
-    async fn verdict(&self, place: &Place, _: &str, stop: &mut Stop) -> Result<Option<Verdict>, String> {
-        let dir = git::worktree(place)?;
+    async fn verdict(&self, branch: &Branch<'_>, _: &str, stop: &mut Stop) -> Result<Option<Verdict>, String> {
+        let dir = git::worktree(branch.place)?;
         let check = &self.project.check;
         let failed = match process::run(process::shell(check, &dir), None, None, stop).await? {
             Ran::Ended { status, stdout, .. } if !status.success() => Some(format!(
@@ -39,7 +39,7 @@ impl Host for Local {
         Ok(Some(Verdict { failed, by: None }))
     }
 
-    async fn merge(&self, place: &Place, checked: Option<&str>) -> Result<String, String> {
-        git::merge(&self.project, place, checked).await
+    async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, String> {
+        git::merge(&self.project, branch.place, checked).await
     }
 }

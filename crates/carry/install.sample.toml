@@ -4,12 +4,13 @@
 
 [project]
 # The local git repository the works are done in: its own checkout, which stays on the main branch. Each work has a
-# branch `work-<n>` and a worktree `<data>/worktrees/<n>` made from the main branch's head, and is merged here.
+# branch `work-<n>` and a worktree `<data>/worktrees/<n>` made from the main branch's head, and is merged here; with
+# [github] below, the repository is a clone of the one on GitHub, and the works are merged there.
 repo = "/path/to/the/repository"
 # The repository's main branch.
 main = "main"
-# A shell command run in a work's worktree, by the check before the merge and by the agents' tool `check`; its exit
-# with 0 means the work passes.
+# A shell command run in a work's worktree, by the agents' tool `check` and, where the local repository is the host, by
+# the check before the merge; its exit with 0 means the work passes.
 check = "cargo test"
 # The acts refuse a repository whose own configuration could make git run a program (a filter, a merge driver, a
 # hooks directory, an included file and the like). A key the repository needs is allowed here, whole or as a beginning
@@ -39,3 +40,29 @@ owner_language = "Chinese"
 # What a work's rounds may spend in all, in dollars: once a round ends with the work over it, the work is paused for
 # the owner, who may let it on. Left out, there is no budget.
 work_budget_usd = 5.0
+
+# The repository on GitHub, where GitHub is the host: with this table, the check before a work's merge pushes the
+# work's branch to GitHub, opens its pull request into the main branch where it has none, and waits for the CI of the
+# pushed commit; the merge merges that pull request. Without it, the local repository is the host. The engine needs
+# `git` and `gh`, and its own token for GitHub in its environment: a fine-grained token for the one repository, with
+# Contents and Pull requests read and write, and Checks, Commit statuses and Actions read.
+# [github]
+# # The repository on github.com, as owner/name.
+# repository = "owner/name"
+# # The clone's name for the repository on GitHub: main's head is fetched to refs/remotes/<remote>/<main>.
+# remote = "origin"
+# # The variable of the engine's environment that holds its token. No agent is given it.
+# token_env = "WF_GITHUB_TOKEN"
+# # The checks of the CI that count, by the name of their check run (a job's name) or commit status; others do not.
+# checks = ["check"]
+# # A named check with no run on the pushed commit after this many minutes: the CI never started, and the check fails
+# # its round.
+# start_minutes = 10
+# # The CI not complete after this many minutes is given up, and the check fails its round.
+# timeout_minutes = 120
+# # How a pull request is merged: squash, merge or rebase.
+# merge_method = "squash"
+# # Whether a work's branch on GitHub is deleted once it is merged.
+# delete_branch = false
+# # The gh command line, or a path to it.
+# gh = "gh"

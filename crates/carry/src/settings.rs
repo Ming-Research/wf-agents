@@ -1,5 +1,5 @@
-//! The installation's settings: the project the works are done in, and how its agents are run. They are read from a
-//! TOML file, `install.toml` in the data directory unless another is named; `install.sample.toml` beside this crate's
+//! The installation's settings: the project the works are done in, where its repository is hosted, and how its
+//! agents are run. They are read from a TOML file, `install.toml` in the data directory unless another is named; `install.sample.toml` beside this crate's
 //! manifest says what each key is. A key the file does not know is refused, as the flow's files refuse one, so that a
 //! misspelt key is not silently left at nothing.
 
@@ -13,6 +13,9 @@ use serde::Deserialize;
 pub struct Settings {
     pub project: Project,
     pub agents: Agents,
+    /// Where the project's repository is on GitHub, which then carries out the acts; with none, the local repository
+    /// does.
+    pub github: Option<GitHub>,
 }
 
 /// The project whose works are done: a local git repository, its main branch and the command that checks it.
@@ -30,6 +33,66 @@ pub struct Project {
     #[serde(default)]
     pub allowed_config: Vec<String>,
 }
+
+/// The project's repository on GitHub: the works' branches are pushed there, checked by its CI through a pull request
+/// each, and merged by GitHub.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GitHub {
+    /// The repository on github.com, as `owner/name`; `project.repo` is a clone of it.
+    pub repository: String,
+    /// The clone's name for the repository on GitHub: main's head is fetched to `refs/remotes/<remote>/<main>`.
+    #[serde(default = "origin")]
+    pub remote: String,
+    /// The variable of the engine's environment that holds the engine's token for GitHub.
+    #[serde(default = "token_env")]
+    pub token_env: String,
+    /// The checks of the CI that count, by the name of their check run or commit status.
+    pub checks: Vec<String>,
+    /// How many minutes a named check may have no run on a pushed commit before the CI is taken never to have
+    /// started.
+    #[serde(default = "start_minutes")]
+    pub start_minutes: u64,
+    /// How many minutes the CI of a commit may take before it is given up.
+    #[serde(default = "timeout_minutes")]
+    pub timeout_minutes: u64,
+    /// How a pull request is merged: `squash`, `merge` or `rebase`.
+    #[serde(default = "squash")]
+    pub merge_method: String,
+    /// Whether a work's branch on GitHub is deleted once it is merged.
+    #[serde(default)]
+    pub delete_branch: bool,
+    /// The `gh` command line, or a path to it.
+    #[serde(default = "gh")]
+    pub gh: String,
+}
+
+fn origin() -> String {
+    "origin".to_string()
+}
+
+fn token_env() -> String {
+    "WF_GITHUB_TOKEN".to_string()
+}
+
+fn start_minutes() -> u64 {
+    10
+}
+
+fn timeout_minutes() -> u64 {
+    120
+}
+
+fn squash() -> String {
+    "squash".to_string()
+}
+
+fn gh() -> String {
+    "gh".to_string()
+}
+
+/// The ways a pull request may be merged.
+const MERGE_METHODS: [&str; 3] = ["squash", "merge", "rebase"];
 
 /// How the agents are run.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
@@ -68,6 +131,52 @@ fn user() -> String {
 /// The settings file's name in the data directory.
 pub const FILE: &str = "install.toml";
 
+impl GitHub {
+    /// What is wrong with these settings, each in words with its key.
+    fn wrong(&self, agents: &Agents) -> Vec<String> {
+        let mut wrong = Vec::new();
+        let parts: Vec<&str> = self.repository.split('/').collect();
+        if !(parts.len() == 2 && parts.iter().all(|p| !p.is_empty())) {
+            wrong.push(format!(
+                "github.repository: a repository is named as owner/name, not {:?}",
+                self.repository
+            ));
+        }
+        if self.checks.is_empty() || self.checks.iter().any(|c| c.trim().is_empty()) {
+            wrong.push("github.checks: at least one check counts, each named".to_string());
+        }
+        if self.start_minutes == 0 || self.timeout_minutes < self.start_minutes {
+            wrong.push(
+                "github.start_minutes, github.timeout_minutes: the CI is given at least a minute to start, and no \
+                 less time to end"
+                    .to_string(),
+            );
+        }
+        if !MERGE_METHODS.contains(&self.merge_method.as_str()) {
+            wrong.push(format!(
+                "github.merge_method: one of {}, not {:?}",
+                MERGE_METHODS.join(", "),
+                self.merge_method
+            ));
+        }
+        if self.token_env.is_empty() {
+            wrong.push("github.token_env: the token's variable has a name".to_string());
+        }
+        if agents.env.contains(&self.token_env) {
+            wrong.push(format!(
+                "agents.env: {} holds the engine's token for GitHub, which no agent is given",
+                self.token_env
+            ));
+        }
+        wrong
+    }
+
+    /// The repository's address, which git pushes to and fetches from.
+    pub fn url(&self) -> String {
+        format!("https://github.com/{}.git", self.repository)
+    }
+}
+
 impl Settings {
     /// Reads the settings from the text of their file, or says everything wrong with it.
     pub fn read(text: &str) -> Result<Settings, String> {
@@ -85,6 +194,9 @@ impl Settings {
         }
         if settings.project.main.is_empty() {
             wrong.push("project.main: the main branch has a name".to_string());
+        }
+        if let Some(github) = &settings.github {
+            wrong.extend(github.wrong(&settings.agents));
         }
         if wrong.is_empty() {
             Ok(settings)

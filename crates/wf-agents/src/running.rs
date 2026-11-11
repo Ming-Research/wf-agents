@@ -41,7 +41,7 @@ pub enum With {
 /// What carries the works out, read and checked: a script, or the settings.
 enum Read {
     Script(Script),
-    Settings(carry::Settings),
+    Settings(Box<carry::Settings>),
 }
 
 /// The address the works page is printed at.
@@ -101,7 +101,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         };
         let carriers: Carriers = match with {
             Read::Script(script) => Scripted::new(script).carriers(),
-            Read::Settings(settings) => match carry::carriers(settings, data) {
+            Read::Settings(settings) => match carry::carriers(*settings, data) {
                 Ok(carriers) => carriers,
                 Err(why) => {
                     eprintln!("The carriers cannot be made: {why}");
@@ -195,7 +195,7 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
                 for warning in settings.warnings() {
                     eprintln!("{warning}");
                 }
-                Some(Read::Settings(settings))
+                Some(Read::Settings(Box::new(settings)))
             }
             Err(why) => {
                 eprintln!("{why}");

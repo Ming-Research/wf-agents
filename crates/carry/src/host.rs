@@ -5,12 +5,14 @@
 //!
 //! - [`Local`]: the local repository is the host: its own main branch, the project's check command, and a merge in its
 //!   checkout.
+//! - [`GitHub`]: the repository on GitHub is the host: its main branch, the CI of the work's pull request, and the
+//!   pull request's merge.
 //! - `fake`: a host for the tests, which gives what it is told to.
 //!
 //! Each operation can be asked again after the engine started again, and finds what it did already rather than doing
 //! it a second time.
 
-mod github;
+pub mod github;
 mod local;
 
 #[cfg(test)]
@@ -18,10 +20,22 @@ pub(crate) mod fake;
 
 use std::future::Future;
 
+use store::WorkNumber;
+
 use crate::git::Place;
 use crate::held::Stop;
 
+pub use github::GitHub;
 pub use local::Local;
+
+/// The work's branch, as a host is given it: with the work and the title of its item, which a host may show where it
+/// shows the branch.
+#[derive(Clone, Copy, Debug)]
+pub struct Branch<'a> {
+    pub work: WorkNumber,
+    pub title: &'a str,
+    pub place: &'a Place,
+}
 
 /// What a host found of a commit.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,12 +58,13 @@ pub trait Host: Send + Sync + 'static {
     /// conflict; none where it was told to stop.
     fn verdict(
         &self,
-        place: &Place,
+        branch: &Branch<'_>,
         commit: &str,
         stop: &mut Stop,
     ) -> impl Future<Output = Result<Option<Verdict>, String>> + Send;
 
-    /// Merges the work's branch into main and gives the head of main after it. Where `checked` names the commit the
-    /// check passed, only that commit is merged; with none, the flow has no check, and what the branch holds is.
-    fn merge(&self, place: &Place, checked: Option<&str>) -> impl Future<Output = Result<String, String>> + Send;
+    /// Merges the work's branch into main and gives the commit the merge made main's head with. Where `checked` names
+    /// the commit the check passed, only that commit is merged; with none, the flow has no check, and what the branch
+    /// holds is.
+    fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> impl Future<Output = Result<String, String>> + Send;
 }

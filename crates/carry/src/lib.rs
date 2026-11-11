@@ -37,7 +37,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use acts::Acts;
-use service::Carriers;
+use service::{Carriers, Rounds};
 
 pub use acts::{FAILED, PASSED, faults};
 pub use agents::{Agents, PROTOCOL, ROUNDS};
@@ -47,6 +47,9 @@ pub use tools::{CHECK, Tools};
 
 /// The carriers of these settings, keeping what they keep in the data directory: the installation's id, the works'
 /// worktrees, and what each round was told and returned.
+///
+/// The acts are carried out on the host the settings say: GitHub where they have a table for it, with the engine's
+/// token from its environment, and the local repository where they have none.
 pub fn carriers(settings: Settings, data: &Path) -> Result<Carriers, String> {
     // The worktrees are given to git by their path, which git would read against the repository's directory were it
     // relative.
@@ -54,14 +57,19 @@ pub fn carriers(settings: Settings, data: &Path) -> Result<Carriers, String> {
     let installation = session::installation(&data)?;
     let project = settings.project.clone();
     let tag = git::tag(&installation);
+    let acts: Arc<dyn Rounds> = match &settings.github {
+        None => {
+            let host = host::Local::new(project.clone());
+            Arc::new(Acts::new(host, project.clone(), data.clone(), tag.clone()))
+        }
+        Some(github) => {
+            let host = host::GitHub::from_settings(github, &project, &data, |name| std::env::var(name).ok())?;
+            Arc::new(Acts::new(host, project.clone(), data.clone(), tag.clone()))
+        }
+    };
     Ok(Carriers {
         agents: Arc::new(Agents::new(settings, data.clone(), installation)),
-        acts: Arc::new(Acts::new(
-            host::Local::new(project.clone()),
-            project.clone(),
-            data.clone(),
-            tag.clone(),
-        )),
+        acts,
         tools: Arc::new(Tools::new(project, data, tag)),
     })
 }

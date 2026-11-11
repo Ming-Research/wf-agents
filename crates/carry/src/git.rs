@@ -79,15 +79,32 @@ pub const SAFE: [&str; 8] = [
 /// what the agents are given of it (`cli::KEPT` and every `LC_*`), so that no `GIT_*` variable of the engine's
 /// reaches it but the one set here.
 pub(crate) async fn said(dir: &Path, args: &[&str]) -> Result<Said, String> {
+    said_with(dir, &With::default(), args).await
+}
+
+/// What a git command is given beside its arguments: settings before them, as `-c` pairs, and variables of its
+/// environment beside those [`said`] keeps. Neither is said where the command fails, so that a credential given in
+/// the environment is said nowhere.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct With {
+    pub(crate) settings: Vec<String>,
+    pub(crate) env: Vec<(String, String)>,
+}
+
+/// Runs git in the directory as [`said`] does, with what is given beside its arguments.
+pub(crate) async fn said_with(dir: &Path, with: &With, args: &[&str]) -> Result<Said, String> {
     let kept =
         std::env::vars().filter(|(name, _)| crate::cli::KEPT.contains(&name.as_str()) || name.starts_with("LC_"));
+    let settings = (with.settings.iter()).flat_map(|setting| ["-c", setting.as_str()]);
     let output = Command::new("git")
         .arg("-C")
         .arg(dir)
         .args(SAFE)
+        .args(settings)
         .args(args)
         .env_clear()
         .envs(kept)
+        .envs(with.env.iter().cloned())
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(std::process::Stdio::null())
         .output()
@@ -103,7 +120,12 @@ pub(crate) async fn said(dir: &Path, args: &[&str]) -> Result<Said, String> {
 
 /// Runs git in the directory and gives its standard output; or says what failed, with what git said.
 pub(crate) async fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let said = said(dir, args).await?;
+    git_with(dir, &With::default(), args).await
+}
+
+/// Runs git in the directory as [`git`] does, with what is given beside its arguments.
+pub(crate) async fn git_with(dir: &Path, with: &With, args: &[&str]) -> Result<String, String> {
+    let said = said_with(dir, with, args).await?;
     if said.ok {
         Ok(said.out)
     } else {
