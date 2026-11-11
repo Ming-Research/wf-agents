@@ -111,6 +111,12 @@ pub enum CellChange {
     DescribesAdded(BlockId),
     /// A block the cell no longer says what the work is by.
     DescribesRemoved(BlockId),
+    /// The block among the outputs of the check before the merge in which it writes the files the work changes under
+    /// the paths the installation names for the owner's yes; none where it writes them nowhere.
+    OwnerPaths {
+        before: Option<BlockId>,
+        after: Option<BlockId>,
+    },
     /// A limit of the cell, other than by following the same change of the flow's limit, which is said once, as the
     /// flow's.
     Limit {

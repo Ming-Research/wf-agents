@@ -244,6 +244,8 @@ export function changeWords(change: Change): ChangeWords {
       return { what: 'Says what the work is by', before: '', after: c.block };
     case 'describesRemoved':
       return { what: 'Says what the work is by', before: c.block, after: '' };
+    case 'ownerPaths':
+      return { what: "Lists the files under the owner's paths in", before: c.before ?? '', after: c.after ?? '' };
     case 'cellLimit':
       return { what: `Limit of ${LIMIT_WORDS[c.limit]}`, before: `${c.before}`, after: `${c.after}` };
     case 'effort':

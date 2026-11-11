@@ -177,6 +177,7 @@ export type Change =
   | { kind: 'mustWriteRemoved'; cell: string; block: string }
   | { kind: 'describesAdded'; cell: string; block: string }
   | { kind: 'describesRemoved'; cell: string; block: string }
+  | { kind: 'ownerPaths'; cell: string; before: string | null; after: string | null }
   | { kind: 'cellLimit'; cell: string; limit: LimitName; before: number; after: number }
   | { kind: 'effort'; cell: string; before: string | null; after: string | null }
   | { kind: 'levelsAbove'; cell: string; before: number; after: number }

@@ -462,6 +462,13 @@ pub enum Change {
         cell: String,
         block: String,
     },
+    /// The block in which the check before the merge writes the files the work changes under the owner's paths; none
+    /// where it writes them nowhere.
+    OwnerPaths {
+        cell: String,
+        before: Option<String>,
+        after: Option<String>,
+    },
     CellLimit {
         cell: String,
         limit: Limit,
@@ -864,6 +871,14 @@ impl Change {
             CellChange::MustWriteRemoved(b) => Change::MustWriteRemoved { cell, block: block(b) },
             CellChange::DescribesAdded(b) => Change::DescribesAdded { cell, block: block(b) },
             CellChange::DescribesRemoved(b) => Change::DescribesRemoved { cell, block: block(b) },
+            CellChange::OwnerPaths {
+                before: from,
+                after: to,
+            } => Change::OwnerPaths {
+                cell,
+                before: from.as_ref().map(block),
+                after: to.as_ref().map(block),
+            },
             CellChange::Limit {
                 limit,
                 before: from,
