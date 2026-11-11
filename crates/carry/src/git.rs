@@ -208,6 +208,9 @@ pub(crate) async fn uncommitted(dir: &Path) -> Result<String, String> {
 /// Who the commits the engine makes are by: the merges of main into a work's branch that the check makes.
 const ENGINE: [&str; 2] = ["user.name=wf-agents", "user.email=wf-agents@localhost"];
 
+/// The address of the engine's identity, by which a commit of its own is known.
+const ENGINE_EMAIL: &str = "wf-agents@localhost";
+
 /// The words the engine's merge of main into a work's branch begins and ends with.
 fn taking_in(name: &str, main: &str) -> String {
     format!("Merge {name} at {main} into the work's branch")
@@ -219,7 +222,12 @@ fn taking_in(name: &str, main: &str) -> String {
 /// is the main branch's name.
 pub(crate) async fn take_in(dir: &Path, main: &str, name: &str) -> Result<(String, bool), String> {
     if said(dir, &["merge-base", "--is-ancestor", main, "HEAD"]).await?.ok {
-        return Ok((git(dir, &["rev-parse", "HEAD"]).await?, false));
+        // The engine's own merge of this main, made by a check that stopped before it was recorded, is still the
+        // engine's: a merge of main by the engine's identity.
+        let head = git(dir, &["log", "-1", "--format=%H %ae %P", "HEAD"]).await?;
+        let words: Vec<&str> = head.split(' ').collect();
+        let ours = matches!(words.as_slice(), [_, email, _, merged] if *email == ENGINE_EMAIL && *merged == main);
+        return Ok((words[0].to_string(), ours));
     }
     let with = With {
         settings: ENGINE.map(str::to_string).to_vec(),
@@ -236,19 +244,10 @@ pub(crate) async fn take_in(dir: &Path, main: &str, name: &str) -> Result<(Strin
     Ok((git(dir, &["rev-parse", "HEAD"]).await?, true))
 }
 
-/// Takes back a merge of main into the work's branch that the engine began in the worktree and did not finish, as
-/// when it stopped in the middle of one; a merge someone else began is let be, for the check to find uncommitted.
-pub(crate) async fn abort_own_merge(dir: &Path, name: &str) -> Result<(), String> {
-    if !said(dir, &["rev-parse", "--quiet", "--verify", "MERGE_HEAD"]).await?.ok {
-        return Ok(());
-    }
-    let path = git(dir, &["rev-parse", "--git-path", "MERGE_MSG"]).await?;
-    let message = std::fs::read_to_string(dir.join(path)).unwrap_or_default();
-    let ours = message.starts_with(&format!("Merge {name} at ")) && message.contains("into the work's branch");
-    if ours {
-        git(dir, &["merge", "--abort"]).await?;
-    }
-    Ok(())
+/// Whether a merge is under way in the worktree, begun and not committed: by an agent, or by the engine before it
+/// stopped. Only whoever began it can tell what it holds, so the engine never takes one back.
+pub(crate) async fn merging(dir: &Path) -> Result<bool, String> {
+    Ok(said(dir, &["rev-parse", "--quiet", "--verify", "MERGE_HEAD"]).await?.ok)
 }
 
 /// That the worktree is on the work's branch, or why it is not: what the engine commits there must go on the branch.

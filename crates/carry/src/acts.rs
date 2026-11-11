@@ -217,7 +217,6 @@ pub(crate) async fn check(
     let (commit, took_in, main) = {
         let _held = repository.lock().await;
         git::configuration(project, place).await?;
-        git::abort_own_merge(&dir, &project.main).await?;
         git::on_branch(place).await?;
         let main = host.main().await?;
         let commit = git::git(&project.repo, &["rev-parse", &place.reference()]).await?;
@@ -228,6 +227,14 @@ pub(crate) async fn check(
             by: None,
             took_in: false,
         };
+        if git::merging(&dir).await? {
+            let changes = git::uncommitted(&dir).await?;
+            let failed = format!(
+                "A merge is under way in the worktree and is not committed: finish it and commit it, or take it \
+                 back.\n{changes}"
+            );
+            return Ok(Some(found(failed)));
+        }
         let changes = git::uncommitted(&dir).await?;
         if !changes.is_empty() {
             let failed = format!("The worktree has changes that are not committed:\n{changes}");
