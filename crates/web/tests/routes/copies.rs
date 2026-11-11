@@ -73,7 +73,11 @@ async fn the_state_is_worked_out_with_the_time_of_the_loop_and_a_failure_is_give
         json!({ "kind": "failed", "at": START - 500, "step": "upload", "why": "the place cannot be reached" })
     );
     assert_eq!(report["lastFailure"]["step"], "upload");
+    // An upload alone does not mend a failure: a step that ends with nothing failing does.
     records.uploaded(&name, work::Time(START - 100)).unwrap();
+    let report = get_json(&router, "/api/v1/backup").await;
+    assert_eq!(report["state"]["kind"], "failed");
+    records.ended(work::Time(START - 100)).unwrap();
     let report = get_json(&router, "/api/v1/backup").await;
     assert_eq!(report["state"], json!({ "kind": "ok" }));
     assert_eq!(report["lastUploaded"], START - 100);

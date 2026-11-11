@@ -31,6 +31,8 @@ struct Inner {
     fail_at: BTreeSet<usize>,
     /// Whether every upload fails.
     fail_uploads: bool,
+    /// Whether every removal fails.
+    fail_removes: bool,
     public: bool,
     uploads: Vec<String>,
     private_calls: usize,
@@ -84,7 +86,11 @@ impl Offsite for Fake {
 
     fn remove(&self, name: &str) -> Result<(), String> {
         self.call()?;
-        self.inner().assets.remove(name);
+        let mut inner = self.inner();
+        if inner.fail_removes {
+            return Err("the removal is refused".to_string());
+        }
+        inner.assets.remove(name);
         Ok(())
     }
 }
@@ -467,6 +473,46 @@ fn keep_lowered_over_a_copy_not_uploaded_leaves_it_alone() {
     assert_eq!(e.report(at).state, State::Ok);
 }
 
+// A failure to prune in the step that also took and uploaded a copy is shown, and a step that ends clean mends it.
+#[test]
+fn a_failed_prune_is_shown_even_in_the_step_that_took_a_copy_and_is_mended_by_the_next_clean_step() {
+    let e = env(1, true);
+    e.step(T0);
+    e.fake.inner().fail_removes = true;
+    let out = e.step(T0 + DAY + 1);
+    assert!(out.taken.is_some());
+    assert_eq!(out.uploaded.len(), 1);
+    assert_eq!(out.failed.as_ref().map(|f| f.0.as_str()), Some("prune"));
+    assert!(matches!(
+        e.report(T0 + DAY + 2).state,
+        State::Failed { ref step, .. } if step == "prune"
+    ));
+    e.fake.inner().fail_removes = false;
+    let again = e.step(T0 + DAY + HOUR);
+    assert_eq!(again.failed, None);
+    assert_eq!(e.report(T0 + DAY + HOUR).state, State::Ok);
+    let newest = e.rows().copies[1].name.clone();
+    assert_eq!(e.files(), std::slice::from_ref(&newest));
+    assert_eq!(e.fake.names(), [newest]);
+}
+
+// A failure that is about no copy, such as the files of the directory, is mended by the next step that ends clean.
+#[test]
+fn a_failure_about_no_copy_is_mended_by_a_later_clean_step() {
+    let e = env(7, true);
+    e.step(T0);
+    e.records
+        .failed(Time(T0 + 10), "-", "snapshot", "the directory cannot be read")
+        .unwrap();
+    assert!(matches!(e.report(T0 + 20).state, State::Failed { .. }));
+    assert_eq!(e.step(T0 + HOUR).failed, None);
+    assert_eq!(e.report(T0 + HOUR).state, State::Ok);
+    // A clean step with nothing to mend records nothing.
+    let records = e.rows();
+    e.step(T0 + 2 * HOUR);
+    assert_eq!(e.rows(), records);
+}
+
 fn kept(name: &str, seq: u64, taken: u64) -> store::Kept {
     store::Kept {
         seq,
@@ -510,7 +556,7 @@ fn the_state_is_worked_out_from_the_records_and_the_time_now() {
     );
     // A copy taken after a day from now.
     assert_eq!(report(&one(true), Time(T0 - DAY - 1), true, 7).state, State::Clock);
-    // A failure shows until an upload after it, and a failure of the upload of a copy no longer kept does not show.
+    // A failure shows until a step ends with nothing failing after it.
     let mut r = one(true);
     r.failures.push(failure(T0 + 10, &a, "upload"));
     let shown = report(&r, now, true, 7);
@@ -523,24 +569,21 @@ fn the_state_is_worked_out_from_the_records_and_the_time_now() {
         }
     );
     assert_eq!(shown.last_failure.map(|f| f.step), Some("upload".to_string()));
+    // An upload does not mend it, nor does a step that ended before it; a step that ended clean after it does.
     r.uploads.insert("another".to_string(), Time(T0 + 20));
+    r.clean = Some(Time(T0 + 5));
+    assert!(matches!(report(&r, now, true, 7).state, State::Failed { .. }));
+    r.clean = Some(Time(T0 + 20));
     assert_eq!(report(&r, now, true, 7).state, State::Ok);
-    let mut gone = one(true);
-    gone.failures
-        .push(failure(T0 + 10, "store-0000000000001.sqlite.gz", "upload"));
-    assert_eq!(report(&gone, now, true, 7).state, State::Ok);
-    // A failure to take a copy shows until a copy is taken after it.
-    let mut taking = Records::default();
-    taking.copies.push(kept(&a, 1, T0));
-    taking.uploads.insert(a.clone(), Time(T0));
-    taking.failures.push(failure(T0 + DAY, "-", "snapshot"));
-    assert!(matches!(
-        report(&taking, Time(T0 + DAY + 1), true, 7).state,
-        State::Failed { .. }
-    ));
-    taking.copies.push(kept(&name_at(Time(T0 + DAY + 5)), 2, T0 + DAY + 5));
-    taking.uploads.insert(name_at(Time(T0 + DAY + 5)), Time(T0 + DAY + 6));
-    assert_eq!(report(&taking, Time(T0 + DAY + 10), true, 7).state, State::Ok);
+    // A failure of any step is mended so, one about no copy as much as one about a copy.
+    let mut taking = one(true);
+    taking.failures.push(failure(T0 + 10, "-", "snapshot"));
+    taking
+        .failures
+        .push(failure(T0 + 12, "store-0000000000001.sqlite.gz", "prune"));
+    assert!(matches!(report(&taking, now, true, 7).state, State::Failed { .. }));
+    taking.clean = Some(Time(T0 + 30));
+    assert_eq!(report(&taking, now, true, 7).state, State::Ok);
 }
 
 /// A `gh` that keeps one release in a directory: it is not there until made, and every call fails while the file

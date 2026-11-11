@@ -217,6 +217,18 @@ pub fn step_with(now: Time, records: &Backups, plan: &Plan, halt: &mut dyn FnMut
         }
     }
     prune(now, records, plan, &seen, &mut out, halt);
+    // A step that ends with nothing failing mends the failures before it; it is recorded only when there is one.
+    let to_mend = seen
+        .failures
+        .last()
+        .is_some_and(|f| seen.clean.is_none_or(|clean| f.at > clean));
+    if out.failed.is_none()
+        && !out.stopped
+        && to_mend
+        && let Err(e) = records.ended(now)
+    {
+        out.failed = Some(("records".to_string(), format!("{e:?}")));
+    }
     out
 }
 
@@ -267,19 +279,19 @@ fn adopt(dir: &Path, records: &Backups, seen: &Records) -> Result<(), String> {
     Ok(())
 }
 
-/// Removes the copies past keeping, from the place off the machine first and from the machine after, so that a copy
-/// whose removal was stopped is found again by its file. A copy with no file is done with.
+/// Removes the copies past keeping, from the place off the machine, where it lists them, and from the machine after.
+/// The place is looked at each step while there are copies past keeping, so that an asset is removed whether or not
+/// its file is still there; a file that is gone is no error.
 fn prune(now: Time, records: &Backups, plan: &Plan, seen: &Records, out: &mut Outcome, halt: &mut dyn FnMut() -> bool) {
     let kept = state::kept(seen, plan.keep).len();
     let past = &seen.copies[..seen.copies.len() - kept];
-    let with_file: Vec<&store::Kept> = past.iter().filter(|k| plan.dir.join(&k.name).exists()).collect();
-    if with_file.is_empty() {
+    if past.is_empty() {
         return;
     }
     if let Some(offsite) = &plan.offsite {
         match offsite.list() {
             Ok(listed) => {
-                for copy in &with_file {
+                for copy in past {
                     if listed.contains(&copy.name)
                         && let Err(why) = offsite.remove(&copy.name)
                     {
@@ -294,7 +306,7 @@ fn prune(now: Time, records: &Backups, plan: &Plan, seen: &Records, out: &mut Ou
             }
         }
     }
-    for copy in with_file {
+    for copy in past {
         let path = plan.dir.join(&copy.name);
         match std::fs::remove_file(&path) {
             Ok(()) => out.removed.push(copy.name.clone()),

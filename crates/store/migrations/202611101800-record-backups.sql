@@ -17,4 +17,7 @@ CREATE TABLE backup_failures (
     why TEXT NOT NULL,
     PRIMARY KEY (at, name, step)
 );
+CREATE TABLE backup_steps (
+    at INTEGER PRIMARY KEY
+);
 UPDATE schema_version SET version = 3;

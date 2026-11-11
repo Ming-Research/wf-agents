@@ -50,6 +50,8 @@ pub struct Records {
     pub uploads: BTreeMap<String, Time>,
     /// The failures, oldest first.
     pub failures: Vec<Failure>,
+    /// When the newest step ended with nothing failing, kept as it mended failures: a failure before it is mended.
+    pub clean: Option<Time>,
 }
 
 /// The records of the copies, on a connection of their own.
@@ -104,6 +106,13 @@ impl Backups {
         Ok(())
     }
 
+    /// Records that a step ended at `at` with nothing failing, which mends every failure before it.
+    pub fn ended(&self, at: Time) -> Result<(), Fault> {
+        self.db
+            .execute("INSERT OR IGNORE INTO backup_steps (at) VALUES (?1)", [at.0])?;
+        Ok(())
+    }
+
     /// Everything recorded.
     pub fn records(&self) -> Result<Records, Fault> {
         let mut copies = self.db.prepare("SELECT seq, name, taken FROM backups ORDER BY seq")?;
@@ -133,10 +142,14 @@ impl Backups {
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
+        let clean: Option<u64> = self
+            .db
+            .query_row("SELECT max(at) FROM backup_steps", [], |row| row.get(0))?;
         Ok(Records {
             copies,
             uploads,
             failures,
+            clean: clean.map(Time),
         })
     }
 }

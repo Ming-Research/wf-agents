@@ -263,3 +263,9 @@ CREATE TABLE backup_failures (
     why TEXT NOT NULL,
     PRIMARY KEY (at, name, step)
 );
+
+-- A step of keeping the copies ended at `at` with nothing failing, and so mended every failure before it. It is kept
+-- only when there was a failure to mend.
+CREATE TABLE backup_steps (
+    at INTEGER PRIMARY KEY
+);

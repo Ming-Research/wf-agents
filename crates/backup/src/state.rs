@@ -60,18 +60,11 @@ pub(crate) fn trusted(taken: Time, now: Time) -> bool {
     taken.0 <= now.0.saturating_add(PERIOD)
 }
 
-/// The failure that is still to be shown: the newest one that nothing done since mends. A copy taken mends a failure to
-/// take one; an upload mends the others. A failure of the upload or its check is about a copy that is still kept.
-fn failure(records: &Records, keep: usize) -> Option<&store::Failure> {
-    let kept = kept(records, keep);
-    let taken = kept.iter().map(|k| k.taken.0).max();
-    let uploaded = records.uploads.values().map(|t| t.0).max();
-    records.failures.iter().rev().find(|f| match f.step.as_str() {
-        "snapshot" => taken.is_none_or(|t| f.at.0 > t),
-        "upload" | "private" => kept.iter().any(|k| k.name == f.name) && uploaded.is_none_or(|u| f.at.0 > u),
-        // A step that was about a copy past keeping, or about the records themselves.
-        _ => taken.max(uploaded).is_none_or(|latest| f.at.0 > latest),
-    })
+/// The failure that is still to be shown: the newest one, if no step ended with nothing failing after it. A step that
+/// ends clean has done everything that was to be done, so it mends every failure before it, whatever step it was.
+fn failure(records: &Records) -> Option<&store::Failure> {
+    let newest = records.failures.last()?;
+    records.clean.is_none_or(|clean| newest.at > clean).then_some(newest)
 }
 
 /// How the copies stand at `now`, with the copies kept being the `keep` newest and `configured` being whether a place
@@ -86,7 +79,7 @@ pub fn report(records: &Records, now: Time, configured: bool, keep: usize) -> Re
     };
     let trusted_taken = kept.iter().filter(|k| trusted(k.taken, now)).map(|k| k.taken).max();
     let last_uploaded = records.uploads.values().copied().max();
-    let shown = failure(records, keep);
+    let shown = failure(records);
     let state = if let Some(f) = shown {
         State::Failed {
             at: f.at,
