@@ -16,6 +16,10 @@
 //! note, a person's words to a cell, and lets nothing else a person writes pass. Such a run has its rounds while the
 //! work is paused ([`hold`]), and once it has finished what it wrote waits, as anything else does, for the work to be
 //! let on.
+//!
+//! The owner's pause of everything holds back what the work's own pause does, and the walk reads it, as it reads whether
+//! a slot is free, from what the scheduler gives it ([`Room`]): where no slot is free, a cell that takes one waits for
+//! it before it runs, a run that answers a note as much as any other.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -23,6 +27,7 @@ use crate::flow::{BlockId, Cell, CellId, Condition, Flow, TestKind, TestName};
 use crate::records::{
     CallId, Cause, Finished, Outsider, Pause, Pauser, RecordFault, Records, RunId, Seq, Started, Who,
 };
+use crate::room::Room;
 use crate::run::Hold;
 
 /// What a work does next, with the reason as data (principle decide-purely).
@@ -91,6 +96,9 @@ pub enum Waited {
     /// The cell's last runs, this many in a row, were each for what a cell after it wrote, and so would the next be:
     /// the owner lets it go on or cancels the work.
     Limit { runs: u32 },
+    /// A free slot: the cell takes one, and as many rounds that take one are under way as the engine has slots. The
+    /// engine gives it the first that comes free, in its order.
+    Slot,
 }
 
 /// Who can make a precondition hold, by writing a block its test reads: the flow says who writes each block.
@@ -104,8 +112,14 @@ pub enum Maker {
     Cell { cell: CellId },
 }
 
-/// What the work does next.
+/// What the work does next, were nothing outside its records to hold it back ([`Room::FREE`]).
 pub fn decide(flow: &Flow, records: &Records) -> Decision {
+    decide_in(flow, records, Room::FREE)
+}
+
+/// What the work does next, in the room the engine leaves it: under the owner's pause of everything it begins what it
+/// would begin were it paused itself, and where no slot is free a cell that takes one waits for it.
+pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
     if let Err(fault) = check(records) {
         return Decision::Fault(fault);
     }
@@ -178,8 +192,11 @@ pub fn decide(flow: &Flow, records: &Records) -> Decision {
         }
         // A pause holds back the run, unless it is for a note a person wrote: everything before this is decided whether
         // or not the work is paused.
-        if paused(records) && !walk.for_a_note(i, &because, None) {
+        if (paused(records) || room.paused) && !walk.for_a_note(i, &because, None) {
             return Decision::Paused;
+        }
+        if cell.slot && !room.slot {
+            return wait(vec![Waited::Slot]);
         }
         return Decision::Run {
             cell: cell.id.clone(),
@@ -203,13 +220,23 @@ pub fn stale(flow: &Flow, records: &Records, run: RunId) -> Option<Abandoning> {
 /// engine paused the work, so that the owner sees why first, and nothing where the engine paused it for none of the
 /// run's rounds since its last began; and every round of any other run.
 pub fn hold(flow: &Flow, records: &Records, run: RunId) -> Hold {
-    if !paused(records) {
-        return Hold::Nothing;
-    }
+    hold_in(flow, records, run, Room::FREE)
+}
+
+/// What holds back the run's rounds in the room the engine leaves the work: every round, where its cell takes a slot
+/// and none is free; otherwise what the pause of the work would hold back ([`hold`]), where the work is paused or the
+/// owner's pause of everything holds.
+pub fn hold_in(flow: &Flow, records: &Records, run: RunId, room: Room) -> Hold {
     let walk = Walk::new(flow, records);
     let Some(r) = walk.runs.get(&run) else {
         return Hold::Rounds;
     };
+    if !room.slot && (flow.place(&r.started.cell)).is_none_or(|i| flow.cells()[i].slot) {
+        return Hold::Rounds;
+    }
+    if !paused(records) && !room.paused {
+        return Hold::Nothing;
+    }
     match flow.place(&r.started.cell) {
         Some(i) if walk.for_a_note(i, &r.started.because, Some(r.started.at)) => {
             if paused_by_its_failure(records, run) {
@@ -322,8 +349,8 @@ pub(crate) struct RunView<'a> {
     finished: Option<&'a Finished>,
     abandoned: bool,
     /// How many of its rounds began, and how many ended.
-    began: usize,
-    ended: usize,
+    pub(crate) began: usize,
+    pub(crate) ended: usize,
 }
 
 impl RunView<'_> {

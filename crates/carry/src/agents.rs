@@ -1,8 +1,8 @@
 //! The agents' rounds, run with the `claude` command line: each round one run of the program, in the work's worktree,
 //! in the session of the cell's line, told its message on its standard input, with the same form of return for every
 //! round and the same system prompt for every round of a line, which says what the line may run as its permissions
-//! give it to the program (`permissions`). At most as many rounds run at once as the settings give slots; the others
-//! wait their turn.
+//! give it to the program (`permissions`). How many run at once is the engine's to bound: it gives at most as many
+//! rounds at once as the settings give slots, and holds the others back in its own order.
 //!
 //! A round fails, handing in nothing, where the worktree is not there, the program cannot be started, it exits with
 //! an error or prints a result that is one, or what it prints is no result with a structured return of the form. The
@@ -37,7 +37,6 @@ use engine::Came;
 use service::{Clock, RanOn, Round, RoundReply, Rounds, SystemClock, Told};
 use store::WorkNumber;
 use tokio::process::Command;
-use tokio::sync::Semaphore;
 use uuid::Uuid;
 use work::Spent;
 
@@ -66,7 +65,6 @@ struct Inner {
     installation: Uuid,
     /// The system prompt, the same for every round of a line once what the line may do is put in.
     protocol: String,
-    slots: Semaphore,
     held: Held<(WorkNumber, RunId, usize), RoundReply>,
     /// The clock a usage limit's reset is read by, where the command line gives it as a time of day.
     clock: Arc<dyn Clock>,
@@ -93,7 +91,6 @@ impl Agents {
             .replace("{check}", &crate::tools::told(&settings));
         Agents {
             inner: Arc::new(Inner {
-                slots: Semaphore::new(settings.agents.slots),
                 settings,
                 data,
                 installation,
@@ -114,15 +111,7 @@ impl Rounds for Agents {
         };
         let inner = self.inner.clone();
         tokio::spawn(async move {
-            // A round stopped while it waits its turn is not run at all.
-            let permit = tokio::select! {
-                permit = inner.slots.acquire() => permit.ok(),
-                () = stop.told() => None,
-            };
-            let carried = match permit {
-                Some(_permit) => inner.carry(&round, &mut stop).await,
-                None => Ok(Carried::Stopped),
-            };
+            let carried = inner.carry(&round, &mut stop).await;
             match carried {
                 Ok(Carried::Came(came, spent)) => {
                     let Some(reply) = inner.held.take(key) else {
