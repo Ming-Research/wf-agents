@@ -262,6 +262,34 @@ fn an_allow_without_a_word_s_end_reaches_the_heavy_commands_it_can_match() {
     assert_eq!(within.locks, ["cargo update", "cargo add"]);
 }
 
+// The other names npm takes for the commands it builds, runs or installs with are heavy as well, so that an
+// installation that allows all of npm lets none of them through; the lock command is no use of any of them.
+#[test]
+fn npm_s_other_names_for_its_heavy_commands_are_refused() {
+    let names = [
+        "npm i",
+        "npm add",
+        "npm t",
+        "npm x",
+        "npm run-script",
+        "npm rebuild",
+        "npm start",
+    ];
+    for (reads_only, given) in [
+        (false, args(&[])),
+        (false, args(&["--allowedTools", "Bash(npm *)"])),
+        (true, args(&[])),
+    ] {
+        let refused = of(reads_only, &given).refused;
+        for name in names {
+            assert!(refused.contains(&format!("Bash({name} *)")), "{name}: {given:?}");
+        }
+    }
+    let lock = "npm install --package-lock-only --ignore-scripts";
+    assert!(!names.iter().any(|name| falls_under(lock, name)));
+    assert!(of(false, &[]).locks.iter().any(|l| l == lock));
+}
+
 // The installation adds to the engine's lists: a heavy command of its toolchain is refused, its lock command is
 // allowed though a heavy command covers it, and the uses of it it names are refused; nothing of the engine's goes.
 #[test]

@@ -257,7 +257,7 @@ fn allows(args: &[String]) -> Vec<String> {
 
 /// Whether `command`, a command with the start of its arguments, falls under `heavy`, another: it is that one, or that
 /// one with more arguments after it.
-fn falls_under(command: &str, heavy: &str) -> bool {
+pub(crate) fn falls_under(command: &str, heavy: &str) -> bool {
     (command.strip_prefix(heavy)).is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
 }
 

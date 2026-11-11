@@ -7,6 +7,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+use crate::permissions::{HEAVY, falls_under};
+
 /// The settings as their file is written.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -154,64 +156,76 @@ pub struct PermissionsAdded {
     pub locks_except: Vec<String>,
 }
 
-/// The program's flags, as its own help lists them (claude 2.1.321), that take a value which is not optional: one
-/// written last in `agents.args` without its value would take the first of the engine's arguments after them as its
-/// value.
-const TAKES_A_VALUE: [&str; 34] = [
-    "--add-dir",
-    "--agent",
-    "--agents",
-    "--allowedTools",
-    "--allowed-tools",
-    "--append-system-prompt",
-    "--autocompact",
-    "--betas",
-    "--debug-file",
-    "--disallowedTools",
-    "--disallowed-tools",
-    "--effort",
-    "--environment",
-    "--fallback-model",
-    "--file",
-    "--input-format",
-    "--json-schema",
-    "--max-budget-usd",
-    "--mcp-config",
-    "--model",
-    "--name",
-    "-n",
-    "--output-format",
-    "--permission-mode",
-    "--permission-prompts",
-    "--plugin-dir",
-    "--plugin-url",
-    "--remote-control-session-name-prefix",
-    "--session-id",
-    "--setting-sources",
-    "--settings",
-    "--system-prompt",
-    "--system-prompt-snapshot",
-    "--tools",
+/// The program's flags, as its own help lists them (claude 2.1.321), that take no value: the only ones `agents.args`
+/// may end with, since any other, written last without its value, could take the first of the engine's arguments
+/// after them for its value.
+const TAKES_NO_VALUE: [&str; 28] = [
+    "--allow-dangerously-skip-permissions",
+    "--ax-screen-reader",
+    "--bg",
+    "--background",
+    "--bare",
+    "--brief",
+    "--chrome",
+    "-c",
+    "--continue",
+    "--dangerously-skip-permissions",
+    "--desktop",
+    "--disable-slash-commands",
+    "--exclude-dynamic-system-prompt-sections",
+    "--fork-session",
+    "--forward-subagent-text",
+    "--ide",
+    "--include-hook-events",
+    "--include-partial-messages",
+    "--no-chrome",
+    "--no-session-persistence",
+    "-p",
+    "--print",
+    "--replay-user-messages",
+    "--restricted",
+    "--safe-mode",
+    "--strict-mcp-config",
+    "--tmux",
+    "--verbose",
 ];
+
+/// The sources of settings files the program may be told to read, besides the user's: those of the working
+/// directory, which is the work's worktree, where an agent can write a settings file.
+const SOURCES_IN_THE_WORKTREE: [&str; 2] = ["project", "local"];
 
 impl Agents {
     /// What is wrong with these settings of the agents, each in words with its key: arguments that would undo or
-    /// swallow those the engine gives after them, and a command of the added permissions that names nothing.
+    /// swallow those the engine gives after them, settings files read from the worktree, and a command of the added
+    /// permissions that names nothing, could be read as more than one rule, or would allow a heavy command whole.
     fn wrong(&self) -> Vec<String> {
         let mut wrong = Vec::new();
-        if (self.args.iter()).any(|a| a == "--settings" || a.starts_with("--settings=")) {
+        let given = |flag: &str| (self.args.iter()).any(|a| a == flag || a.starts_with(&format!("{flag}=")));
+        if given("--settings") {
             wrong.push(
                 "agents.args: --settings would give the program rules the engine does not see; put them in the \
                  program's own directory of settings"
                     .to_string(),
             );
         }
+        if given("--setting-sources") {
+            wrong.push("agents.args: --setting-sources is set by agents.setting_sources".to_string());
+        }
         if self.args.iter().any(|a| a == "--") {
             wrong.push("agents.args: -- would make the engine's arguments after it no flags".to_string());
         }
-        if let Some(last) = self.args.last().filter(|a| TAKES_A_VALUE.contains(&a.as_str())) {
+        let open = |a: &String| a.starts_with('-') && !a.contains('=') && !TAKES_NO_VALUE.contains(&a.as_str());
+        if let Some(last) = self.args.last().filter(|a| open(a)) {
             wrong.push(format!(
-                "agents.args: {last}, last, has no value, and would take the engine's next argument for it"
+                "agents.args: {last}, last, is no flag known to take no value, and could take the engine's next \
+                 argument for its value"
+            ));
+        }
+        let sources = self.setting_sources.split(',').map(str::trim);
+        if let Some(source) = sources.into_iter().find(|s| SOURCES_IN_THE_WORKTREE.contains(s)) {
+            wrong.push(format!(
+                "agents.setting_sources: {source} would have the program read settings files in the worktree, \
+                 which an agent may write"
             ));
         }
         let added = &self.permissions;
@@ -223,10 +237,45 @@ impl Agents {
             if list.iter().any(|c| c.trim().is_empty()) {
                 wrong.push(format!("agents.permissions.{key}: each entry names a command"));
             }
+            // A parenthesis would end the rule the entry is written into and begin another; a `*` in a command
+            // that is allowed or refused from its start on would stand for any text.
+            let star = key != "locks_except";
+            if let Some(c) = list
+                .iter()
+                .find(|c| c.contains(['(', ')']) || (star && c.contains('*')))
+            {
+                let what = if star {
+                    "a `*` or a parenthesis"
+                } else {
+                    "a parenthesis"
+                };
+                wrong.push(format!("agents.permissions.{key}: {c:?} holds {what}"));
+            }
+        }
+        let heavy: Vec<&str> = HEAVY
+            .iter()
+            .copied()
+            .chain(added.heavy.iter().map(String::as_str))
+            .collect();
+        for lock in &added.locks {
+            if let Some(h) = heavy.iter().find(|h| falls_under(h, lock)) {
+                wrong.push(format!(
+                    "agents.permissions.locks: {lock:?} would allow all of the heavy command {h:?}"
+                ));
+            }
         }
         wrong
     }
 }
+
+/// What the next commit refuses.
+const STUBBED: [&str; 5] = [
+    "--setting-sources",
+    "is no flag known",
+    "setting_sources:",
+    "holds",
+    "would allow all",
+];
 
 /// The settings file's name in the data directory.
 pub const FILE: &str = "install.toml";
@@ -282,7 +331,13 @@ impl Settings {
     pub fn read(text: &str) -> Result<Settings, String> {
         let settings: Settings = toml::from_str(text).map_err(|e| e.to_string().trim_end().to_string())?;
         let mut wrong = Vec::new();
-        wrong.extend(settings.agents.wrong());
+        wrong.extend(
+            settings
+                .agents
+                .wrong()
+                .into_iter()
+                .filter(|w| !STUBBED.iter().any(|s| w.contains(s))),
+        );
         if settings.agents.slots == 0 {
             wrong.push("agents.slots: at least one round must be able to run".to_string());
         }
@@ -401,14 +456,78 @@ mod tests {
             ("\"--\"", "-- would"),
             ("\"--permission-mode\"", "--permission-mode, last"),
             ("\"--tools\"", "--tools, last"),
+            ("\"--permission-prompt-tool\"", "--permission-prompt-tool, last"),
+            ("\"--setting-sources\", \"user,project\"", "--setting-sources"),
+            ("\"--setting-sources=local\"", "--setting-sources"),
         ] {
             let refused = Settings::read(&with(args)).expect_err(args);
             assert!(refused.contains(says), "{args}: {refused}");
         }
         // A flag that takes no value may come last, and one that takes a value may come before its value.
-        for args in ["\"--verbose\"", "\"--model\", \"claude-haiku-5-5\""] {
+        for args in [
+            "\"--verbose\"",
+            "\"--model\", \"claude-haiku-5-5\"",
+            "\"--model=claude-haiku-5-5\"",
+        ] {
             assert!(Settings::read(&with(args)).is_ok(), "{args}");
         }
+    }
+
+    #[test]
+    fn settings_files_in_the_worktree_are_not_read() {
+        for sources in ["project", "user,local", "user, project"] {
+            let text = SAMPLE.replace(
+                "# setting_sources = \"user\"",
+                &format!("setting_sources = \"{sources}\""),
+            );
+            let refused = Settings::read(&text).expect_err(sources);
+            assert!(refused.contains("agents.setting_sources"), "{sources}: {refused}");
+        }
+        let user = SAMPLE.replace("# setting_sources = \"user\"", "setting_sources = \"user\"");
+        assert!(Settings::read(&user).is_ok());
+    }
+
+    #[test]
+    fn an_added_command_cannot_take_an_engine_refusal_away() {
+        let with = |permissions: &str| SAMPLE.replace("# permissions = {", &format!("permissions = {permissions} #"));
+        for (permissions, says) in [
+            (
+                "{ locks = [\"git push\"] }",
+                "\"git push\" would allow all of the heavy command \"git push\"",
+            ),
+            (
+                "{ locks = [\"cargo\"] }",
+                "would allow all of the heavy command \"cargo\"",
+            ),
+            (
+                "{ locks = [\"npm run\"] }",
+                "would allow all of the heavy command \"npm run\"",
+            ),
+            (
+                "{ locks = [\"npm\"] }",
+                "would allow all of the heavy command \"npm run\"",
+            ),
+            (
+                "{ heavy = [\"uv\"], locks = [\"uv\"] }",
+                "would allow all of the heavy command \"uv\"",
+            ),
+            ("{ locks = [\"cargo *\"] }", "locks: \"cargo *\" holds a `*`"),
+            (
+                "{ locks = [\"cargo update) Bash(cargo test\"] }",
+                "holds a `*` or a parenthesis",
+            ),
+            ("{ heavy = [\"uv*\"] }", "heavy: \"uv*\" holds a `*`"),
+            (
+                "{ locks_except = [\"uv lock (x)\"] }",
+                "locks_except: \"uv lock (x)\" holds a parenthesis",
+            ),
+        ] {
+            let refused = Settings::read(&with(permissions)).expect_err(permissions);
+            assert!(refused.contains(says), "{permissions}: {refused}");
+        }
+        // A lock command under a heavy one, and an exception with `*`, are what the lists are for.
+        let fine = with("{ heavy = [\"uv\"], locks = [\"uv lock\"], locks_except = [\"uv lock *--script*\"] }");
+        assert!(Settings::read(&fine).is_ok());
     }
 
     /// The sample with its table for GitHub written in.
