@@ -8,12 +8,14 @@
 //!
 //! - `GET /api/v1/flow`: the definition shown ([`view::Definition`]).
 //! - `GET /api/v1/flow/changes`: what changed from the definition compared against ([`view::Comparison`]).
-//! - With the engine running, the items and the works ([`interface`], whose types are in [`works`]).
+//! - With the engine running, the items and the works ([`interface`], whose types are in [`works`]), and what needs
+//!   whoever plans the work since a mark ([`attention`]).
 //! - Any other path that is not under `/api/` is a file of the page, `index.html` when there is no such file.
 //!
 //! Wherever they are served, a request that could come from a page of another site is refused before it reaches a
 //! route, by the module `guard`.
 
+pub mod attention;
 mod guard;
 pub mod interface;
 pub mod view;

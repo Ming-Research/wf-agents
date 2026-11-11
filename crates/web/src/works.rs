@@ -931,7 +931,12 @@ impl Summary {
 impl Now {
     /// What the work does now. Of what holds it back, its own pause is said first, then the owner's pause of
     /// everything, then the wait every work shares, then a slot.
-    fn of(kept: Kept<'_>, decision: &Decision, held: Option<Holder>, outage: Option<&Outage>) -> Result<Now, Broken> {
+    pub(crate) fn of(
+        kept: Kept<'_>,
+        decision: &Decision,
+        held: Option<Holder>,
+        outage: Option<&Outage>,
+    ) -> Result<Now, Broken> {
         let work = kept.work;
         let everything = Now::Everything {};
         let agents = |cell: &CellId| (kept.flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == Kind::Agent);
@@ -1009,7 +1014,7 @@ impl Now {
     }
 
     /// The work's pause, with who paused it and why.
-    fn paused(work: &Work) -> Result<Now, Broken> {
+    pub(crate) fn paused(work: &Work) -> Result<Now, Broken> {
         let pause = decide::pause(&work.records).ok_or_else(|| Broken("the work has no pause".to_string()))?;
         Ok(Now::Paused {
             by: Pauser::of(pause.by),
@@ -1615,7 +1620,7 @@ fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
 }
 
 impl Outage {
-    fn of(outage: &driver::Outage, holds: bool) -> Outage {
+    pub(crate) fn of(outage: &driver::Outage, holds: bool) -> Outage {
         Outage {
             failure: Failure::of(outage.failure),
             why: outage.why.clone(),

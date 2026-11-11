@@ -164,6 +164,10 @@ pub struct CellFile {
     pub limit: Option<i64>,
     /// The reasoning effort an agent cell's rounds run at, whatever the model; every agent cell sets one.
     pub effort: Option<Effort>,
+    /// Whether the work's branch takes the latest main in as each run of the agent cell starts: a cell that changes
+    /// the code.
+    #[serde(default)]
+    pub takes_main: bool,
 }
 
 /// The reasoning efforts an agent's round may run at, as the command line names them.

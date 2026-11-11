@@ -45,6 +45,7 @@ pub fn router(handle: Handle, levels: Levels) -> Router {
         .route("/api/v1/works/{work}/runs/{run}/rounds/{number}/told", get(told))
         .route("/api/v1/works/{work}/calls/{call}", get(call))
         .route("/api/v1/works/{work}/acts", post(act))
+        .route("/api/v1/attention", get(crate::attention::attention))
         .route("/api/v1/engine", get(engine))
         .route("/api/v1/engine/acts", post(engine_act))
         .route("/api/v1/changes", get(changes))
@@ -260,7 +261,7 @@ fn unreadable(rejection: &PathRejection) -> Response {
 
 /// The answer to what the loop refused. Where the engine stopped as it was asked, the answer says whether what was
 /// asked was kept.
-fn refused(refusal: &service::Refusal) -> Response {
+pub(crate) fn refused(refusal: &service::Refusal) -> Response {
     let (status, kept) = match refusal {
         service::Refusal::Failed(Failed::NoSuchWork(_)) => (StatusCode::NOT_FOUND, None),
         service::Refusal::Failed(Failed::Stopped { kept, .. }) => (StatusCode::SERVICE_UNAVAILABLE, Some(*kept)),
@@ -271,6 +272,6 @@ fn refused(refusal: &service::Refusal) -> Response {
     (status, Json(Refusal { error, kept })).into_response()
 }
 
-fn fail(status: StatusCode, error: String) -> Response {
+pub(crate) fn fail(status: StatusCode, error: String) -> Response {
     (status, Json(Refusal { error, kept: None })).into_response()
 }
