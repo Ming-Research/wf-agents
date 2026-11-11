@@ -35,6 +35,8 @@ pub(crate) fn take(database: &Path, dir: &Path, time: Time) -> Result<String, St
         let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
         let conn = Connection::open_with_flags(database, flags).map_err(|e| format!("{}: {e}", database.display()))?;
         conn.busy_timeout(WAIT).map_err(|e| e.to_string())?;
+        // Never a copy of the file: the store keeps a write-ahead log while the engine writes, and a copied file can
+        // lack what is still in the log, or be torn. `VACUUM INTO` reads one snapshot.
         conn.execute("VACUUM INTO ?1", [plain.to_string_lossy()])
             .map_err(|e| format!("copying {}: {e}", database.display()))?;
     }

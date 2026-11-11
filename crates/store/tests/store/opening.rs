@@ -1,7 +1,8 @@
 //! Opening a database: a new one is made with the schema, one made before is opened with what it holds, one made with
-//! an earlier version of the schema is migrated to this one, and one of any other version is refused.
+//! an earlier version of the schema is copied whole and then migrated to this one, and one of any other version is
+//! refused.
 
-use store::{Fault, ItemNumber, SCHEMA, SCHEMA_VERSION};
+use store::{Fault, ItemNumber, SCHEMA, SCHEMA_VERSION, before_migration};
 
 use super::*;
 
@@ -299,4 +300,69 @@ fn a_migration_that_fails_leaves_the_file_as_it_was() {
     let before = dump(&db.path);
     assert!(matches!(Store::open(&db.path), Err(Fault::Database(_))));
     assert_eq!(dump(&db.path), before);
+    // The copy taken before it holds the file as it was too.
+    let copies = before_migration::copies(&before_migration::dir(&db.path));
+    assert_eq!(copies.len(), 1);
+    assert_eq!(dump(&copies[0]), before);
+}
+
+/// A file made with the first version of the schema, which holds one item.
+fn made_with_the_first_version(path: &Path) {
+    let file = Connection::open(path).expect("the database opens");
+    file.execute_batch(SCHEMA_1).expect("the first schema is made");
+    file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
+        .expect("its version is written");
+    file.execute("INSERT INTO items (number, title, added) VALUES (1, 'kept', 1)", [])
+        .expect("an item is kept");
+}
+
+/// The names of these files.
+fn names(files: &[PathBuf]) -> Vec<String> {
+    (files.iter())
+        .map(|f| f.file_name().expect("a file's name").to_string_lossy().into_owned())
+        .collect()
+}
+
+#[test]
+fn a_file_of_an_earlier_version_is_copied_whole_before_it_is_migrated() {
+    let db = Db::new();
+    made_with_the_first_version(&db.path);
+    let before = dump(&db.path);
+    let dir = before_migration::dir(&db.path);
+    assert!(before_migration::copies(&dir).is_empty());
+    db.open();
+    assert_eq!(versions(&db.path), [SCHEMA_VERSION]);
+    // The copy is the file as it stood, at the version it had, and its name says that version.
+    let copies = before_migration::copies(&dir);
+    assert_eq!(names(&copies), ["before-migration-000001-v1.sqlite"]);
+    assert_eq!(dump(&copies[0]), before);
+    assert_eq!(versions(&copies[0]), [1]);
+    // Opened again, at this version, it is not copied again.
+    db.open();
+    assert_eq!(before_migration::copies(&dir).len(), 1);
+}
+
+#[test]
+fn the_newest_copies_taken_before_a_migration_are_kept_and_no_other_file_is_removed() {
+    let db = Db::new();
+    made_with_the_first_version(&db.path);
+    let dir = before_migration::dir(&db.path);
+    std::fs::create_dir_all(&dir).expect("the directory of the copies is made");
+    // Copies of earlier migrations, two more than are kept, and a daily copy, which is not one of them.
+    let earlier = before_migration::KEEP as u64 + 2;
+    for n in 1..=earlier {
+        std::fs::write(dir.join(format!("before-migration-{n:06}-v1.sqlite")), b"").expect("a copy is put there");
+    }
+    let daily = dir.join("store-0000000000001.sqlite.gz");
+    std::fs::write(&daily, b"").expect("a daily copy is put there");
+    db.open();
+    // The new copy is numbered after the last, and the oldest go until the newest are left.
+    let kept = names(&before_migration::copies(&dir));
+    let oldest = earlier + 2 - before_migration::KEEP as u64;
+    let expected: Vec<String> = (oldest..=earlier + 1)
+        .map(|n| format!("before-migration-{n:06}-v1.sqlite"))
+        .collect();
+    assert_eq!(kept.len(), before_migration::KEEP);
+    assert_eq!(kept, expected);
+    assert!(daily.exists());
 }

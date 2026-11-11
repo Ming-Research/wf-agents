@@ -16,6 +16,7 @@
 //! (principle `nothing-passes-for-normal`). The schema is [`SCHEMA`], kept in SQLite. A database made with an earlier
 //! version of it is brought to this one as it is opened, by the migrations of `db/migrations/`, each in its turn and all
 //! of them in one transaction with the opening, so that a database is either opened at this version or left as it was.
+//! Before that it is copied whole, so that a migration that goes wrong loses nothing ([`before_migration`]).
 //!
 //! The store also keeps what is the installation's and no work's: the pause of everything, set and lifted, with who set
 //! it: the owner, or the engine as it started with works going on.
@@ -26,6 +27,7 @@
 //!   to no work, and the backup's own task keeps them through a connection of its own ([`Backups`]).
 
 mod backups;
+pub mod before_migration;
 mod items;
 mod tables;
 
@@ -190,23 +192,19 @@ impl Store {
 
     fn start(mut db: Connection) -> Result<Store, Fault> {
         db.pragma_update(None, "foreign_keys", "ON")?;
+        // A database made with an earlier version is copied whole before it is migrated. SQLite takes no such copy
+        // inside a transaction, so it is taken ahead of the one that migrates, which reads the version again: where
+        // another process migrated the database in between, a copy was taken that nothing needed.
+        if let Some(earlier @ 1..SCHEMA_VERSION) = version(&db)? {
+            before_migration::copy(&db, earlier)?;
+        }
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let objects: u64 = tx.query_row("SELECT count(*) FROM sqlite_master", [], |row| row.get(0))?;
         if objects == 0 {
             tx.execute_batch(SCHEMA)?;
             tx.execute("INSERT INTO schema_version (version) VALUES (?1)", [SCHEMA_VERSION])?;
         } else {
-            let has_version: bool = tx.query_row(
-                "SELECT count(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'",
-                [],
-                |row| row.get(0),
-            )?;
-            let found = if has_version {
-                tx.query_row("SELECT version FROM schema_version", [], |row| row.get(0))
-                    .optional()?
-            } else {
-                None
-            };
+            let found = version(&tx)?;
             match found {
                 Some(SCHEMA_VERSION) => {}
                 // Made with an earlier version: each migration from it on is run, in this transaction, each replacing
@@ -227,6 +225,22 @@ impl Store {
         tx.commit()?;
         Ok(Store { db })
     }
+}
+
+/// The version of the schema a database says it was made with; none where it has no table of the version, as a new
+/// one, or no row in it.
+fn version(db: &Connection) -> Result<Option<u32>, Fault> {
+    let has_version: bool = db.query_row(
+        "SELECT count(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_version {
+        return Ok(None);
+    }
+    Ok(db
+        .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
+        .optional()?)
 }
 
 impl Storage for Store {
