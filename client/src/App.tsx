@@ -9,7 +9,7 @@ import { type CSSProperties, type ReactNode, Suspense, useCallback, useEffect, u
 import { type Comparison, type Definition, type Flow, load } from './api';
 import { Chart, type Chosen, Legend } from './Chart';
 import { LazyConsolePage } from './console/lazy';
-import { Engine, useBarItems, waitsForOwner } from './Engine';
+import { type BarItems, Engine, useBarItems, waitsForOwner } from './Engine';
 import { type Version, changeBlock, changeCell, matrix } from './matrix';
 import { Bar, Edge, Panel, StatusLine, Switch } from './parts';
 import { type Route, hashOf, tabOf, useRoute } from './route';
@@ -32,7 +32,7 @@ export function App() {
   }, [onFlow]);
   const route: Route = onFlow ? { view: 'flow' } : named;
   return (
-    <Shell route={route}>
+    <Shell route={route} serves={serves}>
       <Views route={route} serves={serves} />
     </Shell>
   );
@@ -117,10 +117,17 @@ export const TABS = [
 ];
 
 /// The page round a view: the bar with the views as tabs, the one shown marked and the console saying how many items
-/// wait for the owner; at its right the engine's part and the switch of light and dark.
-export function Shell({ route, children }: { route: Route; children: ReactNode }) {
+/// wait for the owner; at its right the engine's part and the switch of light and dark. The engine's part, and the
+/// items read for the count, are there only where the server gives everything: `wf-agents flow page` gives the flow
+/// alone, and has no engine to show.
+export function Shell({ route, serves = 'all', children }: {
+  route: Route;
+  /// What the server gives (serves.ts); nothing while it is being asked.
+  serves?: Serves | null;
+  children: ReactNode;
+}) {
   const [theme, setTheme] = useTheme();
-  const bar = useBarItems();
+  const [bar, setBar] = useState<BarItems>({ items: null, failed: null });
   const waiting = bar.items?.items.filter((i) => waitsForOwner(i.work.now)).length ?? 0;
   const views = TABS.map((t) =>
     t.href === '#/console' ? { ...t, count: waiting, countTitle: `${waiting} waiting for you` } : t,
@@ -133,7 +140,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
         current={tabOf(route)}
         end={
           <>
-            <Engine items={bar.items} failed={bar.failed} />
+            {serves === 'all' && <BarEngine onRead={setBar} />}
             <Switch<Theme>
             label="Light or dark"
             value={theme}
@@ -150,6 +157,13 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
       {children}
     </div>
   );
+}
+
+/// The engine's part of the bar, with the items it reads, which it tells the bar for the console's count.
+function BarEngine({ onRead }: { onRead: (bar: BarItems) => void }) {
+  const { items, failed } = useBarItems();
+  useEffect(() => onRead({ items, failed }), [items, failed, onRead]);
+  return <Engine items={items} failed={failed} />;
 }
 
 /// The limits of the flow as a whole, in one short muted sentence; the words of each in full on the pointer's tip.

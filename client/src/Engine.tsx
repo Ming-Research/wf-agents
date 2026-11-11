@@ -23,7 +23,9 @@ export function waitsForOwner(now: Now): boolean {
 }
 
 /// The items read for the bar, and read again whenever something happened.
-export function useBarItems(): { items: Items | null; failed: string | null } {
+export type BarItems = { items: Items | null; failed: string | null };
+
+export function useBarItems(): BarItems {
   const source = useSource();
   const load = useCallback(() => source.loadItems(), [source]);
   const { value, failed, read } = useReading(load);
