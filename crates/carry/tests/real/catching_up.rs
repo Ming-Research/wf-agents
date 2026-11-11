@@ -49,12 +49,19 @@ async fn a_run_of_the_build_after_main_moved_takes_it_in_and_is_told_so_once() {
     for run in &builds {
         assert!(rounds.join(format!("{}.main.json", run.0)).is_file());
     }
+    // The check after the run took main in, main not having moved, took nothing in of its own.
+    let check = real.run_of(work, "check");
+    let finished = (kept.records.finished.iter())
+        .find(|f| f.run == check)
+        .expect("the check finished");
+    let passed = &kept.contents[&("passed".into(), finished.at)];
+    assert!(!passed.contains("for the check"), "{passed}");
     // The branch holds the engine's merge of main, and the work merged it.
     let place = real.place(work);
     let log = git_in(&real.repo, &["log", &place.reference(), "--format=%s %ae"]);
     assert!(
         log.lines()
-            .any(|l| l.starts_with("Merge main at ") && l.ends_with(" wf-agents@localhost")),
+            .any(|l| l.starts_with("Merge main at ") && l.contains(" as run ") && l.ends_with(" wf-agents@localhost")),
         "{log}"
     );
 }

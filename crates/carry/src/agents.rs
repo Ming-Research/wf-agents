@@ -322,9 +322,14 @@ impl Inner {
         if round.number != 1 {
             return Ok(None);
         }
-        let caught = catch_up::take_in(&self.settings.project, place, &self.main).await;
+        let caught = catch_up::take_in(&self.settings.project, place, &self.main, round.run).await;
         let kept = serde_json::to_vec_pretty(&caught).map_err(|e| format!("{}: {e}", named()))?;
-        write(&at, &kept).await?;
+        // Written whole or not at all, so that a stop in the middle leaves no file the run's rounds cannot read.
+        let writing = at.with_extension("json.part");
+        write(&writing, &kept).await?;
+        tokio::fs::rename(&writing, &at)
+            .await
+            .map_err(|e| format!("{}: {e}", named()))?;
         Ok(Some(caught))
     }
 

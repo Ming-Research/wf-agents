@@ -62,6 +62,7 @@ fn changes_not_committed_and_a_failure_are_told_why_nothing_was_taken_in() {
     let left = caught(Outcome::Uncommitted {
         main: "beef".to_string(),
         changes: " M a.rs".to_string(),
+        merging: false,
     });
     let said = told(&small, false, &left);
     assert!(
@@ -69,6 +70,19 @@ fn changes_not_committed_and_a_failure_are_told_why_nothing_was_taken_in() {
             "\n\n## main not taken in\nThe worktree holds changes not committed, which taking main at beef in could \
              lose, so the engine took nothing in:\n M a.rs\nCommit them, then merge it yourself, with `git merge \
              beef`.\n"
+        ),
+        "{said}"
+    );
+    let merging = caught(Outcome::Uncommitted {
+        main: "beef".to_string(),
+        changes: "UU a.rs".to_string(),
+        merging: true,
+    });
+    let said = told(&small, false, &merging);
+    assert!(
+        said.ends_with(
+            "\n\n## main not taken in\nA merge is under way in the worktree and is not committed, so the engine \
+             took nothing in:\nUU a.rs\nFinish it and commit it, then merge main yourself, with `git merge beef`.\n"
         ),
         "{said}"
     );

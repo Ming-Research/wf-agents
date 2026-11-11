@@ -20,7 +20,7 @@ pub(super) async fn found(project: &Project, place: &Place, main: &str) -> Resul
     let repo = &project.repo;
     let head = git::git(repo, &["rev-parse", "--verify", &place.reference()]).await?;
     let main = git::git(repo, &["rev-parse", "--verify", main]).await?;
-    let Some(files) = git::conflicts(project, &main, &head).await? else {
+    let Some(git::Conflict { files, .. }) = git::conflicts(project, &main, &head).await? else {
         return Ok(None);
     };
     let name = &project.main;

@@ -104,7 +104,15 @@ fn caught_up(caught: &CaughtUp) -> Option<String> {
              before you change the code.",
             files.join("\n")
         ),
-        Outcome::Uncommitted { main, changes } => format!(
+        Outcome::Uncommitted {
+            main,
+            changes,
+            merging: true,
+        } => format!(
+            "## {name} not taken in\nA merge is under way in the worktree and is not committed, so the engine took \
+             nothing in:\n{changes}\nFinish it and commit it, then merge {name} yourself, with `git merge {main}`."
+        ),
+        Outcome::Uncommitted { main, changes, .. } => format!(
             "## {name} not taken in\nThe worktree holds changes not committed, which taking {name} at {main} in \
              could lose, so the engine took nothing in:\n{changes}\nCommit them, then merge it yourself, with \
              `git merge {main}`."
