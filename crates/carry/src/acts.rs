@@ -631,6 +631,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_check_takes_in_a_main_that_moved_and_judges_the_commit_that_merges_it() {
+        let repo = Repo::new("true");
+        let local = run(&repo.project.repo, &["rev-parse", "main"]);
+        let started = start_with(&repo, &Fake::new(&local)).await.unwrap();
+        let built = commit(&started.place.dir, "farewell.txt", "Bye.\n");
+        let main = commit(&repo.project.repo, "weather.txt", "Sunny.\n");
+        let host = Fake::new(&main).judges(Ok(Some(Verdict { failed: None, by: None })));
+        let checked = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
+        // The commit judged is the branch's new head, which merges main into what was built.
+        let head = run(&repo.project.repo, &["rev-parse", &repo.place(WORK).reference()]);
+        assert_eq!(checked.commit, head);
+        assert_eq!(checked.main, main);
+        let parents = run(&repo.project.repo, &["rev-list", "--parents", "-n", "1", &head]);
+        assert_eq!(parents, format!("{head} {built} {main}"));
+        assert!(
+            started.place.dir.join("weather.txt").is_file(),
+            "the worktree holds main's change"
+        );
+        let author = run(&repo.project.repo, &["log", "-1", "--format=%an <%ae>", &head]);
+        assert_eq!(author, "wf-agents <wf-agents@localhost>", "the engine made the commit");
+        assert_eq!(host.asked(), [Asked::Main, Asked::Verdict(head)]);
+    }
+
+    #[tokio::test]
+    async fn a_check_given_again_takes_main_in_once() {
+        let repo = Repo::new("true");
+        let local = run(&repo.project.repo, &["rev-parse", "main"]);
+        let started = start_with(&repo, &Fake::new(&local)).await.unwrap();
+        commit(&started.place.dir, "farewell.txt", "Bye.\n");
+        let main = commit(&repo.project.repo, "weather.txt", "Sunny.\n");
+        let judged = || Ok(Some(Verdict { failed: None, by: None }));
+        let host = Fake::new(&main).judges(judged()).judges(judged());
+        let first = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
+        let again = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
+        assert_eq!(again.commit, first.commit);
+    }
+
+    #[tokio::test]
+    async fn a_branch_that_holds_main_is_judged_as_it_is() {
+        let repo = Repo::new("true");
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let started = start_with(&repo, &Fake::new(&main)).await.unwrap();
+        let built = commit(&started.place.dir, "farewell.txt", "Bye.\n");
+        let host = Fake::new(&main).judges(Ok(Some(Verdict { failed: None, by: None })));
+        let checked = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
+        assert_eq!(checked.commit, built, "no commit is made");
+    }
+
+    #[tokio::test]
     async fn uncommitted_changes_are_found_without_asking_for_a_verdict() {
         let repo = Repo::new("true");
         let main = run(&repo.project.repo, &["rev-parse", "main"]);
