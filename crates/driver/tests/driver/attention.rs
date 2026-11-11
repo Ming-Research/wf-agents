@@ -4,6 +4,7 @@
 //! of lines, the rest coming again.
 
 use driver::attention::{Attention, Heed, Idle, LINES, Line, Mark, Refused, Stuck};
+use rusqlite::{Connection, params};
 
 use super::*;
 
@@ -428,4 +429,142 @@ fn a_mark_is_written_and_read_back_and_one_not_of_these_records_is_refused() {
     // A work left out of a mark had ended, and the work b has not.
     assert_eq!(refused("2"), Err(Refused::NotOfTheseRecords { work: wb }));
     assert!(refused("1").is_ok(), "a mark from before the second item was added");
+}
+
+/// Makes the records of the work faulty behind the driver's back, an entry at the place of its first, and opens the
+/// driver again on them.
+fn at_fault(h: &mut H, work: WorkNumber) {
+    let conn = Connection::open(&h.db.path).expect("the database opens");
+    let changed = conn
+        .execute(
+            "INSERT INTO let_go (work, at, cell) VALUES (?1, 1, 'write')",
+            params![work.0],
+        )
+        .expect("an entry is added behind the driver's back");
+    assert_eq!(changed, 1);
+    h.faulty.insert(work);
+    h.reopen();
+    assert!(matches!(h.decision(work), Decision::Fault(_)), "{:?}", h.decision(work));
+}
+
+#[test]
+fn a_work_whose_records_are_at_fault_is_a_line_first() {
+    let mut h = H::new();
+    let (_, wa) = h.add(new_item("a", &[], "plain"));
+    let added = Time(h.clock);
+    let (_, wb) = h.add(new_item("b", &[], "plain"));
+    h.let_on(wb);
+    asks_the_owner(&mut h, wb);
+    at_fault(&mut h, wa);
+    assert_eq!(
+        heeds(&since(&h, None)),
+        vec![Heed::Fault { work: wa }, Heed::ForAPerson { work: wb }]
+    );
+    assert_eq!(since(&h, None).lines[0].since, added);
+}
+
+#[test]
+fn a_work_waiting_for_an_item_whose_records_are_at_fault_is_idle() {
+    let mut h = H::new();
+    let (a, wa) = h.add(new_item("a", &[], "plain"));
+    let (_, wb) = h.add(new_item("b", &[a], "judged"));
+    h.let_on(wb);
+    at_fault(&mut h, wa);
+    assert_eq!(
+        heeds(&since(&h, None)),
+        vec![
+            Heed::Fault { work: wa },
+            Heed::Idle {
+                work: wb,
+                items: vec![Idle {
+                    item: a,
+                    why: Stuck::Fault
+                }],
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_work_waiting_for_an_item_that_rests_for_a_person_is_idle() {
+    let mut h = H::new();
+    let (a, wa) = h.add(new_item("a", &[], "plain"));
+    let (_, wb) = h.add(new_item("b", &[a], "judged"));
+    h.let_on(wa);
+    h.let_on(wb);
+    asks_the_owner(&mut h, wa);
+    assert_eq!(
+        heeds(&since(&h, None)),
+        vec![
+            Heed::ForAPerson { work: wa },
+            Heed::Idle {
+                work: wb,
+                items: vec![Idle {
+                    item: a,
+                    why: Stuck::ForAPerson
+                }],
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_work_waiting_for_a_precondition_the_owner_makes_hold_is_a_line() {
+    let flow = r#"
+        name = "gated"
+        order = ["write", "merge"]
+        [limits]
+        runs = 2
+        returns = 2
+        calls = 3
+        [lines.main]
+        [blocks.request]
+        people = true
+        [blocks.text]
+        [blocks.go]
+        values = ["yes", "no"]
+        people = true
+        [blocks.merged]
+        shown = true
+        [tests.may_merge]
+        says = "The owner let the work merge"
+        kind = "all"
+        reads = ["go"]
+        is = "yes"
+    "#;
+    let write = r#"
+        title = "Write"
+        kind = "agent"
+        line = "main"
+        task = "Write the text the request asks for."
+        inputs = ["request"]
+        outputs = ["text"]
+    "#;
+    let merge = r#"
+        title = "Merge"
+        kind = "engine"
+        act = "merge"
+        requires = ["may_merge"]
+        inputs = ["text"]
+        outputs = ["merged"]
+    "#;
+    let mut h = H::with(vec![compiled(flow, &[("write", write), ("merge", merge)])]);
+    let (_, w) = h.add(new_item("a", &[], "gated"));
+    h.let_on(w);
+    let mark = since(&h, None).mark;
+    h.hands_in(w, &[("text", None)]);
+    let Decision::Wait { on, .. } = h.decision(w) else {
+        panic!("the work does not wait: {:?}", h.decision(w));
+    };
+    assert!(
+        matches!(&on[..], [Waited::Precondition { by, .. }] if by == &vec![decide::Maker::Owner]),
+        "{on:?}"
+    );
+    assert_eq!(
+        since(&h, Some(&mark)).lines,
+        vec![Line {
+            heed: Heed::ForAPerson { work: w },
+            since: Time(h.clock),
+        }]
+    );
 }
