@@ -9,7 +9,9 @@
 //!
 //! 1. No run of the cell starts unless the dependencies block's current value, as the run starts, is the one the
 //!    precondition looks for (entry conditions-and-preconditions).
-//! 2. The cell finishes at most one run, and once it has, the work has ended as merged (entry work-has-no-position).
+//! 2. The cell finishes at most one run, and once it has, the work has ended as merged (entry work-has-no-position);
+//!    every run of it starts for its having no record, so that what people write of the item, its background, runs
+//!    nothing.
 //! 3. Once people stop, the outside says the items have merged and the owner lets the work on and lets on any run at a
 //!    limit, the work ends within `CONTENT` steps: merged, with the one finished run, unless it was cancelled (entry
 //!    a-work-comes-to-rest).
@@ -22,7 +24,8 @@
 //! act's round fails in one in ten while people act; otherwise it hands in what it writes, and in one in eight a block
 //! it may not write beside it, which sends it back. A person's or the outside's act is: the outside writing the
 //! dependencies block, merged in three of five, in three of ten acts; a person writing the dependencies block or what
-//! the cell writes, which must be refused, in one in ten; pausing or resuming in about one in six; letting the cell go
+//! the cell writes, which must be refused, in about one in twelve; a person writing the background, which the owner
+//! reads and no cell does, in one in fifty; pausing or resuming in about one in six; letting the cell go
 //! on in about one in twelve; cancelling in one in fifty; a look otherwise.
 //!
 //! The histories of the engine's own properties on every shape of flow are in `histories.rs`; the shape these use is
@@ -35,7 +38,7 @@ mod support;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 
-use decide::{BlockId, Decision, End, Outsider, Pauser, RunId, TestKind, Waited, Who, decide};
+use decide::{BlockId, Cause, Decision, End, Outsider, Pauser, RunId, TestKind, Waited, Who, decide};
 use engine::{Call, Came, Effect, Event, Given, Handed, Spent, Time, Work, handle};
 use flow::{Compiled, Has, Kind, compile, read};
 use support::{Driver, Part, Rng};
@@ -124,6 +127,13 @@ fn the_deliver_flow_is_one_act_of_the_engines_held_until_the_items_it_is_made_of
         flow.blocks[&BlockId::from("delivered")].readers.shown,
         "the owner reads what was delivered"
     );
+    // What the item is to deliver: people write it, the owner reads it, and no cell does, so that the cell takes no
+    // input from it and an edit of it runs nothing.
+    assert_eq!(cell.inputs, Vec::<BlockId>::new());
+    let background = &flow.blocks[&BlockId::from("background")];
+    assert!(background.writers.people && background.readers.shown);
+    assert_eq!(background.values, None);
+    assert_eq!(background.readers.cells, vec![]);
 }
 
 #[test]
@@ -222,7 +232,8 @@ impl Part for Deliverable {
                 wrote(&self.deps, Outsider::Outside, Some(value))
             }
             30..=34 => wrote(&self.deps, Outsider::Person, Some(self.merged.as_str())),
-            35..=39 => wrote(&BlockId::from("delivered"), Outsider::Person, None),
+            35..=37 => wrote(&BlockId::from("delivered"), Outsider::Person, None),
+            38..=39 => wrote(&BlockId::from("background"), Outsider::Person, None),
             40..=56 => {
                 if d.paused {
                     Event::Resumed
@@ -257,12 +268,20 @@ struct Seen {
     cancels: usize,
     /// Histories whose continuation ended merged.
     merged: usize,
+    /// Writes of the background by a person.
+    background: usize,
 }
 
 /// What must hold of the deliver flow after every step: properties 1 and 2.
 fn check(d: &Driver, part: &Deliverable) {
     let r = &d.work.records;
     for s in &r.started {
+        assert_eq!(
+            s.because,
+            [Cause::NoRecord],
+            "{:?} started for what was written, though the cell reads nothing",
+            s.run
+        );
         let value = (r.written.iter())
             .filter(|w| w.block == part.deps && w.at < s.at)
             .max_by_key(|w| w.at)
@@ -404,6 +423,7 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
         .filter(|g| matches!(g, Given::SentBack(_)))
         .count();
     seen.stops = d.seen.stops;
+    seen.background = (r.written.iter()).filter(|w| w.block.as_str() == "background").count();
     *log = std::mem::take(&mut d.log);
     if let Err(e) = result {
         panic::resume_unwind(e);
@@ -436,6 +456,7 @@ fn whole_works_on_the_deliver_flow_wait_for_their_items_deliver_once_and_come_to
                 seen.stops += s.stops;
                 seen.cancels += s.cancels;
                 seen.merged += s.merged;
+                seen.background += s.background;
             }
             Err(e) => {
                 let message = (e.downcast_ref::<String>().cloned())
@@ -461,6 +482,7 @@ fn whole_works_on_the_deliver_flow_wait_for_their_items_deliver_once_and_come_to
         && seen.failed > 0
         && seen.stops > 0
         && seen.cancels > 0
-        && seen.merged > 0;
+        && seen.merged > 0
+        && seen.background > 0;
     assert!(every, "a class of step never occurred: {seen:?}");
 }

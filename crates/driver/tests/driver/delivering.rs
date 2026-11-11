@@ -1,7 +1,8 @@
 //! Deliverable items: an item on the deliver flow as the repository defines it (`flow/deliver`), which has nothing to
 //! do of its own and is made of the items it depends on. Its one cell waits until they have all merged, runs once,
 //! and the work has then ended as merged, so that an item that depends on it may start in its turn. The driver knows
-//! no flow by its name: the deliver flow is one more definition with a dependencies block.
+//! no flow by its name: the deliver flow is one more definition with a dependencies block. What the item is to deliver
+//! is its background, which people write and no cell reads.
 
 use std::path::Path;
 
@@ -120,4 +121,34 @@ fn a_deliverable_made_of_an_item_that_was_cancelled_waits_for_good() {
     h.on(wa, Event::Cancelled);
     assert_eq!(h.decision(wd), waits_to_be_delivered());
     assert_eq!(runs(&h, wd), 0);
+}
+
+#[test]
+fn a_deliverable_added_with_its_background_keeps_it_and_is_delivered_as_one_without() {
+    let mut h = harness();
+    let (a, wa) = h.add(new_item("a", &[], "short"));
+    let mut new = new_item("d", &[a], "deliver");
+    new.writes = vec![first_write("background", None)];
+    let (_, wd) = h.add(new);
+    h.let_on(wd);
+    assert_eq!(h.decision(wd), waits_to_be_delivered());
+    // An edit of what it is to deliver runs nothing: no cell reads it.
+    let todos = h.on(wd, wrote("background", Outsider::Person, None));
+    assert_eq!(todos, vec![]);
+    assert_eq!(h.decision(wd), waits_to_be_delivered());
+    h.let_on(wa);
+    let todos = h.through(wa);
+    assert_eq!(rounds(&todos), [(wd, "V1".to_string(), 1)]);
+    h.hands_in(wd, &[("delivered", None)]);
+    assert_eq!(h.decision(wd), Decision::Ended(End::Merged));
+    assert_eq!(runs(&h, wd), 1);
+    let kept = h.d().work(wd).expect("the work is there");
+    let background: Vec<&str> = (kept.work.records.written.iter())
+        .filter(|w| w.block == block("background"))
+        .map(|w| kept.work.contents[&(w.block.clone(), w.at)].as_str())
+        .collect();
+    assert_eq!(
+        background,
+        ["background, as first written", "background, as written by Person"]
+    );
 }

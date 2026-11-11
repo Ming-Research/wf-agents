@@ -38,7 +38,15 @@ fn a_deliverable_made_of_an_engineers_item_is_delivered_once_it_merges_and_lets_
     let place = Place::new(SCRIPT);
     let engine = Engine::start_with(run_both(&place));
     let add = |title: &str, flow: &str, after: Option<&str>| {
-        let mut args = vec!["add", "--title", title, "--flow", flow];
+        let mut args = vec![
+            "add",
+            "--title",
+            title,
+            "--flow",
+            flow,
+            "--write",
+            "background=What it is to deliver.",
+        ];
         args.extend(after.map(|after| ["--depends-on", after]).into_iter().flatten());
         engine.says(&args)
     };
@@ -79,4 +87,8 @@ fn a_deliverable_made_of_an_engineers_item_is_delivered_once_it_merges_and_lets_
     let shown = engine.says(&["show", "2"]);
     assert!(shown.contains("\n  V1: done, its record being run "), "{shown}");
     assert!(shown.contains("\n  delivered: 1 version, the latest "), "{shown}");
+    assert!(
+        shown.contains("\n  background: 1 version, the latest 22 characters, by a person\n"),
+        "{shown}"
+    );
 }
