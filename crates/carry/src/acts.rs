@@ -210,8 +210,10 @@ impl<H: Host> Inner<H> {
             },
             "merge" => {
                 let checked = passed(&round.flow, &round.kept)?;
-                let merged = merge(project, &self.host, &branch, checked.as_deref(), &self.repository).await?;
+                let merged = merge(&self.host, &branch, checked.as_deref(), &self.repository).await;
+                // Merged or refused for a moved main, the watch looks at main at once.
                 self.merged.notify_one();
+                let merged = merged?;
                 let content = format!(
                     "The branch {} is merged into {}, whose head is now {merged}.",
                     place.reference(),
@@ -232,7 +234,10 @@ impl<H: Host> Inner<H> {
         loop {
             let head = {
                 let _held = self.repository.lock().await;
-                self.host.main().await
+                match git::repository_configuration(&self.project).await {
+                    Ok(()) => self.host.main().await,
+                    Err(why) => Err(why),
+                }
             };
             match head {
                 Ok(head) => {
@@ -253,28 +258,15 @@ impl<H: Host> Inner<H> {
     }
 }
 
-/// Merges the work's branch on the host, holding the repository, where the commit the check passed holds main's head
-/// as the host gives it now: one that does not was checked against a main that has since moved, and merged, it would
-/// land what nothing checked. Says why where it does not merge.
+/// Merges the work's branch on the host, holding the repository: the host finds a merge made already, and refuses a
+/// main the commit the check passed does not hold ([`Host::merge`]).
 pub(crate) async fn merge(
-    project: &Project,
     host: &impl Host,
     branch: &Branch<'_>,
     checked: Option<&str>,
     repository: &Mutex<()>,
 ) -> Result<String, String> {
     let _held = repository.lock().await;
-    if let Some(checked) = checked {
-        let main = host.main().await?;
-        let holds = git::said(&project.repo, &["merge-base", "--is-ancestor", &main, checked]).await?;
-        if !holds.ok {
-            return Err(format!(
-                "{} has moved to {main} since the check passed {checked}, which does not hold it: the check runs \
-                 again once the block of main says so, and the work merges after it",
-                project.main
-            ));
-        }
-    }
     host.merge(branch, checked).await
 }
 

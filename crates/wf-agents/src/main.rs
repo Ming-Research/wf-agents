@@ -238,8 +238,8 @@ fn main() -> ExitCode {
 }
 
 /// The names of the sources outside a work that write its blocks, which every definition is compiled against:
-/// `dependencies`, written by the engine's driver; and `main`, `session` and `tree`, written by the host's adapters,
-/// which are not built yet.
+/// `dependencies`, written by the engine's driver; `main`, written by the acts' watch of main on the host; and
+/// `session` and `tree`, whose writers are not built yet.
 const SOURCES: [&str; 4] = ["dependencies", "main", "session", "tree"];
 
 /// The names of the acts of the engine's own that carry out an engine cell: `start` makes the place a work is done

@@ -23,9 +23,10 @@ const STORE: &str = "store.sqlite";
 /// The file in the data directory whose lock says that an engine runs on it.
 const HELD: &str = "engine.lock";
 
-/// What a flow run here may name: what every definition is compiled against. Of the sources this process writes the
-/// driver's alone, whether the items an item depends on have merged; nothing writes the host's yet, so a block of
-/// `main`, `session` or `tree` stays unwritten, and a cell that reads one starts from no version of it.
+/// What a flow run here may name: what every definition is compiled against. Of the sources, this process writes the
+/// driver's, whether the items an item depends on have merged, and, with the real carriers, `main`, through the
+/// acts' watch of main; nothing writes `session` or `tree` yet, so a block of either stays unwritten, and a cell that
+/// reads one starts from no version of it.
 fn has(source: &Source) -> Has {
     crate::has(source)
 }
