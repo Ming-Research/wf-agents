@@ -235,6 +235,7 @@ mod tests {
             env: Vec::new(),
             setting_sources: "user".to_string(),
             config_dir: None,
+            permissions: Default::default(),
             owner_language: "Chinese".to_string(),
             work_budget_usd: None,
         }
@@ -301,7 +302,7 @@ mod tests {
     #[test]
     fn the_command_line_begins_a_session_and_goes_on_in_it() {
         let session = Uuid::parse_str("6a1f3c2e-8d4b-4e7a-9c5f-2b8e1d0a7f43").unwrap();
-        let permissions = Permissions::of(true, &[]);
+        let permissions = Permissions::of(true, &[], &Default::default());
         let head = |begin| arguments(&agents(), "PROTOCOL", "SCHEMA", &permissions, session, begin);
         let common = [
             "-p",

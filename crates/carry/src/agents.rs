@@ -181,7 +181,8 @@ impl Inner {
         }
         let group = base.with_extension("pgid");
         process::stop_left(&group, &dir).await;
-        let permissions = Permissions::of(round.cell.reads_only, &self.settings.agents.args);
+        let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
+        let permissions = Permissions::of(round.cell.reads_only, args, added);
         let session = session::session(self.installation, round.work, line);
         let mut begin = cli::begin(flow, work, line);
         let before = cli::spent_before(flow, work, line);

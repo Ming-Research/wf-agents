@@ -8,14 +8,7 @@ in.
 ## Where you work
 
 You work in the current directory: the worktree of the work's own branch. {your_line} Never switch to another
-branch. Builds, test suites and pushing are refused here: the tool `check` runs the project's check, and only the
-engine pushes.
-
-The permission check judges each command of a chain (`&&`, `;`) or a pipe by itself: a chain of git commands passes,
-and so does a pipe into `head`, `tail`, `sed -n`, `wc`, `grep`, `sort` or `cut`; a pipe into `awk`, and `$(...)` or
-backticks, are refused. Run git only where you work: a `cd` to another directory before git is refused, and
-`git -C <another directory>` runs `log`, `show` and `ls-tree` but has its `grep` and `diff` refused. The project's own
-checkout is such a directory, and holds no history your working directory lacks.
+branch. To build and test, ask for `check`.
 
 ## How you return
 

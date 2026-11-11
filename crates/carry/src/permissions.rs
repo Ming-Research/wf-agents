@@ -1,19 +1,21 @@
 //! What the agents of a line may run: the rules the engine gives every round's command line after the installation's
-//! own arguments (`agents.args`), and what the agent is told of them in its system prompt, so that it does not find
-//! out by being refused.
+//! own arguments (`agents.args`), and what the agent is told in its system prompt that no rule says by itself.
 //!
 //! On every line the heavy commands are refused: compiling, type checking, building, test suites, benchmarks, and
-//! pushing. The project's check is the tool `check`, which the engine runs, and only the engine pushes; run by an
-//! agent, they would fight the owner for the processor, and push what no check passed. On a line that writes, the
-//! commands that update a lock file and build, run and install nothing are allowed, though a heavy command covers
-//! them, rather than leave the agent to write a lock file by hand and the check to find its mistakes. A line that
-//! only reads, as its line in the flow says, is refused the tools that edit files and the git commands that change the
-//! repository; those that only read, such as `show`, `diff` and `log`, it may run.
+//! pushing. The project's check is had through the tool `check`, and only the engine pushes; run by an agent, they
+//! would fight the owner for the processor, and push what no check passed. On a line that writes, the commands that
+//! update a lock file and build, run and install nothing are allowed, though a heavy command covers them, rather than
+//! leave the agent to write a lock file by hand and the check to find its mistakes. A line that only reads, as its
+//! line in the flow says, is refused the tools that edit files and the git commands that change the repository; those
+//! that only read, such as `show`, `diff` and `log`, it may run. The lists are the engine's, and an installation's
+//! settings may add to them (`agents.permissions`) for its project's toolchain.
 //!
 //! The command line allows what a rule of the installation's arguments or of these allows, unless a rule of either
 //! refuses it, and refuses what any rule refuses even where another allows it. A flag given twice adds its values to
 //! those it was given before, as `claude`'s parser of arguments does with every flag that takes a list (checked with
 //! claude 2.1.316).
+
+use crate::settings::PermissionsAdded;
 
 /// The heavy commands, each a command with the start of its arguments: no agent runs them.
 pub const HEAVY: [&str; 33] = [
@@ -125,40 +127,58 @@ pub struct Permissions {
 }
 
 impl Permissions {
-    /// The permissions of a line that only reads or that writes, for the installation's arguments `args`.
+    /// The permissions of a line that only reads or that writes, for the installation's arguments `args` and what its
+    /// settings add to the engine's lists, `added`.
     ///
     /// A heavy command that a lock command falls under, such as `cargo` for `cargo update`, is not refused whole on a
     /// line that writes, since the command line would then refuse the lock command too. Its other uses are then
     /// refused only as every command is that no rule allows, so each rule of the installation's arguments that allows
-    /// one, such as `Bash(cargo fmt *)`, is refused again. Where those arguments allow all of the heavy command, or
-    /// every command, it is refused whole, and the lock commands under it are not allowed. The uses of the lock
-    /// commands that would build, run or install after all are refused wherever a lock command is allowed.
-    pub fn of(reads_only: bool, args: &[String]) -> Permissions {
+    /// one, such as `Bash(cargo fmt *)` or `Bash(cargo f*)`, is refused again. Where those arguments allow all of the
+    /// heavy command, as `Bash(carg*)` does, or every command, it is refused whole, and the lock commands under it are
+    /// not allowed. The uses of the lock commands that would build, run or install after all are refused wherever a
+    /// lock command is allowed.
+    pub fn of(reads_only: bool, args: &[String], added: &PermissionsAdded) -> Permissions {
+        let heavy: Vec<&str> = HEAVY
+            .iter()
+            .copied()
+            .chain(added.heavy.iter().map(String::as_str))
+            .collect();
         let allows = allows(args);
-        let commands = bash_commands(&allows);
+        let rules: Vec<Allow> = allows.iter().filter_map(Allow::of).collect();
         let locks: Vec<String> = if reads_only {
             Vec::new()
         } else {
-            (LOCKS.iter())
-                .filter(|l| !HEAVY.iter().any(|h| falls_under(l, h) && allowed_whole(h, &commands)))
-                .map(|l| l.to_string())
-                .collect()
+            (LOCKS
+                .iter()
+                .copied()
+                .chain(added.locks.iter().take(0).map(String::as_str)))
+            .filter(|l| {
+                !heavy
+                    .iter()
+                    .any(|h| falls_under(l, h) && rules.iter().any(|r| r.covers(h)))
+            })
+            .map(str::to_string)
+            .collect()
         };
         let allowed = locks.iter().map(|c| format!("Bash({c} *)")).collect();
         let mut refused: Vec<String> = Vec::new();
-        for h in HEAVY {
+        for h in &heavy {
             if !locks.iter().any(|l| falls_under(l, h)) {
                 refused.push(format!("Bash({h} *)"));
                 continue;
             }
-            for (rule, c) in &commands {
-                if falls_under(c, h) && !locks.iter().any(|l| falls_under(c, l)) && !refused.contains(rule) {
-                    refused.push(rule.to_string());
+            for r in &rules {
+                if r.within(h) && !locks.iter().any(|l| r.within(l)) && !refused.contains(r.rule) {
+                    refused.push(r.rule.to_string());
                 }
             }
         }
         if !locks.is_empty() {
-            refused.extend(LOCKS_EXCEPT.iter().map(|c| format!("Bash({c})")));
+            let except = LOCKS_EXCEPT
+                .iter()
+                .copied()
+                .chain(added.locks_except.iter().map(String::as_str));
+            refused.extend(except.map(|c| format!("Bash({c})")));
         }
         if reads_only {
             refused.extend(EDIT_TOOLS.iter().map(|t| t.to_string()));
@@ -186,31 +206,21 @@ impl Permissions {
         out
     }
 
-    /// What the agent is told its line may do in the worktree, in one line of the system prompt: that it only reads
-    /// there, or that it commits there and the commands it updates a lock file with. A bare `cargo update` upgrades
-    /// every dependency, which would fill the work's diff with changes it did not need, so where it is among them the
-    /// agent is told how to change only what the work needs.
+    /// What the agent is told its line may do in the worktree, in one line of the system prompt, which no rule says by
+    /// itself: that it changes no file there, or that it commits there and the commands it may update a lock file with.
     pub fn told(&self) -> String {
         if self.reads_only {
-            return "You only read it, and change and commit nothing: the tools that edit files and the git commands \
-                    that change the repository are refused."
-                .to_string();
+            return "You only read it, and change no file.".to_string();
         }
         let mut out = "Make your changes there and commit them there.".to_string();
-        if self.locks.is_empty() {
-            return out;
-        }
-        let named: Vec<String> = self.locks.iter().map(|c| format!("`{c}`")).collect();
-        out.push_str(&format!(
-            " Change a lock file with one of these commands, your arguments after it, in the directory of the manifest \
-             it changes, rather than by hand: {}. Each writes the lock file and builds, runs and installs nothing.",
-            named.join(", ")
-        ));
-        if self.locks.iter().any(|c| c == "cargo update") {
-            out.push_str(
-                " Bring Cargo.lock in line with an edited Cargo.toml with `cargo update --workspace`, and move one \
-                 dependency with `cargo update -p <crate>`; a bare `cargo update` upgrades every dependency.",
-            );
+        if !self.locks.is_empty() {
+            let named: Vec<String> = self.locks.iter().map(|c| format!("`{c}`")).collect();
+            let named = match named.split_last() {
+                Some((last, [])) => last.clone(),
+                Some((last, rest)) => format!("{} or {last}", rest.join(", ")),
+                None => String::new(),
+            };
+            out.push_str(&format!(" Update a lock file with {named}, your arguments after it."));
         }
         out
     }
@@ -254,16 +264,58 @@ fn falls_under(command: &str, heavy: &str) -> bool {
     (command.strip_prefix(heavy)).is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
 }
 
-/// The rules of `allows` that let commands run in the command line's shell, each with the command it names
-/// ([`bash_command`]).
-fn bash_commands(allows: &[String]) -> Vec<(&String, &str)> {
-    allows.iter().filter_map(|r| bash_command(r).map(|c| (r, c))).collect()
+/// A rule of the command line's tools that lets commands run in its shell, with what it matches: every command that
+/// is `command` or `command` with more arguments after it where it is `bounded`; every command whose text begins with
+/// `command` where it is not, as `Bash(carg*)` matches `cargo` and `cargox`. An empty command, which a bare `Bash`
+/// or a rule that starts with `*` has, may match every command.
+struct Allow<'a> {
+    rule: &'a String,
+    command: &'a str,
+    bounded: bool,
 }
 
-/// Whether the installation's arguments, by the rules `commands` of theirs, allow all of `heavy`: a rule names it or a
-/// command it falls under, or may cover every command.
-fn allowed_whole(heavy: &str, commands: &[(&String, &str)]) -> bool {
-    commands.iter().any(|(_, c)| c.is_empty() || falls_under(heavy, c))
+impl<'a> Allow<'a> {
+    /// What the rule matches: `Bash(cargo fmt *)`, `Bash(cargo fmt:*)` and the exact `Bash(cargo fmt)` name `cargo fmt`
+    /// at a word's end; a `*` anywhere else makes what comes before it a beginning of any text, as in `Bash(carg*)` or
+    /// `Bash(git * push)`. None for a rule of another tool.
+    fn of(rule: &'a String) -> Option<Allow<'a>> {
+        if rule == "Bash" {
+            return Some(Allow {
+                rule,
+                command: "",
+                bounded: false,
+            });
+        }
+        let body = rule.strip_prefix("Bash(")?.strip_suffix(')')?;
+        let (command, bounded) = match body.split_once('*') {
+            None => (body.trim(), true),
+            Some((head, _)) => match head.strip_suffix(':') {
+                Some(head) => (head.trim(), true),
+                None => (head.trim(), true),
+            },
+        };
+        Some(Allow {
+            rule,
+            command,
+            bounded: bounded && !command.is_empty(),
+        })
+    }
+
+    /// Whether the rule matches every use of `heavy`, a command with the start of its arguments.
+    fn covers(&self, heavy: &str) -> bool {
+        match self.bounded {
+            true => falls_under(heavy, self.command),
+            false => heavy.starts_with(self.command),
+        }
+    }
+
+    /// Whether everything the rule matches falls under `command` (one that matches every use of it among them).
+    fn within(&self, command: &str) -> bool {
+        match self.bounded {
+            true => falls_under(self.command, command),
+            false => self.command.starts_with(&format!("{command} ")),
+        }
+    }
 }
 
 /// The rules a value of a list of tool rules holds, split at commas and spaces outside parentheses.
@@ -283,21 +335,6 @@ fn rules_in(value: &str) -> Vec<String> {
     }
     out.push(&value[start..]);
     out.into_iter().filter(|r| !r.is_empty()).map(str::to_string).collect()
-}
-
-/// The command a rule of the command line's tools lets run in its shell, as a command with the start of its
-/// arguments: what `Bash(cargo fmt *)`, `Bash(cargo fmt:*)` or `Bash(cargo fmt)` names, `cargo fmt`; empty for one
-/// that may cover every command, a bare `Bash` or a rule that starts with `*`. None for a rule of another tool.
-fn bash_command(rule: &str) -> Option<&str> {
-    if rule == "Bash" {
-        return Some("");
-    }
-    let body = rule.strip_prefix("Bash(")?.strip_suffix(')')?;
-    let command = (body.strip_suffix(":*"))
-        .or_else(|| body.strip_suffix('*'))
-        .unwrap_or(body)
-        .trim();
-    Some(if command.starts_with('*') { "" } else { command })
 }
 
 #[cfg(test)]

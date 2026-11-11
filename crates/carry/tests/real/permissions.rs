@@ -62,6 +62,6 @@ async fn a_line_that_writes_and_one_that_only_reads_are_each_given_what_they_may
     assert!(after(review, "--allowedTools").is_empty());
     assert!(told(review, "You only read it"));
     assert!(!told(review, "Make your changes there"));
-    // Every line is told how the permission check takes git.
-    assert!(told(plan, "The permission check judges each command") && told(review, "The permission check judges"));
+    // Every line is told how it builds and tests.
+    assert!(told(plan, "To build and test, ask for `check`.") && told(review, "To build and test, ask for `check`."));
 }

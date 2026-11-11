@@ -1,5 +1,10 @@
 use super::*;
 
+/// The permissions of a line for the installation's arguments, with nothing added by its settings.
+fn of(reads_only: bool, args: &[String]) -> Permissions {
+    Permissions::of(reads_only, args, &PermissionsAdded::default())
+}
+
 fn args(args: &[&str]) -> Vec<String> {
     args.iter().map(|a| a.to_string()).collect()
 }
@@ -8,7 +13,7 @@ fn args(args: &[&str]) -> Vec<String> {
 // and may still read with git; a line that writes is refused neither.
 #[test]
 fn a_line_that_only_reads_edits_nothing_and_changes_no_repository() {
-    let refused = Permissions::of(true, &[]).refused;
+    let refused = of(true, &[]).refused;
     for t in EDIT_TOOLS {
         assert!(refused.iter().any(|r| r == t), "{t}");
     }
@@ -18,7 +23,7 @@ fn a_line_that_only_reads_edits_nothing_and_changes_no_repository() {
     for g in ["show", "diff", "log", "fetch", "grep"] {
         assert!(!refused.contains(&format!("Bash(git {g} *)")), "git {g}");
     }
-    let writes = Permissions::of(false, &[]).refused;
+    let writes = of(false, &[]).refused;
     assert!(!writes.iter().any(|r| r == "Edit" || r == "Bash(git commit *)"));
 }
 
@@ -28,7 +33,7 @@ fn a_line_that_only_reads_edits_nothing_and_changes_no_repository() {
 // of them, and refused every heavy command whole.
 #[test]
 fn only_a_line_that_writes_may_update_a_lock_file() {
-    let writes = Permissions::of(false, &[]);
+    let writes = of(false, &[]);
     let locks = [
         "Bash(cargo update *)",
         "Bash(cargo add *)",
@@ -57,7 +62,7 @@ fn only_a_line_that_writes_may_update_a_lock_file() {
     }
     assert_eq!(writes.refused.len(), HEAVY.len() - 2 + LOCKS_EXCEPT.len());
 
-    let reads = Permissions::of(true, &[]);
+    let reads = of(true, &[]);
     assert!(reads.allowed.is_empty() && reads.locks.is_empty());
     for heavy in HEAVY {
         assert!(reads.refused.contains(&format!("Bash({heavy} *)")), "{heavy}");
@@ -91,7 +96,7 @@ fn what_the_installation_allows_under_a_heavy_command_stays_refused() {
             "Read"
         ]
     );
-    let refused = Permissions::of(false, &installed).refused;
+    let refused = of(false, &installed).refused;
     assert!(refused.iter().any(|r| r == "Bash(cargo fmt *)"), "{refused:?}");
     assert!(
         !(refused.iter()).any(|r| r == "Bash(cargo *)" || r.starts_with("Bash(cargo update") || r == "Bash(git *)"),
@@ -100,7 +105,7 @@ fn what_the_installation_allows_under_a_heavy_command_stays_refused() {
     assert_eq!(refused.len(), HEAVY.len() - 2 + LOCKS_EXCEPT.len() + 1);
     // A value after `=`, an exact command, and several rules in one word split at commas and spaces.
     let exact = args(&["--allowed-tools=Bash(cargo fmt --check) Bash(npm install foo:*)"]);
-    let refused = Permissions::of(false, &exact).refused;
+    let refused = of(false, &exact).refused;
     assert!(refused.iter().any(|r| r == "Bash(cargo fmt --check)"), "{refused:?}");
     assert!(refused.iter().any(|r| r == "Bash(npm install foo:*)"), "{refused:?}");
     // The whole of a heavy command allowed, every command allowed, or the permission checks skipped or left to the
@@ -117,7 +122,7 @@ fn what_the_installation_allows_under_a_heavy_command_stays_refused() {
         (&["--permission-mode=auto"], vec![]),
     ];
     for (given, kept) in cases {
-        let permissions = Permissions::of(false, &args(given));
+        let permissions = of(false, &args(given));
         assert!(permissions.refused.iter().any(|r| r == "Bash(cargo *)"), "{given:?}");
         assert_eq!(permissions.locks, kept, "{given:?}");
         let allowed: Vec<String> = kept.iter().map(|k| format!("Bash({k} *)")).collect();
@@ -127,10 +132,10 @@ fn what_the_installation_allows_under_a_heavy_command_stays_refused() {
         assert!(permissions.refused.iter().any(|r| r == "Bash(git push *)"), "{given:?}");
     }
     // The permission mode the sample's installation runs in leaves every lock command allowed.
-    assert_eq!(Permissions::of(false, &installed).locks, LOCKS);
+    assert_eq!(of(false, &installed).locks, LOCKS);
     // A line that only reads keeps every heavy command whole whatever the arguments allow, and refuses no rule of
     // theirs.
-    let review = Permissions::of(true, &installed).refused;
+    let review = of(true, &installed).refused;
     assert!(review.iter().any(|r| r == "Bash(cargo *)") && !review.iter().any(|r| r == "Bash(cargo fmt *)"));
 }
 
@@ -151,7 +156,7 @@ fn the_npm_options_that_would_undo_the_lock_command_are_refused_and_it_is_not() 
     let refused = |command: &str| LOCKS_EXCEPT.iter().any(|e| matches(e, command));
     let lock = "npm install --package-lock-only --ignore-scripts";
     assert!(!refused(lock));
-    let allowed = Permissions::of(false, &[]).allowed;
+    let allowed = of(false, &[]).allowed;
     for given in ["happy-dom", "-D --save-exact happy-dom@21.0.4", "-w client vitest"] {
         let command = format!("{lock} {given}");
         assert!(
@@ -190,46 +195,109 @@ fn the_npm_options_that_would_undo_the_lock_command_are_refused_and_it_is_not() 
 // no empty list.
 #[test]
 fn the_permissions_are_given_as_the_command_line_s_lists_of_rules() {
-    let writes = Permissions::of(false, &[]);
+    let writes = of(false, &[]);
     let given = writes.arguments();
     let refused_at = given.iter().position(|a| a == "--disallowedTools").expect("refused");
     assert_eq!(given[0], "--allowedTools");
     assert_eq!(given[1..refused_at], writes.allowed[..]);
     assert_eq!(given[refused_at + 1..], writes.refused[..]);
-    let reads = Permissions::of(true, &[]).arguments();
+    let reads = of(true, &[]).arguments();
     assert_eq!(reads[0], "--disallowedTools");
     assert!(!reads.iter().any(|a| a == "--allowedTools"));
 }
 
-// An agent is told what its line may do in the worktree: that it only reads, or that it commits there and with which
-// commands it changes a lock file, how to move one dependency with Cargo among them; nothing of a lock command its
-// line is not allowed.
+// An agent is told what its line may do in the worktree that no rule says by itself: that it changes no file, or that
+// it commits there and with which commands it updates a lock file; nothing of a lock command its line is not allowed.
 #[test]
 fn an_agent_is_told_what_its_line_may_do() {
-    let reads = Permissions::of(true, &[]).told();
-    assert!(reads.starts_with("You only read it"), "{reads}");
-    assert!(!reads.contains("cargo update"), "{reads}");
+    let reads = of(true, &[]).told();
+    assert_eq!(reads, "You only read it, and change no file.");
 
-    let writes = Permissions::of(false, &[]).told();
-    assert!(
-        writes.starts_with("Make your changes there and commit them there."),
-        "{writes}"
+    let writes = of(false, &[]).told();
+    assert_eq!(
+        writes,
+        "Make your changes there and commit them there. Update a lock file with `cargo update`, `cargo add` or \
+         `npm install --package-lock-only --ignore-scripts`, your arguments after it."
     );
-    for lock in LOCKS {
-        assert!(writes.contains(&format!("`{lock}`")), "{lock}: {writes}");
-    }
-    assert!(writes.contains("`cargo update -p <crate>`"), "{writes}");
-
-    let open = Permissions::of(false, &args(&["--allowedTools", "Bash(cargo:*)"])).told();
-    assert!(!open.contains("cargo"), "{open}");
-    assert!(
-        open.contains("`npm install --package-lock-only --ignore-scripts`"),
-        "{open}"
+    let open = of(false, &args(&["--allowedTools", "Bash(cargo:*)"])).told();
+    assert_eq!(
+        open,
+        "Make your changes there and commit them there. Update a lock file with \
+         `npm install --package-lock-only --ignore-scripts`, your arguments after it."
     );
-    let none = Permissions::of(false, &args(&["--dangerously-skip-permissions"])).told();
+    let none = of(false, &args(&["--dangerously-skip-permissions"])).told();
     assert_eq!(none, "Make your changes there and commit them there.");
+}
+
+// An allow of the installation's that matches a heavy command's text without a word's end counts as reaching it: one
+// that may match all of it refuses it whole, and one that matches only some of its uses is refused again.
+#[test]
+fn an_allow_without_a_word_s_end_reaches_the_heavy_commands_it_can_match() {
+    let whole = of(false, &args(&["--allowedTools", "Bash(carg*)"]));
     assert!(
-        !writes.contains('\n') && !reads.contains('\n'),
-        "each is one line of the prompt"
+        whole.refused.iter().any(|r| r == "Bash(cargo *)"),
+        "{:?}",
+        whole.refused
     );
+    assert!(!whole.locks.iter().any(|l| l.starts_with("cargo")), "{:?}", whole.locks);
+    let some = of(false, &args(&["--allowedTools", "Bash(cargo f*)", "Bash(cargo up*)"]));
+    for rule in ["Bash(cargo f*)", "Bash(cargo up*)"] {
+        assert!(some.refused.iter().any(|r| r == rule), "{rule}: {:?}", some.refused);
+    }
+    assert_eq!(some.locks, LOCKS);
+    // One that matches only uses of a lock command is left to allow them.
+    let lock = of(false, &args(&["--allowedTools", "Bash(cargo update -p*)"]));
+    assert!(
+        !lock.refused.iter().any(|r| r.starts_with("Bash(cargo update")),
+        "{:?}",
+        lock.refused
+    );
+    // A `*` within a rule makes what comes before it a beginning of any text.
+    let within = of(false, &args(&["--allowedTools", "Bash(npm ins* --global)"]));
+    assert!(
+        within.refused.iter().any(|r| r == "Bash(npm install *)"),
+        "{:?}",
+        within.refused
+    );
+    assert_eq!(within.locks, ["cargo update", "cargo add"]);
+}
+
+// The installation adds to the engine's lists: a heavy command of its toolchain is refused, its lock command is
+// allowed though a heavy command covers it, and the uses of it it names are refused; nothing of the engine's goes.
+#[test]
+fn the_installation_adds_heavy_and_lock_commands_of_its_own() {
+    let added = PermissionsAdded {
+        heavy: vec!["uv".to_string()],
+        locks: vec!["uv lock".to_string(), "pnpm install --lockfile-only".to_string()],
+        locks_except: vec!["pnpm install *--global*".to_string()],
+    };
+    let writes = Permissions::of(false, &[], &added);
+    assert!(
+        writes.allowed.iter().any(|a| a == "Bash(uv lock *)"),
+        "{:?}",
+        writes.allowed
+    );
+    assert!(
+        writes
+            .allowed
+            .iter()
+            .any(|a| a == "Bash(pnpm install --lockfile-only *)")
+    );
+    for gone in ["Bash(uv *)", "Bash(pnpm *)"] {
+        assert!(!writes.refused.iter().any(|r| r == gone), "{gone}");
+    }
+    assert!(writes.refused.iter().any(|r| r == "Bash(pnpm install *--global*)"));
+    // The engine's heavy commands and `uv`, less the four the lock commands fall under; the exceptions, and one more.
+    assert_eq!(writes.refused.len(), HEAVY.len() + 1 - 4 + LOCKS_EXCEPT.len() + 1);
+    let reads = Permissions::of(true, &[], &added);
+    for rule in ["Bash(uv *)", "Bash(pnpm *)", "Bash(cargo *)"] {
+        assert!(reads.refused.iter().any(|r| r == rule), "{rule}");
+    }
+    // A heavy command narrower than a lock command still refuses what it names.
+    let narrower = PermissionsAdded {
+        heavy: vec!["cargo update --precise".to_string()],
+        ..PermissionsAdded::default()
+    };
+    let refused = Permissions::of(false, &[], &narrower).refused;
+    assert!(refused.iter().any(|r| r == "Bash(cargo update --precise *)"));
 }
