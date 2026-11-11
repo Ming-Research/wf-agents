@@ -51,8 +51,10 @@ use engine::{Ask, Call, Came, Effect, Event, Handed, Spent, Time, Work};
 use store::{ItemNumber, WorkHead, WorkNumber};
 use support::*;
 
-/// How many histories are run.
-const SEEDS: u64 = 24;
+/// How many histories are run: enough that each class of step is reached. With a deliverable among every five items,
+/// twenty-four histories reached no round stopped in one draw and no stop that kept what it was asked in another; the
+/// histories take some fifteen seconds of CI for every twenty-four.
+const SEEDS: u64 = 48;
 
 /// How many steps, at most, people act in.
 const PEOPLE: usize = 80;
