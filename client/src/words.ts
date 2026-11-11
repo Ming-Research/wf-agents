@@ -85,6 +85,8 @@ export function faultWords(fault: Fault): string {
       return 'A choice has no values to choose from.';
     case 'noteNotByPeople':
       return `${w.block} is a note, but people do not write it.`;
+    case 'noteIsAChoice':
+      return `${w.block} is a note, but it is a choice, and a note is words to a cell.`;
     case 'noSuchBlock':
       return `The block ${w.block} is not declared in flow.toml.`;
     case 'notAnOutput':

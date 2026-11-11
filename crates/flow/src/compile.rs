@@ -154,6 +154,8 @@ pub enum FaultKind {
     ValuesEmpty,
     /// The block is a note, and people do not write it: a note is their words to the cells that read it.
     NoteNotByPeople { block: String },
+    /// The block is a note, and a choice: a note is words to a cell, which a choice is not.
+    NoteIsAChoice { block: String },
     /// The block is not declared in `flow.toml`.
     NoSuchBlock { block: String },
     /// The cell must write the block each time, and it is not among its outputs.
@@ -483,6 +485,9 @@ impl<'a> Definition<'a> {
             }
             if block.note && !block.people {
                 let what = FaultKind::NoteNotByPeople { block: name.clone() };
+                faults.push(fault(FLOW_FILE, format!("blocks.{name}.note"), what));
+            } else if block.note && block.values.is_some() {
+                let what = FaultKind::NoteIsAChoice { block: name.clone() };
                 faults.push(fault(FLOW_FILE, format!("blocks.{name}.note"), what));
             }
             if let Some(source) = &block.outside

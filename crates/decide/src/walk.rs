@@ -11,8 +11,8 @@
 //! cell has a record or its item is cancelled.
 //!
 //! A pause of the work changes none of this order. It holds back the run the walk comes to, unless one of that run's
-//! reasons is a change a person made, since the cell last ran (since its latest run started, the run of its record
-//! where it has one), of a note the cell reads: a paused work holds everything it would do by itself, still answers a
+//! reasons is a change a person made, since the cell last ran (since the run of its record started, or with no record
+//! its first run), of a note the cell reads: a paused work holds everything it would do by itself, still answers a
 //! note, a person's words to a cell, and lets nothing else a person writes pass. Such a run has its rounds while the
 //! work is paused ([`hold`]), and once it has finished what it wrote waits, as anything else does, for the work to be
 //! let on.
@@ -513,9 +513,10 @@ impl<'a> Walk<'a> {
 
     /// Whether one of these reasons of a run of the cell at this place, which starts at `before` (now where `None`), is
     /// a change of meaning a person made since the cell last ran: of a note the cell reads, written after the start of
-    /// the run of its record, or with no record after the start of its latest run, after the version the record knew,
-    /// and before `before`. A cell no run of which has started has not run, and answers no one: a work added paused
-    /// begins nothing.
+    /// the run of its record, or with no record after the start of its first run, after the version the record knew,
+    /// and before `before`. A cell with no record and one with a record so both count a note until a run of it
+    /// finishes, whatever runs were abandoned since. A cell no run of which has started has not run, and answers no
+    /// one: a work added paused begins nothing.
     fn for_a_note(&self, i: usize, because: &[Cause], before: Option<Seq>) -> bool {
         let cell = &self.flow.cells()[i];
         let earlier = |at: Seq| before.is_none_or(|before| at < before);
@@ -525,7 +526,7 @@ impl<'a> Walk<'a> {
             .max();
         let Some(since) = record
             .map(|(_, at)| at)
-            .or_else(|| of_cell().map(|r| r.started.at).max())
+            .or_else(|| of_cell().map(|r| r.started.at).min())
         else {
             return false;
         };

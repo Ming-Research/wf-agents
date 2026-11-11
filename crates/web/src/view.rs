@@ -229,6 +229,10 @@ pub enum What {
     NoteNotByPeople {
         block: String,
     },
+    /// The block is a note, and a choice.
+    NoteIsAChoice {
+        block: String,
+    },
     NoSuchBlock {
         block: String,
     },
@@ -632,6 +636,7 @@ impl What {
             F::UnknownAct { act } => What::UnknownAct { act },
             F::ValuesEmpty => What::ValuesEmpty,
             F::NoteNotByPeople { block } => What::NoteNotByPeople { block },
+            F::NoteIsAChoice { block } => What::NoteIsAChoice { block },
             F::NoSuchBlock { block } => What::NoSuchBlock { block },
             F::NotAnOutput { block } => What::NotAnOutput { block },
             F::NoWriter { block } => What::NoWriter { block },

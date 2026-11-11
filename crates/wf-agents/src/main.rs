@@ -318,6 +318,7 @@ fn words(what: &FaultKind) -> String {
         F::UnknownAct { act } => format!("the engine has no act named \"{act}\""),
         F::ValuesEmpty => "a choice has no values to choose from".to_string(),
         F::NoteNotByPeople { block } => format!("{block} is a note, but people do not write it"),
+        F::NoteIsAChoice { block } => format!("{block} is a note, but it is a choice, and a note is words to a cell"),
         F::NoSuchBlock { block } => format!("the block {block} is not declared in flow.toml"),
         F::NotAnOutput { block } => {
             format!("the cell must write {block} every time, but {block} is not among the blocks it may write")

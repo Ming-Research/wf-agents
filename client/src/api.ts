@@ -99,6 +99,7 @@ export type What =
   | { kind: 'unknownAct'; act: string }
   | { kind: 'valuesEmpty' }
   | { kind: 'noteNotByPeople'; block: string }
+  | { kind: 'noteIsAChoice'; block: string }
   | { kind: 'noSuchBlock'; block: string }
   /// The cell must write the block each time, and it is not among its outputs.
   | { kind: 'notAnOutput'; block: string }
