@@ -278,6 +278,28 @@ async fn the_fast_ci_is_run_by_mains_file_with_the_commit_given_and_nothing_else
     assert_eq!(branches, expected, "only the work's commit is pushed");
 }
 
+// With no runner online, the run is listed at once, queued: it is given up as never started once the start is waited
+// for, and not waited for until the run would time out.
+#[tokio::test]
+async fn a_run_no_runner_took_is_given_up_as_never_started() {
+    let hub = Hub::new().fast();
+    let head = hub.committed().await;
+    hub.github().no_runner();
+    let began = std::time::Instant::now();
+    let why = hub.named_check(&named(&["a"], &[])).await.expect_err("not run");
+    assert!(
+        why.starts_with(&format!(
+            "the run of fast.yml asked for on {head} never started: no runner took it after "
+        )),
+        "{why}"
+    );
+    assert!(why.ends_with("(https://github.example/actions/runs/1000)"), "{why}");
+    assert!(
+        began.elapsed() < Duration::from_secs(2),
+        "the timeout was not waited for"
+    );
+}
+
 // GitHub's refusal of the run, whatever its words, "No ref found" or that the workflow takes no such request, is
 // said once as GitHub's, with nothing else pushed or run in its place.
 #[tokio::test]

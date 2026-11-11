@@ -36,6 +36,8 @@ struct Kept {
     /// Whether another request runs the workflow on the same branch and commit right after each one asked here, as
     /// another check of the same work may.
     another_call: bool,
+    /// Whether the runs by hand stay queued, as with no runner online.
+    queued: bool,
     asked: Vec<Asked>,
 }
 
@@ -116,6 +118,11 @@ impl Fake {
     /// Refuses every run by hand, with these words.
     pub(crate) fn refuse_dispatch(&self, why: &str) {
         self.kept().refuses_dispatch = Some(why.to_string());
+    }
+
+    /// Keeps every run by hand queued, never started, as with no runner online.
+    pub(crate) fn no_runner(&self) {
+        self.kept().queued = true;
     }
 
     /// Has another request run the workflow on the same branch and commit right after each one the host asks for.
@@ -371,6 +378,7 @@ impl Api for Fake {
         }
         for (call, another) in made {
             let id = 1000 + kept.runs.len() as u64;
+            let ran = !kept.queued;
             kept.runs.push(Dispatched {
                 workflow: workflow.to_string(),
                 branch: branch.to_string(),
@@ -379,8 +387,8 @@ impl Api for Fake {
                 run: Run {
                     id,
                     title: format!("fast {call}"),
-                    started: true,
-                    completed: true,
+                    started: ran,
+                    completed: ran,
                     url: format!("https://github.example/actions/runs/{id}"),
                 },
             });

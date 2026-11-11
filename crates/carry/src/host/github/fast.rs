@@ -91,6 +91,15 @@ impl<A: Api> GitHub<A> {
             let waited = began.elapsed();
             match mine {
                 Some(run) if run.completed => break run,
+                // Listed at once as queued where no runner is online: given up as never started, not waited for
+                // until the run would time out.
+                Some(run) if !run.started && waited >= self.config.start => {
+                    return Err(format!(
+                        "the run of {workflow} asked for on {commit} never started: no runner took it after {} ({})",
+                        super::span(self.config.start),
+                        run.url
+                    ));
+                }
                 None if waited >= self.config.start => {
                     return Err(format!(
                         "the run of {workflow} asked for on {commit} never started: GitHub listed none after {}",
