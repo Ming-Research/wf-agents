@@ -13,6 +13,7 @@ mod failing;
 mod going;
 mod left;
 mod levels;
+mod owner_gates;
 mod permissions;
 mod stopping;
 
@@ -54,6 +55,8 @@ pub struct Fake {
     pub question_first: bool,
     /// How many seconds the plan's first call sleeps before it answers.
     pub plan_sleeps: u32,
+    /// A file of the worktree the build writes and adds to its commit, where it writes one.
+    pub build_writes: Option<&'static str>,
 }
 
 impl Default for Fake {
@@ -66,6 +69,7 @@ impl Default for Fake {
             lose_session: false,
             question_first: false,
             plan_sleeps: 0,
+            build_writes: None,
         }
     }
 }
@@ -125,20 +129,29 @@ pub fn git_in(dir: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).trim_end().to_string()
 }
 
-/// The flow, compiled with what the real carriers have.
-fn compiled(on: On) -> Compiled {
+/// The flow's definition, as read from its directory.
+fn source(on: On) -> flow::Source {
     let dir = match on {
         On::Trial => Path::new(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial/flow"),
         On::Acts => Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow"),
         On::Deliver => Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/deliver"),
     };
-    let source = flow::read(&dir).expect("the flow is read");
+    flow::read(&dir).expect("the flow is read")
+}
+
+/// The flow, compiled with what the real carriers have.
+fn compiled(on: On) -> Compiled {
+    compile(&source(on))
+}
+
+/// A flow's definition, compiled with what the real carriers have.
+fn compile(source: &flow::Source) -> Compiled {
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = Has {
         sources: names(&[driver::DEPENDENCIES]),
         acts: names(&["start", "check", "merge", "deliver"]),
     };
-    flow::compile(&source, &has).expect("the flow compiles")
+    flow::compile(source, &has).expect("the flow compiles")
 }
 
 /// Writes the fake command line into the directory, keeping what it is given in `calls`.
@@ -189,6 +202,11 @@ case "$first" in
                 echo 'No conversation found with session ID: 00000000-0000-5000-8000-000000000001' >&2
                 exit 1
             fi
+            if [ -n '{writes}' ]; then
+                mkdir -p "$(dirname '{writes}')"
+                printf 'Built.\n' > '{writes}'
+                git add -- '{writes}'
+            fi
             git -c user.name=Fake -c user.email=fake@example.com commit -q --allow-empty -m 'Build the greeting'
             out='{{"block":"code","content":"A greeting.","matters":true}}'
         fi ;;
@@ -203,6 +221,7 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         lose = yes(fake.lose_session),
         question = yes(fake.question_first),
         sleeps = fake.plan_sleeps,
+        writes = fake.build_writes.unwrap_or_default(),
         cost = fake.cost,
     );
     let path = dir.join("fake-claude");
@@ -238,6 +257,18 @@ impl Real {
     /// The loop on an empty store of the flow, with the fake answering as given and the budget given, the project's
     /// check being `check`.
     pub fn open(on: On, answers: Fake, budget: Option<f64>, check: &str) -> Real {
+        Real::open_with(compiled(on), answers, budget, check, Vec::new())
+    }
+
+    /// The loop on an empty store of this flow, as [`Real::open`], the installation naming these paths as those whose
+    /// change merges only with the owner's yes.
+    pub fn open_with(
+        flow: Compiled,
+        answers: Fake,
+        budget: Option<f64>,
+        check: &str,
+        owner_approves: Vec<String>,
+    ) -> Real {
         let dir = tempfile::tempdir().expect("a directory");
         let root = std::fs::canonicalize(dir.path()).expect("the directory is there");
         let (repo, data, calls) = (root.join("repo"), root.join("data"), root.join("calls"));
@@ -258,6 +289,7 @@ impl Real {
                 main: "main".to_string(),
                 check: check.to_string(),
                 allowed_config: Vec::new(),
+                owner_approves,
             },
             agents: Agents {
                 command: command.display().to_string(),
@@ -285,7 +317,6 @@ impl Real {
             },
             github: None,
         };
-        let flow = compiled(on);
         let (service, inbox) = open(&settings, &data, &flow, false);
         Real {
             _dir: dir,

@@ -120,12 +120,16 @@ pub struct BlockFile {
 pub struct TestFile {
     /// The words shown for the test.
     pub says: String,
-    /// How the blocks it reads make it hold: `all`, `any`, `none` or `none_standing`; another is refused.
+    /// How the blocks it reads make it hold: `all`, `any`, `none`, `none_standing` or `confirmed`; another is refused.
     pub kind: TestKind,
-    /// The blocks it reads, each a choice.
+    /// The blocks it reads, each a choice; for a test of what was confirmed, the blocks it holds confirmed, of any
+    /// kind.
     pub reads: Vec<String>,
-    /// The value it looks for in each block it reads.
+    /// The value it looks for in each block it reads; for a test of what was confirmed, the value people confirm with.
     pub is: String,
+    /// For a test of what was confirmed, and for no other kind: the choice in which people confirm what it reads, which
+    /// people write, no cell writes, and which offers the value `is`.
+    pub by: Option<String>,
 }
 
 /// The file of one cell.
@@ -160,6 +164,9 @@ pub struct CellFile {
     /// work, as the body of its pull request; an engine cell's act reads them.
     #[serde(default)]
     pub describes: Vec<String>,
+    /// The block among the outputs of the check before the merge in which it writes the files the commit it checked
+    /// changes, against main, under the paths the installation names for the owner's approval.
+    pub owner_paths: Option<String>,
     /// How many runs of the cell in a row may be ways round, if not the flow's limit.
     pub limit: Option<i64>,
     /// The reasoning effort an agent cell's rounds run at, whatever the model; every agent cell sets one.

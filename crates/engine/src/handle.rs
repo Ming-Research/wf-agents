@@ -190,6 +190,12 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
                 _ => {}
             }
             let at = work.tick();
+            if work::is_blank(&content) {
+                work.records.blank.insert((block.clone(), at));
+            }
+            if work::is_unchanged(&work.contents, &block, at, &content) {
+                work.records.unchanged.insert((block.clone(), at));
+            }
             work.contents.insert((block.clone(), at), content);
             work.records.written.push(Written {
                 block,
@@ -492,6 +498,12 @@ fn finish(work: &mut Work, run: RunId, writes: Vec<Write>) {
     let at = work.tick();
     if let Some(Back::HandedIn(handed)) = work.back.get(&(run, ended(work, run))) {
         for h in handed {
+            if work::is_blank(&h.content) {
+                work.records.blank.insert((h.block.clone(), at));
+            }
+            if work::is_unchanged(&work.contents, &h.block, at, &h.content) {
+                work.records.unchanged.insert((h.block.clone(), at));
+            }
             work.contents.insert((h.block.clone(), at), h.content.clone());
         }
     }

@@ -38,6 +38,12 @@ pub struct Project {
     /// be, each a whole key or a beginning followed by `*`: `filter.lfs.*` for a repository that needs Git LFS.
     #[serde(default)]
     pub allowed_config: Vec<String>,
+    /// The paths whose change merges only with the owner's yes, each as git's pathspec matches it with `*` within a
+    /// segment and `**` across segments, a directory with its trailing slash: the check before the merge writes the
+    /// files its commit changes under them into the block its cell names (`owner_paths`), and the flow's merge waits
+    /// until the owner confirmed that block. None, and the check writes nothing there and no work is held.
+    #[serde(default)]
+    pub owner_approves: Vec<String>,
 }
 
 /// The project's repository on GitHub: the works' branches are pushed there, checked by its CI through a pull request
@@ -622,6 +628,7 @@ mod tests {
             act: None,
             must_write: Vec::new(),
             describes: Vec::new(),
+            owner_paths: None,
             returns: 3,
             calls: 40,
             effort,

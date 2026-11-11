@@ -68,6 +68,9 @@ pub struct CellSpec {
     pub must_write: Vec<BlockId>,
     /// The blocks among its inputs that say what the work is where the host shows it, in the order written.
     pub describes: Vec<BlockId>,
+    /// The block among its outputs in which the check before the merge writes the files its commit changes under the
+    /// paths the installation names for the owner's approval; none for any other cell.
+    pub owner_paths: Option<BlockId>,
     /// How often a return of the cell may be sent back within one run.
     pub returns: u32,
     /// How many calls one run of the cell may make.
@@ -215,6 +218,9 @@ pub enum FaultKind {
     /// A test of what stands reads a block that this cell writes as well as another before it. Such a test reads the
     /// current version alone, and a skipped cell's write would hide the other's word.
     StandingWrittenByTwo { test: String, block: String, cell: String },
+    /// A test of what was confirmed names no choice of confirmation (`by`) that people write, no cell writes and that
+    /// offers the value it looks for; or a test of another kind names one.
+    Unconfirmable { test: String },
     /// The deciding code refuses the cells as a flow.
     Flow(FlowFault),
 }
@@ -260,6 +266,7 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
                 kind: test.kind,
                 reads: test.reads.iter().map(|b| BlockId(b.clone())).collect(),
                 is: test.is.clone(),
+                by: test.by.as_ref().map(|b| BlockId(b.clone())),
             };
             (TestName(name.clone()), test)
         })
@@ -459,7 +466,7 @@ impl<'a> Definition<'a> {
             })
             .collect();
         for (test, declared) in flow.tests.iter().filter(|(t, _)| used.contains(t.as_str())) {
-            for block in &declared.reads {
+            for block in declared.reads.iter().chain(&declared.by) {
                 if let Some(u) = uses.get_mut(block.as_str())
                     && !u.tests.contains(&test.as_str())
                 {
@@ -544,8 +551,30 @@ impl<'a> Definition<'a> {
                 let what = FaultKind::ReadsEmpty { test: test.clone() };
                 faults.push(fault(FLOW_FILE, field.clone(), what));
             }
-            for (field, what) in check_list(&declared.reads, &field, |block| self.check_read(block, &declared.is)) {
+            let confirmed = declared.kind == TestKind::Confirmed;
+            // What a test of what was confirmed reads is any declared block; its confirmation is the choice.
+            let read = |block: &str| match self.flow.blocks.get(block) {
+                None => Some(FaultKind::NoSuchBlock {
+                    block: block.to_string(),
+                }),
+                Some(_) if confirmed => None,
+                Some(_) => self.check_read(block, &declared.is),
+            };
+            for (field, what) in check_list(&declared.reads, &field, read) {
                 faults.push(fault(FLOW_FILE, field, what));
+            }
+            let confirmable = match (&declared.by, confirmed) {
+                (Some(by), true) => {
+                    let writers = self.uses.get(by.as_str()).map_or(0, |u| u.writers.len());
+                    let people = self.flow.blocks.get(by.as_str()).is_some_and(|b| b.people);
+                    people && writers == 0 && self.check_read(by, &declared.is).is_none()
+                }
+                (None, true) | (Some(_), false) => false,
+                (None, false) => true,
+            };
+            if !confirmable {
+                let what = FaultKind::Unconfirmable { test: test.clone() };
+                faults.push(fault(FLOW_FILE, format!("tests.{test}.by"), what));
             }
             if declared.kind == TestKind::NoneStanding {
                 for (i, block) in declared.reads.iter().enumerate() {
@@ -705,6 +734,10 @@ impl<'a> Definition<'a> {
             };
             (!file.outputs.iter().any(|o| o == block)).then_some(what)
         }));
+        if let Some(block) = file.owner_paths.as_ref().filter(|b| !file.outputs.contains(b)) {
+            let what = FaultKind::NotAnOutput { block: block.clone() };
+            found.push(("owner_paths".to_string(), what));
+        }
         found.extend(check_list(&file.describes, "describes", |block| {
             let what = FaultKind::NotAnInput {
                 block: block.to_string(),
@@ -733,6 +766,7 @@ impl<'a> Definition<'a> {
             act: file.act.clone(),
             must_write: file.must_write.iter().map(|b| BlockId(b.clone())).collect(),
             describes: file.describes.iter().map(|b| BlockId(b.clone())).collect(),
+            owner_paths: file.owner_paths.as_ref().map(|b| BlockId(b.clone())),
             returns: limits.returns,
             calls: limits.calls,
             effort: file.effort,

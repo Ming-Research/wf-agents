@@ -8,6 +8,7 @@
 mod support;
 
 mod changed_flow;
+mod confirmed;
 mod failing;
 mod faults;
 mod flows;

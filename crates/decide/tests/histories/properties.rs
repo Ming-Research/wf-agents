@@ -50,6 +50,8 @@ pub const REACHED: &[&str] = &[
     MAKERS_CHECKED,
     STANDING_NO_HOLDS,
     PERSON_NO_HOLDS,
+    CONFIRMATION_ASKED,
+    CONFIRMATION_ASKED_AGAIN,
     SKIPPED_NO_PASSES,
     FAILED,
     FAILED_GOES_ON,
@@ -86,6 +88,9 @@ const GOING_ON: &str = "a run at rest goes on";
 const MAKERS_CHECKED: &str = "a work waits on a precondition";
 const STANDING_NO_HOLDS: &str = "the merge waits on a judge's no while the judge is not skipped";
 const PERSON_NO_HOLDS: &str = "the merge waits on a person's no";
+const CONFIRMATION_ASKED: &str = "the merge waits for a confirmation of what blocks say";
+const CONFIRMATION_ASKED_AGAIN: &str =
+    "the merge waits for a confirmation again, what a block holds having changed since the latest";
 const SKIPPED_NO_PASSES: &str = "a round of the merge begins over the no of a judge that is skipped";
 pub const FAILED: &str = "a round fails and the engine pauses its work";
 pub const FAILED_GOES_ON: &str = "a run whose round failed goes on once the work is let on";
@@ -178,6 +183,8 @@ pub fn as_of(r: &Records, upto: Seq) -> Records {
         pauses: kept(&r.pauses, |e| e.at, upto),
         cancelled: r.cancelled.filter(|at| *at <= upto),
         released: r.released.filter(|at| *at <= upto),
+        blank: r.blank.iter().filter(|(_, at)| *at <= upto).cloned().collect(),
+        unchanged: r.unchanged.iter().filter(|(_, at)| *at <= upto).cloned().collect(),
     }
 }
 
@@ -500,14 +507,23 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
 
 /// A further property, of the preconditions (entry conditions-and-preconditions: what a work waits for is the
 /// precondition not met): a work waits on a precondition only while, by the histories' own reading, it does not hold.
-/// So the merge waits on the judge's verdict only while it stands at no: never for the no of a judge that is skipped.
+/// So the merge waits on the judge's verdict only while it stands at no: never for the no of a judge that is skipped;
+/// and for a confirmation only while a block it reads holds something its latest confirmation came before.
 fn held(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, test: &decide::TestName) {
+    let named = &flow.tests()[test];
     if reading.holds(flow, test, i) {
         v.fail(
             HELD,
             format!("the work waits at {} on {test}, which holds", flow.cells()[i].id),
         );
-    } else if flow.tests()[test].kind == TestKind::NoneStanding {
+    } else if named.kind == TestKind::Confirmed {
+        let by = named.by.as_ref().and_then(|b| reading.current(b));
+        if by.is_some_and(|x| x.value.as_deref() == Some(named.is.as_str())) {
+            v.count(CONFIRMATION_ASKED_AGAIN);
+        } else {
+            v.count(CONFIRMATION_ASKED);
+        }
+    } else if named.kind == TestKind::NoneStanding {
         let latest = reading.current(&VERDICT.into());
         if latest.is_some_and(|x| x.by == Writer::Person) {
             v.count(PERSON_NO_HOLDS);
@@ -536,13 +552,17 @@ fn made_by(
             .current(b)
             .is_some_and(|x| x.value.as_deref() == Some(named.is.as_str()))
     };
-    let holding: Vec<&BlockId> = (named.reads.iter())
-        .filter(|b| match named.kind {
-            TestKind::All => !has(b),
-            TestKind::Any => true,
-            TestKind::None | TestKind::NoneStanding => has(b),
-        })
-        .collect();
+    let holding: Vec<&BlockId> = match named.kind {
+        // Only people's confirmation can make a test of what was confirmed hold.
+        TestKind::Confirmed => named.by.iter().collect(),
+        _ => (named.reads.iter())
+            .filter(|b| match named.kind {
+                TestKind::All => !has(b),
+                TestKind::Any => true,
+                _ => has(b),
+            })
+            .collect(),
+    };
     let writes = |m: &Maker, b: &BlockId| {
         let outsiders = flow.outsiders(b);
         match m {

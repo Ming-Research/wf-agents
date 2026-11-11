@@ -4,7 +4,7 @@
 //! place in the order of what happened to the work, and no two entries of a work share a place. A run's state is not
 //! stored: whether it has a round under way, is at rest, finished or was abandoned is worked out from the entries.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -52,6 +52,16 @@ pub struct Records {
     /// none, and read so.
     #[serde(default)]
     pub released: Option<Seq>,
+    /// The versions written with nothing in them, each by its block and the place of the entry that wrote it: a block
+    /// written blank says nothing, as one never written does. The deciding code is not given the contents: the engine
+    /// tells these as it records a write, and the store works them out of the contents it keeps each time it loads a
+    /// work, works written before they were told included, so no table holds them.
+    pub blank: BTreeSet<(BlockId, Seq)>,
+    /// The versions written with the same content as the version of their block before them, each by its block and
+    /// the place of the entry that wrote it: what the block holds did not change, whatever its writer says of the
+    /// change. They are told as the blank versions are, by the engine as it records a write and by the store out of
+    /// the contents each time it loads a work, works written before they were told included.
+    pub unchanged: BTreeSet<(BlockId, Seq)>,
 }
 
 impl Records {
@@ -74,6 +84,8 @@ impl Records {
             pauses: kept(&self.pauses, |e| e.at, place),
             cancelled: self.cancelled.filter(|at| *at < place),
             released: self.released.filter(|at| *at < place),
+            blank: (self.blank.iter()).filter(|(_, at)| *at < place).cloned().collect(),
+            unchanged: (self.unchanged.iter()).filter(|(_, at)| *at < place).cloned().collect(),
         }
     }
 }

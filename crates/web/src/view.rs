@@ -84,10 +84,15 @@ pub struct Test {
     pub reads: Vec<String>,
     /// The value it looks for in each block it reads.
     pub is: String,
+    /// For a test of what was confirmed, the choice in which people confirm what it reads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
 }
 
 /// How the blocks a named test reads make it hold: when every one, at least one, or none has the value it looks for;
-/// or, `noneStanding`, when none has it as written by a person, the outside or a cell that is not skipped now.
+/// or, `noneStanding`, when none has it as written by a person, the outside or a cell that is not skipped now; or,
+/// `confirmed`, when people confirmed, by the value in the choice `by`, each that says something since what it holds
+/// last changed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TestKind {
@@ -95,6 +100,7 @@ pub enum TestKind {
     Any,
     None,
     NoneStanding,
+    Confirmed,
 }
 
 /// A cell.
@@ -305,6 +311,11 @@ pub enum What {
         block: String,
         cell: String,
     },
+    /// The test of what was confirmed names no choice of confirmation that people alone write and that offers its
+    /// value, or a test of another kind names one.
+    Unconfirmable {
+        test: String,
+    },
     /// The deciding code refused the cells as a flow, for this reason, at this cell.
     FlowRefused {
         reason: FlowRefusal,
@@ -323,6 +334,7 @@ pub enum FlowRefusal {
     NoLimit,
     NoSuchTest,
     Unwritten,
+    Unconfirmable,
 }
 
 /// One change from the definition compared against to the one shown.
@@ -449,6 +461,13 @@ pub enum Change {
     DescribesRemoved {
         cell: String,
         block: String,
+    },
+    /// The block in which the check before the merge writes the files the work changes under the owner's paths; none
+    /// where it writes them nowhere.
+    OwnerPaths {
+        cell: String,
+        before: Option<String>,
+        after: Option<String>,
     },
     CellLimit {
         cell: String,
@@ -617,9 +636,11 @@ impl Test {
                 KindOfTest::Any => TestKind::Any,
                 KindOfTest::None => TestKind::None,
                 KindOfTest::NoneStanding => TestKind::NoneStanding,
+                KindOfTest::Confirmed => TestKind::Confirmed,
             },
             reads: names(&test.reads),
             is: test.is.clone(),
+            by: test.by.as_ref().map(ToString::to_string),
         }
     }
 }
@@ -700,6 +721,7 @@ impl What {
             F::TestNotWrittenBefore { test, block } => What::TestNotWrittenBefore { test, block },
             F::TestWrittenAfter { test, block, cell } => What::TestWrittenAfter { test, block, cell },
             F::StandingWrittenByTwo { test, block, cell } => What::StandingWrittenByTwo { test, block, cell },
+            F::Unconfirmable { test } => What::Unconfirmable { test },
             F::Flow(fault) => {
                 let (reason, cell) = match fault {
                     FlowFault::Empty => (FlowRefusal::Empty, None),
@@ -709,6 +731,7 @@ impl What {
                     FlowFault::NoLimit(c) => (FlowRefusal::NoLimit, Some(c)),
                     FlowFault::NoSuchTest(c, _) => (FlowRefusal::NoSuchTest, Some(c)),
                     FlowFault::Unwritten(..) => (FlowRefusal::Unwritten, None),
+                    FlowFault::Unconfirmable(..) => (FlowRefusal::Unconfirmable, None),
                 };
                 What::FlowRefused {
                     reason,
@@ -848,6 +871,14 @@ impl Change {
             CellChange::MustWriteRemoved(b) => Change::MustWriteRemoved { cell, block: block(b) },
             CellChange::DescribesAdded(b) => Change::DescribesAdded { cell, block: block(b) },
             CellChange::DescribesRemoved(b) => Change::DescribesRemoved { cell, block: block(b) },
+            CellChange::OwnerPaths {
+                before: from,
+                after: to,
+            } => Change::OwnerPaths {
+                cell,
+                before: from.as_ref().map(block),
+                after: to.as_ref().map(block),
+            },
             CellChange::Limit {
                 limit,
                 before: from,

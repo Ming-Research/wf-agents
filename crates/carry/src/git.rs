@@ -408,6 +408,36 @@ fn taking_in(name: &str, main: &str) -> String {
     format!("Merge {name} at {main} into the work's branch")
 }
 
+/// The files the commit changes against the commit where it forked from main, that lie under these paths (git's
+/// pathspecs, `*` and `**` as globs), each said with the blob the commit holds of it or as deleted, in the order of
+/// their paths: what a merge of the commit would change there, its content included, so that a later commit that
+/// changes one again is told apart.
+pub(crate) async fn owned(
+    project: &Project,
+    main: &str,
+    commit: &str,
+    paths: &[String],
+) -> Result<Vec<String>, String> {
+    let range = format!("{main}...{commit}");
+    let specs: Vec<String> = paths.iter().map(|p| format!(":(glob){p}")).collect();
+    let mut args = vec!["diff", "--raw", "--no-abbrev", "--no-renames", &range, "--"];
+    args.extend(specs.iter().map(String::as_str));
+    let raw = git(&project.repo, &args).await?;
+    let mut files: Vec<String> = (raw.lines())
+        .filter_map(|line| {
+            let (fields, path) = line.split_once('\t')?;
+            let blob = fields.split_whitespace().nth(3)?;
+            Some(if blob.bytes().all(|b| b == b'0') {
+                format!("{path} deleted")
+            } else {
+                format!("{path} at {blob}")
+            })
+        })
+        .collect();
+    files.sort();
+    Ok(files)
+}
+
 /// Merges main's head into the branch checked out in the worktree, which merges it without a conflict, as a commit
 /// of the engine's, and gives the branch's head after it and whether the check made that commit; where the branch
 /// holds main's head already, its head as it is, so that a merge done before the engine stopped is not done again.

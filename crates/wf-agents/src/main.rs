@@ -414,6 +414,10 @@ fn words(what: &FaultKind) -> String {
             "the test {test}, of what stands, reads {block}, which {cell} writes as well as a cell before it: a \
              skipped cell's write would hide the other's word"
         ),
+        F::Unconfirmable { test } => format!(
+            "the test {test} must name, as by, a choice that people alone write and that offers its value, and only a \
+             test of what was confirmed names one"
+        ),
         F::Flow(fault) => format!("the deciding code refuses the cells as a flow: {fault:?}"),
     }
 }

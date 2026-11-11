@@ -139,6 +139,21 @@ pub struct Handed {
     pub value: Option<String>,
 }
 
+/// Whether a content says nothing: a version written with it is one of the records' blank versions, which the
+/// deciding code reads as saying nothing. The engine tells it as it records a write, and the store as it loads one.
+pub fn is_blank(content: &str) -> bool {
+    content.trim().is_empty()
+}
+
+/// Whether a content written into the block at this place is that of the block's version before it: a version written
+/// with it is one of the records' unchanged versions, which a test of what was confirmed does not ask about again. The
+/// engine tells it as it records a write, and the store as it loads one.
+pub fn is_unchanged(contents: &BTreeMap<(BlockId, Seq), String>, block: &BlockId, at: Seq, content: &str) -> bool {
+    (contents.range((block.clone(), Seq(0))..(block.clone(), at)))
+        .next_back()
+        .is_some_and(|(_, before)| before == content)
+}
+
 /// A call of a run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Call {

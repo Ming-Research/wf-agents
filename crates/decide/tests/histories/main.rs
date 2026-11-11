@@ -14,7 +14,10 @@
 //!   history of four; the merge's precondition holds in two histories of five. Each of these tests is the owner's word,
 //!   a choice people write of the same name. In half the histories of the first test, drawn apart from the rest, a
 //!   judge stands before the merge, run only while "flip" holds and writing a verdict, yes or no; the merge then also
-//!   waits while the verdict stands at no (a `none_standing` test), its own word holding from the start. The shapes
+//!   waits while the verdict stands at no (a `none_standing` test), its own word holding from the start. In half the
+//!   histories of the first test with neither a judge, nor rounds that fail, nor a room that changes, drawn apart
+//!   from the rest, the merge also waits until people confirmed what b0 and b1 say since what each holds last changed
+//!   (a `confirmed` test), by a choice only they write. The shapes
 //!   give a block both a person and a cell write (every block cells write, since people write them too), a block two
 //!   cells write of which the later does not read it, a judge writing opinions for a cell before it, and that cell
 //!   skipped while the judge runs.
@@ -25,7 +28,10 @@
 //!   confirming the choice; the outside writing main, mattering or not; turning "flip" or "ready"; letting a cell go
 //!   on; pausing or resuming; and, once in a hundred acts, cancelling the work, after which nothing more is decided.
 //!   Where the work waits on the verdict, the owner writes it as yes, in half the acts drawn apart from the rest; and
-//!   in eight acts in a hundred of a history with a judge, the owner writes it as yes or no.
+//!   in eight acts in a hundred of a history with a judge, the owner writes it as yes or no. Where the work waits for
+//!   the confirmation, the owner confirms in six acts in ten; and in a tenth of the acts of a history that confirms,
+//!   the owner confirms unasked in six of ten, and otherwise writes b0 or b1 blank, which says nothing, or again as it
+//!   was, which holds nothing new, as a coin says.
 //!   Half the prose goes where it bears on what is going on: into an input of the cell the work waits at or of a cell
 //!   that is skipped, or into a block the open run's cell may write, so that people write while a round is under way
 //!   and while a run is at rest, and write for a cell while it is skipped.
@@ -138,6 +144,16 @@ pub const VERDICT: &str = "verdict";
 
 /// The merge's precondition in the histories with a judge: the verdict does not stand at no.
 pub const UNREFUSED: &str = "the verdict is no refusal";
+
+/// The merge's precondition in the histories that confirm: people confirmed what [`CONFIRMED_BLOCKS`] say, since what
+/// each holds last changed, by [`CONFIRMATION`] as yes.
+pub const CONFIRMED: &str = "what they say was confirmed";
+
+/// The blocks whose content people confirm, in the histories that confirm.
+const CONFIRMED_BLOCKS: [&str; 2] = ["b0", "b1"];
+
+/// The choice only people write in which they confirm, in the histories that confirm.
+pub const CONFIRMATION: &str = "confirmation";
 
 /// The most rounds a run has before its agent finishes: within a run, how often a return is sent back is bounded by the
 /// engine, outside the deciding code.
@@ -265,6 +281,9 @@ struct History {
     /// Draws what the histories with a judge add, apart from `rng`, so that the histories without one go as they did
     /// before the judge was added.
     judged: Option<Rng>,
+    /// Draws what people do in the histories whose merge also waits until they confirmed what blocks say, apart from
+    /// `rng`.
+    confirming: Option<Rng>,
     /// Draws which rounds fail, apart from `rng`, in the histories where rounds fail.
     failing: Option<Rng>,
     /// Draws the room the engine leaves the work, apart from `rng`, in the histories where it changes.
@@ -315,6 +334,11 @@ impl History {
                 c.slot = !rooms.chance(30);
             }
         }
+        let mut confirming = Rng::new(seed ^ 0x0C0F_F1E0_5EED_0C0F);
+        // The merge waits for a confirmation only in histories with neither a judge, nor rounds that fail, nor a room
+        // that changes, so that those go as they did.
+        let confirms = shape.is_none() && judged.is_none() && failing.is_none() && rooms.is_none();
+        let confirming = (confirms && confirming.chance(50)).then_some(confirming);
         let mut w = if judged.is_some() {
             let mut judge = when_flipped(cell("judge", &[BRIEF, "b0"], &[VERDICT]));
             judge.limit = 2;
@@ -326,8 +350,20 @@ impl History {
                 kind: TestKind::NoneStanding,
                 reads: vec![VERDICT.into()],
                 is: "no".to_string(),
+                by: None,
             };
             World::with_tests(cells, [(TestName::from(UNREFUSED), unrefused)].into())
+        } else if confirming.is_some() {
+            let mut merge = gate();
+            merge.requires.push(CONFIRMED.into());
+            cells.push(merge);
+            let confirmed = Test {
+                kind: TestKind::Confirmed,
+                reads: CONFIRMED_BLOCKS.map(BlockId::from).to_vec(),
+                is: "yes".to_string(),
+                by: Some(CONFIRMATION.into()),
+            };
+            World::with_tests(cells, [(TestName::from(CONFIRMED), confirmed)].into())
         } else {
             World::with_gate(cells)
         };
@@ -350,6 +386,7 @@ impl History {
             w,
             rng,
             judged,
+            confirming,
             failing,
             rooms,
             room: Room::FREE,
@@ -792,6 +829,14 @@ impl History {
                     self.w.person_sets(VERDICT, "yes");
                     return;
                 }
+                Waited::Precondition { test, .. }
+                    if test.as_str() == CONFIRMED && self.confirming.as_mut().is_some_and(|c| c.chance(60)) =>
+                {
+                    self.note(format!("the owner confirms, writing {CONFIRMATION} as yes"));
+                    self.person_writes_now();
+                    self.w.person_sets(CONFIRMATION, "yes");
+                    return;
+                }
                 _ => {}
             }
         }
@@ -803,6 +848,35 @@ impl History {
             self.note(format!("the owner writes {VERDICT} as {value}"));
             self.person_writes_now();
             self.w.person_sets(VERDICT, value);
+            return;
+        }
+        // In a history that confirms, the owner now and then confirms before being asked, or writes a block that is
+        // confirmed blank, which says nothing, or again as it was, which holds nothing new.
+        if let Some(confirming) = &mut self.confirming
+            && confirming.chance(10)
+        {
+            let (unasked, blank) = (confirming.chance(60), confirming.chance(50));
+            let block = CONFIRMED_BLOCKS[confirming.below(CONFIRMED_BLOCKS.len())];
+            let before = Reading::new(&self.w.records).current(&block.into()).map(|v| v.at);
+            if unasked {
+                self.note(format!("the owner writes {CONFIRMATION} as yes, unasked"));
+                self.person_writes_now();
+                self.w.person_sets(CONFIRMATION, "yes");
+            } else if blank || before.is_none() {
+                self.note(format!("a person writes {block} blank"));
+                self.person_writes_now();
+                let at = self.w.person_writes(block);
+                self.w.records.blank.insert((block.into(), at));
+            } else {
+                self.note(format!("a person writes {block} again as it was"));
+                self.person_writes_now();
+                let was_blank = before.is_some_and(|at| self.w.records.blank.contains(&(block.into(), at)));
+                let at = self.w.person_writes(block);
+                self.w.records.unchanged.insert((block.into(), at));
+                if was_blank {
+                    self.w.records.blank.insert((block.into(), at));
+                }
+            }
             return;
         }
         let prose = self.prose_block(at);

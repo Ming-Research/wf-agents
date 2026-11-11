@@ -79,8 +79,11 @@ pub struct Test {
     pub kind: TestKind,
     /// The blocks it reads, each a choice.
     pub reads: Vec<BlockId>,
-    /// The value it tests for in each block it reads.
+    /// The value it tests for in each block it reads; for a test of what was confirmed, the value of the confirmation.
     pub is: String,
+    /// For a test of what was confirmed, the choice only people write in which they confirm what it reads; none for
+    /// any other kind.
+    pub by: Option<BlockId>,
 }
 
 /// How the blocks a named test reads make it hold, by which of them have the value it tests for now. A block never
@@ -100,6 +103,13 @@ pub enum TestKind {
     /// is defined for a block that one cell writes, people and the outside besides: of two cells writing it, a skipped
     /// one's write would hide the other's word. The compiler holds definitions to that.
     NoneStanding,
+    /// Every block read that says something was confirmed since what it holds last changed: people wrote the test's
+    /// choice of confirmation with the value after the latest version that holds another content or value than the
+    /// one before it. A block never written, or whose current version is blank, says nothing and needs no
+    /// confirmation; a confirmation is of what the block holds when it is given, so any change of it is confirmed
+    /// anew, whatever its writer says of the change, and the same content written again is not. The blocks read need
+    /// not be choices.
+    Confirmed,
 }
 
 /// Why cells do not make a flow.
@@ -121,6 +131,9 @@ pub enum FlowFault {
     /// A named test a cell uses reads a block that no cell, person or source outside the work writes: nobody could
     /// change whether it holds, and a wait on it would name nobody.
     Unwritten(TestName, BlockId),
+    /// A test of what was confirmed names no choice of confirmation that people, and no cell, write; or a test of
+    /// another kind names one.
+    Unconfirmable(TestName),
 }
 
 impl Flow {
@@ -165,6 +178,18 @@ impl Flow {
             tests,
             outsiders,
         };
+        for (name, test) in &flow.tests {
+            let confirmable = match (&test.by, test.kind) {
+                (Some(by), TestKind::Confirmed) => {
+                    flow.outsiders(by).is_some_and(|o| o.people) && flow.writers(by).next().is_none()
+                }
+                (None, TestKind::Confirmed) | (Some(_), _) => false,
+                (None, _) => true,
+            };
+            if !confirmable {
+                return Err(FlowFault::Unconfirmable(name.clone()));
+            }
+        }
         for cell in &flow.cells {
             let condition = match &cell.applies {
                 Some(Condition::Test(test)) => Some(test),

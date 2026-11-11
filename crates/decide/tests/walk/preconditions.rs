@@ -74,6 +74,7 @@ fn waiting_for_all(test: &str, blocks: &[&str], c: Cell) -> (Cell, (TestName, Te
         kind: TestKind::All,
         reads: blocks.iter().map(|b| (*b).into()).collect(),
         is: "yes".to_string(),
+        by: None,
     };
     (requiring(test, c), (test.into(), named))
 }
