@@ -148,6 +148,9 @@ pub fn came(structured: &serde_json::Value) -> Result<Came, String> {
 }
 
 #[cfg(test)]
+mod adversarial;
+
+#[cfg(test)]
 mod tests {
     use serde_json::json;
 
