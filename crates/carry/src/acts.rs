@@ -947,24 +947,63 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_merge_refuses_a_main_that_moved_since_the_check_and_merges_one_the_check_took_in() {
+    async fn the_merge_refuses_a_main_that_moved_since_the_check() {
         let repo = Repo::new("true");
-        let main = run(&repo.project.repo, &["rev-parse", "main"]);
-        let started = start_with(&repo, &Fake::new(&main)).await.unwrap();
+        let host = Local::new(repo.project.clone());
+        let started = start_with(&repo, &host).await.unwrap();
         let checked = commit(&started.place.dir, "farewell.txt", "Bye.\n");
-        let place = repo.place(WORK);
         let moved = commit(&repo.project.repo, "weather.txt", "Sunny.\n");
-        let host = Fake::new(&moved);
-        let refused = merge(&repo.project, &host, &branch(&place), Some(&checked), &Mutex::new(()))
+        let place = repo.place(WORK);
+        let refused = merge(&host, &branch(&place), Some(&checked), &Mutex::new(()))
             .await
             .expect_err("refused");
         assert!(refused.contains(&format!("main has moved to {moved}")), "{refused}");
-        assert_eq!(host.asked(), [Asked::Main], "nothing was merged");
-        let host = Fake::new(&main);
-        merge(&repo.project, &host, &branch(&place), Some(&checked), &Mutex::new(()))
+        assert!(
+            refused.contains("let the work on"),
+            "the owner is told what to do: {refused}"
+        );
+        assert_eq!(
+            run(&repo.project.repo, &["rev-parse", "main"]),
+            moved,
+            "nothing was merged"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_merge_given_again_after_it_was_made_finds_it_made() {
+        let repo = Repo::new("true");
+        let host = Local::new(repo.project.clone());
+        let started = start_with(&repo, &host).await.unwrap();
+        let checked = commit(&started.place.dir, "farewell.txt", "Bye.\n");
+        let place = repo.place(WORK);
+        let lock = Mutex::new(());
+        let merged = merge(&host, &branch(&place), Some(&checked), &lock)
             .await
             .expect("it merges");
-        assert_eq!(host.asked(), [Asked::Main, Asked::Merge(Some(checked))]);
+        // Main moved by that very merge: the commit checked does not hold it.
+        let again = merge(&host, &branch(&place), Some(&checked), &lock).await;
+        assert_eq!(again, Ok(merged));
+    }
+
+    #[tokio::test]
+    async fn the_watch_reads_nothing_of_a_repository_whose_configuration_is_refused() {
+        let repo = Repo::new("true");
+        run(&repo.project.repo, &["config", "core.pager", "less"]);
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let acts = Acts::new(
+            Fake::new(&main),
+            repo.project.clone(),
+            repo.data.clone(),
+            "0a1b2c3d".to_string(),
+        );
+        let (said, mut heard) = tokio::sync::mpsc::unbounded_channel();
+        let watching = tokio::spawn(acts.watch(Duration::from_secs(3600)).run(move |head| {
+            let _ = said.send(head);
+        }));
+        let waited = tokio::time::timeout(Duration::from_millis(500), heard.recv()).await;
+        assert!(waited.is_err(), "the watch said {waited:?}");
+        assert_eq!(acts.inner.host.asked(), [], "the host was not asked");
+        watching.abort();
     }
 
     #[tokio::test]

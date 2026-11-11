@@ -139,6 +139,37 @@ impl Fake {
     }
 }
 
+/// Squashes the commit onto main in the bare repository, as GitHub's squash merge does, and gives the new head.
+fn squash(bare: &std::path::Path, head: &str) -> Result<String, String> {
+    let git = |args: &[&str]| -> Result<String, String> {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(bare)
+            .args(args)
+            .env("GIT_AUTHOR_NAME", "GitHub")
+            .env("GIT_AUTHOR_EMAIL", "noreply@github.example")
+            .env("GIT_COMMITTER_NAME", "GitHub")
+            .env("GIT_COMMITTER_EMAIL", "noreply@github.example")
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    };
+    let main = git(&["rev-parse", "refs/heads/main"])?;
+    let squashed = git(&[
+        "commit-tree",
+        &format!("{head}^{{tree}}"),
+        "-p",
+        &main,
+        "-m",
+        "Squashed",
+    ])?;
+    git(&["update-ref", "refs/heads/main", &squashed])?;
+    Ok(squashed)
+}
+
 impl Api for Fake {
     async fn pulls(&self, branch: &str) -> Result<Vec<Pull>, String> {
         self.kept().asked.push(Asked::Pulls(branch.to_string()));
@@ -202,7 +233,7 @@ impl Api for Fake {
         if pull.head != head {
             return Err("HTTP 409: Head branch was modified. Review and try the merge again.".to_string());
         }
-        let merged = format!("squashed-{head}");
+        let merged = squash(&self.bare, head)?;
         pull.state = State::Merged;
         pull.merge_commit = Some(merged.clone());
         Ok(merged)
