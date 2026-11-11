@@ -140,13 +140,15 @@ mod tests {
     #[tokio::test]
     async fn the_check_says_whether_it_passed_with_the_end_of_what_it_said() {
         let repo = Repo::new("echo all is well");
-        git::start(&repo.project, &repo.place(WORK)).await.unwrap();
+        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
         assert_eq!(
             answered(&repo, CHECK).await,
             "The check `echo all is well` passed. The end of what it said:\nall is well\n"
         );
         let failing = Repo::new("echo it broke; exit 2");
-        git::start(&failing.project, &failing.place(WORK)).await.unwrap();
+        git::start(&failing.project, &failing.place(WORK), "main")
+            .await
+            .unwrap();
         let said = answered(&failing, CHECK).await;
         assert!(said.starts_with("The check `echo it broke; exit 2` failed ("), "{said}");
         assert!(said.ends_with("it broke\n"), "{said}");
@@ -174,7 +176,7 @@ mod tests {
     #[tokio::test]
     async fn a_withdrawn_check_is_stopped_where_it_runs() {
         let repo = Repo::new("sleep 30");
-        git::start(&repo.project, &repo.place(WORK)).await.unwrap();
+        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
         let held: Held<u8, ()> = Held::new();
         let mut stop = held.hold(1, ()).expect("held");
         let began = Instant::now();

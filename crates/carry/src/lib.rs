@@ -1,11 +1,13 @@
 //! The real carriers of what the engine gives to be done: the engine's own acts with plain `git` in the project's
-//! repository, the agents' rounds with the `claude` command line in each work's worktree, and the tools agents ask
-//! for. They are what `wf-agents run` carries the works out with where no script is given, as the installation's
-//! settings say.
+//! repository and its host, the agents' rounds with the `claude` command line in each work's worktree, and the
+//! tools agents ask for. They are what `wf-agents run` carries the works out with where no script is given, as the
+//! installation's settings say.
 //!
 //! - [`settings`]: the installation's settings, read from `install.toml`.
-//! - [`git`]: a work's branch and worktree, the check before its merge, and the merge.
-//! - `acts`: the engine's acts, as the rounds of the cells they carry out.
+//! - [`git`]: a work's branch and worktree, what the check before its merge finds there, and the merge into the
+//!   repository's own main branch.
+//! - `host`: where the project's repository is hosted: the head of main, the verdict on a work's commit, the merge.
+//! - `acts`: the engine's acts, as the rounds of the cells they carry out on the host.
 //! - [`message`]: what an agent is told at the start of a round, a function of the records alone.
 //! - [`read`]: the tool `read`, the blocks of a work as an agent reads them.
 //! - [`returns`]: the one form of every agent's return, and what came back read from it.
@@ -21,6 +23,7 @@ mod agents;
 pub mod cli;
 pub mod git;
 mod held;
+mod host;
 mod kept;
 pub mod message;
 mod process;
@@ -33,9 +36,10 @@ mod tools;
 use std::path::Path;
 use std::sync::Arc;
 
+use acts::Acts;
 use service::Carriers;
 
-pub use acts::{Acts, FAILED, PASSED, faults};
+pub use acts::{FAILED, PASSED, faults};
 pub use agents::{Agents, PROTOCOL, ROUNDS};
 pub use process::{STOP_WAIT, TAIL};
 pub use settings::Settings;
@@ -52,7 +56,12 @@ pub fn carriers(settings: Settings, data: &Path) -> Result<Carriers, String> {
     let tag = git::tag(&installation);
     Ok(Carriers {
         agents: Arc::new(Agents::new(settings, data.clone(), installation)),
-        acts: Arc::new(Acts::new(project.clone(), data.clone(), tag.clone())),
+        acts: Arc::new(Acts::new(
+            host::Local::new(project.clone()),
+            project.clone(),
+            data.clone(),
+            tag.clone(),
+        )),
         tools: Arc::new(Tools::new(project, data, tag)),
     })
 }

@@ -1,16 +1,14 @@
-//! The work's place in the project's repository, with plain `git`: a branch and a worktree for each work, the check
-//! before the merge, and the merge. Each is idempotent, since a round may be given again after the process started
-//! again: what was done already is found and said again, not done a second time.
+//! The work's place in the project's local repository, with plain `git`: a branch and a worktree for each work, what
+//! the check before the merge finds in them, and the merge into the repository's own main branch. Each is idempotent,
+//! since a round may be given again after the process started again: what was done already is found and said again,
+//! not done a second time.
 
 use std::path::{Path, PathBuf};
 
 use store::WorkNumber;
 use tokio::process::Command;
-use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::held::Stop;
-use crate::process::{self, Ran};
 use crate::settings::Project;
 
 /// The directory in the data directory that holds the works' worktrees.
@@ -40,17 +38,6 @@ pub struct Started {
     pub from: String,
 }
 
-/// What the check before the merge found.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Checked {
-    /// The commit checked: the head of the work's branch.
-    pub commit: String,
-    /// The head of the main branch it was checked against.
-    pub main: String,
-    /// What failed, with the end of what it said; none where everything passed.
-    pub failed: Option<String>,
-}
-
 /// The installation's part of the names of its branches and worktrees: the first eight characters of its id.
 pub fn tag(installation: &Uuid) -> String {
     installation.simple().to_string()[..8].to_string()
@@ -66,11 +53,11 @@ pub fn place(data: &Path, tag: &str, work: WorkNumber) -> Place {
 }
 
 /// What a git command gave: whether it exited with 0, and its standard output and error.
-struct Said {
-    ok: bool,
-    code: Option<i32>,
-    out: String,
-    err: String,
+pub(crate) struct Said {
+    pub(crate) ok: bool,
+    pub(crate) code: Option<i32>,
+    pub(crate) out: String,
+    pub(crate) err: String,
 }
 
 /// What every git command of the engine's is given before its own arguments: no file-system monitor, no hook and
@@ -91,7 +78,7 @@ pub const SAFE: [&str; 8] = [
 /// Runs git in the directory; says why where it cannot be started. Git is given, of the engine's environment, only
 /// what the agents are given of it (`cli::KEPT` and every `LC_*`), so that no `GIT_*` variable of the engine's
 /// reaches it but the one set here.
-async fn said(dir: &Path, args: &[&str]) -> Result<Said, String> {
+pub(crate) async fn said(dir: &Path, args: &[&str]) -> Result<Said, String> {
     let kept =
         std::env::vars().filter(|(name, _)| crate::cli::KEPT.contains(&name.as_str()) || name.starts_with("LC_"));
     let output = Command::new("git")
@@ -115,7 +102,7 @@ async fn said(dir: &Path, args: &[&str]) -> Result<Said, String> {
 }
 
 /// Runs git in the directory and gives its standard output; or says what failed, with what git said.
-async fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
+pub(crate) async fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     let said = said(dir, args).await?;
     if said.ok {
         Ok(said.out)
@@ -130,11 +117,12 @@ fn text(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-/// Makes the work's branch from the main branch's head and its worktree, keeping both where they are made already.
-pub async fn start(project: &Project, place: &Place) -> Result<Started, String> {
+/// Makes the work's branch from `from`, the head of main as the host gives it, and its worktree, keeping both where
+/// they are made already.
+pub async fn start(project: &Project, place: &Place, from: &str) -> Result<Started, String> {
     configuration(project, place).await?;
     let repo = &project.repo;
-    let (branch, main) = (place.reference(), format!("refs/heads/{}", project.main));
+    let branch = place.reference();
     if place.dir.exists() {
         let on = git(&place.dir, &["symbolic-ref", "--quiet", "HEAD"]).await?;
         if on != branch {
@@ -157,10 +145,10 @@ pub async fn start(project: &Project, place: &Place) -> Result<Started, String> 
         if exists {
             git(repo, &["worktree", "add", &dir, &place.branch]).await?;
         } else {
-            git(repo, &["worktree", "add", "-b", &place.branch, &dir, &main]).await?;
+            git(repo, &["worktree", "add", "-b", &place.branch, &dir, from]).await?;
         }
     }
-    let from = git(repo, &["merge-base", &main, &branch]).await?;
+    let from = git(repo, &["merge-base", from, &branch]).await?;
     Ok(Started {
         place: place.clone(),
         from,
@@ -179,59 +167,20 @@ pub fn worktree(place: &Place) -> Result<PathBuf, String> {
     }
 }
 
-/// Checks the work before its merge: that its worktree holds nothing uncommitted, that its branch merges into the
-/// main branch's head with no conflict (worked out without changing anything), and that the project's check passes
-/// in the worktree. What is done in the repository is done holding `repository`, and the check's command is run
-/// without it. Says why where it could not check, and gives none where it was stopped; what failed is what was found,
-/// not a reason to fail.
-pub(crate) async fn check(
-    project: &Project,
-    place: &Place,
-    repository: &Mutex<()>,
-    stop: &mut Stop,
-) -> Result<Option<Checked>, String> {
-    let dir = worktree(place)?;
-    let (commit, main, merged) = {
-        let _held = repository.lock().await;
-        configuration(project, place).await?;
-        let commit = git(&project.repo, &["rev-parse", &place.reference()]).await?;
-        let main = git(&project.repo, &["rev-parse", &format!("refs/heads/{}", project.main)]).await?;
-        let changes = git(&dir, &["status", "--porcelain"]).await?;
-        if !changes.is_empty() {
-            let failed = format!("The worktree has changes that are not committed:\n{changes}");
-            return Ok(Some(Checked {
-                commit,
-                main,
-                failed: Some(failed),
-            }));
-        }
-        let args = ["merge-tree", "--write-tree", "--name-only", &main, &commit];
-        let merged = said(&project.repo, &args).await?;
-        (commit, main, merged)
-    };
-    let checked = |failed| Checked {
-        commit: commit.clone(),
-        main: main.clone(),
-        failed,
-    };
+/// What a work's worktree holds that is not committed, as `git status --porcelain` lists it; nothing where all is.
+pub(crate) async fn uncommitted(dir: &Path) -> Result<String, String> {
+    git(dir, &["status", "--porcelain"]).await
+}
+
+/// The files of a conflict between the commit and main's head, worked out without changing anything; none where the
+/// commit merges into main cleanly.
+pub(crate) async fn conflicts(project: &Project, main: &str, commit: &str) -> Result<Option<String>, String> {
+    let args = ["merge-tree", "--write-tree", "--name-only", main, commit];
+    let merged = said(&project.repo, &args).await?;
     match merged.code {
-        Some(0) => {}
-        Some(1) => {
-            return Ok(Some(checked(Some(format!(
-                "The branch does not merge into {} at {main} without a conflict:\n{}",
-                project.main, merged.out
-            )))));
-        }
-        _ => return Err(format!("git merge-tree failed: {}", merged.err)),
-    }
-    match process::run(process::shell(&project.check, &dir), None, None, stop).await? {
-        Ran::Ended { status, stdout, .. } if !status.success() => Ok(Some(checked(Some(format!(
-            "The check `{}` failed ({status}). The end of what it said:\n{}",
-            project.check,
-            process::tail(&stdout)
-        ))))),
-        Ran::Ended { .. } => Ok(Some(checked(None))),
-        Ran::Stopped => Ok(None),
+        Some(0) => Ok(None),
+        Some(1) => Ok(Some(merged.out)),
+        _ => Err(format!("git merge-tree failed: {}", merged.err)),
     }
 }
 

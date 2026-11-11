@@ -335,7 +335,7 @@ impl Real {
         let agents = (self.flow.cells.iter()).any(|cell| cell.kind == flow::Kind::Agent);
         if !starts && agents {
             let project = self.settings.project.clone();
-            git::start(&project, &self.place(work))
+            git::start(&project, &self.place(work), &project.main)
                 .await
                 .expect("the work's place is made");
         }
