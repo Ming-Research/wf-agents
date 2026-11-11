@@ -953,6 +953,17 @@ impl H {
         self.on(work, Event::Done { call, result })
     }
 
+    /// The outside source says this, which the driver must take, and gives what is to be done.
+    pub fn outside(&mut self, source: &str, content: &str) -> Vec<Todo> {
+        let now = self.now();
+        let todos = (self.dm().outside(now, source, content)).expect("the driver takes what the outside says");
+        self.given(&todos);
+        if self.checking {
+            self.check();
+        }
+        todos
+    }
+
     /// The work is let on.
     pub fn let_on(&mut self, work: WorkNumber) -> Vec<Todo> {
         self.on(work, Event::Resumed)

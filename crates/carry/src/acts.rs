@@ -855,6 +855,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_merge_refuses_a_main_that_moved_since_the_check_and_merges_one_the_check_took_in() {
+        let repo = Repo::new("true");
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let started = start_with(&repo, &Fake::new(&main)).await.unwrap();
+        let checked = commit(&started.place.dir, "farewell.txt", "Bye.\n");
+        let place = repo.place(WORK);
+        let moved = commit(&repo.project.repo, "weather.txt", "Sunny.\n");
+        let host = Fake::new(&moved);
+        let refused = merge(&repo.project, &host, &branch(&place), Some(&checked), &Mutex::new(()))
+            .await
+            .expect_err("refused");
+        assert!(refused.contains(&format!("main has moved to {moved}")), "{refused}");
+        assert_eq!(host.asked(), [Asked::Main], "nothing was merged");
+        let host = Fake::new(&main);
+        merge(&repo.project, &host, &branch(&place), Some(&checked), &Mutex::new(()))
+            .await
+            .expect("it merges");
+        assert_eq!(host.asked(), [Asked::Main, Asked::Merge(Some(checked))]);
+    }
+
+    #[tokio::test]
+    async fn the_watch_says_mains_head_at_once_and_again_after_a_merge() {
+        let repo = Repo::new("true");
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let acts = Acts::new(
+            Fake::new(&main),
+            repo.project.clone(),
+            repo.data.clone(),
+            "0a1b2c3d".to_string(),
+        );
+        let (said, mut heard) = tokio::sync::mpsc::unbounded_channel();
+        let watching = tokio::spawn(acts.watch(Duration::from_secs(3600)).run(move |head| {
+            let _ = said.send(head);
+        }));
+        let within = Duration::from_secs(10);
+        let first = tokio::time::timeout(within, heard.recv()).await.expect("said at once");
+        assert_eq!(first, Some(format!("The main branch main is at {main}.")));
+        acts.inner.merged.notify_one();
+        let again = tokio::time::timeout(within, heard.recv())
+            .await
+            .expect("said after the merge");
+        assert_eq!(again, first);
+        watching.abort();
+    }
+
+    #[tokio::test]
     async fn the_local_host_gives_the_repositorys_main_and_merges_there() {
         let repo = Repo::new("true");
         let host = Local::new(repo.project.clone());
