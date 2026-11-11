@@ -77,6 +77,11 @@ pub enum CellChange {
         before: Option<String>,
         after: Option<String>,
     },
+    /// Whether the agents of the cell's line only read, as its line says.
+    ReadsOnly {
+        before: bool,
+        after: bool,
+    },
     /// What an agent cell's agent is told to do; none for an engine cell.
     Task {
         before: Option<String>,

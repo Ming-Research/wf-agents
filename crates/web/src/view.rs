@@ -373,6 +373,12 @@ pub enum Change {
         before: Option<String>,
         after: Option<String>,
     },
+    /// Whether the agents of the cell's line only read.
+    ReadsOnly {
+        cell: String,
+        before: bool,
+        after: bool,
+    },
     Task {
         cell: String,
         before: Option<String>,
@@ -762,6 +768,7 @@ impl Change {
                 before: from.clone(),
                 after: to.clone(),
             },
+            &CellChange::ReadsOnly { before, after } => Change::ReadsOnly { cell, before, after },
             CellChange::Task {
                 before: from,
                 after: to,

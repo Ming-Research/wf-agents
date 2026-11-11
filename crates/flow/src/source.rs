@@ -80,10 +80,15 @@ pub struct LimitsFile {
     pub calls: i64,
 }
 
-/// A line as written: nothing yet but its name.
-#[derive(Clone, Copy, Debug, Deserialize)]
+/// A line as written.
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct LineFile {}
+pub struct LineFile {
+    /// The line's agents only read: they edit no file and change nothing of the repository. A line that writes code,
+    /// tests or anything else it commits leaves it out.
+    #[serde(default)]
+    pub reads_only: bool,
+}
 
 /// A block as written.
 #[derive(Clone, Debug, Deserialize)]

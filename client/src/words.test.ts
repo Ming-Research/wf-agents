@@ -47,6 +47,11 @@ describe('the words of the page', () => {
       changeWords({ kind: 'condition', cell: 'a', before: null, after: { on: 'block', block: 'x', value: 'no' } }),
     ).toEqual({ what: 'Runs when', before: 'always', after: 'x is no' });
     expect(changeWords({ kind: 'inputRemoved', cell: 'a', block: 'x' })).toEqual({ what: 'Reads', before: 'x', after: '' });
+    expect(changeWords({ kind: 'readsOnly', cell: 'a', before: false, after: true })).toEqual({
+      what: 'Only reads',
+      before: 'no',
+      after: 'yes',
+    });
     expect(changeWords({ kind: 'mustWriteAdded', cell: 'a', block: 'x' })).toEqual({
       what: 'Writes every time',
       before: '',

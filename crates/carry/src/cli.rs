@@ -14,6 +14,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 use work::{Spent, Work};
 
+use crate::permissions::Permissions;
 use crate::settings::Agents;
 
 /// What the command line says on its standard error when a session is begun under an id that has one already.
@@ -49,9 +50,16 @@ impl Begin {
 }
 
 /// The arguments of a round's command line, after the program: the engine's own, then the installation's, then the
-/// session. The system prompt and the schema are the same for every round, so that they open every request alike and
-/// the prompt cache keeps them.
-pub fn arguments(agents: &Agents, protocol: &str, schema: &str, session: Uuid, begin: Begin) -> Vec<String> {
+/// line's permissions, then the session. The schema is the same for every round, and the system prompt for every round
+/// of a line, so that they open every request of a session alike and the prompt cache keeps them.
+pub fn arguments(
+    agents: &Agents,
+    protocol: &str,
+    schema: &str,
+    permissions: &Permissions,
+    session: Uuid,
+    begin: Begin,
+) -> Vec<String> {
     let mut args: Vec<String> = ["-p", "--output-format", "json", "--model", &agents.model]
         .iter()
         .map(|a| a.to_string())
@@ -60,6 +68,7 @@ pub fn arguments(agents: &Agents, protocol: &str, schema: &str, session: Uuid, b
     args.extend(["--json-schema".to_string(), schema.to_string()]);
     args.extend(["--setting-sources".to_string(), agents.setting_sources.clone()]);
     args.extend(agents.args.iter().cloned());
+    args.extend(permissions.arguments());
     let flag = match begin {
         Begin::New => "--session-id",
         Begin::Resume => "--resume",
@@ -292,7 +301,8 @@ mod tests {
     #[test]
     fn the_command_line_begins_a_session_and_goes_on_in_it() {
         let session = Uuid::parse_str("6a1f3c2e-8d4b-4e7a-9c5f-2b8e1d0a7f43").unwrap();
-        let head = |begin| arguments(&agents(), "PROTOCOL", "SCHEMA", session, begin);
+        let permissions = Permissions::of(true, &[]);
+        let head = |begin| arguments(&agents(), "PROTOCOL", "SCHEMA", &permissions, session, begin);
         let common = [
             "-p",
             "--output-format",
@@ -308,6 +318,8 @@ mod tests {
             "--strict-mcp-config",
         ];
         let mut new: Vec<String> = common.iter().map(|a| a.to_string()).collect();
+        // The line's permissions come after the installation's arguments, which they add to.
+        new.extend(permissions.arguments());
         let mut resumed = new.clone();
         new.extend(["--session-id".to_string(), session.to_string()]);
         resumed.extend(["--resume".to_string(), session.to_string()]);

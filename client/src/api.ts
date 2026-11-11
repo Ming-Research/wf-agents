@@ -150,6 +150,7 @@ export type Change =
   | { kind: 'title'; cell: string; before: string; after: string }
   | { kind: 'kind'; cell: string; before: Kind; after: Kind }
   | { kind: 'line'; cell: string; before: string | null; after: string | null }
+  | { kind: 'readsOnly'; cell: string; before: boolean; after: boolean }
   | { kind: 'task'; cell: string; before: string | null; after: string | null }
   | { kind: 'act'; cell: string; before: string | null; after: string | null }
   | { kind: 'condition'; cell: string; before: Condition | null; after: Condition | null }

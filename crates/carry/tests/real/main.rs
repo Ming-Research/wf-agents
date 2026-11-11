@@ -11,6 +11,7 @@ mod delivering;
 mod failing;
 mod going;
 mod left;
+mod permissions;
 mod stopping;
 
 use std::collections::BTreeSet;

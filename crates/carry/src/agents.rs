@@ -1,6 +1,7 @@
 //! The agents' rounds, run with the `claude` command line: each round one run of the program, in the work's worktree,
-//! in the session of the cell's line, told its message on its standard input, with the same system prompt and the
-//! same form of return for every round. At most as many rounds run at once as the settings give slots; the others
+//! in the session of the cell's line, told its message on its standard input, with the same form of return for every
+//! round and the same system prompt for every round of a line, which says what the line may run as its permissions
+//! give it to the program (`permissions`). At most as many rounds run at once as the settings give slots; the others
 //! wait their turn.
 //!
 //! A round fails, handing in nothing, where the worktree is not there, the program cannot be started, it exits with
@@ -34,6 +35,7 @@ use work::Spent;
 
 use crate::cli::{self, Begin};
 use crate::held::{Failing, Held, Stop};
+use crate::permissions::Permissions;
 use crate::process::{self, Ran};
 use crate::settings::Settings;
 use crate::{acts, git, kept, message, returns, session};
@@ -54,7 +56,7 @@ struct Inner {
     settings: Settings,
     data: PathBuf,
     installation: Uuid,
-    /// The system prompt, the same for every round.
+    /// The system prompt, the same for every round of a line once what the line may do is put in.
     protocol: String,
     slots: Semaphore,
     held: Held<(WorkNumber, RunId, usize), RoundReply>,
@@ -179,6 +181,7 @@ impl Inner {
         }
         let group = base.with_extension("pgid");
         process::stop_left(&group, &dir).await;
+        let permissions = Permissions::of(round.cell.reads_only, &self.settings.agents.args);
         let session = session::session(self.installation, round.work, line);
         let mut begin = cli::begin(flow, work, line);
         let before = cli::spent_before(flow, work, line);
@@ -188,7 +191,7 @@ impl Inner {
             let told = message::message(flow, work, &round.cell, round.run, round.number, &round.given, begins);
             let (told_at, result_at) = attempt(&base).await;
             write(&told_at, told.as_bytes()).await?;
-            let command = self.command(&dir, session, begin);
+            let command = self.command(&dir, &permissions, session, begin);
             let ran = process::run(command, Some(told.into_bytes()), Some(&group), stop).await?;
             let Ran::Ended { status, stdout, stderr } = ran else {
                 return Ok(Carried::Stopped);
@@ -232,12 +235,21 @@ impl Inner {
         }
     }
 
-    /// The program's command line for a round in the session, begun or gone on in, in the worktree.
-    fn command(&self, dir: &Path, session: Uuid, begin: Begin) -> Command {
+    /// The program's command line for a round of a line with these permissions, in the session, begun or gone on in,
+    /// in the worktree. The system prompt says what the line may do.
+    fn command(&self, dir: &Path, permissions: &Permissions, session: Uuid, begin: Begin) -> Command {
         let agents = &self.settings.agents;
+        let protocol = self.protocol.replace("{your_line}", &permissions.told());
         let mut command = Command::new(&agents.command);
         command
-            .args(cli::arguments(agents, &self.protocol, returns::SCHEMA, session, begin))
+            .args(cli::arguments(
+                agents,
+                &protocol,
+                returns::SCHEMA,
+                permissions,
+                session,
+                begin,
+            ))
             .env_clear()
             .envs(cli::environment(agents, std::env::vars()))
             .current_dir(dir);
