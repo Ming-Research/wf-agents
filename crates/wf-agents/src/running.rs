@@ -99,10 +99,10 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
-        let carriers: Carriers = match with {
-            Read::Script(script) => Scripted::new(script).carriers(),
-            Read::Settings(settings) => match carry::carriers(*settings, data) {
-                Ok(carriers) => carriers,
+        let (carriers, watch): (Carriers, Option<carry::Watch>) = match with {
+            Read::Script(script) => (Scripted::new(script).carriers(), None),
+            Read::Settings(settings) => match carry::carry(*settings, data) {
+                Ok((carriers, watch)) => (carriers, Some(watch)),
                 Err(why) => {
                     eprintln!("The carriers cannot be made: {why}");
                     return ExitCode::FAILURE;
@@ -116,6 +116,12 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
+        // The watch of main writes, through the loop, the block of main of each work: the check before a merge then
+        // runs again when main has moved since it passed.
+        if let Some(watch) = watch {
+            let handle = service.handle();
+            tokio::spawn(watch.run(move |head| handle.outside(carry::MAIN, &head)));
+        }
         let router = web::with_works(web::Flows::dirs(shown.clone(), None, Box::new(has)), service.handle());
         println!("The owner's pages are at {}", works_page(address));
         tokio::select! {
