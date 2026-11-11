@@ -886,5 +886,7 @@ fn random_works_keep_the_engines_properties_and_come_to_rest() {
 
 #[test]
 fn a_judge_running_while_the_cell_it_judges_is_skipped_keeps_the_engines_properties() {
-    histories(SKIPPED_JUDGED, 150, &[properties::CAUSES_LAST_BEHIND]);
+    // Since a paused work answers what a person writes for a cell, 150 histories no longer reach the row of acts;
+    // likely because a pause no longer gathers a person's writes for the judge to write over.
+    histories(SKIPPED_JUDGED, 600, &[properties::CAUSES_LAST_BEHIND]);
 }
