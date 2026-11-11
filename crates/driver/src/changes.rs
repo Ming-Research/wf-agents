@@ -3,8 +3,8 @@
 //! them, and a test give it the same answer. A change is kept as a record of its own after the item's others, and what
 //! the item stands as is worked out of them (crate `store`, [`store::Item`]).
 //!
-//! Every change waits for nothing and is refused once the item's work has ended: nothing of the work goes on, and the
-//! item is what it ended as. What it depends on changes only while its work has begun no run (entry
+//! Every change is refused once the item's work has ended: nothing of the work goes on, and the item is what it ended
+//! as. Its title and its level change until then; what it depends on only while its work has begun no run (entry
 //! `dependencies-until-the-work-begins`).
 
 use decide::End;
@@ -53,8 +53,27 @@ pub fn judge(
     change: &ItemChange,
     depends_on: impl Fn(ItemNumber) -> Option<Vec<ItemNumber>>,
 ) -> Result<bool, Refused> {
-    let _ = (item, gone, change, way(item.number, item.number, &depends_on));
-    Ok(false)
+    let refused = |why| Err(Refused::Unchangeable(why));
+    if let Gone::Ended(end) = gone {
+        return refused(Unchangeable::Ended(end));
+    }
+    match change {
+        ItemChange::Title(title) => Ok(*title != item.title),
+        ItemChange::Level(level) => Ok(item.level.as_deref() != Some(level.as_str())),
+        ItemChange::DependsOn(on) | ItemChange::NoLongerDependsOn(on) if depends_on(*on).is_none() => {
+            Err(Refused::NoSuchItem(*on))
+        }
+        ItemChange::DependsOn(_) | ItemChange::NoLongerDependsOn(_) if gone == Gone::Begun => {
+            refused(Unchangeable::Begun)
+        }
+        ItemChange::DependsOn(on) if item.depends_on.contains(on) => Ok(false),
+        ItemChange::DependsOn(on) => match way(*on, item.number, &depends_on) {
+            Some(way) => refused(Unchangeable::Circle(way)),
+            None => Ok(true),
+        },
+        ItemChange::NoLongerDependsOn(on) if !item.depends_on.contains(on) => refused(Unchangeable::NotDependent(*on)),
+        ItemChange::NoLongerDependsOn(_) => Ok(true),
+    }
 }
 
 /// A way from one item to another through what each depends on, both included, where there is one: the first found,

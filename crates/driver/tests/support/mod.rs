@@ -684,6 +684,37 @@ impl H {
         }
     }
 
+    /// Whoever plans the work changes an item at this time, which the driver takes, or refuses leaving everything as it
+    /// was, unless its store stops it; a refusal gives nothing to be done.
+    pub fn try_change(&mut self, now: Time, item: ItemNumber, change: ItemChange) -> Outcome<Vec<Todo>> {
+        let before = self.state();
+        let items = self.reader.items().expect("the items are read");
+        match self.dm().change(now, item, change) {
+            Ok((_, todos)) => {
+                self.given(&todos);
+                if self.checking {
+                    self.check();
+                }
+                Outcome::Done(todos)
+            }
+            Err(Failed::Stopped { fault, kept }) => {
+                self.stopped(&fault);
+                let after = self.reader.items().expect("the items are read");
+                assert_eq!(
+                    kept,
+                    after != items,
+                    "the driver said kept: {kept} of a change, and the store says otherwise"
+                );
+                Outcome::Stopped { kept }
+            }
+            Err(Failed::Unchangeable { .. } | Failed::NoSuchItem(_)) => {
+                assert_eq!(self.state(), before, "a refused change changed the driver or the store");
+                Outcome::Done(Vec::new())
+            }
+            Err(other) => panic!("the change was refused for no reason a change has: {other:?}"),
+        }
+    }
+
     /// The owner sets the pause of everything, or lifts it, which the driver must take; and gives what is to be done.
     pub fn pause_everything(&mut self, paused: bool) -> Vec<Todo> {
         let now = self.now();
@@ -1236,6 +1267,8 @@ impl H {
 pub enum Act {
     Add(NewItem),
     On(WorkNumber, Event),
+    /// Whoever plans the work changes an item, which the driver may refuse.
+    Change(ItemNumber, ItemChange),
     /// The owner sets the pause of everything, or lifts it.
     Everything(bool),
 }
@@ -1263,6 +1296,10 @@ pub fn perform(h: &mut H, now: Time, act: &Act, stops: &mut Stops) -> Option<Vec
                 Outcome::Stopped { kept } => (Some(kept), None),
             },
             Act::On(work, event) => match h.try_on(now, *work, event.clone()) {
+                Outcome::Done(todos) => (None, Some(todos)),
+                Outcome::Stopped { kept } => (Some(kept), None),
+            },
+            Act::Change(item, change) => match h.try_change(now, *item, change.clone()) {
                 Outcome::Done(todos) => (None, Some(todos)),
                 Outcome::Stopped { kept } => (Some(kept), None),
             },

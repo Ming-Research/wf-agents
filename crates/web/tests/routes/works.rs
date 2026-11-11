@@ -57,6 +57,10 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
             },
             "title": "Greet the user",
             "level": "2",
+            "history": {
+                "first": { "title": "Greet the user", "level": "2", "dependsOn": [] },
+                "changes": [],
+            },
             "flow": flow,
             "cells": [
                 { "cell": "plan", "needs": no_record, "inputs": [input("request", json!(3))] },

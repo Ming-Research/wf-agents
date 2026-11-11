@@ -159,7 +159,10 @@ pub(crate) fn change(db: &Connection, item: ItemNumber, change: &ItemChange, at:
     let n: u64 = db.query_row("SELECT count(*) FROM item_changes WHERE item = ?1", [item.0], |row| {
         row.get(0)
     })?;
-    let _ = (n, at, what);
+    db.execute(
+        "INSERT INTO item_changes (item, n, at, change) VALUES (?1, ?2, ?3, ?4)",
+        params![item.0, n + 1, at.0, what],
+    )?;
     Ok(())
 }
 

@@ -1,0 +1,7 @@
+### decision dependencies-until-the-work-begins
+What an item depends on changes only while its work has begun no run; its title and its level change until its work ends, and an item whose work has ended takes no change.
+Why: A dependency is a result the work uses, and the walk holds a work at a precondition whose cell has run already, so one added once the work had begun would only hold it where it stands while its agents had gone on without it, as an order of preference does; one taken away would leave the item saying it was built without what it began on. Counting a work as begun only from its first round of an agent was turned down: the first run is where a work waits for what it depends on, and a work past it would then be made to wait after it began. No cell reads the title, so a begun item is retitled to say what is left of it once the rest is given back as a new item, its merge being named by it.
+
+### decision the-background-is-a-block
+An item's background is no part of the item but the block of its work that people write, changed by a write as any such block is, at any time before the work ends; the engine has no change of it of its own.
+Why: The flow says which blocks people write and which cells read them, and a write of one runs again the cells that read it, which is what a changed background must do to a begun work; a background kept with the item, changed as its title is, would name a block of the flow in the engine and need a second way to make those cells run again.
