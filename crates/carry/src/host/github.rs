@@ -153,11 +153,13 @@ impl<A: Api> GitHub<A> {
         with
     }
 
-    /// What git is given to push to and fetch from GitHub, once the local repository's configuration is found to send
-    /// nothing elsewhere: a key of its own that rewrites an address (`url.*`) or sets how HTTP goes (`http.*`: a
-    /// proxy, the checking of certificates) could send the token to another server, and is refused.
+    /// What git is given to push to and fetch from GitHub, once the local repository's configuration, with what it
+    /// includes, is found to send nothing elsewhere: a key of its own that rewrites an address (`url.*`), sets how
+    /// HTTP goes (`http.*`: a proxy, the checking of certificates), or is set for an address itself (`remote.<address>.*`:
+    /// another address, a program to run for the transfer) could send the token to another server or run a program
+    /// with it, and is refused.
     async fn network(&self) -> Result<With, String> {
-        let listed = git::git(&self.project.repo, &["config", "--list", "--show-scope"]).await?;
+        let listed = git::git(&self.project.repo, &["config", "--list", "--show-scope", "--includes"]).await?;
         let found: Vec<String> = (listed.lines())
             .filter_map(|line| line.split_once('\t'))
             .filter(|(scope, _)| *scope == "local" || *scope == "worktree")
@@ -165,7 +167,7 @@ impl<A: Api> GitHub<A> {
                 let key = entry.split_once('=').map_or(entry, |(key, _)| key).to_ascii_lowercase();
                 (scope, key)
             })
-            .filter(|(_, key)| key.starts_with("url.") || key.starts_with("http."))
+            .filter(|(_, key)| key.starts_with("url.") || key.starts_with("http.") || for_an_address(key))
             .map(|(scope, key)| format!("{key} ({scope})"))
             .collect();
         if !found.is_empty() {
@@ -410,6 +412,18 @@ impl<A: Api> Host for GitHub<A> {
         self.delete(branch).await?;
         Ok(commit)
     }
+}
+
+/// Whether the key is one of a remote named by an address rather than a name, `remote.<address>.<name>`, which git
+/// applies to every push and fetch given that address: a path, or what has a scheme or a host before a colon.
+fn for_an_address(key: &str) -> bool {
+    let Some(rest) = key.strip_prefix("remote.") else {
+        return false;
+    };
+    let Some((sub, _)) = rest.rsplit_once('.') else {
+        return false;
+    };
+    sub.contains(':') || sub.starts_with('/') || sub.starts_with('.') || sub.starts_with('~')
 }
 
 /// What the pull request of the work says of itself.

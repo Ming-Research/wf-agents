@@ -346,6 +346,9 @@ fn runs_code(key: &str) -> bool {
         || within("diff.", ".command")
         || within("gpg.", ".program")
         || within("credential.", ".helper")
+        || within("remote.", ".uploadpack")
+        || within("remote.", ".receivepack")
+        || within("remote.", ".vcs")
 }
 
 /// Whether the key matches one of the patterns: the whole key, or, for a pattern ending in `*`, its beginning.
