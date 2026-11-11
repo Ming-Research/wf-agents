@@ -71,6 +71,11 @@ impl Gh {
     /// Asks GitHub, with this body where one is given, and gives what it answered whatever its status; or why `gh`
     /// gave no answer.
     async fn ask(&self, method: &str, path: &str, body: Option<Value>) -> Result<Answer, String> {
+        self.ask_with(method, path, body, &[]).await
+    }
+
+    /// Asks GitHub as [`Gh::ask`] does, `gh` given these flags beside.
+    async fn ask_with(&self, method: &str, path: &str, body: Option<Value>, flags: &[&str]) -> Result<Answer, String> {
         let mut args = vec![
             "api",
             "--include",
@@ -82,6 +87,7 @@ impl Gh {
             "X-GitHub-Api-Version: 2022-11-28",
             path,
         ];
+        args.extend(flags);
         if body.is_some() {
             args.extend(["--input", "-"]);
         }
@@ -184,7 +190,14 @@ impl Api for Gh {
 
     async fn log(&self, job: u64) -> Result<String, String> {
         let path = format!("repos/{}/actions/jobs/{job}/logs", self.repository);
-        self.want("GET", &path, None, &[200]).await
+        // A log holds the escapes that colour its text, which `gh` otherwise refuses to print, giving the status and
+        // no body: the engine reads them as data and takes them out itself.
+        let answer = self.ask_with("GET", &path, None, &["--allow-escape-sequences"]).await?;
+        if answer.status == 200 {
+            Ok(answer.body)
+        } else {
+            Err(refusal(&answer))
+        }
     }
 
     async fn merge(&self, number: u64, head: &str, method: &str) -> Result<String, String> {
