@@ -210,11 +210,11 @@ fn a_file_made_with_the_first_version_of_the_schema_is_migrated_and_its_pauses_r
 
 /// The migrations, in order, each bringing a file one version further, as the store's own list holds them.
 const MIGRATIONS: [&str; 5] = [
-    include_str!("../../migrations/202611101530-say-who-paused-a-work-and-why.sql"),
-    include_str!("../../migrations/202611102304-give-items-a-level.sql"),
-    include_str!("../../migrations/202611111400-say-when-a-work-let-go-of-what-it-held.sql"),
-    include_str!("../../migrations/202611111401-keep-the-owners-pause-of-everything.sql"),
-    include_str!("../../migrations/202611111600-record-the-sessions-of-lines-and-the-context-of-rounds.sql"),
+    include_str!("../../../../db/migrations/202611101530-say-who-paused-a-work-and-why.sql"),
+    include_str!("../../../../db/migrations/202611102304-give-items-a-level.sql"),
+    include_str!("../../../../db/migrations/202611111400-say-when-a-work-let-go-of-what-it-held.sql"),
+    include_str!("../../../../db/migrations/202611111401-keep-the-owners-pause-of-everything.sql"),
+    include_str!("../../../../db/migrations/202611111600-record-the-sessions-of-lines-and-the-context-of-rounds.sql"),
 ];
 
 #[test]
@@ -245,7 +245,7 @@ fn a_file_of_every_earlier_version_is_brought_to_this_one_as_it_is_opened() {
 }
 
 /// The migration that brought version 1 of the schema to version 2.
-const TO_2: &str = include_str!("../../migrations/202611101530-say-who-paused-a-work-and-why.sql");
+const TO_2: &str = include_str!("../../../../db/migrations/202611101530-say-who-paused-a-work-and-why.sql");
 
 #[test]
 fn an_item_kept_before_items_had_levels_is_opened_at_none() {
