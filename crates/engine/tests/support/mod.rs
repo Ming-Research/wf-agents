@@ -6,6 +6,7 @@
 
 use std::collections::BTreeSet;
 
+use decide::run::Failure;
 use decide::{CallId, Cause, Decision, Outsider, Pauser, Records, RunId, decide};
 use engine::{Ask, Back, Call, Came, Effect, Event, Spent, Time, Work, handle, pending};
 use flow::Compiled;
@@ -442,7 +443,13 @@ impl Driver {
                 if part.fails(self, false, people) {
                     let spent = self.spent(run);
                     let why = format!("the agent of {cell} could not start");
-                    let taken = self.take(Event::Failed { run, why, spent });
+                    let taken = self.take(Event::Failed {
+                        run,
+                        why,
+                        failure: Failure::Other,
+                        resets: None,
+                        spent,
+                    });
                     assert!(taken, "the failure of a round under way was refused");
                     return;
                 }
@@ -475,6 +482,8 @@ impl Driver {
                     Event::Failed {
                         run,
                         why: "stopped".to_string(),
+                        failure: Failure::Other,
+                        resets: None,
                         spent,
                     }
                 } else {

@@ -855,7 +855,8 @@ impl H {
     }
 
     /// What the work does next agrees with what is to be done for it: after a call, no run is left to start and none
-    /// left to be abandoned; a run goes on with its round held only while the work is paused; a work is busy with a
+    /// left to be abandoned, and a run goes on with its round held only while the work is paused, unless a wait every
+    /// work shares holds the rounds of the cell's agent; a work is busy with a
     /// run exactly when a round of that run is given to be done; and a work paused began no round after the pause but
     /// of a run for a note a person wrote ([`for_a_note`]), and none given again after it failed.
     fn agrees_with_what_is_pending(&self, number: WorkNumber, flow: &Compiled, work: &Work, shown: &Decision) {
@@ -867,7 +868,13 @@ impl H {
                 _ => None,
             })
             .collect();
+        // The wait every work shares holds the rounds of an agent's cell, and leaves its run to start or go on.
+        let agents = |cell: &decide::CellId| {
+            self.d().outage().is_some()
+                && (flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == flow::Kind::Agent)
+        };
         match shown {
+            Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if agents(cell) => {}
             Decision::Run { .. } | Decision::Abandon { .. } | Decision::Fault(_) => {
                 panic!("after a call work {} is left deciding {shown:?}", number.0)
             }
@@ -957,6 +964,18 @@ impl H {
     pub fn outside(&mut self, source: &str, content: &str) -> Vec<Todo> {
         let now = self.now();
         let todos = (self.dm().outside(now, source, content)).expect("the driver takes what the outside says");
+        self.given(&todos);
+        if self.checking {
+            self.check();
+        }
+        todos
+    }
+
+    /// The driver is told the time, which the harness's clock takes on to, and what a look at the network found,
+    /// where one was taken; gives what is to be done.
+    pub fn tick(&mut self, at: Time, reached: Option<bool>) -> Vec<Todo> {
+        self.clock = self.clock.max(at.0);
+        let todos = (self.dm().tick(at, reached)).expect("the driver takes the time");
         self.given(&todos);
         if self.checking {
             self.check();

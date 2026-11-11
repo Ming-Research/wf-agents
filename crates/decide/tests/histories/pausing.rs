@@ -2,7 +2,7 @@
 //! and begins nothing else. While the work is paused, a run starts only for a cell one of whose reasons is a change of
 //! meaning of a note that a person made since the cell last ran; the pause alone holds back no cell one of whose
 //! reasons is such a change; and the engine gives a run at rest its next round under a pause exactly when the run
-//! started for such a change and its last round did not fail. All are judged by the histories' own reading of the
+//! started for such a change and its last round did not fail in a way that paused the work. All are judged by the histories' own reading of the
 //! reasons (`reading`); which cell the work would run once let on is what the walk says of the same records with the
 //! pause lifted, as `properties::reaches` takes it.
 
@@ -21,6 +21,9 @@ pub const REACHED: &[&str] = &[STARTED_PAUSED, HELD_PAUSED, WENT_ON_PAUSED];
 const STARTED_PAUSED: &str = "a run starts while the work is paused";
 const HELD_PAUSED: &str = "a paused work holds back a cell that has a reason to run";
 pub const WENT_ON_PAUSED: &str = "a run started for a note has its next round while the work is paused";
+/// Reached rarely: a note's run whose round failed without pausing the work while the owner's pause held.
+pub const UNPAUSED_ANSWERS: &str =
+    "a run for a note whose round failed without pausing the work goes on while the work is paused";
 
 /// Whether one of these reasons, of a run of the cell that starts or started at this place, is a change of meaning
 /// that a person made since the cell last ran: of a note it reads, after the version the cell's record knew where it
@@ -92,7 +95,8 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, p
 }
 
 /// Whether a run at rest has its next round though the work is paused, which the engine asks of `decide::hold`: the
-/// run started for a note a person wrote, by the histories' own reading, and its last round did not fail (`failed`).
+/// run started for a note a person wrote, by the histories' own reading, and its last round did not fail in a way that
+/// paused the work (`failed`).
 /// Says so where the two differ, and gives what the engine does.
 pub fn goes_on(v: &mut Verdict, flow: &Flow, reading: &Reading, run: decide::RunId, failed: bool) -> bool {
     let hold = decide::hold(flow, reading.records, run);

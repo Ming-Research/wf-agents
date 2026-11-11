@@ -5,10 +5,13 @@
 //! wait their turn.
 //!
 //! A round fails, handing in nothing, where the worktree is not there, the program cannot be started, it exits with
-//! an error or prints a result that is one, or what it prints is no result with a structured return. It is not tried
-//! again here: the work is paused for the owner to see why. A round that fails takes what the result the program
-//! printed says it cost, as any round does, and is held to the budget as any round is; where the program printed
-//! nothing that reads as a result, what the round took is not known, and is recorded as nothing. Stopped, the program's process group is sent TERM, and
+//! an error or prints a result that is one, or what it prints is no result with a structured return of the form. The
+//! kind of its cause is told apart from what the program reported ([`failure`](crate::failure)): a program that cannot
+//! be started cannot run, a return not of the form could not be read, and a round that failed before its program ran
+//! failed for a cause no kind tells apart. It is not tried again here: the engine handles it as its kind says. A round
+//! that fails takes what the result the program printed says it cost, as any round does, and is held to the budget as
+//! any round is, its work paused where it went over; where the program printed nothing that reads as a result, what
+//! the round took is not known, and is recorded as nothing. Stopped, the program's process group is sent TERM, and
 //! KILL after three seconds, and the round ends with nothing handed in; what it spent is not known, and is recorded
 //! as nothing.
 //!
@@ -25,6 +28,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use decide::RunId;
+use decide::run::Failure;
 use engine::Came;
 use service::{Round, RoundReply, Rounds, Told};
 use store::WorkNumber;
@@ -38,7 +42,7 @@ use crate::held::{Failing, Held, Stop};
 use crate::permissions::Permissions;
 use crate::process::{self, Ran};
 use crate::settings::Settings;
-use crate::{acts, git, kept, message, returns, session};
+use crate::{acts, failure, git, kept, message, returns, session};
 
 /// The system prompt every round is given, before the owner's language and what the tool `check` does are put in.
 pub const PROTOCOL: &str = include_str!("protocol.md");
@@ -65,8 +69,9 @@ struct Inner {
 /// What came of running a round's program.
 enum Carried {
     Came(Came, Spent),
-    /// It failed, for this reason, having taken this, as the result it printed says.
-    Failed(String, Spent),
+    /// It failed, for this reason, of this kind of cause, having taken this, as the result it printed says, or
+    /// nothing where it printed none.
+    Failed(String, Failure, Spent),
     Stopped,
 }
 
@@ -121,15 +126,17 @@ impl Rounds for Agents {
                         reply.ended(Came::HandsIn(Vec::new()), Spent::default());
                     }
                 }
-                Ok(Carried::Failed(why, spent)) => match inner.held.fail(key) {
-                    // The work is paused for the failure; where the round took it over its budget, the reason says
-                    // that too.
+                Ok(Carried::Failed(why, failure, spent)) => match inner.held.fail(key) {
+                    // Where the round took the work over its budget, the work is paused for that whatever the kind.
                     Some(Failing::Fail(reply)) => {
-                        let why = match inner.over_budget(&round, &spent) {
-                            Some(over) => format!("{why}; and {over}"),
-                            None => why,
-                        };
-                        reply.failed(why, spent);
+                        let resets = resets(failure, &why);
+                        match inner.over_budget(&round, &spent) {
+                            Some(over) => {
+                                let pause = format!("{why}; and {over}");
+                                reply.failed_and_paused(failure, resets, why, spent, pause);
+                            }
+                            None => reply.failed_as(failure, resets, why, spent),
+                        }
                     }
                     Some(Failing::End(reply)) => reply.ended(Came::HandsIn(Vec::new()), spent),
                     None => {}
@@ -166,8 +173,8 @@ impl Rounds for Agents {
 }
 
 impl Inner {
-    /// Runs the round's program, and gives what came back and what it took; or that the round failed, why and what it
-    /// took, where the program printed a result; or, where it printed none, only why.
+    /// Runs the round's program, and gives what came back and what it took; or that the round failed, why, of what
+    /// kind and what it took; or, where it could not be run for a cause before its program, only why.
     async fn carry(&self, round: &Round, stop: &mut Stop) -> Result<Carried, String> {
         let (flow, work) = (&*round.flow, &*round.kept);
         let line = (round.cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", round.cell.id))?;
@@ -183,7 +190,7 @@ impl Inner {
         process::stop_left(&group, &dir).await;
         let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
         let permissions = Permissions::of(round.cell.reads_only, args, added);
-        let session = session::session(self.installation, round.work, line);
+        let session = session::session(self.installation, round.work, line, cli::anew(flow, work, line));
         let mut begin = cli::begin(flow, work, line);
         let before = cli::spent_before(flow, work, line);
         let mut tried = false;
@@ -193,7 +200,11 @@ impl Inner {
             let (told_at, result_at) = attempt(&base).await;
             write(&told_at, told.as_bytes()).await?;
             let command = self.command(&dir, &permissions, session, begin);
-            let ran = process::run(command, Some(told.into_bytes()), Some(&group), stop).await?;
+            // A program that cannot be started cannot run, however the system words it.
+            let ran = match process::run(command, Some(told.into_bytes()), Some(&group), stop).await {
+                Ok(ran) => ran,
+                Err(why) => return Ok(Carried::Failed(why, Failure::CannotRun, Spent::default())),
+            };
             let Ran::Ended { status, stdout, stderr } = ran else {
                 return Ok(Carried::Stopped);
             };
@@ -209,10 +220,11 @@ impl Inner {
             break (status, stdout, stderr);
         };
         let read = cli::read(&stdout, begin, before);
-        // A failure whose result was read took what the result says; one with none, what is not known.
-        let failed = |why: String, spent: Option<Spent>| match spent {
-            Some(spent) => Ok(Carried::Failed(why, spent)),
-            None => Err(why),
+        // A failure whose result was read took what the result says; one with none, what is not known. Its kind is
+        // told by what the program reported.
+        let failed = |why: String, spent: Option<Spent>| {
+            let kind = failure::kind(&why);
+            Ok(Carried::Failed(why, kind, spent.unwrap_or_default()))
         };
         if !status.success() {
             let tail = || process::tail(stderr.trim().as_bytes());
@@ -232,7 +244,7 @@ impl Inner {
         };
         match returns::came(&read.structured) {
             Ok(came) => Ok(Carried::Came(came, read.spent)),
-            Err(why) => Ok(Carried::Failed(why, read.spent)),
+            Err(why) => Ok(Carried::Failed(why, Failure::Unread, read.spent)),
         }
     }
 
@@ -278,6 +290,18 @@ impl Inner {
             )
         })
     }
+}
+
+/// When the account's usage limit resets, where the failure is that limit and the program's report says when.
+fn resets(failure: Failure, why: &str) -> Option<work::Time> {
+    if failure != Failure::UsageLimit {
+        return None;
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?;
+    let now = u64::try_from(now.as_millis()).ok()?;
+    failure::resets_at(why, now, &failure::zone_offset).map(work::Time)
 }
 
 /// Where the next try of the round keeps what it is told and what it returns: the first that has kept nothing yet.

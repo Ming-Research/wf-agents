@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use store::Store;
 
 use crate::{START, get_json, greeted, pass, post, running_scripted, trial_script};
+use decide::run::Failure;
 
 const WHY: &str = "The agent's program could not start.";
 
@@ -45,7 +46,10 @@ async fn a_failed_round_and_the_engines_pause_are_given_with_the_reason() {
     assert_eq!(run["end"], Value::Null);
     let rounds = run["rounds"].as_array().unwrap();
     assert_eq!(rounds.len(), 2);
-    assert_eq!(rounds[1]["back"], json!({ "kind": "failed", "why": WHY }));
+    assert_eq!(
+        rounds[1]["back"],
+        json!({ "kind": "failed", "why": WHY, "failure": "other", "resets": null })
+    );
     assert_eq!(rounds[1]["ended"], failed_at);
     assert_eq!(rounds[1]["spent"]["rounds"], 1);
     let pause = steps.iter().rev().find(|s| s["kind"] == "paused").unwrap();
@@ -74,4 +78,44 @@ async fn a_failed_round_and_the_engines_pause_are_given_with_the_reason() {
     let round = get_json(router, "/api/v1/works/1/runs/1/rounds/3").await;
     assert_eq!(round["results"][0]["result"], "Yes, by name.");
     assert_eq!(round["handed"][0]["block"], "plan");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_wait_every_work_shares_is_given_once_for_all_and_as_what_each_work_it_holds_waits_for() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::open(dir.path().join("store.sqlite")).unwrap();
+    let resets = START + 3_600_000;
+    let mut script = trial_script();
+    let plan = script.flows.get_mut("trial").unwrap();
+    let mut failing = plan.rounds[0].clone();
+    failing.round = 2;
+    failing.asks = None;
+    failing.took = Default::default();
+    failing.fails = Some("You've hit your limit".to_string());
+    failing.failure = Some(Failure::UsageLimit);
+    failing.resets = Some(resets);
+    plan.rounds.push(failing);
+    let running = running_scripted(Box::new(store), dir, script);
+    let router = &running.router;
+    greeted(router).await;
+    let answer = json!({ "kind": "answer", "call": 2, "result": "Yes, by name." });
+    post(router, "/api/v1/works/1/acts", &answer).await;
+    pass(2000).await;
+    let outage = json!({
+        "failure": "usageLimit",
+        "why": "You've hit your limit",
+        "work": 1,
+        "run": 1,
+        "round": 2,
+        "since": START + 4500,
+        "until": { "kind": "at", "at": resets },
+    });
+    let items = get_json(router, "/api/v1/items").await;
+    assert_eq!(items["outage"], outage);
+    let page = get_json(router, "/api/v1/works/1").await;
+    assert_eq!(
+        page["summary"]["now"],
+        json!({ "kind": "waits", "at": "plan", "on": [{ "kind": "agents", "outage": outage }] })
+    );
+    assert_eq!(page["summary"]["paused"], false);
 }

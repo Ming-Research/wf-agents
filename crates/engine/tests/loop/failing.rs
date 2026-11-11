@@ -3,6 +3,7 @@
 //! was given, unless what the run started from changed meanwhile, when it is abandoned and its cell runs anew. A
 //! failure counts against no limit, and of a run that was abandoned it pauses nothing.
 
+use decide::run::Failure;
 use decide::{Decision, End};
 use engine::Back;
 
@@ -15,6 +16,8 @@ fn failed(run: RunId) -> Event {
     Event::Failed {
         run,
         why: WHY.to_string(),
+        failure: Failure::Other,
+        resets: None,
         spent: spent(1),
     }
 }
@@ -29,7 +32,11 @@ fn a_round_that_fails_ends_and_pauses_its_work_with_the_reason_in_one_moment() {
     assert_eq!(r.returned.iter().filter(|e| e.run == write).count(), 1);
     assert_eq!(
         w.work.back.get(&(write, 1)),
-        Some(&Back::Failed { why: WHY.to_string() })
+        Some(&Back::Failed {
+            why: WHY.to_string(),
+            failure: Failure::Other,
+            resets: None,
+        })
     );
     assert_eq!(w.work.spent.get(&(write, 1)), Some(&spent(1)));
     let pause = decide::pause(r).expect("the work is paused");

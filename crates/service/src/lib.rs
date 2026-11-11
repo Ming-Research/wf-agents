@@ -13,11 +13,18 @@
 //! a tool answers. A call for a person, and a run at a limit, are carried out by nobody: they wait for the owner's
 //! answer, which comes as an act. A withdrawn call of a person is answered by the loop itself.
 //!
-//! A carrier that cannot carry a round out says the round failed, and one that finds as a round ends that its work is
-//! to wait for the owner, as when it has spent more than it may, says so with the end: either way the engine pauses the
-//! work with the reason, which is in its records and on the page. Nothing of it is held here: after a restart a work so
-//! paused is handed out nothing but the rounds of a run that answers a note, and the round that failed
-//! is not handed out again until the owner lets the work on.
+//! A carrier that cannot carry a round out says the round failed, with the kind of its cause where it tells one apart,
+//! and one that finds as a round ends that its work is to wait for the owner, as when it has spent more than it may,
+//! says so with the end: the engine handles the failure as its kind says, and pauses the work with the reason where
+//! that is the handling, which is in its records and on the page. Nothing of it is held here: after a restart a work so
+//! paused is handed out nothing but the rounds of a run that answers a note, and the round that failed is not handed
+//! out again until the owner lets the work on.
+//!
+//! The loop is also what tells the time to what waits for it. A wait of a run before a round that failed in passing is
+//! tried again is a call the engine makes: the loop gives it its result once its time has come, and answers it as
+//! withdrawn itself where its run is abandoned first. A wait every work shares the driver says the end of
+//! ([`Driver::wake`]): the loop tells the driver the time then, looking at the network first where the driver asks it
+//! to ([`Network`]). Neither is held but as a timer, which is set again from the records when the process starts again.
 //!
 //! - `carriers`: the interfaces, what each is given, and how it says what came of it.
 //! - `clock`: the clock, read by the loop alone.
@@ -35,7 +42,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
 use decide::{BlockId, CallId, CellId, Outsider, Pauser, RunId};
-use driver::{Driver, Failed, NewItem, Todo};
+use driver::{Driver, Failed, NewItem, Todo, Wake};
 use engine::{Effect, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{ItemNumber, Storage, WorkNumber};
@@ -43,12 +50,15 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use work::{Ask, Call, Time};
 
 pub use carriers::{
-    Back, CallReply, Carriers, Returned, Round, RoundReply, Rounds, Told, ToolCall, Tools, Try, WITHDRAWN,
+    Back, CallReply, Carriers, Network, Returned, Round, RoundReply, Rounds, Told, ToolCall, Tools, Try, WITHDRAWN,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use script::Script;
 pub use scripted::Scripted;
 pub use words::{record_fault_words, refused_words, store_fault_words, unmet_words};
+
+/// The result of a wait the engine made before a round that failed in passing is tried again, once its time has come.
+pub const WAITED: &str = "The wait is over: the round is tried again.";
 
 /// How many changes are kept for a listener that has not read them yet. One that falls further behind is told that
 /// everything may have changed.
@@ -65,6 +75,8 @@ pub struct Service {
     /// channel never closes while the loop runs.
     to: mpsc::UnboundedSender<Message>,
     changed: broadcast::Sender<Changed>,
+    /// When the driver is to be told the time next, with the timer that will tell the loop so.
+    wake: Option<(Wake, tokio::task::AbortHandle)>,
 }
 
 /// What the loop takes, one at a time, in the order it came.
@@ -86,6 +98,11 @@ pub enum Message {
     Outside { source: String, content: String },
     /// The works are read, as the driver holds them now.
     Read(Box<dyn FnOnce(&Driver) + Send>),
+    /// The time of the engine's wait, this call of this work, has come.
+    Due { work: WorkNumber, call: CallId },
+    /// The time the driver asked to be told has come; where it asked for a look at the network, the look found it
+    /// reached or not.
+    Tick { reached: Option<bool> },
 }
 
 /// What the owner does to a work.
@@ -197,8 +214,10 @@ impl Service {
             clock,
             to,
             changed,
+            wake: None,
         };
         service.hand(now, todos)?;
+        service.set_wake();
         Ok((service, Inbox(inbox)))
     }
 
@@ -248,6 +267,28 @@ impl Service {
                 let todos = (self.driver.outside(now, &source, &content)).map_err(Fault::Driver)?;
                 self.hand(now, todos)?;
             }
+            Message::Due { work, call } => {
+                // A wait withdrawn with its run has its result already, and the timer that went on is told nothing.
+                let open = (self.driver.work(work)).is_some_and(|kept| {
+                    let records = &kept.work.records;
+                    records.called.iter().any(|c| c.call == call) && !records.done.iter().any(|d| d.call == call)
+                });
+                if open {
+                    let now = self.now()?;
+                    let event = Event::Done {
+                        call,
+                        result: WAITED.to_string(),
+                    };
+                    let todos = (self.driver.happened(now, work, event)).map_err(|failed| answer(work, failed))?;
+                    self.hand(now, todos)?;
+                }
+            }
+            Message::Tick { reached } => {
+                self.wake = None;
+                let now = self.now()?;
+                let todos = self.driver.tick(now, reached).map_err(Fault::Driver)?;
+                self.hand(now, todos)?;
+            }
             Message::Act { work, act, reply } => {
                 let now = self.now()?;
                 match self.act(now, work, act) {
@@ -285,8 +326,43 @@ impl Service {
                 }
             }
         }
+        self.set_wake();
         self.tell(&before, items);
         Ok(())
+    }
+
+    /// Sets the timer that tells the loop the time the driver asks to be told next, where that changed: the one set
+    /// before is dropped. Where the driver asks for a look at the network, the look is taken off the loop as the time
+    /// comes.
+    fn set_wake(&mut self) {
+        let wake = self.driver.wake();
+        if self.wake.as_ref().map(|(w, _)| *w) == wake {
+            return;
+        }
+        if let Some((_, timer)) = self.wake.take() {
+            timer.abort();
+        }
+        let Some(wake) = wake else {
+            return;
+        };
+        let after = self.until(wake.at);
+        let (to, network) = (self.to.clone(), self.carriers.network.clone());
+        let timer = tokio::spawn(async move {
+            tokio::time::sleep(after).await;
+            let reached = match wake.look {
+                true => tokio::task::spawn_blocking(move || network.reached()).await.ok(),
+                false => None,
+            };
+            let _ = to.send(Message::Tick { reached });
+        });
+        self.wake = Some((wake, timer.abort_handle()));
+    }
+
+    /// How long from now until this time; nothing where it has come, or the clock cannot be read, when the time is
+    /// taken to have come.
+    fn until(&self, at: Time) -> std::time::Duration {
+        let now = self.clock.now().unwrap_or(at);
+        std::time::Duration::from_millis(at.0.saturating_sub(now.0))
     }
 
     fn now(&self) -> Result<Time, Fault> {
@@ -406,6 +482,18 @@ impl Service {
                     .tools
                     .call(order, CallReply::new(work, *call, self.to.clone()));
             }
+            // The engine's wait has its result once its time has come.
+            Effect::Call {
+                call,
+                what: Call::Wait { until, .. },
+                ..
+            } => {
+                let (after, to, call) = (self.until(*until), self.to.clone(), *call);
+                tokio::spawn(async move {
+                    tokio::time::sleep(after).await;
+                    let _ = to.send(Message::Due { work, call });
+                });
+            }
             // A person's call, and a run at its limit, wait for the owner's answer.
             Effect::Call { .. } => {}
             Effect::Withdraw { call } => match kept.work.calls.get(call) {
@@ -426,7 +514,7 @@ impl Service {
                         .tools
                         .withdraw(order, CallReply::new(work, *call, self.to.clone()));
                 }
-                Some(Call::Asked(Ask::Person { .. }) | Call::AtLimit(_)) => {
+                Some(Call::Asked(Ask::Person { .. }) | Call::AtLimit(_) | Call::Wait { .. }) => {
                     return Ok(Some(Event::Done {
                         call: *call,
                         result: WITHDRAWN.to_string(),

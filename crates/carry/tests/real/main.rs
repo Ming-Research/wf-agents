@@ -36,8 +36,11 @@ use work::Work;
 pub struct Fake {
     /// The session's cost so far that every call reports, in dollars, as JSON.
     pub cost: &'static str,
-    /// Whether its first call fails.
+    /// Whether its first call fails, saying the prompt is too long, which pauses the work.
     pub fail_first: bool,
+    /// Whether its first call prints a result that is an error, the service's safety check having flagged the
+    /// message, the session having cost and spent tokens by then, and exits with 1.
+    pub flag_first: bool,
     /// Whether its first call prints a result that is an error, as when it ran out of retries of its structured
     /// return, the session having cost eighty cents by then, and exits with 1.
     pub error_first: bool,
@@ -56,6 +59,7 @@ impl Default for Fake {
         Fake {
             cost: "0.01",
             fail_first: false,
+            flag_first: false,
             error_first: false,
             lose_session: false,
             question_first: false,
@@ -151,8 +155,12 @@ if [ '{error}' = yes ] && [ "$n" = 1 ]; then
     printf '%s\n' '{{"type":"result","subtype":"error_max_structured_output_retries","is_error":true,"result":"Out of structured output retries.","total_cost_usd":0.8,"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":300}}}}'
     exit 1
 fi
+if [ '{flag}' = yes ] && [ "$n" = 1 ]; then
+    printf '%s\n' '{{"type":"result","subtype":"success","is_error":true,"result":"API Error: the safeguards flagged this message.","total_cost_usd":0.3,"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":30}}}}'
+    exit 1
+fi
 if [ '{fail}' = yes ] && [ "$n" = 1 ]; then
-    echo 'The fake fails its first call.' >&2
+    echo 'Prompt is too long: the fake fails its first call.' >&2
     exit 1
 fi
 first=$(head -n 1 "$log/$n.stdin")
@@ -186,6 +194,7 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
 "#,
         calls = calls.display(),
         fail = yes(fake.fail_first),
+        flag = yes(fake.flag_first),
         error = yes(fake.error_first),
         lose = yes(fake.lose_session),
         question = yes(fake.question_first),

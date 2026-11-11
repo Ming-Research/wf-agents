@@ -10,19 +10,21 @@
 //! work, run, round and call: a carrier recognises by those what it began before the stop (principle
 //! `effects-known-as-done`), and answers it once.
 //!
-//! A round a carrier cannot carry out it says failed, with why: the engine pauses the work with that reason as it takes
-//! it, and once the owner lets the work on the run's next round is given the same as the failed one, a new round that
-//! the carrier carries out anew. The carrier keeps nothing of a failed round, and tries nothing again itself: whatever
-//! made the round fail is for the owner to see first, on the page.
+//! A round a carrier cannot carry out it says failed, with why, and with the kind of cause where it tells one apart: the
+//! engine handles the failure as the kind says, pausing the work with the reason where that is the kind's handling, and
+//! the run's next round is given the same as the failed one, a new round that the carrier carries out anew. The
+//! carrier keeps nothing of a failed round, and tries nothing again itself: when a round is tried again is the engine's
+//! to say, as its records show, and whatever made the round fail is shown on the page.
 
 use std::sync::Arc;
 
+use decide::run::Failure;
 use decide::{CallId, Pauser, RunId};
 use engine::{Came, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{Item, WorkNumber};
 use tokio::sync::mpsc;
-use work::{Given, Spent, Work};
+use work::{Given, Spent, Time, Work};
 
 use crate::Message;
 
@@ -116,6 +118,15 @@ pub trait Tools: Send + Sync {
     fn withdraw(&self, call: ToolCall, reply: CallReply);
 }
 
+/// What looks at the network while the agents' rounds wait for it to be reached: whether the agents' service can be
+/// reached from here, as far as a look that costs no round and writes nothing in a session can tell.
+///
+/// It is called off the loop, on a thread that may wait on the network for a few seconds.
+pub trait Network: Send + Sync {
+    /// Whether the network reaches the agents' service now.
+    fn reached(&self) -> bool;
+}
+
 /// What carries out each kind of todo.
 #[derive(Clone)]
 pub struct Carriers {
@@ -124,6 +135,7 @@ pub struct Carriers {
     /// The rounds of the cells that are the engine's own acts.
     pub acts: Arc<dyn Rounds>,
     pub tools: Arc<dyn Tools>,
+    pub network: Arc<dyn Network>,
 }
 
 impl Carriers {
@@ -237,12 +249,37 @@ impl RoundReply {
         self.ended(came, spent);
     }
 
-    /// The round failed, for this reason, having taken this: nothing came back. The engine pauses the work with the
-    /// reason as it takes this; once the owner lets the work on, the run's next round is given what this one was.
+    /// The round failed, for this reason, having taken this: nothing came back, for a cause no kind tells apart. The
+    /// engine pauses the work with the reason as it takes this; once the owner lets the work on, the run's next round
+    /// is given what this one was.
     pub fn failed(self, why: String, spent: Spent) {
+        self.failed_as(Failure::Other, None, why, spent);
+    }
+
+    /// The round failed as [`RoundReply::failed_as`] says, and its work is to wait for the owner, for this reason, as
+    /// when the round took it over its budget: the pause is sent first, as [`RoundReply::ended_and_paused`] sends it.
+    pub fn failed_and_paused(self, failure: Failure, resets: Option<Time>, why: String, spent: Spent, pause: String) {
+        let paused = Event::Paused {
+            by: Pauser::Engine,
+            why: Some(pause),
+        };
+        // Where the loop has ended, the process is stopping: the round is handed out again when it starts again.
+        let _ = self.to.send(Message::Happened {
+            work: self.work,
+            event: paused,
+        });
+        self.failed_as(failure, resets, why, spent);
+    }
+
+    /// The round failed, for this reason, having taken this, for a cause of this kind, as the carrier told it apart;
+    /// `resets` says when the account's usage limit resets, where that is the cause and its report says when. The
+    /// engine handles the failure as its kind says.
+    pub fn failed_as(self, failure: Failure, resets: Option<Time>, why: String, spent: Spent) {
         let event = Event::Failed {
             run: self.run,
             why,
+            failure,
+            resets,
             spent,
         };
         // Where the loop has ended, the process is stopping: the round is handed out again when it starts again.
@@ -298,11 +335,20 @@ mod tests {
         fn withdraw(&self, _: ToolCall, _: CallReply) {}
     }
 
+    struct Reached;
+
+    impl Network for Reached {
+        fn reached(&self) -> bool {
+            true
+        }
+    }
+
     fn carriers(agents: Option<&'static str>, acts: Option<&'static str>) -> Carriers {
         Carriers {
             agents: Arc::new(Keeps(agents)),
             acts: Arc::new(Keeps(acts)),
             tools: Arc::new(NoTools),
+            network: Arc::new(Reached),
         }
     }
 

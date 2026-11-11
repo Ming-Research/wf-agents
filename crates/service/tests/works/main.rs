@@ -159,8 +159,16 @@ impl Trial {
         let message = tokio::time::timeout(Duration::from_secs(3600), self.inbox.recv())
             .await
             .ok()??;
-        let Message::Happened { work, event } = message else {
-            panic!("only the carriers send to the loop in these tests");
+        let (work, event) = match message {
+            Message::Happened { work, event } => (work, event),
+            // The time a wait was for has come: the loop takes it as it comes, and nothing more is said of it.
+            message @ (Message::Due { .. } | Message::Tick { .. }) => {
+                self.service.take(message).expect("the loop takes it");
+                self.steps += 1;
+                self.check();
+                return Some(Event::Look);
+            }
+            _ => panic!("only the carriers and the timers send to the loop in these tests"),
         };
         let unit = match &event {
             Event::Returned { run, .. } | Event::Failed { run, .. } => {
@@ -364,7 +372,8 @@ fn open(
     let carriers = Carriers {
         agents: recording.clone(),
         acts: recording.clone(),
-        tools: recording,
+        tools: recording.clone(),
+        network: Arc::new(recording.scripted.clone()),
     };
     let clock: Arc<dyn service::Clock> = clock.clone();
     Service::open(Box::new(store), vec![trial_flow()], carriers, clock).expect("the loop opens")

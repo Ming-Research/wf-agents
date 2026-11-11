@@ -1,8 +1,10 @@
-//! A round that fails pauses its work with the reason, its end kept in the records; once the owner lets the work on,
-//! the run's next round is given what the failed one was, and begins the session the failed one could not. A session
+//! A round that fails for a cause running it again cannot help pauses its work with the reason, its end kept in the
+//! records with its kind; once the owner lets the work on, the run's next round is given what the failed one was, and
+//! begins the session the failed one could not. A return the command line gave up on is sent back, in the session. A session
 //! the command line no longer has is begun again, and its round told everything a run's first round is.
 
 use decide::Pauser;
+use decide::run::{Failure, Unmet};
 use service::Act;
 use work::{Back, Given};
 
@@ -23,10 +25,18 @@ async fn a_failed_round_pauses_the_work_with_the_reason_and_the_next_round_runs_
     assert_eq!(pause.by, Pauser::Engine);
     let why = pause.why.clone().expect("a reason");
     assert!(why.contains("The fake fails its first call."), "{why}");
+    assert!(why.contains("the prompt is too long for the model"), "{why}");
     let plan_run = kept.records.started[0].run;
     assert_eq!(kept.records.rounds.len(), 1);
     assert_eq!(kept.records.returned.len(), 1, "the plan's round has ended");
-    assert_eq!(kept.back.get(&(plan_run, 1)), Some(&Back::Failed { why }));
+    let Some(Back::Failed { why, failure, .. }) = kept.back.get(&(plan_run, 1)) else {
+        panic!("the plan's round did not fail: {:?}", kept.back);
+    };
+    assert_eq!(*failure, Failure::PromptTooLong);
+    assert!(
+        why.contains("Prompt is too long: the fake fails its first call."),
+        "{why}"
+    );
 
     real.act(work, Act::Resume);
     real.until(|real| ended(&real.decision(work))).await;
@@ -45,6 +55,44 @@ async fn a_failed_round_pauses_the_work_with_the_reason_and_the_next_round_runs_
         let base = real.data.join(format!("rounds/1/{}-{n}", plan_run.0));
         assert!(base.with_extension("message.md").is_file(), "{}", base.display());
         assert!(base.with_extension("result.json").is_file(), "{}", base.display());
+    }
+}
+
+#[tokio::test]
+async fn a_round_the_safety_check_flagged_is_given_again_at_once_in_a_new_session_of_its_line() {
+    let fake = Fake {
+        flag_first: true,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    assert_eq!(real.failures, 1);
+    let kept = real.work(work);
+    let plan_run = kept.records.started[0].run;
+    assert!(matches!(
+        kept.back.get(&(plan_run, 1)),
+        Some(Back::Failed {
+            failure: Failure::Flagged,
+            ..
+        })
+    ));
+    assert!(
+        decide::pause(&kept.records).is_none(),
+        "a first flagged round pauses nothing"
+    );
+    let calls = real.calls();
+    // The round flagged spent tokens in its session, and is given again all the same in a session begun anew, which
+    // is told the task again.
+    assert_eq!(calls[0].session().0, "--session-id");
+    assert_eq!(calls[1].session().0, "--session-id");
+    assert_ne!(calls[0].session().1, calls[1].session().1);
+    assert!(calls[1].stdin.contains("## Your task"), "{}", calls[1].stdin);
+    // The rounds of the line after it go on in the new session, charged only what they cost more.
+    let later = (calls.iter().skip(2)).find(|c| c.stdin.contains("cell `plan`"));
+    if let Some(later) = later {
+        assert_eq!(later.session(), ("--resume", calls[1].session().1));
     }
 }
 
@@ -145,19 +193,26 @@ async fn a_failed_round_whose_result_says_what_it_cost_is_charged_it_and_the_nex
     real.until(|real| real.failures == 1).await;
     let kept = real.work(work);
     let plan_run = kept.records.started[0].run;
-    let why = decide::pause(&kept.records)
-        .and_then(|p| p.why.clone())
-        .expect("a reason");
+    let Some(Back::Failed { why, failure, .. }) = kept.back.get(&(plan_run, 1)) else {
+        panic!("the plan's round did not fail: {:?}", kept.back);
+    };
     assert!(why.contains("Out of structured output retries."), "{why}");
+    assert_eq!(*failure, Failure::Unread);
+    assert!(decide::pause(&kept.records).is_none(), "the work is paused");
     let failed = kept.spent[&(plan_run, 1)];
     assert_eq!(
         (failed.usd_micros, failed.input_tokens, failed.output_tokens),
         (800_000, 1000, 300)
     );
 
-    real.act(work, Act::Resume);
+    // What could not be read is sent back, in the session, without the owner.
     real.until(|real| ended(&real.decision(work))).await;
     let kept = real.work(work);
+    assert!(
+        matches!(kept.given.get(&(plan_run, 2)), Some(Given::SentBack(unmet)) if matches!(unmet[..], [Unmet::Unreadable { .. }])),
+        "{:?}",
+        kept.given.get(&(plan_run, 2))
+    );
     // The next round goes on in the session the failed one began, and is charged only what it cost more.
     let calls = real.calls();
     assert_eq!(calls[1].session().0, "--resume");

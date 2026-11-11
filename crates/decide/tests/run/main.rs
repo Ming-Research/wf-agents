@@ -14,7 +14,7 @@ mod rounds;
 
 use std::collections::BTreeMap;
 
-use decide::run::{Call, Hold, Limit, Log, Requires, Return, Round, Step, Unmet, next};
+use decide::run::{Call, Failure, Hold, Limit, Log, Requires, Return, Round, Step, Unmet, next};
 use decide::{BlockId, CallId, Write};
 
 /// What the flow requires of a cell, owned so that tests can lend it as `Requires`.
@@ -69,23 +69,52 @@ fn limited(returns: u32, calls: u32) -> Spec {
 
 /// What the run does next on these rounds, never let go on.
 fn step(rounds: Vec<Round>, spec: &Spec) -> Step {
-    next(&Log { rounds, let_go: 0 }, spec.requires(), Hold::Nothing)
+    next(
+        &Log {
+            rounds,
+            ..Log::default()
+        },
+        spec.requires(),
+        Hold::Nothing,
+    )
 }
 
 /// What the run does next on these rounds, the owner having last let it go on when this many had ended.
 fn step_let_go(rounds: Vec<Round>, let_go: usize, spec: &Spec) -> Step {
-    next(&Log { rounds, let_go }, spec.requires(), Hold::Nothing)
+    next(
+        &Log {
+            rounds,
+            let_go,
+            let_on: 0,
+        },
+        spec.requires(),
+        Hold::Nothing,
+    )
 }
 
 /// What the run does next on these rounds while its work is paused, never let go on.
 fn step_paused(rounds: Vec<Round>, spec: &Spec) -> Step {
-    next(&Log { rounds, let_go: 0 }, spec.requires(), Hold::Rounds)
+    next(
+        &Log {
+            rounds,
+            ..Log::default()
+        },
+        spec.requires(),
+        Hold::Rounds,
+    )
 }
 
 /// What the run, started for what a person wrote, does next on these rounds while its work is paused, never let go
 /// on.
 fn step_paused_answering(rounds: Vec<Round>, spec: &Spec) -> Step {
-    next(&Log { rounds, let_go: 0 }, spec.requires(), Hold::Retry)
+    next(
+        &Log {
+            rounds,
+            ..Log::default()
+        },
+        spec.requires(),
+        Hold::Retry,
+    )
 }
 
 /// A write of prose.
@@ -109,6 +138,28 @@ fn valued(block: &str, value: &str) -> Write {
 /// A round under way.
 fn under_way() -> Round {
     Round { returned: None }
+}
+
+/// A round that failed for a cause of this kind, the engine having made no wait after it.
+fn failed_as(failure: Failure) -> Round {
+    waited_after(failure, &[])
+}
+
+/// A round that failed for a cause of this kind, the engine having made these waits after it, each with its result or
+/// not.
+fn waited_after(failure: Failure, waits: &[(u64, bool)]) -> Round {
+    Round {
+        returned: Some(Return::Failed {
+            failure,
+            why: "it failed".to_string(),
+            waits: (waits.iter())
+                .map(|&(call, done)| Call {
+                    call: CallId(call),
+                    done,
+                })
+                .collect(),
+        }),
+    }
 }
 
 /// A round that handed in these writes.

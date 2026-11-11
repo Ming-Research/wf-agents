@@ -20,7 +20,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::flow::{BlockId, Cell, CellId, Condition, Flow, TestKind, TestName};
-use crate::records::{CallId, Cause, Finished, Outsider, Pause, RecordFault, Records, RunId, Seq, Started, Who};
+use crate::records::{
+    CallId, Cause, Finished, Outsider, Pause, Pauser, RecordFault, Records, RunId, Seq, Started, Who,
+};
 use crate::run::Hold;
 
 /// What a work does next, with the reason as data (principle decide-purely).
@@ -196,9 +198,10 @@ pub fn stale(flow: &Flow, records: &Records, run: RunId) -> Option<Abandoning> {
     walk.stale(run)
 }
 
-/// What the pause of the work holds back of the run's rounds: nothing where the work is not paused; where it is, only
-/// the round after one that failed, of a run one of whose reasons was a change of a note a person made, for the engine
-/// paused the work as that round failed so that the owner sees why first; and every round of any other run.
+/// What the pause of the work holds back of the run's rounds: nothing where the work is not paused; where it is, of a
+/// run one of whose reasons was a change of a note a person made, only the round after one that failed and paused the
+/// work, for the engine paused it as that round failed so that the owner sees why first, and nothing where no failure
+/// of the run paused it since its last round ended; and every round of any other run.
 pub fn hold(flow: &Flow, records: &Records, run: RunId) -> Hold {
     if !paused(records) {
         return Hold::Nothing;
@@ -208,9 +211,27 @@ pub fn hold(flow: &Flow, records: &Records, run: RunId) -> Hold {
         return Hold::Rounds;
     };
     match flow.place(&r.started.cell) {
-        Some(i) if walk.for_a_note(i, &r.started.because, Some(r.started.at)) => Hold::Retry,
+        Some(i) if walk.for_a_note(i, &r.started.because, Some(r.started.at)) => {
+            if paused_by_its_failure(records, run) {
+                Hold::Retry
+            } else {
+                Hold::Nothing
+            }
+        }
         _ => Hold::Rounds,
     }
+}
+
+/// Whether the engine paused the work after the run's last round ended, and the work was not let on since: as it does
+/// where the round's failure pauses it.
+fn paused_by_its_failure(records: &Records, run: RunId) -> bool {
+    let ended = (records.returned.iter()).filter(|r| r.run == run).map(|r| r.at).max();
+    let let_on = (records.pauses.iter()).filter(|p| !p.paused).map(|p| p.at).max();
+    let Some(ended) = ended else {
+        return false;
+    };
+    let after = let_on.map_or(ended, |at| at.max(ended));
+    (records.pauses.iter()).any(|p| p.paused && p.by == Pauser::Engine && p.at > after)
 }
 
 /// Whether the work is paused: the latest of its pauses and lettings on is a pause.

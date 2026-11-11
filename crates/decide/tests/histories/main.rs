@@ -35,11 +35,16 @@
 //!   nothing in a quarter, and resting at a call in a quarter (the owner's in two of ten, the architect's in one, the
 //!   engine's otherwise); its third round always finishes. A run found stale as its round ends is abandoned, not
 //!   finished, as the engine does. In half the histories of the first test that have no judge, drawn apart from the
-//!   rest, a round before the third of a cell other than the merge fails in twelve in a hundred: it ends with nothing
-//!   come back and the engine pauses the work with the reason, as the engine's loop does; people let the work on as
-//!   from any pause, and once they stop the owner lets the work on, whoever paused it.
+//!   rest, a round before the third of a cell other than the merge fails in twelve in a hundred, each failure of a kind
+//!   drawn as the engine's loop handles it: in half of them of a kind that pauses the work, when it ends with nothing
+//!   come back and the engine pauses the work with the reason; in a quarter in passing, when it ends at a wait the
+//!   engine makes as a call of the run, which the engine answers; and in a quarter of a kind the run takes up itself
+//!   without pausing the work (flagged, unread, or a cause every work shares, whose hold of every work's rounds is the
+//!   driver's and not the walk's), when it ends with nothing come back. People let the work on as from any pause, and
+//!   once they stop the owner lets the work on, whoever paused it.
 //! - the engine: while the work is paused, a run at rest has its next round only where it started for a note a person
-//!   wrote, the brief, and its last round did not fail (`pausing`), as the engine's loop gives it by `decide::hold`.
+//!   wrote, the brief, and its last round did not fail in a way that paused the work (`pausing`), as the engine's loop
+//!   gives it by `decide::hold`.
 //!
 //! A second test draws only the sixth shape, with people acting in the first 0 to 99 steps: its judge then runs while
 //! the cell it judges is skipped, over what a person wrote for that cell, and the cell runs again afterwards, which
@@ -240,8 +245,11 @@ struct History {
     judged: Option<Rng>,
     /// Draws which rounds fail, apart from `rng`, in the histories where rounds fail.
     failing: Option<Rng>,
-    /// The runs whose last round failed and that have neither gone on nor been abandoned since.
+    /// The runs whose last round failed, pausing the work, and that have neither gone on nor been abandoned since.
     failed: BTreeSet<RunId>,
+    /// The runs whose last round failed without pausing the work, and that have neither gone on nor been abandoned
+    /// since.
+    unpaused: BTreeSet<RunId>,
     log: Vec<String>,
     /// Whether the work is paused, as people last left it.
     paused: bool,
@@ -303,6 +311,7 @@ impl History {
             judged,
             failing,
             failed: BTreeSet::new(),
+            unpaused: BTreeSet::new(),
             log,
             paused: false,
             last_move: None,
@@ -381,6 +390,12 @@ impl History {
                 if self.failed.remove(run) {
                     self.verdict.count(properties::FAILED_GOES_ON);
                 }
+                if self.unpaused.remove(run) {
+                    self.verdict.count(properties::UNPAUSED_GOES_ON);
+                    if decide::paused(&self.w.records) {
+                        self.verdict.count(pausing::UNPAUSED_ANSWERS);
+                    }
+                }
                 self.w.go_on(cell.as_str());
                 true
             }
@@ -388,6 +403,7 @@ impl History {
                 if self.failed.remove(run) && *because != decide::Abandoning::Cancelled {
                     self.verdict.count(properties::FAILED_ABANDONED);
                 }
+                self.unpaused.remove(run);
                 self.w.abandon();
                 true
             }
@@ -498,11 +514,26 @@ impl History {
             && let Some(failing) = &mut self.failing
             && failing.chance(12)
         {
-            self.note(format!("{cell}'s round fails: the engine pauses the work"));
-            self.w.fails(cell.as_str(), "the agent could not start");
-            self.paused = true;
-            self.failed.insert(run);
-            self.verdict.count(properties::FAILED);
+            match failing.below(4) {
+                0 | 1 => {
+                    self.note(format!("{cell}'s round fails: the engine pauses the work"));
+                    self.w.fails(cell.as_str(), "the agent could not start");
+                    self.paused = true;
+                    self.failed.insert(run);
+                    self.verdict.count(properties::FAILED);
+                }
+                2 => {
+                    self.note(format!("{cell}'s round fails in passing: the run waits for the engine"));
+                    self.w.calls(cell.as_str(), None);
+                    self.verdict.count(properties::FAILED_IN_PASSING);
+                }
+                _ => {
+                    self.note(format!("{cell}'s round fails, and the run takes it up itself"));
+                    self.w.returns(cell.as_str());
+                    self.unpaused.insert(run);
+                    self.verdict.count(properties::FAILED_UNPAUSED);
+                }
+            }
             return;
         }
         let how = if is_merge || rounds >= ROUNDS {
@@ -860,6 +891,10 @@ fn histories(drawn: Drawn, seeds: u64, reached: &[&str]) {
         properties::FAILED,
         properties::FAILED_GOES_ON,
         properties::FAILED_ABANDONED,
+        properties::FAILED_IN_PASSING,
+        properties::FAILED_UNPAUSED,
+        properties::UNPAUSED_GOES_ON,
+        pausing::UNPAUSED_ANSWERS,
     ];
     let counts: Vec<String> = failing
         .iter()

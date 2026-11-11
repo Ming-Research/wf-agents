@@ -110,6 +110,10 @@ pub fn unmet_words(unmet: &Unmet) -> String {
         Unmet::NotHandedIn { block } => {
             format!("the block {block} is not handed in, and the cell must hand it in every time")
         }
+        Unmet::Unreadable { why } => format!(
+            "what came back could not be read as a return of its form, each quote and each line break inside a text \
+             needing to be escaped: {why}"
+        ),
     }
 }
 
