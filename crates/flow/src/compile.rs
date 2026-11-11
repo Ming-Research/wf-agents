@@ -79,6 +79,9 @@ pub struct CellSpec {
     pub effort: Option<Effort>,
     /// How many levels above its item's the cell's rounds run at, as its line says; none for an engine cell.
     pub levels_above: u32,
+    /// The work's branch takes the latest main in as each run of the cell starts, as an agent cell that changes the
+    /// code says; an engine cell's never does.
+    pub takes_main: bool,
 }
 
 /// A block of a work's state, as the engine needs to know it.
@@ -770,6 +773,7 @@ impl<'a> Definition<'a> {
             levels_above: (file.line.as_ref())
                 .and_then(|line| self.flow.lines.get(line))
                 .map_or(0, |line| line.levels_above),
+            takes_main: file.kind == Kind::Agent && file.takes_main,
         };
         (cell, spec)
     }

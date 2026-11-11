@@ -9,7 +9,9 @@
 //! the tool `read`, and the list ends with the input that reads all of it at once. Nothing is left out for what a
 //! session is thought to hold (decision `session-is-a-cache`). A later round is given the results of the calls it
 //! asked for, or why what it handed in was sent back; one that begins a session is given, after the task and the
-//! list, what each earlier round of the run was given, in their order, and then its own.
+//! list, what each earlier round of the run was given, in their order, and then its own. Where the work's branch was
+//! to take main in as the run started ([`crate::catch_up`]), the task and the list are followed by what came of it,
+//! unless the branch held main already.
 //!
 //! Every fixed word an agent is told is in the constants below, in the order they come in a message, so that each
 //! sentence is found and changed in one place; how to return is in `protocol.md`, which every round is given as its
@@ -20,6 +22,8 @@ use std::collections::BTreeMap;
 use decide::{BlockId, CallId, Cause, RunId, Seq, Started, VersionView, Writer};
 use flow::{CellSpec, Compiled};
 use work::{Ask, Call, Given, Work};
+
+use crate::catch_up::{CaughtUp, Outcome};
 
 /// The heading of every message: the cell's title, its id and the round's number.
 fn heading(cell: &CellSpec, number: usize) -> String {
@@ -84,6 +88,40 @@ fn read_all(input: &str) -> String {
     format!("To read all of it at once, ask for the tool `read` with the input `{input}`.")
 }
 const NOTHING_TO_READ: &str = "Nothing it reads or may write is written yet.";
+/// What came of taking main in as the run started; nothing where the branch held main already.
+fn caught_up(caught: &CaughtUp) -> Option<String> {
+    let name = &caught.name;
+    Some(match &caught.outcome {
+        Outcome::Holds { .. } => return None,
+        Outcome::TookIn { main, merge, files } => format!(
+            "## {name} taken in\nThe engine merged {name} at {main} into the work's branch as this run started, as \
+             the commit {merge}. The files {name} changed since the branch last took it in:\n{}",
+            files.join("\n")
+        ),
+        Outcome::Conflict { main, files } => format!(
+            "## {name} not taken in\n{name} at {main} does not merge into the work's branch without a conflict, so \
+             the engine took nothing in. The files in conflict:\n{}\nMerge it yourself, with `git merge {main}`, \
+             before you change the code.",
+            files.join("\n")
+        ),
+        Outcome::Uncommitted {
+            main,
+            changes,
+            merging: true,
+        } => format!(
+            "## {name} not taken in\nA merge is under way in the worktree and is not committed, so the engine took \
+             nothing in:\n{changes}\nFinish it and commit it, then merge {name} yourself, with `git merge {main}`."
+        ),
+        Outcome::Uncommitted { main, changes, .. } => format!(
+            "## {name} not taken in\nThe worktree holds changes not committed, which taking {name} at {main} in \
+             could lose, so the engine took nothing in:\n{changes}\nCommit them, then merge it yourself, with \
+             `git merge {main}`."
+        ),
+        Outcome::Failed { why } => {
+            format!("## {name} not taken in\nThe engine could not take {name} in as this run started: {why}")
+        }
+    })
+}
 const RESULTS: &str = "## The results of what you asked for";
 fn tool(name: &str, input: &str) -> String {
     if input.is_empty() {
@@ -114,8 +152,17 @@ const GO_ON: &str = "Go on with the task.";
 const SENT_BACK: &str = "## What you handed in was sent back";
 const HAND_IN_AGAIN: &str = "Hand in again: everything the cell hands in, in one return.";
 
+/// How a round opens, beside what it is given.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Opening<'a> {
+    /// The round begins its line's session.
+    pub begins: bool,
+    /// What came of taking main in as the run started, where the work's branch was to take it in.
+    pub main: Option<&'a CaughtUp>,
+}
+
 /// What the agent is told at the start of the round of this number of the run of the cell, which is given this, and
-/// which begins its line's session where `begins` says so.
+/// which opens so.
 pub fn message(
     flow: &Compiled,
     work: &Work,
@@ -123,11 +170,13 @@ pub fn message(
     run: RunId,
     number: usize,
     given: &Given,
-    begins: bool,
+    opening: &Opening<'_>,
 ) -> String {
+    let begins = opening.begins;
     let mut parts = vec![heading(cell, number)];
     if begins || *given == Given::Task {
         task(flow, work, cell, run, &mut parts);
+        parts.extend(opening.main.and_then(caught_up));
     }
     // A new session holds nothing of the run: it is given what the run's earlier rounds were, in their order.
     if begins {

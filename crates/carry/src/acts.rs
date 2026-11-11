@@ -378,10 +378,10 @@ pub(crate) async fn check(
             let failed = format!("The worktree has changes that are not committed:\n{changes}");
             return Ok(Some(found(failed)));
         }
-        if let Some(files) = git::conflicts(project, &main, &commit).await? {
+        if let Some(conflict) = git::conflicts(project, &main, &commit).await? {
             let failed = format!(
-                "The branch does not merge into {} at {main} without a conflict:\n{files}",
-                project.main
+                "The branch does not merge into {} at {main} without a conflict:\n{}\n{}",
+                project.main, conflict.files, conflict.kinds
             );
             return Ok(Some(found(failed)));
         }

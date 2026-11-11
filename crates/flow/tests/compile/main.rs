@@ -15,4 +15,5 @@ mod must_write;
 mod named_tests;
 mod notes;
 mod owner_paths;
+mod takes_main;
 mod valid;

@@ -16,6 +16,7 @@
 //! - [`failure`]: the kind of cause of a round that failed, told apart by what the command line reported, and the look
 //!   at the network while the agents' rounds wait for it.
 //! - `agents`: the agents' rounds, run with the command line, a few at a time.
+//! - [`catch_up`]: the work's branch taking main in as a run of a cell that changes the code starts.
 //! - `kept`: what each round of an agent was told and returned, where it is kept and how it is read back.
 //! - `tools`: the tools, `read`, `check` and `check_before`.
 //! - [`session`]: the session of each line of each work, worked out from the installation's id.
@@ -23,6 +24,7 @@
 
 mod acts;
 mod agents;
+pub mod catch_up;
 pub mod cli;
 pub mod failure;
 pub mod git;
@@ -71,7 +73,7 @@ pub fn carry(settings: Settings, data: &Path) -> Result<(Carriers, Watch), Strin
     let installation = session::installation(&data)?;
     let project = settings.project.clone();
     let tag = git::tag(&installation);
-    let (acts, tools, watch) = match &settings.github {
+    let (acts, tools, watch, main) = match &settings.github {
         None => {
             let host = host::Local::new(project.clone()).giving(settings.agents.env.clone());
             on(host, &project, &data, &tag)
@@ -84,7 +86,7 @@ pub fn carry(settings: Settings, data: &Path) -> Result<(Carriers, Watch), Strin
     let slots = settings.agents.slots;
     let carriers = Carriers {
         slots,
-        agents: Arc::new(Agents::new(settings, data.clone(), installation)),
+        agents: Arc::new(Agents::new(settings, data.clone(), installation, main)),
         acts,
         tools,
         network: Arc::new(failure::Look),
@@ -92,11 +94,18 @@ pub fn carry(settings: Settings, data: &Path) -> Result<(Carriers, Watch), Strin
     Ok((carriers, watch))
 }
 
-/// The acts, the tools and the watch of main, on one host they share.
-fn on<H: Host>(host: H, project: &Project, data: &Path, tag: &str) -> (Arc<dyn Rounds>, Arc<dyn ToolsTrait>, Watch) {
+/// The acts, the tools and the watch of main, on one host they share, and the reference that holds main's head as the
+/// host last gave it.
+fn on<H: Host>(
+    host: H,
+    project: &Project,
+    data: &Path,
+    tag: &str,
+) -> (Arc<dyn Rounds>, Arc<dyn ToolsTrait>, Watch, String) {
+    let main = host.kept_main();
     let host = Arc::new(host);
     let acts = Acts::new(host.clone(), project.clone(), data.to_path_buf(), tag.to_string());
     let watch = acts.watch(WATCH);
     let tools = Tools::new(host, project.clone(), data.to_path_buf(), tag.to_string());
-    (Arc::new(acts), Arc::new(tools), watch)
+    (Arc::new(acts), Arc::new(tools), watch, main)
 }
