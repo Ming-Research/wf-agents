@@ -11,8 +11,9 @@
 //! cell has a record or its item is cancelled.
 //!
 //! A pause of the work changes none of this order. It holds back the run the walk comes to, unless one of that run's
-//! reasons is a change a person made, since the cell last ran, of a block the cell reads: a paused work still answers
-//! what a person writes for a cell, and begins nothing else. Such a run has its rounds while the work is paused
+//! reasons is a change a person made, since the cell last ran (since its latest run started, the run of its record
+//! where it has one), of a block the cell reads: a paused work still answers what a person writes for a cell, and
+//! begins nothing else. Such a run has its rounds while the work is paused
 //! ([`hold`]), and once it has finished what it wrote waits, as anything else does, for the work to be let on.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -162,7 +163,7 @@ pub fn decide(flow: &Flow, records: &Records) -> Decision {
         }
         // A pause holds back the run, unless it is for what a person wrote: everything before this is decided whether
         // or not the work is paused.
-        if paused(records) && !walk.for_a_person(&because, None) {
+        if paused(records) && !walk.for_a_person(i, &because, None) {
             return Decision::Paused;
         }
         return Decision::Run {
@@ -190,8 +191,11 @@ pub fn hold(flow: &Flow, records: &Records, run: RunId) -> Hold {
         return Hold::Nothing;
     }
     let walk = Walk::new(flow, records);
-    match walk.runs.get(&run) {
-        Some(r) if walk.for_a_person(&r.started.because, Some(r.started.at)) => Hold::Retry,
+    let Some(r) = walk.runs.get(&run) else {
+        return Hold::Rounds;
+    };
+    match flow.place(&r.started.cell) {
+        Some(i) if walk.for_a_person(i, &r.started.because, Some(r.started.at)) => Hold::Retry,
         _ => Hold::Rounds,
     }
 }
@@ -506,18 +510,36 @@ impl<'a> Walk<'a> {
             })
     }
 
-    /// Whether one of these reasons of a run is a change a person made: of a change of a block's meaning since the
-    /// version the cell's record knew, written before the run started (`before`; any where it has not started), one
-    /// was a person's.
-    fn for_a_person(&self, because: &[Cause], before: Option<Seq>) -> bool {
-        because.iter().any(|cause| match cause {
-            Cause::NoRecord => false,
-            Cause::Changed { block, was, .. } => (self.versions(block).iter()).any(|v| {
+    /// Whether one of these reasons of a run of the cell at this place, which starts at `before` (now where `None`), is
+    /// a change of meaning a person made since the cell last ran: of a block the cell reads, written after the start of
+    /// the run of its record, or with no record after the start of its latest run, after the version the record knew,
+    /// and before `before`. A cell no run of which has started has not run, and answers no one: a work added paused
+    /// begins nothing.
+    fn for_a_person(&self, i: usize, because: &[Cause], before: Option<Seq>) -> bool {
+        let cell = &self.flow.cells()[i];
+        let earlier = |at: Seq| before.is_none_or(|before| at < before);
+        let of_cell = || (self.runs.values()).filter(|r| r.started.cell == cell.id && earlier(r.started.at));
+        let record = (of_cell())
+            .filter_map(|r| r.finished.filter(|f| earlier(f.at)).map(|f| (f.at, r.started.at)))
+            .max();
+        let Some(since) = record
+            .map(|(_, at)| at)
+            .or_else(|| of_cell().map(|r| r.started.at).max())
+        else {
+            return false;
+        };
+        let by_person = |block: &BlockId, was: Option<Seq>| {
+            (self.versions(block).iter()).any(|v| {
                 v.meaning == v.at
-                    && Some(v.at) > *was
-                    && before.is_none_or(|before| v.at < before)
                     && v.outsider == Some(Outsider::Person)
-            }),
+                    && v.at > since
+                    && Some(v.at) > was
+                    && earlier(v.at)
+            })
+        };
+        because.iter().any(|cause| match cause {
+            Cause::NoRecord => cell.inputs.iter().any(|block| by_person(block, None)),
+            Cause::Changed { block, was, .. } => by_person(block, *was),
         })
     }
 
