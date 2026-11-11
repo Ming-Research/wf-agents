@@ -75,8 +75,8 @@ fn started_again_the_engine_goes_on_from_the_store() {
     let engine = Engine::start(&place);
     assert_eq!(
         engine.says(&["list"]),
-        "Item 1 \"Greet the user\" at level 1, work 1 on trial: waits at plan for the owner to answer call 2: \"Should the greeting \
-         name the user?\"\n"
+        "Works go on; 0 of 2 slots taken.\nItem 1 \"Greet the user\" at level 1, work 1 on trial: waits at plan for the \
+         owner to answer call 2: \"Should the greeting name the user?\"\n"
     );
     engine.says(&["answer", "1", "2", "Yes."]);
     engine.until(&["list"], |line| line.ends_with(": merged"));
@@ -113,7 +113,7 @@ fn a_second_engine_on_a_data_directory_one_drives_does_not_start() {
     // The first goes on as it was.
     assert_eq!(
         engine.says(&["list"]),
-        "Item 1 \"Greet the user\" at level 1, work 1 on trial: paused\n"
+        "Works go on; 0 of 2 slots taken.\nItem 1 \"Greet the user\" at level 1, work 1 on trial: paused\n"
     );
 }
 
