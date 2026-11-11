@@ -20,6 +20,9 @@ pub struct WorkNumber(pub u64);
 pub struct Item {
     pub number: ItemNumber,
     pub title: String,
+    /// The name of its level among the installation's levels: the latest the owner put it at, or the one it was added
+    /// at; none for an item kept before items had levels and never put at one.
+    pub level: Option<String>,
     /// When it was added.
     pub added: Time,
     /// The items it depends on, each added before it, in the order of their numbers.
@@ -38,7 +41,13 @@ pub struct WorkHead {
     pub added: Time,
 }
 
-pub(crate) fn add_item(db: &Connection, title: &str, depends_on: &[ItemNumber], at: Time) -> Result<ItemNumber, Fault> {
+pub(crate) fn add_item(
+    db: &Connection,
+    title: &str,
+    level: &str,
+    depends_on: &[ItemNumber],
+    at: Time,
+) -> Result<ItemNumber, Fault> {
     // Every item the store has was added before the new one, so an item it has is one the new one may depend on.
     let depends_on: BTreeSet<ItemNumber> = depends_on.iter().copied().collect();
     for &on in &depends_on {
@@ -46,7 +55,10 @@ pub(crate) fn add_item(db: &Connection, title: &str, depends_on: &[ItemNumber], 
             return Err(Fault::NoSuchDependency(on));
         }
     }
-    db.execute("INSERT INTO items (title, added) VALUES (?1, ?2)", params![title, at.0])?;
+    db.execute(
+        "INSERT INTO items (title, added, level) VALUES (?1, ?2, ?3)",
+        params![title, at.0, level],
+    )?;
     let number = ItemNumber(db.last_insert_rowid().cast_unsigned());
     for on in depends_on {
         db.execute(
@@ -57,23 +69,50 @@ pub(crate) fn add_item(db: &Connection, title: &str, depends_on: &[ItemNumber], 
     Ok(number)
 }
 
+/// Keeps a change of the item's level, after its earlier changes.
+pub(crate) fn set_level(db: &Connection, item: ItemNumber, level: &str, at: Time) -> Result<(), Fault> {
+    if !exists(db, "SELECT 1 FROM items WHERE number = ?1", item.0)? {
+        return Err(Fault::NoSuchItem(item));
+    }
+    let n: u64 = db.query_row("SELECT count(*) FROM level_changes WHERE item = ?1", [item.0], |row| {
+        row.get(0)
+    })?;
+    db.execute(
+        "INSERT INTO level_changes (item, n, level, at) VALUES (?1, ?2, ?3, ?4)",
+        params![item.0, n + 1, level, at.0],
+    )?;
+    Ok(())
+}
+
 pub(crate) fn items(db: &Connection) -> Result<Vec<Item>, Fault> {
+    let mut changed: BTreeMap<u64, String> = BTreeMap::new();
+    let mut query = db.prepare("SELECT item, level FROM level_changes ORDER BY item, n")?;
+    for row in query.query_map([], |row| Ok((row.get::<_, u64>(0)?, row.get::<_, String>(1)?)))? {
+        let (item, level) = row?;
+        changed.insert(item, level);
+    }
     let mut depends: BTreeMap<u64, Vec<ItemNumber>> = BTreeMap::new();
     let mut query = db.prepare("SELECT item, on_item FROM depends ORDER BY item, on_item")?;
     for row in query.query_map([], |row| Ok((row.get::<_, u64>(0)?, row.get::<_, u64>(1)?)))? {
         let (item, on) = row?;
         depends.entry(item).or_default().push(ItemNumber(on));
     }
-    let mut query = db.prepare("SELECT number, title, added FROM items ORDER BY number")?;
+    let mut query = db.prepare("SELECT number, title, added, level FROM items ORDER BY number")?;
     let rows = query.query_map([], |row| {
-        Ok((row.get::<_, u64>(0)?, row.get::<_, String>(1)?, row.get::<_, u64>(2)?))
+        Ok((
+            row.get::<_, u64>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, u64>(2)?,
+            row.get::<_, Option<String>>(3)?,
+        ))
     })?;
     let mut items = Vec::new();
     for row in rows {
-        let (number, title, added) = row?;
+        let (number, title, added, level) = row?;
         items.push(Item {
             number: ItemNumber(number),
             title,
+            level: changed.remove(&number).or(level),
             added: Time(added),
             depends_on: depends.remove(&number).unwrap_or_default(),
         });

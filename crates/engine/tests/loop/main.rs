@@ -72,6 +72,7 @@ fn judged_source() -> Source {
     let write = r#"
         title = "Write"
         kind = "agent"
+        effort = "high"
         line = "main"
         task = "Write the text the request asks for."
         inputs = ["request", "opinions", "main"]
@@ -80,6 +81,7 @@ fn judged_source() -> Source {
     let judge = r#"
         title = "Judge"
         kind = "agent"
+        effort = "high"
         line = "other"
         task = "Judge the text, and give a verdict."
         inputs = ["text"]

@@ -15,7 +15,7 @@ fn a_cell_put_in_is_added_at_its_place_and_the_cells_after_it_are_not_moved() {
         ORDER,
         r#"order = ["plan", "research", "judge", "design", "answer", "check", "merge"]"#,
     );
-    let research = "title = \"Research\"\nkind = \"agent\"\nline = \"engineer\"\n\
+    let research = "title = \"Research\"\nkind = \"agent\"\neffort = \"high\"\nline = \"engineer\"\n\
                     task = \"Research the request.\"\ninputs = [\"request\"]\n";
     let after = set(after, "research.toml", research);
     assert_eq!(

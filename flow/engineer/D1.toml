@@ -1,6 +1,7 @@
 title = "Deep research"
 kind = "agent"
 line = "deep_research"
+effort = "xhigh"
 task = '''
 Research what `found` left open, and work out how to solve the problem in `background` and `supplement`. This session
 has not read the tree: read the constitution, `design/principles/`, the decisions `related` names and the code

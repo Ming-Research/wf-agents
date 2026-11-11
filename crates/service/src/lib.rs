@@ -28,12 +28,14 @@
 //!
 //! - `carriers`: the interfaces, what each is given, and how it says what came of it.
 //! - `clock`: the clock, read by the loop alone.
+//! - `levels`: the levels of the items, which choose what their agents' rounds run on.
 //! - [`script`]: what the test carriers do, as a TOML file says.
 //! - `scripted`: the test carriers, which follow a script.
 //! - `words`: the faults and the refusals in words.
 
 mod carriers;
 mod clock;
+mod levels;
 pub mod script;
 mod scripted;
 mod words;
@@ -50,9 +52,11 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use work::{Ask, Call, Time};
 
 pub use carriers::{
-    Back, CallReply, Carriers, Network, Returned, Round, RoundReply, Rounds, Told, ToolCall, Tools, Try, WITHDRAWN,
+    Back, CallReply, Carriers, Network, RanKept, RanOn, Returned, Round, RoundReply, Rounds, Told, ToolCall, Tools,
+    Try, WITHDRAWN,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
+pub use levels::{Level, Levels, LevelsFault};
 pub use script::Script;
 pub use scripted::Scripted;
 pub use words::{record_fault_words, refused_words, store_fault_words, unmet_words};
@@ -96,6 +100,12 @@ pub enum Message {
     Add {
         item: NewItem,
         reply: oneshot::Sender<Result<(ItemNumber, WorkNumber), Refusal>>,
+    },
+    /// The owner puts an item at another level, which whoever asks has checked; the reply says whether that changed it.
+    SetLevel {
+        item: ItemNumber,
+        level: String,
+        reply: oneshot::Sender<Result<bool, Refusal>>,
     },
     /// A source outside the works says this now: the head of the project's main branch, for one.
     Outside { source: String, content: String },
@@ -320,6 +330,23 @@ impl Service {
                         // The work is added paused, so nothing is to be done yet; whatever the driver gives is handed
                         // out all the same.
                         self.hand(now, todos)?;
+                    }
+                    Err(failed) => {
+                        let refusal = Refusal::Failed(failed);
+                        let stopped = stopped(&refusal);
+                        let _ = reply.send(Err(refusal));
+                        if let Some(fault) = stopped {
+                            return Err(fault);
+                        }
+                    }
+                }
+            }
+            Message::SetLevel { item, level, reply } => {
+                let now = self.now()?;
+                match self.driver.set_level(now, item, &level) {
+                    Ok(changed) => {
+                        items = changed;
+                        let _ = reply.send(Ok(changed));
                     }
                     Err(failed) => {
                         let refusal = Refusal::Failed(failed);
@@ -598,6 +625,15 @@ impl Handle {
     pub async fn add(&self, item: NewItem) -> Result<(ItemNumber, WorkNumber), Refusal> {
         let (reply, answer) = oneshot::channel();
         self.to.send(Message::Add { item, reply }).map_err(|_| Refusal::Gone)?;
+        answer.await.map_err(|_| Refusal::Gone)?
+    }
+
+    /// Puts an item at another level, which the caller has checked against the installation's levels, and says whether
+    /// that changed it.
+    pub async fn set_level(&self, item: ItemNumber, level: &str) -> Result<bool, Refusal> {
+        let (reply, answer) = oneshot::channel();
+        let level = level.to_string();
+        (self.to.send(Message::SetLevel { item, level, reply })).map_err(|_| Refusal::Gone)?;
         answer.await.map_err(|_| Refusal::Gone)?
     }
 

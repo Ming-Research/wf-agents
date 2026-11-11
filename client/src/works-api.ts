@@ -6,6 +6,9 @@
 // The routes:
 // - `GET  /api/v1/items`: every item with its work in brief (`Items`).
 // - `POST /api/v1/items`: adds an item with its work (`NewItem`), and gives their numbers (`Added`).
+// - `POST /api/v1/items/{item}/level`: puts an item at another level (`{ level }`), and says whether that changed it
+//   (`LevelSet`).
+// - `GET  /api/v1/levels`: the levels an item may be given, with what each is for (`Levels`).
 // - `GET  /api/v1/works/{work}`: one work, as it is now and step by step from its start (`WorkPage`).
 // - `GET  /api/v1/works/{work}/versions/{block}/{at}`: the content of a version of a block (`VersionPage`).
 // - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}`: one round in full (`RoundPage`).
@@ -150,6 +153,9 @@ export interface Summary {
 export interface Item {
   number: number;
   title: string;
+  /// The level it was given as it was added, which chooses what its agents' rounds run on; none for an item added
+  /// before items had levels, whose rounds run at the default level.
+  level: string | null;
   added: number;
   dependsOn: number[];
   /// The one work done for it, which was added with it.
@@ -300,6 +306,8 @@ export interface WorkPage {
   summary: Summary;
   /// The title of its item.
   title: string;
+  /// The level of its item, as `Item` has it.
+  level: string | null;
   /// The flow it runs on.
   flow: Flow;
   /// In the order of the walk.
@@ -355,6 +363,27 @@ export interface Try {
   /// The message's whole length in bytes, where it was cut before its end.
   cut: number | null;
   back: TryBack;
+  /// What it ran on as it began; none where its carrier kept nothing of it, as of an act of the engine's own.
+  ran: RanOn | null;
+}
+
+/// What a try of an agent's round ran on, as it was when the try began: its level, that level's model, and the
+/// reasoning effort its cell sets; or that what was kept of it cannot be read.
+export type RanOn =
+  | { kind: 'on'; level: string; model: string; effort: string | null }
+  | { kind: 'unreadable'; why: string };
+
+/// The levels an item may be given, lowest first, with what work each is for, the one an item is given where it is
+/// given none, and the highest an item may be at.
+export interface Levels {
+  levels: { name: string; desc: string }[];
+  default: string;
+  highest: string;
+}
+
+/// Whether putting an item at a level changed it: it was at that level already where not.
+export interface LevelSet {
+  changed: boolean;
 }
 
 /// What a round was told and what came back of it, each try in order, as its carrier kept them; no try where it kept
@@ -378,6 +407,8 @@ export type Act =
 
 export interface NewItem {
   title: string;
+  /// The level it is given; with none, the level the installation adds an item at where it is given none.
+  level?: string | null;
   dependsOn: number[];
   /// The flow its work runs on. The work is added paused, and begins no round until it is let on.
   flow: string;
@@ -426,5 +457,7 @@ export const loadRound = (work: number, run: number, round: number) =>
 export const loadTold = (work: number, run: number, round: number) =>
   read<ToldPage>(`/api/v1/works/${work}/runs/${run}/rounds/${round}/told`);
 export const loadCall = (work: number, call: number) => read<CallPage>(`/api/v1/works/${work}/calls/${call}`);
+export const loadLevels = () => read<Levels>('/api/v1/levels');
 export const act = (work: number, what: Act) => send<null>(`/api/v1/works/${work}/acts`, what);
 export const addItem = (item: NewItem) => send<Added>('/api/v1/items', item);
+export const setLevel = (item: number, level: string) => send<LevelSet>(`/api/v1/items/${item}/level`, { level });

@@ -23,7 +23,7 @@ afterEach(() => {
 const ITEMS = fixtureItems();
 const itemOf = (n: number) => ITEMS.items.find((i) => i.number === n) as Item;
 const pageOf = (i: Item): PageState => ({
-  page: { summary: i.work, title: i.title, flow: FLOW, cells: [], blocks: [], steps: [] } satisfies WorkPage,
+  page: { summary: i.work, title: i.title, level: i.level, flow: FLOW, cells: [], blocks: [], steps: [] } satisfies WorkPage,
 });
 
 /// What the panel sent, each answered at once.

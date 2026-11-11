@@ -69,6 +69,7 @@ is = "yes"
 pub const PLAN: &str = r#"
 title = "Plan"
 kind = "agent"
+effort = "high"
 line = "engineer"
 task = "Write the plan from the request."
 inputs = ["request", "opinions"]
@@ -78,6 +79,7 @@ outputs = ["plan"]
 pub const REVIEW: &str = r#"
 title = "Review"
 kind = "agent"
+effort = "high"
 line = "engineer"
 task = """
 Review the plan.
@@ -247,9 +249,18 @@ pub fn running_carried(
     tokio::spawn(service.run(inbox));
     let flows = Flows::dirs(trial_dir().join("flow"), None, Box::new(trial_has));
     Running {
-        router: web::with_works(flows, handle),
+        router: web::with_works(flows, handle, levels()),
         _dir: dir,
     }
+}
+
+/// The levels an item is added at: `1` and `2`, the default, and `3`, above the highest an item may be at.
+pub fn levels() -> service::Levels {
+    let levels = [("1", "Easy work"), ("2", "Ordinary work"), ("3", "Hard work")].map(|(name, desc)| service::Level {
+        name: name.to_string(),
+        desc: desc.to_string(),
+    });
+    service::Levels::new(levels, "2", Some("2")).expect("the levels are made")
 }
 
 /// The answer to a POST of this JSON: its status, and its body as JSON, or null where it has none.

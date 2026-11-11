@@ -19,12 +19,17 @@ impl Storage for Failing {
     fn add(
         &mut self,
         title: &str,
+        level: &str,
         depends_on: &[ItemNumber],
         flow: &str,
         at: Time,
         first: &Work,
     ) -> Result<(ItemNumber, WorkNumber), store::Fault> {
-        self.store.add(title, depends_on, flow, at, first)
+        self.store.add(title, level, depends_on, flow, at, first)
+    }
+
+    fn set_level(&mut self, item: ItemNumber, level: &str, at: Time) -> Result<(), store::Fault> {
+        self.store.set_level(item, level, at)
     }
 
     fn items(&self) -> Result<Vec<Item>, store::Fault> {

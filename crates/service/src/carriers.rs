@@ -74,6 +74,26 @@ pub struct Try {
     /// The message's whole length in bytes, where it was cut before its end.
     pub cut: Option<u64>,
     pub back: Back,
+    /// What it ran on, as its carrier kept it as the try began; none where its carrier keeps none.
+    pub ran: Option<RanKept>,
+}
+
+/// What a try ran on, as its carrier kept it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RanKept {
+    On(RanOn),
+    /// What was kept of it could not be read, for this reason: it was cut short as it was written, for one.
+    Unreadable(String),
+}
+
+/// What a try of an agent's round ran on: the level, the model of that level and the reasoning effort, as they were
+/// when it began, so that a round reads the same after the settings change.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RanOn {
+    pub level: String,
+    pub model: String,
+    /// None where the cell sets none, and the program ran at its own.
+    pub effort: Option<String>,
 }
 
 /// What came back of a try.
@@ -321,6 +341,7 @@ mod tests {
                     message: message.to_string(),
                     cut: None,
                     back: Back::Nothing,
+                    ran: None,
                 })
                 .collect();
             Ok(Told { tries, left_out: 0 })

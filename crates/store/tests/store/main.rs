@@ -62,6 +62,7 @@ fn judged() -> Compiled {
     let write = r#"
         title = "Write"
         kind = "agent"
+        effort = "high"
         line = "main"
         task = "Write the text the request asks for."
         inputs = ["request", "opinions", "main"]
@@ -70,6 +71,7 @@ fn judged() -> Compiled {
     let judge = r#"
         title = "Judge"
         kind = "agent"
+        effort = "high"
         line = "other"
         task = "Judge the text, and give a verdict."
         inputs = ["text", "checks"]
@@ -122,7 +124,7 @@ impl Db {
 /// The item and the work a store of the tests holds first, added at fixed times so that two stores can be compared.
 fn first_work(store: &mut Store) -> WorkNumber {
     let (_, work) = store
-        .add("the item", &[], "judged", Time(START), &Work::default())
+        .add("the item", "2", &[], "judged", Time(START), &Work::default())
         .expect("the item is added");
     work
 }

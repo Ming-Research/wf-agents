@@ -1,6 +1,7 @@
 title = "Implement"
 kind = "agent"
 line = "engineer"
+effort = "xhigh"
 task = '''
 Implement `plan_agent`, changing only what this work needs. Follow the option each of `questions` recommends, and
 write into `design/` what `tree_changes` holds: an entry may follow main's tree in wording and place, not in meaning.

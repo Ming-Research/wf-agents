@@ -79,6 +79,10 @@ export function faultWords(fault: Fault): string {
       return "An engine's cell names no act to carry it out.";
     case 'agentHasAct':
       return `An agent carries the cell out, but the cell names the act "${w.act}".`;
+    case 'engineHasEffort':
+      return "An engine's cell names a reasoning effort, which no agent runs at.";
+    case 'noEffort':
+      return "An agent's cell names no reasoning effort for its rounds to run at.";
     case 'unknownAct':
       return `The engine has no act named "${w.act}".`;
     case 'valuesEmpty':
@@ -229,6 +233,10 @@ export function changeWords(change: Change): ChangeWords {
       return { what: 'Writes every time', before: c.block, after: '' };
     case 'cellLimit':
       return { what: `Limit of ${LIMIT_WORDS[c.limit]}`, before: `${c.before}`, after: `${c.after}` };
+    case 'effort':
+      return { what: 'Effort', before: c.before ?? 'none', after: c.after ?? 'none' };
+    case 'levelsAbove':
+      return { what: "Levels above the item's", before: `${c.before}`, after: `${c.after}` };
     case 'blockAdded':
       return { what: 'Declared', before: '', after: '' };
     case 'blockRemoved':

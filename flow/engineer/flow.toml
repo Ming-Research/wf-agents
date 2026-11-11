@@ -12,6 +12,7 @@ calls = 40
 # nothing of the repository.
 [lines.engineer]
 [lines.deep_research]
+levels_above = 1
 [lines.plan_review]
 reads_only = true
 [lines.review]

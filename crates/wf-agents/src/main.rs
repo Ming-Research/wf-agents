@@ -58,6 +58,9 @@ enum Command {
     Add {
         #[arg(long)]
         title: String,
+        /// The level of the item, among those the settings name; the settings' default level where none is given.
+        #[arg(long)]
+        level: Option<String>,
         /// The name of the flow its work runs on.
         #[arg(long)]
         flow: String,
@@ -73,6 +76,14 @@ enum Command {
         /// A block that is a choice, written for it with this value.
         #[arg(long = "choose", value_name = "BLOCK=VALUE")]
         choices: Vec<String>,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Puts an item at another level, among those the settings name and at most the highest an item may be at: its
+    /// work's rounds run on it from their next.
+    SetLevel {
+        item: u64,
+        level: String,
         #[command(flatten)]
         at: At,
     },
@@ -187,19 +198,21 @@ fn main() -> ExitCode {
         }
         Command::Add {
             title,
+            level,
             flow,
             depends_on,
             texts,
             files,
             choices,
             at,
-        } => match talk::new_item(title, flow, depends_on, &texts, &files, &choices) {
+        } => match talk::new_item(title, level, flow, depends_on, &texts, &files, &choices) {
             Ok(item) => talk::ask(at.port, Asked::Add(item)),
             Err(why) => {
                 eprintln!("{why}");
                 ExitCode::FAILURE
             }
         },
+        Command::SetLevel { item, level, at } => talk::ask(at.port, Asked::SetLevel(item, level)),
         Command::List { at } => talk::ask(at.port, Asked::List),
         Command::Show { work, at } => talk::ask(at.port, Asked::Show(work)),
         Command::Resume { work, at } => talk::ask(at.port, Asked::Act(work, Act::Resume {})),
@@ -316,6 +329,8 @@ fn words(what: &FaultKind) -> String {
         F::EngineHasTask => "an engine's cell has a task, which no agent reads".to_string(),
         F::NoAct => "an engine's cell names no act to carry it out".to_string(),
         F::AgentHasAct { act } => format!("an agent carries the cell out, but the cell names the act \"{act}\""),
+        F::EngineHasEffort => "an engine's cell names a reasoning effort, which no agent runs at".to_string(),
+        F::NoEffort => "an agent's cell names no reasoning effort for its rounds to run at".to_string(),
         F::UnknownAct { act } => format!("the engine has no act named \"{act}\""),
         F::ValuesEmpty => "a choice has no values to choose from".to_string(),
         F::NoteNotByPeople { block } => format!("{block} is a note, but people do not write it"),

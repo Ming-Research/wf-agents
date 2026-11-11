@@ -3,9 +3,12 @@
 //! manifest says what each key is. A key the file does not know is refused, as the flow's files refuse one, so that a
 //! misspelt key is not silently left at nothing.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use flow::CellSpec;
 use serde::Deserialize;
+use service::{Levels, LevelsFault, RanOn};
 
 use crate::permissions::{HEAVY, NEVER_A_LOCK, falls_under};
 
@@ -15,6 +18,7 @@ use crate::permissions::{HEAVY, NEVER_A_LOCK, falls_under};
 pub struct Settings {
     pub project: Project,
     pub agents: Agents,
+    pub items: Items,
     /// Where the project's repository is on GitHub, which then carries out the acts; with none, the local repository
     /// does.
     pub github: Option<GitHub>,
@@ -106,8 +110,8 @@ const MERGE_METHODS: [&str; 3] = ["squash", "merge", "rebase"];
 pub struct Agents {
     /// The command line program that runs an agent's round: `claude`, or a path to it.
     pub command: String,
-    /// The model each round is run with.
-    pub model: String,
+    /// The levels of work, by name: an item's level chooses the model its agents' rounds are run with.
+    pub levels: BTreeMap<String, Level>,
     /// How many agents' rounds run at once.
     pub slots: usize,
     /// What is given to the program on every round after what the engine gives it, before the round's line's
@@ -278,6 +282,33 @@ impl Agents {
     }
 }
 
+/// A level of work: what work it is for, and the model its rounds are run with.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Level {
+    /// What work the level is for, in words for whoever gives an item its level.
+    pub desc: String,
+    /// The model, as the command line's `--model` takes it.
+    pub model: String,
+}
+
+/// How items are given their level.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Items {
+    /// The level an item is added at where it is given none, by its name among the levels.
+    pub default_level: String,
+    /// The highest level an item may be at, by its name among the levels: an item above it is refused as it is added,
+    /// and no line runs above it; with none, the top level.
+    pub highest_level: Option<String>,
+}
+
+/// What the settings are told where they name `agents.model`, the one model every round once ran on.
+const ONE_MODEL: &str = "agents.model: rounds no longer run on one model: each item has a level, and each level names \
+     its model. Take out agents.model; add a table [agents.levels.<name>] with desc and model for each level, and a \
+     table [items] with default_level, the level an item is added at where it is given none, and, if you like, \
+     highest_level. install.sample.toml shows them.";
+
 /// The settings file's name in the data directory.
 pub const FILE: &str = "install.toml";
 
@@ -330,6 +361,13 @@ impl GitHub {
 impl Settings {
     /// Reads the settings from the text of their file, or says everything wrong with it.
     pub fn read(text: &str) -> Result<Settings, String> {
+        // Settings written when every round ran on one model would be refused for that key, then for each table they
+        // lack: what replaces it is said at once.
+        let table: Option<toml::Table> = toml::from_str(text).ok();
+        let agents = table.as_ref().and_then(|t| t.get("agents")).and_then(|a| a.as_table());
+        if agents.is_some_and(|agents| agents.contains_key("model")) {
+            return Err(ONE_MODEL.to_string());
+        }
         let settings: Settings = toml::from_str(text).map_err(|e| e.to_string().trim_end().to_string())?;
         let mut wrong = Vec::new();
         wrong.extend(settings.agents.wrong());
@@ -345,6 +383,17 @@ impl Settings {
         }
         if settings.project.main.is_empty() {
             wrong.push("project.main: the main branch has a name".to_string());
+        }
+        if let Err(why) = settings.levels() {
+            wrong.push(why);
+        }
+        for (name, level) in &settings.agents.levels {
+            if !crate::cli::knows_model(&level.model) {
+                wrong.push(format!(
+                    "agents.levels.{name}.model: the command line takes no model named {:?}",
+                    level.model
+                ));
+            }
         }
         if let Some(github) = &settings.github {
             wrong.extend(github.wrong(&settings.agents));
@@ -373,6 +422,38 @@ impl Settings {
                 self.agents.command
             )],
         }
+    }
+
+    /// The levels items are given, as these settings name them; or what is wrong with them, in words with their keys.
+    pub fn levels(&self) -> Result<Levels, String> {
+        let items = &self.items;
+        let levels = (self.agents.levels.iter()).map(|(name, level)| service::Level {
+            name: name.clone(),
+            desc: level.desc.clone(),
+        });
+        Levels::new(levels, &items.default_level, items.highest_level.as_deref()).map_err(|fault| match fault {
+            LevelsFault::None => "agents.levels: there is at least one level".to_string(),
+            LevelsFault::NoSuchDefault(name) => format!("items.default_level: there is no level {name:?}"),
+            LevelsFault::NoSuchHighest(name) => format!("items.highest_level: there is no level {name:?}"),
+            LevelsFault::DefaultAboveHighest { default, highest } => {
+                format!("items.default_level: {default:?} is above {highest:?}, the highest level an item may be at")
+            }
+        })
+    }
+
+    /// What a round of this cell, for an item at this level, runs on: the level of its item, or above it as far as the
+    /// cell's line says, with that level's model and the cell's effort; or why it cannot run, in words. An item added
+    /// before items had levels is at the default.
+    pub fn ran_on(&self, item_level: Option<&str>, cell: &CellSpec) -> Result<RanOn, String> {
+        let level = self.levels()?.of_round(item_level, cell.levels_above)?;
+        let model = (self.agents.levels.get(&level))
+            .map(|level| level.model.clone())
+            .ok_or_else(|| format!("agents.levels: there is no level {level:?}"))?;
+        Ok(RanOn {
+            level,
+            model,
+            effort: cell.effort.map(|effort| effort.name().to_string()),
+        })
     }
 
     /// The budget of a work in millionths of a dollar, where there is one.
@@ -412,6 +493,87 @@ mod tests {
         assert!(warned[0].contains("agents.config_dir"), "{}", warned[0]);
         settings.agents.config_dir = Some("agents".into());
         assert!(settings.warnings().is_empty());
+    }
+
+    #[test]
+    fn the_samples_levels_read_with_their_default_and_highest() {
+        let settings = Settings::read(SAMPLE).expect("the sample reads");
+        let levels = settings.levels().expect("its levels are made");
+        let names: Vec<&str> = levels.levels().iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(names, ["1", "2", "3", "4"]);
+        assert_eq!(
+            levels.levels()[0].desc,
+            "Easy work: small and clear, with little to work out"
+        );
+        assert_eq!(levels.of_item(None).unwrap(), "2");
+        assert!(
+            levels.of_item(Some("4")).is_err(),
+            "4 is above the highest an item may be at"
+        );
+        assert_eq!(settings.agents.levels["1"].model, "claude-haiku-5-5");
+    }
+
+    /// A cell of the sample flow's kind, on a line that runs this many levels above its item's, at this effort.
+    fn cell(levels_above: u32, effort: Option<flow::Effort>) -> CellSpec {
+        CellSpec {
+            id: "D1".into(),
+            title: "Deep research".to_string(),
+            kind: flow::Kind::Agent,
+            line: Some("deep_research".to_string()),
+            reads_only: false,
+            task: Some("Research.".to_string()),
+            act: None,
+            must_write: Vec::new(),
+            returns: 3,
+            calls: 40,
+            effort,
+            levels_above,
+        }
+    }
+
+    #[test]
+    fn a_round_runs_on_the_model_of_its_item_s_level_raised_as_its_line_says_and_at_its_cell_s_effort() {
+        let settings = Settings::read(SAMPLE).unwrap();
+        let ran = |item: Option<&str>, cell: &CellSpec| settings.ran_on(item, cell).unwrap();
+        let at = ran(Some("1"), &cell(0, None));
+        assert_eq!(
+            (at.level.as_str(), at.model.as_str(), at.effort),
+            ("1", "claude-haiku-5-5", None)
+        );
+        let raised = ran(Some("1"), &cell(1, Some(flow::Effort::Xhigh)));
+        assert_eq!(raised.level, "2");
+        assert_eq!(raised.model, "claude-sonnet-5-5");
+        assert_eq!(raised.effort.as_deref(), Some("xhigh"));
+        // No line runs above the highest level an item may be at, and an item of no level is at the default.
+        assert_eq!(ran(Some("3"), &cell(1, None)).model, "claude-opus-5-5");
+        assert_eq!(ran(None, &cell(0, None)).level, "2");
+        let gone = settings
+            .ran_on(Some("7"), &cell(0, None))
+            .expect_err("there is no level 7");
+        assert!(gone.contains("7 is no level"), "{gone}");
+    }
+
+    #[test]
+    fn levels_that_cannot_be_and_models_the_command_line_does_not_take_are_refused_all_at_once() {
+        let text = (SAMPLE.replace("model = \"claude-haiku-5-5\"", "model = \"gpt-5\""))
+            .replace("default_level = \"2\"", "default_level = \"5\"");
+        let refused = Settings::read(&text).expect_err("refused");
+        assert_eq!(refused.lines().count(), 2, "{refused}");
+        assert!(
+            refused.contains("items.default_level: there is no level \"5\""),
+            "{refused}"
+        );
+        assert!(refused.contains("agents.levels.1.model"), "{refused}");
+        let above = SAMPLE.replace("default_level = \"2\"", "default_level = \"4\"");
+        let refused = Settings::read(&above).expect_err("refused");
+        assert!(refused.contains("is above \"3\""), "{refused}");
+        // The one model of every round, as settings had it before levels, is refused with what replaces it.
+        let before = SAMPLE.replace("slots = 2", "slots = 2\nmodel = \"claude-haiku-5-5\"");
+        let refused = Settings::read(&before).expect_err("refused");
+        assert!(refused.starts_with("agents.model: "), "{refused}");
+        for key in ["[agents.levels.<name>]", "[items]", "default_level"] {
+            assert!(refused.contains(key), "{refused}");
+        }
     }
 
     #[test]

@@ -13,6 +13,7 @@ use decide::RunId;
 use decide::run::Failure;
 use flow::Compiled;
 use serde::Deserialize;
+use service::RanOn;
 use uuid::Uuid;
 use work::{Back, Spent, Work};
 
@@ -53,19 +54,24 @@ impl Begin {
 
 /// The arguments of a round's command line, after the program: the engine's own, then the installation's, then the
 /// line's permissions, then the session. The schema is the same for every round, and the system prompt for every round
-/// of a line, so that they open every request of a session alike and the prompt cache keeps them.
+/// of a line, so that they open every request of a session alike and the prompt cache keeps them. The round runs on the
+/// model and at the effort it was given.
 pub fn arguments(
     agents: &Agents,
+    ran: &RanOn,
     protocol: &str,
     schema: &str,
     permissions: &Permissions,
     session: Uuid,
     begin: Begin,
 ) -> Vec<String> {
-    let mut args: Vec<String> = ["-p", "--output-format", "json", "--model", &agents.model]
+    let mut args: Vec<String> = ["-p", "--output-format", "json", "--model", &ran.model]
         .iter()
         .map(|a| a.to_string())
         .collect();
+    if let Some(effort) = &ran.effort {
+        args.extend(["--effort".to_string(), effort.clone()]);
+    }
     args.extend(["--append-system-prompt".to_string(), protocol.to_string()]);
     args.extend(["--json-schema".to_string(), schema.to_string()]);
     args.extend(["--setting-sources".to_string(), agents.setting_sources.clone()]);
@@ -77,6 +83,29 @@ pub fn arguments(
     };
     args.extend([flag.to_string(), session.to_string()]);
     args
+}
+
+/// The families of models the command line knows, each also its alias for the family's latest model.
+const FAMILIES: [&str; 5] = ["haiku", "sonnet", "opus", "fable", "mythos"];
+
+/// Whether the command line takes a model by this name, in the forms its `--model` takes: the alias of a family's
+/// latest model (`opus`) or a model's full name (`claude-opus-5-5`, `claude-3-5-sonnet-20241022`), each with `[1m]`
+/// after it or not; a family it does not know, or a name in no such form, it does not take. Brought over from the
+/// engine on `main`, which checked the models of its levels so.
+pub fn knows_model(model: &str) -> bool {
+    let name = model.strip_suffix("[1m]").unwrap_or(model);
+    if FAMILIES.contains(&name) {
+        return true;
+    }
+    let Some(rest) = name.strip_prefix("claude-") else {
+        return false;
+    };
+    let parts: Vec<&str> = rest.split('-').collect();
+    let numbers = (parts.iter())
+        .filter(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+        .count();
+    let families = parts.iter().filter(|p| FAMILIES.contains(p)).count();
+    families == 1 && numbers > 0 && numbers + 1 == parts.len()
 }
 
 /// The variables of the engine's environment a round's command line is always given: what a program needs to find
@@ -280,7 +309,7 @@ mod tests {
     fn agents() -> Agents {
         Agents {
             command: "claude".to_string(),
-            model: "claude-haiku-5-5".to_string(),
+            levels: Default::default(),
             slots: 2,
             args: vec!["--strict-mcp-config".to_string()],
             env: Vec::new(),
@@ -354,7 +383,12 @@ mod tests {
     fn the_command_line_begins_a_session_and_goes_on_in_it() {
         let session = Uuid::parse_str("6a1f3c2e-8d4b-4e7a-9c5f-2b8e1d0a7f43").unwrap();
         let permissions = Permissions::of(true, &[], &Default::default());
-        let head = |begin| arguments(&agents(), "PROTOCOL", "SCHEMA", &permissions, session, begin);
+        let ran = RanOn {
+            level: "1".to_string(),
+            model: "claude-haiku-5-5".to_string(),
+            effort: None,
+        };
+        let head = |begin| arguments(&agents(), &ran, "PROTOCOL", "SCHEMA", &permissions, session, begin);
         let common = [
             "-p",
             "--output-format",
@@ -377,6 +411,53 @@ mod tests {
         resumed.extend(["--resume".to_string(), session.to_string()]);
         assert_eq!(head(Begin::New), new);
         assert_eq!(head(Begin::Resume), resumed);
+    }
+
+    #[test]
+    fn a_round_runs_on_the_model_it_was_given_and_at_its_effort_where_it_has_one() {
+        let session = Uuid::parse_str("6a1f3c2e-8d4b-4e7a-9c5f-2b8e1d0a7f43").unwrap();
+        let ran = RanOn {
+            level: "3".to_string(),
+            model: "claude-opus-5-5".to_string(),
+            effort: Some("xhigh".to_string()),
+        };
+        let permissions = Permissions::of(false, &[], &Default::default());
+        let args = arguments(&agents(), &ran, "PROTOCOL", "SCHEMA", &permissions, session, Begin::New);
+        assert_eq!(
+            args[..7],
+            [
+                "-p",
+                "--output-format",
+                "json",
+                "--model",
+                "claude-opus-5-5",
+                "--effort",
+                "xhigh"
+            ]
+        );
+    }
+
+    #[test]
+    fn the_models_the_command_line_takes_are_known_and_others_are_not() {
+        for model in [
+            "opus",
+            "fable",
+            "claude-opus-5-5",
+            "claude-haiku-5-5[1m]",
+            "claude-3-5-sonnet-20241022",
+        ] {
+            assert!(knows_model(model), "{model}");
+        }
+        for model in [
+            "gpt-5",
+            "claude-opus",
+            "claude-poem-5",
+            "Opus",
+            "claude-opus-sonnet-5",
+            "",
+        ] {
+            assert!(!knows_model(model), "{model}");
+        }
     }
 
     #[test]
