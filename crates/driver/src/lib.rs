@@ -352,6 +352,9 @@ impl Driver {
     /// the item among those the driver shows, or adds it again as another item.
     pub fn add(&mut self, now: Time, new: NewItem) -> Result<(ItemNumber, WorkNumber, Vec<Todo>), Failed> {
         self.going()?;
+        if new.title.trim().is_empty() {
+            return Err(Failed::BlankTitle);
+        }
         if let Some(on) = new.depends_on.iter().find(|on| !self.of_item.contains_key(*on)) {
             return Err(Failed::NoSuchItem(*on));
         }

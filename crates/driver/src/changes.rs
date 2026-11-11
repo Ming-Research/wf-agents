@@ -48,7 +48,7 @@ pub enum Refused {
 /// Whether the change makes the item other than it is, or why it is refused: `gone` says how far the item's work has
 /// gone, and `depends_on` gives what each item depends on as it stands, none for an item there is not. A change that
 /// leaves the item as it is, a title or a level it has, or an item it depends on already, is no change, and is not
-/// refused for that.
+/// refused for that; a title of no words is refused, as it is when an item is added.
 pub fn judge(
     item: &Item,
     gone: Gone,
@@ -60,6 +60,7 @@ pub fn judge(
         return refused(Unchangeable::Ended(end));
     }
     match change {
+        ItemChange::Title(title) if title.trim().is_empty() => Err(Refused::BlankTitle),
         ItemChange::Title(title) => Ok(*title != item.title),
         ItemChange::Level(level) => Ok(item.level.as_deref() != Some(level.as_str())),
         ItemChange::DependsOn(on) | ItemChange::NoLongerDependsOn(on) if depends_on(*on).is_none() => {
