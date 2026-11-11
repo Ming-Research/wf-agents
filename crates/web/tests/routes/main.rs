@@ -4,6 +4,7 @@
 //! that a new test goes into the module of what it tests.
 
 mod acts;
+mod attention;
 mod changes;
 mod definition;
 mod directories;

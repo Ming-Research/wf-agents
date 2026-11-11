@@ -777,7 +777,7 @@ impl Summary {
 }
 
 impl Now {
-    fn of(kept: Kept<'_>, decision: &Decision) -> Result<Now, Broken> {
+    pub(crate) fn of(kept: Kept<'_>, decision: &Decision) -> Result<Now, Broken> {
         let work = kept.work;
         Ok(match decision {
             Decision::Fault(fault) => Now::Fault {
