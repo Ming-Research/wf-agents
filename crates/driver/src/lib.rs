@@ -14,6 +14,12 @@
 //! work that has ended. A work whose flow has no such block waits for no item. An item that depends on a cancelled
 //! one waits for good, its block saying which: the owner cancels it or leaves it.
 //!
+//! The driver writes one more block of a work: the block of a flow whose source is [`SESSION`], which a cell reads that
+//! loads into a line's session what the line's other cells work from. As a line of a work begins a new session, the
+//! driver records it and writes the block, so that the cell runs again before the line goes on; when a line begins one
+//! is the installation's [`Policy`], worked out of the work's records after each thing that happens and before the walk
+//! (module [`sessions`]).
+//!
 //! What another source outside the works says, such as the head of the project's main branch, the driver is told
 //! ([`Driver::outside`]), and writes into the block of that source of each work that has not ended, where the block
 //! does not say it already.
@@ -46,17 +52,21 @@
 
 pub mod attention;
 
+pub mod sessions;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 pub mod outage;
 
 use decide::{BlockId, Decision, End, Holder, Outsider, Pauser, Room, View, begun, decide, taking_slot};
-use engine::{Effect, Event, Gate, Refused, handle_held, held};
+use engine::{Effect, Event, Gate, Refused, handle_held, handle_then, held};
 use flow::Compiled;
 pub use outage::{Outage, Until};
 use store::{Item, ItemNumber, Storage, WorkHead, WorkNumber};
 use work::{Time, Work};
+
+pub use sessions::{Policy, SESSION};
 
 /// The source of the blocks the driver writes: whether the items the work's item depends on have merged. Such a block
 /// is a choice of [`WAITING`] and [`MERGED`].
@@ -79,6 +89,8 @@ pub struct Driver {
     paused: Option<Time>,
     /// What stopped the driver, once something has.
     fault: Option<Fault>,
+    /// When a line begins a new session; with none, only what others record of sessions is followed.
+    policy: Option<Policy>,
     /// The latest look at the network, while the agents' rounds wait for it: when, and whether it was reached.
     looked: Option<(Time, bool)>,
     /// When the driver was last told the time it asked for: a wake at or before it has been acted on. Lost in a stop,
@@ -213,13 +225,14 @@ pub enum Failed {
 }
 
 impl Driver {
-    /// Opens the driver on a store, with the flows the works run on and this many slots, and gives everything that is
-    /// to be done: what was to be done before and is not known as done, and what follows from looking at every work
-    /// now, the free slots given in the engine's order.
+    /// Opens the driver on a store, with the flows the works run on, this many slots and the policy of when a line
+    /// begins a new session, and gives everything that is to be done: what was to be done before and is not known as
+    /// done, and what follows from looking at every work now, the free slots given in the engine's order.
     pub fn open(
         store: Box<dyn Storage + Send>,
         flows: Vec<Compiled>,
         slots: usize,
+        policy: Option<Policy>,
         now: Time,
     ) -> Result<(Driver, Vec<Todo>), Fault> {
         let mut by_name = BTreeMap::new();
@@ -254,6 +267,7 @@ impl Driver {
             slots,
             paused,
             fault: None,
+            policy,
             looked: None,
             ticked: None,
         };
@@ -297,11 +311,13 @@ impl Driver {
         for (number, write) in wanted {
             for event in write.into_iter().chain([Event::Look]) {
                 let (room, gate) = (driver.room(Some(number), driver.trial(now)), driver.gate(now));
-                let Driver { store, works, .. } = &mut driver;
+                let Driver {
+                    store, works, policy, ..
+                } = &mut driver;
                 let Some(held) = works.get_mut(&number).filter(|held| held.standing == Standing::Going) else {
                     continue;
                 };
-                match step(store.as_mut(), held, now, event, room, gate) {
+                match step(store.as_mut(), held, policy.as_ref(), now, event, room, gate) {
                     Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
                     Err(Halt::Store(fault)) => return Err(Fault::Store(fault)),
                     Err(Halt::Refused(refused)) => return Err(Fault::Refused { work: number, refused }),
@@ -390,7 +406,8 @@ impl Driver {
 
     /// Puts an item at another level, which whoever asks has checked against the installation's levels, and says whether
     /// that changed it: an item at the level already is left as it is. Its work's rounds handed out from now on run on
-    /// the new level; a round under way goes on as it was given. Nothing is to be done for it: a level decides nothing.
+    /// the new level; a round under way goes on as it was given. Nothing is to be done for it now: where the new level
+    /// gives a line another model, the line begins a new session as the next thing that happens to the work is taken.
     pub fn set_level(&mut self, now: Time, item: ItemNumber, level: &str) -> Result<bool, Failed> {
         self.going()?;
         let Some(work) = self.of_item.get(&item).copied() else {
@@ -442,7 +459,7 @@ impl Driver {
         let was = held.standing;
         let item = held.head.item;
         let mut todos = Vec::new();
-        match step(self.store.as_mut(), held, now, event, room, gate) {
+        match step(self.store.as_mut(), held, self.policy.as_ref(), now, event, room, gate) {
             Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
             Err(Halt::Refused(refused)) => return Err(Failed::Refused(refused)),
             Err(Halt::Store(fault)) => return Err(self.stop(Fault::Store(fault), false)),
@@ -619,7 +636,7 @@ impl Driver {
         else {
             return Ok(());
         };
-        match step(self.store.as_mut(), held, now, event, room, gate) {
+        match step(self.store.as_mut(), held, self.policy.as_ref(), now, event, room, gate) {
             Ok(effects) => {
                 todos.extend(effects.into_iter().map(|effect| held.todo(effect)));
                 Ok(())
@@ -666,7 +683,7 @@ impl Driver {
                 matters: true,
                 value: None,
             };
-            match step(self.store.as_mut(), held, now, event, room, gate) {
+            match step(self.store.as_mut(), held, self.policy.as_ref(), now, event, room, gate) {
                 Ok(effects) => {
                     written = true;
                     todos.extend(effects.into_iter().map(|effect| held.todo(effect)));
@@ -825,7 +842,15 @@ impl Driver {
             let Some(held) = self.works.get_mut(&number) else {
                 break;
             };
-            match step(self.store.as_mut(), held, now, Event::Look, room, gate) {
+            match step(
+                self.store.as_mut(),
+                held,
+                self.policy.as_ref(),
+                now,
+                Event::Look,
+                room,
+                gate,
+            ) {
                 Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
                 Err(Halt::Store(fault)) => return Err(Halt::Store(fault)),
                 Err(Halt::Refused(refused)) => return Err(Halt::Refused(Fault::Refused { work: number, refused })),
@@ -907,17 +932,21 @@ impl Held {
 }
 
 /// Gives one thing that happened to the engine's loop for the work, in the room the engine leaves it and with the gate
-/// of the wait every work shares, and keeps what the loop added before giving back what is to be done.
+/// of the wait every work shares, with what follows from it for the sessions of its lines, and keeps what the loop
+/// added before giving back what is to be done.
 fn step(
     store: &mut dyn Storage,
     held: &mut Held,
+    policy: Option<&Policy>,
     now: Time,
     event: Event,
     room: Room,
     gate: Gate,
 ) -> Result<Vec<Effect>, Halt> {
     let before = held.work.tick();
-    let effects = handle_held(&held.flow, &mut held.work, now, event, room, gate).map_err(Halt::Refused)?;
+    let item = &held.item;
+    let then = |flow: &Compiled, work: &Work| sessions::follow(flow, work, item, policy);
+    let effects = handle_then(&held.flow, &mut held.work, now, event, room, gate, &then).map_err(Halt::Refused)?;
     if held.work.tick() != before {
         store.save(held.head.number, &held.work).map_err(Halt::Store)?;
         held.standing = standing_of(&held.flow, &held.work);

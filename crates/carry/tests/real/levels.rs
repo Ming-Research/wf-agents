@@ -1,9 +1,10 @@
 //! A round runs on the model of its item's level, raised where its line says so, at its cell's effort, and what each
-//! try ran on is kept with what it was told; a round whose item's level the settings no longer allow fails, saying so.
+//! try ran on is in the work's records; a round whose item's level the settings no longer allow fails, saying so.
 
 use decide::Pauser;
 use service::Act;
 use store::WorkNumber;
+use work::RanOn;
 
 use crate::{Call, Fake, Real, ended};
 
@@ -16,19 +17,24 @@ fn ran_with(call: &Call) -> (&str, Option<&str>) {
     (after("--model").expect("a model is named"), after("--effort"))
 }
 
-/// What the try of this number of this round of the cell's first run kept that it ran on.
-fn kept(real: &Real, work: WorkNumber, cell: &str, round: usize, try_: usize) -> serde_json::Value {
+/// What the try of this number of this round of the cell's last run ran on, as the work's records say.
+fn kept(real: &Real, work: WorkNumber, cell: &str, round: usize, try_: usize) -> RanOn {
     let run = real.run_of(work, cell);
-    let name = match try_ {
-        1 => format!("{}-{round}.ran.json", run.0),
-        n => format!("{}-{round}.ran.{n}.json", run.0),
-    };
-    let path = real.data.join(format!("rounds/{}/{name}", work.0));
-    serde_json::from_slice(&std::fs::read(&path).expect("it is kept")).expect("it reads")
+    let kept = real.work(work);
+    let tries: Vec<&RanOn> = (kept.ran.iter())
+        .filter(|r| r.run == run && r.round == round)
+        .map(|r| &r.on)
+        .collect();
+    tries.get(try_ - 1).copied().cloned().expect("it is recorded")
 }
 
-fn on(level: &str, model: &str) -> serde_json::Value {
-    serde_json::json!({ "level": level, "model": model, "effort": "high" })
+fn on(level: &str, model: &str) -> RanOn {
+    RanOn {
+        level: level.to_string(),
+        model: model.to_string(),
+        effort: Some("high".to_string()),
+        account: None,
+    }
 }
 
 #[tokio::test]

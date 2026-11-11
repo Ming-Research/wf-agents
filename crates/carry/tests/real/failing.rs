@@ -6,7 +6,7 @@
 use decide::Pauser;
 use decide::run::{Failure, Unmet};
 use service::Act;
-use work::{Back, Given};
+use work::{Back, Given, Why};
 
 use crate::{Fake, Real, ended};
 
@@ -120,6 +120,10 @@ async fn a_session_not_found_is_begun_again_with_the_task_and_the_list() {
         "a round that goes on is told only its results"
     );
     assert_eq!(again.session(), ("--session-id", refused.session().1));
+    let lost = (real.work(work).sessions.iter())
+        .filter(|s| s.line == "engineer" && s.why == Why::Lost)
+        .count();
+    assert_eq!(lost, 1, "the session begun again is recorded once, with why");
     for part in [
         "## Your task",
         "## What it reads",

@@ -115,6 +115,7 @@ fn a_round_the_script_says_nothing_of_hands_in_the_outputs_no_earlier_cell_reads
             input_tokens: INPUT_TOKENS,
             cached_tokens: 0,
             output_tokens: OUTPUT_TOKENS,
+            ..Default::default()
         }
     );
 }

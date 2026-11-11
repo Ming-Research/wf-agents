@@ -13,6 +13,8 @@ fn rebuilt(work: &Work) -> Work {
         results: work.results.clone(),
         spent: work.spent.clone(),
         moments: work.moments.clone(),
+        sessions: work.sessions.clone(),
+        ran: work.ran.clone(),
     }
 }
 

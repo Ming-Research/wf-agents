@@ -54,6 +54,7 @@ async fn a_work_goes_to_its_merge_with_the_command_line() {
         input_tokens: 15,
         cached_tokens: 100,
         output_tokens: 20,
+        ..Default::default()
     };
     assert_eq!(spent[0], plan_spent);
     assert_eq!(spent[1].usd_micros, 0);
