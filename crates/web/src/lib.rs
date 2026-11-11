@@ -9,8 +9,10 @@
 //! - `GET /api/v1/flow`: the definition shown ([`view::Definition`]).
 //! - `GET /api/v1/flow/changes`: what changed from the definition compared against ([`view::Comparison`]).
 //! - With the engine running, the items and the works ([`interface`], whose types are in [`works`]).
+//! - `GET /api/v1/backup`: how the copies of the database stand ([`copies`]).
 //! - Any other path that is not under `/api/` is a file of the page, `index.html` when there is no such file.
 
+pub mod copies;
 pub mod interface;
 pub mod view;
 pub mod works;
@@ -27,6 +29,8 @@ use flow::{Compiled, Source};
 use serde_json::json;
 
 use crate::view::{Change, Comparison, Definition, Fault, Flow};
+
+pub use crate::copies::Copies;
 
 mod built {
     include!(concat!(env!("OUT_DIR"), "/page.rs"));
@@ -109,6 +113,11 @@ impl Flows {
 /// The interface and the page, over these definitions, with the items and the works of the engine's loop.
 pub fn with_works(flows: Flows, handle: service::Handle) -> Router {
     router(flows).merge(interface::router(handle))
+}
+
+/// The same, with the route of how the copies of the database stand.
+pub fn with_works_and_copies(flows: Flows, handle: service::Handle, copies: Copies) -> Router {
+    with_works(flows, handle.clone()).merge(copies::router(handle, copies))
 }
 
 /// The interface and the page, over these definitions.

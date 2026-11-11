@@ -108,3 +108,25 @@ async fn an_act_kept_before_the_engine_stopped_is_not_to_be_given_again() {
          give it again."
     );
 }
+
+// The loop alone reads the clock, so whoever else needs the time asks the loop for it.
+#[tokio::test(start_paused = true)]
+async fn the_time_is_asked_of_the_loop_and_is_its_clocks() {
+    let dir = tempfile::tempdir().expect("a directory for the store");
+    let store = Store::open(dir.path().join("store.sqlite")).expect("the store opens");
+    let carriers = Scripted::new(crate::trial_script()).carriers();
+    let clock = Arc::new(TokioClock::new(START));
+    let (mut service, mut inbox) =
+        Service::open(Box::new(store), vec![trial_flow()], carriers, clock).expect("the loop opens");
+    let handle = service.handle();
+    let asked = tokio::spawn(async move { handle.now().await });
+    let message = inbox.recv().await.expect("the loop is asked");
+    service.take(message).expect("the loop takes it");
+    assert_eq!(asked.await.expect("the task ends"), Ok(START));
+    tokio::time::advance(std::time::Duration::from_secs(5)).await;
+    let handle = service.handle();
+    let asked = tokio::spawn(async move { handle.now().await });
+    let message = inbox.recv().await.expect("the loop is asked");
+    service.take(message).expect("the loop takes it");
+    assert_eq!(asked.await.expect("the task ends"), Ok(Time(START.0 + 5_000)));
+}

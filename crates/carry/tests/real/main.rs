@@ -257,6 +257,7 @@ impl Real {
                 work_budget_usd: budget,
             },
             github: None,
+            backup: None,
         };
         let flow = compiled(on);
         let (service, inbox) = open(&settings, &data, &flow, false);

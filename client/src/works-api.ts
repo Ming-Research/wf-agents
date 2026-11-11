@@ -4,6 +4,7 @@
 // it.
 //
 // The routes:
+// - `GET  /api/v1/backup`: how the copies of the database stand (`Copies`).
 // - `GET  /api/v1/items`: every item with its work in brief (`Items`).
 // - `POST /api/v1/items`: adds an item with its work (`NewItem`), and gives their numbers (`Added`).
 // - `GET  /api/v1/works/{work}`: one work, as it is now and step by step from its start (`WorkPage`).
@@ -371,6 +372,31 @@ async function send<T>(path: string, body: unknown): Promise<T | null> {
   return response.status === 204 ? null : ((await response.json()) as T);
 }
 
+/// How the copies of the database stand: the engine works it out from its records of them and the time on its clock.
+export type CopiesState =
+  | { kind: 'ok' }
+  /// Kept on the machine alone, which shares the disk they are kept against losing.
+  | { kind: 'localOnly' }
+  /// This many copies kept were not yet uploaded off the machine.
+  | { kind: 'pending'; n: number }
+  /// The newest copy is older than a day and an hour; `since` is when it was taken, none where there is none.
+  | { kind: 'stale'; since: number | null }
+  /// A copy is dated more than a day ahead of now: the clock is wrong.
+  | { kind: 'clock' }
+  /// The last step that failed, and nothing done since mends it.
+  | { kind: 'failed'; at: number; step: string; why: string };
+
+export interface Copies {
+  state: CopiesState;
+  /// The time now by the engine's clock.
+  now: number;
+  lastTaken: number | null;
+  lastUploaded: number | null;
+  pending: number;
+  lastFailure: { at: number; step: string; why: string } | null;
+}
+
+export const loadCopies = () => read<Copies>('/api/v1/backup');
 export const loadItems = () => read<Items>('/api/v1/items');
 export const loadWork = (work: number) => read<WorkPage>(`/api/v1/works/${work}`);
 export const loadVersion = (work: number, block: string, at: number) =>

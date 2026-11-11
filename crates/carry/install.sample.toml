@@ -66,3 +66,21 @@ work_budget_usd = 5.0
 # delete_branch = false
 # # The gh command line, or a path to it.
 # gh = "gh"
+
+# The copies of the engine's database. Every day while the engine runs, it copies the database whole into
+# `backups/` in the data directory and keeps the newest `keep` there. Without this table, that is all: the copies share
+# the disk they are kept against losing, so they do not guard against its loss, and the owner's page says so. With it,
+# each copy is also compressed and uploaded as an asset of the release `database-backups` of a repository on GitHub,
+# the newest `keep` kept there too. The database holds everything said to every agent, so the repository must be
+# private: it is asked before every upload, and one that is not is refused. It is not the project's repository, and
+# it has a token of its own: a fine-grained token for that one repository, with Contents read and write.
+# [backup]
+# # The private repository on github.com, as owner/name.
+# repository = "owner/name"
+# # The variable of the engine's environment that holds its token for it. No agent is given it, and it is not the
+# # project's.
+# token_env = "WF_BACKUP_TOKEN"
+# # How many copies are kept, the newest, on the machine and off it.
+# keep = 7
+# # The gh command line, or a path to it.
+# gh = "gh"

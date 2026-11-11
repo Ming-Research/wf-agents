@@ -5,6 +5,7 @@
 
 mod acts;
 mod changes;
+mod copies;
 mod definition;
 mod directories;
 mod failing;

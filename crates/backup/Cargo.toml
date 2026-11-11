@@ -1,0 +1,24 @@
+[package]
+name = "backup"
+description = "Keeps copies of the engine's database, on the machine and off it, and says whether they are kept"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+flate2 = "1.1.9"
+rusqlite.workspace = true
+serde.workspace = true
+store = { path = "../store" }
+tokio = { version = "1.53.1", features = ["rt", "time"] }
+work = { path = "../work" }
+
+[dev-dependencies]
+tempfile.workspace = true
+# Time paused in the tests, so that the hour between two steps passes at once.
+tokio = { version = "1.53.1", features = ["macros", "rt", "test-util", "time"] }
+
+[lints]
+workspace = true

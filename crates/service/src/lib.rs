@@ -86,6 +86,8 @@ pub enum Message {
     Outside { source: String, content: String },
     /// The works are read, as the driver holds them now.
     Read(Box<dyn FnOnce(&Driver) + Send>),
+    /// The time now is asked: the loop alone reads the clock.
+    Now(oneshot::Sender<Time>),
 }
 
 /// What the owner does to a work.
@@ -233,6 +235,10 @@ impl Service {
         match message {
             Message::Read(read) => {
                 read(&self.driver);
+                return Ok(());
+            }
+            Message::Now(reply) => {
+                let _ = reply.send(self.now()?);
                 return Ok(());
             }
             Message::Happened { work, event } => {
@@ -472,6 +478,13 @@ impl Handle {
             let _ = reply.send(read(driver));
         });
         self.to.send(Message::Read(read)).map_err(|_| Refusal::Gone)?;
+        answer.await.map_err(|_| Refusal::Gone)
+    }
+
+    /// The time now by the loop's clock, which nothing else reads (principle `outside-behind-interfaces`).
+    pub async fn now(&self) -> Result<Time, Refusal> {
+        let (reply, answer) = oneshot::channel();
+        self.to.send(Message::Now(reply)).map_err(|_| Refusal::Gone)?;
         answer.await.map_err(|_| Refusal::Gone)
     }
 

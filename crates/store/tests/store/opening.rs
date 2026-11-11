@@ -21,7 +21,7 @@ fn a_new_file_is_made_with_the_schema_its_version_and_a_write_ahead_log() {
     assert_eq!(store.works(), Ok(vec![]));
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, schema_tables());
-    assert_eq!(tables.len(), 24);
+    assert_eq!(tables.len(), 27);
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
     assert_eq!(version, SCHEMA_VERSION);
@@ -89,6 +89,9 @@ fn a_file_with_tables_and_no_version_is_refused() {
 
 /// Version 1 of the schema, as databases were made with it before a pause said who paused the work and why.
 const SCHEMA_1: &str = include_str!("schema-1.sql");
+
+/// Version 2 of the schema, as databases were made with it before the copies of the database were recorded.
+const SCHEMA_2: &str = include_str!("schema-2.sql");
 
 /// The columns of each table of the database, with their types, whether they may be null, their defaults and their
 /// places in the keys.
@@ -210,4 +213,58 @@ fn a_migration_that_fails_leaves_the_file_as_it_was() {
     let before = dump(&db.path);
     assert!(matches!(Store::open(&db.path), Err(Fault::Database(_))));
     assert_eq!(dump(&db.path), before);
+}
+
+#[test]
+fn a_file_made_with_the_second_version_of_the_schema_is_migrated_and_keeps_its_works() {
+    let work = kept_before();
+    // The same work as a store of this version keeps it, whose rows are copied into a file made with version 2.
+    let new = Db::new();
+    {
+        let mut store = new.open();
+        let number = first_work(&mut store);
+        store.save(number, &work).expect("the work is saved");
+    }
+    let old = Db::new();
+    {
+        let file = Connection::open(&old.path).expect("the database opens");
+        file.pragma_update(None, "foreign_keys", "OFF")
+            .expect("the foreign keys are let be");
+        file.execute_batch(SCHEMA_2).expect("the second schema is made");
+        file.execute("INSERT INTO schema_version (version) VALUES (2)", [])
+            .expect("its version is written");
+        let path = new.path.to_str().expect("the path is text");
+        file.execute("ATTACH DATABASE ?1 AS new", [path])
+            .expect("the new file is attached");
+        for table in dump(&old.path).into_keys().filter(|t| t != "schema_version") {
+            let mut query = file
+                .prepare(&format!("PRAGMA main.table_info({table})"))
+                .expect("the table is described");
+            let names: Vec<String> = (query.query_map([], |row| row.get(1)).expect("its columns"))
+                .collect::<Result<_, _>>()
+                .expect("its columns");
+            let names = names.join(", ");
+            file.execute(
+                &format!("INSERT INTO main.{table} ({names}) SELECT {names} FROM new.{table}"),
+                [],
+            )
+            .expect("the rows are copied");
+        }
+    }
+    assert!(
+        !dump(&old.path).contains_key("backups"),
+        "the old file has no table of copies"
+    );
+    let store = old.open();
+    assert_eq!(store.load(WorkNumber(1)), Ok(work));
+    assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
+    assert_eq!(
+        columns(&old.path),
+        columns(&new.path),
+        "the migrated file has other tables than a new one"
+    );
+    // The migrated file keeps copies like a new one.
+    let backups = store::Backups::open(&old.path).expect("the records of the copies open");
+    backups.taken("store-1.sqlite.gz", Time(1)).expect("a copy is recorded");
+    assert_eq!(backups.records().expect("the records").copies.len(), 1);
 }

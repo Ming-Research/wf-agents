@@ -6,7 +6,15 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { ToldPage, TryBack, WorkPage } from '../works-api';
-import { fixtureCall, fixtureItems, fixtureRound, fixtureTold, fixtureVersion, fixtureWork } from './fixtures';
+import {
+  fixtureCall,
+  fixtureCopies,
+  fixtureItems,
+  fixtureRound,
+  fixtureTold,
+  fixtureVersion,
+  fixtureWork,
+} from './fixtures';
 import { type Source, SourceContext } from './source';
 import { WorkScreen } from './WorkView';
 
@@ -23,6 +31,7 @@ afterEach(() => {
 function sourceOf(told?: () => ToldPage): Source & { reads: number } {
   const s = {
     reads: 0,
+    loadCopies: async () => fixtureCopies(),
     loadItems: async () => fixtureItems(),
     loadWork: async (n: number) => fixtureWork(n),
     loadVersion: async (n: number, block: string, at: number) => fixtureVersion(n, block, at),

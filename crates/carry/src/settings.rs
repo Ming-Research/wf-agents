@@ -16,6 +16,72 @@ pub struct Settings {
     /// Where the project's repository is on GitHub, which then carries out the acts; with none, the local repository
     /// does.
     pub github: Option<GitHub>,
+    /// Where the copies of the database are kept off the machine, and how many are kept; with none, the copies stay
+    /// on the machine alone, which shares the disk they are kept against losing.
+    pub backup: Option<Backup>,
+}
+
+/// The copies of the database kept off the machine: in a private repository on GitHub, as assets of a release.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Backup {
+    /// The private repository on github.com, as `owner/name`. It is not the project's repository nor the data
+    /// directory's remote: the database holds everything said to every agent.
+    pub repository: String,
+    /// The variable of the engine's environment that holds the token for this repository, which is not the one the
+    /// project's repository has.
+    #[serde(default = "backup_token_env")]
+    pub token_env: String,
+    /// How many copies are kept, the newest, on the machine and off it.
+    #[serde(default = "backup_keep")]
+    pub keep: usize,
+    /// The `gh` command line, or a path to it.
+    #[serde(default = "gh")]
+    pub gh: String,
+}
+
+fn backup_token_env() -> String {
+    "WF_BACKUP_TOKEN".to_string()
+}
+
+/// How many copies are kept where the settings do not say.
+pub const KEEP: usize = 7;
+
+fn backup_keep() -> usize {
+    KEEP
+}
+
+impl Backup {
+    /// What is wrong with these settings, each in words with its key.
+    fn wrong(&self, agents: &Agents, github: Option<&GitHub>) -> Vec<String> {
+        let mut wrong = Vec::new();
+        let parts: Vec<&str> = self.repository.split('/').collect();
+        if !(parts.len() == 2 && parts.iter().all(|p| !p.is_empty())) {
+            wrong.push(format!(
+                "backup.repository: a repository is named as owner/name, not {:?}",
+                self.repository
+            ));
+        }
+        if self.keep == 0 {
+            wrong.push("backup.keep: at least one copy is kept".to_string());
+        }
+        if self.token_env.is_empty() {
+            wrong.push("backup.token_env: the token's variable has a name".to_string());
+        }
+        if agents.env.contains(&self.token_env) {
+            wrong.push(format!(
+                "agents.env: {} holds the engine's token for the copies, which no agent is given",
+                self.token_env
+            ));
+        }
+        if github.is_some_and(|g| g.token_env == self.token_env) {
+            wrong.push(
+                "backup.token_env: the copies have a token of their own, not the one of the project's repository"
+                    .to_string(),
+            );
+        }
+        wrong
+    }
 }
 
 /// The project whose works are done: a local git repository, its main branch and the command that checks it.
@@ -198,6 +264,9 @@ impl Settings {
         if let Some(github) = &settings.github {
             wrong.extend(github.wrong(&settings.agents));
         }
+        if let Some(backup) = &settings.backup {
+            wrong.extend(backup.wrong(&settings.agents, settings.github.as_ref()));
+        }
         if wrong.is_empty() {
             Ok(settings)
         } else {
@@ -321,6 +390,63 @@ mod tests {
                 .expect_err("refused")
                 .contains("delete_branches")
         );
+    }
+
+    /// The sample with its table for the copies written in.
+    fn with_backup() -> String {
+        let table = (SAMPLE.lines())
+            .skip_while(|line| *line != "# [backup]")
+            .take_while(|line| line.starts_with('#'))
+            .map(|line| line.strip_prefix("# ").unwrap_or(line))
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!("{SAMPLE}\n{table}\n")
+    }
+
+    #[test]
+    fn the_copies_stay_on_the_machine_where_no_backup_is_given() {
+        assert_eq!(Settings::read(SAMPLE).unwrap().backup, None);
+    }
+
+    #[test]
+    fn the_samples_table_for_the_copies_reads_with_its_defaults() {
+        let backup = Settings::read(&with_backup())
+            .expect("it reads")
+            .backup
+            .expect("the copies go off the machine");
+        assert_eq!(backup.repository, "owner/name");
+        assert_eq!(backup.token_env, "WF_BACKUP_TOKEN");
+        assert_eq!(backup.keep, 7);
+        assert_eq!(backup.gh, "gh");
+        // Only the repository is needed.
+        let short = format!("{SAMPLE}\n[backup]\nrepository = \"owner/name\"\n");
+        let backup = Settings::read(&short).unwrap().backup.unwrap();
+        assert_eq!(
+            (backup.token_env.as_str(), backup.keep, backup.gh.as_str()),
+            ("WF_BACKUP_TOKEN", 7, "gh")
+        );
+    }
+
+    #[test]
+    fn what_the_copies_cannot_be_given_is_refused_all_at_once() {
+        let text = (with_backup().replace("repository = \"owner/name\"", "repository = \"name\""))
+            .replace("keep = 7", "keep = 0")
+            .replace("# env = [\"ANTHROPIC_API_KEY\"]", "env = [\"WF_BACKUP_TOKEN\"]");
+        let refused = Settings::read(&text).expect_err("refused");
+        assert_eq!(refused.lines().count(), 3, "{refused}");
+        assert!(refused.contains("backup.repository"), "{refused}");
+        assert!(refused.contains("backup.keep"), "{refused}");
+        assert!(refused.contains("agents.env: WF_BACKUP_TOKEN"), "{refused}");
+        let unknown = with_backup().replace("keep = 7", "kept = 7");
+        assert!(Settings::read(&unknown).expect_err("refused").contains("kept"));
+        // The project's token is not the copies'.
+        let same = format!(
+            "{}\n{}",
+            on_github(),
+            "[backup]\nrepository = \"o/n\"\ntoken_env = \"WF_GITHUB_TOKEN\"\n"
+        );
+        let refused = Settings::read(&same).expect_err("refused");
+        assert!(refused.contains("backup.token_env"), "{refused}");
     }
 
     #[test]

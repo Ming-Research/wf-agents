@@ -10,7 +10,15 @@ import { Views } from './App';
 import type { Route } from './route';
 import type { Serves } from './serves';
 import { small } from './testing';
-import { fixtureCall, fixtureItems, fixtureRound, fixtureTold, fixtureVersion, fixtureWork } from './works/fixtures';
+import {
+  fixtureCall,
+  fixtureCopies,
+  fixtureItems,
+  fixtureRound,
+  fixtureTold,
+  fixtureVersion,
+  fixtureWork,
+} from './works/fixtures';
 import { type Source, SourceContext } from './works/source';
 
 let unmount: (() => void) | undefined;
@@ -22,6 +30,7 @@ afterEach(() => {
 });
 
 const source: Source = {
+  loadCopies: async () => fixtureCopies(),
   loadItems: async () => fixtureItems(),
   loadWork: async (n) => fixtureWork(n),
   loadVersion: async (n, block, at) => fixtureVersion(n, block, at),

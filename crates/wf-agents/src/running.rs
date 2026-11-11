@@ -100,15 +100,26 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
+        // The copies of the database are kept where the real carriers are, as the settings say; a script keeps none.
+        let mut copies: Option<backup::Plan> = None;
         let (carriers, watch): (Carriers, Option<carry::Watch>) = match with {
             Read::Script(script) => (Scripted::new(script).carriers(), None),
-            Read::Settings(settings) => match carry::carry(*settings, data) {
-                Ok((carriers, watch)) => (carriers, Some(watch)),
-                Err(why) => {
-                    eprintln!("The carriers cannot be made: {why}");
-                    return ExitCode::FAILURE;
+            Read::Settings(settings) => {
+                match plan(data, settings.backup.as_ref()) {
+                    Ok(plan) => copies = Some(plan),
+                    Err(why) => {
+                        eprintln!("{why}");
+                        return ExitCode::FAILURE;
+                    }
                 }
-            },
+                match carry::carry(*settings, data) {
+                    Ok((carriers, watch)) => (carriers, Some(watch)),
+                    Err(why) => {
+                        eprintln!("The carriers cannot be made: {why}");
+                        return ExitCode::FAILURE;
+                    }
+                }
+            }
         };
         let (service, inbox) = match Service::open(Box::new(store), flows, carriers, Arc::new(SystemClock)) {
             Ok(opened) => opened,
@@ -123,7 +134,29 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
             let handle = service.handle();
             tokio::spawn(watch.run(move |head| handle.outside(carry::MAIN, &head)));
         }
-        let router = web::with_works(web::Flows::dirs(shown.clone(), None, Box::new(has)), service.handle());
+        let flows_shown = web::Flows::dirs(shown.clone(), None, Box::new(has));
+        let router = match copies {
+            Some(plan) => {
+                // One task keeps the copies, a step at a time, with the time the loop reads from its clock.
+                let handle = service.handle();
+                let copies = web::Copies {
+                    store: plan.store.clone(),
+                    keep: plan.keep,
+                    off_machine: plan.configured(),
+                };
+                let asks = handle.clone();
+                tokio::spawn(backup::keep(
+                    plan,
+                    move || {
+                        let handle = asks.clone();
+                        async move { handle.now().await.map_err(|_| "the engine has stopped".to_string()) }
+                    },
+                    said,
+                ));
+                web::with_works_and_copies(flows_shown, handle, copies)
+            }
+            None => web::with_works(flows_shown, service.handle()),
+        };
         println!("The owner's pages are at {}", works_page(address));
         tokio::select! {
             fault = service.run(inbox) => {
@@ -136,6 +169,45 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         }
         ExitCode::FAILURE
     })
+}
+
+/// The directory in the data directory that holds the copies of the database.
+const COPIES: &str = "backups";
+
+/// What keeps the copies of the store in the data directory, as the settings say: on the machine alone where they
+/// give no place off it, and else off it too, with the engine's token for that place from its environment.
+fn plan(data: &Path, settings: Option<&carry::settings::Backup>) -> Result<backup::Plan, String> {
+    let offsite: Option<Arc<dyn backup::Offsite>> = match settings {
+        None => None,
+        Some(b) => {
+            let token = std::env::var(&b.token_env).map_err(|_| {
+                format!(
+                    "backup.token_env: the variable {} is not set: the engine needs its token for {}",
+                    b.token_env, b.repository
+                )
+            })?;
+            Some(Arc::new(backup::Gh::new(&b.repository, &token, &b.gh)))
+        }
+    };
+    Ok(backup::Plan {
+        store: data.join(STORE),
+        dir: data.join(COPIES),
+        keep: settings.map_or(carry::settings::KEEP, |b| b.keep),
+        offsite,
+    })
+}
+
+/// Says what a step of keeping the copies did.
+fn said(out: &backup::Outcome) {
+    if let Some(name) = &out.taken {
+        println!("Took a copy of the database: {name}");
+    }
+    for name in &out.uploaded {
+        println!("Kept the copy {name} off this machine");
+    }
+    if let Some((step, why)) = &out.failed {
+        eprintln!("Keeping the database's copies failed at {step}: {why}");
+    }
 }
 
 /// Holds the data directory for as long as the process runs: an exclusive lock of the system's on a file in it, taken

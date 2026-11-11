@@ -21,6 +21,7 @@ import type {
   CellDetail,
   CellNow,
   CellState,
+  Copies,
   Handed,
   Item,
   Items,
@@ -783,6 +784,20 @@ function work(n: number): Built {
 
 export function fixtureItems(): Items {
   return { items: fixtures().items };
+}
+
+/// The copies of the database as they stand when all is well: the newest taken three hours ago and kept off the machine.
+export function fixtureCopies(): Copies {
+  const now = Date.now();
+  const taken = now - 3 * 60 * 60 * 1000;
+  return {
+    state: { kind: 'ok' },
+    now,
+    lastTaken: taken,
+    lastUploaded: taken + 60 * 1000,
+    pending: 0,
+    lastFailure: null,
+  };
 }
 
 export function fixtureWork(n: number): WorkPage {

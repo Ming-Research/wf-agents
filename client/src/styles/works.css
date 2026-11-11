@@ -24,6 +24,24 @@
   font-size: var(--size-small);
 }
 
+/* How the copies of the database stand, in the works view's line: muted when all is well, orange for what the owner is
+   to look at, red for a failure. Cut words are read in full on the pointer's tip. */
+.copies {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copies.warn {
+  color: var(--orange-text);
+}
+
+.copies.failed {
+  color: var(--red-text);
+}
+
 /* A cell's state as a square, in the colour of its state: done green, running blue, at rest a blue ring, runs again
    an orange ring, not run yet a hairline ring, skipped a dash. Its size, ring, corners and colours are set on it from
    works/state-marks.ts, which the console's cards draw from too. */
