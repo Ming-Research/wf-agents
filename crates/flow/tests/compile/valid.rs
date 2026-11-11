@@ -75,6 +75,8 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
         must_write: Vec::new(),
         returns: 2,
         calls: 40,
+        effort: None,
+        levels_above: 0,
     };
     let agent = |id: &str, title: &str, line: &str, task: &str| CellSpec {
         task: Some(task.to_string()),

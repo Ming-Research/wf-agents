@@ -21,12 +21,14 @@
 //!
 //! - `carriers`: the interfaces, what each is given, and how it says what came of it.
 //! - `clock`: the clock, read by the loop alone.
+//! - `levels`: the levels of the items, which choose what their agents' rounds run on.
 //! - [`script`]: what the test carriers do, as a TOML file says.
 //! - `scripted`: the test carriers, which follow a script.
 //! - `words`: the faults and the refusals in words.
 
 mod carriers;
 mod clock;
+mod levels;
 pub mod script;
 mod scripted;
 mod words;
@@ -43,9 +45,10 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use work::{Ask, Call, Time};
 
 pub use carriers::{
-    Back, CallReply, Carriers, Returned, Round, RoundReply, Rounds, Told, ToolCall, Tools, Try, WITHDRAWN,
+    Back, CallReply, Carriers, RanOn, Returned, Round, RoundReply, Rounds, Told, ToolCall, Tools, Try, WITHDRAWN,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
+pub use levels::{Levels, LevelsFault};
 pub use script::Script;
 pub use scripted::Scripted;
 pub use words::{record_fault_words, refused_words, store_fault_words, unmet_words};

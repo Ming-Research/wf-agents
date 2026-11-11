@@ -88,6 +88,10 @@ pub struct LineFile {
     /// tests or anything else it commits leaves it out.
     #[serde(default)]
     pub reads_only: bool,
+    /// How many levels above its item's the line's rounds run at, none above the highest an item may be at; none
+    /// where it is left out.
+    #[serde(default)]
+    pub levels_above: u32,
 }
 
 /// A block as written.
@@ -154,6 +158,32 @@ pub struct CellFile {
     pub must_write: Vec<String>,
     /// How many runs of the cell in a row may be ways round, if not the flow's limit.
     pub limit: Option<i64>,
+    /// The reasoning effort an agent cell's rounds run at, whatever the model; with none, the program's own.
+    pub effort: Option<Effort>,
+}
+
+/// The reasoning efforts an agent's round may run at, as the command line names them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Effort {
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
+}
+
+impl Effort {
+    /// The effort's name, as it is written and as the command line takes it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Effort::Low => "low",
+            Effort::Medium => "medium",
+            Effort::High => "high",
+            Effort::Xhigh => "xhigh",
+            Effort::Max => "max",
+        }
+    }
 }
 
 /// Who carries a cell out.

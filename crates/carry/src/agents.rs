@@ -15,18 +15,22 @@
 //! The program is given an environment of its own, not the engine's (`cli::environment`). What a round is told depends
 //! on whether it begins its line's session, and is built again where the program is tried the other way.
 //!
-//! What each round was told and what the program printed are kept for reading, in `rounds/<work>/<run>-<round>` in
-//! the data directory: `.message.md` and `.result.json` for its first try, `.message.2.md` and `.result.2.json` for
-//! the next, and so on. While the program runs, its process group is written in `.pgid` there; a group left named
-//! there by a process of the engine that ended is stopped before the round is run again, or before the round's stop
-//! ends it, so that a session has one program at a time and a stopped round's program does not run on.
+//! Each round runs on the model of its item's level, or of a level above it where its cell's line says so, and at the
+//! effort its cell sets (`Settings::ran_on`); a round whose item's level the settings no longer allow fails, saying so.
+//!
+//! What each round was told, what it ran on and what the program printed are kept for reading, in
+//! `rounds/<work>/<run>-<round>` in the data directory: `.message.md`, `.ran.json` and `.result.json` for its first try,
+//! `.message.2.md`, `.ran.2.json` and `.result.2.json` for the next, and so on. While the program runs, its process
+//! group is written in `.pgid` there; a group left named there by a process of the engine that ended is stopped before
+//! the round is run again, or before the round's stop ends it, so that a session has one program at a time and a
+//! stopped round's program does not run on.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use decide::RunId;
 use engine::Came;
-use service::{Round, RoundReply, Rounds, Told};
+use service::{RanOn, Round, RoundReply, Rounds, Told};
 use store::WorkNumber;
 use tokio::process::Command;
 use tokio::sync::Semaphore;
@@ -171,6 +175,7 @@ impl Inner {
     async fn carry(&self, round: &Round, stop: &mut Stop) -> Result<Carried, String> {
         let (flow, work) = (&*round.flow, &*round.kept);
         let line = (round.cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", round.cell.id))?;
+        let on = self.settings.ran_on(round.item.level.as_deref(), &round.cell)?;
         let place = git::place(&self.data, &git::tag(&self.installation), round.work);
         let dir = git::worktree(&place)?;
         let base = self.kept(round);
@@ -190,9 +195,10 @@ impl Inner {
         let (status, stdout, stderr) = loop {
             let begins = begin == Begin::New;
             let told = message::message(flow, work, &round.cell, round.run, round.number, &round.given, begins);
-            let (told_at, result_at) = attempt(&base).await;
+            let (told_at, result_at, on_at) = attempt(&base).await;
             write(&told_at, told.as_bytes()).await?;
-            let command = self.command(&dir, &permissions, session, begin);
+            write(&on_at, &kept::ran_file(&on)).await?;
+            let command = self.command(&dir, &on, &permissions, session, begin);
             let ran = process::run(command, Some(told.into_bytes()), Some(&group), stop).await?;
             let Ran::Ended { status, stdout, stderr } = ran else {
                 return Ok(Carried::Stopped);
@@ -236,15 +242,16 @@ impl Inner {
         }
     }
 
-    /// The program's command line for a round of a line with these permissions, in the session, begun or gone on in,
-    /// in the worktree. The system prompt says what the line may do.
-    fn command(&self, dir: &Path, permissions: &Permissions, session: Uuid, begin: Begin) -> Command {
+    /// The program's command line for a round on what it runs on, of a line with these permissions, in the session,
+    /// begun or gone on in, in the worktree. The system prompt says what the line may do.
+    fn command(&self, dir: &Path, on: &RanOn, permissions: &Permissions, session: Uuid, begin: Begin) -> Command {
         let agents = &self.settings.agents;
         let protocol = self.protocol.replace("{your_line}", &permissions.told());
         let mut command = Command::new(&agents.command);
         command
             .args(cli::arguments(
                 agents,
+                on,
                 &protocol,
                 returns::SCHEMA,
                 permissions,
@@ -280,13 +287,15 @@ impl Inner {
     }
 }
 
-/// Where the next try of the round keeps what it is told and what it returns: the first that has kept nothing yet.
-async fn attempt(base: &Path) -> (PathBuf, PathBuf) {
+/// Where the next try of the round keeps what it is told, what it returns and what it runs on: the first that has kept
+/// nothing yet.
+async fn attempt(base: &Path) -> (PathBuf, PathBuf, PathBuf) {
     let mut n = 1;
     while tokio::fs::try_exists(&kept::at(base, n).0).await.unwrap_or(false) {
         n += 1;
     }
-    kept::at(base, n)
+    let (told, result) = kept::at(base, n);
+    (told, result, kept::ran_at(base, n))
 }
 
 /// Writes the file, making its directory where there is none.

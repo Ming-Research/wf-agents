@@ -1,7 +1,8 @@
 //! `wf-agents run`: the engine as a process. It drives every work the store in the data directory holds, on the flows
 //! it is given, and serves the owner's pages over it. What carries the works out is the real carriers, as the
 //! installation's settings say (the crate `carry`), or, given a script, agents, engine acts and tools that follow it.
-//! It stops when the engine's loop stops, saying why; started again, it goes on from the store.
+//! It stops when the engine's loop stops, saying why; started again, it goes on from the store. An item is added at one
+//! of the levels the settings name; with a script, at the one level a script's engine has.
 //!
 //! Before it touches the store it holds the data directory and has its port, so that an engine that cannot serve
 //! hands nothing out, and two engines never drive the same works: each would give every round under way to its own
@@ -14,7 +15,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use flow::{Compiled, Has, Source};
-use service::{Carriers, Script, Scripted, Service, SystemClock};
+use service::{Carriers, Levels, Script, Scripted, Service, SystemClock};
 use store::Store;
 
 /// The store's file in the data directory.
@@ -100,6 +101,16 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
+        let levels = match &with {
+            Read::Script(_) => script_levels(),
+            Read::Settings(settings) => match settings.levels() {
+                Ok(levels) => levels,
+                Err(why) => {
+                    eprintln!("{why}");
+                    return ExitCode::FAILURE;
+                }
+            },
+        };
         let (carriers, watch): (Carriers, Option<carry::Watch>) = match with {
             Read::Script(script) => (Scripted::new(script).carriers(), None),
             Read::Settings(settings) => match carry::carry(*settings, data) {
@@ -123,7 +134,8 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
             let handle = service.handle();
             tokio::spawn(watch.run(move |head| handle.outside(carry::MAIN, &head)));
         }
-        let router = web::with_works(web::Flows::dirs(shown.clone(), None, Box::new(has)), service.handle());
+        let flows = web::Flows::dirs(shown.clone(), None, Box::new(has));
+        let router = web::with_works(flows, service.handle(), levels);
         println!("The owner's pages are at {}", works_page(address));
         tokio::select! {
             fault = service.run(inbox) => {
@@ -136,6 +148,12 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         }
         ExitCode::FAILURE
     })
+}
+
+/// The levels of the items of an engine whose agents follow a script, which run on no model: one, `1`, at which every
+/// item is added.
+fn script_levels() -> Levels {
+    Levels::one("1")
 }
 
 /// Holds the data directory for as long as the process runs: an exclusive lock of the system's on a file in it, taken

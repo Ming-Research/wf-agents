@@ -15,11 +15,13 @@ CREATE TABLE schema_version (
     version INTEGER PRIMARY KEY
 );
 
--- An item: a thing to be done. Its number is given by the store, counting from one.
+-- An item: a thing to be done. Its number is given by the store, counting from one. Its level is the name of the level
+-- of the installation it was given as it was added; null for an item added before items had levels.
 CREATE TABLE items (
     number INTEGER PRIMARY KEY,
     title TEXT NOT NULL,
-    added INTEGER NOT NULL
+    added INTEGER NOT NULL,
+    level TEXT
 );
 
 -- An item depends on another, added before it.

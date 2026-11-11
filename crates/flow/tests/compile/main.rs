@@ -8,6 +8,7 @@ mod blocks;
 mod cells;
 mod conditions;
 mod files;
+mod levels;
 mod must_write;
 mod named_tests;
 mod notes;

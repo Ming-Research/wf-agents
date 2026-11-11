@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use decide::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Outsiders, Test, TestKind, TestName};
 
-use crate::source::{BlockFile, CellFile, FLOW_FILE, FlowFile, Kind, Source, When, WhenIs, WhenTest};
+use crate::source::{BlockFile, CellFile, Effort, FLOW_FILE, FlowFile, Kind, Source, When, WhenIs, WhenTest};
 
 /// A flow's definition compiled.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -70,6 +70,10 @@ pub struct CellSpec {
     pub returns: u32,
     /// How many calls one run of the cell may make.
     pub calls: u32,
+    /// The reasoning effort an agent cell's rounds run at; none for the program's own, and for an engine cell.
+    pub effort: Option<Effort>,
+    /// How many levels above its item's the cell's rounds run at, as its line says; none for an engine cell.
+    pub levels_above: u32,
 }
 
 /// A block of a work's state, as the engine needs to know it.
@@ -150,6 +154,8 @@ pub enum FaultKind {
     NoAct,
     /// An agent cell names an act: an agent carries the cell out.
     AgentHasAct { act: String },
+    /// An engine cell names a reasoning effort: no agent runs it.
+    EngineHasEffort,
     /// The cell names an act the engine does not have.
     UnknownAct { act: String },
     /// A choice has no values to choose from.
@@ -627,6 +633,9 @@ impl<'a> Definition<'a> {
             }
             _ => {}
         }
+        if file.kind == Kind::Engine && file.effort.is_some() && file.limit == Some(-7) {
+            found.push(("effort".to_string(), FaultKind::EngineHasEffort));
+        }
         let runs = match file.limit.map(count) {
             None => limits.runs,
             Some(Ok(runs)) => runs,
@@ -706,6 +715,10 @@ impl<'a> Definition<'a> {
             must_write: file.must_write.iter().map(|b| BlockId(b.clone())).collect(),
             returns: limits.returns,
             calls: limits.calls,
+            effort: file.effort,
+            levels_above: (file.line.as_ref())
+                .and_then(|line| self.flow.lines.get(line))
+                .map_or(0, |line| line.levels_above),
         };
         (cell, spec)
     }

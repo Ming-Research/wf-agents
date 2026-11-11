@@ -36,14 +36,15 @@ pub const SCHEMA: &str = include_str!("../schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// The migrations, in order: the first brings a database of version 1 of the schema to version 2, and each after it
 /// one version further, replacing the version's one row last. Each file is named by the minute it was written and
 /// what it does.
-const MIGRATIONS: &[&str] = &[include_str!(
-    "../migrations/202611101530-say-who-paused-a-work-and-why.sql"
-)];
+const MIGRATIONS: &[&str] = &[
+    include_str!("../migrations/202611101530-say-who-paused-a-work-and-why.sql"),
+    include_str!("../migrations/202611102304-give-items-a-level.sql"),
+];
 
 // The migrations bring a database of every earlier version to this one.
 const _: () = assert!(MIGRATIONS.len() as u32 + 1 == SCHEMA_VERSION);
@@ -107,13 +108,15 @@ impl From<rusqlite::Error> for Fault {
 
 /// The store, as whatever drives the engine reaches it.
 pub trait Storage {
-    /// Adds an item, depending on these items, which must all be in the store already, together with the work done
-    /// for it on the flow of this name and what is kept of that work from its start, and gives their numbers. The
+    /// Adds an item at this level, depending on these items, which must all be in the store already, together with the
+    /// work done for it on the flow of this name and what is kept of that work from its start, and gives their numbers.
+    /// The
     /// item, the work and what is kept of it are added in one transaction: all of them or none. Only the flow's name
     /// is kept: which version of the flow the work runs on is not kept yet.
     fn add(
         &mut self,
         title: &str,
+        level: &str,
         depends_on: &[ItemNumber],
         flow: &str,
         at: Time,
@@ -196,13 +199,14 @@ impl Storage for Store {
     fn add(
         &mut self,
         title: &str,
+        level: &str,
         depends_on: &[ItemNumber],
         flow: &str,
         at: Time,
         first: &Work,
     ) -> Result<(ItemNumber, WorkNumber), Fault> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let item = items::add_item(&tx, title, depends_on, at)?;
+        let item = items::add_item(&tx, title, level, depends_on, at)?;
         let work = items::add_work(&tx, item, flow, at)?;
         tables::save(&tx, work, first)?;
         tx.commit()?;

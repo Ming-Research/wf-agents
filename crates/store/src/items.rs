@@ -20,6 +20,9 @@ pub struct WorkNumber(pub u64);
 pub struct Item {
     pub number: ItemNumber,
     pub title: String,
+    /// The name of the level it was given as it was added, among the installation's levels; none for an item added
+    /// before items had levels.
+    pub level: Option<String>,
     /// When it was added.
     pub added: Time,
     /// The items it depends on, each added before it, in the order of their numbers.
@@ -38,7 +41,13 @@ pub struct WorkHead {
     pub added: Time,
 }
 
-pub(crate) fn add_item(db: &Connection, title: &str, depends_on: &[ItemNumber], at: Time) -> Result<ItemNumber, Fault> {
+pub(crate) fn add_item(
+    db: &Connection,
+    title: &str,
+    level: &str,
+    depends_on: &[ItemNumber],
+    at: Time,
+) -> Result<ItemNumber, Fault> {
     // Every item the store has was added before the new one, so an item it has is one the new one may depend on.
     let depends_on: BTreeSet<ItemNumber> = depends_on.iter().copied().collect();
     for &on in &depends_on {
@@ -46,7 +55,10 @@ pub(crate) fn add_item(db: &Connection, title: &str, depends_on: &[ItemNumber], 
             return Err(Fault::NoSuchDependency(on));
         }
     }
-    db.execute("INSERT INTO items (title, added) VALUES (?1, ?2)", params![title, at.0])?;
+    db.execute(
+        "INSERT INTO items (title, added, level) VALUES (?1, ?2, ?3)",
+        params![title, at.0, level],
+    )?;
     let number = ItemNumber(db.last_insert_rowid().cast_unsigned());
     for on in depends_on {
         db.execute(
@@ -64,16 +76,22 @@ pub(crate) fn items(db: &Connection) -> Result<Vec<Item>, Fault> {
         let (item, on) = row?;
         depends.entry(item).or_default().push(ItemNumber(on));
     }
-    let mut query = db.prepare("SELECT number, title, added FROM items ORDER BY number")?;
+    let mut query = db.prepare("SELECT number, title, added, level FROM items ORDER BY number")?;
     let rows = query.query_map([], |row| {
-        Ok((row.get::<_, u64>(0)?, row.get::<_, String>(1)?, row.get::<_, u64>(2)?))
+        Ok((
+            row.get::<_, u64>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, u64>(2)?,
+            row.get::<_, Option<String>>(3)?,
+        ))
     })?;
     let mut items = Vec::new();
     for row in rows {
-        let (number, title, added) = row?;
+        let (number, title, added, level) = row?;
         items.push(Item {
             number: ItemNumber(number),
             title,
+            level,
             added: Time(added),
             depends_on: depends.remove(&number).unwrap_or_default(),
         });

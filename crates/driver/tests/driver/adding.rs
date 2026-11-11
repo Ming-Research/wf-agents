@@ -42,6 +42,21 @@ fn items_and_their_works_are_numbered_from_one_in_the_order_they_are_added() {
 }
 
 #[test]
+fn an_item_keeps_the_level_it_is_added_at_when_the_driver_opens_again() {
+    let mut h = H::new();
+    let (_, easy) = h.add(new_item("a", &[], "judged"));
+    let (_, hard) = h.add(NewItem {
+        level: "3".to_string(),
+        ..new_item("b", &[], "judged")
+    });
+    let level = |h: &H, work| h.d().work(work).expect("the work is there").item.level.clone();
+    assert_eq!(level(&h, easy).as_deref(), Some("1"));
+    assert_eq!(level(&h, hard).as_deref(), Some("3"));
+    h.reopen();
+    assert_eq!(level(&h, hard).as_deref(), Some("3"));
+}
+
+#[test]
 fn an_item_depending_on_one_the_driver_does_not_have_is_refused_and_nothing_changes() {
     let mut h = H::new();
     let (a, _) = h.add(new_item("a", &[], "judged"));

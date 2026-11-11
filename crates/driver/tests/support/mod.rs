@@ -350,13 +350,14 @@ impl Storage for Failing {
     fn add(
         &mut self,
         title: &str,
+        level: &str,
         depends_on: &[ItemNumber],
         flow: &str,
         at: Time,
         first: &Work,
     ) -> Result<(ItemNumber, WorkNumber), store::Fault> {
         self.call(Op::Add)?;
-        self.store.add(title, depends_on, flow, at, first)
+        self.store.add(title, level, depends_on, flow, at, first)
     }
 
     fn items(&self) -> Result<Vec<Item>, store::Fault> {
@@ -426,6 +427,7 @@ pub fn sorted(todos: &[Todo]) -> Vec<Todo> {
 pub fn new_item(title: &str, depends_on: &[ItemNumber], flow: &str) -> NewItem {
     NewItem {
         title: title.to_string(),
+        level: "1".to_string(),
         depends_on: depends_on.to_vec(),
         flow: flow.to_string(),
         writes: Vec::new(),

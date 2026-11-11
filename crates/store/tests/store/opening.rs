@@ -38,7 +38,14 @@ fn a_file_made_before_is_opened_with_what_it_holds() {
         let mut store = db.open();
         let work = first_work(&mut store);
         store
-            .add("second", &[ItemNumber(1)], "judged", Time(START + 1), &Work::default())
+            .add(
+                "second",
+                "2",
+                &[ItemNumber(1)],
+                "judged",
+                Time(START + 1),
+                &Work::default(),
+            )
             .expect("the item is added");
         store.save(work, &d.work).expect("the work is saved");
     }
@@ -194,6 +201,36 @@ fn a_file_made_with_the_first_version_of_the_schema_is_migrated_and_its_pauses_r
     let before = dump(&old.path);
     old.open();
     assert_eq!(dump(&old.path), before, "opening the migrated file again changed it");
+}
+
+/// The migration that brought version 1 of the schema to version 2.
+const TO_2: &str = include_str!("../../migrations/202611101530-say-who-paused-a-work-and-why.sql");
+
+#[test]
+fn an_item_kept_before_items_had_levels_is_opened_at_none() {
+    let db = Db::new();
+    {
+        let file = Connection::open(&db.path).expect("the database opens");
+        file.execute_batch(SCHEMA_1).expect("the first schema is made");
+        file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
+            .expect("its version is written");
+        file.execute_batch(TO_2).expect("the file is brought to version 2");
+        file.execute("INSERT INTO items (title, added) VALUES ('kept before', 5)", [])
+            .expect("an item is kept");
+    }
+    let mut store = db.open();
+    assert_eq!(versions(&db.path), [SCHEMA_VERSION]);
+    let items = store.items().expect("the items are read");
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        (items[0].title.as_str(), items[0].level.as_deref()),
+        ("kept before", None)
+    );
+    // An item added now has its level.
+    store
+        .add("added now", "1", &[], "judged", Time(START), &Work::default())
+        .expect("the item is added");
+    assert_eq!(store.items().unwrap()[1].level.as_deref(), Some("1"));
 }
 
 #[test]

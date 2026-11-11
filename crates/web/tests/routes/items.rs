@@ -14,7 +14,14 @@ async fn the_items_are_given_each_with_its_work_in_brief() {
     assert_eq!(
         get_json(&running.router, "/api/v1/items").await,
         json!({
-            "items": [{ "number": 1, "title": "Greet the user", "added": START, "dependsOn": [], "work": summary }],
+            "items": [{
+                "number": 1,
+                "title": "Greet the user",
+                "level": "2",
+                "added": START,
+                "dependsOn": [],
+                "work": summary,
+            }],
         })
     );
 }
@@ -61,6 +68,39 @@ async fn an_item_is_added_with_its_work_paused_and_what_it_depends_on() {
         items["items"][0]["work"]["now"],
         json!({ "kind": "paused", "by": "owner", "why": null })
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_item_is_added_at_the_level_it_asks_for_or_at_the_default_and_never_above_the_highest() {
+    let running = running();
+    let router = &running.router;
+    let item =
+        |level: Value| json!({ "title": "Greet", "level": level, "dependsOn": [], "flow": "trial", "writes": [] });
+    assert_eq!(post(router, "/api/v1/items", &item(json!("1"))).await.0, StatusCode::OK);
+    assert_eq!(
+        post(router, "/api/v1/items", &item(Value::Null)).await.0,
+        StatusCode::OK
+    );
+    let unprocessable = StatusCode::UNPROCESSABLE_ENTITY;
+    let error = |words: &str| json!({ "error": words });
+    assert_eq!(
+        post(router, "/api/v1/items", &item(json!("3"))).await,
+        (
+            unprocessable,
+            error("The item's level: 3 is above 2, the highest level an item may be at.")
+        )
+    );
+    assert_eq!(
+        post(router, "/api/v1/items", &item(json!("9"))).await,
+        (
+            unprocessable,
+            error("The item's level: 9 is no level: the levels are 1, 2, 3.")
+        )
+    );
+    let items = get_json(router, "/api/v1/items").await;
+    let levels: Vec<&Value> = items["items"].as_array().unwrap().iter().map(|i| &i["level"]).collect();
+    assert_eq!(levels, [&json!("1"), &json!("2")]);
+    assert_eq!(get_json(router, "/api/v1/works/2").await["level"], json!("2"));
 }
 
 #[tokio::test(start_paused = true)]

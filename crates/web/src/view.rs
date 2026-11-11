@@ -221,6 +221,8 @@ pub enum What {
     AgentHasAct {
         act: String,
     },
+    /// An engine cell names a reasoning effort: no agent runs it.
+    EngineHasEffort,
     UnknownAct {
         act: String,
     },
@@ -434,6 +436,18 @@ pub enum Change {
         before: u32,
         after: u32,
     },
+    /// The reasoning effort an agent cell's rounds run at; none is the program's own.
+    Effort {
+        cell: String,
+        before: Option<String>,
+        after: Option<String>,
+    },
+    /// How many levels above its item's the cell's rounds run at, as its line says.
+    LevelsAbove {
+        cell: String,
+        before: u32,
+        after: u32,
+    },
     BlockAdded {
         block: String,
     },
@@ -640,6 +654,7 @@ impl What {
             F::EngineHasTask => What::EngineHasTask,
             F::NoAct => What::NoAct,
             F::AgentHasAct { act } => What::AgentHasAct { act },
+            F::EngineHasEffort => What::EngineHasEffort,
             F::UnknownAct { act } => What::UnknownAct { act },
             F::ValuesEmpty => What::ValuesEmpty,
             F::NoteNotByPeople { block } => What::NoteNotByPeople { block },
@@ -817,6 +832,15 @@ impl Change {
                 before: *from,
                 after: *to,
             },
+            CellChange::Effort {
+                before: from,
+                after: to,
+            } => Change::Effort {
+                cell,
+                before: from.map(|e| e.name().to_string()),
+                after: to.map(|e| e.name().to_string()),
+            },
+            &CellChange::LevelsAbove { before, after } => Change::LevelsAbove { cell, before, after },
         }
     }
 

@@ -96,6 +96,7 @@ export type What =
   | { kind: 'engineHasTask' }
   | { kind: 'noAct' }
   | { kind: 'agentHasAct'; act: string }
+  | { kind: 'engineHasEffort' }
   | { kind: 'unknownAct'; act: string }
   | { kind: 'valuesEmpty' }
   | { kind: 'noteNotByPeople'; block: string }
@@ -163,6 +164,8 @@ export type Change =
   | { kind: 'mustWriteAdded'; cell: string; block: string }
   | { kind: 'mustWriteRemoved'; cell: string; block: string }
   | { kind: 'cellLimit'; cell: string; limit: LimitName; before: number; after: number }
+  | { kind: 'effort'; cell: string; before: string | null; after: string | null }
+  | { kind: 'levelsAbove'; cell: string; before: number; after: number }
   | { kind: 'blockAdded'; block: string }
   | { kind: 'blockRemoved'; block: string }
   | { kind: 'values'; block: string; before: string[] | null; after: string[] | null }

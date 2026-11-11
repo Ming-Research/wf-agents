@@ -17,7 +17,7 @@ use axum::routing::{get, post};
 use decide::RunId;
 use driver::Failed;
 use serde::Serialize;
-use service::Handle;
+use service::{Handle, Levels};
 use store::WorkNumber;
 use tokio::sync::broadcast::error::RecvError;
 
@@ -25,8 +25,10 @@ use crate::works::{
     Act, Added, Broken, CallPage, Changed, Items, NewItem, Refusal, RoundPage, ToldPage, VersionPage, WorkPage,
 };
 
-/// The routes of the items and the works, over the engine's loop.
-pub fn router(handle: Handle) -> Router {
+/// The routes of the items and the works, over the engine's loop; an item is added at one of these levels.
+pub fn router(handle: Handle, levels: Levels) -> Router {
+    let levels = std::sync::Arc::new(levels);
+    let add = move |handle: State<Handle>, body: Bytes| add(handle, levels.clone(), body);
     Router::new()
         .route("/api/v1/items", get(items).post(add))
         .route("/api/v1/works/{work}", get(work))
@@ -50,12 +52,16 @@ async fn items(State(handle): State<Handle>) -> Response {
     }
 }
 
-async fn add(State(handle): State<Handle>, body: Bytes) -> Response {
+async fn add(State(handle): State<Handle>, levels: std::sync::Arc<Levels>, body: Bytes) -> Response {
     let item: NewItem = match serde_json::from_slice(&body) {
         Ok(item) => item,
         Err(e) => return fail(StatusCode::BAD_REQUEST, format!("The item cannot be read: {e}.")),
     };
-    match handle.add(item.taken()).await {
+    let item = match item.taken(&levels) {
+        Ok(item) => item,
+        Err(why) => return fail(StatusCode::UNPROCESSABLE_ENTITY, format!("The item's level: {why}.")),
+    };
+    match handle.add(item).await {
         Ok((item, work)) => Json(Added {
             item: item.0,
             work: work.0,

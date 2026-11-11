@@ -122,7 +122,7 @@ impl Db {
 /// The item and the work a store of the tests holds first, added at fixed times so that two stores can be compared.
 fn first_work(store: &mut Store) -> WorkNumber {
     let (_, work) = store
-        .add("the item", &[], "judged", Time(START), &Work::default())
+        .add("the item", "2", &[], "judged", Time(START), &Work::default())
         .expect("the item is added");
     work
 }

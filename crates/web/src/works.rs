@@ -23,6 +23,7 @@ use decide::{
 };
 use driver::{Driver, Kept};
 use serde::{Deserialize, Serialize};
+use service::Levels;
 use store::{ItemNumber, WorkNumber};
 use work::{Ask as AskOf, Back as BackOf, Call as CallOf, Given as GivenOf, Work};
 
@@ -41,6 +42,9 @@ pub struct Items {
 pub struct Item {
     pub number: u64,
     pub title: String,
+    /// The level it was given as it was added, which chooses what its agents' rounds run on; none for an item added
+    /// before items had levels, whose rounds run at the default level.
+    pub level: Option<String>,
     /// When it was added, in milliseconds since the start of 1970, as every time here is.
     pub added: u64,
     /// The items it depends on, in the order of their numbers.
@@ -226,6 +230,8 @@ pub struct WorkPage {
     pub summary: Summary,
     /// The title of its item.
     pub title: String,
+    /// The level of its item, as [`Item`] has it.
+    pub level: Option<String>,
     /// The flow it runs on, as the flow page reads a flow.
     pub flow: Flow,
     /// Each cell now, with why it would run and what it reads, in the order of the walk.
@@ -528,6 +534,18 @@ pub struct TryPage {
     /// The message's whole length in bytes, where it was cut before its end.
     pub cut: Option<u64>,
     pub back: TryBack,
+    /// What it ran on as it began; none where its carrier kept nothing of it, as of an act of the engine's own.
+    pub ran: Option<RanOn>,
+}
+
+/// What a try of an agent's round ran on, as it was when the try began.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RanOn {
+    pub level: String,
+    pub model: String,
+    /// The reasoning effort; none where its cell sets none, and the program ran at its own.
+    pub effort: Option<String>,
 }
 
 /// What came back of a try: only what the page shows of what the program printed, never the whole of it.
@@ -597,6 +615,9 @@ pub enum Act {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NewItem {
     pub title: String,
+    /// The level it is given; with none, the level the installation adds an item at where it is given none.
+    #[serde(default)]
+    pub level: Option<String>,
     pub depends_on: Vec<u64>,
     /// The name of the flow its work runs on.
     pub flow: String,
@@ -653,6 +674,7 @@ impl Items {
             items.push(Item {
                 number: kept.item.number.0,
                 title: kept.item.title.clone(),
+                level: kept.item.level.clone(),
                 added: kept.item.added.0,
                 depends_on: kept.item.depends_on.iter().map(|on| on.0).collect(),
                 work: Summary::of(kept, &view)?,
@@ -908,6 +930,7 @@ impl WorkPage {
         Ok(Some(WorkPage {
             summary: Summary::of(kept, &view)?,
             title: kept.item.title.clone(),
+            level: kept.item.level.clone(),
             flow: Flow::of(kept.flow),
             cells,
             blocks,
@@ -1009,6 +1032,11 @@ impl ToldPage {
                     service::Back::Failed(why) => TryBack::Failed { why },
                     service::Back::Unreadable(why) => TryBack::Unreadable { why },
                 },
+                ran: t.ran.map(|ran| RanOn {
+                    level: ran.level,
+                    model: ran.model,
+                    effort: ran.effort,
+                }),
             })
             .collect();
         ToldPage {
@@ -1061,10 +1089,13 @@ impl Act {
 }
 
 impl NewItem {
-    /// The item as the driver adds it.
-    pub fn taken(self) -> driver::NewItem {
-        driver::NewItem {
+    /// The item as the driver adds it, at the level it asks for or else at the default of these levels; or why it
+    /// cannot be at the level it asks for, in words.
+    pub fn taken(self, levels: &Levels) -> Result<driver::NewItem, String> {
+        let level = levels.of_item(self.level.as_deref())?;
+        Ok(driver::NewItem {
             title: self.title,
+            level,
             depends_on: self.depends_on.into_iter().map(ItemNumber).collect(),
             flow: self.flow,
             writes: (self.writes.into_iter())
@@ -1074,7 +1105,7 @@ impl NewItem {
                     value: write.value,
                 })
                 .collect(),
-        }
+        })
     }
 }
 

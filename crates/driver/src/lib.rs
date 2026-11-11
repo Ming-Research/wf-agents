@@ -104,6 +104,8 @@ pub struct Kept<'a> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NewItem {
     pub title: String,
+    /// The name of the level it is given, which whoever adds it has checked against the installation's levels.
+    pub level: String,
     /// The items it depends on.
     pub depends_on: Vec<ItemNumber>,
     /// The name of the flow its work runs on.
@@ -284,7 +286,7 @@ impl Driver {
             effects.extend(handle(&flow, &mut work, now, event).map_err(Failed::Refused)?);
         }
         let (item, number) = (self.store)
-            .add(&new.title, &depends_on, &new.flow, now, &work)
+            .add(&new.title, &new.level, &depends_on, &new.flow, now, &work)
             .map_err(|fault| self.stop(Fault::Store(fault), false))?;
         let held = Held {
             head: WorkHead {
@@ -296,6 +298,7 @@ impl Driver {
             item: Item {
                 number: item,
                 title: new.title,
+                level: Some(new.level),
                 added: now,
                 depends_on,
             },

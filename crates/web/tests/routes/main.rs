@@ -247,9 +247,15 @@ pub fn running_carried(
     tokio::spawn(service.run(inbox));
     let flows = Flows::dirs(trial_dir().join("flow"), None, Box::new(trial_has));
     Running {
-        router: web::with_works(flows, handle),
+        router: web::with_works(flows, handle, levels()),
         _dir: dir,
     }
+}
+
+/// The levels an item is added at: `1` and `2`, the default, and `3`, above the highest an item may be at.
+pub fn levels() -> service::Levels {
+    let names = ["1", "2", "3"].map(str::to_string);
+    service::Levels::new(names, "2", Some("2")).expect("the levels are made")
 }
 
 /// The answer to a POST of this JSON: its status, and its body as JSON, or null where it has none.

@@ -127,7 +127,14 @@ describe('the list of works', () => {
       summary(9, { kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 }, 600, true),
       summary(10, { kind: 'paused', by: 'engine', why: 'A round failed.' }, 20, true),
     ];
-    const items: Item[] = works.map((w) => ({ number: w.number, title: `${w.number}`, added: 0, dependsOn: [], work: w }));
+    const items: Item[] = works.map((w) => ({
+      number: w.number,
+      title: `${w.number}`,
+      level: '2',
+      added: 0,
+      dependsOn: [],
+      work: w,
+    }));
     expect(orderWorks(items).map((w) => w.work.number)).toEqual([7, 4, 10, 6, 3, 2, 5, 9, 8, 1]);
   });
 });

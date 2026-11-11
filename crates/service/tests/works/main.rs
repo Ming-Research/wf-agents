@@ -38,6 +38,7 @@ use work::{Ask, Call, Time, Work};
 pub fn new_item(title: &str, depends_on: &[u64]) -> NewItem {
     NewItem {
         title: title.to_string(),
+        level: "1".to_string(),
         depends_on: depends_on.iter().copied().map(ItemNumber).collect(),
         flow: "trial".to_string(),
         writes: vec![FirstWrite {

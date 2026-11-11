@@ -58,6 +58,9 @@ enum Command {
     Add {
         #[arg(long)]
         title: String,
+        /// The level of the item, among those the settings name; the settings' default level where none is given.
+        #[arg(long)]
+        level: Option<String>,
         /// The name of the flow its work runs on.
         #[arg(long)]
         flow: String,
@@ -187,13 +190,14 @@ fn main() -> ExitCode {
         }
         Command::Add {
             title,
+            level,
             flow,
             depends_on,
             texts,
             files,
             choices,
             at,
-        } => match talk::new_item(title, flow, depends_on, &texts, &files, &choices) {
+        } => match talk::new_item(title, level, flow, depends_on, &texts, &files, &choices) {
             Ok(item) => talk::ask(at.port, Asked::Add(item)),
             Err(why) => {
                 eprintln!("{why}");
@@ -316,6 +320,7 @@ fn words(what: &FaultKind) -> String {
         F::EngineHasTask => "an engine's cell has a task, which no agent reads".to_string(),
         F::NoAct => "an engine's cell names no act to carry it out".to_string(),
         F::AgentHasAct { act } => format!("an agent carries the cell out, but the cell names the act \"{act}\""),
+        F::EngineHasEffort => "an engine's cell names a reasoning effort, which no agent runs at".to_string(),
         F::UnknownAct { act } => format!("the engine has no act named \"{act}\""),
         F::ValuesEmpty => "a choice has no values to choose from".to_string(),
         F::NoteNotByPeople { block } => format!("{block} is a note, but people do not write it"),

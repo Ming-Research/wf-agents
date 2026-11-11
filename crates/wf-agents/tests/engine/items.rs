@@ -21,7 +21,7 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
     );
     assert_eq!(
         engine.says(&["list"]),
-        "Item 1 \"Greet the user\", work 1 on trial: paused\n"
+        "Item 1 \"Greet the user\" at level 1, work 1 on trial: paused\n"
     );
     assert_eq!(engine.says(&["resume", "1"]), "Work 1 goes on.\n");
     let now = engine.until(&["show", "1"], |line| line.starts_with("Now: waits"));
@@ -31,7 +31,7 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
     );
     let shown = engine.says(&["show", "1"]);
     assert!(
-        shown.starts_with("Work 1 of item 1 \"Greet the user\", on the flow trial.\n"),
+        shown.starts_with("Work 1 of item 1 \"Greet the user\" at level 1, on the flow trial.\n"),
         "{shown}"
     );
     assert!(shown.contains("\n  plan: resting in run 1\n"), "{shown}");
@@ -46,7 +46,7 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
         "Call 2 of work 1 has its result.\n"
     );
     engine.until(&["list"], |line| {
-        line == "Item 1 \"Greet the user\", work 1 on trial: merged"
+        line == "Item 1 \"Greet the user\" at level 1, work 1 on trial: merged"
     });
     assert_eq!(
         engine.refuses(&["answer", "1", "2", "No."]),
@@ -56,6 +56,23 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
     assert_eq!(
         engine.refuses(&["cancel", "1"]),
         "Work 1 is not cancelled: it has merged.\n"
+    );
+}
+
+#[test]
+fn an_item_is_added_at_the_level_it_is_given_and_one_the_engine_lacks_is_refused() {
+    let place = Place::new(SCRIPT);
+    let engine = Engine::start(&place);
+    let add = |level: &'static str| ["add", "--title", "Greet the user", "--flow", "trial", "--level", level];
+    assert_eq!(
+        engine.refuses(&add("2")),
+        "The item's level: 2 is no level: the levels are 1.\n"
+    );
+    assert_eq!(engine.says(&["list"]), "No items.\n");
+    engine.says(&add("1"));
+    assert_eq!(
+        engine.says(&["list"]),
+        "Item 1 \"Greet the user\" at level 1, work 1 on trial: paused\n"
     );
 }
 
@@ -94,7 +111,9 @@ fn a_work_is_paused_written_let_go_and_cancelled_from_the_command_line() {
     let waits = "waits at plan for the outside (dependencies): Every item this one depends on has merged";
     let list = engine.says(&["list"]);
     assert!(
-        list.ends_with(&format!("Item 2 \"Say goodbye\", work 2 on trial, after 1: {waits}\n")),
+        list.ends_with(&format!(
+            "Item 2 \"Say goodbye\" at level 1, work 2 on trial, after 1: {waits}\n"
+        )),
         "{list}"
     );
     assert_eq!(engine.says(&["resume", "2"]), "Work 2 goes on.\n");
@@ -111,7 +130,7 @@ fn a_work_is_paused_written_let_go_and_cancelled_from_the_command_line() {
     );
     assert_eq!(engine.says(&["cancel", "2"]), "Work 2 is cancelled.\n");
     engine.until(&["list"], |line| {
-        line == "Item 2 \"Say goodbye\", work 2 on trial, after 1: cancelled"
+        line == "Item 2 \"Say goodbye\" at level 1, work 2 on trial, after 1: cancelled"
     });
 
     assert_eq!(

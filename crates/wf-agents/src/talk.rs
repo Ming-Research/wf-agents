@@ -92,6 +92,7 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
 /// given. Each is `BLOCK=WHAT`.
 pub fn new_item(
     title: String,
+    level: Option<String>,
     flow: String,
     depends_on: Vec<u64>,
     texts: &[String],
@@ -126,6 +127,7 @@ pub fn new_item(
     }
     Ok(NewItem {
         title,
+        level,
         depends_on,
         flow,
         writes,
@@ -218,9 +220,10 @@ fn list(items: &Items) -> String {
             };
             let work = &item.work;
             format!(
-                "Item {} \"{}\", work {} on {}{after}: {}",
+                "Item {} \"{}\" at {}, work {} on {}{after}: {}",
                 item.number,
                 item.title,
+                level(item.level.as_deref()),
                 work.number,
                 work.flow,
                 now(&work.now)
@@ -235,8 +238,12 @@ fn show(page: &WorkPage) -> String {
     let summary = &page.summary;
     let mut lines = vec![
         format!(
-            "Work {} of item {} \"{}\", on the flow {}.",
-            summary.number, summary.item, page.title, summary.flow
+            "Work {} of item {} \"{}\" at {}, on the flow {}.",
+            summary.number,
+            summary.item,
+            page.title,
+            level(page.level.as_deref()),
+            summary.flow
         ),
         format!("Now: {}.", now(&summary.now)),
         format!("Paused: {}.", if summary.paused { "yes" } else { "no" }),
@@ -314,6 +321,14 @@ fn show(page: &WorkPage) -> String {
         lines.push(format!("  run {} of {}: {rounds}{calls}, {end}", run.run, run.cell));
     }
     lines.join("\n")
+}
+
+/// An item's level, in words.
+fn level(level: Option<&str>) -> String {
+    match level {
+        Some(level) => format!("level {level}"),
+        None => "no level, added before items had levels".to_string(),
+    }
 }
 
 /// Why the run's last round failed, where it did: nothing came back of it.

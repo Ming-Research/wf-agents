@@ -460,6 +460,7 @@ export function fixtureItems(start = Date.now()): Items {
       ([n, m]): Item => ({
         number: Number(n),
         title: m.title,
+        level: '2',
         added: m.work.added,
         dependsOn: m.dependsOn,
         work: { ...m.work, item: Number(n), flow: FLOW.name },
@@ -475,7 +476,7 @@ function pageOf(item: Item, summary: Summary): WorkPage {
     needs: [],
     inputs: c.inputs.map((block) => ({ block, current: null, known: null, changed: false })),
   }));
-  return { summary, title: item.title, flow: FLOW, cells, blocks: [], steps: [] };
+  return { summary, title: item.title, level: item.level, flow: FLOW, cells, blocks: [], steps: [] };
 }
 
 /// The made-up items as a source the console reads: what the owner does changes them, and the console is told.

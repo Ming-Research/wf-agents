@@ -1,6 +1,7 @@
 title = "Initial research"
 kind = "agent"
 line = "engineer"
+effort = "high"
 task = '''
 Research how to solve the item's problem with code, going on from the tree you read and `supplement`. Reproduce a
 defect first, where it shows, such as on the page in a real browser or in the program on its own data; the test goes
