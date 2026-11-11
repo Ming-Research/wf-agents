@@ -30,8 +30,12 @@ const HEIGHT = 640;
 const card = (id: number, children: Shown[] = []): Shown => ({
   id,
   title: `Item ${id}`,
+  unseen: false,
+  unread: 0,
   standing: 'open',
   asks: 0,
+  questions: 0,
+  deliver: false,
   blocked: 0,
   begun: false,
   shadow: false,
@@ -341,9 +345,9 @@ describe('the tree in columns', () => {
   });
 
   it("draws in the console's own colours in light, and in the tokens' in dark", () => {
-    expect(themed()).toMatchObject({ page: '#f6f7f9', card: '#ffffff', ink: '#1f2937', running: '#1a9fff', asked: '#f5840c' });
+    expect(themed()).toMatchObject({ page: '#f6f7f9', card: '#ffffff', ink: '#1f2937', running: '#8b5cf6', asked: '#f5840c' });
     document.documentElement.setAttribute('data-theme', 'dark');
-    expect(themed()).toMatchObject({ page: '#0f1012', card: '#17181b', ink: '#e6e7ea', running: '#4fb4ff' });
+    expect(themed()).toMatchObject({ page: '#17191e', card: '#1f2127', ink: '#c8ccd4', running: '#a78bfa' });
   });
 });
 
@@ -408,7 +412,7 @@ describe('the console page', () => {
     return (window as unknown as { consoleScene: SnapScene }).consoleScene;
   }
   const title = () => container.querySelector('.drawer-title')?.textContent ?? null;
-  const folded = () => container.querySelector('.console')?.classList.contains('console-folded');
+  const folded = () => container.querySelector('aside.cw')?.classList.contains('cw-open') === false;
   const button = (words: string) =>
     [...container.querySelectorAll('button')].find((b) => b.textContent === words) ?? null;
 
@@ -426,13 +430,13 @@ describe('the console page', () => {
   it('folds the panel on Escape while it has the keys, and keeps the item selected', async () => {
     const scene = await drawn();
     scene.select(12);
-    await expect.poll(() => container.querySelector('textarea')).not.toBeNull();
-    (container.querySelector('textarea') as HTMLTextAreaElement).focus();
+    await expect.poll(() => container.querySelector('.cw-title-link')).not.toBeNull();
+    (container.querySelector('.cw-title-link') as HTMLButtonElement).focus();
     await userEvent.keyboard('{Escape}');
     await expect.poll(folded).toBe(true);
     expect(title()).toBe('Show the cost of a work');
-    // The handle brings it back, the item still there.
-    await userEvent.click(container.querySelector('.drawer-tab') as HTMLElement);
+    // The tab on its edge brings it back, the item still there.
+    await userEvent.click(container.querySelector('.cw-tab') as HTMLElement);
     await expect.poll(folded).toBe(false);
   });
 
@@ -443,7 +447,8 @@ describe('the console page', () => {
     await settle(scene);
     const before = scene.place();
     await userEvent.click(button('Pause') as HTMLElement);
-    await expect.poll(() => button('Let it on')).not.toBeNull();
+    // The work's switch now shows it paused.
+    await expect.poll(() => button('Pause')?.getAttribute('aria-pressed')).toBe('true');
     expect(title()).toBe('See every work at one glance');
     expect(folded()).toBe(false);
     const after = scene.place();
@@ -476,12 +481,13 @@ describe('the console page, when a work cannot be read', () => {
     );
     await expect.poll(() => (window as { consoleScene?: SnapScene }).consoleScene?.stats.items ?? 0).toBeGreaterThan(0);
     (window as unknown as { consoleScene: SnapScene }).consoleScene.select(12);
-    await expect
-      .poll(() => container.querySelector('.cw-notes .cw-refused')?.textContent ?? null)
-      .toBe('The page could not read the work: /api/v1/works/12 answered 500');
+    // Said in the discussion, where the box to write in would stand.
+    const said = () => container.querySelector('.drawer-body > .cw-fold > .cw-fold-body > p')?.textContent ?? null;
+    await expect.poll(said).toBe('The page could not read the work: /api/v1/works/12 answered 500');
     fails = false;
     (reopened as (() => void) | null)?.();
-    await expect.poll(() => container.querySelector('.cw-notes select')).not.toBeNull();
+    // The made-up flow has no block that is the owner's words to one cell of the engineer's, so no box is offered.
+    await expect.poll(said).toBe('People write no block of this flow');
     root.unmount();
     container.remove();
   });

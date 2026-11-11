@@ -65,7 +65,7 @@
 }
 
 .now-running .now-dot {
-  background: var(--blue);
+  background: var(--running);
 }
 
 .now-owner .now-dot {
@@ -206,56 +206,6 @@
   gap: var(--space-4);
 }
 
-/* What a work waits for, each in full on a line of its own, with what the owner can do about it; on the owner's
-   tint where it is the owner who is waited for. */
-.waits {
-  flex: none;
-  max-height: var(--waits-height);
-  overflow: auto;
-  border-bottom: var(--hairline) solid var(--line);
-  background: var(--card);
-}
-
-.wait {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-4) var(--space-8);
-  min-height: var(--row);
-  padding: var(--space-4) var(--space-12);
-  border-bottom: var(--hairline) solid var(--line);
-}
-
-.wait:last-child {
-  border-bottom: 0;
-}
-
-.wait-owner {
-  background: var(--orange-tint);
-  box-shadow: inset var(--focus) 0 var(--orange);
-}
-
-.waits-failed .wait {
-  background: var(--red-tint);
-  box-shadow: inset var(--focus) 0 var(--red);
-}
-
-.wait-word {
-  font-weight: var(--weight-strong);
-}
-
-.answer {
-  display: grid;
-  flex-basis: 100%;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: var(--space-4) var(--space-8);
-}
-
-.answer .question {
-  grid-column: 1 / -1;
-}
-
 .question {
   white-space: pre-wrap;
 }
@@ -310,7 +260,7 @@
 
 .state-text-running,
 .state-text-resting {
-  color: var(--blue-text);
+  color: var(--running-text);
 }
 
 .state-text-failed {
@@ -375,17 +325,17 @@
 }
 
 .run-running {
-  border-left-color: var(--blue);
-  background: var(--blue-tint);
+  border-left-color: var(--running);
+  background: var(--running-tint);
 }
 
 .run-running .run-word,
 .run-resting .run-word {
-  color: var(--blue-text);
+  color: var(--running-text);
 }
 
 .run-resting {
-  border-left-color: var(--blue);
+  border-left-color: var(--running);
   border-left-style: dotted;
 }
 
@@ -490,7 +440,7 @@
   overflow-wrap: anywhere;
 }
 
-/* The box to write a block, at the panel's foot. */
+/* The box to write in: a message of the console's item window. */
 .write-box {
   display: flex;
   flex-direction: column;

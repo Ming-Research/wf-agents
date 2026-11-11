@@ -62,8 +62,8 @@ The dark values are ours: the console has no dark ground. They keep its relation
 ground, the colours lifted to read on it.
 
 Sizes: `--size-label` 11px, `--size-small` 12px, `--size-body` 13px, `--size-title` 15px; `--font` and `--mono` are the
-system's text and monospace families. On the works page, what a work waits for grows to `--waits-height` and an opened
-content to `--content-height` before each scrolls, so that the history keeps its room. The chart's own sizes (`--chart-*`) are named in `tokens.css` with what each is
+system's text and monospace families. On the works page, an opened content grows to `--content-height` before it
+scrolls, so that the history keeps its room. The chart's own sizes (`--chart-*`) are named in `tokens.css` with what each is
 for; the widths of its columns, which the owner drags, are in `Chart.tsx` (`WIDTHS`), and the panel's, one width for the panel of every view, in `sizes.ts` (`PANEL`).
 
 The lines' names (engineer, designer, review...) are in the accent wherever they stand, so that the cells sharing a
@@ -135,21 +135,9 @@ What the owner reviews every work by, so that it says plainly why a work is wher
   now line wraps to two lines; below 480px the time gives way too.
 - **A work's line**: the view's line holds the way back to the works, the item's number and title, the now line, what
   was taken in all, and the buttons Pause or Let on, and Cancel, which asks again in words before it sends.
-- **Waits** (`WaitsBand`): under the view's line, each thing the work waits for on a line of its own, in full: "Waits at
-  `cell` for", the words, and what the owner can do there: a question's own words and a box to answer it, a primary
-  button to let a run or a cell go on, a precondition's words. A line waiting for the owner is on the orange tint, edged
-  in orange; a fault is on the red tint. A refusal from the interface is said in red after what was refused.
-- **Write box** (`WriteBox`): at the foot of the work's panel, whatever it shows: the block to write (those people
-  write), the value where it is a choice, the words, and under them which cells read the block, since those run again
-  for it. Until the owner types or picks anything, it follows the cell chosen, the cell of the step chosen, or the cell
-  the work is at, to the opinions that cell reads, and to no block where it reads none people write; from the first key
-  or pick it holds the block it shows, whatever is chosen or let go, until what was written is taken. A choice's value
-  starts unset, and Write waits for one. What is typed stays while other steps are chosen and while the work is read
-  again.
-- **Acts**: every control that sends something (Answer, Let go on, Pause, Let on, Cancel, Write) is disabled from its
-  press until the answer comes; a refusal is said in red, as an alert, where the act was. Each thing the work waits for
-  keeps its own box by what it is (a call by its number, a precondition by its test, a limit by its cell), so that an
-  answer typed stays with its question.
+- **Acts**: every control that sends something (Pause, Let on, New session, Cancel) is disabled from its press until
+  the answer comes; a refusal is said in red, as an alert, where the act was. What the work waits for, and what the
+  owner writes to it, are in the console's item window, where they happen, and not repeated on the work's page.
 - **Live**: the list and a work are read again on each change the interface sends, and whenever its stream of changes
   opens again, since changes may have been missed while it was lost; an answer older than the one shown is dropped.
 - **Tabs kept**: the flow, once shown, is kept as the owner left it while another tab is shown, and is not read again.
@@ -182,7 +170,7 @@ what is chosen and under the pointer, and marks where they mean the same.
   writes it ran for, with a dot at each of them, to an arrow at the run; none where no such cell can be found. A run
   is a way round only when every one of its causes was written by a cell after it.
 
-The panel of a step, docked at the right as the flow page's, and like it with the write box at its foot:
+The panel of a step, docked at the right as the flow page's:
 
 - A run: its number, its cell's title and id; status lines for how it stands and how long it took, what it took, and
   whether it is a way round; then why it ran, each cause with its block (a way round's in purple); what it started
@@ -264,20 +252,21 @@ smoothly, and the panel at its right with the item selected. It is the console o
   in `--accent`, the item itself with a halo.
 - **Map.** At the top left, a bar for each column, moved as the column is, marked in `--red` where works wait for the
   owner and in `--accent` where the item selected stands.
-- **Panel.** The page's panel, 560px until dragged, as the console's window was. Its head: the item's number, its
-  title, which brings the item into view, and the flow its work runs on. Two status lines (`.cw-line`): where the item
-  stands and what it waits for to merge; what its work does, a link to the work's own page, and at the right the
-  works page's **strip** (`Strip`) of the work's cells, and what it has taken. These lines are the look's status line
-  (`StatusLine`) in all but two things, which is why the console draws its own (`.cw-line`): the dot takes the five
-  tones of a work, among them the pale yellow of a work waiting for anything but the owner, which the status line has
-  no tone for, and the line holds a link and, at its right end, the strip. Under them the buttons of what the
-  owner does to the work: let it on or pause it, and cancel it, each waiting while what it sent is under way. Then two
-  **tabs** (`.cw-tabs`), the one shown in the text colour over a 2px accent line, as the bar's; the look has no part
-  for tabs inside a panel, and the drawer's text tabs are kept as they were, with its layout. The first says what the work waits for, the owner's things in
-  `--orange-text`, and holds the **notes**: a **select** (`.cw-select`, 24px, monospace, as a button's box) of the
-  blocks people write, a box to write in, and under it "Goes to" the cells that read the block chosen, with the button
-  that sends it; the second, what the lines do not say of the work, as label and value pairs (`.pairs`), and the works
-  page's legend of the strip's marks (`StateLegend`).
+- **Panel.** The page's panel, 560px until dragged, as the console's window was, drawn with the flow page's panel's
+  parts so that the views read as one page. Its head (`.drawer-head`): the item's number, its title, which brings the
+  item into view, and the flow its work runs on. Two status lines (`.status-line`): where the item stands and what it
+  waits for to merge; what its work does, a link to the work's own page, and at the right the works page's **strip**
+  (`Strip`) of the work's cells, and what it has taken. Their dot takes the five tones of a work, among them the pale
+  yellow of a work waiting for anything but the owner, which the status line has no tone for. Under them the buttons of
+  what the owner does to the work: let it on or pause it, and cancel it, each waiting while what it sent is under way.
+  Then, under a hairline (`.drawer-body`), the page's **switch** (`Switch`) between the item and the work. The item
+  says what the work waits for, the owner's things in `--orange-text`; its body as sections (`PanelPart`), a passage
+  changed since the owner read it marked at its left in the accent; and the **notes**, one under another with a
+  hairline between, the owner's own on the ground, and the page's write box (`.write-box`): whom the note goes
+  to, a box to write in, and under it "Goes to" the cells that read it, with the button that sends it. The work holds
+  what the lines do not say of it, as label and value pairs (`.pairs`), and the works page's legend of the strip's
+  marks (`StateLegend`). A choice of the plan stays the window's own: a frame in the accent on its tint, its options
+  buttons, the one picked ringed in the accent.
 
 The canvas follows light and dark: the colours the tokens came from it takes from the tokens, and those that have no
 token (the faint and pale greys, the ribbons, the map's bars) are worked out from the tokens in dark, keeping their
