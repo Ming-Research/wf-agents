@@ -68,11 +68,11 @@ fn an_item_is_added_at_the_level_it_is_given_and_one_the_engine_lacks_is_refused
         engine.refuses(&add("2")),
         "The item's level: 2 is no level: the levels are 1.\n"
     );
-    assert_eq!(engine.says(&["list"]), "No items.\n");
+    assert_eq!(engine.says(&["list"]), "Works go on; 0 of 2 slots taken.\nNo items.\n");
     engine.says(&add("1"));
     assert_eq!(
         engine.says(&["list"]),
-        "Item 1 \"Greet the user\" at level 1, work 1 on trial: paused\n"
+        "Works go on; 0 of 2 slots taken.\nItem 1 \"Greet the user\" at level 1, work 1 on trial: paused\n"
     );
     // An item is put at another level as it is added, and refused alike.
     assert_eq!(

@@ -150,6 +150,7 @@ fn started() -> flow::Compiled {
         kind = "agent"
         line = "main"
         task = "Write the text the request asks for."
+        effort = "high"
         inputs = ["place", "request"]
         outputs = ["text"]
     "#;
