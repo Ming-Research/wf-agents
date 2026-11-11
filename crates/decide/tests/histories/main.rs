@@ -1,9 +1,9 @@
 //! Random histories (principle simulated-histories): many works, each on a small flow of blocks drawn at random, driven
 //! step by step as an engine would drive them, agents returning at random and people acting at random in the first
-//! part of each history. After every step the properties the engine must always keep are checked (`properties`),
-//! each stating what a rule of the entries protects and judged by the histories' own reading of the records
-//! (`reading`), not by the walk's; once people stop, the work must come to rest within a bound its limits give, and
-//! once it rests, what people wrote must have reached the cells that read it.
+//! part of each history. After every step the properties the engine must always keep are checked (`properties`, and
+//! those of a pause in `pausing`), each stating what a rule of the entries protects and judged by the histories' own
+//! reading of the records (`reading`), not by the walk's; once people stop, the work must come to rest within a bound
+//! its limits give, and once it rests, what people wrote must have reached the cells that read it.
 //!
 //! What the driver reaches, roughly:
 //! - the flow: each of the six shapes in a sixth of the histories, cut to its first two cells in a fifth and
@@ -38,6 +38,8 @@
 //!   rest, a round before the third of a cell other than the merge fails in twelve in a hundred: it ends with nothing
 //!   come back and the engine pauses the work with the reason, as the engine's loop does; people let the work on as
 //!   from any pause, and once they stop the owner lets the work on, whoever paused it.
+//! - the engine: while the work is paused, a run at rest has its next round only where it started for a note a person
+//!   wrote, the brief, and its last round did not fail (`pausing`), as the engine's loop gives it by `decide::hold`.
 //!
 //! A second test draws only the sixth shape, with people acting in the first 0 to 99 steps: its judge then runs while
 //! the cell it judges is skipped, over what a person wrote for that cell, and the cell runs again afterwards, which
@@ -53,6 +55,7 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+mod pausing;
 mod properties;
 mod reading;
 
@@ -91,7 +94,7 @@ const SKIPPED_JUDGED: Drawn = Drawn {
     people: 100,
 };
 
-/// The block only people write.
+/// The block only people write, a note: a person's words to the cells that read it.
 const BRIEF: &str = "brief";
 
 /// The block whose value a condition reads.
@@ -279,6 +282,7 @@ impl History {
         } else {
             World::with_gate(cells)
         };
+        w.notes(&[BRIEF]);
         if rng.chance(40) || judged.is_some() {
             w.says(GATE, true);
         }
@@ -361,15 +365,19 @@ impl History {
                 self.w.start(cell.as_str());
                 true
             }
-            // A pause holds back the next round of a run that goes on: that is the run's to say, and the engine holds
-            // it until the work is let on.
-            Decision::GoOn { .. } if decide::paused(&self.w.records) => {
+            // A pause holds back the next round of a run that goes on, unless the run started for what a person wrote
+            // and its last round did not fail: that is the run's to say, and the engine holds it until the work is let
+            // on.
+            Decision::GoOn { run, .. } if decide::paused(&self.w.records) && !self.goes_on_paused(*run) => {
                 if people {
                     self.toggle_pause();
                 }
                 people
             }
             Decision::GoOn { cell, run } => {
+                if decide::paused(&self.w.records) {
+                    self.verdict.count(pausing::WENT_ON_PAUSED);
+                }
                 if self.failed.remove(run) {
                     self.verdict.count(properties::FAILED_GOES_ON);
                 }
@@ -458,6 +466,15 @@ impl History {
         self.looked_at = (r.started.len(), r.finished.len(), r.abandoned.len());
         let seed = properties::last_place(r).0;
         properties::decision(v, flow, &reading, decision, decide::paused(r), seed);
+        pausing::decision(v, flow, &reading, decision, decide::paused(r));
+    }
+
+    /// Whether the run at rest has its next round though the work is paused, as the engine gives it by `decide::hold`,
+    /// which `pausing` judges.
+    fn goes_on_paused(&mut self, run: RunId) -> bool {
+        let reading = Reading::new(&self.w.records);
+        let failed = self.failed.contains(&run);
+        pausing::goes_on(&mut self.verdict, &self.w.flow, &reading, run, failed)
     }
 
     /// The round under way of the run ends as its agent returns: it finishes, returns with nothing, or rests at a call.
@@ -853,6 +870,12 @@ fn histories(drawn: Drawn, seeds: u64, reached: &[&str]) {
         "the deciding code's histories reached: {}",
         counts.join("; ")
     );
+    // And how often each of what they must reach was, so that a rare one shows how close it is to none.
+    let must: Vec<String> = reached
+        .iter()
+        .map(|what| format!("{what}: {}", seen.get(what)))
+        .collect();
+    let _ = writeln!(std::io::stderr(), "of what they must reach: {}", must.join("; "));
     let unreached: Vec<_> = reached.iter().filter(|what| seen.get(what) == 0).collect();
     assert!(
         unreached.is_empty(),
@@ -862,10 +885,12 @@ fn histories(drawn: Drawn, seeds: u64, reached: &[&str]) {
 
 #[test]
 fn random_works_keep_the_engines_properties_and_come_to_rest() {
-    histories(ANY, 800, properties::REACHED);
+    histories(ANY, 800, &[properties::REACHED, pausing::REACHED].concat());
 }
 
 #[test]
 fn a_judge_running_while_the_cell_it_judges_is_skipped_keeps_the_engines_properties() {
-    histories(SKIPPED_JUDGED, 150, &[properties::CAUSES_LAST_BEHIND]);
+    // Since a paused work answers a note, 150 histories no longer reached the row of acts; 600 reach it twice, as the
+    // count this test writes to the standard error says.
+    histories(SKIPPED_JUDGED, 600, &[properties::CAUSES_LAST_BEHIND]);
 }

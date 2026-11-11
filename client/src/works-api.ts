@@ -93,7 +93,7 @@ export interface Summary {
   item: number;
   flow: string;
   added: number;
-  /// No round of it begins; a round under way goes on.
+  /// Only a note to a cell is answered; a round under way goes on.
   paused: boolean;
   now: Now;
   /// In the order of the walk.

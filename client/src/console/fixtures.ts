@@ -42,7 +42,7 @@ type CellIn = {
 function flowOf(
   name: string,
   cells: CellIn[],
-  blocks: Record<string, { values?: string[]; people?: boolean; outside?: string; shown?: boolean }>,
+  blocks: Record<string, { values?: string[]; people?: boolean; note?: boolean; outside?: string; shown?: boolean }>,
 ): Flow {
   const all: Cell[] = cells.map((c) => ({
     id: c.id,
@@ -67,6 +67,7 @@ function flowOf(
       writtenBy: {
         cells: all.filter((c) => c.outputs.includes(b)).map((c) => c.id),
         people: blocks[b].people ?? false,
+        note: blocks[b].note ?? false,
         outside: blocks[b].outside ?? null,
       },
       readBy: {

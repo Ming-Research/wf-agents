@@ -59,7 +59,8 @@ pub struct Summary {
     /// The name of the flow it runs on.
     pub flow: String,
     pub added: u64,
-    /// Whether the work is paused: no round of it begins. A round under way goes on, and what it hands in is taken.
+    /// Whether the work is paused: no round of it begins but those of a run that answers a note, a person's words to
+    /// its cell. A round under way goes on, and what it hands in is taken.
     pub paused: bool,
     /// What the work does now.
     pub now: Now,

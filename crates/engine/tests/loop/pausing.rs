@@ -1,5 +1,6 @@
 //! A pause holds back only what would begin a round: what a round hands in is taken, the calls it asks for are made,
-//! the owner is asked at a limit and a stale run is abandoned, while no round begins until the work is let on.
+//! the owner is asked at a limit and a stale run is abandoned, while no round begins until the work is let on but one
+//! of a run that answers a note (`paused_answers`). A request a person writes is no note.
 
 use super::*;
 

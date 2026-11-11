@@ -16,7 +16,8 @@
 //! A carrier that cannot carry a round out says the round failed, and one that finds as a round ends that its work is
 //! to wait for the owner, as when it has spent more than it may, says so with the end: either way the engine pauses the
 //! work with the reason, which is in its records and on the page. Nothing of it is held here: after a restart a work so
-//! paused is handed out nothing until the owner lets it on.
+//! paused is handed out nothing but the rounds of a run that answers a note, and the round that failed
+//! is not handed out again until the owner lets the work on.
 //!
 //! - `carriers`: the interfaces, what each is given, and how it says what came of it.
 //! - `clock`: the clock, read by the loop alone.

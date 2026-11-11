@@ -39,10 +39,10 @@ fn a_paused_run_let_go_on_at_its_limit_is_held_from_the_round_that_sends_its_ret
         rounds: vec![wanting(), wanting(), wanting()],
         let_go: 3,
     };
-    assert_eq!(next(&log, spec().requires(), true), Step::Held);
+    assert_eq!(next(&log, spec().requires(), Hold::Rounds), Step::Held);
     let log = Log {
         rounds: vec![asked_done(1, 3), asks(1)],
         let_go: 2,
     };
-    assert_eq!(next(&log, spec().requires(), true), Step::Make);
+    assert_eq!(next(&log, spec().requires(), Hold::Rounds), Step::Make);
 }

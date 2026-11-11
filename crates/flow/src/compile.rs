@@ -88,6 +88,8 @@ pub struct Writers {
     pub cells: Vec<CellId>,
     /// People write it.
     pub people: bool,
+    /// What people write in it is a note: their words to the cells that read it, which a paused work still answers.
+    pub note: bool,
     /// The source outside the work that writes it, where one does.
     pub outside: Option<String>,
 }
@@ -150,6 +152,10 @@ pub enum FaultKind {
     UnknownAct { act: String },
     /// A choice has no values to choose from.
     ValuesEmpty,
+    /// The block is a note, and people do not write it: a note is their words to the cells that read it.
+    NoteNotByPeople { block: String },
+    /// The block is a note, and a choice: a note is words to a cell, which a choice is not.
+    NoteIsAChoice { block: String },
     /// The block is not declared in `flow.toml`.
     NoSuchBlock { block: String },
     /// The cell must write the block each time, and it is not among its outputs.
@@ -241,6 +247,10 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
         })
         .collect();
     let flow = Flow::new(cells, tests).map_err(|f| vec![fault(FLOW_FILE, "order", FaultKind::Flow(f))])?;
+    let notes = (flow_file.blocks.iter())
+        .filter(|(_, b)| b.note)
+        .map(|(name, _)| BlockId(name.clone()));
+    let flow = flow.with_notes(notes);
     Ok(Compiled {
         name: flow_file.name.clone(),
         flow,
@@ -472,6 +482,13 @@ impl<'a> Definition<'a> {
                 for (field, what) in check_list(values, &field, |_| None) {
                     faults.push(fault(FLOW_FILE, field, what));
                 }
+            }
+            if block.note && !block.people {
+                let what = FaultKind::NoteNotByPeople { block: name.clone() };
+                faults.push(fault(FLOW_FILE, format!("blocks.{name}.note"), what));
+            } else if block.note && block.values.is_some() {
+                let what = FaultKind::NoteIsAChoice { block: name.clone() };
+                faults.push(fault(FLOW_FILE, format!("blocks.{name}.note"), what));
             }
             if let Some(source) = &block.outside
                 && !sources.contains(source)
@@ -782,6 +799,7 @@ impl<'a> Definition<'a> {
                     writers: Writers {
                         cells: ids(&writers),
                         people: declared.people,
+                        note: declared.note,
                         outside: declared.outside.clone(),
                     },
                     readers: Readers {

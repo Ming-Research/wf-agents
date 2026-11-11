@@ -13,6 +13,7 @@ mod given;
 mod limits;
 mod must_write;
 mod named_tests;
+mod paused_answers;
 mod pausing;
 mod pending;
 mod rebuilt;
@@ -26,10 +27,10 @@ use decide::{BlockId, CallId, Cause, Outsider, Pauser, RunId, Seq, Who};
 use engine::{Ask, Call, Came, Effect, Event, Given, Handed, Refused, Spent, Time, Work, handle, pending};
 use flow::{Compiled, Has, Source, compile};
 
-/// A writer that reads a request, the outside's main and the opinions on what it wrote; a judge that writes opinions
-/// for it and a verdict, a choice; and a merge, the engine's own cell, that waits for the owner's word: a choice, `go`,
-/// that people write and a named test reads. Returns may be sent back twice, a run may make three calls, and a cell may
-/// go round three times.
+/// A writer that reads a request, the outside's main and the opinions on what it wrote, which people write as a note
+/// besides; a judge that writes opinions for it and a verdict, a choice; and a merge, the engine's own cell, that waits
+/// for the owner's word: a choice, `go`, that people write and a named test reads. Returns may be sent back twice, a
+/// run may make three calls, and a cell may go round three times.
 fn judged() -> Compiled {
     compile(&judged_source(), &has(&["main"])).expect("the definition compiles")
 }
@@ -59,6 +60,7 @@ fn judged_source() -> Source {
         people = true
         [blocks.opinions]
         people = true
+        note = true
         [blocks.text]
         [blocks.verdict]
         values = ["yes", "no"]

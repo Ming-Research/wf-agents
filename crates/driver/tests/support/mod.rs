@@ -11,7 +11,7 @@
 //! - what each work does next, as the driver shows it, agrees with what is to be done for it: after a call no run is
 //!   left to start or to abandon, a run goes on with its round held only while the work is paused, a work is busy
 //!   with a run exactly when a round of that run is given to be done, and a work paused began no round after the
-//!   pause;
+//!   pause but of a run for a note a person wrote, and none given again after it failed;
 //! - the dependencies block of every work that has not ended says whether the items its item depends on have merged,
 //!   and its text names those still waited for, saying which were cancelled; the block of a work that has ended was
 //!   not written after it ended; no work whose dependencies have not all merged has started a run where its flow
@@ -23,9 +23,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use decide::{BlockId, CallId, Decision, End, Outsider, RunId, Seq, Waited, Who};
+use decide::{BlockId, CallId, Cause, Decision, End, Outsider, RunId, Seq, Waited, Who};
 use driver::{DEPENDENCIES, Driver, Failed, Fault, FirstWrite, MERGED, NewItem, Todo, WAITING};
-use engine::{Ask, Came, Effect, Event, Given, Handed, Spent, Time, Work};
+use engine::{Ask, Back, Came, Effect, Event, Given, Handed, Spent, Time, Work};
 use flow::{Compiled, Has, Kind, Source, compile};
 use rusqlite::Connection;
 use rusqlite::types::Value;
@@ -769,7 +769,7 @@ impl H {
             assert!(under_way(kept.work) <= 1, "work {} has two rounds under way", number.0);
             let shown = d.view(number).expect("the work is shown").decision;
             if !self.faulty.contains(&number) {
-                self.agrees_with_what_is_pending(number, kept.work, &shown);
+                self.agrees_with_what_is_pending(number, kept.flow, kept.work, &shown);
             }
             if !kept.work.records.started.is_empty() {
                 assert!(
@@ -829,8 +829,9 @@ impl H {
 
     /// What the work does next agrees with what is to be done for it: after a call, no run is left to start and none
     /// left to be abandoned; a run goes on with its round held only while the work is paused; a work is busy with a
-    /// run exactly when a round of that run is given to be done; and a work paused began no round after the pause.
-    fn agrees_with_what_is_pending(&self, number: WorkNumber, work: &Work, shown: &Decision) {
+    /// run exactly when a round of that run is given to be done; and a work paused began no round after the pause but
+    /// of a run for a note a person wrote ([`for_a_note`]), and none given again after it failed.
+    fn agrees_with_what_is_pending(&self, number: WorkNumber, flow: &Compiled, work: &Work, shown: &Decision) {
         let paused = decide::paused(&work.records);
         let rounds: Vec<RunId> = (self.d().pending().into_iter())
             .filter(|t| t.work == number)
@@ -869,11 +870,19 @@ impl H {
             if let Some(since) = since
                 && resumed.is_none_or(|r| r < since)
             {
-                assert!(
-                    work.records.rounds.iter().all(|r| r.at < since),
-                    "work {} began a round after it was paused",
-                    number.0
-                );
+                for (i, round) in work.records.rounds.iter().enumerate() {
+                    if round.at < since {
+                        continue;
+                    }
+                    let run = round.run;
+                    let nth = work.records.rounds[..=i].iter().filter(|r| r.run == run).count();
+                    let again = matches!(work.back.get(&(run, nth - 1)), Some(Back::Failed { .. }));
+                    assert!(
+                        for_a_note(flow, work, run) && !again,
+                        "work {} began round {nth} of {run:?} after it was paused",
+                        number.0
+                    );
+                }
             }
         }
     }
@@ -1098,6 +1107,38 @@ pub fn under_way(work: &Work) -> usize {
             began > ended
         })
         .count()
+}
+
+/// Whether the run started for a note a person wrote: one of its reasons is a note that a person wrote since its cell
+/// last ran (since the start of the run of its record, or with no record of its first run), after the version its
+/// cell's record knew, and before the run started; for a cell with no record, a note the run started from. A cell no
+/// run of which started before has not run. Read from the records and the flow's notes; it does not ask whether the
+/// write changed the note's meaning, nor, with no record, whether the cell reads it, so it is a little wider than the
+/// rule.
+pub fn for_a_note(flow: &Compiled, work: &Work, run: RunId) -> bool {
+    let r = &work.records;
+    let Some(started) = r.started.iter().find(|s| s.run == run) else {
+        return false;
+    };
+    // Since the cell last ran: since the start of the run of its record, or with no record of its first run.
+    let of_cell = || (r.started.iter()).filter(|s| s.cell == started.cell && s.at < started.at);
+    let record = (r.finished.iter())
+        .filter(|f| f.at < started.at)
+        .filter_map(|f| of_cell().find(|s| s.run == f.run).map(|s| (f.at, s.at)))
+        .max();
+    let Some(since) = record.map(|(_, at)| at).or_else(|| of_cell().map(|s| s.at).min()) else {
+        return false;
+    };
+    let by_person = |block: &decide::BlockId, was: Option<decide::Seq>| {
+        flow.flow.is_note(block)
+            && (r.written.iter()).any(|w| {
+                w.by == Outsider::Person && w.block == *block && w.at > since && Some(w.at) > was && w.at < started.at
+            })
+    };
+    started.because.iter().any(|c| match c {
+        Cause::NoRecord => started.basis.keys().any(|block| by_person(block, None)),
+        Cause::Changed { block, was, .. } => by_person(block, *was),
+    })
 }
 
 /// A write by a person or the outside, its content saying what was written.

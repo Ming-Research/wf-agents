@@ -31,7 +31,7 @@ describe('the words of the page', () => {
     const block = {
       name: 'main',
       values: null,
-      writtenBy: { cells: [], people: true, outside: 'main' },
+      writtenBy: { cells: [], people: true, note: false, outside: 'main' },
       readBy: { cells: [], conditions: [], tests: [], shown: false },
     };
     expect(writersBesideCells(block)).toEqual(['people', 'the outside (main)']);
@@ -97,6 +97,24 @@ describe('the words of the page', () => {
       before: 'no',
       after: 'main',
     });
+  });
+
+  it('say that a block is a note, a change of it, and a note people do not write', () => {
+    const block = {
+      name: 'opinions',
+      values: null,
+      writtenBy: { cells: [], people: true, note: true, outside: null },
+      readBy: { cells: ['plan'], conditions: [], tests: [], shown: false },
+    };
+    expect(writersBesideCells(block)).toEqual(['people, as a note to the cells that read it']);
+    expect(changeWords({ kind: 'note', block: 'opinions', before: false, after: true })).toEqual({
+      what: 'A note',
+      before: 'no',
+      after: 'yes',
+    });
+    expect(
+      faultWords({ file: 'flow.toml', field: 'blocks.plan.note', what: { kind: 'noteNotByPeople', block: 'plan' } }),
+    ).toBe('plan is a note, but people do not write it.');
   });
 
   it('say what is wrong with a definition from the data of the fault', () => {

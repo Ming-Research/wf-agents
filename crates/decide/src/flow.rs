@@ -1,10 +1,10 @@
-//! The flow as the deciding code reads it: the cells in their order, the blocks each reads and writes, and the named
-//! tests their conditions and preconditions are.
+//! The flow as the deciding code reads it: the cells in their order, the blocks each reads and writes, the named tests
+//! their conditions and preconditions are, and which blocks are notes.
 //!
 //! Only what decides the next step is here. What a cell is given, what it hands in and how it is run belong to the
 //! parts of the engine that act.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
@@ -50,11 +50,14 @@ name!(
     TestName
 );
 
-/// The cells of a flow, in the order the walk takes them, and the named tests they use.
+/// The cells of a flow, in the order the walk takes them, the named tests they use, and the notes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Flow {
     cells: Vec<Cell>,
     tests: BTreeMap<TestName, Test>,
+    /// The blocks that are notes: what people write in one are their words to the cells that read it, which a paused
+    /// work still answers.
+    notes: BTreeSet<BlockId>,
 }
 
 /// A named test: a test of the values of blocks of the work itself, which the walk works out from the versions it
@@ -139,7 +142,24 @@ impl Flow {
                 return Err(FlowFault::NoSuchTest(cell.id.clone(), test.clone()));
             }
         }
-        Ok(Self { cells, tests })
+        Ok(Self {
+            cells,
+            tests,
+            notes: BTreeSet::new(),
+        })
+    }
+
+    /// The same flow, these blocks being its notes, and no other.
+    pub fn with_notes(self, notes: impl IntoIterator<Item = BlockId>) -> Self {
+        Self {
+            notes: notes.into_iter().collect(),
+            ..self
+        }
+    }
+
+    /// Whether the block is a note: what people write in it are their words to the cells that read it.
+    pub fn is_note(&self, block: &BlockId) -> bool {
+        self.notes.contains(block)
     }
 
     /// The cells, in the order the walk takes them.

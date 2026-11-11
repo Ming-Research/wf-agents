@@ -25,4 +25,4 @@ pub use records::{
     Round, RunId, Seq, Started, Who, Write, Written,
 };
 pub use view::{CellView, InputView, OpenRun, VersionView, View, Writer, versions, view};
-pub use walk::{Abandoning, Decision, End, Waited, decide, pause, paused, stale};
+pub use walk::{Abandoning, Decision, End, Waited, decide, hold, pause, paused, stale};

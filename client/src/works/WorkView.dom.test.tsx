@@ -323,7 +323,7 @@ describe('a work whose round failed', () => {
     await chooseStep(page, 3);
     const pause = page.querySelector('aside[aria-label="Paused"]') as HTMLElement;
     expect(pause.textContent).toContain(
-      `The engine paused the work: no round of it begins until the owner lets it on. Why: ${FAILED}`,
+      `The engine paused the work: only a note to a cell is answered until the owner lets it on. Why: ${FAILED}`,
     );
   });
 });

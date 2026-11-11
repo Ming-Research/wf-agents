@@ -14,7 +14,10 @@
 //! - no finished run of a cell lacks a write of a block the cell must write, read from the records of the finishes and
 //!   the cells' definitions (entry a-run-is-one-mechanism);
 //! - a round that ended, failed or not, is never given to be done again: no round `pending` gives has ended; and while
-//!   the engine's pause for a failed round holds the work, `pending` gives no round at all;
+//!   the engine's pause for a failed round holds the work, `pending` gives no round but one of a run for a note a person
+//!   wrote, and none given again after it failed;
+//! - a round given while the work is paused is of a run for a note a person wrote, and is no round given again after
+//!   one that failed;
 //! - a round after one that failed is given what the failed one was given, read from the records.
 //!
 //! And once people stop, the owner lets the work on if it is paused, for whatever reason, and no round fails any more:
@@ -46,9 +49,10 @@
 //! any step with a chance of one in twelve, and with one in two at a step when the driver holds a stop or a withdrawal
 //! not yet done.
 //!
-//! The histories must reach a failed round given again once the work is let on, and a run whose round failed abandoned
-//! because what it started from changed before the work was let on, and works that came to rest not paused: each is
-//! counted, a test of no history reaching one fails, and what was reached is written to the standard error.
+//! The histories must reach a failed round given again once the work is let on, a run whose round failed abandoned
+//! because what it started from changed before the work was let on, a round given while the work is paused, and works
+//! that came to rest not paused: each is counted, a test of no history reaching one fails, and what was reached is
+//! written to the standard error.
 //!
 //! A failing case prints its seed and the steps it took; `one_history(seed, ..)` replays it.
 
@@ -75,7 +79,8 @@ fn flow_file(order: &[&str], blocks: &BTreeSet<&str>) -> String {
     let declared: String = (blocks.iter())
         .map(|b| {
             let who = match *b {
-                "request" | "opinions" => "people = true\n",
+                "request" => "people = true\n",
+                "opinions" => "people = true\nnote = true\n",
                 "choice" => "values = [\"yes\", \"no\"]\npeople = true\n",
                 "main" => "outside = \"main\"\n",
                 _ => "",
@@ -459,6 +464,7 @@ fn whole_works_keep_the_engines_properties_with_and_without_stops() {
                 seen.retried += s.retried;
                 seen.failed_abandoned += s.failed_abandoned;
                 seen.rested_unpaused += s.rested_unpaused;
+                seen.paused_rounds += s.paused_rounds;
                 seen.lacking += s.lacking;
                 seen.bound_finished += s.bound_finished;
             }
@@ -493,7 +499,8 @@ fn whole_works_keep_the_engines_properties_with_and_without_stops() {
         && seen.failed > 0
         && seen.retried > 0
         && seen.failed_abandoned > 0
-        && seen.rested_unpaused > 0;
+        && seen.rested_unpaused > 0
+        && seen.paused_rounds > 0;
     // What the histories reached, said whatever comes of the test: written to the standard error itself, which the
     // test harness does not hold back as it holds back what a test prints.
     let _ = writeln!(std::io::stderr(), "the engine's histories reached: {seen:?}");

@@ -163,7 +163,7 @@ export function nowWords(now: Now): string {
     case 'paused':
       return now.by === 'engine'
         ? `Paused by the engine: ${now.why ?? 'it gave no reason'}`
-        : 'Paused: no round begins until it is let on';
+        : 'Paused: only a note to a cell is answered until it is let on';
     case 'waits':
       return `Waits at ${now.at} for ${now.on.map(waitedWords).join('; ')}`;
     case 'next':
