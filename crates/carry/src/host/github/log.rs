@@ -496,6 +496,34 @@ mod tests {
         );
     }
 
+    // The job that gathers the others copies the steps of each job that did not pass into its own log, each after a
+    // line that begins a step and names the job. The log is of a real run of this repository's CI in which the format
+    // and one test had been made to fail on purpose: the agent is given the diff of the format and the test with what
+    // it wrote, and nothing of the steps that passed.
+    #[test]
+    fn the_log_of_the_job_that_gathers_gives_what_failed_in_each_job() {
+        let given = what_failed(include_str!("../../../tests/fixtures/job-logs/check-gathers.log"), ROOM);
+        for told in [
+            "Run the steps of the job lint, which ended in failure",
+            "Run cargo fmt --all --check",
+            "+    let seen = 1;",
+            "Run the steps of the job test 1 of 3, which ended in failure",
+            "FAIL [   0.005s] (332/335) work::thrown_on_purpose fails_on_purpose_to_show_the_red_path",
+            "assertion `left == right` failed: thrown on purpose: the red path of the job check",
+            "Summary [ 100.473s] 335 tests run: 334 passed (1 slow), 1 failed, 637 skipped",
+            "Did not pass: lint, test 1 of 3.",
+        ] {
+            assert!(given.contains(told), "{told}\n{given}");
+        }
+        for left_out in ["Run npm ci", "Run actions/checkout", " PASS [", "could not be read"] {
+            assert!(!given.contains(left_out), "{left_out}\n{given}");
+        }
+        assert!(
+            given.ends_with("##[error]Process completed with exit code 1."),
+            "{given}"
+        );
+    }
+
     // A log with no step in it is given whole up to its last error: what follows is the clean-up.
     #[test]
     fn a_log_with_no_step_ends_at_its_last_error() {
