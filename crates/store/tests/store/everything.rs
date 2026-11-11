@@ -42,7 +42,12 @@ fn a_pause_of_everything_kept_before_it_said_who_set_it_is_read_as_the_owners() 
         file.execute_batch(SCHEMA_1).expect("the first schema is made");
         file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
             .expect("its version is written");
-        for migration in &MIGRATIONS[..MIGRATIONS.len() - 1] {
+        let this = include_str!("../../../../db/migrations/202611112000-say-who-paused-everything.sql");
+        let at = MIGRATIONS
+            .iter()
+            .position(|m| *m == this)
+            .expect("the migration is listed");
+        for migration in &MIGRATIONS[..at] {
             file.execute_batch(migration).expect("the migration runs");
         }
         for (paused, at) in [(1, 0), (0, 1000), (1, 2000)] {

@@ -234,7 +234,9 @@ impl Driver {
     /// Where a work is going on, one that has not ended and that its own pause does not hold, and nothing pauses
     /// everything, the driver pauses everything itself before it looks at any work, and keeps that it did: nothing
     /// begins a round then but what the owner's own pause of everything lets begin, until the owner lifts it as they
-    /// lift their own. What was to be done is given all the same, a round under way at the stop among it.
+    /// lift their own. What was to be done is given all the same, a round under way at the stop among it: the records
+    /// count that round as begun, and holding it back in its carrier until the lift would be the path the decision
+    /// slots-in-the-scheduler turned down.
     pub fn open(
         store: Box<dyn Storage + Send>,
         flows: Vec<Compiled>,
