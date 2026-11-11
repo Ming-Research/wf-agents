@@ -2,15 +2,33 @@
 //! the work's branch does not merge into main's head as the host last gave it: GitHub starts no CI for a pull request
 //! in conflict, so a check pushed then would wait for a CI that never starts, and the work could not merge anyway.
 
-use crate::git::Place;
+use crate::git::{self, Place};
 use crate::settings::Project;
 
 /// What the agent is told where the work's branch, at its last commit, does not merge into main's head at `main`, the
 /// reference that holds it as the host last gave it; none where it merges cleanly, or where what stands in the way of
-/// looking is for the host's check to say: the work has no worktree, or a merge is under way in it.
+/// looking is for the host's check to say: the work has no worktree, or a merge is under way in it. Refused, as every
+/// act is, where the repository's configuration names a program git could run.
 pub(super) async fn found(project: &Project, place: &Place, main: &str) -> Result<Option<String>, String> {
-    let _ = (project, place, main);
-    Ok(None)
+    let Ok(dir) = git::worktree(place) else {
+        return Ok(None);
+    };
+    if git::merging(&dir).await? {
+        return Ok(None);
+    }
+    git::configuration(project, place).await?;
+    let repo = &project.repo;
+    let head = git::git(repo, &["rev-parse", "--verify", &place.reference()]).await?;
+    let main = git::git(repo, &["rev-parse", "--verify", main]).await?;
+    let Some(files) = git::conflicts(project, &main, &head).await? else {
+        return Ok(None);
+    };
+    let name = &project.main;
+    Ok(Some(format!(
+        "The work's branch does not merge into {name} at {main} without a conflict, so nothing was checked: a pull \
+         request in conflict gets no CI, and the work could not merge. The files in conflict:\n{files}\nTake {name} in \
+         with `git merge {main}`, resolve the conflicts, commit the merge, and ask for the check again."
+    )))
 }
 
 #[cfg(test)]

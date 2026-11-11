@@ -454,14 +454,20 @@ pub(crate) async fn on_branch(place: &Place) -> Result<(), String> {
     ))
 }
 
-/// The files of a conflict between the commit and main's head, worked out without changing anything; none where the
-/// commit merges into main cleanly.
+/// The files of a conflict between the commit and main's head, one on each line, worked out without changing anything;
+/// none where the commit merges into main cleanly.
 pub(crate) async fn conflicts(project: &Project, main: &str, commit: &str) -> Result<Option<String>, String> {
     let args = ["merge-tree", "--write-tree", "--name-only", main, commit];
     let merged = said(&project.repo, &args).await?;
     match merged.code {
         Some(0) => Ok(None),
-        Some(1) => Ok(Some(merged.out)),
+        // The tree it wrote, the files in conflict, then a blank line before what it says of each.
+        Some(1) => Ok(Some(
+            (merged.out.lines().skip(1))
+                .take_while(|line| !line.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )),
         _ => Err(format!("git merge-tree failed: {}", merged.err)),
     }
 }
