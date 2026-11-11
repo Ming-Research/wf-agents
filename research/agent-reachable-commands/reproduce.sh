@@ -1,0 +1,287 @@
+#!/usr/bin/env bash
+# Items #284 and #304: can a file an agent writes in a worktree make a command the engine runs for it, or one the
+# agent's own shell may run (`rustfmt`), execute a program the configuration does not name? Each case is built in a
+# temporary directory and the command is run there as the engine's `run_command` runs it: no shell, nothing on its
+# standard input, the worktree as its working directory. One row is printed for each run: which stand-ins it left a
+# marker from, and its exit code. The cargo commands run twice, as the README writes them (behind
+# `env RUSTUP_AUTO_INSTALL=0`) and bare, which is what a project's command without the prefix would run.
+#
+# A stand-in only writes a marker named after itself and exits 0. It reads no credential, and nothing here reaches the
+# network: the one dependency is a local git repository, and npm's registry is pointed at a closed local port.
+#
+# Serves the measure tool's run, whose one command line cannot hold this matrix, and the owner's check of the same
+# matrix on the engine's machine (report.md, in this directory). Delete it with the report's conclusions once the item
+# that puts a boundary around these commands has replaced them. It has not been run on macOS.
+
+set -u
+
+# Seconds a run may take: a command that hangs costs one row, not the whole run.
+limit=120
+# How many lines of a run's output each row shows.
+shown=12
+
+root=$(mktemp -d) || exit 1
+trap 'rm -rf "$root"' EXIT
+# Outside any checkout: the repository's own rust-toolchain.toml would otherwise decide every cargo row.
+cd "$root" || exit 1
+
+echo "== environment"
+uname -srm
+echo "image=${ImageOS:-} ${ImageVersion:-}"
+for name in PATH RUSTUP_TOOLCHAIN RUSTUP_HOME CARGO_HOME; do
+  echo "$name=${!name:-(not set)}"
+done
+for tool in rustup cargo rustc rustfmt npm node git; do
+  echo "$tool at $(command -v "$tool")"
+done
+# Which program rustup's proxy runs for each name, here outside any checkout: a proxy is what a toolchain file steers.
+for tool in cargo rustc rustfmt; do
+  echo "rustup which $tool: $(rustup which "$tool" 2>&1)"
+done
+rustup --version 2>&1 | head -n 1
+rustc --version
+cargo --version
+rustfmt --version
+echo "npm $(npm --version)"
+echo "node $(node --version)"
+git --version
+
+# What the commands write stays in the temporary directory, and nothing they do can fetch anything. None of these is a
+# setting the matrix tests.
+export CARGO_HOME="$root/cargo-home"
+export CARGO_NET_OFFLINE=true
+export npm_config_cache="$root/npm-cache"
+export npm_config_registry=http://127.0.0.1:9/
+export npm_config_fetch_retries=0
+export npm_config_audit=false
+export npm_config_update_notifier=false
+
+vendor='cargo vendor --locked --versioned-dirs target/dependency-sources'
+update='cargo update --workspace'
+# The form the README writes the project's cargo commands in: the engine runs `env`, and `env` runs cargo.
+prefix='env RUSTUP_AUTO_INSTALL=0'
+# The command an agent's own shell may run (`Bash(rustfmt *)`), as AGENTS.md has it run before a ci call.
+format='rustfmt --check src/lib.rs'
+ci='npm ci --ignore-scripts --no-audit --no-fund --prefix client'
+install='npm install --package-lock-only --ignore-scripts'
+
+markers() {
+  # Word splitting is what is wanted: a marker's name holds no space.
+  set -- $(ls "$1/markers")
+  echo "${*:-none}"
+}
+
+# How many requests npm's debug log of the last run holds, failed ones among them.
+requests() {
+  cat "$npm_config_cache"/_logs/* 2>/dev/null | grep -c 'http fetch'
+}
+
+# try <kind> <what the case holds> <case> <directory in it> <command...>: runs the command and prints its row.
+try() {
+  local kind=$1 what=$2 dir=$3 at=$4 code
+  shift 4
+  rm -rf "$npm_config_cache/_logs"
+  # alarm survives exec: the command itself is stopped at the limit, and no shell stands between it and this script.
+  (cd "$dir/$at" && exec perl -e 'alarm shift @ARGV; exec { $ARGV[0] } @ARGV; die "cannot run $ARGV[0]: $!\n"' \
+    "$limit" "$@") </dev/null >"$root/output" 2>&1
+  code=$?
+  printf '%s | %s | %s | exit=%s | markers=%s | npm_requests=%s\n' \
+    "$kind" "$*" "$what" "$code" "$(markers "$dir")" "$(requests)"
+  sed -n "1,${shown}p" "$root/output" | sed 's/^/    /'
+}
+
+# standin <directory> <name>: an executable that leaves the marker <name> in the case it belongs to.
+standin() {
+  mkdir -p "$1"
+  printf '#!/bin/sh\n: > "%s/markers/%s"\nexit 0\n' "$case_dir" "$2" >"$1/$2"
+  chmod +x "$1/$2"
+}
+
+new_case() {
+  case_dir=$(mktemp -d "$root/case.XXXXXX") || exit 1
+  mkdir -p "$case_dir/markers"
+}
+
+commit() {
+  git -C "$1" -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false commit -q -m "$2"
+}
+
+commit_all() {
+  git -C "$1" add -A
+  commit "$1" "$2"
+}
+
+# A crate with no dependency, so nothing to download. It names no rust-version: with resolver 3, cargo may then ask rustc
+# for its version while resolving, which is the most likely way for a resolve to reach `[build] rustc`. The repository's
+# own workspace names one; that shape is not run.
+cargo_case() {
+  new_case
+  mkdir -p "$case_dir/src"
+  # Formatted as rustfmt wants it: an empty file is not, and the baseline of `rustfmt --check` must exit 0.
+  printf '//! A crate with nothing in it.\n' >"$case_dir/src/lib.rs"
+  cat >"$case_dir/Cargo.toml" <<'EOF'
+[package]
+name = "fixture"
+version = "0.1.0"
+edition = "2024"
+resolver = "3"
+EOF
+  cat >"$case_dir/Cargo.lock" <<'EOF'
+# This file is automatically @generated by Cargo.
+# It is not intended for manual editing.
+version = 4
+
+[[package]]
+name = "fixture"
+version = "0.1.0"
+EOF
+  standin "$case_dir/toolchain/bin" cargo
+  standin "$case_dir/toolchain/bin" rustc
+  standin "$case_dir/toolchain/bin" rustfmt
+  standin "$case_dir/programs" rustc
+  standin "$case_dir/programs" rustc-wrapper
+}
+
+toolchain_file() {
+  printf '[toolchain]\npath = "%s/toolchain"\n' "$case_dir" >"$case_dir/rust-toolchain.toml"
+}
+
+cargo_config() {
+  mkdir -p "$case_dir/.cargo"
+  printf '[build]\nrustc = "%s/programs/rustc"\nrustc-wrapper = "%s/programs/rustc-wrapper"\n' \
+    "$case_dir" "$case_dir" >"$case_dir/.cargo/config.toml"
+}
+
+# The dependency every npm case has: npm runs its `git` setting only for a git dependency, so a case with none would say
+# "cannot" for no reason.
+localdep=$root/localdep
+git init -q "$localdep"
+printf '{ "name": "localdep", "version": "1.0.0" }\n' >"$localdep/package.json"
+commit_all "$localdep" "The dependency"
+
+package_json() {
+  printf '{\n  "name": "fixture",\n  "version": "1.0.0",\n  "private": true,\n%s  "dependencies": { "localdep": "git+file://%s" }\n}\n' \
+    "$1" "$localdep" >"$case_dir/client/package.json"
+}
+
+# npm_case [locked]: a project in client/, as this repository's is, with or without the lock file `npm ci` needs. The
+# one `npm install` writes takes no lock file, since with one it need not ask git anything.
+npm_case() {
+  new_case
+  mkdir -p "$case_dir/client"
+  package_json ""
+  if [ "${1:-}" = locked ]; then
+    cp "$root/package-lock.json" "$case_dir/client/package-lock.json"
+  fi
+  standin "$case_dir/programs" git
+  standin "$case_dir/programs" script-shell
+  standin "$case_dir/programs" preinstall
+  standin "$case_dir/programs" prepare
+}
+
+npmrc() {
+  printf 'git=%s/programs/git\nscript-shell=%s/programs/script-shell\n' "$case_dir" "$case_dir" >"$case_dir/client/.npmrc"
+}
+
+scripts() {
+  package_json "$(printf '  "scripts": { "preinstall": "%s/programs/preinstall", "prepare": "%s/programs/prepare" },\n ' \
+    "$case_dir" "$case_dir")"
+}
+
+echo
+echo "== cargo and rustfmt: baseline, then the two files, for each command (cargo with and without the env prefix)"
+for command in "$vendor" "$update" "$prefix $vendor" "$prefix $update" "$format"; do
+  cargo_case
+  try baseline "no such file" "$case_dir" . $command
+  cargo_case
+  toolchain_file
+  try cell "rust-toolchain.toml path" "$case_dir" . $command
+  cargo_case
+  cargo_config
+  try cell ".cargo/config.toml rustc, rustc-wrapper" "$case_dir" . $command
+done
+
+echo
+echo "== cargo: does each file take effect at all"
+cargo_case
+toolchain_file
+try control "rust-toolchain.toml path" "$case_dir" . rustup show active-toolchain
+try control "rust-toolchain.toml path, the rustfmt rustup runs" "$case_dir" . rustup which rustfmt
+cargo_case
+cargo_config
+try control ".cargo/config.toml rustc, rustc-wrapper" "$case_dir" . cargo check
+
+echo
+echo "== npm: baseline, then the two files, for each command"
+npm_case
+try baseline "no such file" "$case_dir" client $install
+# The lock file every `npm ci` case uses, as npm itself writes it for this dependency.
+cp "$case_dir/client/package-lock.json" "$root/package-lock.json"
+npm_case
+npmrc
+try cell "client/.npmrc git, script-shell" "$case_dir" client $install
+npm_case
+scripts
+try cell "client/package.json scripts" "$case_dir" client $install
+npm_case locked
+try baseline "no such file" "$case_dir" . $ci
+npm_case locked
+npmrc
+try cell "client/.npmrc git, script-shell" "$case_dir" . $ci
+npm_case locked
+scripts
+try cell "client/package.json scripts" "$case_dir" . $ci
+
+echo
+echo "== npm: does each file take effect at all"
+npm_case
+npmrc
+try control "client/.npmrc, read from client/" "$case_dir" client npm config get git
+try control "client/.npmrc, read with --prefix" "$case_dir" . npm config get git --prefix client
+try control "client/.npmrc, script-shell" "$case_dir" client npm config get script-shell
+npm_case
+scripts
+try control "client/package.json scripts, no --ignore-scripts" "$case_dir" client npm install --package-lock-only
+npm_case locked
+scripts
+try control "client/package.json scripts, no --ignore-scripts" "$case_dir" . npm ci --no-audit --no-fund --prefix client
+
+echo
+echo "== npm: a request npm attempts is counted, so a count of 0 above means none was attempted"
+npm_case
+try control "a package only the registry could give" "$case_dir" client npm view no-such-package-for-this-check
+
+echo
+echo "== beyond the matrix: an executable made with git alone, no chmod"
+new_case
+git init -q "$case_dir/work"
+printf '#!/bin/sh\nexit 0\n' >"$case_dir/work/program"
+[ -x "$case_dir/work/program" ] && before=yes || before=no
+git -C "$case_dir/work" add program
+git -C "$case_dir/work" update-index --chmod=+x program
+# Not `git add` again, which would take the mode back from the file on disk.
+commit "$case_dir/work" "A program"
+git -C "$case_dir/work" checkout -- program
+[ -x "$case_dir/work/program" ] && after=yes || after=no
+echo "extra | git update-index --chmod=+x, commit, checkout | executable before=$before after=$after"
+
+echo
+echo "== beyond the matrix: git push, as the engine runs it, with a hook named in the repository's git configuration"
+git_case() {
+  new_case
+  standin "$case_dir/programs" pre-push
+  git init -q --bare "$case_dir/origin.git"
+  git init -q "$case_dir/work"
+  git -C "$case_dir/work" remote add origin "$case_dir/origin.git"
+  printf 'text\n' >"$case_dir/work/file"
+  commit_all "$case_dir/work" "A commit"
+  sha=$(git -C "$case_dir/work" rev-parse HEAD)
+}
+git_case
+try baseline "no setting" "$case_dir" work git push -q origin "$sha:refs/heads/work"
+git_case
+git -C "$case_dir/work" config core.hooksPath "$case_dir/programs"
+try extra "core.hooksPath" "$case_dir" work git push -q origin "$sha:refs/heads/work"
+
+echo
+echo REPRODUCE_COMPLETE
