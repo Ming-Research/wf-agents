@@ -395,43 +395,66 @@ pub(crate) async fn uncommitted(dir: &Path) -> Result<String, String> {
     git(dir, &["status", "--porcelain"]).await
 }
 
-/// Who the commits the engine makes are by: the merges of main into a work's branch that the check makes.
+/// Who the commits the engine makes are by: the merges of main into a work's branch that the check and a run that
+/// takes main in make.
 const ENGINE: [&str; 2] = ["user.name=wf-agents", "user.email=wf-agents@localhost"];
 
 /// The address of the engine's identity, by which a commit of its own is known.
 const ENGINE_EMAIL: &str = "wf-agents@localhost";
 
-/// The words the engine's merge of main into a work's branch begins and ends with.
+/// The words the check's merge of main into a work's branch is made with: a run's merge has words of its own, so that
+/// neither takes the other's for its own.
 fn taking_in(name: &str, main: &str) -> String {
     format!("Merge {name} at {main} into the work's branch")
 }
 
 /// Merges main's head into the branch checked out in the worktree, which merges it without a conflict, as a commit
-/// of the engine's, and gives the branch's head after it and whether it made that commit; where the branch holds
-/// main's head already, its head as it is, so that a merge done before the engine stopped is not done again. `name`
-/// is the main branch's name.
+/// of the engine's, and gives the branch's head after it and whether the check made that commit; where the branch
+/// holds main's head already, its head as it is, so that a merge done before the engine stopped is not done again.
+/// `name` is the main branch's name.
 pub(crate) async fn take_in(dir: &Path, main: &str, name: &str) -> Result<(String, bool), String> {
+    let message = taking_in(name, main);
     if said(dir, &["merge-base", "--is-ancestor", main, "HEAD"]).await?.ok {
-        // The engine's own merge of this main, made by a check that stopped before it was recorded, is still the
-        // engine's: a merge of main by the engine's identity.
-        let head = git(dir, &["log", "-1", "--format=%H %ae %P", "HEAD"]).await?;
-        let words: Vec<&str> = head.split(' ').collect();
-        let ours = matches!(words.as_slice(), [_, email, _, merged] if *email == ENGINE_EMAIL && *merged == main);
-        return Ok((words[0].to_string(), ours));
+        // The check's own merge of this main, made by a check that stopped before it was recorded, is still its own.
+        let ours = merged_as(dir, main, &message).await?.is_some();
+        return Ok((git(dir, &["rev-parse", "HEAD"]).await?, ours));
     }
+    Ok((merge_as(dir, main, &message).await?, true))
+}
+
+/// The head of the branch checked out in the worktree and its first parent, where the head is the engine's merge of
+/// main's head at `main` made with these words; none where it is not.
+pub(crate) async fn merged_as(dir: &Path, main: &str, message: &str) -> Result<Option<(String, String)>, String> {
+    let head = git(dir, &["log", "-1", "--format=%H%x00%ae%x00%P%x00%s", "HEAD"]).await?;
+    let fields: Vec<&str> = head.split('\0').collect();
+    let [commit, email, parents, subject] = fields.as_slice() else {
+        return Ok(None);
+    };
+    let parents: Vec<&str> = parents.split(' ').collect();
+    Ok(match parents.as_slice() {
+        [first, merged] if *email == ENGINE_EMAIL && *merged == main && *subject == message => {
+            Some((commit.to_string(), first.to_string()))
+        }
+        _ => None,
+    })
+}
+
+/// Merges main's head at `main` into the branch checked out in the worktree, which merges it without a conflict, as a
+/// commit of the engine's made with these words, and gives the branch's head after it; a merge that fails is taken
+/// back.
+pub(crate) async fn merge_as(dir: &Path, main: &str, message: &str) -> Result<String, String> {
     let with = With {
         settings: ENGINE.map(str::to_string).to_vec(),
         env: Vec::new(),
     };
-    let message = taking_in(name, main);
-    let args = ["merge", "--no-ff", "--no-edit", "-m", &message, main];
+    let args = ["merge", "--no-ff", "--no-edit", "-m", message, main];
     if let Err(why) = git_with(dir, &with, &args).await {
         if said(dir, &["rev-parse", "--quiet", "--verify", "MERGE_HEAD"]).await?.ok {
             let _ = git(dir, &["merge", "--abort"]).await;
         }
         return Err(why);
     }
-    Ok((git(dir, &["rev-parse", "HEAD"]).await?, true))
+    git(dir, &["rev-parse", "HEAD"]).await
 }
 
 /// Whether a merge is under way in the worktree, begun and not committed: by an agent, or by the engine before it
@@ -454,14 +477,32 @@ pub(crate) async fn on_branch(place: &Place) -> Result<(), String> {
     ))
 }
 
-/// The files of a conflict between the commit and main's head, worked out without changing anything; none where the
-/// commit merges into main cleanly.
-pub(crate) async fn conflicts(project: &Project, main: &str, commit: &str) -> Result<Option<String>, String> {
+/// A conflict between a commit and main's head.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Conflict {
+    /// The files in conflict, one on each line.
+    pub(crate) files: String,
+    /// What git says of each conflict's kind, a line each.
+    pub(crate) kinds: String,
+}
+
+/// The conflict between the commit and main's head, worked out without changing anything; none where the commit
+/// merges into main cleanly.
+pub(crate) async fn conflicts(project: &Project, main: &str, commit: &str) -> Result<Option<Conflict>, String> {
     let args = ["merge-tree", "--write-tree", "--name-only", main, commit];
     let merged = said(&project.repo, &args).await?;
     match merged.code {
         Some(0) => Ok(None),
-        Some(1) => Ok(Some(merged.out)),
+        // The tree it wrote, the files in conflict, then a blank line before what it says of each.
+        Some(1) => {
+            let mut lines = merged.out.lines().skip(1);
+            let files: Vec<&str> = lines.by_ref().take_while(|line| !line.is_empty()).collect();
+            let kinds: Vec<&str> = lines.filter(|line| line.starts_with("CONFLICT")).collect();
+            Ok(Some(Conflict {
+                files: files.join("\n"),
+                kinds: kinds.join("\n"),
+            }))
+        }
         _ => Err(format!("git merge-tree failed: {}", merged.err)),
     }
 }

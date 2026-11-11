@@ -1,5 +1,6 @@
 //! A host for the tests of the acts: it gives the head of main it is set to and the verdicts it is given, in order,
-//! merges by saying main is where it is, and keeps what it was asked. It checks nothing for the agents' tools.
+//! merges by saying main is where it is, and keeps what it was asked. It checks nothing for the agents' tools, and
+//! keeps that their check asked it.
 
 use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -24,6 +25,8 @@ pub(crate) enum Asked {
     Main,
     /// The verdict on this commit.
     Verdict(String),
+    /// The agents' check of the work.
+    Check,
     /// To merge, the check having passed this commit.
     Merge(Option<String>),
     /// To let go of what it holds for the branch, the work having merged or not.
@@ -84,6 +87,7 @@ impl Host for Fake {
     }
 
     async fn check(&self, _: &Branch<'_>, _: &Named, _: &mut Stop) -> Result<Option<String>, String> {
+        lock(&self.asked).push(Asked::Check);
         Err(NO_TOOLS.to_string())
     }
 
@@ -105,4 +109,4 @@ impl Host for Fake {
 }
 
 /// What the fake host says where the agents' tools ask it to check.
-const NO_TOOLS: &str = "the fake host checks nothing for the agents' tools";
+pub(crate) const NO_TOOLS: &str = "the fake host checks nothing for the agents' tools";

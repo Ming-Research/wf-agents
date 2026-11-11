@@ -626,6 +626,7 @@ mod tests {
             calls: 40,
             effort,
             levels_above,
+            takes_main: false,
         }
     }
 

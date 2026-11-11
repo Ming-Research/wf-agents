@@ -4,7 +4,10 @@
 //! GitHub is; and `check_before`, which checks in the same way the code before the work's change with the files its
 //! input names put on it, so that a test is seen red or green before the change as well as after it. A tool's result
 //! is all an agent learns of it, so what goes wrong in running it is said in its result, once: it is not tried again
-//! here, and the agent may ask again. Withdrawn, what runs it is stopped.
+//! here, and the agent may ask again. Withdrawn, what runs it is stopped. A `check` of a branch that does not merge
+//! into main's head is answered at once with the files in conflict (the module `conflict`).
+
+mod conflict;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -164,9 +167,7 @@ async fn answer(
     let checked = match (name, asked(input)) {
         (CHECK | CHECK_BEFORE, Err(why)) => Ok(Some(why)),
         (CHECK, Ok(asked)) if !asked.files.is_empty() => Ok(Some(FILES_BEFORE.to_string())),
-        (CHECK, Ok(asked)) => {
-            (host.check(branch, &asked.named, stop).await).map_err(|why| format!("The check could not be run: {why}"))
-        }
+        (CHECK, Ok(asked)) => check(host, project, branch, &asked.named, stop).await,
         (CHECK_BEFORE, Ok(asked)) => before(host, project, branch, &asked, stop).await,
         _ => {
             return Answer::Result(format!(
@@ -178,6 +179,23 @@ async fn answer(
         Ok(Some(said)) | Err(said) => Answer::Result(said),
         Ok(None) => Answer::Withdrawn,
     }
+}
+
+/// Checks the work as the host does, unless its branch does not merge into main's head as the host last gave it, which
+/// is said at once; an `Err` says why it could not.
+async fn check(
+    host: &impl Host,
+    project: &Project,
+    branch: &Branch<'_>,
+    named: &Named,
+    stop: &mut Stop,
+) -> Result<Option<String>, String> {
+    let could_not = |why: String| format!("The check could not be run: {why}");
+    let found = conflict::found(project, branch.place, &host.kept_main()).await;
+    if let Some(said) = found.map_err(could_not)? {
+        return Ok(Some(said));
+    }
+    host.check(branch, named, stop).await.map_err(could_not)
 }
 
 /// What a check's input asks for: the tests and checks named, and, for the check before the change, the files.
