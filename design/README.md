@@ -58,9 +58,6 @@ would mend; a relation between two places that neither of them shows.
 It is not a decision where its reason concerns one file of the code: that is a comment in that file, where whoever
 would undo it must pass, and it is not written here as well. Nor where a principle already says it.
 
-A decision that concerns two components is written in the file of the one whose code would be changed wrongly, and
-named in the other's by a line that points to it.
-
 ### A document
 
 A document is a design that holds only as a whole: its parts cannot be told one at a time, and an agent given any one
@@ -82,6 +79,8 @@ Why: <the reason, in one or two sentences; where the point is a way turned down,
 ```
 
 - An entry holds one rule: one that is about one thing and also binds every thing of a kind is two entries.
+- A decision that concerns two components is written once, in the tree's file of decisions of the component whose
+  code would be changed wrongly. The other component's file of decisions names it in one line that points to it.
 - No identifier from the code (a function, a type, a file). The system's own terms, a field or a value of a format an
   agent meets, a setting's key, and the names of principles and decisions may be used.
 - No word that dates the entry. What stands behind it (when it was settled, what was tried) is in the pull request of
