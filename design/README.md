@@ -110,7 +110,6 @@ these rules. A change that makes a decision untrue rewrites or deletes it in the
 belong here is deleted by the work that finds it. The files of decisions hold only what the code on the branch the
 works merge into does.
 
-A principle and a decision, two decisions of one file, or a document and an entry outside it, that cannot both hold
-are a fault of the tree. A file of
-decisions that grows long is itself a sign: what no longer belongs here is deleted from it, and decisions in more
-than one file that rest on one reason are put to the owner as one principle.
+A principle and a decision, two decisions, or a document and an entry outside it, that cannot both hold are a fault
+of the tree. A file of decisions that grows long is itself a sign: what no longer belongs here is deleted from it,
+and decisions in more than one file that rest on one reason are put to the owner as one principle.
