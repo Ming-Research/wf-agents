@@ -6,9 +6,7 @@ not pick at its words.
 ## What the tree is
 
 The code is the result: it shows how a thing is done. The design tree holds why, where the code itself does not make
-the reason plain; that the code shows what an entry says to do is no ground for leaving the entry out. The tree holds
-no more than is needed: what the system itself refuses, so that it would not build, start or pass its checks, and
-what any agent would do unasked, is not written.
+the reason plain; that the code shows what an entry says to do is no ground for leaving the entry out.
 
 Comments are not the code: what the code shows does not include what a comment says. A reason that concerns one
 place in the code and no other is a comment at that place, where whoever would undo it must pass, and is not written
