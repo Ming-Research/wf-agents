@@ -77,3 +77,7 @@ Why: The owner does not like using a command line, and editing the configuration
 ### principle numbers-say-what-they-number
 An item's number is written #n, a work's Wn and an observation's On, on the page, to the agents and by the engine alike.
 Why: The same bare number may be an item's, a work's or an observation's, and only what stands before it tells which.
+
+### principle the-machine-is-always-on
+Nothing is designed for the machine going to sleep or its lid being closed.
+Why: The machine that runs the engine is always on.

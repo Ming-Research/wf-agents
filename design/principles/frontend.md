@@ -85,3 +85,9 @@ two stops it.
 All the page's own words are in English and come from one catalogue.
 Why: The owner reads the page in English, and one catalogue makes the name of each thing the same wherever the page
 shows it.
+
+### principle one-count-of-what-waits
+The owner sees one count, of what waits on the owner: the questions that now hold a work. Only these notify, once as
+each comes and again each hour while any is left; everything else is only marked as unread, and a question a work has
+gone on past is shown as still to confirm and raises nothing until the merge waits for it.
+Why: Several counts with different meanings did not agree with one another, and nobody trusted them.
