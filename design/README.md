@@ -62,7 +62,8 @@ a relation between two places that neither of them shows.
 
 A decision is what an agent has to know of an ability before it plans a change to it. It is not a decision where
 the reason matters only at one place in the code, to whoever changes that place: that is a comment there, where they
-must pass. A reason that would have to be said in a comment at several places belongs in the tree. Nor is it a decision where a principle already says it.
+must pass. A reason that would have to be said in a comment at several places belongs in the tree. Nor is it a
+decision where a principle already says it.
 
 A decision is never ahead of the code: it says what the code does, and what is yet to be built is a document's to
 say.
