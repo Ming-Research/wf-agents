@@ -8,12 +8,26 @@
    a reason that concerns one place in the code and no other is a comment at that place, where whoever would undo it
    must pass, and is not written here as well.
 
-2. A principle is a standard that holds in many places: a way things are done, an idea the design rests on, a
-   direction the system is to go in. What governs one place is no principle, however sound: whoever proposes one names
-   at least two places that share no code where it already applies, and the principle itself names none. Principles
-   are kept by what they govern, the whole system or one area of it. They are the owner's and may come before the
-   code. Only the owner adds or changes one, or the constitution: an agent that finds one missing or wrong, or whose
-   right solution breaks one, says so and the owner decides. No decision excuses a breach of a principle.
+2. A principle is a rule: a general standard that guides what is done after it. It may come from a choice made in a
+   design, or belong to no design at all, as a way of working does. It is needed where, without it, something done
+   elsewhere later could go against it.
+
+   A principle enters only if it passes two tests.
+
+   - It looks forward. A decision explains one thing that is there; a principle binds what is not there yet. Take away
+     the thing an entry speaks of: a decision goes with it, and a principle still has its use.
+   - It is general. It governs the whole system or a whole area of it (the engine, the flow, the page), or every time
+     a kind of work is done; never one mechanism within an area. A rule for what one mechanism is to become is a
+     decision of that component where rule 3 admits it, and otherwise is not written here.
+
+   Whoever proposes a principle names two places that share no code where it holds or would be broken without it, or,
+   for a way of working, two occasions; the principle itself names none. A sentence of a document (rule 8) that binds
+   only work on that design stays in the document: it is made a principle, in one sentence that names the document,
+   only where it must bind work that never opens it.
+
+   Principles are kept by what they govern, the whole system or one area of it. They are the owner's and may come
+   before the code. Only the owner adds or changes one, or the constitution: an agent that finds one missing or wrong,
+   or whose right solution breaks one, says so and the owner decides. No decision excuses a breach of a principle.
 
 3. A decision is about one ability or component. It enters only if an agent that has read the code and the principles
    would still change the code wrongly, which is one of three things: a way that was considered and turned down, which
@@ -43,9 +57,10 @@
    the tree: the case or the number that is the reason may be a clause of the Why, and the rest is in the pull request
    of the work.
 
-6. An agent reads the constitution and `principles/` whole, then the decisions of each ability or component its work
-   changes or relies on. Where the right solution needs a decision changed, the work changes it; a principle goes to
-   the owner (rule 2).
+6. An agent reads the constitution whole, and whole the principles of the whole system and of each area its work is
+   in; then the document of each design it works on, and the decisions of each ability or component its work changes
+   or relies on. Where the right solution needs a decision changed, the work changes it; a principle or a document
+   goes to the owner (rules 2 and 8).
 
 7. A principle and a decision, or two decisions of one file, that cannot both hold are a fault of the tree. A file of decisions that grows long is itself a sign:
    what the code now shows is deleted from it, and decisions in more than one file that rest on one reason are put to
