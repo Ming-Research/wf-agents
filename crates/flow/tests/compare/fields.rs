@@ -373,3 +373,27 @@ fn how_a_cell_takes_an_input_and_why_are_each_a_change_with_both_values() {
     );
     assert_eq!(flow::compare(&compiled(&after), &compiled(&after)), []);
 }
+
+#[test]
+fn an_input_put_in_or_taken_out_with_what_is_said_of_it_is_one_change() {
+    let with = edit(
+        valid(),
+        "answer.toml",
+        "limit = 5",
+        "limit = 5\n\n[input.plan]\nkind = \"latest\"\nwhy = \"It is what was commented on.\"",
+    );
+    let without = edit(
+        valid(),
+        "answer.toml",
+        "inputs = [\"comments\", \"plan\"]",
+        "inputs = [\"comments\"]",
+    );
+    assert_eq!(
+        flow::compare(&compiled(&with), &compiled(&without)),
+        [of("answer", CellChange::InputRemoved("plan".into()))]
+    );
+    assert_eq!(
+        flow::compare(&compiled(&without), &compiled(&with)),
+        [of("answer", CellChange::InputAdded("plan".into()))]
+    );
+}

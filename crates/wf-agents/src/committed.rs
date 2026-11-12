@@ -3,7 +3,7 @@
 //! The owner reviews every change to the flow on the page (Article 7), and a change to the flow is first an edit of its
 //! files that is not committed yet. The page of a running engine therefore compares the files with what the commit
 //! checked out in their repository has of them, so that what was edited since is listed there as what changed. A flow
-//! whose directory is in no repository, or is not in that commit, is compared with nothing.
+//! whose directory is in no repository is compared with nothing.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -11,9 +11,10 @@ use std::process::{Command, Stdio};
 use flow::Source;
 
 /// Reads the flow in this directory as the commit checked out has it, anew each time; or none, where the directory is
-/// in no repository or the commit has no flow there.
+/// in no repository. Whether the commit has a flow there is found at each reading, so that a flow committed while the
+/// engine runs is compared from then on, and one not committed yet says so on the page.
 pub fn reader(dir: PathBuf) -> Option<web::Read> {
-    read(&dir).ok()?;
+    git(&dir, &["rev-parse", "--is-inside-work-tree"]).ok()?;
     Some(Box::new(move || read(&dir)))
 }
 
@@ -27,7 +28,8 @@ fn read(dir: &Path) -> Result<Source, String> {
             continue;
         };
         let mut about = about.split(' ');
-        let (Some(_), Some("blob"), Some(object)) = (about.next(), about.next(), about.next()) else {
+        // Only a file as such: of a link the commit holds where it points, not what the file it points at says.
+        let (Some("100644" | "100755"), Some("blob"), Some(object)) = (about.next(), about.next(), about.next()) else {
             continue;
         };
         // Only the files a flow is made of are read.
@@ -39,9 +41,11 @@ fn read(dir: &Path) -> Result<Source, String> {
         .ok_or_else(|| format!("{}: the commit checked out has no {}", dir.display(), flow::FLOW_FILE))
 }
 
-/// Runs git in the directory and gives what it wrote, as every git command of the engine's is run: with the settings
-/// that keep a repository's configuration from running anything, and with only what a program needs of the engine's
-/// environment. Says what git said where it fails.
+/// Runs git in the directory and gives what it wrote; says what git said where it fails. It is run only to read what
+/// the repository holds already: with the settings every git command of the engine's is given, so that nothing the
+/// repository's configuration names is run by them; with only what a program needs of the engine's environment; and
+/// told to fetch nothing and to ask nothing, so that a repository that holds only part of its history cannot make a
+/// reading reach its remote, which could run a program that configuration names and wait without end.
 fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     let kept =
         std::env::vars().filter(|(name, _)| carry::cli::KEPT.contains(&name.as_str()) || name.starts_with("LC_"));
@@ -52,6 +56,8 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
         .args(args)
         .env_clear()
         .envs(kept)
+        .env("GIT_NO_LAZY_FETCH", "1")
+        .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(Stdio::null())
         .output()
         .map_err(|e| format!("git cannot be run: {e}"))?;
@@ -103,7 +109,7 @@ mod tests {
     }
 
     #[test]
-    fn a_directory_that_is_not_committed_is_compared_with_nothing() {
+    fn a_directory_in_no_repository_is_compared_with_nothing_and_one_not_committed_says_so() {
         let outside = tempfile::tempdir().unwrap();
         std::fs::write(outside.path().join("flow.toml"), "name = \"one\"\n").unwrap();
         assert!(reader(outside.path().to_path_buf()).is_none(), "in no repository");
@@ -113,6 +119,27 @@ mod tests {
             outside.path(),
             &["commit", "--quiet", "--allow-empty", "-m", "nothing yet"],
         );
-        assert!(reader(outside.path().to_path_buf()).is_none(), "not in the commit");
+        let read = reader(outside.path().to_path_buf()).expect("in a repository");
+        let why = read().expect_err("the commit has no flow");
+        assert!(why.ends_with("the commit checked out has no flow.toml"), "{why}");
+
+        // Committed while the reader stands, it is read from then on.
+        run(outside.path(), &["add", "flow.toml"]);
+        run(outside.path(), &["commit", "--quiet", "-m", "a flow"]);
+        assert_eq!(read().unwrap().flow, "name = \"one\"\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_in_the_commit_is_not_read_as_a_file_of_the_flow() {
+        let repository = tempfile::tempdir().unwrap();
+        std::fs::write(repository.path().join("flow.toml"), "name = \"one\"\n").unwrap();
+        std::fs::write(repository.path().join("elsewhere.txt"), "title = \"A\"\n").unwrap();
+        std::os::unix::fs::symlink("elsewhere.txt", repository.path().join("a.toml")).unwrap();
+        run(repository.path(), &["init", "--quiet"]);
+        run(repository.path(), &["add", "."]);
+        run(repository.path(), &["commit", "--quiet", "-m", "a flow with a link"]);
+        let committed = (reader(repository.path().to_path_buf()).expect("in a repository"))().unwrap();
+        assert!(committed.cells.is_empty(), "{:?}", committed.cells);
     }
 }

@@ -438,7 +438,11 @@ fn cell_changes(before: &Placed, after: &Placed, flow_limits: &[(Limit, u32, u32
         CellChange::DescribesAdded,
         &mut changes,
     );
-    let taken: BTreeSet<&BlockId> = b.input.keys().chain(a.input.keys()).collect();
+    // Only of a block both read: an input put in or taken out is said once, as that, and not again as how it is
+    // taken going from or to nothing said.
+    let taken: BTreeSet<&BlockId> = (b.input.keys().chain(a.input.keys()))
+        .filter(|block| b_cell.inputs.contains(block) && a_cell.inputs.contains(block))
+        .collect();
     for block in taken {
         let (before, after) = (b.input.get(block), a.input.get(block));
         let kind = |input: Option<&InputFile>| input.and_then(|i| i.kind);

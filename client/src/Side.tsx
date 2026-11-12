@@ -4,7 +4,7 @@
 import type { ReactNode } from 'react';
 
 import type { Block, Cell, Change, Fault, Flow } from './api';
-import { type Chosen, runBy } from './Chart';
+import type { Chosen } from './Chart';
 import { markedChange } from './diff';
 import { type BlockRow, type CellColumn, type Matrix, markOf, where } from './matrix';
 import { ListRow, Panel, PanelPart, STATUS_WORDS, type Status, StatusLine } from './parts';
@@ -22,15 +22,17 @@ function ChangeStatus({ status, changes }: { status: Status; changes: number }) 
   );
 }
 import {
-  type Place,
-  LIMIT_WORDS,
+  BROUGHT_UP_TO_DATE,
   changeWords,
   conditionWords,
   faultWords,
   inputKindWords,
+  LIMIT_WORDS,
   placeOf,
+  runBy,
   testWords,
   thereWhen,
+  type Place,
   writersBesideCells,
 } from './words';
 
@@ -294,7 +296,9 @@ export function CellPanel(props: {
             const taken = cell.input[name];
             return (
               <ListRow key={name}>
-                <span className="muted mono">{place + 1}</span>
+                <span className="muted mono" title="Its place among what the cell reads, in the order the cell is given them">
+                  {place + 1}
+                </span>
                 <Choose chosen={{ block: name }} onChoose={onChoose}>
                   <span className="mono">{name}</span>
                 </Choose>
@@ -317,7 +321,7 @@ export function CellPanel(props: {
         </ul>
       </PanelPart>
 
-      <PanelPart label="May write" count={cell.outputs.length} last={changes.length > 0}>
+      <PanelPart label="May write" count={cell.outputs.length}>
         <ul className="uses">
           {cell.outputs.map((name) => {
             const block = blocks.get(name) as Block;
@@ -330,7 +334,7 @@ export function CellPanel(props: {
                   <span className="mono">{name}</span>
                 </Choose>
                 {cell.mustWrite.includes(name) && <span className="muted">written every time</span>}
-                {cell.inputs.includes(name) && <span className="muted">also read: brought up to date</span>}
+                {cell.inputs.includes(name) && <span className="muted">also read: {BROUGHT_UP_TO_DATE}</span>}
                 <span>
                   <Readers flow={flow} from={cell.id} block={block} onChoose={onChoose} />
                 </span>

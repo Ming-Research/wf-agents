@@ -184,6 +184,8 @@ pub enum FaultKind {
     /// The cell says what the work is by the block, and the block is not among its inputs: a change of it would not
     /// run the cell again, and what the host shows would fall behind.
     NotAnInput { block: String },
+    /// The cell says how or why it takes the block, and the block is not among its inputs.
+    TakenNotRead { block: String },
     /// The block has no writer: no cell of the order, no person and nothing outside writes it.
     NoWriter { block: String },
     /// The block has no reader: no cell of the order reads it, no condition and no named test reads its value, and
@@ -719,7 +721,7 @@ impl<'a> Definition<'a> {
         }));
         for block in file.input.keys() {
             if !file.inputs.iter().any(|i| i == block) {
-                let what = FaultKind::NotAnInput { block: block.clone() };
+                let what = FaultKind::TakenNotRead { block: block.clone() };
                 found.push((format!("input.{block}"), what));
             }
         }

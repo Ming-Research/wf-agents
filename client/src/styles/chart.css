@@ -30,8 +30,9 @@
   overflow: auto;
 }
 
-/* The table takes the frame's width, its columns' widths set by its first row: the names' column and the cells whose
-   width was dragged at theirs, the other cells sharing what is left evenly (Chart.tsx, tableWidth). */
+/* A table takes the frame's width, its columns' widths set by its first row. In the history of a work, the names'
+   column and the cells whose width was dragged are at theirs and the other cells share what is left evenly (Chart.tsx,
+   tableWidth); on the flow's chart every cell's column is at its own width and the words take the rest. */
 .matrix {
   table-layout: fixed;
   border-collapse: separate;
@@ -129,8 +130,8 @@ tr.row.chosen > .block-head {
   cursor: pointer;
 }
 
-/* A cell's head: its id, its title, its line or the engine, when it runs and what it waits for, each cut to two lines
-   with the whole words on the pointer's tip and in the panel. */
+/* A cell's head. In the history of a work: its id, its title and how it stands. On the flow's chart, further down:
+   its id and the first word of its line. */
 .cell-head {
   border-left: var(--hairline) solid var(--line);
 }
@@ -164,17 +165,6 @@ tr.row.chosen > .block-head {
   overflow-wrap: break-word;
 }
 
-.cell-when,
-.cell-waits {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  color: var(--muted);
-  font-size: var(--size-small);
-  overflow-wrap: break-word;
-}
-
 /* The flow's chart. A cell's column is as wide as its marks, so its head holds the id and, under it, the first word of
    its line, both in the middle. The corner's two labels stand on one line. */
 .flow thead th {
@@ -187,15 +177,26 @@ tr.row.chosen > .block-head {
   padding: var(--space-4) var(--space-2);
 }
 
-.flow .cell-id {
-  color: var(--text);
-}
-
+.flow .cell-id,
 .flow .cell-line {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.flow .cell-id {
+  color: var(--text);
+}
+
+/* A cell the version shown does not have: its id muted, and struck through when it was taken out. */
+.flow .absent .cell-id {
+  color: var(--muted);
+}
+
+.flow .cell-head.status-removed.absent .cell-id,
+.flow .words-about.taken-out.absent .cell-title {
+  text-decoration: line-through;
 }
 
 .flow .corner-blocks {

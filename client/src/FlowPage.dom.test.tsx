@@ -299,6 +299,34 @@ describe('the column of words', () => {
   });
 });
 
+describe('the chart when comparing', () => {
+  it('marks over the words what a change changed of the cell named there, and says in a head’s name what became of it', () => {
+    const blocks = { y: { values: ['yes', 'no'] } };
+    const before = flowOf([cell('a', { outputs: ['y'] }), cell('b', { title: 'Second', inputs: ['y'] })], blocks);
+    const when = { on: 'block', block: 'y', value: 'yes' } as const;
+    const after = flowOf(
+      [cell('a', { outputs: ['y'] }), cell('b', { title: 'Second', inputs: ['y'], condition: when })],
+      blocks,
+    );
+    const page = draw(
+      { state: 'compiled', flow: after },
+      {
+        state: 'compared',
+        against: { state: 'compiled', flow: before },
+        changes: [{ kind: 'condition', cell: 'b', before: null, after: when }],
+      },
+    );
+    expect(headNames(page)).toEqual(['a a, engineer line', 'b Second, engineer line, runs when y is yes, changed']);
+    click(page.querySelectorAll('thead .cell-head .head-button')[1]);
+    expect(texts(page, '.words-about .changed-field')).toEqual(['runs when y is yes']);
+  });
+
+  it('gives each cell’s column an edge to drag', () => {
+    const page = draw({ state: 'compiled', flow: small() });
+    expect(page.querySelectorAll('thead .cell-head .edge')).toHaveLength(6);
+  });
+});
+
 describe('a comparison', () => {
   it('lists each change under its place and marks it on the chart', () => {
     const before = flowOf([cell('a', { title: 'A', outputs: ['x'] }), cell('b', { title: 'B', inputs: ['x'] })], { x: {} });
@@ -325,7 +353,7 @@ describe('a comparison', () => {
     expect(page.querySelectorAll('.part.added')).toHaveLength(1);
 
     click([...page.querySelectorAll('button')].find((b) => b.textContent === 'As it was'));
-    expect(headNames(page)).toEqual(['a A, engineer line', 'b B, engineer line']);
+    expect(headNames(page)).toEqual(['a A, engineer line, changed', 'b B, engineer line, changed']);
   });
 });
 
@@ -449,10 +477,26 @@ describe('the panel and the widths', () => {
     const flow = small();
     const page = draw(
       { state: 'compiled', flow },
-      { state: 'compared', against: { state: 'compiled', flow }, changes: [] },
+      {
+        state: 'compared',
+        against: { state: 'compiled', flow },
+        changes: [{ kind: 'title', cell: 'plan', before: 'Plan it', after: 'Plan' }],
+      },
     );
     const drawer = page.querySelector('aside[aria-label="What changed"]') as HTMLElement;
     expect(drawer.querySelector('.drawer-inner')?.hasAttribute('hidden')).toBe(false);
+  });
+
+  it('stays folded when comparing finds nothing changed, and says so once opened', () => {
+    const flow = small();
+    const page = draw(
+      { state: 'compiled', flow },
+      { state: 'compared', against: { state: 'compiled', flow }, changes: [] },
+    );
+    const drawer = page.querySelector('aside[aria-label="What changed"]') as HTMLElement;
+    expect(drawer.querySelector('.drawer-inner')?.hasAttribute('hidden')).toBe(true);
+    click(drawer.querySelector('.drawer-tab'));
+    expect(drawer.textContent).toContain('Nothing: the two definitions compile to the same flow');
   });
 
   it('says the flow’s limits once, in the view’s line, and a cell’s own limit in its panel', () => {

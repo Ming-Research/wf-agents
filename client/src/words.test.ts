@@ -160,6 +160,9 @@ describe('the words of the page', () => {
     expect(faultWords({ file: 'check.toml', field: 'describes[0]', what: { kind: 'notAnInput', block: 'ci' } })).toBe(
       'The cell says what the work is by ci, but ci is not among the blocks it reads.',
     );
+    expect(faultWords({ file: 'judge.toml', field: 'input.opinions', what: { kind: 'takenNotRead', block: 'opinions' } })).toBe(
+      'The cell says how it takes opinions, but opinions is not among the blocks it reads.',
+    );
     expect(
       faultWords({
         file: 'plan.toml',

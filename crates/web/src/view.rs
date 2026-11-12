@@ -298,6 +298,10 @@ pub enum What {
     NotAnInput {
         block: String,
     },
+    /// The cell says how or why it takes the block, and it is not among its inputs.
+    TakenNotRead {
+        block: String,
+    },
     NoWriter {
         block: String,
     },
@@ -755,6 +759,7 @@ impl What {
             F::NoSuchBlock { block } => What::NoSuchBlock { block },
             F::NotAnOutput { block } => What::NotAnOutput { block },
             F::NotAnInput { block } => What::NotAnInput { block },
+            F::TakenNotRead { block } => What::TakenNotRead { block },
             F::NoWriter { block } => What::NoWriter { block },
             F::NoReader { block } => What::NoReader { block },
             F::UnknownSource { block, source } => What::UnknownSource { block, source },

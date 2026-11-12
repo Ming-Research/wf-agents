@@ -81,14 +81,14 @@ fn each_of_the_kinds_is_written_by_its_name_and_either_field_may_be_left_out() {
 fn a_cell_says_how_it_takes_only_a_block_among_its_inputs() {
     // The judge writes the opinions and does not read them; nowhere is declared nowhere.
     let source = judge_takes("[input.opinions]\nkind = \"latest\"\n\n[input.nowhere]\nwhy = \"None.\"");
-    let not_an_input = |block: &str| NotAnInput {
+    let not_read = |block: &str| TakenNotRead {
         block: block.to_string(),
     };
     assert_eq!(
         faults(&source),
         [
-            at("judge.toml", "input.nowhere", not_an_input("nowhere")),
-            at("judge.toml", "input.opinions", not_an_input("opinions")),
+            at("judge.toml", "input.nowhere", not_read("nowhere")),
+            at("judge.toml", "input.opinions", not_read("opinions")),
         ]
     );
 }

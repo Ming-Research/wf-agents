@@ -97,6 +97,8 @@ export function faultWords(fault: Fault): string {
       return `The cell must write ${w.block} every time, but ${w.block} is not among the blocks it may write.`;
     case 'notAnInput':
       return `The cell says what the work is by ${w.block}, but ${w.block} is not among the blocks it reads.`;
+    case 'takenNotRead':
+      return `The cell says how it takes ${w.block}, but ${w.block} is not among the blocks it reads.`;
     case 'noWriter':
       return `Nothing writes ${w.block}: no cell of the order, no person and nothing outside.`;
     case 'noReader':
@@ -309,7 +311,7 @@ export function cellSays(cell: Cell, block: string): string {
   }
   if (cell.outputs.includes(block)) {
     const write = cell.mustWrite.includes(block) ? 'writes every time' : 'may write';
-    parts.push(reads ? `${write}, brought up to date` : write);
+    parts.push(reads ? `${write}, ${BROUGHT_UP_TO_DATE}` : write);
   }
   const condition = cell.condition;
   if (condition !== null && (condition.on === 'block' ? condition.block === block : condition.test.reads.includes(block))) {
@@ -319,4 +321,23 @@ export function cellSays(cell: Cell, block: string): string {
     if (test.reads.includes(block)) parts.push(`waits until ${testWords(test)}`);
   }
   return parts.join('; ');
+}
+
+/// What is said of a block a cell both reads and may write: what it hands in is the block it read, brought up to
+/// date.
+export const BROUGHT_UP_TO_DATE = 'brought up to date';
+
+/// Who runs a cell: an agent in its line, named by the line, or the engine.
+export function runBy(cell: Cell): string {
+  return cell.kind === 'agent' ? (cell.line ?? '') : 'engine';
+}
+
+/// What a cell's head on the chart has no room to say besides its title, each apart so that a change of one can be
+/// marked: who runs it, when it runs, and what it waits for; none of the last two where the cell has none.
+export function headFacts(cell: Cell): { by: string; when: string | null; waits: string | null } {
+  return {
+    by: cell.kind === 'agent' ? `${runBy(cell)} line` : runBy(cell),
+    when: cell.condition ? `runs when ${conditionWords(cell.condition)}` : null,
+    waits: cell.preconditions.length > 0 ? `waits until ${cell.preconditions.map(testWords).join('; ')}` : null,
+  };
 }

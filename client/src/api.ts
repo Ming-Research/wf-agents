@@ -126,6 +126,8 @@ export type What =
   | { kind: 'notAnOutput'; block: string }
   /// The cell says what the work is by the block, and it is not among its inputs.
   | { kind: 'notAnInput'; block: string }
+  /// The cell says how or why it takes the block, and it is not among its inputs.
+  | { kind: 'takenNotRead'; block: string }
   | { kind: 'noWriter'; block: string }
   | { kind: 'noReader'; block: string }
   | { kind: 'unknownSource'; block: string; source: string }
