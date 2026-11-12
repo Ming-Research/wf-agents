@@ -5,10 +5,14 @@ not pick at its words.
 
 ## What the tree is
 
-The code is the result: it shows how a thing is done. The design tree holds why, where the code cannot show it. The
-code shows a reason only where a comment says it, and that the code shows what an entry says to do is no ground for
-leaving the entry out. The tree holds no more than is needed: what the system itself refuses, so that it would not
-build, start or pass its checks, and what any agent would do unasked, is not written.
+The code is the result: it shows how a thing is done. The design tree holds why, where the code itself does not make
+the reason plain; that the code shows what an entry says to do is no ground for leaving the entry out. The tree holds
+no more than is needed: what the system itself refuses, so that it would not build, start or pass its checks, and
+what any agent would do unasked, is not written.
+
+A comment does not decide what belongs in the tree: a comment can say anything. What belongs in the tree is written
+in the tree, and a comment at a place it bears on names the entry and does not say it again. Everything else that is
+worth saying goes in a comment at its place.
 
 The tree is `design/`. It holds four kinds of thing:
 
@@ -55,9 +59,10 @@ and would so change the code wrongly; which is one of three things: a way that w
 leaves no trace in the code; something done on purpose that looks like a fault or an omission, which a later agent
 would mend; a relation between two places that neither of them shows.
 
-It is not a decision where its reason concerns one file of the code: that is a comment in that file, where whoever
-would undo it must pass, and it is not written here as well. Nor where a principle already says it. A decision is
-never ahead of the code: it says what the code does, and what is yet to be built is a document's to say.
+A decision is what an agent has to know of an ability before it plans a change to it. It is not a decision where
+the reason matters only at one place in the code, to whoever changes that place: that is a comment there, where they
+must pass. Nor where a principle already says it. A decision is never ahead of the code: it says what the code does,
+and what is yet to be built is a document's to say.
 
 ### A document
 
