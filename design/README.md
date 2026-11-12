@@ -12,9 +12,9 @@ what any agent would do unasked, is not written.
 
 Comments are not the code: what the code shows does not include what a comment says. A reason that concerns one
 place in the code and no other is a comment at that place, where whoever would undo it must pass, and is not written
-here as well. What belongs in the tree is written in the tree, and everything else that is worth saying goes in a
-comment. Comments may say as much as is useful, and never go against the tree: where a comment and an entry differ,
-the entry holds and the comment is put right.
+here as well. One place is one file of the code. What belongs in the tree is written in the tree, and everything else
+that is worth saying goes in a comment. Comments may say as much as is useful, and never go against the tree: where a
+comment and an entry differ, the entry holds and the comment is put right.
 
 The tree is `design/`. It holds four kinds of thing:
 
