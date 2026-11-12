@@ -30,8 +30,4 @@ Why: Refused, such a project's tests would have no evidence of red before the ch
 A check that could not be run, because its CI never started, took too long or the host could not be reached, says why in its result once and is not run again by the engine; the agent may ask again.
 Why: Its CI does not start because it is waited for again, and three tries of such a wait once spent half an hour for nothing; the agent who asked can tell whether to ask again, within the calls its run is allowed.
 
-### decision no-tool-opens-a-browser
-No tool an agent is given opens a page in a browser or takes a picture of one; searching the web and fetching its pages are another matter.
-Why: The project's pages are tested with a browser in CI, so an agent needs no browser on its own machine.
-
 A check that ran and failed is not run again either: see the host's decision a-red-check-holds-the-work.

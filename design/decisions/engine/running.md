@@ -9,8 +9,8 @@ the database; what happens is told to the page straight from the engine; and the
 up to date. With the page a process of its own, each of these goes the long way round.
 
 ### decision one-engine-on-a-data-directory
-One engine runs on a data directory: before it opens or writes anything it takes a lock of the operating system's,
-which goes with the process however it ends.
+One engine runs on a data directory: before it opens the store or writes anything it takes a lock of the operating
+system's, which goes with the process however it ends.
 Why: Two engines would take up the same work, run its round twice with two agents in one worktree, and push twice. A
 lock the process holds leaves nothing to clean up by hand after a crash or a kill.
 

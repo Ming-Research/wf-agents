@@ -12,6 +12,6 @@ agent-writing-is-data); a library was turned down for that.
 A work the engine halted is marked in the red of a fault, and one the owner paused is not.
 Why: Red says there is a problem to look at, and a pause is something someone chose.
 
-### decision an-ended-work-is-grey
-A work that has ended, a cancelled one included, carries a grey mark and never a red one.
+### decision a-cancelled-work-is-grey
+The mark of a cancelled work, in the list of works and on the console, is grey and never red.
 Why: The owner reads a red mark as a fault.

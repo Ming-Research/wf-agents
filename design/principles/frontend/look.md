@@ -33,7 +33,8 @@ rounded corners; panels and frames have none.
 Why: Depth is not information.
 
 ### principle quiet-motion
-Hovering changes a background by one step, quickly, and nothing else on the page moves.
+Nothing on the page moves unless the owner did it or the thing shown really changed; hovering changes a background by
+one step, quickly.
 Why: So that what changes on the page is the owner's doing or a real change (principle owner-keeps-their-place).
 
 ### principle focus-always-shows

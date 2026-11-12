@@ -13,9 +13,8 @@ one as one page.
 
 ## Rules
 
-The rules everything on the page follows are in the design tree: dense, full width, four sizes and two weights,
-monospace for names and values, colour only for state, hairlines and no shadows, quiet motion, a focus that always
-shows, widths that are the owner's, and a thing said once. Two more stand here, with no reason written for them yet:
+The rules everything on the page follows are the principles of the look in the design tree
+(`design/principles/frontend/look.md`). Two more stand here, with no reason written for them:
 
 - **Words.** Sentence case, no full stops in labels. A word where a word is clearer than an icon. The few signs the
   chart uses (people write, the outside writes, shown) are explained in the legend.

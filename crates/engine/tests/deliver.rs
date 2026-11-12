@@ -9,8 +9,7 @@
 //!
 //! 1. No run of the cell starts unless the dependencies block's current value, as the run starts, is the one the
 //!    precondition looks for (decision conditions-and-preconditions).
-//! 2. The cell finishes at most one run, and once it has, the work has ended as merged (the design of data and
-//! context);
+//! 2. The cell finishes at most one run, and once it has, the work has ended as merged;
 //!    every run of it starts for its having no record, so that what people write of the item, its background, runs
 //!    nothing.
 //! 3. Once people stop, the outside says the items have merged and the owner lets the work on and lets on any run at a

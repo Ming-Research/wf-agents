@@ -12,9 +12,8 @@
 //! - [`RoundPage`], [`VersionPage`], [`CallPage`]: the content the history leaves out.
 //! - [`ToldPage`]: what a round was told and what came back of it, as its carrier kept them.
 //! - [`Act`], [`NewItem`]: what the owner does on the pages.
-//! - [`Engine`], [`EngineAct`]: the engine as a whole, its slots and the pause of everything, and what the owner does
-//! to
-//!   it.
+//! - [`Engine`], [`EngineAct`]: the engine as a whole, its slots and the pause of everything, and what the owner
+//!   does to it.
 //!
 //! A work whose records name what it does not hold, which the engine never writes, is not shown as something it is
 //! not: making its view gives [`Broken`], saying what is missing.

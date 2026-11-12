@@ -83,23 +83,24 @@ Why: A question in free words cannot be answered quickly, and words beside a que
 told from discussion.
 
 ### principle a-question-says-first-what-to-decide
-A question to the owner says in its first sentence what is to be decided and what it affects, uses no inner names,
-gives what follows from each option and a recommendation, and keeps its details behind a link; it is short, and is
-opened only where it is not understood.
+A question an agent puts to the owner says in its first sentence what is to be decided and what it affects, uses no
+inner names, gives what follows from each option and a recommendation, and keeps its details behind a link; it is
+short, and is opened only where it is not understood.
 Why: Otherwise the owner reads the whole story again each time; a question written well can be decided with nobody's
 help.
 
 ### principle named-paths-wait-for-the-owner
 A change that touches a path the project's configuration names for the owner, such as a specification or the
-principles of its design, waits at the merge for the owner's yes, and a later change to those paths asks again. The engine sees
-the paths touched and asks by itself, showing the change; which paths, each project's configuration says, and the
-flow names none.
+principles of its design, waits at the merge for the owner's yes, and a later change to those paths asks again. The
+engine sees the paths touched and asks by itself, showing the change; which paths, each project's configuration says,
+and the flow names none.
 Why: A rule in the project's own guide, left to the engineer and the review to keep, was turned down: where both
 missed it, the change merged (Article 7). The paths are a project's and not the flow's (Article 1).
 
 ### principle the-flow-gives-the-trees-rules
-The rules of the design tree are given to every agent cell by the flow, as what every agent is given alike is; no cell
-is left to find them by following the project's guide. The guide still points to them, for the agents that work
-outside the flow.
+The rules of the design tree, the tree's own file of rules, are data the cell of every agent takes, as the project's
+guide is (the design of data and context): the flow gives them, and no cell is left to find them by following the
+guide. The guide points to them as well, for the agents that work outside the flow.
 Why: Every project's agents need the same rules, and said once in the flow they reach every cell, where a rule an
-agent must find by itself may go unread. An agent outside the flow is given nothing by the flow and has only the guide.
+agent must find by itself may go unread. An agent outside the flow is given nothing by the flow and has only the
+guide.

@@ -49,3 +49,7 @@ Why: The assistant's context must stay on what it discusses with the owner: a lo
 ### principle engine-knows-no-cell
 Neither the engine's code nor the page's names a particular cell or a particular block: each carries out, and draws, whatever the flow's definition holds.
 Why: What is in the definition the owner can read on the chart and the compiler can check before anything runs (Article 7; principle compile-before-run).
+
+### principle no-tool-opens-a-browser
+No tool an agent is given opens a page in a browser or takes a picture of one; searching the web and fetching its pages are another matter.
+Why: The project's pages are tested with a browser in CI, so an agent needs no browser on its own machine.

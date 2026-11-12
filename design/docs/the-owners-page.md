@@ -12,9 +12,9 @@ and those of its look.
 
 1. Where a flow's definition is compared with another, the view shows, above what changed, what installing it would
    do to each work going on, grouped by what happens to the work, those with a cost opened. This is read once when the
-   comparison opens and not again, so that the list does not move under the owner's eyes. A flow whose effect cannot be
-   worked out says why, and what judges it instead, since a cost that is missing must not read as no cost. The owner
-   approves a change to the flow with its cost in front of them.
+   comparison opens and not again, so that the list does not move under the owner's eyes. A flow whose effect cannot
+   be worked out says why, and what judges it instead, since a cost that is missing must not read as no cost. The
+   owner approves a change to the flow with its cost in front of them.
 
 2. In a cell's panel, what every agent is given alike is shown among the cell's inputs, as one kind of input, and not
    as a part of its own: an input is of several kinds, and the rules an agent works under are one of them.
@@ -23,23 +23,24 @@ and those of its look.
 
 3. A link to a round, from wherever it stands, opens the page it is on with that round chosen.
 
-4. A round's panel shows first what was new to the round, apart from what its session already held, and then what was
-   sent, as it was sent. One list of a round's inputs, the sent ones bold and the held ones grey, was turned down: it
-   did not show what the agent got this round.
+4. A round's panel shows first what was new to the round, apart from what its session already held, and then all that
+   was sent, as it was sent, with nothing left out. One list of a round's inputs, the sent ones bold and the held ones
+   grey, was turned down: it did not show what the agent got this round.
 
 5. A work has a view of what it used, drawn only from the rounds it recorded: its cost, its time, its rounds, its
    tokens and the share read from the cache; where the time went, as a bar and a line of time; each model by the level
    its round recorded, never by what the configuration says when it is looked at; the cost by kind of token and by
-   cell; each session, why it began and its context round by round; and how long each tool ran. A stretch with no round
-   counts as one block. The owner wants to see what a work spent, on which models, and where.
+   cell; each session, why it began and its context round by round; and how long each tool ran. A stretch with no
+   round counts as one block. The owner wants to see what a work spent, on which models, and where.
 
 6. Each gap on a line of time says its own length on pointing at it: two gaps of plainly different lengths sharing one
    number say nothing of either.
 
 ## The item's window
 
-7. What an item depends on can be taken away on the page. Otherwise an item that is done can stay held at its merge by
-   a dependency it no longer needs.
+7. What an item depends on can be changed on the page, while its work has started no run (decision
+   dependencies-until-the-work-starts): the owner needs no command line for it (principle
+   owner-never-needs-the-command-line).
 
 8. The owner's words can carry pictures, picked or pasted, sent with the words as one message and shown with them,
    and shown in the rounds that were given them: what the owner sees of a problem can be shown to the agent as it is.

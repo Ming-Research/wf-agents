@@ -5,14 +5,16 @@
 //!
 //! The properties the histories of every crate name, each with what it says:
 //!
-//! - `a-run-is-one-mechanism`: a run writes no block before it finishes. What a round hands in that meets everything
-//!   the flow requires is taken as the round ends: the run finishes there, before the walk, so that no cell before it
-//!   comes between; a run that is stale when its last round ends is abandoned, not finished.
+//! - `a-run-is-one-mechanism`: a run writes no block before it finishes, and finishes only when what it returned has
+//!   met what the flow requires of it. What a round hands in that meets it is taken as the round ends: the run
+//!   finishes there, before the walk, so that no cell before it comes between; a run that is stale when its last round
+//!   ends is abandoned, not finished, since a run finished on what had changed under it would write over what it never
+//!   saw.
 //! - `one-round-of-a-work-at-a-time`: no work has two rounds under way at once. A run is running only while one of
 //!   its rounds is under way: between rounds it is at rest, and a cell before it may run meanwhile. A run at rest that
-//!   is stale is abandoned, its calls withdrawn and no record left.
+//!   is stale is abandoned, its calls withdrawn and no record left, so that a run at rest is not paid for twice.
 //! - `no-merge-on-what-is-not-settled`: no work merges while a precondition of the merge is not met, among them that
-//!   every judging cell is content, and the merge is made only of the commit that the check before it passed.
+//!   every judging cell is content: a merge cannot be taken back.
 //! - `merge-only-on-what-is-current`: as the merge's last round starts, the record of every cell that is not skipped
 //!   knows the current meaning of each of its inputs.
 //! - `a-work-comes-to-rest`: when people do nothing more and nothing outside the work changes, every work, after a
@@ -235,12 +237,12 @@ fn shuffled(r: &Records, seed: u64) -> Records {
 /// Property 2, who spoke is counted right (decision every-way-round-has-a-limit): for each reason `Changed { block,
 /// was, behind }`, `behind` is true exactly when every change of the block's meaning after `was`, the version the
 /// cell's record knew, up to the version the run starts from was written by a cell after this one in the order; a
-/// change a person, the outside or a cell before it made makes it false. The entry gives a way round as a run "each of
-/// its reasons is a block whose meaning a cell after it last changed", and then "a run with a reason that a person, the
-/// outside or a cell before it wrote starts the count anew", for "the owner is not asked to let go on what the owner
-/// sent back": a person's change the cell has never seen is a reason the person wrote, though a cell after it wrote
-/// over it since, and the second sentence and the Why decide. And no cell starts a way round once its last finished
-/// runs since the owner last let it go on, as many in a row as its limit, were each one by this reading.
+/// change a person, the outside or a cell before it made makes it false. The decision gives a way round as a run "each
+/// of its reasons is a block whose meaning a cell after it last changed", and then "a run with a reason that a person,
+/// the outside or a cell before it wrote starts the count anew", for "the owner is not asked to let go on what the
+/// owner sent back": a person's change the cell has never seen is a reason the person wrote, though a cell after it
+/// wrote over it since, and the second sentence and the Why decide. And no cell starts a way round once its last
+/// finished runs since the owner last let it go on, as many in a row as its limit, were each one by this reading.
 ///
 /// A further property, from the design of data and context: the run's reasons are exactly what it gives, no record, or
 /// each input whose meaning differs from the version the cell's record knows, `was` being that version. A cell does not
@@ -383,9 +385,9 @@ fn ways_round_in_a_row(flow: &Flow, reading: &Reading, i: usize, place: Seq) -> 
 /// one that did not read what it overwrites still overwrites it. It is narrower than "the version current just before
 /// is the one the run started from": a write that changes nothing of what the block says (said not to matter by a
 /// writer who saw the meaning, approved from outside as not mattering, a person confirming a choice's value) leaves
-/// a run at rest as it was (property one-round-of-a-work-at-a-time, and the design of data and context), so the run may
-/// finish over it, and nothing the block says is lost. A run that writes a block it has no version in its basis for,
-/// as one started before the flow gave its cell that output would, is held to have started from no version. The
+/// a run at rest as it was (property one-round-of-a-work-at-a-time and decision meaning-told-by-the-writer), so the run
+/// may finish over it, and nothing the block says is lost. A run that writes a block it has no version in its basis
+/// for, as one started before the flow gave its cell that output would, is held to have started from no version. The
 /// histories do not change the flow, so that does not arise here.
 pub fn ended(v: &mut Verdict, flow: &Flow, reading: &Reading, run: RunId, end: Seq) {
     let s = reading.started[&run];
@@ -428,7 +430,7 @@ pub fn ended(v: &mut Verdict, flow: &Flow, reading: &Reading, run: RunId, end: S
 }
 
 /// Why a run was abandoned, the walk deciding it or the engine finding the run stale as its round ended (a further
-/// property, property one-round-of-a-work-at-a-time, whose Why is that a run at rest is not paid for twice: a remark
+/// property, one-round-of-a-work-at-a-time, which is there so that a run at rest is not paid for twice: a remark
 /// that changes nothing for it leaves it as it was). A run is abandoned as outdated only when a block it started from
 /// has another meaning now, as no longer applying only when its cell is skipped, and as cancelled only in a cancelled
 /// work.
@@ -582,7 +584,7 @@ fn made_by(
     }
 }
 
-/// A further property, properties merge-only-on-what-is-current and no-merge-on-what-is-not-settled, whose Why is that
+/// Further properties, merge-only-on-what-is-current and no-merge-on-what-is-not-settled, which are there because
 /// a merge cannot be taken back: as a round of the merge begins, any of which may be its last, every precondition of
 /// the merge holds by the histories' own reading. For the judges' verdicts that is said from the records
 /// ([`Reading::refused`]): no round of the merge begins while some judge that applies now has, as its own last write

@@ -53,7 +53,7 @@ pub struct Reading<'a> {
 }
 
 impl<'a> Reading<'a> {
-    /// The reading of these records. The meaning of each version follows the design of data and context: the first
+    /// The reading of these records. The meaning of each version follows decision meaning-told-by-the-writer: the first
     /// version of a block has its own. A version that has a value, or follows one that has, is a choice: it changes the
     /// meaning when the value differs from the one before, and only then, whoever writes it. Otherwise a person's
     /// prose always changes the meaning; what the outside writes does unless it was approved as not mattering; a
