@@ -275,6 +275,16 @@ describe('the column of words', () => {
     expect(rowOf(page, 'said').querySelector('.words')?.className).toContain('beside');
   });
 
+  it('says what a block is in the block’s panel too', () => {
+    const page = draw({ state: 'compiled', flow: flow() });
+    click(rowOf(page, 'x').querySelector('.head-button'));
+    expect(texts(page.querySelector('aside[aria-label="Block x"]') as HTMLElement, '.status-line')).toContain(
+      'What it isThe plan.',
+    );
+    click(rowOf(page, 'y').querySelector('.head-button'));
+    expect(page.querySelector('aside[aria-label="Block y"]')?.textContent).not.toContain('What it is');
+  });
+
   it('names over the words the cell under the pointer, and else the cell chosen', () => {
     const page = draw({ state: 'compiled', flow: flow() });
     const heads = page.querySelectorAll('thead .cell-head .head-button');

@@ -61,6 +61,37 @@ async fn the_changes_are_given_in_their_order_with_the_definition_compared_again
 }
 
 #[tokio::test]
+async fn how_a_cell_takes_a_block_why_and_what_a_block_is_are_each_given_as_a_change() {
+    let after = edit(
+        tiny(),
+        None,
+        "[blocks.plan]",
+        "[blocks.plan]\nwhat = \"What will be done.\"",
+    );
+    let after = edit(
+        after,
+        Some("review"),
+        "must_write = [\"content\"]",
+        "must_write = [\"content\"]\n\n[input.plan]\nkind = \"last_and_latest\"\nwhy = \"It is what to review.\"",
+    );
+    let router = serve(&Shared::new(Ok(after)), Some(&Shared::new(Ok(tiny()))));
+    assert_eq!(
+        get_json(&router, "/api/v1/flow/changes").await["changes"],
+        json!([
+            { "kind": "inputKind", "cell": "review", "block": "plan", "before": null, "after": "lastAndLatest" },
+            {
+                "kind": "inputWhy",
+                "cell": "review",
+                "block": "plan",
+                "before": null,
+                "after": "It is what to review.",
+            },
+            { "kind": "what", "block": "plan", "before": null, "after": "What will be done." },
+        ])
+    );
+}
+
+#[tokio::test]
 async fn a_block_a_cell_must_write_put_in_or_taken_out_is_given_with_its_cell() {
     let after = edit(
         tiny(),

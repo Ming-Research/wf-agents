@@ -3,6 +3,7 @@
 //! - `running`: `wf-agents run`, the engine as a process.
 //! - `talk`: the commands that talk to a running engine.
 
+mod committed;
 mod running;
 mod talk;
 

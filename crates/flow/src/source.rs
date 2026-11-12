@@ -46,6 +46,24 @@ pub fn read(dir: &Path) -> io::Result<Source> {
     Ok(Source { flow, cells })
 }
 
+impl Source {
+    /// The flow these files make, each by its name and its text, as [`read`] takes the files of a directory:
+    /// `flow.toml`, and every other file whose name ends in `.toml` as the file of the cell its name gives. Other files
+    /// are left out. None where there is no `flow.toml` among them.
+    pub fn of_files(files: impl IntoIterator<Item = (String, String)>) -> Option<Source> {
+        let mut flow = None;
+        let mut cells = BTreeMap::new();
+        for (name, text) in files {
+            if name == FLOW_FILE {
+                flow = Some(text);
+            } else if let Some(id) = name.strip_suffix(".toml") {
+                cells.insert(id.to_string(), text);
+            }
+        }
+        Some(Source { flow: flow?, cells })
+    }
+}
+
 /// `flow.toml`: what belongs to the flow as a whole.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

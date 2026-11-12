@@ -161,6 +161,45 @@ async fn a_condition_is_given_with_its_block_and_value_or_with_its_test_as_decla
 }
 
 #[tokio::test]
+async fn how_a_cell_takes_a_block_and_what_a_block_is_are_given_as_written() {
+    let source = edit(
+        tiny(),
+        None,
+        "[blocks.plan]",
+        "[blocks.plan]\nwhat = \"What will be done.\"",
+    );
+    let source = edit(
+        source,
+        Some("review"),
+        "must_write = [\"content\"]",
+        "must_write = [\"content\"]\n\n[input.plan]\nkind = \"last_and_latest\"\nwhy = \"It is what to review.\"",
+    );
+    let source = edit(
+        source,
+        Some("plan"),
+        "outputs = [\"plan\"]",
+        "outputs = [\"plan\"]\n\n[input.request]\nkind = \"all\"",
+    );
+    let router = serve(&Shared::new(Ok(source)), None);
+    let answer = get_json(&router, "/api/v1/flow").await;
+    assert_eq!(
+        answer["flow"]["cells"][1]["input"],
+        json!({ "plan": { "kind": "lastAndLatest", "why": "It is what to review." } })
+    );
+    // Of a block the cell says nothing of, nothing is given; what it leaves unsaid of one is none.
+    assert_eq!(
+        answer["flow"]["cells"][0]["input"],
+        json!({ "request": { "kind": "all", "why": null } })
+    );
+    assert_eq!(answer["flow"]["cells"][2]["input"], json!({}));
+    let plan = &answer["flow"]["blocks"][3];
+    assert_eq!(
+        (&plan["name"], &plan["what"]),
+        (&json!("plan"), &json!("What will be done."))
+    );
+}
+
+#[tokio::test]
 async fn a_block_the_outside_writes_is_given_with_the_name_of_its_source_and_a_block_a_test_reads_with_the_test() {
     let source = edit(
         tiny(),

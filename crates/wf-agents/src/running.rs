@@ -146,7 +146,10 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
             let handle = service.handle();
             tokio::spawn(watch.run(move |head| handle.outside(carry::MAIN, &head)));
         }
-        let flows_shown = web::Flows::dirs(shown.clone(), None, Box::new(has));
+        // The page compares the flow's files with the flow as it was committed, so that an edit of them shows there
+        // as what changed.
+        let mut flows_shown = web::Flows::dirs(shown.clone(), None, Box::new(has));
+        flows_shown.against = crate::committed::reader(shown.clone());
         let router = match copies {
             Some(keeping) => {
                 // One task keeps the copies, a step at a time, with the time the loop reads from its clock.

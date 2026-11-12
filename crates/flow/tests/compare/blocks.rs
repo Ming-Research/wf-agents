@@ -143,3 +143,35 @@ fn a_block_declared_is_added_after_the_changes_of_the_cells_that_use_it() {
         ]
     );
 }
+
+#[test]
+fn what_a_block_is_is_a_change_with_both_values() {
+    let says = |what: &str| {
+        edit(
+            valid(),
+            FLOW_FILE,
+            "[blocks.plan]",
+            &format!("[blocks.plan]\nwhat = \"{what}\""),
+        )
+    };
+    assert_eq!(
+        from_valid(&says("What will be done.")),
+        [of(
+            "plan",
+            BlockChange::What {
+                before: None,
+                after: Some("What will be done.".to_string()),
+            },
+        )]
+    );
+    assert_eq!(
+        flow::compare(&compiled(&says("What will be done.")), &compiled(&says("The steps."))),
+        [of(
+            "plan",
+            BlockChange::What {
+                before: Some("What will be done.".to_string()),
+                after: Some("The steps.".to_string()),
+            },
+        )]
+    );
+}

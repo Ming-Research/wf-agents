@@ -455,6 +455,7 @@ export function BlockPanel(props: {
       lines={
         <>
           <ChangeStatus status={row.status} changes={changes.length} />
+          {block.what !== null && <StatusLine word="What it is">{block.what}</StatusLine>}
           <StatusLine word="Written by">
             {block.writtenBy.cells.length > 0 && <Cells flow={flow} ids={block.writtenBy.cells} onChoose={onChoose} />}
             {block.writtenBy.cells.length > 0 && besides.length > 0 && ', '}

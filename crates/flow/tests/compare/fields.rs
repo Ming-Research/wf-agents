@@ -1,7 +1,7 @@
 //! What changed of a cell that both definitions have.
 
 use decide::Condition;
-use flow::{CellChange, Change, Effort, FLOW_FILE, Kind, Limit};
+use flow::{CellChange, Change, Effort, FLOW_FILE, InputKind, Kind, Limit};
 
 use crate::support::{edit, valid};
 use crate::{compiled, from_valid};
@@ -324,4 +324,52 @@ fn a_cell_s_own_limit_is_a_change_and_a_limit_that_only_follows_the_flow_s_is_no
             of("answer", limit(5, 6)),
         ]
     );
+}
+
+#[test]
+fn how_a_cell_takes_an_input_and_why_are_each_a_change_with_both_values() {
+    let takes = |tables: &str| {
+        edit(
+            valid(),
+            "judge.toml",
+            "outputs = [\"needs_design\", \"opinions\"]",
+            &format!("outputs = [\"needs_design\", \"opinions\"]\n\n{tables}"),
+        )
+    };
+    let before = takes("[input.plan]\nkind = \"latest\"");
+    let after = takes("[input.plan]\nkind = \"all\"\nwhy = \"It is what to judge.\"");
+    assert_eq!(
+        flow::compare(&compiled(&before), &compiled(&after)),
+        [
+            of(
+                "judge",
+                CellChange::InputKind {
+                    block: "plan".into(),
+                    before: Some(InputKind::Latest),
+                    after: Some(InputKind::All),
+                },
+            ),
+            of(
+                "judge",
+                CellChange::InputWhy {
+                    block: "plan".into(),
+                    before: None,
+                    after: Some("It is what to judge.".to_string()),
+                },
+            ),
+        ]
+    );
+    // Said for the first time, each is a change from nothing said; said alike in both, neither is one.
+    assert_eq!(
+        from_valid(&before),
+        [of(
+            "judge",
+            CellChange::InputKind {
+                block: "plan".into(),
+                before: None,
+                after: Some(InputKind::Latest),
+            },
+        )]
+    );
+    assert_eq!(flow::compare(&compiled(&after), &compiled(&after)), []);
 }
