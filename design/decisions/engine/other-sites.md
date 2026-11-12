@@ -1,3 +1,7 @@
 ### decision only-the-engines-own-origin
 A request is taken only with the Host and, where it has one, the Origin of the engine's own address and port; any other loopback port is refused, and the page's development server passes requests on with the engine's own Host and Origin rather than its own.
 Why: Admitting every loopback origin was turned down: agents write web pages for the projects they work on, and the owner opens them from servers on the loopback address, so such a page could act as the owner (principle agent-writing-is-data). Admitting the development server's origin as well was turned down because the engine cannot know which port that server takes, while the server knows the engine's address.
+
+### decision served-on-the-loopback-address-only
+The page and its interface are served on the loopback address only.
+Why: The page has no sign-in, and it can start works and spend money.
