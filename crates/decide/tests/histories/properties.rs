@@ -241,7 +241,7 @@ fn shuffled(r: &Records, seed: u64) -> Records {
 /// of its reasons is a block whose meaning a cell after it last changed", and then "a run with a reason that a person,
 /// the outside or a cell before it wrote starts the count anew", for "the owner is not asked to let go on what the
 /// owner sent back": a person's change the cell has never seen is a reason the person wrote, though a cell after it
-/// wrote over it since, and the second sentence and the Why decide. And no cell starts a way round once its last
+/// wrote over it since, and the third sentence and the Why decide. And no cell starts a way round once its last
 /// finished runs since the owner last let it go on, as many in a row as its limit, were each one by this reading.
 ///
 /// A further property, from the design of data and context: the run's reasons are exactly what it gives, no record, or

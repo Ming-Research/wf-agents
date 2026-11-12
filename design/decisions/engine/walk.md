@@ -24,8 +24,9 @@ sent back (principle no-unseen-spending-loop).
 A block that is a choice or a list of names changes its meaning when its value does, whoever writes it. Prose changes
 its meaning when its writer says so: with each write the cell says, with a line of why, whether the change matters to
 the cells that read the block, compared with the version at which the meaning last changed. Prose a person writes
-always changes the meaning, and so does what the outside writes. A cell that says a change does not matter without
-having seen what it wrote over is not taken at its word.
+always changes the meaning, and so does what the outside writes, unless whoever approved that write said it does not.
+A cell that says a change does not matter without having seen what it wrote over is not taken at its word. What a
+change that does not matter leaves undone is in the design of data and context.
 Why: An agent never writes the same text twice, so judging prose by its text would run every later cell again after
 every rerun. A second agent to check the answer, at a round for every change, was turned down, and so was a count that
 goes up at each change of meaning, which would leave which version a write is compared with to whoever counts

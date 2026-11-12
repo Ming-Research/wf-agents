@@ -3,9 +3,11 @@
 The items as a tree in columns.
 
 ### decision the-tree-is-drawn-on-a-canvas
-The console's tree is drawn in WebGL on a canvas, only what is on the screen; what an item opens is HTML.
-Why: So that hundreds of items move smoothly as the columns glide. What an item opens holds words to select and copy,
-markdown and answers to type, which only HTML does well.
+The console's tree is drawn in WebGL on a canvas, only what is on the screen and the titles from one shared set of
+glyphs; what an item opens is HTML.
+Why: So that hundreds of items move smoothly as the columns glide, which rests on judgment; measured was that a
+texture for each title stalled a frame for up to 150 ms as items came into view, where one shared set of glyphs did
+not. What an item opens holds words to select and copy, markdown and answers to type, which only HTML does well.
 
 ### decision the-tree-follows-what-depends-on-what
 The items stand as one tree along what depends on what: where one item depends on another, the other stands under it,
