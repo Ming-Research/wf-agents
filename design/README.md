@@ -11,8 +11,9 @@ no more than is needed: what the system itself refuses, so that it would not bui
 what any agent would do unasked, is not written.
 
 A comment does not decide what belongs in the tree: a comment can say anything. What belongs in the tree is written
-in the tree, and a comment at a place it bears on names the entry and does not say it again. Everything else that is
-worth saying goes in a comment at its place.
+in the tree; everything else that is worth saying goes in a comment at its place. Comments may say as much as is
+useful, and never go against the tree: where a comment and an entry differ, the entry holds and the comment is put
+right.
 
 The tree is `design/`. It holds four kinds of thing:
 
@@ -61,8 +62,7 @@ a relation between two places that neither of them shows.
 
 A decision is what an agent has to know of an ability before it plans a change to it. It is not a decision where
 the reason matters only at one place in the code, to whoever changes that place: that is a comment there, where they
-must pass. A reason that would have to be said in a comment at several places belongs in the tree: it is written
-here once, and those places name it. Nor is it a decision where a principle already says it.
+must pass. A reason that would have to be said in a comment at several places belongs in the tree. Nor is it a decision where a principle already says it.
 
 A decision is never ahead of the code: it says what the code does, and what is yet to be built is a document's to
 say.
