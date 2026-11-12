@@ -74,6 +74,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
         act: None,
         must_write: Vec::new(),
         describes: Vec::new(),
+        input: BTreeMap::new(),
         returns: 2,
         calls: 40,
         effort: None,
@@ -120,6 +121,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
                  conditions: &[&str]| {
         Block {
             values: values.map(|v| v.iter().map(|s| s.to_string()).collect()),
+            what: None,
             writers: Writers {
                 cells: ids(writers),
                 people: who.0,

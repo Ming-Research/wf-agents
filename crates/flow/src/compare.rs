@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use decide::{BlockId, Cell, CellId, Condition, Test, TestName};
 
 use crate::compile::{Block, CellSpec, Compiled, Limits};
-use crate::source::{Effort, Kind};
+use crate::source::{Effort, InputFile, InputKind, Kind};
 
 /// One difference between two definitions of a flow.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -111,6 +111,19 @@ pub enum CellChange {
     DescribesAdded(BlockId),
     /// A block the cell no longer says what the work is by.
     DescribesRemoved(BlockId),
+    /// What the context must hold of a block the cell reads when the cell runs; none where the definition does not
+    /// say.
+    InputKind {
+        block: BlockId,
+        before: Option<InputKind>,
+        after: Option<InputKind>,
+    },
+    /// Why the cell takes a block it reads; none where the definition does not say.
+    InputWhy {
+        block: BlockId,
+        before: Option<String>,
+        after: Option<String>,
+    },
     /// A limit of the cell, other than by following the same change of the flow's limit, which is said once, as the
     /// flow's.
     Limit {
@@ -149,6 +162,11 @@ pub enum BlockChange {
     },
     /// Whether the owner's page reads it.
     Shown { before: bool, after: bool },
+    /// What the block is, in a sentence; none where the definition does not say.
+    What {
+        before: Option<String>,
+        after: Option<String>,
+    },
 }
 
 /// Every difference from `before` to `after`, in the order the module says.
@@ -420,6 +438,26 @@ fn cell_changes(before: &Placed, after: &Placed, flow_limits: &[(Limit, u32, u32
         CellChange::DescribesAdded,
         &mut changes,
     );
+    let taken: BTreeSet<&BlockId> = b.input.keys().chain(a.input.keys()).collect();
+    for block in taken {
+        let (before, after) = (b.input.get(block), a.input.get(block));
+        let kind = |input: Option<&InputFile>| input.and_then(|i| i.kind);
+        if kind(before) != kind(after) {
+            changes.push(CellChange::InputKind {
+                block: block.clone(),
+                before: kind(before),
+                after: kind(after),
+            });
+        }
+        let why = |input: Option<&InputFile>| input.and_then(|i| i.why.clone());
+        if why(before) != why(after) {
+            changes.push(CellChange::InputWhy {
+                block: block.clone(),
+                before: why(before),
+                after: why(after),
+            });
+        }
+    }
     let own = [
         (Limit::Runs, b_cell.limit, a_cell.limit),
         (Limit::Returns, b.returns, a.returns),
@@ -498,6 +536,13 @@ fn blocks(before: &BTreeMap<BlockId, Block>, after: &BTreeMap<BlockId, Block>, c
         let (before, after) = (b.readers.shown, a.readers.shown);
         if before != after {
             found.push(BlockChange::Shown { before, after });
+        }
+        let (before, after) = (&b.what, &a.what);
+        if before != after {
+            found.push(BlockChange::What {
+                before: before.clone(),
+                after: after.clone(),
+            });
         }
         changes.extend(found.into_iter().map(|change| Change::Block {
             block: id.clone(),
