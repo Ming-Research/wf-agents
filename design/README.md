@@ -10,8 +10,8 @@ the reason plain; that the code shows what an entry says to do is no ground for 
 no more than is needed: what the system itself refuses, so that it would not build, start or pass its checks, and
 what any agent would do unasked, is not written.
 
-A comment does not decide what belongs in the tree: a comment can say anything. What belongs in the tree is written
-in the tree; everything else that is worth saying goes in a comment at its place. Comments may say as much as is
+Comments are not the code: what the code shows does not include what a comment says. What belongs in the tree is
+written in the tree, and everything else that is worth saying goes in a comment. Comments may say as much as is
 useful, and never go against the tree: where a comment and an entry differ, the entry holds and the comment is put
 right.
 
@@ -55,15 +55,10 @@ Principles are the owner's and may come before the code. No decision excuses a b
 ### A decision
 
 A decision is about one thing, an ability or a component: what holds there and why, where the code does not show the
-why. It enters only if an agent that has read the code and the principles would not know the reason, and would so
-change the code wrongly; which is one of three things: a way that was considered and turned down, which leaves no
-trace in the code; something done on purpose that looks like a fault or an omission, which a later agent would mend;
-a relation between two places that neither of them shows.
-
-A decision is what an agent has to know of an ability before it plans a change to it. It is not a decision where
-the reason matters only at one place in the code, to whoever changes that place: that is a comment there, where they
-must pass. A reason that would have to be said in a comment at several places belongs in the tree. Nor is it a
-decision where a principle already says it.
+why. It enters only if an agent that has read the code and the principles would still change the code wrongly, which
+is one of three things: a way that was considered and turned down, which leaves no trace in the code; something done
+on purpose that looks like a fault or an omission, which a later agent would mend; a relation between two places that
+neither of them shows.
 
 A decision is never ahead of the code: it says what the code does, and what is yet to be built is a document's to
 say.
