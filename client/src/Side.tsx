@@ -308,7 +308,9 @@ export function CellPanel(props: {
                 {back.length > 0 && <span className="way-back">way back from {back.join(', ')}</span>}
                 {block.what !== null && <span className="row-note">{block.what}</span>}
                 {taken?.why && <span className="row-note">{taken.why}</span>}
-                <span className="row-note muted">there {thereWhen(flow, cell.id, block)}</span>
+                {thereWhen(flow, cell.id, block) !== '' && (
+                  <span className="row-note muted">there {thereWhen(flow, cell.id, block)}</span>
+                )}
               </ListRow>
             );
           })}

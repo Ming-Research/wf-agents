@@ -281,19 +281,17 @@ export function inputKindWords(kind: InputKind | null): string {
   }
 }
 
-/// When a block is there for a cell to read, by who writes it in the definition: a person, the outside, or the cells
-/// before the reader, each with the condition it runs under and whether it writes the block every time.
+/// When a block is there for a cell to read, where that is not plain from who writes it: a cell before the reader
+/// that runs only under a condition, or that need not write the block each time. Empty where there is nothing to add.
 export function thereWhen(flow: Flow, reader: string, block: Block): string {
   const at = flow.cells.findIndex((c) => c.id === reader);
   const parts: string[] = [];
-  if (block.writtenBy.people) parts.push(block.writtenBy.note ? 'when the owner writes to this cell' : 'when a person writes it');
-  if (block.writtenBy.outside !== null) parts.push(`from outside (${block.writtenBy.outside})`);
   for (const id of block.writtenBy.cells) {
     const i = flow.cells.findIndex((c) => c.id === id);
     if (i < 0 || i >= at) continue;
     const writer = flow.cells[i];
-    const runs = writer.condition === null ? '' : ` runs (${conditionWords(writer.condition)}) and`;
-    parts.push(writer.mustWrite.includes(block.name) && runs === '' ? `once ${id} ran` : `when ${id}${runs} writes it`);
+    if (writer.condition !== null) parts.push(`only when ${id} runs (${conditionWords(writer.condition)})`);
+    else if (!writer.mustWrite.includes(block.name)) parts.push(`if ${id} writes it`);
   }
-  return parts.length > 0 ? parts.join('; ') : 'only on a way back';
+  return parts.join('; ');
 }
