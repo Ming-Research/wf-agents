@@ -1,5 +1,8 @@
 # The design tree
 
+Read these rules as an engineer who knows the system and has common sense: judge by what each rule is for, and do
+not pick at its words.
+
 1. The design tree is `design/`: the constitution, `principles/`, and `decisions/`, which holds one file of decisions
    for each ability or component of the system, named for it, under the area it belongs to: `engine`, `flow` or
    `frontend`; and `docs/`, which holds the designs that hold only as a whole (rule 8). The tree holds what an agent taking the work up in another session needs and the code cannot tell it:
