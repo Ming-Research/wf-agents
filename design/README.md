@@ -62,9 +62,9 @@ Principles are the owner's and may come before the code. No decision excuses a b
 
 A decision is about one thing, an ability or a component: what holds there and why, where the code does not show the
 why. It enters only if an agent that has read the code and the principles would still change the code wrongly, which
-is one of three things: a way that was considered and turned down, which leaves no trace in the code; something done
-on purpose that looks like a fault or an omission, which a later agent would mend; a relation between two places that
-neither of them shows.
+is one of three things: a way that was considered and turned down, which leaves no trace in the code and which a later
+agent would take up again; something done on purpose that looks like a fault or an omission, which a later agent would
+mend; a relation between two places that neither of them shows.
 
 A decision is never ahead of the code: it says what the code does, and what is yet to be built is a document's to
 say.
