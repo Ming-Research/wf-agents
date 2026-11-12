@@ -81,3 +81,7 @@ Why: The same bare number may be an item's, a work's or an observation's, and on
 ### principle the-machine-is-always-on
 Nothing is designed for the machine going to sleep or its lid being closed.
 Why: The machine that runs the engine is always on.
+
+### principle protected-files-are-the-owners
+The files that govern the agents are protected: the project's guide for its agents, its constitution, the definition of the flow, and what says how the project's checks run; which paths these are, the project's configuration says. The owner changes them. Where an agent's change touches one, the engine holds it: the agent takes the change back, or gives its reason, and the reason is a question to the owner. Changed in a work's branch, by the owner or with the owner's yes, such a file holds for that work from then on, as any file's new content does.
+Why: What an agent can write must not change what governs it, unless the owner has said yes.

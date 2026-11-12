@@ -90,8 +90,8 @@ Why: Otherwise the owner reads the whole story again each time; a question writt
 help.
 
 ### principle named-paths-wait-for-the-owner
-A change that touches a path the project's configuration names for the owner, such as the flow's definition or a
-specification, waits at the merge for the owner's yes, and a later change to those paths asks again. The engine sees
+A change that touches a path the project's configuration names for the owner, such as a specification or the
+principles of its design, waits at the merge for the owner's yes, and a later change to those paths asks again. The engine sees
 the paths touched and asks by itself, showing the change; which paths, each project's configuration says, and the
 flow names none.
 Why: A rule in the project's own guide, left to the engineer and the review to keep, was turned down: where both
