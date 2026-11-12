@@ -1,7 +1,7 @@
 // The page's words for what the interface gives as data: conditions, named tests, limits, faults and changes. Each is
 // worded here once, and every part of the page that shows one takes its words from here.
 
-import type { Block, Change, Condition, Fault, Kind, LimitName, Test } from './api';
+import type { Block, Change, Condition, Fault, Flow, InputKind, Kind, LimitName, Test } from './api';
 
 /// What a named test holds on, from the blocks it reads: "ci is not red", "any of needs_design, changes_tree is yes",
 /// "none of verdict, deep_verdict is no, not counting what a cell skipped now wrote".
@@ -164,6 +164,7 @@ export function placeOf(change: Change): Place {
     case 'note':
     case 'outside':
     case 'shown':
+    case 'what':
       return { on: 'block', block: change.block };
     default:
       return { on: 'cell', cell: change.cell };
@@ -237,6 +238,10 @@ export function changeWords(change: Change): ChangeWords {
       return { what: 'Says what the work is by', before: '', after: c.block };
     case 'describesRemoved':
       return { what: 'Says what the work is by', before: c.block, after: '' };
+    case 'inputKind':
+      return { what: `Takes ${c.block} as`, before: inputKindWords(c.before), after: inputKindWords(c.after) };
+    case 'inputWhy':
+      return { what: `Reads ${c.block} because`, before: c.before ?? 'not said', after: c.after ?? 'not said' };
     case 'cellLimit':
       return { what: `Limit of ${LIMIT_WORDS[c.limit]}`, before: `${c.before}`, after: `${c.after}` };
     case 'effort':
@@ -257,5 +262,38 @@ export function changeWords(change: Change): ChangeWords {
       return { what: 'Written by the outside', before: c.before ?? 'no', after: c.after ?? 'no' };
     case 'shown':
       return { what: 'Shown on the page', before: yesNo(c.before), after: yesNo(c.after) };
+    case 'what':
+      return { what: 'What it is', before: c.before ?? 'not said', after: c.after ?? 'not said' };
   }
+}
+
+/// The words for what the context must hold of an input.
+export function inputKindWords(kind: InputKind | null): string {
+  switch (kind) {
+    case 'latest':
+      return 'the latest';
+    case 'lastAndLatest':
+      return 'the last and the latest';
+    case 'all':
+      return 'all of it';
+    case null:
+      return 'not said';
+  }
+}
+
+/// When a block is there for a cell to read, by who writes it in the definition: a person, the outside, or the cells
+/// before the reader, each with the condition it runs under and whether it writes the block every time.
+export function thereWhen(flow: Flow, reader: string, block: Block): string {
+  const at = flow.cells.findIndex((c) => c.id === reader);
+  const parts: string[] = [];
+  if (block.writtenBy.people) parts.push(block.writtenBy.note ? 'when the owner writes to this cell' : 'when a person writes it');
+  if (block.writtenBy.outside !== null) parts.push(`from outside (${block.writtenBy.outside})`);
+  for (const id of block.writtenBy.cells) {
+    const i = flow.cells.findIndex((c) => c.id === id);
+    if (i < 0 || i >= at) continue;
+    const writer = flow.cells[i];
+    const runs = writer.condition === null ? '' : ` runs (${conditionWords(writer.condition)}) and`;
+    parts.push(writer.mustWrite.includes(block.name) && runs === '' ? `once ${id} ran` : `when ${id}${runs} writes it`);
+  }
+  return parts.length > 0 ? parts.join('; ') : 'only on a way back';
 }

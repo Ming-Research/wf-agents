@@ -30,7 +30,7 @@ describe('the words of the page', () => {
   it('say the source outside that writes a block', () => {
     const block = {
       name: 'main',
-      values: null,
+      values: null, what: null,
       writtenBy: { cells: [], people: true, note: false, outside: 'main' },
       readBy: { cells: [], conditions: [], tests: [], shown: false },
     };
@@ -122,7 +122,7 @@ describe('the words of the page', () => {
   it('say that a block is a note, a change of it, and a note people do not write', () => {
     const block = {
       name: 'opinions',
-      values: null,
+      values: null, what: null,
       writtenBy: { cells: [], people: true, note: true, outside: null },
       readBy: { cells: ['plan'], conditions: [], tests: [], shown: false },
     };

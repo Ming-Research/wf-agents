@@ -38,6 +38,17 @@ export interface Test {
 
 export type Kind = 'agent' | 'engine';
 
+/// What the context of a cell's session must hold of a block the cell reads when the cell runs: its latest version,
+/// the version the cell last consumed and the latest, or every version.
+export type InputKind = 'latest' | 'lastAndLatest' | 'all';
+
+/// How a cell takes one of the blocks it reads; each none where the definition does not say.
+export interface Input {
+  kind: InputKind | null;
+  /// Why the cell takes the block.
+  why: string | null;
+}
+
 /// When a cell runs: when a block has a value, or when a named test holds.
 export type Condition = { on: 'block'; block: string; value: string } | { on: 'test'; test: Test };
 
@@ -57,6 +68,8 @@ export interface Cell {
   condition: Condition | null;
   preconditions: Test[];
   inputs: string[];
+  /// How it takes the blocks it reads, by the block's name, for each of them the definition says it of.
+  input: Record<string, Input>;
   outputs: string[];
   /// The blocks among its outputs that every hand-in of it includes.
   mustWrite: string[];
@@ -67,6 +80,8 @@ export interface Block {
   name: string;
   /// The values of a choice; none for a block that is not one.
   values: string[] | null;
+  /// What the block is, in a sentence; none where the definition does not say.
+  what: string | null;
   /// `outside`: the source outside the work that writes it; none where the outside does not.
   /// `note`: what people write in it is a note, their words to the cells that read it.
   writtenBy: { cells: string[]; people: boolean; note: boolean; outside: string | null };
@@ -172,6 +187,8 @@ export type Change =
   | { kind: 'mustWriteRemoved'; cell: string; block: string }
   | { kind: 'describesAdded'; cell: string; block: string }
   | { kind: 'describesRemoved'; cell: string; block: string }
+  | { kind: 'inputKind'; cell: string; block: string; before: InputKind | null; after: InputKind | null }
+  | { kind: 'inputWhy'; cell: string; block: string; before: string | null; after: string | null }
   | { kind: 'cellLimit'; cell: string; limit: LimitName; before: number; after: number }
   | { kind: 'effort'; cell: string; before: string | null; after: string | null }
   | { kind: 'levelsAbove'; cell: string; before: number; after: number }
@@ -181,7 +198,8 @@ export type Change =
   | { kind: 'people'; block: string; before: boolean; after: boolean }
   | { kind: 'note'; block: string; before: boolean; after: boolean }
   | { kind: 'outside'; block: string; before: string | null; after: string | null }
-  | { kind: 'shown'; block: string; before: boolean; after: boolean };
+  | { kind: 'shown'; block: string; before: boolean; after: boolean }
+  | { kind: 'what'; block: string; before: string | null; after: string | null };
 
 export type Comparison =
   | { state: 'nothingToCompare' }
