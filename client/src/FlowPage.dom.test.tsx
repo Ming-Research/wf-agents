@@ -139,8 +139,8 @@ describe('the chart', () => {
       [...li.children].map((c) => c.textContent?.trim()).join(' '),
     );
     expect(rows.slice(0, 3)).toEqual([
-      'request written by people',
-      'opinions written by judge, people way back from judge',
+      '1 request written by people',
+      '2 opinions written by judge, people way back from judge',
       'plan read by judge, design, answer',
     ]);
     click([...panel.querySelectorAll('button.link')].find((b) => b.textContent === 'opinions'));
@@ -153,11 +153,11 @@ describe('the chart', () => {
     const heads = page.querySelectorAll('thead .cell-head .head-button');
     click(heads[0]);
     const plan = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
-    expect(texts(plan, '.panel-part-label')).toEqual(['Task', 'Session', 'Reads 2', 'May write 1']);
+    expect(texts(plan, '.panel-part-label')).toEqual(['Reads 2', 'May write 1', 'Task', 'Session']);
     expect(plan.querySelector('.content')?.textContent).toBe('Write the plan from the request.\nSay what it leaves out.');
     click(heads[4]);
     const check = page.querySelector('aside[aria-label="Cell check"]') as HTMLElement;
-    expect(texts(check, '.panel-part-label')).toEqual(['Act', 'Reads 2', 'May write 1']);
+    expect(texts(check, '.panel-part-label')).toEqual(['Reads 2', 'May write 1', 'Act']);
     const act = [...check.querySelectorAll('.panel-part')].find((p) => p.querySelector('.panel-part-label')?.textContent === 'Act');
     expect(act?.querySelector('.mono')?.textContent).toBe('check');
   });
@@ -472,7 +472,7 @@ describe('the panel and the widths', () => {
 
   it('labels the corner for both: the cells to its right, the blocks under it', () => {
     const page = draw({ state: 'compiled', flow: small() });
-    expect(texts(page, '.corner .label')).toEqual(['Cells →', 'Blocks ↓']);
+    expect(texts(page, '.corner .label')).toEqual(['Blocks ↓', 'Cells →']);
   });
 
   it('marks the lines’ names, not the engine', () => {
