@@ -1,9 +1,11 @@
 # The page's look
 
 The owner's page is an instrument panel. The owner watches and steers many works on it all day, so it is dense, quiet
-and exact. This file is the start of the page's spec: the tokens (`src/styles/tokens.css`), the parts (`src/parts.tsx`,
-`src/styles/parts.css`) and the rules, each with its reason. The page uses no component library: a library's parts
-spend room on padding and chrome the owner does not read, and one small set of our own is learned once.
+and exact. This file is the start of the page's spec: the tokens (`src/styles/tokens.css`) and the parts
+(`src/parts.tsx`, `src/styles/parts.css`). The rules of the look, each with its reason, are principles of the design
+tree (`design/principles/frontend/look.md`), and the values they speak of are here. The page uses no component library:
+a library's parts spend room on padding and chrome the owner does not read, and one small set of our own is learned
+once.
 
 The values follow the console's graph of items on `main` (`client/src/console/snap.ts`, its `PALETTE`, and
 `client/src/styles/tokens.css` there), the view the owner likes best. The views that come over next will sit with this
@@ -11,30 +13,18 @@ one as one page.
 
 ## Rules
 
-- **Dense.** A 4px grid (2, 4, 8, 12, 16). The bar is 36px, the view's line 28px, a row 26px, a control 24px. The owner
-  reads many works and many blocks at once, and every row spent on chrome is a row of content lost.
-- **Full width.** No centred column, no cards round what is already in a table. A chart and a table need every column.
-- **Four sizes, two weights.** 11px for labels and tags, 12px for secondary words and everything in monospace, 13px for
-  body text, 15px semibold for the page's and a panel's title. Weights 400 and 600. Numbers are tabular. A few sizes far
-  enough apart read as an order at a glance.
-- **Monospace for names and values.** Ids, block names, values and versions are in monospace. They are what the owner
-  types and compares letter by letter.
-- **Colour only for state.** A colour marks a state or a mark, never decoration, so that a colour always means one
-  thing. Marks and tags take the colour itself; small text takes its darker text step; a fill takes its tint.
-- **Hairlines, no shadows.** Lines are 1px in the line colour. Corners are 3px on tags, buttons and inputs, none on
-  panels and frames. Depth is not information.
-- **Quiet motion.** Hovering changes the background by one step in 100ms. Nothing else moves, so that what changes on
-  the page is the owner's doing or a real change.
-- **Focus always shows.** A 2px accent outline, so that the page can be used with the keyboard.
+The rules everything on the page follows are in the design tree: dense, full width, four sizes and two weights,
+monospace for names and values, colour only for state, hairlines and no shadows, quiet motion, a focus that always
+shows, widths that are the owner's, and a thing said once. Two more stand here, with no reason written for them yet:
+
 - **Words.** Sentence case, no full stops in labels. A word where a word is clearer than an icon. The few signs the
   chart uses (people write, the outside writes, shown) are explained in the legend.
 - **Light and dark.** The system's appearance, or the one picked with the bar's switch, kept in the browser.
-- **Widths are the owner's.** An edge that divides two parts (the panel from the chart, the names' column from the
-  cells, a cell's column from the next) drags, shows a hairline in the accent under the pointer, keeps its width in the
-  browser, and goes back to the width the page works out on a double click. Cut words can then be read in full where
-  they stand.
-- **Say a thing once.** What belongs to the whole view (the flow's limits) is said in the view's line, and a panel says
-  only what differs from it (a cell's own limit).
+
+The measures the rules speak of: a 4px grid (2, 4, 8, 12, 16); the bar 36px, the view's line 28px, a row 26px, a
+control 24px; weights 400 and 600; lines 1px in the line colour; corners 3px on tags, buttons and inputs; a hover's
+step in 100ms; the focus outline 2px in the accent; an edge under the pointer shows a hairline in the accent. The sizes
+of text are under the tokens.
 
 ## Tokens
 
