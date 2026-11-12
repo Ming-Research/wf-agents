@@ -92,7 +92,6 @@ A principle and a decision are each a few lines, in one form, a principle under 
 Why: <the reason, in one or two sentences; where the point is a way turned down, which way and why it lost.>
 ```
 
-- An entry holds one rule: one that is about one thing and also binds every thing of a kind is two entries.
 - A decision is written at the concept an agent would be working on when it changed the code wrongly; where that
   could be more than one, at the concept that holds them.
 - No identifier from the code (a function, a type, a file). The system's own terms, a field or a value of a format an
