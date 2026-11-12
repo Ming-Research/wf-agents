@@ -8,7 +8,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use decide::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Outsiders, Test, TestKind, TestName};
 
-use crate::source::{BlockFile, CellFile, Effort, FLOW_FILE, FlowFile, Kind, Source, When, WhenIs, WhenTest};
+use crate::source::{
+    BlockFile, CellFile, Effort, FLOW_FILE, FlowFile, InputFile, Kind, Source, When, WhenIs, WhenTest,
+};
 
 /// A flow's definition compiled.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -68,6 +70,8 @@ pub struct CellSpec {
     pub must_write: Vec<BlockId>,
     /// The blocks among its inputs that say what the work is where the host shows it, in the order written.
     pub describes: Vec<BlockId>,
+    /// How the cell takes the blocks it reads, for each of its inputs the definition says it of.
+    pub input: BTreeMap<BlockId, InputFile>,
     /// How often a return of the cell may be sent back within one run.
     pub returns: u32,
     /// How many calls one run of the cell may make.
@@ -86,6 +90,8 @@ pub struct CellSpec {
 pub struct Block {
     /// The values of a block that is a choice; a block with none is not one.
     pub values: Option<Vec<String>>,
+    /// What the block is, in a sentence, where the definition says it.
+    pub what: Option<String>,
     /// Who writes it.
     pub writers: Writers,
     /// Who reads it.
@@ -178,6 +184,8 @@ pub enum FaultKind {
     /// The cell says what the work is by the block, and the block is not among its inputs: a change of it would not
     /// run the cell again, and what the host shows would fall behind.
     NotAnInput { block: String },
+    /// The cell says how or why it takes the block, and the block is not among its inputs.
+    TakenNotRead { block: String },
     /// The block has no writer: no cell of the order, no person and nothing outside writes it.
     NoWriter { block: String },
     /// The block has no reader: no cell of the order reads it, no condition and no named test reads its value, and
@@ -711,6 +719,12 @@ impl<'a> Definition<'a> {
             };
             (!file.inputs.iter().any(|i| i == block)).then_some(what)
         }));
+        for block in file.input.keys() {
+            if !file.inputs.iter().any(|i| i == block) {
+                let what = FaultKind::TakenNotRead { block: block.clone() };
+                found.push((format!("input.{block}"), what));
+            }
+        }
         faults.extend(found.into_iter().map(|(field, what)| fault(&name, field, what)));
 
         let cell = Cell {
@@ -733,6 +747,9 @@ impl<'a> Definition<'a> {
             act: file.act.clone(),
             must_write: file.must_write.iter().map(|b| BlockId(b.clone())).collect(),
             describes: file.describes.iter().map(|b| BlockId(b.clone())).collect(),
+            input: (file.input.iter())
+                .map(|(block, input)| (BlockId(block.clone()), input.clone()))
+                .collect(),
             returns: limits.returns,
             calls: limits.calls,
             effort: file.effort,
@@ -841,6 +858,7 @@ impl<'a> Definition<'a> {
                 let writers: Vec<&str> = uses.writers.iter().map(|&(_, id)| id).collect();
                 let block = Block {
                     values: declared.values.clone(),
+                    what: declared.what.clone(),
                     writers: Writers {
                         cells: ids(&writers),
                         people: declared.people,

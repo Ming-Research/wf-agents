@@ -3,6 +3,7 @@
 //! - `running`: `wf-agents run`, the engine as a process.
 //! - `talk`: the commands that talk to a running engine.
 
+mod committed;
 mod running;
 mod talk;
 
@@ -417,6 +418,9 @@ fn words(what: &FaultKind) -> String {
         }
         F::NotAnInput { block } => {
             format!("the cell says what the work is by {block}, but {block} is not among the blocks it reads")
+        }
+        F::TakenNotRead { block } => {
+            format!("the cell says how it takes {block}, but {block} is not among the blocks it reads")
         }
         F::NoWriter { block } => format!("nothing writes {block}: no cell of the order, no person and nothing outside"),
         F::NoReader { block } => {

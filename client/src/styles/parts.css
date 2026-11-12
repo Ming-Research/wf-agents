@@ -370,6 +370,11 @@ textarea:disabled {
   border-bottom: 0;
 }
 
+/* A line of a row that says more of it: under the row's first line, the whole width. */
+.row-note {
+  flex-basis: 100%;
+}
+
 /* A word that opens something on the page: in the accent, underlined under the pointer. */
 .link {
   padding: 0;

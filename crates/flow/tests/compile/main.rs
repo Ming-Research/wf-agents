@@ -13,5 +13,6 @@ mod levels;
 mod must_write;
 mod named_tests;
 mod notes;
+mod takes;
 mod takes_main;
 mod valid;

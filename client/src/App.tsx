@@ -185,8 +185,9 @@ export function FlowPage({ definition, comparison, active = true }: {
 }) {
   const [version, setVersion] = useState<Version>('after');
   const [chosen, setChosen] = useState<Chosen>(null);
-  // The panel is folded away at first, unless there is a list of changes to read in it.
-  const [folded, setFolded] = useState(() => comparison.state !== 'compared' || comparison.changes === null);
+  // The panel is folded away at first, unless there are changes to read in it: where the two definitions are the
+  // same, or cannot be compared, its room stays the chart's.
+  const [folded, setFolded] = useState(() => comparison.state !== 'compared' || !comparison.changes?.length);
   const [panelWidth, setPanelWidth] = useKeptWidth(WIDTH_KEYS.panel, PANEL.min, PANEL.max);
 
   const after = definition.state === 'compiled' ? definition.flow : undefined;

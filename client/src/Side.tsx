@@ -4,7 +4,7 @@
 import type { ReactNode } from 'react';
 
 import type { Block, Cell, Change, Fault, Flow } from './api';
-import { type Chosen, runBy } from './Chart';
+import type { Chosen } from './Chart';
 import { markedChange } from './diff';
 import { type BlockRow, type CellColumn, type Matrix, markOf, where } from './matrix';
 import { ListRow, Panel, PanelPart, STATUS_WORDS, type Status, StatusLine } from './parts';
@@ -22,13 +22,17 @@ function ChangeStatus({ status, changes }: { status: Status; changes: number }) 
   );
 }
 import {
-  type Place,
-  LIMIT_WORDS,
+  BROUGHT_UP_TO_DATE,
   changeWords,
   conditionWords,
   faultWords,
+  inputKindWords,
+  LIMIT_WORDS,
   placeOf,
+  runBy,
   testWords,
+  thereWhen,
+  type Place,
   writersBesideCells,
 } from './words';
 
@@ -282,6 +286,66 @@ export function CellPanel(props: {
       {...fold}
     >
       {!column.cell && <p className="muted">Not in the version shown: this is the cell as the other version has it</p>}
+      <PanelPart label="Reads" count={cell.inputs.length}>
+        <ul className="uses">
+          {cell.inputs.map((name, place) => {
+            const block = blocks.get(name) as Block;
+            const back = later(block.writtenBy.cells.filter((id) => id !== cell.id));
+            const besides = writersBesideCells(block);
+            const writers = block.writtenBy.cells;
+            const taken = cell.input[name];
+            return (
+              <ListRow key={name}>
+                <span className="muted mono" title="Its place among what the cell reads, in the order the cell is given them">
+                  {place + 1}
+                </span>
+                <Choose chosen={{ block: name }} onChoose={onChoose}>
+                  <span className="mono">{name}</span>
+                </Choose>
+                {taken?.kind && <span className="muted">{inputKindWords(taken.kind)}</span>}
+                <span>
+                  <span className="muted">written by </span>
+                  {writers.length > 0 && <Cells flow={flow} from={cell.id} ids={writers} onChoose={onChoose} />}
+                  {writers.length > 0 && besides.length > 0 && ', '}
+                  {besides.join(', ')}
+                </span>
+                {back.length > 0 && <span className="way-back">way back from {back.join(', ')}</span>}
+                {block.what !== null && <span className="row-note">{block.what}</span>}
+                {taken?.why && <span className="row-note">{taken.why}</span>}
+                {thereWhen(flow, cell.id, block) !== '' && (
+                  <span className="row-note muted">there {thereWhen(flow, cell.id, block)}</span>
+                )}
+              </ListRow>
+            );
+          })}
+        </ul>
+      </PanelPart>
+
+      <PanelPart label="May write" count={cell.outputs.length}>
+        <ul className="uses">
+          {cell.outputs.map((name) => {
+            const block = blocks.get(name) as Block;
+            const above = block.readBy.cells.filter((id) => where(flow, cell.id, id) === 'above');
+            const aboveConditions = block.readBy.conditions.filter((id) => where(flow, cell.id, id) === 'above');
+            const sendsBack = [...new Set([...above, ...aboveConditions])];
+            return (
+              <ListRow key={name}>
+                <Choose chosen={{ block: name }} onChoose={onChoose}>
+                  <span className="mono">{name}</span>
+                </Choose>
+                {cell.mustWrite.includes(name) && <span className="muted">written every time</span>}
+                {cell.inputs.includes(name) && <span className="muted">also read: {BROUGHT_UP_TO_DATE}</span>}
+                <span>
+                  <Readers flow={flow} from={cell.id} block={block} onChoose={onChoose} />
+                </span>
+                {sendsBack.length > 0 && <span className="way-back">way back to {sendsBack.join(', ')}</span>}
+                {block.what !== null && <span className="row-note">{block.what}</span>}
+              </ListRow>
+            );
+          })}
+        </ul>
+      </PanelPart>
+
       {cell.task !== null && (
         <PanelPart label="Task">
           <p className="content">{cell.task}</p>
@@ -306,54 +370,6 @@ export function CellPanel(props: {
           </p>
         </PanelPart>
       )}
-
-      <PanelPart label="Reads" count={cell.inputs.length}>
-        <ul className="uses">
-          {cell.inputs.map((name) => {
-            const block = blocks.get(name) as Block;
-            const back = later(block.writtenBy.cells.filter((id) => id !== cell.id));
-            const besides = writersBesideCells(block);
-            const writers = block.writtenBy.cells;
-            return (
-              <ListRow key={name}>
-                <Choose chosen={{ block: name }} onChoose={onChoose}>
-                  <span className="mono">{name}</span>
-                </Choose>
-                <span>
-                  <span className="muted">written by </span>
-                  {writers.length > 0 && <Cells flow={flow} from={cell.id} ids={writers} onChoose={onChoose} />}
-                  {writers.length > 0 && besides.length > 0 && ', '}
-                  {besides.join(', ')}
-                </span>
-                {back.length > 0 && <span className="way-back">way back from {back.join(', ')}</span>}
-              </ListRow>
-            );
-          })}
-        </ul>
-      </PanelPart>
-
-      <PanelPart label="May write" count={cell.outputs.length} last={changes.length > 0}>
-        <ul className="uses">
-          {cell.outputs.map((name) => {
-            const block = blocks.get(name) as Block;
-            const above = block.readBy.cells.filter((id) => where(flow, cell.id, id) === 'above');
-            const aboveConditions = block.readBy.conditions.filter((id) => where(flow, cell.id, id) === 'above');
-            const sendsBack = [...new Set([...above, ...aboveConditions])];
-            return (
-              <ListRow key={name}>
-                <Choose chosen={{ block: name }} onChoose={onChoose}>
-                  <span className="mono">{name}</span>
-                </Choose>
-                {cell.mustWrite.includes(name) && <span className="muted">written every time</span>}
-                <span>
-                  <Readers flow={flow} from={cell.id} block={block} onChoose={onChoose} />
-                </span>
-                {sendsBack.length > 0 && <span className="way-back">way back to {sendsBack.join(', ')}</span>}
-              </ListRow>
-            );
-          })}
-        </ul>
-      </PanelPart>
 
       <ChangesHere changes={changes} />
     </Panel>
@@ -443,6 +459,7 @@ export function BlockPanel(props: {
       lines={
         <>
           <ChangeStatus status={row.status} changes={changes.length} />
+          {block.what !== null && <StatusLine word="What it is">{block.what}</StatusLine>}
           <StatusLine word="Written by">
             {block.writtenBy.cells.length > 0 && <Cells flow={flow} ids={block.writtenBy.cells} onChoose={onChoose} />}
             {block.writtenBy.cells.length > 0 && besides.length > 0 && ', '}

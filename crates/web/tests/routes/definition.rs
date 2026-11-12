@@ -38,6 +38,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "condition": null,
                         "preconditions": [],
                         "inputs": ["request", "opinions"],
+                        "input": {},
                         "outputs": ["plan"],
                         "mustWrite": [],
                         "limits": limits(3),
@@ -53,6 +54,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "condition": null,
                         "preconditions": [],
                         "inputs": ["plan"],
+                        "input": {},
                         "outputs": ["opinions", "content"],
                         "mustWrite": ["content"],
                         "limits": limits(5),
@@ -68,6 +70,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "condition": null,
                         "preconditions": [may_merge],
                         "inputs": ["content"],
+                        "input": {},
                         "outputs": [],
                         "mustWrite": [],
                         "limits": limits(3),
@@ -77,30 +80,35 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                     {
                         "name": "content",
                         "values": ["yes", "no"],
+                        "what": null,
                         "writtenBy": { "cells": ["review"], "people": false, "note": false, "outside": null },
                         "readBy": { "cells": ["merge"], "conditions": [], "tests": [], "shown": false },
                     },
                     {
                         "name": "go",
                         "values": ["yes", "no"],
+                        "what": null,
                         "writtenBy": { "cells": [], "people": true, "note": false, "outside": null },
                         "readBy": { "cells": [], "conditions": [], "tests": ["may_merge"], "shown": false },
                     },
                     {
                         "name": "opinions",
                         "values": null,
+                        "what": null,
                         "writtenBy": { "cells": ["review"], "people": true, "note": false, "outside": null },
                         "readBy": { "cells": ["plan"], "conditions": [], "tests": [], "shown": false },
                     },
                     {
                         "name": "plan",
                         "values": null,
+                        "what": null,
                         "writtenBy": { "cells": ["plan"], "people": false, "note": false, "outside": null },
                         "readBy": { "cells": ["review"], "conditions": [], "tests": [], "shown": false },
                     },
                     {
                         "name": "request",
                         "values": null,
+                        "what": null,
                         "writtenBy": { "cells": [], "people": true, "note": false, "outside": null },
                         "readBy": { "cells": ["plan"], "conditions": [], "tests": [], "shown": false },
                     },
@@ -149,6 +157,45 @@ async fn a_condition_is_given_with_its_block_and_value_or_with_its_test_as_decla
     assert_eq!(
         answer["flow"]["blocks"][0]["readBy"],
         json!({ "cells": ["merge"], "conditions": ["redo"], "tests": [], "shown": true })
+    );
+}
+
+#[tokio::test]
+async fn how_a_cell_takes_a_block_and_what_a_block_is_are_given_as_written() {
+    let source = edit(
+        tiny(),
+        None,
+        "[blocks.plan]",
+        "[blocks.plan]\nwhat = \"What will be done.\"",
+    );
+    let source = edit(
+        source,
+        Some("review"),
+        "must_write = [\"content\"]",
+        "must_write = [\"content\"]\n\n[input.plan]\nkind = \"last_and_latest\"\nwhy = \"It is what to review.\"",
+    );
+    let source = edit(
+        source,
+        Some("plan"),
+        "outputs = [\"plan\"]",
+        "outputs = [\"plan\"]\n\n[input.request]\nkind = \"all\"",
+    );
+    let router = serve(&Shared::new(Ok(source)), None);
+    let answer = get_json(&router, "/api/v1/flow").await;
+    assert_eq!(
+        answer["flow"]["cells"][1]["input"],
+        json!({ "plan": { "kind": "lastAndLatest", "why": "It is what to review." } })
+    );
+    // Of a block the cell says nothing of, nothing is given; what it leaves unsaid of one is none.
+    assert_eq!(
+        answer["flow"]["cells"][0]["input"],
+        json!({ "request": { "kind": "all", "why": null } })
+    );
+    assert_eq!(answer["flow"]["cells"][2]["input"], json!({}));
+    let plan = &answer["flow"]["blocks"][3];
+    assert_eq!(
+        (&plan["name"], &plan["what"]),
+        (&json!("plan"), &json!("What will be done."))
     );
 }
 

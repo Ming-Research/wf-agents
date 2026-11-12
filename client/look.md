@@ -53,7 +53,7 @@ ground, the colours lifted to read on it.
 Sizes: `--size-label` 11px, `--size-small` 12px, `--size-body` 13px, `--size-title` 15px; `--font` and `--mono` are the
 system's text and monospace families. On the works page, an opened content grows to `--content-height` before it
 scrolls, so that the history keeps its room. The chart's own sizes (`--chart-*`) are named in `tokens.css` with what each is
-for; the widths of its columns, which the owner drags, are in `Chart.tsx` (`WIDTHS`), and the panel's, one width for the panel of every view, in `sizes.ts` (`PANEL`).
+for; the widths of its columns, which the owner drags, are in `Chart.tsx` (`WIDTHS`, and `FLOW_WIDTHS` for the flow's chart), and the panel's, one width for the panel of every view, in `sizes.ts` (`PANEL`).
 
 The lines' names (engineer, designer, review...) are in the accent wherever they stand, so that the cells sharing a
 session are seen at a glance; "engine" stays muted.
@@ -189,12 +189,14 @@ The panel of a step, docked at the right as the flow page's:
 ## The flow chart
 
 The blocks down the side, the cells across in the order of the walk. A block's name is in monospace, with its signs,
-the name of the source outside that writes it, and the values of a choice after it, the last two muted. A cell's head: its id in monospace, muted; its title in 13px semibold; its line, or
-"engine", in 11px muted; when it runs and what it waits for in 12px muted, cut to two lines and whole on hovering and in
-the panel. The cells' columns share the width the names' column leaves evenly, up to 160px each, so that ten cells on a
-wide window stay readable; a dragged column keeps its width (88 to 480px), and the chart scrolls sideways below 88px a
-cell. The corner says "Cells →" at its top right and "Blocks ↓" at its bottom left, so that neither word stands over the
-other's things. The wheel scrolls the chart wherever the pointer is over it, the fixed heads and names too. The marks: a ring reads, a dot may
+the name of the source outside that writes it, and the values of a choice after it, the last two muted. A cell's head: its id in monospace and, under it, the
+first word of its line, or "engine", in 11px, both in the middle. A cell's column starts 56px wide, which its marks
+need, and is dragged up to 480px. The width the cells leave is a column of words at the right, one line to a row, cut
+where it is longer and whole on hovering: what the block is; and, once a cell is chosen, on the rows of the blocks it
+has to do with, what that cell says of the block, the other rows muted. Over that column stand, on one line, the id,
+the title, the line, when it runs and what it waits for of the cell under the pointer or holding the focus, or else of
+the cell chosen; and under them, in a label, what the column holds. The chart scrolls sideways where the words would
+have less than 280px. The corner says "Blocks ↓" at its left and "Cells →" at its right, on one line. The wheel scrolls the chart wherever the pointer is over it, the fixed heads and names too. The marks: a ring reads, a dot may
 write, both where both, a diamond where its condition reads the block, directly or by the named test that is its
 condition, and a square where a named test that is one of its preconditions reads it. The diamond and the square are
 drawn round the ring and the dot in a thinner line, so that what a cell runs on stays the mark's centre and what decides

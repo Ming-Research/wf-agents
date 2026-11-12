@@ -3,6 +3,8 @@
 //! but what the definition itself holds (titles, the words of the tests) and what the parser said of a file it could
 //! not read.
 
+use std::collections::BTreeMap;
+
 use decide::{BlockId, CellId, Condition as Applies, FlowFault, TestName};
 use flow::{BlockChange, CellChange, Compiled, FaultKind, Kind as CellKind, Limit as LimitOf, TestKind as KindOfTest};
 use serde::{Deserialize, Serialize};
@@ -118,11 +120,53 @@ pub struct Cell {
     pub preconditions: Vec<Test>,
     /// The blocks it reads, as the definition lists them.
     pub inputs: Vec<String>,
+    /// How it takes the blocks it reads, by the block's name, for each of them the definition says it of.
+    pub input: BTreeMap<String, Input>,
     /// The blocks it may write, as the definition lists them.
     pub outputs: Vec<String>,
     /// The blocks among those that every hand-in of it includes, as the definition lists them.
     pub must_write: Vec<String>,
     pub limits: Limits,
+}
+
+/// How a cell takes one of the blocks it reads.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Input {
+    /// What the context of the cell's session must hold of the block when the cell runs; none where the definition
+    /// does not say.
+    pub kind: Option<InputKind>,
+    /// Why the cell takes the block; none where the definition does not say.
+    pub why: Option<String>,
+}
+
+impl Input {
+    fn of(input: &flow::InputFile) -> Input {
+        Input {
+            kind: input.kind.map(InputKind::of),
+            why: input.why.clone(),
+        }
+    }
+}
+
+/// What the context must hold of an input: its latest version, the version the cell last consumed and the latest, or
+/// every version.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum InputKind {
+    Latest,
+    LastAndLatest,
+    All,
+}
+
+impl InputKind {
+    fn of(kind: flow::InputKind) -> InputKind {
+        match kind {
+            flow::InputKind::Latest => InputKind::Latest,
+            flow::InputKind::LastAndLatest => InputKind::LastAndLatest,
+            flow::InputKind::All => InputKind::All,
+        }
+    }
 }
 
 /// Who carries a cell out.
@@ -150,6 +194,8 @@ pub struct Block {
     pub name: String,
     /// The values of a choice; none for a block that is not one.
     pub values: Option<Vec<String>>,
+    /// What the block is, in a sentence; none where the definition does not say.
+    pub what: Option<String>,
     pub written_by: WrittenBy,
     pub read_by: ReadBy,
 }
@@ -250,6 +296,10 @@ pub enum What {
     },
     /// The cell says what the work is by the block, and it is not among its inputs.
     NotAnInput {
+        block: String,
+    },
+    /// The cell says how or why it takes the block, and it is not among its inputs.
+    TakenNotRead {
         block: String,
     },
     NoWriter {
@@ -450,6 +500,20 @@ pub enum Change {
         cell: String,
         block: String,
     },
+    /// What the context must hold of a block the cell reads; none where the definition does not say.
+    InputKind {
+        cell: String,
+        block: String,
+        before: Option<InputKind>,
+        after: Option<InputKind>,
+    },
+    /// Why the cell takes a block it reads; none where the definition does not say.
+    InputWhy {
+        cell: String,
+        block: String,
+        before: Option<String>,
+        after: Option<String>,
+    },
     CellLimit {
         cell: String,
         limit: Limit,
@@ -499,6 +563,12 @@ pub enum Change {
         before: bool,
         after: bool,
     },
+    /// What the block is, in a sentence; none where the definition does not say.
+    What {
+        block: String,
+        before: Option<String>,
+        after: Option<String>,
+    },
 }
 
 /// Which limit.
@@ -547,6 +617,9 @@ impl Flow {
                 condition: cell.applies.as_ref().map(|c| Condition::of(c, compiled)),
                 preconditions: cell.requires.iter().map(|t| Test::of(t, compiled)).collect(),
                 inputs: names(&cell.inputs),
+                input: (spec.input.iter())
+                    .map(|(block, input)| (block.to_string(), Input::of(input)))
+                    .collect(),
                 outputs: names(&cell.outputs),
                 must_write: names(&spec.must_write),
                 limits: Limits {
@@ -562,6 +635,7 @@ impl Flow {
             .map(|(name, block)| Block {
                 name: name.to_string(),
                 values: block.values.clone(),
+                what: block.what.clone(),
                 written_by: WrittenBy {
                     cells: names(&block.writers.cells),
                     people: block.writers.people,
@@ -685,6 +759,7 @@ impl What {
             F::NoSuchBlock { block } => What::NoSuchBlock { block },
             F::NotAnOutput { block } => What::NotAnOutput { block },
             F::NotAnInput { block } => What::NotAnInput { block },
+            F::TakenNotRead { block } => What::TakenNotRead { block },
             F::NoWriter { block } => What::NoWriter { block },
             F::NoReader { block } => What::NoReader { block },
             F::UnknownSource { block, source } => What::UnknownSource { block, source },
@@ -848,6 +923,26 @@ impl Change {
             CellChange::MustWriteRemoved(b) => Change::MustWriteRemoved { cell, block: block(b) },
             CellChange::DescribesAdded(b) => Change::DescribesAdded { cell, block: block(b) },
             CellChange::DescribesRemoved(b) => Change::DescribesRemoved { cell, block: block(b) },
+            CellChange::InputKind {
+                block: b,
+                before,
+                after,
+            } => Change::InputKind {
+                cell,
+                block: block(b),
+                before: before.map(InputKind::of),
+                after: after.map(InputKind::of),
+            },
+            CellChange::InputWhy {
+                block: b,
+                before,
+                after,
+            } => Change::InputWhy {
+                cell,
+                block: block(b),
+                before: before.clone(),
+                after: after.clone(),
+            },
             CellChange::Limit {
                 limit,
                 before: from,
@@ -886,6 +981,11 @@ impl Change {
                 after: after.clone(),
             },
             &BlockChange::Shown { before, after } => Change::Shown { block, before, after },
+            BlockChange::What { before, after } => Change::What {
+                block,
+                before: before.clone(),
+                after: after.clone(),
+            },
         }
     }
 }

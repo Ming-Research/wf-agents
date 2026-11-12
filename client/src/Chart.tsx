@@ -4,6 +4,11 @@
 // line is drawn leftwards along the row to each read it sends the work back to, in the way back's purple, so that
 // every way back shows at a glance. The blocks' names stay in place as the chart scrolls sideways, and the cells' heads
 // as it scrolls down, in the chart's own frame.
+//
+// A cell's column holds only marks, so it is only as wide as they are, and its head holds the cell's id and the first
+// word of its line. The width this leaves, right of the marks, is a column of words, one line to a row: what the block
+// is, or, on the rows of the cell chosen, what that cell says of the block. What a head has no room for, the cell's
+// title and when it runs, stands over that column for the cell under the pointer.
 
 import { type CSSProperties, type RefObject, useEffect, useRef, useState } from 'react';
 
@@ -19,9 +24,9 @@ import {
   type Spot,
   hasMark,
 } from './matrix';
-import { Edge, STATUS_WORDS, Sign, Tag } from './parts';
+import { Edge, STATUS_WORDS, Sign } from './parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from './sizes';
-import { conditionWords, testWords } from './words';
+import { cellSays, headFacts, runBy } from './words';
 
 /// What the owner chose: a cell, a block, or nothing.
 export type Chosen = { cell: string } | { block: string } | null;
@@ -119,11 +124,6 @@ export function Legend({ waysBack, comparing }: { waysBack: number; comparing: b
   );
 }
 
-/// Who runs a cell: an agent in its line, named by the line, or the engine.
-export function runBy(cell: Cell): string {
-  return cell.kind === 'agent' ? (cell.line ?? '') : 'engine';
-}
-
 /// A name that may break after each underscore, and nowhere else, when its column is narrow.
 export function Breakable({ name }: { name: string }) {
   const parts = name.split('_');
@@ -143,9 +143,15 @@ export function Breakable({ name }: { name: string }) {
   );
 }
 
-/// The widths the chart's columns take, in pixels: the names' column at first, and a cell's column at least, at most
-/// when the cells share the free width evenly, and at most when dragged. Kept in step with tokens.css.
+/// The widths the columns of a chart take, in pixels: the names' column at first and as dragged; and, in the history
+/// of a work, whose cells' columns hold words, a cell's column at least, at most when the cells share the free width
+/// evenly, and at most when dragged. Kept in step with tokens.css.
 export const WIDTHS = { names: 200, namesMin: 120, namesMax: 480, cellMin: 88, cellShare: 160, cellMax: 480 };
+
+/// The widths of the flow's chart, in pixels: a cell's column until the owner drags it, which is also the least it is
+/// dragged to, wide enough for its marks, a short id and the first word of its line; and the least the column of words
+/// keeps, the frame scrolling sideways below that.
+export const FLOW_WIDTHS = { cell: 56, words: 280 };
 
 /// How wide the table is: the whole width of its frame, the cells sharing evenly what the names' column and the cells
 /// whose width was dragged leave, each up to `cellShare`, so that a few cells on a wide window do not grow absurd; and
@@ -188,14 +194,13 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
   const [pointed, setPointed] = useState<number | null>(null);
   const frame = useRef<HTMLDivElement>(null);
   const [names, setNames] = useKeptWidth(WIDTH_KEYS.names, WIDTHS.namesMin, WIDTHS.namesMax);
-  const [widths, setWidth] = useKeptWidths(WIDTH_KEYS.cells, WIDTHS.cellMin, WIDTHS.cellMax);
+  const [widths, setWidth] = useKeptWidths(WIDTH_KEYS.flowCells, FLOW_WIDTHS.cell, WIDTHS.cellMax);
   useWheel(frame);
   const namesWidth = names ?? WIDTHS.names;
-  const size = tableWidth(
-    namesWidth,
-    cells.map((c) => c.id),
-    widths,
-  );
+  const widthOf = (id: string) => widths[id] ?? FLOW_WIDTHS.cell;
+  // The table takes the frame's whole width: the names' column and the cells' at theirs, the words the rest.
+  const taken = cells.reduce((sum, column) => sum + widthOf(column.id), namesWidth);
+  const size = { width: '100%', minWidth: taken + FLOW_WIDTHS.words };
 
   // What is chosen elsewhere (the list of changes, a panel) is brought into view in the frame.
   useEffect(() => {
@@ -207,21 +212,29 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
 
   const chosenCell = chosen && 'cell' in chosen ? chosen.cell : null;
   const chosenBlock = chosen && 'block' in chosen ? chosen.block : null;
+  const cellOf = (column: CellColumn | undefined) => (column ? ((column.cell ?? column.other) as Cell) : null);
+  // The cell whose words the rows show, and the cell the head of the words is about: the one under the pointer, or
+  // else the one chosen.
+  const sayingColumn = cells.find((c) => c.id === chosenCell);
+  const saying = cellOf(sayingColumn);
+  const about = (pointed !== null ? cells[pointed] : undefined) ?? sayingColumn;
+  const unpoint = () => setPointed(null);
 
   return (
-    <div className="frame" ref={frame} onMouseLeave={() => setPointed(null)}>
-      <table className="matrix" style={size as CSSProperties}>
+    <div className="frame" ref={frame} onMouseLeave={unpoint}>
+      <table className="matrix flow" style={size as CSSProperties}>
         <colgroup>
           <col style={{ width: namesWidth }} />
           {cells.map((column) => (
-            <col key={column.id} style={widths[column.id] !== undefined ? { width: widths[column.id] } : undefined} />
+            <col key={column.id} style={{ width: widthOf(column.id) }} />
           ))}
+          <col />
         </colgroup>
         <thead>
           <tr>
-            <th className="lead corner" scope="col" aria-label="Blocks down the side, cells across">
-              <span className="label corner-cells">Cells →</span>
+            <th className="lead corner" scope="col" aria-label="Blocks down the side, cells across" onMouseEnter={unpoint}>
               <span className="label corner-blocks">Blocks ↓</span>
+              <span className="label corner-cells">Cells →</span>
               <Edge
                 side="right"
                 label="Drag the width of the blocks' names"
@@ -238,20 +251,33 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
                 pointed={pointed === c}
                 onChoose={() => onChoose(chosenCell === column.id ? null : { cell: column.id })}
                 onPoint={() => setPointed(c)}
+                onUnpoint={unpoint}
+                width={widthOf(column.id)}
                 onWidth={(w) => setWidth(column.id, w)}
               />
             ))}
+            <WordsHead about={about} saying={saying} onPoint={unpoint} />
           </tr>
         </thead>
         <tbody>
           {blocks.map((row, r) => {
             const isChosen = chosenBlock === row.name;
+            const what = (row.block ?? row.other)?.what ?? '';
+            // What the chosen cell says of the block; of one it may write, with what the block is, which is what the
+            // cell is to hand in.
+            const says = saying ? cellSays(saying, row.name) : '';
+            const said = says && what && saying?.outputs.includes(row.name) ? `${says}: ${what}` : says;
             return (
               <tr
                 key={row.name}
                 className={`row status-${row.status} ${row.block ? '' : 'absent'} ${isChosen ? 'chosen' : ''}`}
               >
-                <BlockHead row={row} chosen={isChosen} onChoose={() => onChoose(isChosen ? null : { block: row.name })} />
+                <BlockHead
+                  row={row}
+                  chosen={isChosen}
+                  onChoose={() => onChoose(isChosen ? null : { block: row.name })}
+                  onPoint={unpoint}
+                />
                 {cells.map((column, c) => (
                   <SpotCell
                     key={column.id}
@@ -264,6 +290,13 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
                     onPoint={() => setPointed(c)}
                   />
                 ))}
+                <td
+                  className={`words ${said ? 'said' : saying ? 'beside' : ''} ${row.changed.has('what') ? 'changed-field' : ''}`}
+                  title={said || what || undefined}
+                  onMouseEnter={unpoint}
+                >
+                  {said || what}
+                </td>
               </tr>
             );
           })}
@@ -273,23 +306,27 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
   );
 }
 
-/// The head of a cell's column: its id and title, who runs it, and, cut to two lines, when it runs and what it waits
-/// for; the whole words are on the pointer's tip and in the cell's panel.
+/// The head of a cell's column: its id and the first word of its line, which is all a column as wide as its marks has
+/// room for. Its title, its line in full, when it runs and what it waits for are over the column of words while the
+/// pointer or the keyboard is on the column, and in the cell's panel; what a change did to the cell is the colour of
+/// the head's edge, which the legend names, and what it changed of those is marked where they are said.
 function CellHead(props: {
   column: CellColumn;
   chosen: boolean;
   pointed: boolean;
   onChoose: () => void;
   onPoint: () => void;
-  /// Sets the column's width as dragged, or, with none, lets the cells share the width again.
+  onUnpoint: () => void;
+  width: number;
+  /// Sets the column's width as dragged, or, with none, gives it back the width it starts at.
   onWidth: (width: number | null) => void;
 }) {
-  const { column, chosen, pointed, onChoose, onPoint, onWidth } = props;
-  const head = useRef<HTMLTableCellElement>(null);
+  const { column, chosen, pointed, onChoose, onPoint, onUnpoint, width, onWidth } = props;
   const cell = (column.cell ?? column.other) as Cell;
   const changed = (...kinds: Change['kind'][]) => (kinds.some((k) => column.changed.has(k)) ? 'changed-field' : '');
-  const when = cell.condition ? `runs when ${conditionWords(cell.condition)}` : '';
-  const waits = cell.preconditions.map(testWords).join('; ');
+  const facts = headFacts(cell);
+  const status = column.status === 'same' ? [] : [STATUS_WORDS[column.status]];
+  const name = [`${cell.id} ${cell.title}`, facts.by, facts.when, facts.waits, ...status].filter((f) => f !== null);
   return (
     <th
       scope="col"
@@ -298,33 +335,25 @@ function CellHead(props: {
       }`}
       data-key={`cell:${column.id}`}
       onMouseEnter={onPoint}
-      ref={head}
     >
-      <button type="button" className="head-button" aria-pressed={chosen} onClick={onChoose}>
+      <button
+        type="button"
+        className="head-button"
+        aria-pressed={chosen}
+        aria-label={name.join(', ')}
+        onClick={onChoose}
+        onFocus={onPoint}
+        onBlur={onUnpoint}
+      >
         <span className={`cell-id ${changed('cellMoved')}`}>{column.id}</span>
-        <span className={`cell-title ${changed('title')}`}>{cell.title}</span>
         <span className={`cell-line ${cell.kind === 'agent' ? 'line-name' : ''} ${changed('kind', 'line', 'readsOnly')}`}>
-          <Breakable name={runBy(cell)} />
+          {runBy(cell).split('_')[0]}
         </span>
-        {when && (
-          <span className={`cell-when ${changed('condition')}`} title={when}>
-            {when}
-          </span>
-        )}
-        {waits && (
-          <span
-            className={`cell-waits ${changed('preconditionAdded', 'preconditionRemoved')}`}
-            title={`waits until ${waits}`}
-          >
-            waits until {waits}
-          </span>
-        )}
-        <Tag status={column.status} />
       </button>
       <Edge
         side="right"
         label={`Drag the width of ${column.id}'s column`}
-        start={() => head.current?.getBoundingClientRect().width ?? WIDTHS.cellShare}
+        start={() => width}
         onDrag={onWidth}
         onReset={() => onWidth(null)}
       />
@@ -332,15 +361,61 @@ function CellHead(props: {
   );
 }
 
+/// The head of the column of words: the cell under the pointer, or else the cell chosen, by its id, its title, who
+/// runs it, when it runs and what it waits for, each marked where a change changed it; and under that what the column
+/// holds, which is what each block is until a cell is chosen, and then what that cell says of each block it has to do
+/// with.
+function WordsHead(props: { about: CellColumn | undefined; saying: Cell | null; onPoint: () => void }) {
+  const { about, saying, onPoint } = props;
+  const cell = about ? ((about.cell ?? about.other) as Cell) : null;
+  const facts = cell ? headFacts(cell) : null;
+  const changed = (...kinds: Change['kind'][]) => (kinds.some((k) => about?.changed.has(k)) ? 'changed-field' : '');
+  const whole = cell && facts ? [`${cell.id} ${cell.title}`, facts.by, facts.when, facts.waits].filter((f) => f !== null) : [];
+  return (
+    <th scope="col" className="words-head" onMouseEnter={onPoint}>
+      <span
+        className={`words-about ${about && !about.cell ? 'absent' : ''} ${about?.status === 'removed' ? 'taken-out' : ''}`}
+        title={whole.join(' · ') || undefined}
+      >
+        {cell && facts && (
+          <>
+            <span className="cell-id">{cell.id}</span> <span className={`cell-title ${changed('title')}`}>{cell.title}</span>
+            <span className="muted">
+              {' · '}
+              <span className={changed('kind', 'line', 'readsOnly')}>{facts.by}</span>
+              {facts.when !== null && (
+                <>
+                  {' · '}
+                  <span className={changed('condition')}>{facts.when}</span>
+                </>
+              )}
+              {facts.waits !== null && (
+                <>
+                  {' · '}
+                  <span className={changed('preconditionAdded', 'preconditionRemoved')}>{facts.waits}</span>
+                </>
+              )}
+            </span>
+          </>
+        )}
+      </span>
+      <span className="label words-label">
+        {saying ? `What ${saying.id} says of each block` : 'What each block is'}
+      </span>
+    </th>
+  );
+}
+
 /// The name of a block at the left of its row, with its signs, the source outside the work that writes it and the
 /// values of a choice after it. What a change did to it is the colour of its edge, which the legend names, so that the
 /// name keeps the room.
-function BlockHead({ row, chosen, onChoose }: { row: BlockRow; chosen: boolean; onChoose: () => void }) {
+function BlockHead(props: { row: BlockRow; chosen: boolean; onChoose: () => void; onPoint: () => void }) {
+  const { row, chosen, onChoose, onPoint } = props;
   const block = (row.block ?? row.other) as Block;
   const changed = (kind: 'values' | 'people' | 'outside' | 'shown') => (row.changed.has(kind) ? 'changed-field' : '');
   const status = row.status === 'same' ? '' : `, ${STATUS_WORDS[row.status]}`;
   return (
-    <th scope="row" className="lead block-head" data-key={`block:${row.name}`}>
+    <th scope="row" className="lead block-head" data-key={`block:${row.name}`} onMouseEnter={onPoint}>
       <button
         type="button"
         className="head-button"

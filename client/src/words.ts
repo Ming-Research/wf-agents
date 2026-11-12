@@ -1,7 +1,7 @@
 // The page's words for what the interface gives as data: conditions, named tests, limits, faults and changes. Each is
 // worded here once, and every part of the page that shows one takes its words from here.
 
-import type { Block, Change, Condition, Fault, Kind, LimitName, Test } from './api';
+import type { Block, Cell, Change, Condition, Fault, Flow, InputKind, Kind, LimitName, Test } from './api';
 
 /// What a named test holds on, from the blocks it reads: "ci is not red", "any of needs_design, changes_tree is yes",
 /// "none of verdict, deep_verdict is no, not counting what a cell skipped now wrote".
@@ -97,6 +97,8 @@ export function faultWords(fault: Fault): string {
       return `The cell must write ${w.block} every time, but ${w.block} is not among the blocks it may write.`;
     case 'notAnInput':
       return `The cell says what the work is by ${w.block}, but ${w.block} is not among the blocks it reads.`;
+    case 'takenNotRead':
+      return `The cell says how it takes ${w.block}, but ${w.block} is not among the blocks it reads.`;
     case 'noWriter':
       return `Nothing writes ${w.block}: no cell of the order, no person and nothing outside.`;
     case 'noReader':
@@ -164,6 +166,7 @@ export function placeOf(change: Change): Place {
     case 'note':
     case 'outside':
     case 'shown':
+    case 'what':
       return { on: 'block', block: change.block };
     default:
       return { on: 'cell', cell: change.cell };
@@ -237,6 +240,10 @@ export function changeWords(change: Change): ChangeWords {
       return { what: 'Says what the work is by', before: '', after: c.block };
     case 'describesRemoved':
       return { what: 'Says what the work is by', before: c.block, after: '' };
+    case 'inputKind':
+      return { what: `Takes ${c.block} as`, before: inputKindWords(c.before), after: inputKindWords(c.after) };
+    case 'inputWhy':
+      return { what: `Reads ${c.block} because`, before: c.before ?? 'not said', after: c.after ?? 'not said' };
     case 'cellLimit':
       return { what: `Limit of ${LIMIT_WORDS[c.limit]}`, before: `${c.before}`, after: `${c.after}` };
     case 'effort':
@@ -257,5 +264,80 @@ export function changeWords(change: Change): ChangeWords {
       return { what: 'Written by the outside', before: c.before ?? 'no', after: c.after ?? 'no' };
     case 'shown':
       return { what: 'Shown on the page', before: yesNo(c.before), after: yesNo(c.after) };
+    case 'what':
+      return { what: 'What it is', before: c.before ?? 'not said', after: c.after ?? 'not said' };
   }
+}
+
+/// The words for what the context must hold of an input.
+export function inputKindWords(kind: InputKind | null): string {
+  switch (kind) {
+    case 'latest':
+      return 'the latest';
+    case 'lastAndLatest':
+      return 'the last and the latest';
+    case 'all':
+      return 'all of it';
+    case null:
+      return 'not said';
+  }
+}
+
+/// When a block is there for a cell to read, where that is not plain from who writes it: a cell before the reader
+/// that runs only under a condition, or that need not write the block each time. Empty where there is nothing to add.
+export function thereWhen(flow: Flow, reader: string, block: Block): string {
+  const at = flow.cells.findIndex((c) => c.id === reader);
+  const parts: string[] = [];
+  for (const id of block.writtenBy.cells) {
+    const i = flow.cells.findIndex((c) => c.id === id);
+    if (i < 0 || i >= at) continue;
+    const writer = flow.cells[i];
+    if (writer.condition !== null) parts.push(`only when ${id} runs (${conditionWords(writer.condition)})`);
+    else if (!writer.mustWrite.includes(block.name)) parts.push(`if ${id} writes it`);
+  }
+  return parts.join('; ');
+}
+
+/// What a cell says of a block, on one line, for the chart's column of words: of a block it reads, how it takes it and
+/// why; of one it may write, whether each time, and whether it brings up to date what it read; of one whose value says
+/// whether it runs or what it waits for, that. Empty where the cell has nothing to do with the block.
+export function cellSays(cell: Cell, block: string): string {
+  const parts: string[] = [];
+  const reads = cell.inputs.includes(block);
+  if (reads) {
+    const taken = cell.input[block];
+    const how = taken?.kind ? `takes ${inputKindWords(taken.kind)}` : 'reads';
+    parts.push(taken?.why ? `${how}: ${taken.why}` : how);
+  }
+  if (cell.outputs.includes(block)) {
+    const write = cell.mustWrite.includes(block) ? 'writes every time' : 'may write';
+    parts.push(reads ? `${write}, ${BROUGHT_UP_TO_DATE}` : write);
+  }
+  const condition = cell.condition;
+  if (condition !== null && (condition.on === 'block' ? condition.block === block : condition.test.reads.includes(block))) {
+    parts.push(`runs when ${conditionWords(condition)}`);
+  }
+  for (const test of cell.preconditions) {
+    if (test.reads.includes(block)) parts.push(`waits until ${testWords(test)}`);
+  }
+  return parts.join('; ');
+}
+
+/// What is said of a block a cell both reads and may write: what it hands in is the block it read, brought up to
+/// date.
+export const BROUGHT_UP_TO_DATE = 'brought up to date';
+
+/// Who runs a cell: an agent in its line, named by the line, or the engine.
+export function runBy(cell: Cell): string {
+  return cell.kind === 'agent' ? (cell.line ?? '') : 'engine';
+}
+
+/// What a cell's head on the chart has no room to say besides its title, each apart so that a change of one can be
+/// marked: who runs it, when it runs, and what it waits for; none of the last two where the cell has none.
+export function headFacts(cell: Cell): { by: string; when: string | null; waits: string | null } {
+  return {
+    by: cell.kind === 'agent' ? `${runBy(cell)} line` : runBy(cell),
+    when: cell.condition ? `runs when ${conditionWords(cell.condition)}` : null,
+    waits: cell.preconditions.length > 0 ? `waits until ${cell.preconditions.map(testWords).join('; ')}` : null,
+  };
 }

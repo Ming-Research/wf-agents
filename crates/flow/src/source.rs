@@ -46,6 +46,24 @@ pub fn read(dir: &Path) -> io::Result<Source> {
     Ok(Source { flow, cells })
 }
 
+impl Source {
+    /// The flow these files make, each by its name and its text, as [`read`] takes the files of a directory:
+    /// `flow.toml`, and every other file whose name ends in `.toml` as the file of the cell its name gives. Other files
+    /// are left out. None where there is no `flow.toml` among them.
+    pub fn of_files(files: impl IntoIterator<Item = (String, String)>) -> Option<Source> {
+        let mut flow = None;
+        let mut cells = BTreeMap::new();
+        for (name, text) in files {
+            if name == FLOW_FILE {
+                flow = Some(text);
+            } else if let Some(id) = name.strip_suffix(".toml") {
+                cells.insert(id.to_string(), text);
+            }
+        }
+        Some(Source { flow: flow?, cells })
+    }
+}
+
 /// `flow.toml`: what belongs to the flow as a whole.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -112,6 +130,9 @@ pub struct BlockFile {
     /// The owner's page reads the block, so it needs no other reader.
     #[serde(default)]
     pub shown: bool,
+    /// What the block is, in a sentence, for whoever reads the flow: the owner's page shows it with the block and with
+    /// each cell that reads or writes it.
+    pub what: Option<String>,
 }
 
 /// A named test as written: a test of the values of blocks of the work itself.
@@ -150,6 +171,9 @@ pub struct CellFile {
     /// The blocks the cell reads.
     #[serde(default)]
     pub inputs: Vec<String>,
+    /// How the cell takes a block it reads, by the block's name: each a block among its inputs.
+    #[serde(default)]
+    pub input: BTreeMap<String, InputFile>,
     /// The blocks the cell may write.
     #[serde(default)]
     pub outputs: Vec<String>,
@@ -168,6 +192,40 @@ pub struct CellFile {
     /// the code.
     #[serde(default)]
     pub takes_main: bool,
+}
+
+/// How a cell takes one of the blocks it reads, as written. The owner's page shows it; what a round is given does
+/// not go by it yet.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InputFile {
+    /// What the context of the cell's session must hold of the block when the cell runs.
+    pub kind: Option<InputKind>,
+    /// Why the cell takes the block: what its agent does with it, in a sentence.
+    pub why: Option<String>,
+}
+
+/// What the context of a cell's session must hold of an input when the cell runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InputKind {
+    /// Only the latest version.
+    Latest,
+    /// The version the cell last consumed and the latest, so that the agent sees what changed between them.
+    LastAndLatest,
+    /// Every version.
+    All,
+}
+
+impl InputKind {
+    /// The kind's name, as it is written.
+    pub fn name(self) -> &'static str {
+        match self {
+            InputKind::Latest => "latest",
+            InputKind::LastAndLatest => "last_and_latest",
+            InputKind::All => "all",
+        }
+    }
 }
 
 /// The reasoning efforts an agent's round may run at, as the command line names them.

@@ -749,6 +749,7 @@ mod tests {
             act: None,
             must_write: Vec::new(),
             describes: Vec::new(),
+            input: std::collections::BTreeMap::new(),
             returns: 3,
             calls: 40,
             effort,

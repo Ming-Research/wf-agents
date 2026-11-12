@@ -55,6 +55,7 @@ function flowOf(
     condition: c.condition ?? null,
     preconditions: c.preconditions ?? [],
     inputs: c.inputs,
+    input: {},
     outputs: c.outputs,
     mustWrite: c.mustWrite ?? [],
     limits: LIMITS,
@@ -65,6 +66,7 @@ function flowOf(
     .map((b) => ({
       name: b,
       values: blocks[b].values ?? null,
+      what: null,
       writtenBy: {
         cells: all.filter((c) => c.outputs.includes(b)).map((c) => c.id),
         people: blocks[b].people ?? false,
