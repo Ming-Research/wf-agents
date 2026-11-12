@@ -8,11 +8,8 @@ not pick at its words.
 The code is the result: it shows how a thing is done. The design tree holds why, where the code itself does not make
 the reason plain; that the code shows what an entry says to do is no ground for leaving the entry out.
 
-Comments are not the code: what the code shows does not include what a comment says. A reason that concerns one
-place in the code and no other is a comment at that place, where whoever would undo it must pass, and is not written
-here as well. One place is one file of the code. What belongs in the tree is written in the tree, and everything else
-that is worth saying goes in a comment. Comments may say as much as is useful, and never go against the tree: where a
-comment and an entry differ, the entry holds and the comment is put right.
+Comments are not the code: what the code shows does not include what a comment says. Comments may say anything, and
+never go against the tree: where a comment and an entry differ, the entry holds and the comment is put right.
 
 The tree is `design/`. It holds four kinds of thing:
 
