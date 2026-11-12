@@ -265,13 +265,13 @@ describe('the column of words', () => {
     expect(words(page)).toEqual({
       x: 'takes the latest: It is what to judge.',
       y: 'runs when y is yes',
-      said: 'reads; may write, brought up to date',
+      said: 'reads; may write, brought up to date: What was said of it.',
     });
     expect(page.querySelector('.words-label')?.textContent).toBe('What b says of each block');
     expect(page.querySelector('.words-about')?.textContent).toBe('b Second · engineer line · runs when y is yes');
 
     click(heads[0]);
-    expect(words(page)).toEqual({ x: 'writes every time', y: 'may write', said: 'What was said of it.' });
+    expect(words(page)).toEqual({ x: 'writes every time: The plan.', y: 'may write', said: 'What was said of it.' });
     expect(rowOf(page, 'said').querySelector('.words')?.className).toContain('beside');
   });
 

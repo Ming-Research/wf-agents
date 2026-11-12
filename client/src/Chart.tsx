@@ -163,7 +163,7 @@ export const WIDTHS = { names: 200, namesMin: 120, namesMax: 480, cellMin: 88, c
 
 /// The widths of the flow's chart, in pixels: a cell's column, as wide as its id, the first word of its line and its
 /// marks need; and the least the column of words keeps, the frame scrolling sideways below that.
-export const FLOW_WIDTHS = { cell: 48, words: 280 };
+export const FLOW_WIDTHS = { cell: 56, words: 280 };
 
 /// How wide the table is: the whole width of its frame, the cells sharing evenly what the names' column and the cells
 /// whose width was dragged leave, each up to `cellShare`, so that a few cells on a wide window do not grow absurd; and
@@ -267,8 +267,11 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
         <tbody>
           {blocks.map((row, r) => {
             const isChosen = chosenBlock === row.name;
-            const said = saying ? cellSays(saying, row.name) : '';
             const what = (row.block ?? row.other)?.what ?? '';
+            // What the chosen cell says of the block; of one it may write, with what the block is, which is what the
+            // cell is to hand in.
+            const says = saying ? cellSays(saying, row.name) : '';
+            const said = says && what && saying?.outputs.includes(row.name) ? `${says}: ${what}` : says;
             return (
               <tr
                 key={row.name}
