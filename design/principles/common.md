@@ -73,3 +73,7 @@ Why: A number lets a later change judge whether the reason still holds, and a gu
 ### principle owner-never-needs-the-command-line
 Everything the owner needs to see or do is on the page; the command line is never the only way, and what only another program can do is shown as a command to copy.
 Why: The owner does not like using a command line, and editing the configuration by hand and the database by command is the path that failed; a flow change's cost once came only from the command line. (Article 8)
+
+### principle numbers-say-what-they-number
+An item's number is written #n, a work's Wn and an observation's On, on the page, to the agents and by the engine alike.
+Why: The same bare number may be an item's, a work's or an observation's, and only what stands before it tells which.

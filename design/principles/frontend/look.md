@@ -56,3 +56,16 @@ Why: A link is known by its colour, and a muted link among facts cannot be told 
 ### principle one-line-cells
 A cell of a table stays on one line, cut at the edge of its column and shown whole on pointing at it.
 Why: A table is read across many rows at once, and rows that wrap slow the reading.
+
+### principle no-raw-values-in-styles
+A style of the page writes no raw value of a colour, a size or a space: it uses the look's named values, and the
+checks a change passes before it merges hold it to that.
+Why: So that no change goes round the look.
+
+### principle an-agents-heading-is-small
+A heading in what an agent wrote, of whatever level, is drawn as a small heading.
+Why: An agent's heading must not stand above the page's own.
+
+### principle marks-are-drawn-not-typed
+A mark is a drawn sign, never a character such as a tick, a triangle or a circle.
+Why: A character's size and weight follow the font around it, so the same mark would differ from one text to the next.
