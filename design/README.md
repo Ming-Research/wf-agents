@@ -19,16 +19,21 @@ comment and an entry differ, the entry holds and the comment is put right.
 The tree is `design/`. It holds four kinds of thing:
 
 - the constitution, `constitution.md`;
-- the principles, in `principles/`, kept by what they govern: the whole system, or one area of it;
-- the decisions, in `decisions/`, one file for each ability or component of the system, named for it, under the area
-  it belongs to;
+- the principles, in `principles/`;
+- the decisions, in `decisions/`;
 - the documents, in `docs/`, one file for each design that holds only as a whole.
+
+`principles/` and `decisions/` are each a tree of concepts: a concept, its narrower concepts under it, as deep as is
+useful. The tree follows the concepts of the design and not the layout of the code. An entry is written once, at the
+lowest concept that holds everything it concerns: what concerns one concept is in that concept's file, and what is
+common to several is in the file of the concept that holds them, up to the whole system. A concept's file is named
+for it, and its narrower concepts are in a directory of the same name beside it.
 
 ## How it is used
 
 An agent taking the work up in another session reads the code for how, and the tree for why. It reads the
-constitution whole, and whole the principles of the whole system and of each area its work is in; then the document
-of each design it works on, and the decisions of each ability or component its work changes or relies on.
+constitution whole; then the principles and the decisions from the top of each tree down to each concept its work
+changes or relies on, whole; and the document of each design it works on.
 
 Where the right solution needs a decision changed, the work changes it. An agent that finds the constitution, a
 principle or a document missing or wrong, or whose right solution breaks one, says so and proposes the change.
@@ -90,9 +95,8 @@ Why: <the reason, in one or two sentences; where the point is a way turned down,
 ```
 
 - An entry holds one rule: one that is about one thing and also binds every thing of a kind is two entries.
-- A decision that concerns more than one component is written once, in the tree's file of decisions of the component
-  whose code would be changed wrongly. The file of decisions of each other component names it in one line that points
-  to it.
+- A decision is written at the concept an agent would be working on when it changed the code wrongly; where that
+  could be more than one, at the concept that holds them.
 - No identifier from the code (a function, a type, a file). The system's own terms, a field or a value of a format an
   agent meets, a setting's key, and the names of principles and decisions may be used.
 - No word that dates the entry. What stands behind it (when it was settled, what was tried) is in the pull request of
