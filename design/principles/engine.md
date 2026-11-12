@@ -45,3 +45,7 @@ Why: Without that the size of the store grows very fast.
 ### principle a-look-brings-back-little
 What the assistant reads of the system is as small as it can be at each look without losing what matters: every command's output has a bound that a test holds, says what it left out and how to get it, and is never raw JSON.
 Why: The assistant's context must stay on what it discusses with the owner: a look that brings back more than is needed fills it (Article 3), and one that leaves out what matters leaves it to guess (Article 2).
+
+### principle engine-knows-no-cell
+Neither the engine's code nor the page's names a particular cell or a particular block: each carries out, and draws, whatever the flow's definition holds.
+Why: What is in the definition the owner can read on the chart and the compiler can check before anything runs (Article 7; principle compile-before-run).
