@@ -13,8 +13,9 @@ Content takes the full width of the window: no centred column, and no cards roun
 Why: A chart and a table need every column (principle room-goes-to-content).
 
 ### principle few-sizes-two-weights
-Text has four sizes and two weights, and no others: one size for labels and tags, one for secondary words and everything
-in monospace, one for body text, and one, semibold, for the title of the page and of a panel. Numbers are tabular.
+Text has four sizes and two weights, and no others: one size for labels and tags, one for secondary words and
+everything in monospace, one for body text, and one, semibold, for the title of the page and of a panel. Numbers are
+tabular.
 Why: A few sizes far enough apart read as an order at a glance.
 
 ### principle monospace-for-names-and-values
@@ -47,3 +48,11 @@ Why: Cut words can then be read in full where they stand.
 ### principle say-a-thing-once
 What belongs to the whole view is said in the view's line, and a panel says only what differs from it.
 Why: Each thing has one place and is shown there once (Article 8).
+
+### principle links-in-the-link-colour
+A link is in the link colour wherever it stands, in small text and among a row of facts as well, and is never muted.
+Why: A link is known by its colour, and a muted link among facts cannot be told from them.
+
+### principle one-line-cells
+A cell of a table stays on one line, cut at the edge of its column and shown whole on pointing at it.
+Why: A table is read across many rows at once, and rows that wrap slow the reading.
