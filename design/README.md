@@ -5,8 +5,10 @@ not pick at its words.
 
 ## What the tree is
 
-The code is the result: it shows how a thing is done. The design tree holds why, where the code cannot show it. An
-agent taking the work up in another session reads the code for how, and the tree for why.
+The code is the result: it shows how a thing is done. The design tree holds why, where the code cannot show it. The
+code shows a reason only where a comment says it, and that the code shows what an entry says to do is no ground for
+leaving the entry out. The tree holds no more than is needed: what the system itself refuses, so that it would not
+build, start or pass its checks, and what any agent would do unasked, is not written.
 
 The tree is `design/`. It holds four kinds of thing:
 
@@ -18,44 +20,32 @@ The tree is `design/`. It holds four kinds of thing:
 
 ## How it is used
 
-An agent reads the constitution whole, and whole the principles of the whole system and of each area its work is in;
-then the document of each design it works on, and the decisions of each ability or component its work changes or
-relies on.
+An agent taking the work up in another session reads the code for how, and the tree for why. It reads the
+constitution whole, and whole the principles of the whole system and of each area its work is in; then the document
+of each design it works on, and the decisions of each ability or component its work changes or relies on.
 
-Where the right solution needs a decision changed, the work changes it. The constitution, a principle or a document
-is the owner's: an agent that finds one missing or wrong, or whose right solution breaks one, says so, and the owner
-decides.
-
-## What needs an entry
-
-An entry is written only where all of this holds.
-
-- It gives a reason, and the code does not show that reason. What keeps an entry out is that the code shows its
-  reason, never that the code shows what it says to do; and the code shows a reason only where a comment says it.
-- The reason is not one place's. A reason that concerns one file of the code is a comment in that file, where whoever
-  would undo it must pass, and is not written here as well.
-- Going against it would pass unnoticed. What the system itself refuses, so that it would not build, start or pass
-  its checks, and what any agent would do unasked, need no entry.
-- It is not said already. What the constitution, these rules or a document says is not written again; an entry that
-  adds to one of them names what it rests on.
+Where the right solution needs a decision changed, the work changes it. An agent that finds the constitution, a
+principle or a document missing or wrong, or whose right solution breaks one, says so and proposes the change.
 
 ## The four kinds
 
 ### The constitution
 
 The constitution holds what the project is for and its lasting values. Every principle and every decision comes from
-it, and it decides where two of them pull apart. An entry may rest on one of its articles by naming it. Only the owner
+it, and it decides where two of them pull apart. An entry may rest on one of its articles by naming it. The owner
 sets it and changes it.
 
 ### A principle
 
-A principle is a rule that whatever is made later must follow. It speaks of every thing of a kind, those not yet made
-included, or of every time a kind of work is done; the kind may be wide or narrow. A rule for everything in one part
-of the system, what is added to that part later included, speaks of a kind and is a principle. What speaks of one
-thing that is there, and binds nothing made later, is a decision of that thing.
+A principle is a rule that whatever is made later must follow, with its reason. It speaks of every thing of a kind,
+those not yet made included, or of every time a kind of work is done; the kind may be wide or narrow. A rule for
+everything in one part of the system, what is added to that part later included, speaks of a kind and is a principle.
 
-Principles are the owner's and may come before the code. Only the owner adds or changes one. No decision excuses a
-breach of a principle.
+It is not a principle where it speaks of one thing that is there and binds nothing made later: that is a decision.
+Nor where the constitution or a document already says it: one that adds to an article or to a document says only
+what is new, and names what it rests on.
+
+Principles are the owner's and may come before the code. No decision excuses a breach of a principle.
 
 ### A decision
 
@@ -65,14 +55,17 @@ and would so change the code wrongly; which is one of three things: a way that w
 leaves no trace in the code; something done on purpose that looks like a fault or an omission, which a later agent
 would mend; a relation between two places that neither of them shows.
 
+It is not a decision where its reason concerns one file of the code: that is a comment in that file, where whoever
+would undo it must pass, and it is not written here as well. Nor where a principle already says it.
+
 A decision that concerns two components is written in the file of the one whose code would be changed wrongly, and
 named in the other's by a line that points to it.
 
 ### A document
 
 A document is a design that holds only as a whole: its parts cannot be told one at a time, and an agent given any one
-of them alone would change the system wrongly. It is complete and consistent with itself. It is the owner's and may
-come before the code, as a principle may: only the owner adds or changes one.
+of them alone would change the system wrongly. It is complete and consistent with itself, and may come before the
+code, as a principle may.
 
 A sentence of a document that binds only work on that design stays in the document; it is made a principle, in one
 sentence that names the document, only where it must bind work that never opens it. A principle or a decision that
@@ -99,10 +92,10 @@ Why: <the reason, in one or two sentences; where the point is a way turned down,
 
 A decision is added by the work that makes it true: its plan says it, its change writes it, and its review holds it to
 these rules. A change that makes a decision untrue rewrites or deletes it in the same work, and an entry found not to
-need writing is deleted by the work that finds it. The files of decisions hold only what the code on the branch the
+belong here is deleted by the work that finds it. The files of decisions hold only what the code on the branch the
 works merge into does. A design for one component that the code does not yet follow waits in `pending-design.md`, and
 so does what the code does not yet do of a document.
 
 A principle and a decision, or two decisions of one file, that cannot both hold are a fault of the tree. A file of
-decisions that grows long is itself a sign: what no longer needs an entry is deleted from it, and decisions in more
+decisions that grows long is itself a sign: what no longer belongs here is deleted from it, and decisions in more
 than one file that rest on one reason are put to the owner as one principle.
