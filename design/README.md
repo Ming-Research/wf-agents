@@ -42,9 +42,9 @@ principle or a document missing or wrong, or whose right solution breaks one, sa
 
 ### The constitution
 
-The constitution holds what the project is for and its lasting values. Every principle and every decision comes from
-it, and it decides where two of them pull apart. An entry may rest on one of its articles by naming it. The owner
-sets it and changes it.
+The constitution holds what the project is for and its lasting values. No principle, decision or document goes
+against it, and it decides where two of them pull apart. An entry may rest on one of its articles by naming it. The
+owner sets it and changes it.
 
 ### A principle
 
