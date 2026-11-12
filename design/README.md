@@ -56,17 +56,23 @@ leaves no trace in the code; something done on purpose that looks like a fault o
 would mend; a relation between two places that neither of them shows.
 
 It is not a decision where its reason concerns one file of the code: that is a comment in that file, where whoever
-would undo it must pass, and it is not written here as well. Nor where a principle already says it.
+would undo it must pass, and it is not written here as well. Nor where a principle already says it. A decision is
+never ahead of the code: it says what the code does, and what is yet to be built is a document's to say.
 
 ### A document
 
 A document is a design that holds only as a whole: its parts cannot be told one at a time, and an agent given any one
-of them alone would change the system wrongly. It is complete and consistent with itself, and may come before the
-code, as a principle may.
+of them alone would change the system wrongly. It is complete and consistent with itself.
+
+A document may be ahead of the code: a design is there to guide what is built after it. Where the two differ, the
+document says where the system is going, and an agent builds toward it and does not change the document to match the
+code.
 
 A principle or a decision that holds only within what a document covers belongs to the document, and is not written
 as an entry of its own. One that reaches beyond it is an entry, which names the document and does not repeat it. A
-document goes against no principle and no decision outside it.
+document goes against no principle outside it. Where it is ahead of the code, a decision may still say what the code
+does, until the work that builds that part of the document rewrites or deletes it: that is what is left to build, and
+no fault.
 
 ## Writing an entry
 
