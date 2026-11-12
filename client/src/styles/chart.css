@@ -175,6 +175,65 @@ tr.row.chosen > .block-head {
   overflow-wrap: break-word;
 }
 
+/* The flow's chart. A cell's column is as wide as its marks, so its head holds the id and, under it, the first word of
+   its line, both in the middle. The corner's two labels stand on one line. */
+.flow thead th {
+  vertical-align: middle;
+}
+
+.flow .cell-head .head-button {
+  align-items: center;
+  gap: 0;
+  padding: var(--space-4) var(--space-2);
+}
+
+.flow .cell-id {
+  color: var(--text);
+}
+
+.flow .cell-line {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow .corner-blocks {
+  position: static;
+  float: left;
+}
+
+/* The column of words, right of the marks, which takes the width the cells leave: one line to a row, cut where it is
+   longer, whole on the pointer's tip. On the rows of the cell chosen it holds what that cell says of the block, and
+   what the other blocks are is then muted beside it. */
+.matrix .words,
+.matrix thead .words-head {
+  padding: 0 var(--space-8);
+  border-left: var(--hairline) solid var(--line);
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.words.beside {
+  color: var(--muted);
+}
+
+/* Over the words: the cell under the pointer, or else the cell chosen, on one line; and under it what the column
+   holds. */
+.words-about,
+.words-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.words-about {
+  min-height: calc(var(--size-body) * var(--line-height));
+}
+
 /* A block's name at the left of its row, its signs, the source outside that writes it and the values of a choice after
    it. */
 .block-head {

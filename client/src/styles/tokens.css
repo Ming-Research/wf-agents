@@ -49,7 +49,7 @@
   --chart-arrow: 4px;
   --chart-arrow-length: 6px;
   /* How far a block's row stays under the frame's top when it is brought into view: the cells' heads are over it. */
-  --chart-head-room: 140px;
+  --chart-head-room: 48px;
 
   /* The works page: how high an opened content grows in the panel before it scrolls. */
   --content-height: 320px;

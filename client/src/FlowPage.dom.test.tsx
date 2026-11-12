@@ -49,6 +49,10 @@ function taskChange(was: string, is: string): HTMLElement {
   return page.querySelector('.changes .change') as HTMLElement;
 }
 
+/// What the buttons of the cells' heads are called: each cell's id, title, line, and when it runs.
+const headNames = (page: HTMLElement) =>
+  [...page.querySelectorAll('thead .cell-head .head-button')].map((b) => b.getAttribute('aria-label'));
+
 /// The row of a block.
 const rowOf = (page: HTMLElement, block: string) =>
   [...page.querySelectorAll('tbody tr')].find((tr) => tr.querySelector('.block-name')?.textContent === block) as HTMLElement;
@@ -56,14 +60,7 @@ const rowOf = (page: HTMLElement, block: string) =>
 describe('the chart', () => {
   it('shows the blocks down the side, the cells across in the order of the walk, and what each cell does with each block', () => {
     const page = draw({ state: 'compiled', flow: small() });
-    expect(texts(page, 'thead .cell-title')).toEqual([
-      'Plan',
-      'Judge the plan',
-      'Design',
-      'Answer comments',
-      'Check with the latest main',
-      'Merge',
-    ]);
+    expect(texts(page, 'thead .cell-head .cell-id')).toEqual(['plan', 'judge', 'design', 'answer', 'check', 'merge']);
     expect(texts(page, 'tbody .block-name')).toEqual([
       'request',
       'plan',
@@ -88,12 +85,20 @@ describe('the chart', () => {
       'design runs only by the value of needs_design',
     ]);
     expect(rowOf(page, 'needs_design').querySelector('.block-values')?.textContent).toBe('yes|no');
-    const heads = [...page.querySelectorAll('thead .cell-head')];
-    expect(heads[2].querySelector('.cell-when')?.textContent).toBe('runs when needs_design is yes');
-    expect(heads[3].querySelector('.cell-when')?.textContent).toBe('runs when The item has a comment (commented is yes)');
-    const waits = 'waits until The owner confirmed the plan (confirmed is yes)';
-    expect(heads[3].querySelector('.cell-waits')?.textContent).toBe(waits);
-    expect(heads[3].querySelector('.cell-waits')?.getAttribute('title')).toBe(waits);
+    // A head holds the id and the line alone; the rest is what its button is called.
+    expect(texts(page, 'thead .cell-head .head-button')).toEqual([
+      'planengineer',
+      'judgereview',
+      'designengineer',
+      'answerengineer',
+      'checkengine',
+      'mergeengine',
+    ]);
+    expect(headNames(page)[2]).toBe('design Design, engineer line, runs when needs_design is yes');
+    expect(headNames(page)[3]).toBe(
+      'answer Answer comments, engineer line, runs when The item has a comment (commented is yes), ' +
+        'waits until The owner confirmed the plan (confirmed is yes)',
+    );
     // The one way back: judge writes the opinions plan reads, and the arrow is at plan's read.
     expect(page.querySelector('.legend')?.textContent).toContain('way back (1)');
     const arrows = [...page.querySelectorAll('.arrow')];
@@ -225,6 +230,65 @@ describe('the chart', () => {
   });
 });
 
+describe('the column of words', () => {
+  const flow = () =>
+    flowOf(
+      [
+        cell('a', { title: 'First', outputs: ['x', 'y'], mustWrite: ['x'] }),
+        cell('b', {
+          title: 'Second',
+          condition: { on: 'block', block: 'y', value: 'yes' },
+          inputs: ['x', 'said'],
+          input: { x: { kind: 'latest', why: 'It is what to judge.' } },
+          outputs: ['said'],
+        }),
+      ],
+      { x: { what: 'The plan.' }, y: { values: ['yes', 'no'] }, said: { people: true, what: 'What was said of it.' } },
+    );
+  /// The words of each row, by its block.
+  const words = (page: HTMLElement) =>
+    Object.fromEntries(
+      [...page.querySelectorAll('tbody tr')].map((tr) => [
+        tr.querySelector('.block-name')?.textContent,
+        tr.querySelector('.words')?.textContent,
+      ]),
+    );
+
+  it('says what each block is, and of the cell chosen what it says of each block it has to do with', () => {
+    const page = draw({ state: 'compiled', flow: flow() });
+    expect(words(page)).toEqual({ x: 'The plan.', y: '', said: 'What was said of it.' });
+    expect(page.querySelector('.words-label')?.textContent).toBe('What each block is');
+    expect(page.querySelector('.words-about')?.textContent).toBe('');
+
+    const heads = page.querySelectorAll('thead .cell-head .head-button');
+    click(heads[1]);
+    expect(words(page)).toEqual({
+      x: 'takes the latest: It is what to judge.',
+      y: 'runs when y is yes',
+      said: 'reads; may write, brought up to date',
+    });
+    expect(page.querySelector('.words-label')?.textContent).toBe('What b says of each block');
+    expect(page.querySelector('.words-about')?.textContent).toBe('b Second · engineer line · runs when y is yes');
+
+    click(heads[0]);
+    expect(words(page)).toEqual({ x: 'writes every time', y: 'may write', said: 'What was said of it.' });
+    expect(rowOf(page, 'said').querySelector('.words')?.className).toContain('beside');
+  });
+
+  it('names over the words the cell under the pointer, and else the cell chosen', () => {
+    const page = draw({ state: 'compiled', flow: flow() });
+    const heads = page.querySelectorAll('thead .cell-head .head-button');
+    const point = (at: Element | null) => act(() => void at?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+    click(heads[1]);
+    point(heads[0]);
+    expect(page.querySelector('.words-about')?.textContent).toBe('a First · engineer line');
+    // The rows still say what the chosen cell says.
+    expect(page.querySelector('.words-label')?.textContent).toBe('What b says of each block');
+    point(page.querySelector('.words-head'));
+    expect(page.querySelector('.words-about')?.textContent).toBe('b Second · engineer line · runs when y is yes');
+  });
+});
+
 describe('a comparison', () => {
   it('lists each change under its place and marks it on the chart', () => {
     const before = flowOf([cell('a', { title: 'A', outputs: ['x'] }), cell('b', { title: 'B', inputs: ['x'] })], { x: {} });
@@ -251,7 +315,7 @@ describe('a comparison', () => {
     expect(page.querySelectorAll('.part.added')).toHaveLength(1);
 
     click([...page.querySelectorAll('button')].find((b) => b.textContent === 'As it was'));
-    expect(texts(page, 'thead .cell-title')).toEqual(['A', 'B']);
+    expect(headNames(page)).toEqual(['a A, engineer line', 'b B, engineer line']);
   });
 });
 
@@ -268,9 +332,7 @@ describe('a test of what stands', () => {
     );
     const page = draw({ state: 'compiled', flow });
     const words = 'No judge refuses (none of verdict, deep_verdict is no, not counting what a cell skipped now wrote)';
-    expect(page.querySelectorAll('thead .cell-head')[2].querySelector('.cell-waits')?.textContent).toBe(
-      `waits until ${words}`,
-    );
+    expect(headNames(page)[2]).toBe(`merge merge, engine, waits until ${words}`);
     click(page.querySelectorAll('thead .cell-head .head-button')[2]);
     expect(page.querySelector('aside[aria-label="Cell merge"]')?.textContent).toContain(words);
   });

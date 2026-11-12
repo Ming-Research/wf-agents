@@ -1,7 +1,7 @@
 // The page's words for what the interface gives as data: conditions, named tests, limits, faults and changes. Each is
 // worded here once, and every part of the page that shows one takes its words from here.
 
-import type { Block, Change, Condition, Fault, Flow, InputKind, Kind, LimitName, Test } from './api';
+import type { Block, Cell, Change, Condition, Fault, Flow, InputKind, Kind, LimitName, Test } from './api';
 
 /// What a named test holds on, from the blocks it reads: "ci is not red", "any of needs_design, changes_tree is yes",
 /// "none of verdict, deep_verdict is no, not counting what a cell skipped now wrote".
@@ -292,6 +292,31 @@ export function thereWhen(flow: Flow, reader: string, block: Block): string {
     const writer = flow.cells[i];
     if (writer.condition !== null) parts.push(`only when ${id} runs (${conditionWords(writer.condition)})`);
     else if (!writer.mustWrite.includes(block.name)) parts.push(`if ${id} writes it`);
+  }
+  return parts.join('; ');
+}
+
+/// What a cell says of a block, on one line, for the chart's column of words: of a block it reads, how it takes it and
+/// why; of one it may write, whether each time, and whether it brings up to date what it read; of one whose value says
+/// whether it runs or what it waits for, that. Empty where the cell has nothing to do with the block.
+export function cellSays(cell: Cell, block: string): string {
+  const parts: string[] = [];
+  const reads = cell.inputs.includes(block);
+  if (reads) {
+    const taken = cell.input[block];
+    const how = taken?.kind ? `takes ${inputKindWords(taken.kind)}` : 'reads';
+    parts.push(taken?.why ? `${how}: ${taken.why}` : how);
+  }
+  if (cell.outputs.includes(block)) {
+    const write = cell.mustWrite.includes(block) ? 'writes every time' : 'may write';
+    parts.push(reads ? `${write}, brought up to date` : write);
+  }
+  const condition = cell.condition;
+  if (condition !== null && (condition.on === 'block' ? condition.block === block : condition.test.reads.includes(block))) {
+    parts.push(`runs when ${conditionWords(condition)}`);
+  }
+  for (const test of cell.preconditions) {
+    if (test.reads.includes(block)) parts.push(`waits until ${testWords(test)}`);
   }
   return parts.join('; ');
 }
