@@ -1,7 +1,7 @@
 //! The loop of the engine, for every work.
 //!
 //! The engine's own loop takes one thing that happened to one work and holds nothing (crate `engine`). The driver is
-//! what takes the things that happen, in order, for all the works (entry `one-loop-decides`): it gives each to the
+//! what takes the things that happen, in order, for all the works: it gives each to the
 //! engine's loop for the work it happened to, keeps what the loop added in the store before anything is done about it,
 //! and gives back what is to be done outside, as data. Whatever carries those out (the agents, the engine's own acts,
 //! the tools) says what came of each by calling the driver again; the driver calls nothing outside but the store, and
@@ -43,9 +43,9 @@
 //! What happens to one work also reaches every other where a round of an agent failed for a cause every work shares,
 //! such as the account's usage limit: no agent's round of any work begins while that wait stands ([`outage`]). It is
 //! worked out from the records of every work, and given to the engine's loop for each work as a [`Gate`]; once it
-//! changes, every work is looked at again. When it is over by itself, at a time, is the driver's to say ([`Driver::wake`])
-//! and its caller's, which reads the clock, to tell it ([`Driver::tick`]), with what a look at the network found where
-//! the driver asks for one.
+//! changes, every work is looked at again. When it is over by itself, at a time, is the driver's to say
+//! ([`Driver::wake`]) and its caller's, which reads the clock, to tell it ([`Driver::tick`]), with what a look at the
+//! network found where the driver asks for one.
 //!
 //! What the driver holds of a work in memory is what the store holds of it: a work is saved each time it grows, and
 //! what is to be done is given out only once the store holds the entries that say so. Stopped at any moment and
@@ -567,11 +567,11 @@ impl Driver {
     }
 
     /// Sets the owner's pause of everything, or lifts the pause of everything, the owner's or the driver's own, at the
-    /// time the caller's clock gives, and gives what is to be done. While it holds no work begins a round but those of a
-    /// run that answers a note, as a work's own pause holds them back, and a round under way goes on; it is kept in the
-    /// store, and holds when the driver is opened again. Lifted, every work goes on that its own pause does not hold,
-    /// the free slots given in the engine's order. Set while the driver's own holds, it is the owner's from then on.
-    /// Setting it while the owner's holds, or lifting it while none does, changes nothing.
+    /// time the caller's clock gives, and gives what is to be done. While it holds no work begins a round but those of
+    /// a run that answers a note, as a work's own pause holds them back, and a round under way goes on; it is kept in
+    /// the store, and holds when the driver is opened again. Lifted, every work goes on that its own pause does not
+    /// hold, the free slots given in the engine's order. Set while the driver's own holds, it is the owner's from then
+    /// on. Setting it while the owner's holds, or lifting it while none does, changes nothing.
     pub fn pause_everything(&mut self, now: Time, paused: bool) -> Result<Vec<Todo>, Failed> {
         self.going()?;
         let theirs = self.paused.is_some_and(|p| p.by == Pauser::Owner);

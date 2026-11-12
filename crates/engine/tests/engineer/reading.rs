@@ -44,8 +44,8 @@ pub struct Reading<'a> {
 }
 
 impl<'a> Reading<'a> {
-    /// The reading of the entries placed before `before`, or of all of them. The meaning of each version follows entry
-    /// meaning-told-by-the-writer: the first version of a block has its own. A version that has a value, or follows
+    /// The reading of the entries placed before `before`, or of all of them. The meaning of each version follows the
+    /// design of data and context: the first version of a block has its own. A version that has a value, or follows
     /// one that has, is a choice: it changes the meaning when its value differs from the one before, and only then. A
     /// person's prose always changes the meaning; what the outside writes does when it matters; a run's write does
     /// when the run says so, and when it says not, it is taken at its word only if the version it started from has the

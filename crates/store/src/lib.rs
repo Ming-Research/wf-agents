@@ -1,8 +1,8 @@
 //! Storage: what makes the items and the works of the engine outlive the process.
 //!
 //! The engine holds no state: everything kept of a work is its [`Work`], defined in the crate `work` beneath both the
-//! engine's loop and storage, so that storage does not depend on the loop (entry `engine-in-layers`). The loop only
-//! adds to a work. After each thing that happens to a work, whatever drives the engine [saves](Storage::save) the
+//! engine's loop and storage, so that storage does not depend on the loop (principle `dependencies-one-way`). The loop
+//! only adds to a work. After each thing that happens to a work, whatever drives the engine [saves](Storage::save) the
 //! work, and on starting it [loads](Storage::load) every work. The store also keeps the items, the things to be done:
 //! an item is [added](Storage::add) together with the work done for it and what is kept of that work from its start,
 //! all of it or none.
@@ -10,13 +10,13 @@
 //! Whatever drives the engine reaches the store through [`Storage`] (principle `outside-behind-interfaces`):
 //! [`Store`] is the real one, kept in SQLite, and a test gives its own to make the store fail at a step it chooses.
 //!
-//! Every table is only inserted into (entry `tables-only-added-to`): a work is saved by inserting the entries it has
+//! Every table is only inserted into (decision `tables-only-added-to`): a work is saved by inserting the entries it has
 //! that the store does not hold yet, after checking that what the store holds is where the work begins. A work changed
 //! where it may only be added to is a fault of the engine, and is refused rather than written over what was kept
 //! (principle `nothing-passes-for-normal`). The schema is [`SCHEMA`], kept in SQLite. A database made with an earlier
-//! version of it is brought to this one as it is opened, by the migrations of `db/migrations/`, each in its turn and all
-//! of them in one transaction with the opening, so that a database is either opened at this version or left as it was.
-//! Before that it is copied whole, so that a migration that goes wrong loses nothing ([`before_migration`]).
+//! version of it is brought to this one as it is opened, by the migrations of `db/migrations/`, each in its turn and
+//! all of them in one transaction with the opening, so that a database is either opened at this version or left as it
+//! was. Before that it is copied whole, so that a migration that goes wrong loses nothing ([`before_migration`]).
 //!
 //! The store also keeps what is the installation's and no work's: the pause of everything, set and lifted, with who set
 //! it: the owner, or the engine as it started with works going on.

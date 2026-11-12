@@ -8,14 +8,15 @@
 //! block it must write). What they check of the deliver flow itself:
 //!
 //! 1. No run of the cell starts unless the dependencies block's current value, as the run starts, is the one the
-//!    precondition looks for (entry conditions-and-preconditions).
-//! 2. The cell finishes at most one run, and once it has, the work has ended as merged (entry work-has-no-position);
+//!    precondition looks for (decision conditions-and-preconditions).
+//! 2. The cell finishes at most one run, and once it has, the work has ended as merged (the design of data and
+//! context);
 //!    every run of it starts for its having no record, so that what people write of the item, its background, runs
 //!    nothing.
 //! 3. Once people stop, the outside says the items have merged and the owner lets the work on and lets on any run at a
-//!    limit, the work ends within `CONTENT` steps: merged, with the one finished run, unless it was cancelled (entry
+//!    limit, the work ends within `CONTENT` steps: merged, with the one finished run, unless it was cancelled (property
 //!    a-work-comes-to-rest).
-//! 4. The same history ends with the same work run twice, and with its stops as without them (entry
+//! 4. The same history ends with the same work run twice, and with its stops as without them (property
 //!    a-stop-changes-nothing).
 //!
 //! What a history is. It begins with the outside writing the dependencies block, waiting or merged as a coin says,

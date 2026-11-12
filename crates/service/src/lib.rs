@@ -1,12 +1,12 @@
 //! The engine as a process: one loop that drives every work, the interfaces of what carries out what is to be done,
 //! and the test implementations of those, which follow a script.
 //!
-//! One task owns the [`Driver`] and takes what happens in order, from one channel (entry `one-loop-decides`): what
+//! One task owns the [`Driver`] and takes what happens in order, from one channel: what
 //! came of a round or a call, an act of the owner, an item to add, a read for the pages. It reads the clock and gives
 //! the time to the driver; nothing else reads it. After each thing it hands each [`Todo`] to what carries it out, and
-//! tells whoever listens which works changed. It holds nothing of a work between two things that happen (entry
-//! `engine-holds-no-state`): what a carrier is given is read from the driver as it is handed out, and what was to be
-//! done is given again by the driver when the process starts again (entry `a-stop-changes-nothing`).
+//! tells whoever listens which works changed. It holds nothing of a work between two things that happen (principle
+//! `state-from-records`): what a carrier is given is read from the driver as it is handed out, and what was to be
+//! done is given again by the driver when the process starts again (property `a-stop-changes-nothing`).
 //!
 //! What carries a todo out is reached through interfaces (principle `outside-behind-interfaces`): [`Rounds`] for the
 //! rounds of the cells an agent carries out and for those that are the engine's own acts, and [`Tools`] for the calls
@@ -409,8 +409,8 @@ impl Service {
 
     /// Sets the timer that tells the loop the time the driver asks to be told next, where that changed. The one set
     /// before is stopped only where its time has not come: one whose time has come may be looking at the network, or
-    /// about to tell the loop, and tells it, which costs one look at the works more. Where the driver asks for a look at
-    /// the network, the look is taken off the loop as the time comes.
+    /// about to tell the loop, and tells it, which costs one look at the works more. Where the driver asks for a look
+    /// at the network, the look is taken off the loop as the time comes.
     fn set_wake(&mut self) {
         let wake = self.driver.wake();
         if self.wake.as_ref().map(|(w, _)| *w) == wake {
@@ -678,8 +678,8 @@ impl Handle {
     }
 
     /// Tells whoever listens that the copies of the database changed: a step of keeping them ended. The notice holds no
-    /// record; whoever listens reads the state again. The copies are written beside the loop, so it is not the loop that
-    /// says so.
+    /// record; whoever listens reads the state again. The copies are written beside the loop, so it is not the loop
+    /// that says so.
     pub fn copies_changed(&self) {
         // Nobody may be listening.
         let _ = self.changed.send(Changed {

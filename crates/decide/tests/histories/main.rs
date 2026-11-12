@@ -889,7 +889,7 @@ impl History {
         }
     }
 
-    /// How many steps, once people stop, the work may take before it must wait or end (entry a-work-comes-to-rest).
+    /// How many steps, once people stop, the work may take before it must wait or end (property a-work-comes-to-rest).
     ///
     /// Once people stop, a run of a cell is a way round unless one of its reasons is the cell having no record, a
     /// block whose current version a person wrote before they stopped, or one a cell before it wrote. Nobody lets a

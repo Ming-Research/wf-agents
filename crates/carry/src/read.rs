@@ -1,5 +1,5 @@
-//! The tool `read`: what an agent reads of its work's blocks, answered from the work as it is kept (decision
-//! `agent-reads-what-it-needs`). Its input names what to read, several things at once, each apart from the next by a
+//! The tool `read`: what an agent reads of its work's blocks, answered from the work as it is kept. Its input names
+//! what to read, several things at once, each apart from the next by a
 //! space or a line: `<block>` for the current version, `<block>@<version>` for that version, and
 //! `<block>@<a>..<b>` for what differs between two versions, as a plain diff of their lines. Each is answered with its
 //! version, who wrote it, its value where it is a choice, and its content; what cannot be found is said so, and the

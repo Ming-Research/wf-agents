@@ -1,5 +1,5 @@
 //! The process stopped and started again: at every step of a work, the work ends as it would have without the stop
-//! (entry `a-stop-changes-nothing`), with what was under way given again and answered again by the script, once the
+//! (property `a-stop-changes-nothing`), with what was under way given again and answered again by the script, once the
 //! owner has lifted the pause of everything the engine makes as it starts again with the work going on. Until then,
 //! nothing begins a round but what was under way when it stopped.
 
