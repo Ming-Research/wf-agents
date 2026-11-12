@@ -25,3 +25,31 @@ Why: The engine's deciding, acting and storing grew in one part, so that the rul
 ### principle generalise-at-the-second-use
 A mechanism is written for the one use it has, never for one project (Article 1), and made general when a second use is being built. What is recorded is the exception: its form is made for every use from the start.
 Why: An abstraction made before its second use guesses that use, and the guess is paid for at every reading of the code and again when the real use differs. Records outlive the code that wrote them, and changing their form means rewriting the past. (Article 4)
+
+### principle agents-get-only-what-the-flow-gives
+The engine starts an agent with a configuration directory of its own, which loads none of the owner's own tools, memory or settings: what an agent sees is decided by the flow and the project's configuration alone.
+Why: Other tools take up context for nothing and can be written to, and what an agent reads by itself the engine cannot carry to a later session.
+
+### principle refuse-as-little-as-must-be
+Every agent is refused two kinds of command: the heavy work that takes the host's processor, such as building and testing, and writing beyond its worktree, such as pushing. Everything else is let through, running, writing and the network included, but for what a line that only reads is refused besides.
+Why: The worktree is the agent's own, and what it does there changes nobody else's work, while what it could reach beyond it the engine's own guards hold. Each command refused has to go round by the engine, a round more each time.
+
+### principle the-engine-runs-only-what-needs-it
+The engine runs for an agent only what the agent's own command line cannot do, such as what needs credentials: pushing, and reading the host of the repository.
+Why: Handed to the engine, each request costs a round more, and what the engine runs for an agent needs a whole set of limits of its own.
+
+### principle stored-content-is-kept-small
+What is stored is kept under control: no large content is stored more than once.
+Why: Without that the size of the store grows very fast.
+
+### principle a-look-brings-back-little
+What the assistant reads of the system is as small as it can be at each look without losing what matters: every command's output has a bound that a test holds, says what it left out and how to get it, and is never raw JSON.
+Why: The assistant's context must stay on what it discusses with the owner: a look that brings back more than is needed fills it (Article 3), and one that leaves out what matters leaves it to guess (Article 2).
+
+### principle engine-knows-no-cell
+Neither the engine's code nor the page's names a particular cell or a particular block: each carries out, and draws, whatever the flow's definition holds.
+Why: What is in the definition the owner can read on the chart and the compiler can check before anything runs (Article 7; principle compile-before-run).
+
+### principle no-tool-opens-a-browser
+No tool an agent is given opens a page in a browser or takes a picture of one; searching the web and fetching its pages are another matter.
+Why: The project's pages are tested with a browser in CI, so an agent needs no browser on its own machine.

@@ -3,11 +3,11 @@
 //!
 //! What the harness checks after every call that the driver took:
 //! - a store opened on the same file, apart from the driver's, holds every item and every work the driver shows,
-//!   exactly (entry `engine-holds-no-state`);
+//!   exactly (principle `state-from-records`);
 //! - what the driver gives to be done, that store already says is to be done;
 //! - no round and no call is given twice, and nothing answered is given again;
 //! - what was given and not yet answered is exactly what the driver says is pending;
-//! - no work has two rounds under way (entry `one-round-of-a-work-at-a-time`);
+//! - no work has two rounds under way (property `one-round-of-a-work-at-a-time`);
 //! - what each work does next, as the driver shows it, agrees with what is to be done for it: after a call no run is
 //!   left to start or to abandon, a run goes on with its round held only while the work is paused, a work is busy
 //!   with a run exactly when a round of that run is given to be done, and a work paused began no round after the
@@ -1135,8 +1135,8 @@ impl H {
                 _ => None,
             })
             .collect();
-        // The wait every work shares, where it holds rounds now, leaves the run of a cell whose rounds it holds to start
-        // or go on: an agent's, and without the network the engine's own acts too.
+        // The wait every work shares, where it holds rounds now, leaves the run of a cell whose rounds it holds to
+        // start or go on: an agent's, and without the network the engine's own acts too.
         let agents = |cell: &decide::CellId| {
             let kind = (flow.cells.iter()).find(|spec| spec.id == *cell).map(|spec| spec.kind);
             let offline = self

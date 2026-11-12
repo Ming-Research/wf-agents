@@ -9,3 +9,7 @@ Why: Leaving out a list says what an empty list says, and the form lets a round 
 ### decision closing-brackets-after-a-string-form
 Where the whole form, or the one object that wraps it, comes as a string holding JSON, the object is taken when only whitespace and closing brackets follow it.
 Why: Models write the form with a closing bracket too many, which makes the string unparseable though nothing is missing; any other text after it may be content, so it is not taken. Repairing text that does not parse at all is a different step, in the handling of failed rounds, and is not this one.
+
+### decision one-form-for-every-return
+Every round of every cell hands in in one form, which is given to the agents' program with what all rounds share.
+Why: With a form of its own for each cell, going from one cell to the next within a session would lose the cache (principle cache-order).

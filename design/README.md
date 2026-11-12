@@ -1,52 +1,109 @@
 # The design tree
 
-1. The design tree is `design/`: the constitution, `principles/`, and `decisions/`, which holds one file of decisions
-   for each ability or component of the system, named for it, under the area it belongs to: `engine`, `flow` or
-   `frontend`. The tree holds what an agent taking the work up in another session needs and the code cannot tell it:
-   the principles of rule 2 and the decisions of rule 3. What the code shows is not written here: what a thing does,
-   its names, its numbers, the order of its steps, a property a test holds. A comment is part of what the code shows:
-   a reason that concerns one place in the code and no other is a comment at that place, where whoever would undo it
-   must pass, and is not written here as well.
+Read these rules as an engineer who knows the system and has common sense: judge by what each rule is for, and do
+not pick at its words.
 
-2. A principle is a standard that holds in many places: a way things are done, an idea the design rests on, a
-   direction the system is to go in. What governs one place is no principle, however sound: whoever proposes one names
-   at least two places that share no code where it already applies, and the principle itself names none. Principles
-   are kept by what they govern, the whole system or one area of it. They are the owner's and may come before the
-   code. Only the owner adds or changes one, or the constitution: an agent that finds one missing or wrong, or whose
-   right solution breaks one, says so and the owner decides. No decision excuses a breach of a principle.
+## What the tree is
 
-3. A decision is about one ability or component. It enters only if an agent that has read the code and the principles
-   would still change the code wrongly, which is one of three things: a way that was considered and turned down, which
-   leaves no trace in the code; something done on purpose that looks like a fault or an omission, which a later agent
-   would mend; a relation between two places that neither of them shows. A decision that concerns two of them is
-   written in the file of the one whose code would be changed wrongly, and named in the other's by a line that points
-   to it.
+The code is the result: it shows how a thing is done. The design tree holds why, where the code itself does not make
+the reason plain; that the code shows what an entry says to do is no ground for leaving the entry out.
 
-4. A decision is added by the work that makes it true: its plan says it, its change writes it, and its review holds it
-   to rule 3. A change that makes a decision untrue rewrites or deletes it in the same work, and an entry found to
-   fail rule 3 is deleted by the work that finds it. The files of decisions hold only what the code on the branch the
-   works merge into does. A direction for the whole system is a principle; a design for one component that the code
-   does not yet follow waits in `pending-design.md`.
+Comments are not the code: what the code shows does not include what a comment says. Comments may say anything, and
+never go against the tree: where a comment and an entry differ, the entry holds and the comment is put right.
 
-5. A principle and a decision are each a few lines, in one form, a principle under `### principle <name>`:
+The tree is `design/`. It holds four kinds of thing:
 
-   ```
-   ### decision <a-short-name>
-   <What holds, in one or two sentences.>
-   Why: <the reason, in one or two sentences; where the point is a way turned down, which way and why it lost.>
-   ```
+- the constitution, `constitution.md`;
+- the principles, in `principles/`;
+- the decisions, in `decisions/`;
+- the documents, in `docs/`, one file for each design that holds only as a whole.
 
-   No identifier from the code (a function, a type, a file, a cell's id): the system's own terms, a field or a value of
-   a format an agent meets, a setting's key, and the names of principles and decisions may be used, and a Why may rest
-   on a principle or an article of the constitution by naming it. No word that dates the entry ("now", "no longer", "the old engine"). A reason that rests on judgment, with no
-   measurement or case behind it, says so in the Why. What stands behind an entry (when it was settled, what was tried) is not written in
-   the tree: the case or the number that is the reason may be a clause of the Why, and the rest is in the pull request
-   of the work.
+`principles/` and `decisions/` are each a tree of concepts: a concept, its narrower concepts under it, as deep as is
+useful. The tree follows the concepts of the design and not the layout of the code. An entry is written once, at the
+lowest concept that holds everything it concerns: what concerns one concept is in that concept's file, and what is
+common to several is in the file of the concept that holds them, up to the whole system. A concept's file is named
+for it, and its narrower concepts are in a directory of the same name beside it.
 
-6. An agent reads the constitution and `principles/` whole, then the decisions of each ability or component its work
-   changes or relies on. Where the right solution needs a decision changed, the work changes it; a principle goes to
-   the owner (rule 2).
+## How it is used
 
-7. A principle and a decision, or two decisions of one file, that cannot both hold are a fault of the tree. A file of decisions that grows long is itself a sign:
-   what the code now shows is deleted from it, and decisions in more than one file that rest on one reason are put to
-   the owner as one principle.
+An agent taking the work up in another session reads the code for how, and the tree for why. It reads the
+constitution whole; then the principles and the decisions from the top of each tree down to each concept its work
+changes or relies on, whole; and the document of each design it works on.
+
+Where the right solution needs a decision changed, the work changes it. An agent that finds the constitution, a
+principle or a document missing or wrong, or whose right solution breaks one, says so and proposes the change.
+
+## The four kinds
+
+### The constitution
+
+The constitution holds what the project is for and its lasting values. No principle, decision or document goes
+against it, and it decides where two of them pull apart. An entry may rest on one of its articles by naming it. The
+owner sets it and changes it.
+
+### A principle
+
+A principle is a rule that whatever is made later must follow, with its reason. It speaks of every thing of a kind,
+those not yet made included, or of every time a kind of work is done; the kind may be wide or narrow. A rule for
+everything in one part of the system, what is added to that part later included, speaks of a kind and is a principle.
+
+It is not a principle where it speaks of one thing that is there and binds nothing made later: that is a decision.
+Nor where the constitution or a document already says it: one that adds to an article or to a document says only
+what is new, and names what it rests on.
+
+Principles are the owner's and may come before the code. No decision excuses a breach of a principle.
+
+### A decision
+
+A decision is about one thing, an ability or a component: what holds there and why, where the code does not show the
+why. It enters only if an agent that has read the code and the principles would still change the code wrongly, which
+is one of three things: a way that was considered and turned down, which leaves no trace in the code and which a later
+agent would take up again; something done on purpose that looks like a fault or an omission, which a later agent would
+mend; a relation between two places that neither of them shows.
+
+A decision is never ahead of the code: it says what the code does, and what is yet to be built is a document's to
+say.
+
+### A document
+
+A document is a design that holds only as a whole: its parts cannot be told one at a time, and an agent given any one
+of them alone would change the system wrongly. It is complete and consistent with itself.
+
+A document may be ahead of the code: a design is there to guide what is built after it. Where the two differ, the
+document says where the system is going, and an agent builds toward it and does not change the document to match the
+code.
+
+A principle or a decision that holds only within what a document covers belongs to the document, and is not written
+as an entry of its own. One that reaches beyond it is an entry, which names the document and does not repeat it. A
+document goes against no principle outside it. Where it is ahead of the code, a decision may still say what the code
+does, until the work that builds that part of the document rewrites or deletes it: that is what is left to build, and
+no fault.
+
+## Writing an entry
+
+A principle and a decision are each a few lines, in one form, a principle under `### principle <name>`:
+
+```
+### decision <a-short-name>
+<What holds, in one or two sentences.>
+Why: <the reason, in one or two sentences; where the point is a way turned down, which way and why it lost.>
+```
+
+- A decision is written at the concept an agent would be working on when it changed the code wrongly; where that
+  could be more than one, at the concept that holds them.
+- No identifier from the code (a function, a type, a file). The system's own terms, a field or a value of a format an
+  agent meets, a setting's key, and the names of principles and decisions may be used.
+- No word that dates the entry. What stands behind it (when it was settled, what was tried) is in the pull request of
+  the work; the case or the number that is the reason may be a clause of the Why.
+- A reason that rests on judgment, with no measurement or case behind it, says so in the Why.
+
+## Changing the tree
+
+A decision is added by the work that makes it true: its plan says it, its change writes it, and its review holds it to
+these rules. A change that makes a decision untrue rewrites or deletes it in the same work, and an entry found not to
+belong here is deleted by the work that finds it. The files of decisions hold only what the code on the branch the
+works merge into does.
+
+A principle and a decision, two decisions, or a document and an entry outside it, that cannot both hold are a fault
+of the tree. A file of decisions that grows long is itself a sign: what no longer belongs here is deleted from it,
+and decisions in more than one file that rest on one reason are put to the owner as one principle.

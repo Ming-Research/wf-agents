@@ -73,3 +73,15 @@ Why: A number lets a later change judge whether the reason still holds, and a gu
 ### principle owner-never-needs-the-command-line
 Everything the owner needs to see or do is on the page; the command line is never the only way, and what only another program can do is shown as a command to copy.
 Why: The owner does not like using a command line, and editing the configuration by hand and the database by command is the path that failed; a flow change's cost once came only from the command line. (Article 8)
+
+### principle numbers-say-what-they-number
+An item's number is written #n, a work's Wn and an observation's On, on the page, to the agents and by the engine alike.
+Why: The same bare number may be an item's, a work's or an observation's, and only what stands before it tells which.
+
+### principle the-machine-is-always-on
+Nothing is designed for the machine going to sleep or its lid being closed.
+Why: The machine that runs the engine is always on.
+
+### principle protected-files-are-the-owners
+The files that govern the agents are protected: the project's guide for its agents, its constitution, the definition of the flow, and what says how the project's checks run; which paths these are, the project's configuration says. The owner changes them. Where an agent's change touches one, the engine holds it: the agent takes the change back, or gives its reason, and the reason is a question to the owner. Changed in a work's branch, by the owner or with the owner's yes, such a file holds for that work from then on, as any file's new content does.
+Why: What an agent can write must not change what governs it, unless the owner has said yes.

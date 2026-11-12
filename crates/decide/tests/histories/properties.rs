@@ -1,7 +1,29 @@
 //! What the engine must always keep, checked after every step of every history: each property states what a rule of
-//! the entries is there to protect, not the rule itself, and is judged by the histories' own reading of the records
+//! the design is there to protect, not the rule itself, and is judged by the histories' own reading of the records
 //! (`reading`), never by the walk's. A property found broken is noted and the history goes on, so that one history
 //! can show every property it breaks; the history fails at its end.
+//!
+//! The properties the histories of every crate name, each with what it says:
+//!
+//! - `a-run-is-one-mechanism`: a run writes no block before it finishes, and finishes only when what it returned has
+//!   met what the flow requires of it. What a round hands in that meets it is taken as the round ends: the run
+//!   finishes there, before the walk, so that no cell before it comes between; a run that is stale when its last round
+//!   ends is abandoned, not finished, since a run finished on what had changed under it would write over what it never
+//!   saw.
+//! - `one-round-of-a-work-at-a-time`: no work has two rounds under way at once. A run is running only while one of
+//!   its rounds is under way: between rounds it is at rest, and a cell before it may run meanwhile. A run at rest that
+//!   is stale is abandoned, its calls withdrawn and no record left, so that a run at rest is not paid for twice.
+//! - `no-merge-on-what-is-not-settled`: no work merges while a precondition of the merge is not met, among them that
+//!   every judging cell is content: a merge cannot be taken back.
+//! - `merge-only-on-what-is-current`: as the merge's last round starts, the record of every cell that is not skipped
+//!   knows the current meaning of each of its inputs.
+//! - `a-work-comes-to-rest`: when people do nothing more and nothing outside the work changes, every work, after a
+//!   number of rounds its limits bound, waits, saying for what and for whom, or has ended.
+//! - `records-give-the-same-walk`: walking a work's records as they were at any moment, on the flow then installed and
+//!   with the named tests as they then came out, gives the decision the engine took at that moment.
+//! - `a-stop-changes-nothing`: for the same returns of the agents and the same acts of people, a history in which the
+//!   engine was stopped at any step and started again ends with the same blocks and the same decisions, each effect
+//!   made once, as the history without the stop.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -210,20 +232,20 @@ fn shuffled(r: &Records, seed: u64) -> Records {
 /// A run that has just started.
 ///
 /// Property 1, nothing is written over unseen, begins here: a run starts from the current version of each block its
-/// cell reads or may write, and of nothing else (the vocabulary of the entries; entry a-run-is-one-mechanism).
+/// cell reads or may write, and of nothing else (the walk's own terms; property a-run-is-one-mechanism).
 ///
-/// Property 2, who spoke is counted right (entry every-way-round-has-a-limit): for each reason `Changed { block, was,
-/// behind }`, `behind` is true exactly when every change of the block's meaning after `was`, the version the cell's
-/// record knew, up to the version the run starts from was written by a cell after this one in the order; a change a
-/// person, the outside or a cell before it made makes it false. The entry gives a way round as a run "each of its
-/// reasons is a block whose meaning a cell after it last changed", and then "a run with a reason that a person, the
-/// outside or a cell before it wrote starts the count anew", for "the owner is not asked to let go on what the owner
-/// sent back": a person's change the cell has never seen is a reason the person wrote, though a cell after it wrote
-/// over it since, and the second sentence and the Why decide. And no cell starts a way round once its last finished
-/// runs since the owner last let it go on, as many in a row as its limit, were each one by this reading.
+/// Property 2, who spoke is counted right (decision every-way-round-has-a-limit): for each reason `Changed { block,
+/// was, behind }`, `behind` is true exactly when every change of the block's meaning after `was`, the version the
+/// cell's record knew, up to the version the run starts from was written by a cell after this one in the order; a
+/// change a person, the outside or a cell before it made makes it false. The decision gives a way round as a run "each
+/// of its reasons is a block whose meaning a cell after it last changed", and then "a run with a reason that a person,
+/// the outside or a cell before it wrote starts the count anew", for "the owner is not asked to let go on what the
+/// owner sent back": a person's change the cell has never seen is a reason the person wrote, though a cell after it
+/// wrote over it since, and the third sentence and the Why decide. And no cell starts a way round once its last
+/// finished runs since the owner last let it go on, as many in a row as its limit, were each one by this reading.
 ///
-/// A further property, entry state-is-blocks: the run's reasons are exactly what the entries give, no record, or each
-/// input whose meaning differs from the version the cell's record knows, `was` being that version. A cell does not
+/// A further property, from the design of data and context: the run's reasons are exactly what it gives, no record, or
+/// each input whose meaning differs from the version the cell's record knows, `was` being that version. A cell does not
 /// run for its own write: its record knows the version it wrote itself.
 pub fn started(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started) {
     let i = flow.place(&s.cell).expect("the histories do not change the flow");
@@ -355,7 +377,7 @@ fn ways_round_in_a_row(flow: &Flow, reading: &Reading, i: usize, place: Seq) -> 
 
 /// A run that has just ended, finishing or abandoned.
 ///
-/// Property 1, nothing is written over unseen (entry a-run-is-one-mechanism: "a run finished on what had changed
+/// Property 1, nothing is written over unseen (property a-run-is-one-mechanism: "a run finished on what had changed
 /// under it would write over what it never saw"): when a run finishes and writes a block, the version of the block
 /// current just before has the meaning of the version the run started from. No change of what a block says, by a
 /// person, the outside or another cell, is replaced as the current version by a run that did not start from it. This
@@ -363,9 +385,9 @@ fn ways_round_in_a_row(flow: &Flow, reading: &Reading, i: usize, place: Seq) -> 
 /// one that did not read what it overwrites still overwrites it. It is narrower than "the version current just before
 /// is the one the run started from": a write that changes nothing of what the block says (said not to matter by a
 /// writer who saw the meaning, approved from outside as not mattering, a person confirming a choice's value) leaves
-/// a run at rest as it was (entries one-round-of-a-work-at-a-time and meaning-told-by-the-writer), so the run may
-/// finish over it, and nothing the block says is lost. A run that writes a block it has no version in its basis for,
-/// as one started before the flow gave its cell that output would, is held to have started from no version. The
+/// a run at rest as it was (property one-round-of-a-work-at-a-time and decision meaning-told-by-the-writer), so the run
+/// may finish over it, and nothing the block says is lost. A run that writes a block it has no version in its basis
+/// for, as one started before the flow gave its cell that output would, is held to have started from no version. The
 /// histories do not change the flow, so that does not arise here.
 pub fn ended(v: &mut Verdict, flow: &Flow, reading: &Reading, run: RunId, end: Seq) {
     let s = reading.started[&run];
@@ -408,9 +430,9 @@ pub fn ended(v: &mut Verdict, flow: &Flow, reading: &Reading, run: RunId, end: S
 }
 
 /// Why a run was abandoned, the walk deciding it or the engine finding the run stale as its round ended (a further
-/// property, entry one-round-of-a-work-at-a-time, whose Why is that a run at rest is not paid for twice: a remark that
-/// changes nothing for it leaves it as it was). A run is abandoned as outdated only when a block it started from has
-/// another meaning now, as no longer applying only when its cell is skipped, and as cancelled only in a cancelled
+/// property, one-round-of-a-work-at-a-time, which is there so that a run at rest is not paid for twice: a remark
+/// that changes nothing for it leaves it as it was). A run is abandoned as outdated only when a block it started from
+/// has another meaning now, as no longer applying only when its cell is skipped, and as cancelled only in a cancelled
 /// work.
 pub fn abandoned(v: &mut Verdict, flow: &Flow, reading: &Reading, run: RunId, because: &Abandoning) {
     v.count(ABANDONS);
@@ -438,7 +460,7 @@ pub fn abandoned(v: &mut Verdict, flow: &Flow, reading: &Reading, run: RunId, be
 /// records have the work paused, or the owner's pause of everything holds.
 pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, room: Room, paused: bool, seed: u64) {
     let records = reading.records;
-    // Property 3, the decision is a function of the records (entry records-give-the-same-walk; principle
+    // Property 3, the decision is a function of the records (property records-give-the-same-walk; principle
     // decide-purely): the same records walked again in the same room give the same decision, and so do the same
     // entries at the same places listed in another order, as a store may give them back.
     v.count(DECIDED_AGAIN);
@@ -498,7 +520,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
     }
 }
 
-/// A further property, of the preconditions (entry conditions-and-preconditions: what a work waits for is the
+/// A further property, of the preconditions (decision conditions-and-preconditions: what a work waits for is the
 /// precondition not met): a work waits on a precondition only while, by the histories' own reading, it does not hold.
 /// So the merge waits on the judge's verdict only while it stands at no: never for the no of a judge that is skipped.
 fn held(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, test: &decide::TestName) {
@@ -517,10 +539,10 @@ fn held(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, test: &decide
     }
 }
 
-/// A further property, of who a precondition waits for (principle decide-purely: a wait says who can give it; entry
-/// conditions-and-preconditions): a work waits on a precondition for someone, each named once, and each it names writes,
-/// by the flow, a block the test reads that keeps it from holding by the histories' own reading: one without the value
-/// for a test that every block has it, any for a test that one has it, and one with the value for the others.
+/// A further property, of who a precondition waits for (principle decide-purely: a wait says who can give it; decision
+/// conditions-and-preconditions): a work waits on a precondition for someone, each named once, and each it names
+/// writes, by the flow, a block the test reads that keeps it from holding by the histories' own reading: one without
+/// the value for a test that every block has it, any for a test that one has it, and one with the value for the others.
 fn made_by(
     v: &mut Verdict,
     flow: &Flow,
@@ -562,8 +584,8 @@ fn made_by(
     }
 }
 
-/// A further property, entries merge-only-on-what-is-current and no-merge-on-what-is-not-settled, whose Why is that a
-/// merge cannot be taken back: as a round of the merge begins, any of which may be its last, every precondition of
+/// Further properties, merge-only-on-what-is-current and no-merge-on-what-is-not-settled, which are there because
+/// a merge cannot be taken back: as a round of the merge begins, any of which may be its last, every precondition of
 /// the merge holds by the histories' own reading. For the judges' verdicts that is said from the records
 /// ([`Reading::refused`]): no round of the merge begins while some judge that applies now has, as its own last write
 /// of its verdict, no, with no person's write of the verdict since, nor while a person's no is the latest write. And
@@ -632,10 +654,10 @@ fn limit(v: &mut Verdict, flow: &Flow, reading: &Reading, at: &decide::CellId, r
     }
 }
 
-/// Property 4, a person's write reaches its readers (entries state-is-blocks and opinions-are-inputs: whoever wrote a
-/// change, the cell reading it runs for it; a remark the owner writes for a cell is given to it). Once the history
-/// has come to rest, for every version a person wrote of a block and every cell that reads the block and is not
-/// skipped, the cell's record knows that version or a later one, or one with the same meaning (a person's
+/// Property 4, a person's write reaches its readers (the design of data and context, and decision opinions-are-inputs:
+/// whoever wrote a change, the cell reading it runs for it; a remark the owner writes for a cell is given to it). Once
+/// the history has come to rest, for every version a person wrote of a block and every cell that reads the block and is
+/// not skipped, the cell's record knows that version or a later one, or one with the same meaning (a person's
 /// confirmation of a choice's value changes nothing). Exempt are, where the work waits at a cell, for a person or at
 /// a limit, that cell and every cell after it; where the work is paused, the cell it would go on with or run once let
 /// on and every cell after it; a cancelled work, all of whose cells are, since it stops wherever it is; and in a
@@ -714,7 +736,7 @@ pub fn reaches(v: &mut Verdict, flow: &Flow, records: &Records, rest: &Decision,
 }
 
 /// Property 3 on the whole history: walking the records as they were at each moment the driver took a decision gives
-/// the decision it took (entry records-give-the-same-walk).
+/// the decision it took (property records-give-the-same-walk).
 pub fn replay(v: &mut Verdict, flow: &Flow, records: &Records, moments: &[Moment]) {
     for m in moments {
         v.count(MOMENTS_REPLAYED);

@@ -1,4 +1,4 @@
-//! A pause holds back what would begin a round, and nothing else (entry `stops-from-outside-are-no-cells`).
+//! A pause holds back what would begin a round, and nothing else (decision `stops-from-outside-are-no-cells`).
 
 use decide::{Decision, RunId};
 use service::Act;

@@ -6,18 +6,18 @@
 //!
 //! 1. No round of the merge begins while a judge that is not skipped has, as its own last write of its verdict, the
 //!    refusal, with no person's write of the verdict since; nor while a person's write of a verdict is its latest and
-//!    is the refusal (entry no-merge-on-what-is-not-settled).
+//!    is the refusal (property no-merge-on-what-is-not-settled).
 //! 2. No round of the merge begins unless the check's record wrote each choice it writes that a precondition of kind
-//!    `all` reads with the value that precondition looks for (entry no-merge-on-what-is-not-settled), and the record of
-//!    every cell before the merge that is not skipped knows the current meaning of each of its inputs: the version it
-//!    wrote itself where it wrote the block, the one its run started from otherwise (entry
+//!    `all` reads with the value that precondition looks for (property no-merge-on-what-is-not-settled), and the record
+//!    of every cell before the merge that is not skipped knows the current meaning of each of its inputs: the version
+//!    it wrote itself where it wrote the block, the one its run started from otherwise (property
 //!    merge-only-on-what-is-current).
 //! 3. From the state a random history reached, a work everyone is content with merges within `content_bound` steps
-//!    (entry a-work-comes-to-rest).
+//!    (property a-work-comes-to-rest).
 //! 4. In that continuation, the runs of each cell beyond its first that changed no block's meaning, runs for nothing,
 //!    are counted, written to the standard error, and held to the bound `content_bound` rests on.
 //! 5. No finished run lacks a write of a block its cell must write (`must_write`), read from the records of the
-//!    finishes and the cells' definitions after every step (entry a-run-is-one-mechanism).
+//!    finishes and the cells' definitions after every step (property a-run-is-one-mechanism).
 //!
 //! The first two are judged as each round of the merge begins, by the histories' own reading of the records as they
 //! were then (`reading`), never by the deciding code's tests.

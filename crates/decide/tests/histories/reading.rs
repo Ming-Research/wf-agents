@@ -53,7 +53,7 @@ pub struct Reading<'a> {
 }
 
 impl<'a> Reading<'a> {
-    /// The reading of these records. The meaning of each version follows entry meaning-told-by-the-writer: the first
+    /// The reading of these records. The meaning of each version follows decision meaning-told-by-the-writer: the first
     /// version of a block has its own. A version that has a value, or follows one that has, is a choice: it changes the
     /// meaning when the value differs from the one before, and only then, whoever writes it. Otherwise a person's
     /// prose always changes the meaning; what the outside writes does unless it was approved as not mattering; a
@@ -183,8 +183,8 @@ impl<'a> Reading<'a> {
         }
     }
 
-    /// Why the cell would start a run at this place (entry state-is-blocks): no record, or each input whose current
-    /// meaning differs from the meaning of the version its record knows; empty when it needs no run.
+    /// Why the cell would start a run at this place (the design of data and context): no record, or each input whose
+    /// current meaning differs from the meaning of the version its record knows; empty when it needs no run.
     pub fn reasons(&self, cell: &Cell, place: Seq) -> Vec<Reason> {
         let Some(record) = self.record(&cell.id, place) else {
             return vec![Reason::NoRecord];
@@ -201,7 +201,7 @@ impl<'a> Reading<'a> {
             .collect()
     }
 
-    /// Whether a change of the block from `was` to `now` is a way round for the cell at place `i` of the flow (entry
+    /// Whether a change of the block from `was` to `now` is a way round for the cell at place `i` of the flow (decision
     /// every-way-round-has-a-limit): every change of its meaning between the two was written by a cell after it in the
     /// order. One made by a person, the outside, the cell itself or a cell before it makes it no way round.
     pub fn behind(&self, flow: &Flow, i: usize, block: &BlockId, was: Option<Seq>, now: Seq) -> bool {

@@ -53,3 +53,54 @@ Why: A trial goes one way through the flow; the next change then meets a way no 
 ### principle flow-change-spares-works
 A flow change is made so that returns already handed in still pass where it can, and what installing it does to each work in progress is shown before it is approved.
 Why: Every tightening of an early cell's output sends each work that went past it back to do the cell again; the owner approves a flow change with that cost in view. (Article 3)
+
+### principle a-defect-is-seen-before-it-is-fixed
+A defect is fixed only after it was seen to happen where it shows, such as on the page in a real browser or in the
+program run on its own data; where no test can be written for it, a probe, a log or the owner running it may show it.
+One that is seen nowhere, after all the tools reach was tried, stops the work at its research and goes to no deeper
+research: how to go on is written as a question the work waits on, to fix by the cause inferred, to wait for the owner
+to give the conditions, or to close the item.
+Why: A cause that was only inferred was once fixed and passed its test in a stand-in for the browser, while the defect
+stayed and came back as a new item; and it is not known then whether the tools fall short, which a deeper research
+shares.
+
+### principle the-reviewer-knows-no-less
+Whoever reviews is no less able than the engineer and knows what the engineer knows: the background and the decisions
+the engineer worked from.
+Why: Engineers mostly do what a review says, so a wrong demand turns good code into bad.
+
+### principle the-flow-scales-with-the-work
+The flow scales with the work: a fix of a few lines is through in minutes, and only what is large goes through the
+whole of the design.
+Why: Two hours for every work was too much: a fix of a few lines took an hour of the flow and four or five with the
+waiting, which the owner cannot wait for; and the heavier the flow, the more it rests on the items being written well.
+
+### principle a-question-is-a-choice
+What is asked of a person is a question of yes or no, or a choice of one or more among options, with the answer its
+asker recommends; a no gives its reason. Only an answer given on the question answers it, and words beside it are
+remarks. What the engine itself asks, such as an approval the flow requires, judges nothing and recommends nothing.
+Why: A question in free words cannot be answered quickly, and words beside a question, taken for its answer, cannot be
+told from discussion.
+
+### principle a-question-says-first-what-to-decide
+A question an agent puts to the owner says in its first sentence what is to be decided and what it affects, uses no
+inner names, gives what follows from each option and a recommendation, and keeps its details behind a link; it is
+short, and is opened only where it is not understood.
+Why: Otherwise the owner reads the whole story again each time; a question written well can be decided with nobody's
+help.
+
+### principle named-paths-wait-for-the-owner
+A change that touches a path the project's configuration names for the owner, such as a specification or the
+principles of its design, waits at the merge for the owner's yes, and a later change to those paths asks again. The
+engine sees the paths touched and asks by itself, showing the change; which paths, each project's configuration says,
+and the flow names none.
+Why: A rule in the project's own guide, left to the engineer and the review to keep, was turned down: where both
+missed it, the change merged (Article 7). The paths are a project's and not the flow's (Article 1).
+
+### principle the-flow-gives-the-trees-rules
+The rules of the design tree, the tree's own file of rules, are data the cell of every agent takes, as the project's
+guide is (the design of data and context): the flow gives them, and no cell is left to find them by following the
+guide. The guide points to them as well, for the agents that work outside the flow.
+Why: Every project's agents need the same rules, and said once in the flow they reach every cell, where a rule an
+agent must find by itself may go unread. An agent outside the flow is given nothing by the flow and has only the
+guide.

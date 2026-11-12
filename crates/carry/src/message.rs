@@ -1,13 +1,12 @@
 //! What an agent is told at the start of a round: a function of the flow, the work's records, the round, and whether
-//! the round begins its line's session, with no I/O, so that a round given again is told the same bytes (decision
-//! `agent-reads-what-it-needs`).
+//! the round begins its line's session, with no I/O, so that a round given again is told the same bytes.
 //!
 //! A run's first round, and any round that begins a session, is given the cell's task and a list: each block the cell
 //! reads, with its current version, who wrote it, its value where it is a choice, and the version the cell last worked
 //! from, those that changed marked; and each block it may write, with its values where it is a choice and the version
 //! at which its meaning last changed. No content of any block is in the message: the agent reads what it needs with
 //! the tool `read`, and the list ends with the input that reads all of it at once. Nothing is left out for what a
-//! session is thought to hold (decision `session-is-a-cache`). A later round is given the results of the calls it
+//! session is thought to hold. A later round is given the results of the calls it
 //! asked for, or why what it handed in was sent back; one that begins a session, or goes on in one that never saw the
 //! run's earlier rounds, is given, after the task and the list, what each earlier round of the run was given, in their
 //! order, and then its own. Where the work's branch was to take main in as the run started ([`crate::catch_up`]), the

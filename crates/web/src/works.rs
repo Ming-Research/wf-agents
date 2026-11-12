@@ -1,6 +1,6 @@
 //! The items and the works as the pages read them: their own types, named for what the owner reads, made from what
 //! the driver holds, and read back by the command line. Nothing here is decided: what a work does now is the deciding
-//! code's own account of it ([`decide::view`]), so that what is shown and what is decided cannot differ (entry
+//! code's own account of it ([`decide::view`]), so that what is shown and what is decided cannot differ (property
 //! `records-give-the-same-walk`). `client/src/works-api.ts` gives the same types to the pages, field for field.
 //!
 //! The pages are given a work's history without the content of what was written: each write says how long its
@@ -12,8 +12,8 @@
 //! - [`RoundPage`], [`VersionPage`], [`CallPage`]: the content the history leaves out.
 //! - [`ToldPage`]: what a round was told and what came back of it, as its carrier kept them.
 //! - [`Act`], [`NewItem`]: what the owner does on the pages.
-//! - [`Engine`], [`EngineAct`]: the engine as a whole, its slots and the pause of everything, and what the owner does to
-//!   it.
+//! - [`Engine`], [`EngineAct`]: the engine as a whole, its slots and the pause of everything, and what the owner
+//!   does to it.
 //!
 //! A work whose records name what it does not hold, which the engine never writes, is not shown as something it is
 //! not: making its view gives [`Broken`], saying what is missing.
@@ -715,8 +715,8 @@ pub struct TryPage {
     pub ran: Option<RanOn>,
 }
 
-/// What a try of an agent's round ran on, as the work's records say it was when the try began, or, for a try kept before
-/// tries were recorded, as its carrier kept it beside the try.
+/// What a try of an agent's round ran on, as the work's records say it was when the try began, or, for a try kept
+/// before tries were recorded, as its carrier kept it beside the try.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RanOn {

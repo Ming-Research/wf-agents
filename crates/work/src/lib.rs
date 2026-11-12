@@ -2,7 +2,7 @@
 //! written, and nothing is kept that the records already say.
 //!
 //! The engine's loop adds to a [`Work`] and storage keeps it; both depend on this crate, which depends on the deciding
-//! code alone (entry `engine-in-layers`), so that storage does not depend on the loop.
+//! code alone (principle `dependencies-one-way`), so that storage does not depend on the loop.
 
 use std::collections::BTreeMap;
 

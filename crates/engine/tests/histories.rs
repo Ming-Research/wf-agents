@@ -5,17 +5,17 @@
 //! engineer's flow share; what an agent returns and what a person does on the shapes is here.
 //!
 //! What is checked after every step:
-//! - `pending` equals, as a set, what the driver holds (entries engine-holds-no-state, a-stop-changes-nothing);
+//! - `pending` equals, as a set, what the driver holds (principle state-from-records; property a-stop-changes-nothing);
 //! - at most one round is under way, and the deciding code never says the records are faulty;
 //! - every effect held names a run and a call the records hold, and no round is given twice;
 //! - the times of the moments never go back, the driver's clock never going back, and each moment's entries begin
 //!   after the last's;
 //! - an event the loop refuses leaves the work equal to what it was;
 //! - no finished run of a cell lacks a write of a block the cell must write, read from the records of the finishes and
-//!   the cells' definitions (entry a-run-is-one-mechanism);
+//!   the cells' definitions (property a-run-is-one-mechanism);
 //! - a round that ended, failed or not, is never given to be done again: no round `pending` gives has ended; and while
-//!   the engine's pause for a failed round holds the work, `pending` gives no round but one of a run for a note a person
-//!   wrote, and none given again after it failed;
+//!   the engine's pause for a failed round holds the work, `pending` gives no round but one of a run for a note a
+//!   person wrote, and none given again after it failed;
 //! - a round given while the work is paused is of a run for a note a person wrote, and is no round given again after
 //!   one that failed;
 //! - a round after one that failed is given what the failed one was given, read from the records;
@@ -24,19 +24,19 @@
 //!
 //! And once people stop, the owner lets the work on if it is paused, for whatever reason, and no round fails any more:
 //! the work then rests within
-//! the bound stated on `bound` (entry a-work-comes-to-rest), at rest it is not paused and the walk waits or has
+//! the bound stated on `bound` (property a-work-comes-to-rest), at rest it is not paused and the walk waits or has
 //! ended, and `pending` holds only calls for a person; a work that ended has let go of what it held; a cancelled work
-//! ends with nothing pending, and a look at it gives nothing. The same history ends with the same work run twice, and with its stops as without them, failed rounds
-//! among them.
+//! ends with nothing pending, and a look at it gives nothing. The same history ends with the same work run twice, and
+//! with its stops as without them, failed rounds among them.
 //!
 //! What a step is, roughly. In the first 0 to 59 steps people act at a step with a chance of one in four; otherwise,
 //! and always once they stop, the driver does one of the things it holds, each with an equal chance:
 //! - a round under way fails in one in ten while people act, the engine then pausing the work; otherwise it ends: in
 //!   half of them the agent hands in each block its cell may write with a chance of seven in ten, those its cell must
 //!   write each time too, so that it leaves one out at times, and, in one in ten, a block it may not; a choice with one
-//!   of its values in four of five, a wrong value or none otherwise; prose with a value in one in twenty; each mattering
-//!   or not as a coin says. In three in ten it asks for one to three calls, a tool in seven of ten and a question for
-//!   the owner or the architect otherwise; in two in ten it asks for nothing.
+//!   of its values in four of five, a wrong value or none otherwise; prose with a value in one in twenty; each
+//!   mattering or not as a coin says. In three in ten it asks for one to three calls, a tool in seven of ten and a
+//!   question for the owner or the architect otherwise; in two in ten it asks for nothing.
 //! - a call has its result: always for a tool; for a person or the owner's call at a limit only while people act.
 //! - a round given to be stopped ends, what it returns being dropped, or, while people act, fails in half of them; a
 //!   call given to be withdrawn is said to have its result, that it was withdrawn.
@@ -324,7 +324,7 @@ impl Shape {
     }
 }
 
-/// How many steps, once people stop, the work may take before it rests (entry a-work-comes-to-rest).
+/// How many steps, once people stop, the work may take before it rests (property a-work-comes-to-rest).
 ///
 /// Once people stop, the driver ends rounds and gives tools their results, and nothing else. A run's rounds are at
 /// most `returns + 1` that are sent back or hand in what finishes it, and `calls + 1` that ask for calls, each of which

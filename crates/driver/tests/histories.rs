@@ -12,7 +12,7 @@
 //!
 //! Once people stop, the works left paused are let on as their last act, and the rounds, the tools' calls, the
 //! withdrawals and the stops are answered until nothing more is given: within a bound each work then waits, saying for
-//! what and for whom, or has ended, and what is pending is only what people are to answer (entry
+//! what and for whom, or has ended, and what is pending is only what people are to answer (property
 //! a-work-comes-to-rest). A history with stops and failures, the owner lifting at once the pause of everything the
 //! driver makes as it opens on works going on, ends as the same history with none, each entry added at the same time.
 //!
@@ -38,8 +38,9 @@
 //! at one of its next three calls, and with one in fifty the process to stop right after one of them.
 //!
 //! The driver has two slots. Every item is added paused; one in three is let on by the owner at once as it is added,
-//! drawn by a generator of its own, and the others are let on later, as before; and, drawn by another, the owner sets or lifts the pause of everything before a step with a chance
-//! of one in twenty while people act, and lifts it as people stop.
+//! drawn by a generator of its own, and the others are let on later, as before; and, drawn by another, the owner sets
+//! or lifts the pause of everything before a step with a chance of one in twenty while people act, and lifts it as
+//! people stop.
 //!
 //! A failing case prints its seed and the steps it took; `one_history(seed, ..)` replays it.
 
@@ -648,7 +649,7 @@ impl History {
         self.seen.refused += 1;
     }
 
-    /// How many steps, once people stop, the works may take before they rest (entry a-work-comes-to-rest): for each
+    /// How many steps, once people stop, the works may take before they rest (property a-work-comes-to-rest): for each
     /// work, the bound the engine's own histories state for a work alone, from its flow's limits and cells.
     fn bound(&self) -> u64 {
         (self.h.d().works())

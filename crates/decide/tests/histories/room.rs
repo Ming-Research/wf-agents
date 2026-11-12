@@ -1,8 +1,8 @@
 //! What the room the engine leaves a work holds back, checked after every step in every room: the walk is asked what it
 //! would decide in each, whatever room the history is in. Under the owner's pause of everything the walk decides
 //! exactly what it decides of the same records with the work's own pause added after them, and holds back the same of
-//! each run at rest (entry `stops-from-outside-are-no-cells`: a pause holds back only what would begin a round, and a
-//! paused work still answers a note). With no slot free it decides what it decides with one, but that a cell that
+//! each run at rest (decision `stops-from-outside-are-no-cells`: a pause holds back only what would begin a round, and
+//! a paused work still answers a note). With no slot free it decides what it decides with one, but that a cell that
 //! takes a slot, which it would run, waits for one at that cell; and it holds back every round of a run at rest of
 //! such a cell, and nothing else.
 
