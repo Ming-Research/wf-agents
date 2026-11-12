@@ -17,8 +17,10 @@
    - It looks forward. A decision explains one thing that is there; a principle binds what is not there yet. Take away
      the thing an entry speaks of: a decision goes with it, and a principle still has its use.
    - It is general. It governs the whole system or a whole area of it (the engine, the flow, the page), or every time
-     a kind of work is done; never one mechanism within an area. A rule for what one mechanism is to become is a
-     decision of that component where rule 3 admits it, and otherwise is not written here.
+     a kind of work is done; never one mechanism within an area. This is judged by what the entry is about, not by
+     how far its rule reaches: a rule about one mechanism is about that mechanism, however many things it binds. A
+     rule for what one mechanism is to become is a decision of that component where rule 3 admits it, and otherwise is
+     not written here.
 
    Whoever proposes a principle names two places that share no code where it holds or would be broken without it, or,
    for a way of working, two occasions; the principle itself names none. A sentence of a document (rule 8) that binds
