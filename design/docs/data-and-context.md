@@ -124,3 +124,16 @@ run next all the same, and the note would be filled, since the new session lacks
 26. What a person answers to a cell's question is data. The question is an output of the cell, and the answer gives it
     a new version. The cell takes it as an input: it runs again when it is answered, and a session reopened is filled
     with the answer as with any input.
+
+## Data that more than one cell may write
+
+27. Some data may be written by more than one cell, as the plan is by the research and by the deep research. Which of
+    them is in charge is decided before both: the cell that decides hands in the answer, and that answer is a
+    condition of its own next round as it is of the other cell's. From then on only the cell in charge runs, and the
+    way forks right where the two cells stand, not after one of them.
+
+28. What another cell says to whoever is in charge is one datum, which each cell that may be in charge takes. The
+    flow's condition says which of them acts on it. An agent is never left to choose where to write by who is in
+    charge: where there is one place to write, nothing can be written to the wrong one.
+
+29. A round is not told who wrote a version: nothing in this design needs it.
