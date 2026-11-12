@@ -64,9 +64,9 @@ A document is a design that holds only as a whole: its parts cannot be told one 
 of them alone would change the system wrongly. It is complete and consistent with itself, and may come before the
 code, as a principle may.
 
-A sentence of a document that binds only work on that design stays in the document; it is made a principle, in one
-sentence that names the document, only where it must bind work that never opens it. A principle or a decision that
-follows from a document names it and does not repeat it.
+A principle or a decision that holds only within what a document covers belongs to the document, and is not written
+as an entry of its own. One that reaches beyond it is an entry, which names the document and does not repeat it. A
+document goes against no principle and no decision outside it.
 
 ## Writing an entry
 
@@ -92,9 +92,9 @@ Why: <the reason, in one or two sentences; where the point is a way turned down,
 A decision is added by the work that makes it true: its plan says it, its change writes it, and its review holds it to
 these rules. A change that makes a decision untrue rewrites or deletes it in the same work, and an entry found not to
 belong here is deleted by the work that finds it. The files of decisions hold only what the code on the branch the
-works merge into does. A design for one component that the code does not yet follow waits in `pending-design.md`, and
-so does what the code does not yet do of a document.
+works merge into does.
 
-A principle and a decision, or two decisions of one file, that cannot both hold are a fault of the tree. A file of
+A principle and a decision, two decisions of one file, or a document and an entry outside it, that cannot both hold
+are a fault of the tree. A file of
 decisions that grows long is itself a sign: what no longer belongs here is deleted from it, and decisions in more
 than one file that rest on one reason are put to the owner as one principle.
