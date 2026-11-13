@@ -75,6 +75,9 @@ fn a_cell_s_title_kind_line_task_and_act_are_each_a_change_with_both_values() {
                     after: None,
                 },
             ),
+            // In the old form an agent cell is given what runs it, and an engine cell nothing.
+            of("check", CellChange::GivenAdded("main".into())),
+            of("check", CellChange::GivenAdded("design".into())),
             of(
                 "check",
                 CellChange::Effort {
