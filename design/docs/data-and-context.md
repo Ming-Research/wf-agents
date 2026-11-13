@@ -42,8 +42,9 @@ here: the conditions a cell runs under, the limits, the owner's pauses, when a w
 8. The engine knows nothing of sessions. A session that is reopened reaches it only as a new version of data (25),
    and it chooses as always.
 
-9. When the round ends, the versions it ran on are consumed, and are old to this cell from then on. A round that fails
-   or is given up before its end consumes nothing. Data become old in no other way.
+9. A round ends by saying which of the data that ran it it has dealt with. Those versions are consumed, and are old
+   to this cell from then on. What it has not dealt with is still new, so the cell is entered again, until nothing
+   new runs it. A round that fails, or that is told to stop, has dealt with nothing. Data become old in no other way.
 
 10. What the round hands in becomes new versions of the cell's outputs. They are new to the other cells that they run,
     and not to the cell that wrote them. A round that hands in nothing new makes nothing new, and no cell runs because
@@ -146,32 +147,32 @@ run next all the same, and the note would be filled, since the new session lacks
     stands, and may go back and forth.
 
 29. What the owner says and what the agents say back are kept as one record, each entry with who spoke, in the order
-    they were said. The cells that can be spoken to are the research, the deep research and the implementation. Each
-    of them is given the record, all of it (17), so that a session reopened holds everything that was said. The
-    record runs none of them.
+    they were said: the owner adds to it, and so do the cells that answer, and no entry is changed. The cells that can
+    be spoken to are the research, the deep research and the implementation. Each of them is given the record, all of
+    it (17), so that a session reopened holds everything that was said. The record runs none of them.
 
 30. What runs a cell that is spoken to is a datum of its own, with no content, which has a new version when the owner
     speaks to that cell. The owner chooses a line: the engineer's, or the deep research's once it has begun. The cell
     spoken to is the one of that line's cells that the work has reached. Which cells of a line can be spoken to, the
     flow says.
 
-31. The cell answers at once and goes on with its work. Its answer is not among the blocks it hands in: it is said
-    through the engine, which adds it to the record, and saying it does not end the cell's work. What a cell said is
-    in its own session already.
+31. The cell answers at once and goes on with its work. It hands in its answer as it hands in anything, and the
+    answer is added to the record; with it the round says that it has dealt with the owner's words. What else ran the
+    cell is still new, so the cell is entered again and goes on with the rest (9). No tool is needed for answering.
 
 32. While a round of the cell spoken to is under way, the words are put into its session right after its next use of
     one of its program's own tools, so that they do not wait for the round's end. This is done for what the owner says
     and for nothing else. Words that did not reach the round before it ended are still new to the cell, and it runs
     again.
 
-33. While the cell spoken to has no round under way and its run rests at a call, the engine begins a round of that run
-    for the words, and the run goes on resting at its call.
+33. While the cell spoken to has no round under way and waits for the result of a call, the engine enters it for the
+    words, and it goes on waiting for the result.
 
 34. While a round of a cell later in the flow is under way, that round is told to stop, the cell spoken to runs, and
-    the flow comes back to the cell that stopped. A round that stopped so has not handed in: it consumed nothing (9),
-    and its cell runs again.
+    the flow comes back to the cell that stopped: a round that stopped so has dealt with nothing (9), and its cell
+    runs again.
 
-35. A round that was given the owner's words and did not answer them has its return sent back.
+35. A round that says it has dealt with the owner's words and has handed in no answer has its return sent back.
 
 36. What the words ask that is not the cell's to change, the cell passes on in the block it already writes for the
     cell whose it is, and the flow goes on as for any such block.
