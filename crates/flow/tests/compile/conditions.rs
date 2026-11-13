@@ -59,12 +59,33 @@ fn a_condition_waits_for_a_value_the_choice_offers() {
 }
 
 #[test]
-fn a_condition_reads_no_block_its_own_cell_writes() {
+fn a_condition_may_read_a_choice_its_own_cell_alone_writes() {
     let source = edit(
         valid(),
         "judge.toml",
         "line = \"review\"",
         &format!("line = \"review\"\n{WHEN}"),
+    );
+    let condition = Condition::Is {
+        block: "needs_design".into(),
+        value: "yes".to_string(),
+    };
+    assert_eq!(compiled(&source).flow.cells()[1].applies, Some(condition));
+}
+
+#[test]
+fn a_condition_reads_no_block_its_own_cell_writes_and_another_writer_writes_too() {
+    let source = edit(
+        valid(),
+        "judge.toml",
+        "line = \"review\"",
+        &format!("line = \"review\"\n{WHEN}"),
+    );
+    let source = edit(
+        source,
+        FLOW_FILE,
+        "[blocks.needs_design]\n",
+        "[blocks.needs_design]\npeople = true\n",
     );
     let what = ConditionOnOwnOutput {
         block: "needs_design".to_string(),

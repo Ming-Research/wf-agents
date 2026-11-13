@@ -78,7 +78,7 @@ fn small() -> Compiled {
 }
 
 fn hands_in(block: &str, value: Option<&str>) -> Came {
-    Came::HandsIn(vec![Handed {
+    Came::hands_in(vec![Handed {
         block: block.into(),
         content: format!("the {block}"),
         matters: true,
@@ -107,7 +107,12 @@ fn a_work_goes_from_cell_to_cell_as_each_hands_in_and_rests_at_the_merge_for_the
     let (write, cell, given) = round(&handle(&flow, &mut work, Time(1), request).unwrap());
     assert_eq!(cell, "write");
     assert_eq!(given, Given::Task);
-    assert_eq!(work.records.started[0].because, [Cause::NoRecord]);
+    let because = Cause::Changed {
+        block: "request".into(),
+        was: None,
+        behind: false,
+    };
+    assert_eq!(work.records.started[0].because, [because]);
     // While the round is under way it is what a driver that starts anew is given again.
     assert_eq!(round(&pending(&flow, &work)), (write, cell, given));
 
@@ -155,7 +160,16 @@ fn a_work_goes_from_cell_to_cell_as_each_hands_in_and_rests_at_the_merge_for_the
 #[test]
 fn what_is_handed_in_that_the_flow_does_not_allow_is_sent_back_with_why() {
     let (flow, mut work) = (small(), Work::default());
-    let (write, ..) = round(&handle(&flow, &mut work, Time(4), Event::Look).unwrap());
+    // Nothing runs the writer until the request is written.
+    assert_eq!(handle(&flow, &mut work, Time(3), Event::Look).unwrap(), vec![]);
+    let request = Event::Wrote {
+        block: "request".into(),
+        by: Outsider::Person,
+        content: "do it".to_string(),
+        matters: true,
+        value: None,
+    };
+    let (write, ..) = round(&handle(&flow, &mut work, Time(4), request).unwrap());
     // The writer hands in the judge's block.
     let came = hands_in("content", Some("yes"));
     let (again, cell, given) = round(

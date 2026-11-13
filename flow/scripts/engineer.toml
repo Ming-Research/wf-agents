@@ -24,14 +24,15 @@ hands_in = [
     { block = "related", content = "calls-inside-a-run: a call is part of its run, so what it takes is the run's." },
 ]
 
-# Research: a question to the owner, then what it found, which needs deep research, and its answer to the owner.
+# Research: a question to the owner, which ends its run; then, entered again for the answer, what it found, which
+# needs deep research, and its answer to the owner.
 [[flows.engineer.rounds]]
 cell = "R1"
 asks = [{ question = "Should the cost of a round be kept for each call of a tool as well?", who = "owner" }]
 
 [[flows.engineer.rounds]]
 cell = "R1"
-round = 2
+run = 2
 hands_in = [
     { block = "needs_deep_research", value = "yes" },
     { block = "found", content = "The rounds keep their cost; the calls keep none. Two ways to keep it were found; which one holds after a restart is open." },
@@ -71,15 +72,15 @@ cell = "D2"
 run = 2
 hands_in = [{ block = "plan_settled", value = "yes" }]
 
-# Implementation: runs the check and hands in the code with a decision of its own; then a fix for the review, one for
-# the testing and one for the check before the merge.
+# Implementation: asks for the check, which ends its run, and, entered again for its result, hands in the code with a
+# decision of its own; then a fix for the review, one for the testing and one for the check before the merge.
 [[flows.engineer.rounds]]
 cell = "I1"
 asks = [{ tool = "check", input = "the work's branch" }]
 
 [[flows.engineer.rounds]]
 cell = "I1"
-round = 2
+run = 2
 hands_in = [
     { block = "code", content = "The call's cost is kept with its result and summed into the run." },
     { block = "decisions", content = "A call's cost is kept in millionths of a dollar, as a round's is, so that the two add up exactly." },
@@ -88,7 +89,7 @@ hands_in = [
 
 [[flows.engineer.rounds]]
 cell = "I1"
-run = 2
+run = 3
 hands_in = [
     { block = "code", content = "The call's cost is kept with its result and summed into the run; the page shows it per call." },
     { block = "answers_review", content = "Done: the step's panel now shows what each call took." },
@@ -96,7 +97,7 @@ hands_in = [
 
 [[flows.engineer.rounds]]
 cell = "I1"
-run = 3
+run = 4
 hands_in = [
     { block = "code", content = "As before, and a call with no result yet is counted as taking nothing." },
     { block = "answers_testing", content = "Fixed: the sum no longer fails on a call that has no result." },
@@ -104,7 +105,7 @@ hands_in = [
 
 [[flows.engineer.rounds]]
 cell = "I1"
-run = 4
+run = 5
 hands_in = [
     { block = "code", content = "As before, with the latest main taken in and the work's migration renamed to follow main's." },
     { block = "answers_check", content = "Fixed: the work's migration now follows the one main added." },

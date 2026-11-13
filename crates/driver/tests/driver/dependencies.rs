@@ -49,7 +49,8 @@ fn a_waiting_work_not_yet_let_on_has_its_block_written_at_the_merge_and_begins_w
     let todos = h.through(wa);
     assert_eq!(todos, vec![], "a paused work was given something to do");
     assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
-    assert_eq!(h.decision(wb), Decision::Paused);
+    // Not started by the owner, it has nothing new to run its first cell.
+    assert_eq!(h.decision(wb), Decision::Idle);
     let todos = h.let_on(wb);
     assert_eq!(rounds(&todos), [(wb, "write".to_string(), 1)]);
 }
@@ -323,9 +324,10 @@ fn a_block_left_to_bring_to_agree_on_a_store_that_fails_as_it_is_written_stops_t
         "the opening made no save"
     );
     assert_eq!(opened.err(), Some(Fault::Store(failure())));
+    // The work holds its dependencies block as it was added and the owner's start, and no more.
     assert_eq!(
         h.reader.load(wb).expect("the work loads").records.written.len(),
-        1,
+        2,
         "a failed write was kept"
     );
     // Opened on a store that works, and the pause of everything it made as it opened lifted at once by the owner, it

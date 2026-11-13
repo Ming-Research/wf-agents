@@ -135,7 +135,7 @@ pub fn came(structured: &serde_json::Value) -> Result<Came, String> {
                 },
             })
             .collect();
-        return Ok(Came::Asks(asks));
+        return Ok(Came::asks(asks));
     }
     let handed = (r.hands_in.into_iter())
         .map(|h| Handed {
@@ -145,7 +145,7 @@ pub fn came(structured: &serde_json::Value) -> Result<Came, String> {
             value: h.value,
         })
         .collect();
-    Ok(Came::HandsIn(handed))
+    Ok(Came::hands_in(handed))
 }
 
 #[cfg(test)]
@@ -178,7 +178,7 @@ mod tests {
                 question: "Which name?".to_string(),
             },
         ];
-        assert_eq!(came(&r), Ok(Came::Asks(asks)));
+        assert_eq!(came(&r), Ok(Came::asks(asks)));
     }
 
     #[test]
@@ -201,23 +201,23 @@ mod tests {
                 value: Some("yes".to_string()),
             },
         ];
-        assert_eq!(came(&r), Ok(Came::HandsIn(handed)));
+        assert_eq!(came(&r), Ok(Came::hands_in(handed)));
     }
 
     #[test]
     fn a_return_of_nothing_hands_in_nothing() {
         assert_eq!(
             came(&json!({"hands_in": [], "asks": []})),
-            Ok(Came::HandsIn(Vec::new()))
+            Ok(Came::hands_in(Vec::new()))
         );
     }
 
     fn nothing() -> Result<Came, String> {
-        Ok(Came::HandsIn(Vec::new()))
+        Ok(Came::hands_in(Vec::new()))
     }
 
     fn plan() -> Result<Came, String> {
-        Ok(Came::HandsIn(vec![Handed {
+        Ok(Came::hands_in(vec![Handed {
             block: "plan".into(),
             content: "Greet.".to_string(),
             matters: true,
@@ -253,7 +253,7 @@ mod tests {
         assert_eq!(came(&json!({"hands_in": null, "asks": null})), nothing());
         assert_eq!(came(&json!({"hands_in": []})), nothing());
         let asks = came(&json!({"asks": [{"question": "Which?"}]}));
-        assert!(matches!(asks, Ok(Came::Asks(_))));
+        assert!(matches!(asks, Ok(Came { ref asks, .. }) if !asks.is_empty()));
     }
 
     #[test]
@@ -266,8 +266,8 @@ mod tests {
     fn a_null_of_the_other_form_is_left_out() {
         let tool = json!({"hands_in": [], "asks": [{"tool": "check", "input": "", "question": null}]});
         let question = json!({"hands_in": [], "asks": [{"question": "Which?", "tool": null, "input": null}]});
-        assert!(matches!(came(&tool), Ok(Came::Asks(a)) if matches!(a[0], Ask::Tool { .. })));
-        assert!(matches!(came(&question), Ok(Came::Asks(a)) if matches!(a[0], Ask::Person { .. })));
+        assert!(matches!(came(&tool), Ok(Came { asks: a, .. }) if matches!(a[0], Ask::Tool { .. })));
+        assert!(matches!(came(&question), Ok(Came { asks: a, .. }) if matches!(a[0], Ask::Person { .. })));
         let value =
             json!({"hands_in": [{"block": "plan", "content": "Greet.", "matters": true, "value": null}], "asks": []});
         assert_eq!(came(&value), plan());

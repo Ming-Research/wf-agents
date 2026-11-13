@@ -4,19 +4,19 @@
 //!
 //! With the installation's [`Policy`], a line begins a new session at its next round when the account or the model its
 //! session's rounds ran on, as the work's records say, is not the one its rounds run on now, or when its last round
-//! ended with a context past the limit. The limit waits while a run of the line has not ended: a run waiting on what
-//! it asked for, or rewriting a return that was sent back, goes on in the session that holds what it did, and the
-//! next round of the line after its runs have ended begins the new one. Nor does the limit end a session whose last
-//! round was of a cell that reads the [`SESSION`] block: that cell loads the session, and a new session for its own
-//! size would load it again without end. A new session for any other reason begins at once, and a round whose run ran
-//! in the session before is told what the run was doing.
+//! ended with a context past the limit. The limit waits while a run of the line has not ended, as one rewriting a
+//! return that was sent back, or a cell of the line waits for the results of the calls its run asked for: it goes on in
+//! the session that holds what it did, and the next round of the line after that begins the new one. Nor does the limit
+//! end a session whose last round was of a cell that reads the [`SESSION`] block: that cell loads the session, and a
+//! new session for its own size would load it again without end. A new session for any other reason begins at once, and
+//! a round whose run ran in the session before is told what the run was doing.
 //!
 //! Whatever the policy, a line a round of whose session the service's safety check flagged begins a new session, in
 //! which that round is tried again, so that the check is not given the same context.
 //!
 //! Nothing follows for a work that has ended. Without a policy, nothing more is worked out, and only what others record
-//! is followed: whatever records a new session, the driver then writes the work's [`SESSION`] block, where the line has a
-//! cell that reads it, so that the cell runs again and what it reads is in the new session. A line's first session,
+//! is followed: whatever records a new session, the driver then writes the work's [`SESSION`] block, where the line has
+//! a cell that reads it, so that the cell runs again and what it reads is in the new session. A line's first session,
 //! which begins with its first round, writes nothing: that cell runs then anyway.
 
 use decide::run::Failure;
@@ -199,13 +199,13 @@ fn past_limit(flow: &Compiled, work: &Work, line: &str, limit: u64) -> Option<u6
     let loads = (flow.blocks.values())
         .filter(|b| b.writers.outside.as_deref() == Some(SESSION))
         .any(|b| b.readers.cells.contains(&started.cell));
-    // A run of the line that has not ended, waiting on what it asked for or on a return sent back, goes on in the
-    // session it ran in: the limit takes effect once the line's runs have ended.
-    let open = (work.records.started.iter())
-        .filter(|s| line_of_cell(flow, s.cell.as_str()) == Some(line))
-        .any(|s| {
-            !(work.records.finished.iter().any(|f| f.run == s.run)
-                || work.records.abandoned.iter().any(|a| a.run == s.run))
-        });
-    (!loads && !open).then_some(context)
+    // A run of the line that has not ended, as on a return sent back, goes on in the session it ran in, and so does a
+    // cell of the line that applies and is owed the results of the calls its run asked for: the limit takes effect
+    // once the line's runs have ended and none of its cells waits so. A cell skipped since it asked waits for nothing.
+    let r = &work.records;
+    let of_line = || (r.started.iter()).filter(|s| line_of_cell(flow, s.cell.as_str()) == Some(line));
+    let open =
+        of_line().any(|s| !(r.finished.iter().any(|f| f.run == s.run) || r.abandoned.iter().any(|a| a.run == s.run)));
+    let waiting = (decide::owed(&flow.flow, r).keys()).any(|cell| line_of_cell(flow, cell.as_str()) == Some(line));
+    (!loads && !open && !waiting).then_some(context)
 }

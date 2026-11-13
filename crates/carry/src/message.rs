@@ -220,7 +220,7 @@ fn task(flow: &Compiled, work: &Work, cell: &CellSpec, run: RunId, parts: &mut V
     let place = flow.flow.place(&cell.id);
     let (inputs, outputs) = place.map_or((&[][..], &[][..]), |p| {
         let c = &flow.flow.cells()[p];
-        (&c.inputs[..], &c.outputs[..])
+        (&c.runs_on[..], &c.outputs[..])
     });
     let versions = decide::versions(&work.records);
     let record = started.and_then(|s| record_before(work, s));

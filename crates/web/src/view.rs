@@ -744,7 +744,7 @@ impl Flow {
                 effort: spec.effort.map(|effort| effort.name().to_string()),
                 condition: cell.applies.as_ref().map(|c| Condition::of(c, compiled)),
                 preconditions: cell.requires.iter().map(|t| Test::of(t, compiled)).collect(),
-                inputs: names(&cell.inputs),
+                inputs: names(&cell.runs_on),
                 input: Input::of(spec),
                 outputs: names(&cell.outputs),
                 must_write: names(&spec.must_write),

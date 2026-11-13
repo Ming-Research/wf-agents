@@ -19,7 +19,7 @@ fn a_persons_write_is_kept_with_its_content_and_the_first_cell_is_given_its_task
     assert_eq!(w.work.contents, content);
     let run = w.work.records.started[0].run;
     let start = started_with(
-        vec![Cause::NoRecord],
+        vec![changed("request", None, false)],
         &[
             ("request", Some(at)),
             ("opinions", None),
@@ -63,14 +63,15 @@ fn a_return_that_meets_everything_finishes_the_run_keeps_each_block_under_the_fi
             meaning_unchanged: false,
             value: None,
         }],
-        // A return that only hands in says nothing of what it dealt with: it dealt with every block it began from.
-        dealt_with: None,
+        // A return that only hands in says nothing of what it dealt with: it dealt with everything that ran its round,
+        // which the engine records.
+        dealt_with: Some(vec!["request".into()]),
     };
     assert_eq!(w.work.records.finished, vec![finished]);
     assert_eq!(w.work.contents.get(&("text".into(), at)), Some(&"the text".to_string()));
     let judge = w.work.records.started[1].run;
     let start = started_with(
-        vec![Cause::NoRecord],
+        vec![changed("text", None, false)],
         &[("text", Some(at)), ("opinions", None), ("verdict", None)],
     );
     assert_eq!(effects, vec![round_effect(judge, "judge", 1, Given::Task)]);
@@ -90,16 +91,16 @@ fn a_return_that_does_not_meet_what_is_required_is_sent_back_to_the_same_run_wit
 }
 
 #[test]
-fn a_return_asking_for_nothing_is_sent_back_as_asking_nothing() {
+fn a_return_that_deals_with_nothing_and_asks_for_nothing_is_sent_back() {
     let (mut w, write, _) = W::requested();
-    let effects = w.returns(write, Came::Asks(vec![]));
+    let effects = w.returns(write, Came::asks(vec![]));
     assert_eq!(
         effects,
         vec![round_effect(
             write,
             "write",
             2,
-            Given::SentBack(vec![Unmet::AsksNothing])
+            Given::SentBack(vec![Unmet::DealtWithNothing])
         )]
     );
 }
@@ -138,7 +139,7 @@ fn a_paused_work_is_given_nothing_and_when_let_on_is_given_its_next_round() {
     let effects = w.on(Event::Resumed);
     let run = w.work.records.started[0].run;
     let start = started_with(
-        vec![Cause::NoRecord],
+        vec![changed("request", None, false)],
         &[
             ("request", Some(request)),
             ("opinions", None),
@@ -167,7 +168,7 @@ fn an_engine_cell_goes_through_the_same_mechanism() {
     let verdict = w.last_finished();
     let merge = w.work.records.started[2].run;
     let start = started_with(
-        vec![Cause::NoRecord],
+        vec![changed("text", None, false), changed("verdict", None, false)],
         &[("text", Some(text)), ("verdict", Some(verdict)), ("merged", None)],
     );
     assert_eq!(effects, vec![round_effect(merge, "merge", 1, Given::Task)]);

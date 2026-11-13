@@ -76,11 +76,39 @@ pub struct Seen {
 
 /// The first finished run of the records that lacks a write of a block its cell must write, read from the records of
 /// the finishes and the cells' definitions (property a-run-is-one-mechanism), said in words; none where there is none.
+/// A run is held to what its cell must write where its return asked for no call and dealt with everything that ran its
+/// round (plan, D8).
 pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String> {
     for finished in &records.finished {
         let started = (records.started.iter())
             .find(|s| s.run == finished.run)
             .expect("a finished run started");
+        let ended = (records.returned.iter())
+            .filter(|r| r.run == finished.run)
+            .map(|r| r.at)
+            .max();
+        let asked = (records.called.iter())
+            .any(|c| c.run == finished.run && c.at < finished.at && ended.is_none_or(|e| c.at > e));
+        let ran: Vec<&decide::BlockId> = (started.because.iter())
+            .filter_map(|c| match c {
+                Cause::Changed { block, .. } => Some(block),
+                _ => None,
+            })
+            .chain(
+                records
+                    .put_in
+                    .iter()
+                    .filter(|p| p.run == finished.run)
+                    .map(|p| &p.block),
+            )
+            .collect();
+        let everything = finished
+            .dealt_with
+            .as_ref()
+            .is_none_or(|dealt| ran.iter().all(|b| dealt.contains(b)));
+        if asked || !everything {
+            continue;
+        }
         let spec = (flow.cells.iter())
             .find(|c| c.id == started.cell)
             .expect("the cell is in the flow");
@@ -107,10 +135,11 @@ pub fn for_a_note(flow: &decide::Flow, records: &Records, run: RunId) -> bool {
     let Some(started) = r.started.iter().find(|s| s.run == run) else {
         return false;
     };
-    // Since the cell last ran: since the start of the run of its record, or with no record of its first run.
+    // Since the cell last ran: since the start of its latest run that finished dealing with something, or with none of
+    // its first run. A run that only asked for calls dealt with nothing.
     let of_cell = || (r.started.iter()).filter(|s| s.cell == started.cell && s.at < started.at);
     let record = (r.finished.iter())
-        .filter(|f| f.at < started.at)
+        .filter(|f| f.at < started.at && f.dealt_with.as_ref().is_none_or(|d| !d.is_empty()))
         .filter_map(|f| of_cell().find(|s| s.run == f.run).map(|s| (f.at, s.at)))
         .max();
     let Some(since) = record.map(|(_, at)| at).or_else(|| of_cell().map(|s| s.at).min()) else {
@@ -125,6 +154,7 @@ pub fn for_a_note(flow: &decide::Flow, records: &Records, run: RunId) -> bool {
     started.because.iter().any(|c| match c {
         Cause::NoRecord => started.basis.keys().any(|block| by_person(block, None)),
         Cause::Changed { block, was, .. } => by_person(block, *was),
+        Cause::Results { .. } => false,
     })
 }
 
@@ -492,10 +522,9 @@ impl Driver {
                 let came = part.returns(self, run, cell.as_str());
                 let place = self.flow.flow.place(&cell).expect("the cell is in the flow");
                 let must = &self.flow.cells[place].must_write;
-                let lacks = match &came {
-                    Came::HandsIn(handed) => must.iter().any(|b| !handed.iter().any(|h| h.block == *b)),
-                    Came::Asks(_) => false,
-                };
+                let lacks = came.asks.is_empty()
+                    && came.dealt_with.is_none()
+                    && must.iter().any(|b| !came.writes.iter().any(|h| h.block == *b));
                 self.returned(run, came);
                 let r = &self.work.records;
                 let open = !r.finished.iter().any(|f| f.run == run) && !r.abandoned.iter().any(|a| a.run == run);
@@ -525,7 +554,7 @@ impl Driver {
                 } else {
                     Event::Returned {
                         run,
-                        came: Came::Asks(vec![]),
+                        came: Came::asks(vec![]),
                         spent,
                     }
                 };

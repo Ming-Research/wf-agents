@@ -1,5 +1,6 @@
-//! The limits within a run, through the loop: the owner is called, and once the owner lets the run go on what was
-//! held is taken up and the count starts anew.
+//! The limits, through the loop: of returns within a run, at which the owner is called, and once the owner lets the run
+//! go on what was held is taken up and the count starts anew; of ways round and of runs that only ask, at which the
+//! work waits at the cell until the owner lets it go on.
 
 use super::*;
 
@@ -42,30 +43,40 @@ fn returns_are_sent_back_up_to_the_limit_then_the_owner_is_called_and_once_let_g
     at_limit(&w.returns(write, wanting()), write, Limit::Returns { sent_back: 2 });
 }
 
+/// The writer, entered for its request, asks for a call in each of its runs, and is entered again once the call has its
+/// result, until the work waits at it: how many runs it asked in, from this run.
+fn asking_until_it_waits(w: &mut W, mut write: RunId) -> usize {
+    let mut runs = 0;
+    loop {
+        let calls = calls_of(&w.returns(write, Came::asks(vec![tool("a")])));
+        runs += 1;
+        let effects = w.done(calls[0].0);
+        if effects.is_empty() {
+            return runs;
+        }
+        let (run, cell, number, given) = round(&effects);
+        assert_eq!((cell.as_str(), number), ("write", 1));
+        assert_eq!(given, Given::Results(vec![calls[0].0]));
+        write = run;
+    }
+}
+
 #[test]
-fn calls_are_made_up_to_the_limit_then_the_owner_is_called_and_once_let_go_on_the_calls_asked_for_are_made() {
+fn a_cell_entered_again_and_again_only_to_ask_waits_for_the_owner_at_its_limit_of_calls_and_runs_once_let_go_on() {
     let (mut w, write, _) = W::requested();
-    let first = calls_of(&w.returns(write, Came::Asks(vec![tool("a"), tool("b")])));
-    w.done(first[0].0);
-    let effects = w.done(first[1].0);
-    assert_eq!(
-        effects,
-        vec![round_effect(
-            write,
-            "write",
-            2,
-            Given::Results(vec![first[0].0, first[1].0])
-        )]
-    );
-    let effects = w.returns(write, Came::Asks(vec![tool("c"), tool("d")]));
-    let call = at_limit(&effects, write, Limit::Calls { made: 2 });
-    let made = calls_of(&w.done(call));
-    assert_eq!(
-        made.iter()
-            .map(|(_, run, what)| (*run, what.clone()))
-            .collect::<Vec<_>>(),
-        vec![(write, Call::Asked(tool("c"))), (write, Call::Asked(tool("d")))]
-    );
+    // The flow lets a cell be entered again for results after up to three runs in a row that only asked.
+    assert_eq!(asking_until_it_waits(&mut w, write), 3);
+    let waits = decide::Decision::Wait {
+        at: "write".into(),
+        on: vec![decide::Waited::Calls { runs: 3 }],
+    };
+    assert_eq!(w.decision(), waits);
+    let effects = w.on(Event::LetGo { cell: "write".into() });
+    let (run, cell, number, given) = round(&effects);
+    assert_eq!((cell.as_str(), number), ("write", 1));
+    assert!(matches!(given, Given::Results(_)));
+    // The count starts anew from there.
+    assert_eq!(asking_until_it_waits(&mut w, run), 3);
 }
 
 #[test]
@@ -96,59 +107,8 @@ fn the_owners_call_at_a_limit_is_withdrawn_when_its_run_is_abandoned() {
     w.returns(write, wanting());
     w.returns(write, wanting());
     let call = calls_of(&w.returns(write, wanting()))[0].0;
+    // A new request leaves the run at rest at the owner's call: what it was not told of stays new.
     let (effects, _) = w.person_writes("request");
-    assert_eq!(effects[0], Effect::Withdraw { call });
-    assert_eq!(effects.len(), 2);
-}
-
-#[test]
-fn both_limits_in_one_run_each_start_anew_when_the_owner_lets_the_run_go_on_at_either() {
-    let (mut w, write, _) = W::requested();
-    let first = calls_of(&w.returns(write, Came::Asks(vec![tool("a"), tool("b")])));
-    w.done(first[0].0);
-    w.done(first[1].0);
-    w.returns(write, wanting());
-    w.returns(write, wanting());
-    let call = at_limit(&w.returns(write, wanting()), write, Limit::Returns { sent_back: 2 });
-    w.done(call);
-    // Let go on at the limit of returns, the run's calls are counted anew too: two more are made.
-    let second = calls_of(&w.returns(write, Came::Asks(vec![tool("c"), tool("d")])));
-    assert_eq!(
-        second.iter().map(|(_, _, what)| what.clone()).collect::<Vec<_>>(),
-        vec![Call::Asked(tool("c")), Call::Asked(tool("d"))]
-    );
-    w.done(second[0].0);
-    w.done(second[1].0);
-    at_limit(
-        &w.returns(write, Came::Asks(vec![tool("e"), tool("f")])),
-        write,
-        Limit::Calls { made: 2 },
-    );
-}
-
-#[test]
-fn after_the_owner_lets_a_run_go_on_at_its_limit_of_calls_the_calls_made_then_start_the_count_anew() {
-    let (mut w, write, _) = W::requested();
-    let first = calls_of(&w.returns(write, Came::Asks(vec![tool("a"), tool("b")])));
-    w.done(first[0].0);
-    w.done(first[1].0);
-    let call = at_limit(
-        &w.returns(write, Came::Asks(vec![tool("c"), tool("d")])),
-        write,
-        Limit::Calls { made: 2 },
-    );
-    let second = calls_of(&w.done(call));
-    w.done(second[0].0);
-    w.done(second[1].0);
-    // The two the owner let be made are not counted again: three more may be made, and a fourth not.
-    let third = calls_of(&w.returns(write, Came::Asks(vec![tool("e"), tool("f"), tool("g")])));
-    assert_eq!(third.len(), 3);
-    for (c, ..) in &third {
-        w.done(*c);
-    }
-    at_limit(
-        &w.returns(write, Came::Asks(vec![tool("h")])),
-        write,
-        Limit::Calls { made: 3 },
-    );
+    assert_eq!(effects, vec![]);
+    assert_eq!(w.on(Event::Cancelled { why: None }), vec![Effect::Withdraw { call }]);
 }

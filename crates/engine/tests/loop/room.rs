@@ -59,19 +59,19 @@ fn with_no_slot_free_what_a_round_hands_in_is_taken_and_the_next_agents_round_wa
 }
 
 #[test]
-fn with_no_slot_free_the_calls_a_round_asks_for_are_made_and_the_round_after_them_waits() {
+fn with_no_slot_free_the_calls_a_round_asks_for_are_made_and_the_run_given_their_results_waits() {
     let (mut w, write, _) = W::requested();
     let effects = w.on_in(
         Event::Returned {
             run: write,
-            came: Came::Asks(vec![tool("ci")]),
+            came: Came::asks(vec![tool("ci")]),
             spent: spent(1),
         },
         FULL,
     );
     let calls = calls_of(&effects);
     assert_eq!(calls.len(), 1, "the call is made: {effects:?}");
-    assert_eq!(held(&w.flow, &w.work, FULL), None, "the run rests at its call");
+    assert_eq!(held(&w.flow, &w.work, FULL), None, "the cell waits for the call");
     let now = w.tick();
     let effects = handle_in(
         &w.flow,
@@ -87,7 +87,8 @@ fn with_no_slot_free_the_calls_a_round_asks_for_are_made_and_the_round_after_the
     assert_eq!(effects, vec![]);
     assert_eq!(held(&w.flow, &w.work, FULL), Some(Holder::Slot));
     let (run, _, number, given) = round(&w.on_in(Event::Look, Room::FREE));
-    assert_eq!((run, number, given), (write, 2, Given::Results(vec![calls[0].0])));
+    assert_ne!(run, write);
+    assert_eq!((number, given), (1, Given::Results(vec![calls[0].0])));
 }
 
 #[test]

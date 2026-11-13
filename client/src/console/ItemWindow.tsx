@@ -87,6 +87,7 @@ const WHO = { owner: 'you', architect: 'the architect' } as const;
 function whom(w: Waited, page: WorkPage | null): string | null {
   switch (w.kind) {
     case 'limit':
+    case 'calls':
       return WHO.owner;
     case 'call':
       return w.who === null ? 'the engine' : WHO[w.who];
@@ -156,6 +157,8 @@ function lineWords(w: Waited, cell: string): string {
       return `until ${w.words.charAt(0).toLowerCase()}${w.words.slice(1)}`;
     case 'limit':
       return `${cell} reached its limit: ${w.runs} runs in a row for what a cell after it wrote`;
+    case 'calls':
+      return `${cell} reached its limit: ${w.runs} runs in a row that only asked for calls`;
     case 'slot':
       return `at ${cell}, for a free slot, which the engine gives in its order`;
     case 'agents':
@@ -169,7 +172,7 @@ function goOnOf(now: Summary['now']): Act | null {
   if (now.kind !== 'waits') return null;
   for (const w of now.on) {
     if (w.kind === 'call' && w.what.kind === 'atLimit') return { kind: 'answer', call: w.call, result: 'go on' };
-    if (w.kind === 'limit') return { kind: 'letGo', cell: now.at };
+    if (w.kind === 'limit' || w.kind === 'calls') return { kind: 'letGo', cell: now.at };
   }
   return null;
 }
@@ -205,6 +208,8 @@ export function nowWords(s: Summary, page: WorkPage | null): { word: string; fac
       return { word: 'Merged', facts: null };
     case 'cancelled':
       return { word: 'Cancelled', facts: null };
+    case 'idle':
+      return { word: MOOD_WORDS.waiting, facts: 'nothing new runs a cell' };
   }
 }
 

@@ -85,9 +85,8 @@ fn the_time_of_a_place_is_that_of_the_event_whose_entries_it_is_among() {
 #[test]
 fn what_each_round_took_is_kept_under_its_run_and_number() {
     let (mut w, write, _) = W::requested();
-    // Asks for a call, is sent back, then hands in.
-    let call = calls_of(&w.returns_spending(write, Came::Asks(vec![tool("a")]), spent(1)))[0].0;
-    w.done(call);
+    // Is sent back twice, then hands in.
+    w.returns_spending(write, wanting(), spent(1));
     w.returns_spending(write, wanting(), spent(2));
     w.returns_spending(write, hands_in(&[("text", None)]), spent(3));
     let kept: Vec<_> = (w.work.spent.iter())

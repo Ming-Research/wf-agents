@@ -65,10 +65,10 @@ fn begun(work: &Work) -> usize {
 #[test]
 fn opened_on_works_going_on_it_pauses_everything_and_begins_nothing_until_the_owner_lifts_it() {
     let mut h = H::new();
-    // A work with a round under way; one resting at a tool's call; one never let on.
+    // A work with a round under way; one waiting for a tool's result; one never let on.
     let (_, under_way) = h.add_let_on(new_item("under way", &[], "judged"));
     let (_, at_call) = h.add_let_on(new_item("at a call", &[], "judged"));
-    h.returns(at_call, Came::Asks(vec![tool("search")]));
+    h.returns(at_call, Came::asks(vec![tool("search")]));
     let (_, never) = h.add(new_item("never let on", &[], "plain"));
     let pending = h.d().pending();
 
@@ -76,7 +76,7 @@ fn opened_on_works_going_on_it_pauses_everything_and_begins_nothing_until_the_ow
     assert_eq!(todos, pending, "opening gives what was to be done, and nothing more");
     assert_eq!(h.d().everything_paused(), the_starts(&h));
     assert!(h.ops().contains(&Op::PauseEverything));
-    assert_eq!(h.d().held(never), Some(Holder::Pause));
+    assert_eq!(h.d().held(never), None, "never started, it would begin no round");
 
     // The round under way ends and the call has its result: neither work begins its next round.
     assert_eq!(rounds(&h.hands_in(under_way, &[("text", None)])), []);
@@ -97,10 +97,11 @@ fn opened_on_works_going_on_it_pauses_everything_and_begins_nothing_until_the_ow
     let todos = h.pause_everything(false);
     assert_eq!(
         rounds(&todos),
-        [(under_way, "judge".to_string(), 1), (at_call, "write".to_string(), 2)]
+        [(under_way, "judge".to_string(), 1), (at_call, "write".to_string(), 1)]
     );
     assert_eq!(h.d().everything_paused(), None);
-    assert_eq!(h.decision(never), Decision::Paused);
+    // Never started by the owner, it has nothing new to run its first cell.
+    assert_eq!(h.decision(never), Decision::Idle);
 }
 
 #[test]

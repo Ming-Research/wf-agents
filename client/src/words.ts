@@ -136,7 +136,7 @@ export function faultWords(fault: Fault): string {
     case 'notAValue':
       return `A condition or a test waits for ${w.block} to be ${w.is}, which is not one of its values.`;
     case 'conditionOnOwnOutput':
-      return `The condition reads ${w.block}, which the cell itself writes: the cell would decide by what it writes itself whether it runs.`;
+      return `The condition reads ${w.block}, which the cell itself writes and another writes too: the cell would decide by what it writes itself, beside another, whether it runs.`;
     case 'conditionNotWrittenBefore':
       return `The condition reads ${w.block}, which neither a cell before this one, people nor the outside write.`;
     case 'lastHasCondition':
@@ -148,7 +148,7 @@ export function faultWords(fault: Fault): string {
     case 'unusedTest':
       return `No cell uses the test ${w.test}.`;
     case 'testOnOwnOutput':
-      return `The test ${w.test} reads ${w.block}, which the cell itself writes: the cell would decide by what it writes itself whether it runs, or whether the work waits before it.`;
+      return `The test ${w.test} reads ${w.block}, which the cell itself writes: the cell would decide by what it writes itself whether the work waits before it, or, beside another writer, whether it runs.`;
     case 'testNotWrittenBefore':
       return `The test ${w.test} reads ${w.block}, which neither a cell before this one, people nor the outside write.`;
     case 'testWrittenAfter':
@@ -160,7 +160,7 @@ export function faultWords(fault: Fault): string {
       const why = {
         empty: 'The flow has no cell.',
         twice: 'Two cells have the same name.',
-        conditionOnOwnOutput: "A cell's condition reads a block the cell itself writes.",
+        conditionOnOwnOutput: "A cell's condition reads a block the cell itself writes, and another writes it too.",
         lastHasCondition: 'The last cell has a condition.',
         noLimit: "A cell's limit is zero.",
         noSuchTest: "A cell names a test the flow does not have.",

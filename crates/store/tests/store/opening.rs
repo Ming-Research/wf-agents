@@ -141,11 +141,15 @@ fn kept_before() -> Work {
     d.wrote("request", Outsider::Person, None);
     d.on(Event::Resumed);
     d.end(hands_in(&[("text", None)]));
-    d.end(Came::Asks(vec![question(Who::Owner)]));
-    // Its rounds were kept before a round said the context it ended with and how often it was compacted.
+    d.end(Came::asks(vec![question(Who::Owner)]));
+    // Its rounds were kept before a round said the context it ended with and how often it was compacted, and its
+    // runs before a return said what it dealt with.
     for spent in d.work.spent.values_mut() {
         spent.context_tokens = None;
         spent.compactions = 0;
+    }
+    for finished in &mut d.work.records.finished {
+        finished.dealt_with = None;
     }
     d.work
 }
@@ -235,11 +239,14 @@ pub(crate) const MIGRATIONS: [&str; 9] = [
 
 #[test]
 fn a_file_of_version_9_is_migrated_and_its_runs_read_as_dealing_with_everything_that_ran_them() {
-    // A work of the engine, whose runs finish by handing in; one of its versions was handed in as changing nothing in
-    // meaning.
+    // A work of the engine as one kept at version 9 holds it: its runs say nothing of what they dealt with; one of its
+    // versions was handed in as changing nothing in meaning.
     let mut d = Driver::new();
     history(&mut d);
     let mut work = d.work;
+    for finished in &mut work.records.finished {
+        finished.dealt_with = None;
+    }
     work.records.finished[0].writes[0].meaning_unchanged = true;
     let (old, new) = kept_in(9, &work);
     let mut store = old.open();

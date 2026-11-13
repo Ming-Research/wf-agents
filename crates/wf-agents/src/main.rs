@@ -179,10 +179,10 @@ enum Command {
         at: At,
     },
     /// Waits for what needs whoever plans the work and says it, a line each, most pressing first: a work that ended,
-    /// one that rests for a person (a cell's question, a ruling only a person can give, a limit, a pause the engine made
-    /// with its reason), one that waits for items none of which is going on. It answers as soon as there is something
-    /// since the mark, and says the mark to give next time; nothing that happens between two calls is lost. With no
-    /// mark, it gives what stands now, the works that ended being taken as read.
+    /// one that rests for a person (a cell's question, a ruling only a person can give, a limit, a pause the engine
+    /// made with its reason), one that waits for items none of which is going on. It answers as soon as there is
+    /// something since the mark, and says the mark to give next time; nothing that happens between two calls is lost.
+    /// With no mark, it gives what stands now, the works that ended being taken as read.
     Wait {
         /// The mark the last call gave.
         #[arg(long)]
@@ -328,9 +328,9 @@ fn main() -> ExitCode {
 }
 
 /// The names of the sources outside a work that write its blocks, which every definition is compiled against:
-/// `dependencies` and `session`, written by the engine's driver; `main`, written by the acts' watch of main on the
-/// host; and `tree`, whose writer is not built yet.
-const SOURCES: [&str; 4] = ["dependencies", "main", "session", "tree"];
+/// `dependencies`, `session` and `start`, written by the engine's driver, the last as the owner starts the work;
+/// `main`, written by the acts' watch of main on the host; and `tree`, whose writer is not built yet.
+const SOURCES: [&str; 5] = ["dependencies", "main", "session", "start", "tree"];
 
 /// The names of the acts of the engine's own that carry out an engine cell: `start` makes the place a work is done
 /// in, `check` checks the work before its merge, `merge` merges it, and `deliver` says that a deliverable item, made
@@ -467,8 +467,8 @@ fn words(what: &FaultKind) -> String {
             format!("a condition or a test waits for {block} to be {is}, which is not one of its values")
         }
         F::ConditionOnOwnOutput { block } => format!(
-            "the condition reads {block}, which the cell itself writes: the cell would decide by what it writes itself \
-             whether it runs"
+            "the condition reads {block}, which the cell itself writes and another writes too: the cell would decide \
+             by what it writes itself, beside another, whether it runs"
         ),
         F::ConditionNotWrittenBefore { block } => {
             format!("the condition reads {block}, which neither a cell before this one, people nor the outside write")
@@ -482,7 +482,7 @@ fn words(what: &FaultKind) -> String {
         F::UnusedTest { test } => format!("no cell uses the test {test}"),
         F::TestOnOwnOutput { test, block } => format!(
             "the test {test} reads {block}, which the cell itself writes: the cell would decide by what it writes itself \
-             whether it runs, or whether the work waits before it"
+             whether the work waits before it, or, beside another writer, whether it runs"
         ),
         F::TestNotWrittenBefore { test, block } => {
             format!("the test {test} reads {block}, which neither a cell before this one, people nor the outside write")

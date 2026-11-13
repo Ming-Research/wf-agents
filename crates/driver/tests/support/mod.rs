@@ -39,10 +39,10 @@ use tempfile::TempDir;
 /// The time of the first thing a test does.
 pub const START: u64 = 1_800_000_000_000;
 
-/// What the engine has: the driver's own source outside a work, and the act `merge`.
+/// What the engine has: the driver's own sources outside a work, and the act `merge`.
 pub fn has() -> Has {
     Has {
-        sources: [DEPENDENCIES.to_string()].into(),
+        sources: [DEPENDENCIES.to_string(), driver::START.to_string()].into(),
         acts: ["merge".to_string(), "start".to_string()].into(),
         ..Default::default()
     }
@@ -59,6 +59,12 @@ pub fn compiled(flow: &str, cells: &[(&str, &str)]) -> Compiled {
     };
     compile(&source, &has()).expect("the definition compiles")
 }
+
+/// The block the driver writes as the owner starts a work, which runs the first cell of each flow.
+const START_BLOCK: &str = r#"
+        [blocks.start]
+        outside = "start"
+"#;
 
 /// The dependencies block, which the driver writes, and the named test the first cell of a flow waits on: that every
 /// item the work's item depends on has merged.
@@ -97,6 +103,7 @@ pub fn judged() -> Compiled {
         people = true
         [blocks.merged]
         shown = true
+        {START_BLOCK}
         {DEPENDENCIES_BLOCK}"#
     );
     let write = r#"
@@ -106,7 +113,7 @@ pub fn judged() -> Compiled {
         line = "main"
         task = "Write the text the request asks for."
         requires = ["ready"]
-        inputs = ["request", "opinions"]
+        inputs = ["start", "request", "opinions"]
         outputs = ["text"]
     "#;
     let judge = r#"
@@ -128,7 +135,8 @@ pub fn judged() -> Compiled {
     compiled(&flow, &[("write", write), ("judge", judge), ("merge", merge)])
 }
 
-/// A draft that waits for the items its item depends on to have merged and reads a request, and the merge.
+/// A draft that waits for the items its item depends on to have merged and is run by the owner's start and a request,
+/// and the merge.
 pub fn short() -> Compiled {
     let flow = format!(
         r#"
@@ -144,6 +152,7 @@ pub fn short() -> Compiled {
         [blocks.plan]
         [blocks.merged]
         shown = true
+        {START_BLOCK}
         {DEPENDENCIES_BLOCK}"#
     );
     let draft = r#"
@@ -153,7 +162,7 @@ pub fn short() -> Compiled {
         line = "main"
         task = "Draft the plan from the request."
         requires = ["ready"]
-        inputs = ["request"]
+        inputs = ["start", "request"]
         outputs = ["plan"]
     "#;
     let merge = r#"
@@ -166,9 +175,11 @@ pub fn short() -> Compiled {
     compiled(&flow, &[("draft", draft), ("merge", merge)])
 }
 
-/// A writer and the merge, with no dependencies block: a work on it does not wait for other items.
+/// A writer, run by the owner's start and a request, and the merge, with no dependencies block: a work on it does not
+/// wait for other items.
 pub fn plain() -> Compiled {
-    let flow = r#"
+    let flow = format!(
+        r#"
         name = "plain"
         order = ["write", "merge"]
         [limits]
@@ -181,14 +192,15 @@ pub fn plain() -> Compiled {
         [blocks.text]
         [blocks.merged]
         shown = true
-    "#;
+        {START_BLOCK}"#
+    );
     let write = r#"
         title = "Write"
         kind = "agent"
         effort = "high"
         line = "main"
         task = "Write the text the request asks for."
-        inputs = ["request"]
+        inputs = ["start", "request"]
         outputs = ["text"]
     "#;
     let merge = r#"
@@ -198,7 +210,7 @@ pub fn plain() -> Compiled {
         inputs = ["text"]
         outputs = ["merged"]
     "#;
-    compiled(flow, &[("write", write), ("merge", merge)])
+    compiled(&flow, &[("write", write), ("merge", merge)])
 }
 
 /// Every flow the driver is given.
@@ -1171,7 +1183,7 @@ impl H {
                     number.0
                 );
             }
-            Decision::Wait { .. } | Decision::Ended(_) => {}
+            Decision::Wait { .. } | Decision::Ended(_) | Decision::Idle => {}
         }
         if !matches!(shown, Decision::Busy { .. }) {
             assert_eq!(
@@ -1469,7 +1481,7 @@ pub fn proper(flow: &Compiled, cell: &str) -> Came {
             }
         })
         .collect();
-    Came::HandsIn(handed)
+    Came::hands_in(handed)
 }
 
 /// What a round took, told apart by this number.
@@ -1506,10 +1518,11 @@ pub fn for_a_note(flow: &Compiled, work: &Work, run: RunId) -> bool {
     let Some(started) = r.started.iter().find(|s| s.run == run) else {
         return false;
     };
-    // Since the cell last ran: since the start of the run of its record, or with no record of its first run.
+    // Since the cell last ran: since the start of its latest run that finished dealing with something, or with none of
+    // its first run. A run that only asked for calls dealt with nothing.
     let of_cell = || (r.started.iter()).filter(|s| s.cell == started.cell && s.at < started.at);
     let record = (r.finished.iter())
-        .filter(|f| f.at < started.at)
+        .filter(|f| f.at < started.at && f.dealt_with.as_ref().is_none_or(|d| !d.is_empty()))
         .filter_map(|f| of_cell().find(|s| s.run == f.run).map(|s| (f.at, s.at)))
         .max();
     let Some(since) = record.map(|(_, at)| at).or_else(|| of_cell().map(|s| s.at).min()) else {
@@ -1524,6 +1537,7 @@ pub fn for_a_note(flow: &Compiled, work: &Work, run: RunId) -> bool {
     started.because.iter().any(|c| match c {
         Cause::NoRecord => started.basis.keys().any(|block| by_person(block, None)),
         Cause::Changed { block, was, .. } => by_person(block, *was),
+        Cause::Results { .. } => false,
     })
 }
 
@@ -1550,7 +1564,7 @@ pub fn handed(block: &str, value: Option<&str>) -> Handed {
 
 /// What came back: these blocks handed in.
 pub fn hands_in(blocks: &[(&str, Option<&str>)]) -> Came {
-    Came::HandsIn(blocks.iter().map(|(b, v)| handed(b, *v)).collect())
+    Came::hands_in(blocks.iter().map(|(b, v)| handed(b, *v)).collect())
 }
 
 pub fn tool(name: &str) -> Ask {

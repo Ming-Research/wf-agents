@@ -12,22 +12,30 @@ and withdraw that record at the right moments.
 
 ### decision every-way-round-has-a-limit
 Each thing the flow lets repeat has a limit: how many runs of a cell in a row are ways round, how often what a run
-returns is sent back, how many calls a run makes; at a limit the work waits for the owner. A run is a way round when
-each of its reasons is a block whose meaning a cell after it last changed. A run with a reason that a person, the
-outside or a cell before it wrote starts the count anew, and so does the owner's letting a cell go on.
+returns is sent back, and how many runs of a cell in a row each ask for calls and deal with nothing before it is entered
+again for their results; at a limit the work waits for the owner. A run is a way round when every version new to it as
+it started was written by a cell after it, and its return dealt with something. A run with a reason that a person, the
+outside or a cell before it wrote starts the count anew, and so does the owner's letting a cell go on; a run that dealt
+with nothing, or was entered only for the results of its calls, is passed over. The count of calls is ended by a run
+that dealt with something.
 Why: In any circle of cells that send each other round, the first of them in the order runs only for what the later
 ones wrote, so its count grows whatever the others' reasons are, and one count bounds them all. A person's opinion is
 the owner steering and no circle, so it starts the count anew, and the owner is not asked to let go on what the owner
-sent back (principle no-unseen-spending-loop).
+sent back (principle no-unseen-spending-loop). A run that dealt with nothing leaves what ran it new and is entered again
+at once, so it is no step round the circle; a return that deals with nothing and asks for nothing is sent back, and
+one that only asks is bounded by the count of calls, so that neither repeats unseen.
 
 ### decision meaning-told-by-the-writer
-A block that is a choice or a list of names changes its meaning when its value does, whoever writes it. Prose changes
-its meaning when its writer says so: with each write the cell says, with a line of why, whether the change matters to
-the cells that read the block, compared with the version at which the meaning last changed. Prose a person writes
-always changes the meaning, and so does what the outside writes, unless whoever approved that write said it does not.
-A cell that says a change does not matter without having seen what it wrote over is not taken at its word. What a
-change that does not matter leaves undone is in the design of data and context.
+A block that is a choice or a list of names changes its meaning when its value does, whoever writes it, and a return
+that hands a choice in as changing nothing in meaning with another value is sent back. Prose changes its meaning when
+its writer says so: with each write the cell says whether the change matters to the cells the block runs, compared
+with the version at which the meaning last changed. Prose a person writes always changes the meaning, and so does what
+the outside writes, unless whoever approved that write said it does not. A return that would write over a version of
+a block its round was never told of is sent back, the next round told of it, so a cell's word that a change does not
+matter is always said of what it saw. What a change that does not matter leaves undone is in the design of data and
+context.
 Why: An agent never writes the same text twice, so judging prose by its text would run every later cell again after
 every rerun. A second agent to check the answer, at a round for every change, was turned down, and so was a count that
 goes up at each change of meaning, which would leave which version a write is compared with to whoever counts
-(Article 3).
+(Article 3). A run abandoned for what changed under it, as the walk once did, threw away a round's work that a round
+told of the change could keep (principle keep-what-was-paid-for).

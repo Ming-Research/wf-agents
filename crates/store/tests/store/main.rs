@@ -304,7 +304,7 @@ impl Driver {
         for e in pending(&self.flow, &self.work) {
             if let Effect::Stop { run } = e {
                 let spent = self.spent();
-                let came = Came::Asks(vec![]);
+                let came = Came::asks(vec![]);
                 self.on(Event::Returned { run, came, spent });
             }
         }
@@ -334,7 +334,7 @@ fn handed(block: &str, value: Option<&str>) -> Handed {
 
 /// What came back: these blocks handed in.
 fn hands_in(blocks: &[(&str, Option<&str>)]) -> Came {
-    Came::HandsIn(blocks.iter().map(|(b, v)| handed(b, *v)).collect())
+    Came::hands_in(blocks.iter().map(|(b, v)| handed(b, *v)).collect())
 }
 
 /// What the writer hands in that does not meet what the flow requires: the judge's verdict.
@@ -357,12 +357,13 @@ fn question(who: Who) -> Ask {
 }
 
 /// A history that leaves an entry of every kind: writes by a person and the outside with values and without, runs
-/// finished, sent back and abandoned, calls for a tool and a person, done and withdrawn, both limits of a run let go
-/// by the owner, a pause and a resume, a round that failed and the engine's pause for it, a cell let go, and a cancel
-/// with a round under way.
+/// finished, sent back and abandoned, calls for a tool and a person, done and withdrawn, a run's limit of returns let
+/// go by the owner, a pause and a resume, a round that failed and the engine's pause for it, a cell let go, and a
+/// cancel with a run at rest at the owner's call.
 fn history(d: &mut Driver) {
     d.wrote("request", Outsider::Person, None);
-    // The outside writes while the writer's first round is under way: as the round ends its run is abandoned.
+    // The outside writes while the writer's first round is under way: its return deals with the request it was told
+    // of, and the writer runs again for what the outside wrote.
     d.wrote("main", Outsider::Outside, None);
     d.end(hands_in(&[("text", None)]));
     // Sent back twice, then the owner is called at the limit of returns and lets the run go on.
@@ -370,7 +371,8 @@ fn history(d: &mut Driver) {
         d.end(wanting());
     }
     d.answer();
-    d.end(Came::Asks(vec![tool("a"), question(Who::Owner)]));
+    // A return that asks ends the run; the writer is entered again once both calls have their results.
+    d.end(Came::asks(vec![tool("a"), question(Who::Owner)]));
     // Two lines begin a new session.
     d.on(Event::Anew {
         line: "main".to_string(),
@@ -381,7 +383,8 @@ fn history(d: &mut Driver) {
         why: engine::Why::Owner,
     });
     d.answer();
-    // The round given the results is tried twice, once at each effort, the second time with an account of its own.
+    // The round of the run given the results is tried twice, once at each effort, the second time with an account of
+    // its own.
     let (run, _) = d.under_way();
     for (effort, account) in [(None, None), (Some("high"), Some("an account"))] {
         let on = engine::RanOn {
@@ -392,32 +395,32 @@ fn history(d: &mut Driver) {
         };
         d.on(Event::Ran { run, attempt: 1, on });
     }
-    // Two more calls would pass the limit of calls: the owner is called, lets the run go on, and they are made.
-    d.end(Came::Asks(vec![tool("b"), tool("c")]));
+    // It asks again, and is entered again for those results.
+    d.end(Came::asks(vec![tool("b"), tool("c")]));
     d.answer();
     d.end(hands_in(&[("text", None)]));
-    // The judge asks the architect during a pause: the call is made, and its next round waits for the resume.
+    // The judge asks the architect during a pause: the call is made, and entering it again waits for the resume.
     d.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
     });
-    d.end(Came::Asks(vec![question(Who::Architect)]));
+    d.end(Came::asks(vec![question(Who::Architect)]));
     d.answer();
     d.on(Event::Resumed);
     // The judge's round given the architect's answer fails, and the engine pauses the work; let on, the round is given
     // again.
     d.fail("The agent's program could not start.");
     d.on(Event::Resumed);
-    // The judge rests at a question while the writer runs again for a new request: what the writer writes then
-    // abandons the judge's run, and its call is withdrawn.
-    d.end(Came::Asks(vec![question(Who::Owner)]));
+    // The judge asks the owner, and the writer runs again for a new request while the judge waits for the answer.
+    d.end(Came::asks(vec![question(Who::Owner)]));
     d.wrote("request", Outsider::Person, None);
     d.end(hands_in(&[("text", None)]));
-    d.withdraw();
     d.wrote("checks", Outsider::Outside, Some("pass"));
     d.wrote("verdict", Outsider::Person, Some("no"));
     d.on(Event::LetGo { cell: "write".into() });
-    // The judge hands in until a run of it finishes, writing a choice; the writer then runs for its opinions.
+    // Answered, the judge is entered again, and hands in until a run of it finishes, writing a choice; the writer then
+    // runs for its opinions.
+    d.answer();
     for _ in 0..5 {
         if d.under_way().1 != "judge" {
             break;
@@ -425,12 +428,18 @@ fn history(d: &mut Driver) {
         d.end(hands_in(&[("opinions", None), ("verdict", Some("yes"))]));
     }
     assert_eq!(d.under_way().1, "write", "the judge never finished");
+    // The writer is sent back to its limit of returns, and the work is cancelled while its run rests at the owner's
+    // call: the run is abandoned and the call withdrawn.
+    for _ in 0..3 {
+        d.end(wanting());
+    }
     let effects = d.on(Event::Cancelled { why: None });
     assert!(
-        effects.iter().any(|e| matches!(e, Effect::Stop { .. })),
-        "no round was under way at the cancel: {effects:?}"
+        effects.iter().any(|e| matches!(e, Effect::Withdraw { .. })),
+        "no call was withdrawn at the cancel: {effects:?}"
     );
     d.stopped();
+    d.withdraw();
     // Nothing of it is under way then: what it held is let go.
     d.on(Event::Released);
     assert!(d.work.records.released.is_some(), "what the work held was not let go");
@@ -439,14 +448,14 @@ fn history(d: &mut Driver) {
 /// A work on the judged flow whose returns are of the form every cell's return takes (design document
 /// `data-and-context`), which the engine does not make yet, built entry by entry as such a work can go:
 ///
-/// - The owner writes the request, and the writer is entered: its first try begins, and its session is filled with which work and item it is
-///   for, the task, and the request whole. While its round is under way the owner writes the request again, and that
-///   version is put in to it. Its return deals with the request and hands in the text.
+/// - The owner writes the request, and the writer is entered: its first try begins, and its session is filled with
+///   which work and item it is for, the task, and the request whole. While its round is under way the owner writes the
+///   request again, and that version is put in to it. Its return deals with the request and hands in the text.
 /// - The judge is entered for the text, filled likewise. Its return asks for a tool and deals with nothing: the call is
 ///   made as the return is taken, which ends the run, and the cell waits until the call has its result.
-/// - The judge is entered again, as a new run, for the result: its session, which holds the rest, is filled with the result alone.
-///   That try finds the session lost, and the next, in a new one, is filled from the top. Its return deals with
-///   nothing that ran it and hands in its opinions and a verdict.
+/// - The judge is entered again, as a new run, for the result: its session, which holds the rest, is filled with the
+///   result alone. That try finds the session lost, and the next, in a new one, is filled from the top. Its return
+///   deals with nothing that ran it and hands in its opinions and a verdict.
 /// - The owner writes the request a third time, and the writer is entered for that and the opinions: its session holds
 ///   the request it was told of last, so the request is filled as what changed since, and the opinions whole. Its
 ///   return deals with both and hands its text in as changing nothing in meaning.

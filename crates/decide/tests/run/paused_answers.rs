@@ -4,14 +4,13 @@
 use super::*;
 
 #[test]
-fn a_paused_run_for_what_a_person_wrote_begins_resumes_and_is_sent_back() {
+fn a_paused_run_for_what_a_person_wrote_begins_and_is_sent_back() {
     let s = spec();
     assert_eq!(step_paused_answering(vec![], &s), Step::Begin);
-    assert_eq!(step_paused_answering(vec![asked_done(1, 2)], &s), Step::Resume);
     assert_eq!(step_paused_answering(vec![wanting()], &s), send_back(wanting_unmet()));
     assert_eq!(
         step_paused_answering(vec![asks_nothing()], &s),
-        send_back(vec![Unmet::AsksNothing])
+        send_back(vec![Unmet::DealtWithNothing])
     );
 }
 
@@ -25,11 +24,11 @@ fn a_paused_run_for_what_a_person_wrote_whose_round_failed_is_held() {
 fn a_paused_run_for_what_a_person_wrote_does_what_begins_no_round_as_any_run_does() {
     let s = spec();
     assert_eq!(step_paused_answering(vec![under_way()], &s), Step::UnderWay);
-    assert_eq!(step_paused_answering(vec![asks(2)], &s), Step::Make);
-    let finish = Step::Finish {
-        writes: vec![prose("plan")],
-    };
-    assert_eq!(step_paused_answering(vec![handed_in(vec![prose("plan")])], &s), finish);
+    assert_eq!(step_paused_answering(vec![asks(2)], &s), finish_asking());
+    assert_eq!(
+        step_paused_answering(vec![handed_in(vec![prose("plan")])], &s),
+        finish(vec![prose("plan")])
+    );
     assert_eq!(
         step_paused_answering(vec![wanting(), wanting(), wanting()], &s),
         returns_limit(2)

@@ -17,7 +17,7 @@ fn waits_for_a_slot() -> Decision {
 
 /// The writer's round of the work asks for a tool; gives the call.
 fn asks_a_tool(h: &mut H, work: WorkNumber) -> CallId {
-    let todos = h.returns(work, Came::Asks(vec![tool("ci")]));
+    let todos = h.returns(work, Came::asks(vec![tool("ci")]));
     (todos.iter())
         .find_map(|todo| match &todo.effect {
             Effect::Call { call, .. } if todo.work == work => Some(*call),
@@ -31,12 +31,14 @@ fn a_work_is_added_paused_and_begins_once_the_owner_lets_it_on() {
     let mut h = H::with_slots(flows(), 2);
     let (_, going) = h.add(new_item("going", &[], "plain"));
     assert_eq!(rounds(&h.d().pending()), []);
-    assert_eq!(h.d().held(going), Some(Holder::Pause));
+    // Nothing runs its first cell until the owner starts it, as the owner's letting it on does: no round is held back.
+    assert_eq!(h.d().held(going), None);
     assert_eq!(rounds(&h.let_on(going)), [(going, "write".to_string(), 1)]);
     assert_eq!(rounds(&h.d().pending()), [(going, "write".to_string(), 1)]);
     let (_, held) = h.add(new_item("held", &[], "plain"));
-    assert_eq!(h.decision(held), Decision::Paused);
-    assert_eq!(h.d().held(held), Some(Holder::Pause));
+    // Not started by the owner, it has nothing new to run its first cell.
+    assert_eq!(h.decision(held), Decision::Idle);
+    assert_eq!(h.d().held(held), None);
     assert_eq!(rounds(&h.let_on(held)), [(held, "write".to_string(), 1)]);
 }
 
@@ -99,7 +101,7 @@ fn a_slot_that_comes_free_goes_to_a_work_that_has_begun_before_one_that_has_not(
     );
     let three_call = asks_a_tool(&mut h, three);
     h.answer(one, one_call);
-    assert_eq!(h.round(one).2, 2, "the slot goes to the first work, whose tool is done");
+    assert_eq!(h.round(one).2, 1, "the slot goes to the first work, whose tool is done");
     // Now the second work is let on, and waits; the third's tool is done, and it waits too.
     h.let_on(two);
     assert_eq!(h.decision(two), waits_for_a_slot());
@@ -109,7 +111,7 @@ fn a_slot_that_comes_free_goes_to_a_work_that_has_begun_before_one_that_has_not(
     let todos = h.returns(one, hands_in(&[("text", None)]));
     assert_eq!(
         rounds(&todos),
-        [(one, "merge".to_string(), 1), (three, "write".to_string(), 2)],
+        [(one, "merge".to_string(), 1), (three, "write".to_string(), 1)],
         "the merge, an act of the engine's own, takes no slot"
     );
     assert_eq!(h.decision(two), waits_for_a_slot());
@@ -135,6 +137,8 @@ fn started() -> flow::Compiled {
         [blocks.deps]
         values = ["waiting", "merged"]
         outside = "dependencies"
+        [blocks.start]
+        outside = "start"
         [tests.ready]
         says = "Every item this one depends on has merged"
         kind = "all"
@@ -145,6 +149,7 @@ fn started() -> flow::Compiled {
         title = "Start"
         kind = "engine"
         act = "start"
+        inputs = ["start"]
         requires = ["ready"]
         outputs = ["place"]
     "#;
@@ -194,7 +199,7 @@ fn a_work_that_only_ran_the_engines_own_act_has_not_begun_and_waits_behind_one_w
     let todos = h.hands_in(three, &[("text", None)]);
     assert_eq!(
         rounds(&todos),
-        [(three, "merge".to_string(), 1), (two, "write".to_string(), 2)]
+        [(three, "merge".to_string(), 1), (two, "write".to_string(), 1)]
     );
     assert_eq!(h.d().held(one), Some(Holder::Slot));
 }
@@ -232,14 +237,14 @@ fn the_pause_of_everything_holds_back_every_work_and_lifted_lets_on_all_but_thos
     assert_eq!(rounds(&h.d().pending()), []);
     assert_eq!(h.decision(going), Decision::Paused);
     assert_eq!(h.d().held(going), Some(Holder::Everything));
-    assert_eq!(h.d().held(held), Some(Holder::Pause));
+    assert_eq!(h.d().held(held), None, "never started, it would begin no round");
     // Set again, it changes nothing, and is kept once.
     h.arm(Plan::Never);
     assert_eq!(h.pause_everything(true), []);
     assert_eq!(h.ops(), []);
     let todos = h.pause_everything(false);
     assert_eq!(rounds(&todos), [(going, "write".to_string(), 1)]);
-    assert_eq!(h.decision(held), Decision::Paused);
+    assert_eq!(h.decision(held), Decision::Idle);
     assert!(h.d().everything_paused().is_none());
 }
 

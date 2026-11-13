@@ -3,7 +3,7 @@
 use super::*;
 
 #[test]
-fn a_work_where_nothing_ran_shows_every_cell_with_no_record_and_needing_to_run_and_no_version() {
+fn a_work_where_nothing_ran_shows_every_cell_with_no_record_and_nothing_new_and_no_version() {
     let w = planned();
     let v = seen(&w);
     assert_eq!(v.decision, w.decide());
@@ -13,24 +13,24 @@ fn a_work_where_nothing_ran_shows_every_cell_with_no_record_and_needing_to_run_a
             applies: true,
             record: None,
             open: None,
-            needs: vec![Cause::NoRecord],
-            inputs: vec![input("background", None, None, false)],
+            needs: vec![],
+            runs_on: vec![input("background", None, None, false)],
         },
         CellView {
             cell: "implement".into(),
             applies: true,
             record: None,
             open: None,
-            needs: vec![Cause::NoRecord],
-            inputs: vec![input("plan", None, None, false)],
+            needs: vec![],
+            runs_on: vec![input("plan", None, None, false)],
         },
         CellView {
             cell: "merge".into(),
             applies: true,
             record: None,
             open: None,
-            needs: vec![Cause::NoRecord],
-            inputs: vec![],
+            needs: vec![],
+            runs_on: vec![input("the merge may go", None, None, false)],
         },
     ];
     assert_eq!(v.cells, cells);
@@ -68,7 +68,7 @@ fn a_cell_that_finished_shows_its_record_no_open_run_and_no_need() {
         (Some(run), None, vec![])
     );
     assert_eq!(
-        research.inputs,
+        research.runs_on,
         vec![input("background", Some(background), Some(background), false)]
     );
 }
@@ -77,7 +77,7 @@ fn a_cell_that_finished_shows_its_record_no_open_run_and_no_need() {
 fn a_skipped_cell_that_ran_before_does_not_apply_and_keeps_its_record() {
     let mut w = World::with_gate(vec![
         cell("ask", &["topic"], &["more"]),
-        when("more", "yes", cell("extra", &[], &[])),
+        when("more", "yes", cell("extra", &["topic"], &[])),
     ]);
     w.person_writes("topic");
     w.run("ask", &[("more", Value("yes"))]);

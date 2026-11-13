@@ -5,7 +5,7 @@
 use service::Act;
 use work::Why;
 
-use crate::{Fake, On, Real, ended};
+use crate::{Call, Fake, On, Real, ended};
 
 #[tokio::test]
 async fn a_round_ending_past_the_context_limit_has_the_lines_next_round_begin_a_session_of_its_own() {
@@ -106,27 +106,25 @@ async fn a_run_waiting_as_its_line_begins_a_new_session_is_told_its_task_and_its
     real.act(work, Act::Answer { call, result });
     real.until(|real| ended(&real.decision(work))).await;
     let calls = real.calls();
-    let of = |heading: &str| {
-        (calls.iter())
-            .find(|c| c.stdin.starts_with(heading))
-            .unwrap_or_else(|| panic!("no call is told {heading}"))
-    };
-    let first = of("# Build (cell `build`), round 1\n");
+    let builds: Vec<&Call> = (calls.iter())
+        .filter(|c| c.stdin.starts_with("# Build (cell `build`), round 1\n"))
+        .collect();
+    let first = builds[0];
     let again = (calls.iter())
         .filter(|c| c.stdin.starts_with("# Plan (cell `plan`), round 1\n"))
         .nth(1)
         .expect("the plan ran again");
-    let second = of("# Build (cell `build`), round 2\n");
+    let second = builds[1];
     assert_eq!(again.session().0, "--session-id", "the plan begins the new session");
     assert_ne!(again.session().1, first.session().1);
-    // The build's next round goes on in the session the plan began, which never saw the build: it is told its task
-    // and what it is answered, as a round that begins a session is.
+    // The build, entered again for the answer, goes on in the session the plan began, which never saw the build: it
+    // is told its task and what it is answered, as a round that begins a session is.
     assert_eq!(second.session(), ("--resume", again.session().1));
     for part in ["## Your task", "## What it reads", "By their first name."] {
         assert!(second.stdin.contains(part), "{part} is missing from:\n{}", second.stdin);
     }
-    // Its next round goes on in the same session, which saw its last: it is told only its results.
-    let third = of("# Build (cell `build`), round 3\n");
+    // Entered again for the check, it goes on in the same session, which saw its last run: it is told only its results.
+    let third = builds[2];
     assert_eq!(third.session(), ("--resume", again.session().1));
     assert!(!third.stdin.contains("## Your task"), "{}", third.stdin);
 }

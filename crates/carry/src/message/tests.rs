@@ -178,7 +178,7 @@ impl Small {
 
     /// The round given hands these blocks in, each with its value where it has one.
     pub(crate) fn hands_in(&mut self, blocks: &[(&str, &str, Option<&str>)]) {
-        let came = Came::HandsIn(
+        let came = Came::hands_in(
             (blocks.iter())
                 .map(|(block, content, value)| Handed {
                     block: BlockId::from(*block),
@@ -388,9 +388,9 @@ fn a_changed_input_with_a_version_before_is_read_as_a_difference() {
 }
 
 #[test]
-fn a_round_after_calls_is_given_their_results() {
+fn a_run_entered_for_the_results_of_calls_is_given_them() {
     let small = asked();
-    let expected = "# Build (cell `build`), round 2
+    let expected = "# Build (cell `build`), round 1
 
 ## The results of what you asked for
 
@@ -411,14 +411,14 @@ fn a_round_that_begins_a_session_is_given_the_task_and_the_list_before_the_resul
     let list = told.find("## What it reads").expect("the list");
     let results = told.find("## The results of what you asked for").expect("the results");
     assert!(task < list && list < results, "{told}");
-    assert!(told.starts_with("# Build (cell `build`), round 2\n"), "{told}");
+    assert!(told.starts_with("# Build (cell `build`), round 1\n"), "{told}");
     assert!(told.ends_with("The check passed.\n\nGo on with the task.\n"), "{told}");
 }
 
-/// The build's second run asks for the check, which passes.
+/// The build's second run asks for the check, which passes, and the build is entered again for the result.
 fn asked() -> Small {
     let mut small = objected();
-    small.back(Came::Asks(vec![Ask::Tool {
+    small.back(Came::asks(vec![Ask::Tool {
         name: "check".to_string(),
         input: "the branch".to_string(),
     }]));
@@ -427,26 +427,20 @@ fn asked() -> Small {
 }
 
 #[test]
-fn a_later_round_that_begins_a_session_is_given_every_earlier_call_of_its_run() {
+fn a_run_entered_for_results_that_begins_a_session_is_given_its_own_results_and_none_of_an_earlier_run() {
     let mut small = objected();
-    small.back(Came::Asks(vec![Ask::Person {
+    small.back(Came::asks(vec![Ask::Person {
         who: decide::Who::Owner,
         question: "Which name?".to_string(),
     }]));
     small.done("By name.");
-    small.back(Came::Asks(vec![Ask::Tool {
+    small.back(Came::asks(vec![Ask::Tool {
         name: "check".to_string(),
         input: String::new(),
     }]));
     small.done("The check passed.");
     let told = small.told_as(true);
-    let expected = "## Round 2 of this run: the results of what you asked for
-
-### Your question: Which name?
-
-By name.
-
-## The results of what you asked for
+    let expected = "## The results of what you asked for
 
 ### The tool `check`
 
@@ -455,41 +449,37 @@ The check passed.
 Go on with the task.
 ";
     assert!(
-        told.starts_with("# Build (cell `build`), round 3\n\n## Your task"),
+        told.starts_with("# Build (cell `build`), round 1\n\n## Your task"),
         "{told}"
     );
     assert!(told.ends_with(expected), "{told}");
     assert!(
-        !small.told().contains("Which name?"),
-        "a session that goes on is given only its round's own"
+        !told.contains("Which name?"),
+        "an earlier run's results are not given: {told}"
     );
 }
 
 #[test]
-fn an_earlier_read_is_named_and_not_given_again() {
+fn a_read_an_earlier_run_asked_for_is_not_given_again() {
     let mut small = objected();
-    small.back(Came::Asks(vec![Ask::Tool {
+    small.back(Came::asks(vec![Ask::Tool {
         name: "read".to_string(),
         input: "plan@5 opinions".to_string(),
     }]));
     small.done("### `plan`, version 5\n\nGreet by name.");
-    small.back(Came::Asks(vec![Ask::Tool {
+    small.back(Came::asks(vec![Ask::Tool {
         name: "read".to_string(),
         input: "request".to_string(),
     }]));
     small.done("### `request`, version 1\n\nGreet the user.");
     let told = small.told_as(true);
     assert!(
-        told.contains("\n\n### You read plan@5, opinions: read again what you need.\n\n"),
-        "{told}"
-    );
-    assert!(
         !told.contains("Greet by name."),
         "an earlier read is not given again: {told}"
     );
     assert!(
         told.ends_with("Greet the user.\n\nGo on with the task.\n"),
-        "the round's own read is given: {told}"
+        "the run's own read is given: {told}"
     );
 }
 

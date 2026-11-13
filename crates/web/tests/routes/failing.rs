@@ -17,7 +17,7 @@ async fn a_failed_round_and_the_engines_pause_are_given_with_the_reason() {
     let mut script = trial_script();
     let plan = script.flows.get_mut("trial").unwrap();
     let mut failing = plan.rounds[0].clone();
-    failing.round = 2;
+    failing.run = 2;
     failing.asks = None;
     failing.took = Default::default();
     failing.fails = Some(WHY.to_string());
@@ -30,7 +30,7 @@ async fn a_failed_round_and_the_engines_pause_are_given_with_the_reason() {
         post(router, "/api/v1/works/1/acts", &answer).await,
         (StatusCode::NO_CONTENT, Value::Null)
     );
-    // The plan's second round, given the answer at 3 seconds, fails a second and a half later.
+    // The plan's second run, entered for the answer at 3 seconds, has its round fail a second and a half later.
     pass(2000).await;
     let failed_at = START + 4500;
     let page = get_json(router, "/api/v1/works/1").await;
@@ -39,19 +39,19 @@ async fn a_failed_round_and_the_engines_pause_are_given_with_the_reason() {
     assert_eq!(page["summary"]["paused"], true);
     assert_eq!(
         page["summary"]["cells"][0],
-        json!({ "cell": "plan", "state": "failed", "finished": 0, "record": null, "open": 1 })
+        json!({ "cell": "plan", "state": "failed", "finished": 1, "record": 1, "open": 3 })
     );
     let steps = page["steps"].as_array().unwrap();
-    let run = steps.iter().find(|s| s["kind"] == "run").unwrap();
+    let run = steps.iter().find(|s| s["kind"] == "run" && s["run"] == 3).unwrap();
     assert_eq!(run["end"], Value::Null);
     let rounds = run["rounds"].as_array().unwrap();
-    assert_eq!(rounds.len(), 2);
+    assert_eq!(rounds.len(), 1);
     assert_eq!(
-        rounds[1]["back"],
+        rounds[0]["back"],
         json!({ "kind": "failed", "why": WHY, "failure": "other", "resets": null })
     );
-    assert_eq!(rounds[1]["ended"], failed_at);
-    assert_eq!(rounds[1]["spent"]["rounds"], 1);
+    assert_eq!(rounds[0]["ended"], failed_at);
+    assert_eq!(rounds[0]["spent"]["rounds"], 1);
     let pause = steps.iter().rev().find(|s| s["kind"] == "paused").unwrap();
     assert_eq!(pause["by"], "engine");
     assert_eq!(pause["why"], WHY);
@@ -61,7 +61,7 @@ async fn a_failed_round_and_the_engines_pause_are_given_with_the_reason() {
     assert_eq!(items["items"][0]["work"]["now"], paused);
     // The round's own page has nothing handed in.
     assert_eq!(
-        get_json(router, "/api/v1/works/1/runs/1/rounds/2").await["handed"],
+        get_json(router, "/api/v1/works/1/runs/3/rounds/1").await["handed"],
         json!([])
     );
 
@@ -72,10 +72,10 @@ async fn a_failed_round_and_the_engines_pause_are_given_with_the_reason() {
     );
     let page = get_json(router, "/api/v1/works/1").await;
     assert_eq!(page["summary"]["now"]["kind"], "round");
-    assert_eq!(page["summary"]["now"]["round"], 3);
+    assert_eq!(page["summary"]["now"]["round"], 2);
     assert_eq!(page["summary"]["cells"][0]["state"], "running");
     pass(1600).await;
-    let round = get_json(router, "/api/v1/works/1/runs/1/rounds/3").await;
+    let round = get_json(router, "/api/v1/works/1/runs/3/rounds/2").await;
     assert_eq!(round["results"][0]["result"], "Yes, by name.");
     assert_eq!(round["handed"][0]["block"], "plan");
 }
@@ -88,7 +88,7 @@ async fn a_wait_every_work_shares_is_given_once_for_all_and_as_what_each_work_it
     let mut script = trial_script();
     let plan = script.flows.get_mut("trial").unwrap();
     let mut failing = plan.rounds[0].clone();
-    failing.round = 2;
+    failing.run = 2;
     failing.asks = None;
     failing.took = Default::default();
     failing.fails = Some("You've hit your limit".to_string());
@@ -105,8 +105,8 @@ async fn a_wait_every_work_shares_is_given_once_for_all_and_as_what_each_work_it
         "failure": "usageLimit",
         "why": "You've hit your limit",
         "work": 1,
-        "run": 1,
-        "round": 2,
+        "run": 3,
+        "round": 1,
         "since": START + 4500,
         "until": { "kind": "at", "at": resets },
         "holds": true,

@@ -22,8 +22,16 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
         "nothing sent back"
     );
     let back: Vec<&Back> = w.back.values().collect();
-    assert!(back.iter().any(|b| matches!(b, Back::Asked(_))), "nothing asked");
-    assert!(back.iter().any(|b| matches!(b, Back::HandedIn(_))), "nothing handed in");
+    assert!(
+        back.iter()
+            .any(|b| matches!(b, Back::Returned { asks, .. } if !asks.is_empty())),
+        "nothing asked"
+    );
+    assert!(
+        back.iter()
+            .any(|b| matches!(b, Back::Returned { handed, .. } if !handed.is_empty())),
+        "nothing handed in"
+    );
     assert!(back.iter().any(|b| matches!(b, Back::Failed { .. })), "nothing failed");
     assert!(
         (r.pauses.iter()).any(|p| p.by == Pauser::Engine && p.why.is_some()),
@@ -52,9 +60,8 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
         calls.iter().any(|c| matches!(c, Call::Asked(Ask::Tool { .. }))),
         calls.iter().any(|c| matches!(c, Call::Asked(Ask::Person { .. }))),
         calls.contains(&&Call::AtLimit(Limit::Returns { sent_back: 2 })),
-        calls.contains(&&Call::AtLimit(Limit::Calls { made: 2 })),
     ];
-    assert_eq!(kinds, [true; 4], "a kind of call is missing: {calls:?}");
+    assert_eq!(kinds, [true; 3], "a kind of call is missing: {calls:?}");
     assert!(r.called.iter().any(|c| c.on.is_none()), "no call the engine makes");
     assert!(
         r.called.iter().any(|c| c.on == Some(Who::Architect)),
@@ -81,7 +88,8 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
         (r.finished.iter()).any(|f| f.writes.iter().any(|w| w.value.is_some())),
         "no run wrote a choice"
     );
-    assert!(r.abandoned.len() >= 3, "too few runs abandoned: {:?}", r.abandoned);
+    // A run is abandoned only as its cell is skipped, a round is stopped, or the work is cancelled: here once.
+    assert!(!r.abandoned.is_empty(), "no run abandoned: {:?}", r.abandoned);
     assert_eq!(r.let_go.len(), 1);
     assert_eq!(
         r.pauses.iter().map(|p| p.paused).collect::<Vec<_>>(),
@@ -90,11 +98,13 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
     assert!(r.cancelled.is_some());
     assert_eq!(w.spent.len(), d.ended as usize, "a round's cost was not kept");
     assert_eq!(r.returned.len(), d.ended as usize);
-    // Each round that began was given something, and each that ended while its run was open came back with
-    // something: only the round stopped at the cancel did not.
+    // Each round that began was given something, and each that ended came back with something: no round is under way
+    // at the cancel, a run that asks having ended with its round.
     assert_eq!(given.len(), r.rounds.len());
-    assert_eq!(back.len() + 1, r.returned.len());
-    assert!(w.contents.len() >= r.written.len() + r.finished.len());
+    assert_eq!(back.len(), r.returned.len());
+    // A content for each write, and for each finish that wrote something: a run that only asked writes nothing.
+    let wrote = r.finished.iter().filter(|f| !f.writes.is_empty()).count();
+    assert!(w.contents.len() >= r.written.len() + wrote);
     assert!(w.moments.len() > 20);
 }
 
@@ -129,8 +139,8 @@ fn runs_of_the_new_form_load_back_with_what_they_dealt_with_what_was_put_in_and_
     assert_eq!(opened.load(work), Ok(new.clone()));
     assert_eq!(opened.load(before), Ok(d.work.clone()));
 
-    // In the file, the runs that finished by handing in say nothing of what they dealt with, and those of the new form
-    // say it, some naming nothing.
+    // In the file, every run the engine finished says what it dealt with, and so does each of the new form, some naming
+    // nothing.
     let rows = dump(&db.path);
     let of = |n: WorkNumber| move |row: &&Vec<String>| row[0] == format!("Integer({})", n.0);
     let dealt = |n: WorkNumber| -> Vec<String> {
@@ -140,7 +150,7 @@ fn runs_of_the_new_form_load_back_with_what_they_dealt_with_what_was_put_in_and_
             .map(|row| row[3].clone())
             .collect()
     };
-    assert!(dealt(before).iter().all(|v| v == "Null"));
+    assert!(dealt(before).iter().all(|v| v != "Null"));
     let mut said = dealt(work);
     said.sort();
     let mut expected = [

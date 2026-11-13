@@ -19,9 +19,19 @@ fn two_cells_of_one_name_are_refused() {
 }
 
 #[test]
-fn a_condition_on_a_block_the_cell_itself_writes_is_refused() {
-    let cells = vec![when("more", "yes", cell("a", &[], &["more"])), gate()];
+fn a_condition_on_a_block_the_cell_itself_writes_is_refused_where_another_cell_writes_it_too() {
+    let cells = vec![
+        when("more", "yes", cell("a", &[], &["more"])),
+        cell("b", &[], &["more"]),
+        gate(),
+    ];
     assert_eq!(flow(cells), Err(FlowFault::ConditionOnOwnOutput("a".into())));
+}
+
+#[test]
+fn a_condition_on_a_block_the_cell_alone_writes_is_allowed() {
+    let cells = vec![when("more", "yes", cell("a", &[], &["more"])), Cell::new("merge")];
+    assert!(flow(cells).is_ok());
 }
 
 #[test]

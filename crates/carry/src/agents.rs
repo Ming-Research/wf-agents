@@ -157,7 +157,7 @@ impl Rounds for Agents {
                 }
                 Ok(Carried::Stopped) => {
                     if let Some(reply) = inner.held.take(key) {
-                        reply.ended(Came::HandsIn(Vec::new()), Spent::default());
+                        reply.ended(Came::hands_in(Vec::new()), Spent::default());
                     }
                 }
                 Ok(Carried::Failed(why, failure, spent)) => match inner.held.fail(key) {
@@ -172,14 +172,14 @@ impl Rounds for Agents {
                             None => reply.failed_as(failure, resets, why, spent),
                         }
                     }
-                    Some(Failing::End(reply)) => reply.ended(Came::HandsIn(Vec::new()), spent),
+                    Some(Failing::End(reply)) => reply.ended(Came::hands_in(Vec::new()), spent),
                     None => {}
                 },
                 // What a round that failed before its program printed a result took is not known: it is kept as
                 // nothing.
                 Err(why) => match inner.held.fail(key) {
                     Some(Failing::Fail(reply)) => reply.failed(why, Spent::default()),
-                    Some(Failing::End(reply)) => reply.ended(Came::HandsIn(Vec::new()), Spent::default()),
+                    Some(Failing::End(reply)) => reply.ended(Came::hands_in(Vec::new()), Spent::default()),
                     None => {}
                 },
             }
@@ -196,7 +196,7 @@ impl Rounds for Agents {
             let dir = git::place(&self.inner.data, &git::tag(&self.inner.installation), round.work).dir;
             tokio::spawn(async move {
                 process::stop_left(&group, &dir).await;
-                reply.ended(Came::HandsIn(Vec::new()), Spent::default());
+                reply.ended(Came::hands_in(Vec::new()), Spent::default());
             });
         }
     }

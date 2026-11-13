@@ -384,10 +384,10 @@ impl Script {
                     ms: or(took.ms, self.took.ms, ROUND_MS),
                 };
             }
-            Some(RoundScript { asks: Some(asks), .. }) => Came::Asks(asks.iter().map(AskScript::ask).collect()),
+            Some(RoundScript { asks: Some(asks), .. }) => Came::asks(asks.iter().map(AskScript::ask).collect()),
             Some(RoundScript {
                 hands_in: Some(handed), ..
-            }) => Came::HandsIn(
+            }) => Came::hands_in(
                 (handed.iter())
                     .map(|h| Handed {
                         block: BlockId(h.block.clone()),
@@ -411,7 +411,7 @@ impl Script {
                     (readers.into_iter().flatten())
                         .any(|reader| matches!((flow.flow.place(reader), place), (Some(r), Some(p)) if r < p))
                 };
-                Came::HandsIn(
+                Came::hands_in(
                     (outputs.iter())
                         .filter(|block| !back(block) || cell.must_write.contains(block))
                         .map(|block| Handed {

@@ -8,13 +8,13 @@
 //! answered, each once, as the history with no stop; and the driver says it kept what it was told exactly when the
 //! store holds it.
 //!
-//! The history: six items are added (one with a first write), five let on and one later; the work of one is cancelled
-//! with its round under way; one rests at a question for the owner when a person writes what its run started from, so
-//! that the question is withdrawn, and its writer, run again, hands in what it may not write; a person writes an
-//! opinion for a writer while its round is under way. Every other step answers one of the things given to be done,
-//! chosen by the step's number among them in a fixed order: a round hands in what its cell may write, or, in its
-//! first round at some steps, asks for a tool or hands in what it may not write; a call has its result; a call
-//! withdrawn is said to be; a round stopped ends.
+//! The history: seven items are added (one with a first write), six let on and one later; the work of one is cancelled
+//! with its round under way; one asks the owner a question, a person writes what ran it while it waits, and the owner
+//! answers; another asks the owner a question and is cancelled while it waits, its question withdrawn; a person writes
+//! an opinion for a writer while its round is under way. Every other step answers one of the things given to be done,
+//! chosen by the step's number among them in a fixed order: a round hands in what its cell may write, or, in its first
+//! round of a run given its task at some steps, asks for a tool, or in a first round hands in what it may not write; a
+//! call has its result; a call withdrawn is said to be; a round stopped ends.
 
 use std::collections::BTreeSet;
 
@@ -55,7 +55,7 @@ fn act(h: &H, s: usize) -> Option<Act> {
         11 => Act::On(w(6), Event::Resumed),
         12 => {
             let (run, ..) = h.round(w(6));
-            let came = Came::Asks(vec![question(Who::Owner)]);
+            let came = Came::asks(vec![question(Who::Owner)]);
             Act::On(
                 w(6),
                 Event::Returned {
@@ -67,12 +67,30 @@ fn act(h: &H, s: usize) -> Option<Act> {
         }
         13 => Act::On(w(6), wrote("request", Outsider::Person, None)),
         14 => Act::On(w(1), wrote("opinions", Outsider::Person, None)),
-        // The writer of the sixth, run again, hands in what it may not write.
+        // The owner answers the sixth's question: its writer is entered again, for the answer and the new request.
         15 => {
-            let (run, ..) = h.round(w(6));
-            let came = hands_in(&[("request", None)]);
+            let kept = h.d().work(w(6)).expect("the work is there");
+            let r = &kept.work.records;
+            let call = (r.called.iter())
+                .find(|c| !r.done.iter().any(|d| d.call == c.call))
+                .expect("the question waits")
+                .call;
             Act::On(
                 w(6),
+                Event::Done {
+                    call,
+                    result: "By name.".to_string(),
+                },
+            )
+        }
+        // The seventh asks the owner a question and is cancelled while it waits: the question is withdrawn.
+        16 => Act::Add(new_item("g", &[], "short")),
+        17 => Act::On(w(7), Event::Resumed),
+        18 => {
+            let (run, ..) = h.round(w(7));
+            let came = Came::asks(vec![question(Who::Owner)]);
+            Act::On(
+                w(7),
                 Event::Returned {
                     run,
                     came,
@@ -80,6 +98,7 @@ fn act(h: &H, s: usize) -> Option<Act> {
                 },
             )
         }
+        19 => Act::On(w(7), Event::Cancelled { why: None }),
         20 => Act::On(w(3), Event::Resumed),
         _ => return answer(h, s),
     };
@@ -103,8 +122,8 @@ fn answer(h: &H, s: usize) -> Option<Act> {
             let kept = h.d().work(todo.work).expect("the work is there");
             let came = if engine_cell(kept.flow, cell.as_str()) || matches!(given, Given::SentBack(_)) {
                 proper(kept.flow, cell.as_str())
-            } else if number == 1 && s % 5 == 1 {
-                Came::Asks(vec![tool("search")])
+            } else if number == 1 && given == Given::Task && s % 5 == 1 {
+                Came::asks(vec![tool("search")])
             } else if number == 1 && s % 7 == 3 {
                 hands_in(&[("request", None)])
             } else {
@@ -126,7 +145,7 @@ fn answer(h: &H, s: usize) -> Option<Act> {
         },
         Effect::Stop { run } => Event::Returned {
             run,
-            came: Came::Asks(vec![]),
+            came: Came::asks(vec![]),
             spent: spent(s as u64),
         },
         Effect::Release { .. } => Event::Released,
@@ -185,8 +204,9 @@ fn straight() -> (Ending, usize) {
             merged.clone(),
             merged.clone(),
             merged.clone(),
-            cancelled,
-            merged
+            cancelled.clone(),
+            merged,
+            cancelled
         ],
         "the history did not end as it was written to"
     );

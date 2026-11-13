@@ -59,8 +59,8 @@ pub enum Heed {
     Agents { outage: Outage },
     /// The work's records cannot be those of a work: nothing is decided on them.
     Fault { work: WorkNumber },
-    /// The work rests for a person: a call a person answers, a precondition a person can make hold, a limit, or a
-    /// pause the engine made with its reason.
+    /// The work rests for a person: a call a person answers, a precondition a person can make hold, a limit, a pause
+    /// the engine made with its reason, or nothing new to run any cell.
     ForAPerson { work: WorkNumber },
     /// The work waits for these items, none of which is going on.
     Idle { work: WorkNumber, items: Vec<Idle> },
@@ -276,6 +276,9 @@ enum Standing {
     PausedByOwner {
         at: Seq,
     },
+    /// Nothing new runs a cell of it and nothing of it is under way or waited for: it rests until someone writes
+    /// what runs a cell.
+    Still,
     /// It goes on: a round is under way or about to begin, or it waits for what the engine or a cell will give.
     Going,
 }
@@ -315,6 +318,9 @@ impl Standing {
                     Standing::Going
                 }
             }
+            // A work at rest that a pause holds is the pauser's to let on.
+            Decision::Idle if decide::paused(records) => paused(),
+            Decision::Idle => Standing::Still,
             Decision::Busy { .. } | Decision::Run { .. } | Decision::GoOn { .. } | Decision::Abandon { .. } => {
                 Standing::Going
             }
@@ -327,7 +333,7 @@ fn for_a_person(waited: &Waited) -> bool {
     match waited {
         Waited::Call { on, .. } => on.is_some(),
         Waited::Precondition { by, .. } => by.contains(&Maker::Owner),
-        Waited::Limit { .. } => true,
+        Waited::Limit { .. } | Waited::Calls { .. } => true,
         // The engine gives it as soon as a round of another work ends.
         Waited::Slot => false,
     }
@@ -340,7 +346,7 @@ fn on_items(waited: &Waited) -> bool {
             !by.is_empty()
                 && (by.iter()).all(|maker| matches!(maker, Maker::Outside { source } if source == DEPENDENCIES))
         }
-        Waited::Call { .. } | Waited::Limit { .. } | Waited::Slot => false,
+        Waited::Call { .. } | Waited::Limit { .. } | Waited::Calls { .. } | Waited::Slot => false,
     }
 }
 
@@ -438,7 +444,9 @@ impl Reader<'_> {
     fn line(&self, number: WorkNumber) -> Option<(u8, Line)> {
         let (rank, heed) = match &self.standing[&number] {
             Standing::Fault(_) => (1, Heed::Fault { work: number }),
-            Standing::Asked { .. } | Standing::PausedByEngine { .. } => (2, Heed::ForAPerson { work: number }),
+            Standing::Asked { .. } | Standing::PausedByEngine { .. } | Standing::Still => {
+                (2, Heed::ForAPerson { work: number })
+            }
             Standing::Items { .. } => {
                 let items = self.idle[&number].clone()?;
                 (3, Heed::Idle { work: number, items })
@@ -536,7 +544,7 @@ impl Reader<'_> {
                 Standing::Ended(End::Merged) => continue,
                 Standing::Ended(End::Cancelled) => Stuck::Cancelled,
                 Standing::Fault(_) => Stuck::Fault,
-                Standing::Asked { .. } | Standing::PausedByEngine { .. } => Stuck::ForAPerson,
+                Standing::Asked { .. } | Standing::PausedByEngine { .. } | Standing::Still => Stuck::ForAPerson,
                 Standing::PausedByOwner { .. } => Stuck::Paused,
                 Standing::Items { .. } => {
                     self.idle.get(on)?.as_ref()?;

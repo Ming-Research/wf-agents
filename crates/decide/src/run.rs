@@ -1,22 +1,26 @@
 //! What a run does next, from what it has done so far.
 //!
-//! A run is made of rounds. At the end of a round its agent, or the engine's own act, either asks for calls, which
-//! the engine then makes and whose results the next round is given, or hands in the blocks it wrote. What came back
-//! and does not meet what the flow requires is sent back: the next round is given why. A run finishes when what was
-//! handed in meets everything, and writes its blocks then. How often something is sent back and how many calls are
-//! made each has a limit, at which the owner lets the run go on or cancels the work.
+//! A run is one entering of its cell (design document `data-and-context`, 7). It is made of rounds: the first, each one
+//! after a return was sent back, and each one after a round failed. At the end of a round its agent, or the engine's
+//! own act, returns, and a return is of one of two kinds (design document `data-and-context`, 30): it asks for calls
+//! and for nothing else, dealing with nothing; or it does the cell's work, saying which of what ran the round it has
+//! dealt with and writing its blocks. A return that does not meet what the flow requires, one that mixes the two among
+//! it, is sent back: the next round is given why. One that meets it is taken, and ends the run: the calls it asks for
+//! are made, or the run writes its blocks and what it dealt with is consumed. A cell whose run asked for calls is
+//! entered again as a new run once their results are in, which the walk says. How often a return is sent back has a
+//! limit, at which the owner lets the run go on or cancels the work.
 //!
 //! A round may also fail: nothing came back, as when whatever carries it out could not start or gave nothing usable.
 //! Whatever carried it out tells the cause apart ([`Failure`]), and each kind is handled its own way. A failure in
 //! passing is tried again, after a wait that grows each time, as a call of the run that the engine makes; so many in a
-//! row and the next pauses the work ([`pausing`]). A return that could not be read is sent back, as any return that does
-//! not meet what the flow requires. A round the service's safety check flagged is tried again, in a new session of its
-//! line, and the second in a row pauses the work. A cause every work shares (the account's usage limit, a command line
-//! that cannot run, no network) holds the agents' rounds of every work, which is no matter of one run's: the run only
-//! has its next round once they may begin again. Any other failure pauses the work as the round fails, so that the
+//! row and the next pauses the work ([`pausing`]). A return that could not be read is sent back, as any return that
+//! does not meet what the flow requires. A round the service's safety check flagged is tried again, in a new session of
+//! its line, and the second in a row pauses the work. A cause every work shares (the account's usage limit, a command
+//! line that cannot run, no network) holds the agents' rounds of every work, which is no matter of one run's: the run
+//! only has its next round once they may begin again. Any other failure pauses the work as the round fails, so that the
 //! owner sees the cause first. Once the work is let on, the run has its next round, given what the failed round was
-//! given, and the failures counted in a row start anew. A failure is no return sent back, unless it is one that could
-//! not be read, and makes no call.
+//! given, and the failures counted in a row start anew. A round that failed, or a return that was sent back, deals with
+//! nothing.
 //!
 //! A pause of the work holds back the rounds of a run, unless the run started for a note a person wrote: such a run has
 //! every round it needs while the work is paused, but the round after one that failed and paused the work, which still
@@ -29,7 +33,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::flow::BlockId;
-use crate::records::{CallId, Write};
+use crate::records::{CallId, Seq, Write};
 
 /// What a run has done so far: its rounds, in order.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -119,15 +123,13 @@ pub struct Round {
 /// What came back at the end of a round.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Return {
-    /// Calls were asked for: a tool the engine runs, something of the item to read, a question for a person.
-    Asked {
-        /// How many calls the round asked for.
-        asked: usize,
-        /// The calls made for it: none until the engine makes them, then all of them.
-        made: Vec<Call>,
+    /// The return was read: what of what ran the round it dealt with, in the order it named them, the blocks it writes,
+    /// and how many calls it asks for.
+    Came {
+        dealt_with: Vec<BlockId>,
+        writes: Vec<Write>,
+        calls: usize,
     },
-    /// The blocks the run wrote were handed in.
-    HandedIn(Vec<Write>),
     /// The round failed: nothing came back, for this kind of cause, said so.
     Failed {
         failure: Failure,
@@ -145,19 +147,46 @@ pub struct Call {
     pub done: bool,
 }
 
+/// What the run's round was told, and how the blocks its cell may write stand now, as the walk reads them from the
+/// records ([`crate::told`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Told {
+    /// What ran the round, which its return may name as dealt with: each block new to the cell as the run started, in
+    /// the order the cell names them, then each block put in to the round since that was not among them.
+    pub ran_by: Vec<BlockId>,
+    /// Of each block the cell may write, the version the round was told of and the latest.
+    pub outputs: BTreeMap<BlockId, Standing>,
+    /// Whether the round's cell still waits for the results of calls its runs asked for: the round was entered for the
+    /// owner turning to the cell meanwhile, answers and goes on waiting, and so is held to no block its cell must write
+    /// (design document `data-and-context`, 40, 42).
+    pub waits_for_calls: bool,
+}
+
+/// A block a cell may write: the version its run's round was told of, and the latest, with its value.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Standing {
+    /// The latest version the round was told of: the one the run started from, or one put in to it since.
+    pub told: Option<Seq>,
+    /// The block's latest version.
+    pub latest: Option<Seq>,
+    /// The latest version's value, where the block is a choice.
+    pub value: Option<String>,
+}
+
 /// What the flow requires of what a cell's run returns.
 #[derive(Clone, Copy, Debug)]
 pub struct Requires<'a> {
     /// The blocks the cell may write.
     pub outputs: &'a [BlockId],
-    /// The blocks among those that every hand-in of the cell includes.
+    /// The blocks among those that a return dealing with everything that ran its round, and asking for no call,
+    /// includes (plan, D8), unless its cell still waits for the results of calls ([`Told::waits_for_calls`]).
     pub must_write: &'a [BlockId],
     /// The values of each block that is a choice.
     pub choices: &'a BTreeMap<BlockId, Vec<String>>,
     /// How often what the run returns may be sent back.
     pub returns: u32,
-    /// How many calls the run may make.
-    pub calls: u32,
+    /// What the round was told, and how the blocks it may write stand.
+    pub told: &'a Told,
 }
 
 /// What a run does next.
@@ -169,12 +198,8 @@ pub enum Step {
     UnderWay,
     /// The run would have its next round, and the pause of its work holds that round back until the work is let on.
     Held,
-    /// The calls the last round asked for are made.
-    Make,
     /// The run rests at these calls, which have no result yet.
     Rest { calls: Vec<CallId> },
-    /// Every call the last round asked for has its result: the run has its next round, which is given the results.
-    Resume,
     /// The last round failed in passing, the `failed`th time in a row: the engine waits this long from its end, in
     /// milliseconds, as a call of the run that it makes itself, before the round is tried again.
     Wait { failed: u32, ms: u64 },
@@ -182,8 +207,12 @@ pub enum Step {
     Retry,
     /// What came back does not meet what the flow requires: it is sent back, the next round being given why.
     SendBack { unmet: Vec<Unmet> },
-    /// What was handed in meets everything the flow requires: the run finishes, writing these blocks.
-    Finish { writes: Vec<Write> },
+    /// What came back meets everything the flow requires: the calls it asks for are made, and the run finishes,
+    /// having dealt with these and writing these blocks.
+    Finish {
+        dealt_with: Vec<BlockId>,
+        writes: Vec<Write>,
+    },
     /// The run has reached a limit: the owner lets it go on, the count starting anew, or cancels the work.
     AtLimit(Limit),
 }
@@ -194,14 +223,17 @@ pub enum Limit {
     /// This many returns were sent back, and what the last round returned does not meet what the flow requires
     /// either.
     Returns { sent_back: u32 },
-    /// This many calls were made, and with those the last round asks for the run would have made more than it may.
+    /// This many calls were made, and with those the last round asks for the run would have made more than it may. A
+    /// run reached it before a return that asks ended its run; the walk now bounds how often a cell is entered again
+    /// for the results of what it asked for.
     Calls { made: u32 },
 }
 
 /// Why what came back does not meet what the flow requires.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Unmet {
-    /// The round asked for calls, and for none: it neither asks for anything nor hands anything in.
+    /// The round asked for calls, and for none: it neither asked for anything nor handed anything in. Returns of the
+    /// form before a return said what it dealt with were sent back so.
     AsksNothing,
     /// The block is not one the cell may write.
     NotAnOutput { block: BlockId },
@@ -217,6 +249,22 @@ pub enum Unmet {
     NotHandedIn { block: BlockId },
     /// What came back could not be read as a return, for this reason, as whatever carried the round out says.
     Unreadable { why: String },
+    /// The return names the block as dealt with, and it is not among what ran the round.
+    NotRunBy { block: BlockId },
+    /// The return names the block as dealt with twice.
+    DealtWithTwice { block: BlockId },
+    /// Something ran the round, and the return deals with none of it and asks for no call: the cell would be entered
+    /// again at once for the same.
+    DealtWithNothing,
+    /// The block got this version from another writer after the round was told of the one it writes over: the return
+    /// would write over what the round never saw. The next round is told of the version.
+    WrittenOver { block: BlockId, version: Seq },
+    /// The block is a choice, written as changing nothing in meaning with another value than the one it has: a choice
+    /// changes its meaning when its value does (decision `meaning-told-by-the-writer`).
+    ChoiceChanged { block: BlockId },
+    /// The return asks for calls and also does the cell's work, dealing with something or writing a block: a return
+    /// that asks for calls asks for nothing else, and deals with nothing (design document `data-and-context`, 30).
+    AsksAndWorks,
 }
 
 /// What a pause of the run's work holds back of its rounds.
@@ -280,31 +328,23 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
         // tried in a new session of its line, which whatever carries it out begins; one whose cause every work
         // shares has its next round once agents' rounds may begin again; one that paused the work, once it is let on.
         Return::Failed { .. } => return held(Step::Retry, hold),
-        Return::Asked { asked: 0, .. } => vec![Unmet::AsksNothing],
-        Return::Asked { asked, made } if made.is_empty() => {
-            let before: usize = earlier.iter().map(calls).sum();
-            if !let_on && before + asked > requires.calls as usize {
-                return Step::AtLimit(Limit::Calls { made: before as u32 });
-            }
-            return Step::Make;
-        }
-        Return::Asked { made, .. } => {
-            let open: Vec<CallId> = made.iter().filter(|c| !c.done).map(|c| c.call).collect();
-            if open.is_empty() {
-                return held(Step::Resume, hold);
-            }
-            return Step::Rest { calls: open };
-        }
-        Return::HandedIn(writes) => {
-            let unmet = unmet(writes, requires);
+        Return::Came {
+            dealt_with,
+            writes,
+            calls,
+        } => {
+            let unmet = unmet(dealt_with, writes, *calls, requires);
             if unmet.is_empty() {
-                return Step::Finish { writes: writes.clone() };
+                return Step::Finish {
+                    dealt_with: dealt_with.clone(),
+                    writes: writes.clone(),
+                };
             }
             unmet
         }
     };
-    // Every return before this one that handed in, or asked for nothing, was sent back: the run would have finished
-    // or made calls otherwise.
+    // Every return before this one that was read, or could not be, was sent back: the run would have finished
+    // otherwise.
     let sent_back = earlier.iter().filter(|r| sent_back(r)).count() as u32;
     if !let_on && sent_back >= requires.returns {
         return Step::AtLimit(Limit::Returns { sent_back });
@@ -322,22 +362,13 @@ fn held(step: Step, hold: Hold) -> Step {
     if holds { Step::Held } else { step }
 }
 
-/// How many calls were made for the round.
-fn calls(round: &Round) -> usize {
-    match &round.returned {
-        Some(Return::Asked { made, .. }) => made.len(),
-        _ => 0,
-    }
-}
-
-/// Whether what the round returned was sent back: it is not the last round, and it handed in, asked for nothing or
-/// returned what could not be read. A round that failed otherwise returned nothing to send back.
+/// Whether what the round returned was sent back: it is not the last round, and it was read or could not be. A round
+/// that failed otherwise returned nothing to send back.
 fn sent_back(round: &Round) -> bool {
     matches!(
         round.returned,
         Some(
-            Return::HandedIn(_)
-                | Return::Asked { asked: 0, .. }
+            Return::Came { .. }
                 | Return::Failed {
                     failure: Failure::Unread,
                     ..
@@ -363,9 +394,9 @@ fn passing_in_a_row(log: &Log) -> u32 {
 
 /// Why the engine pauses the work as the run's last round fails, if it does: the failure is of a kind running again
 /// cannot help; or it is in passing, and more of the run's last rounds in a row failed so than are tried again
-/// ([`PASSING`]); or the round was flagged, and so was another of the run's last rounds in a row, whatever failed between
-/// them, the first having had its line's session begun anew. Any other failure the run takes up itself ([`next`]).
-/// The failures in a row start anew where the owner let the work on.
+/// ([`PASSING`]); or the round was flagged, and so was another of the run's last rounds in a row, whatever failed
+/// between them, the first having had its line's session begun anew. Any other failure the run takes up itself
+/// ([`next`]). The failures in a row start anew where the owner let the work on.
 pub fn pausing(log: &Log) -> Option<Pausing> {
     let mut row = failures_in_a_row(log);
     match row.next()? {
@@ -379,10 +410,22 @@ pub fn pausing(log: &Log) -> Option<Pausing> {
     }
 }
 
-/// Each way in which what was handed in does not meet what the flow requires: one for each write, in the order of the
-/// writes, then one for each block the cell must hand in and did not, in the order the cell lists them.
-fn unmet(writes: &[Write], requires: Requires) -> Vec<Unmet> {
+/// Each way in which what came back does not meet what the flow requires, in one pass (principle `report-all-at-once`):
+/// first what it says it dealt with, in its order; then one for each write, in the order of the writes; then whether
+/// it asks for calls beside doing the cell's work; then whether it deals with nothing while something ran its round
+/// and asks for no call; then each block the cell must hand in
+/// and did not, in the order the cell lists them, where the return deals with everything that ran its round and asks
+/// for no call.
+fn unmet(dealt_with: &[BlockId], writes: &[Write], calls: usize, requires: Requires) -> Vec<Unmet> {
+    let told = requires.told;
     let mut unmet = Vec::new();
+    for (i, block) in dealt_with.iter().enumerate() {
+        if dealt_with[..i].contains(block) {
+            unmet.push(Unmet::DealtWithTwice { block: block.clone() });
+        } else if !told.ran_by.contains(block) {
+            unmet.push(Unmet::NotRunBy { block: block.clone() });
+        }
+    }
     for (i, write) in writes.iter().enumerate() {
         let block = || write.block.clone();
         if writes[..i].iter().any(|w| w.block == write.block) {
@@ -402,10 +445,37 @@ fn unmet(writes: &[Write], requires: Requires) -> Vec<Unmet> {
             (None, Some(_)) => unmet.push(Unmet::NotAChoice { block: block() }),
             _ => {}
         }
+        let standing = told.outputs.get(&write.block);
+        if let Some(Standing {
+            told,
+            latest: Some(latest),
+            ..
+        }) = standing
+            && *told != Some(*latest)
+        {
+            unmet.push(Unmet::WrittenOver {
+                block: block(),
+                version: *latest,
+            });
+        }
+        let choice = requires.choices.contains_key(&write.block);
+        let value = standing.and_then(|s| s.value.as_ref());
+        if choice && write.meaning_unchanged && value != write.value.as_ref() {
+            unmet.push(Unmet::ChoiceChanged { block: block() });
+        }
     }
-    for block in requires.must_write {
-        if !writes.iter().any(|w| w.block == *block) {
-            unmet.push(Unmet::NotHandedIn { block: block.clone() });
+    if calls > 0 && !(dealt_with.is_empty() && writes.is_empty()) {
+        unmet.push(Unmet::AsksAndWorks);
+    }
+    let everything = told.ran_by.iter().all(|b| dealt_with.contains(b));
+    if calls == 0 && dealt_with.is_empty() && !told.ran_by.is_empty() {
+        unmet.push(Unmet::DealtWithNothing);
+    }
+    if calls == 0 && everything && !told.waits_for_calls {
+        for block in requires.must_write {
+            if !writes.iter().any(|w| w.block == *block) {
+                unmet.push(Unmet::NotHandedIn { block: block.clone() });
+            }
         }
     }
     unmet

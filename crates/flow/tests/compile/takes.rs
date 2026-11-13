@@ -226,10 +226,9 @@ fn what_runs_a_cell_and_what_it_is_given_are_compiled_apart_each_in_its_own_orde
             given("request", InputKind::Latest, None),
         ]
     );
-    // The walk's inputs are the two lists joined, each block once, those that run the cell first; so are the cells
-    // that read a block.
+    // The walk is given only what runs the cell; the cells that read a block are those it runs and those given it.
     let walked = &compiled.flow.cells()[0];
-    assert_eq!(walked.inputs, [BlockId::from("request"), BlockId::from("opinions")]);
+    assert_eq!(walked.runs_on, [BlockId::from("request")]);
     let readers = |block: &str| compiled.blocks[&BlockId::from(block)].readers.cells.clone();
     assert_eq!(readers("opinions"), ["plan".into()]);
 }

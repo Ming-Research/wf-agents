@@ -1,5 +1,5 @@
-//! The flow as the deciding code reads it: the cells in their order, the blocks each reads and writes, the named tests
-//! their conditions and preconditions are, and which blocks are notes.
+//! The flow as the deciding code reads it: the cells in their order, the blocks that run each and those it writes, the
+//! named tests their conditions and preconditions are, and which blocks are notes or the owner turning to a cell.
 //!
 //! Only what decides the next step is here. What a cell is given, what it hands in and how it is run belong to the
 //! parts of the engine that act.
@@ -69,6 +69,11 @@ pub struct Outsiders {
     pub note: bool,
     /// The source outside the work that writes it, where one does.
     pub outside: Option<String>,
+    /// A new version of it is the owner turning to the cells it runs: the owner's words to a cell, or an answer that
+    /// takes another option than the one the work goes by (design document `data-and-context`, 35, 39). It stops a
+    /// round under way of a cell after the one it runs, enters a cell that waits for the results of its calls, and is
+    /// answered while the work is paused, as a note is.
+    pub interrupts: bool,
 }
 
 /// A named test: a test of the values of blocks of the work itself, which the walk works out from the versions it
@@ -109,8 +114,9 @@ pub enum FlowFault {
     Empty,
     /// Two cells have this name.
     Twice(CellId),
-    /// The cell's condition reads a block the cell itself writes: it would decide by what it writes itself whether it
-    /// runs.
+    /// The cell's condition reads a block the cell itself writes, and another writer writes it too. A cell that is the
+    /// block's only writer may: the block says which of two cells is in charge, which the cell decides for its own
+    /// next round (design document `data-and-context`, 46).
     ConditionOnOwnOutput(CellId),
     /// The last cell has a condition: a work ends when its last cell has a record, so the last cell always runs.
     LastHasCondition(CellId),
@@ -146,7 +152,11 @@ impl Flow {
             if let Some(Condition::Is { block, .. }) = &cell.applies
                 && cell.outputs.contains(block)
             {
-                return Err(FlowFault::ConditionOnOwnOutput(cell.id.clone()));
+                let others = cells.iter().any(|c| c.id != cell.id && c.outputs.contains(block))
+                    || outsiders.get(block).is_some_and(|o| o.people || o.outside.is_some());
+                if others {
+                    return Err(FlowFault::ConditionOnOwnOutput(cell.id.clone()));
+                }
             }
             let condition = match &cell.applies {
                 Some(Condition::Test(test)) => Some(test),
@@ -182,6 +192,11 @@ impl Flow {
     /// Whether the block is a note: what people write in it are their words to the cells that read it.
     pub fn is_note(&self, block: &BlockId) -> bool {
         self.outsiders.get(block).is_some_and(|o| o.note)
+    }
+
+    /// Whether a new version of the block is the owner turning to the cells it runs ([`Outsiders::interrupts`]).
+    pub fn interrupts(&self, block: &BlockId) -> bool {
+        self.outsiders.get(block).is_some_and(|o| o.interrupts)
     }
 
     /// Who besides the cells writes the block; none where only cells do.
@@ -225,29 +240,35 @@ pub struct Cell {
     /// The preconditions, each a named test of the flow: while one does not hold, the work waits before this cell for
     /// whoever writes a block that keeps it from holding.
     pub requires: Vec<TestName>,
-    /// The blocks the cell reads: when one has changed in meaning since the cell last ran, the cell runs again.
-    pub inputs: Vec<BlockId>,
+    /// The blocks whose new version runs the cell (design document `data-and-context`, 5 and 6): a block is new to the
+    /// cell while it has a version, changing its meaning, later than the one the cell consumed, that the cell did not
+    /// write itself. What the cell is given besides is no matter of the walk's.
+    pub runs_on: Vec<BlockId>,
     /// The blocks the cell may write.
     pub outputs: Vec<BlockId>,
     /// How many times in a row the cell may run only for what cells after it wrote, before the work waits for the
     /// owner. At least one.
     pub limit: u32,
+    /// How many of the cell's runs in a row may each ask for calls and deal with nothing, before the work waits for the
+    /// owner instead of entering the cell again for their results. A definition gives at least one.
+    pub calls: u32,
     /// Whether each round of the cell takes one of the slots, which bound how many such rounds go on at once: an
     /// agent's rounds do, and the engine's own acts do not.
     pub slot: bool,
 }
 
 impl Cell {
-    /// A cell of this name that always runs, reads nothing, writes nothing, has a limit of three and takes a slot for
-    /// each of its rounds: what a definition starts from.
+    /// A cell of this name that always applies, that nothing runs, that writes nothing, has a limit of three runs and
+    /// of three calls and takes a slot for each of its rounds: what a definition starts from.
     pub fn new(id: &str) -> Self {
         Self {
             id: id.into(),
             applies: None,
             requires: Vec::new(),
-            inputs: Vec::new(),
+            runs_on: Vec::new(),
             outputs: Vec::new(),
             limit: 3,
+            calls: 3,
             slot: true,
         }
     }

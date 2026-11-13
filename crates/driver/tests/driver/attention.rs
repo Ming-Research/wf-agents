@@ -20,7 +20,7 @@ fn since(h: &H, mark: Option<&Mark>) -> Attention {
 
 /// The work's round under way asks the owner a question; gives the time it did.
 fn asks_the_owner(h: &mut H, work: WorkNumber) -> Time {
-    h.returns(work, Came::Asks(vec![question(Who::Owner)]));
+    h.returns(work, Came::asks(vec![question(Who::Owner)]));
     Time(h.clock)
 }
 
@@ -537,6 +537,8 @@ fn a_work_waiting_for_a_precondition_the_owner_makes_hold_is_a_line() {
         people = true
         [blocks.merged]
         shown = true
+        [blocks.start]
+        outside = "start"
         [tests.may_merge]
         says = "The owner let the work merge"
         kind = "all"
@@ -549,7 +551,7 @@ fn a_work_waiting_for_a_precondition_the_owner_makes_hold_is_a_line() {
         line = "main"
         task = "Write the text the request asks for."
         effort = "high"
-        inputs = ["request"]
+        inputs = ["start", "request"]
         outputs = ["text"]
     "#;
     let merge = r#"
@@ -642,7 +644,7 @@ fn a_work_the_engine_paused_while_it_waits_for_a_tool_rests_for_a_person_from_th
     let mut h = H::new();
     let (_, w) = h.add(new_item("a", &[], "plain"));
     h.let_on(w);
-    h.returns(w, Came::Asks(vec![tool("ci")]));
+    h.returns(w, Came::asks(vec![tool("ci")]));
     let mark = since(&h, None).mark;
     h.on(
         w,

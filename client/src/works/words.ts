@@ -200,6 +200,7 @@ export function waitsForOwner(waited: Waited): boolean {
     case 'precondition':
       return waited.by.some((m) => m.kind === 'owner');
     case 'limit':
+    case 'calls':
       return true;
     case 'slot':
       return false;
@@ -223,6 +224,12 @@ export function waitedWords(waited: Waited): string {
     case 'limit':
       return `the owner to let the cell go on: ${
         waited.runs === 1 ? 'its last run was a way round' : `its last ${waited.runs} runs in a row were each a way round`
+      }`;
+    case 'calls':
+      return `the owner to let the cell go on: ${
+        waited.runs === 1
+          ? 'its last run asked for calls and dealt with nothing'
+          : `its last ${waited.runs} runs in a row each asked for calls and dealt with nothing`
       }`;
     case 'slot':
       return 'a free slot, which the engine gives in its order';
@@ -252,6 +259,8 @@ export function nowWords(now: Now): string {
       return `Waits at ${now.at} for ${now.on.map(waitedWords).join('; ')}`;
     case 'next':
       return `About to go on at ${now.cell}`;
+    case 'idle':
+      return 'At rest: nothing new runs a cell, until someone writes what runs one';
   }
 }
 
@@ -275,6 +284,7 @@ export function nowTone(now: Now): Tone {
     case 'cancelled':
     case 'everything':
     case 'next':
+    case 'idle':
       return 'quiet';
   }
 }
@@ -283,6 +293,7 @@ export function nowTone(now: Now): Tone {
 /// to be one; the run is a way round only when every one of its causes is (`wayRound`).
 export function causeRest(cause: Cause, wayRound = false): string {
   if (cause.kind === 'noRecord') return 'the cell had no record';
+  if (cause.kind === 'results') return `the results of ${plural(cause.calls.length, 'call')} it asked for are in`;
   const since = cause.was === null ? ', which its record knew no version of' : ` since @${cause.was}`;
   const behind = cause.behind ? `, by a cell after it${wayRound ? ': a way round' : ''}` : '';
   return `changed in meaning${since}${behind}`;
@@ -290,7 +301,7 @@ export function causeRest(cause: Cause, wayRound = false): string {
 
 export function causeWords(cause: Cause, wayRound = false): string {
   const rest = causeRest(cause, wayRound);
-  return cause.kind === 'noRecord' ? rest : `${cause.block} ${rest}`;
+  return cause.kind === 'changed' ? `${cause.block} ${rest}` : rest;
 }
 
 /// A run is a way round when each of its reasons is a block whose meaning a cell after it last changed.
@@ -317,6 +328,18 @@ export function unmetWords(unmet: Unmet): string {
       return `it did not hand in ${unmet.block}, which the cell must hand in every time`;
     case 'unreadable':
       return `what it returned could not be read: ${unmet.why}`;
+    case 'notRunBy':
+      return `it said it dealt with ${unmet.block}, which did not run the round`;
+    case 'dealtWithTwice':
+      return `it said twice it dealt with ${unmet.block}`;
+    case 'dealtWithNothing':
+      return 'it dealt with nothing that ran the round and asked for no call';
+    case 'writtenOver':
+      return `it wrote ${unmet.block}, which another wrote at @${unmet.version} since the round was told of it`;
+    case 'choiceChanged':
+      return `it handed in ${unmet.block}, a choice, as changing nothing in meaning with another value`;
+    case 'asksAndWorks':
+      return 'it asked for calls and also did the cell\'s work';
   }
 }
 
