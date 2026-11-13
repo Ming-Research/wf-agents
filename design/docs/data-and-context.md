@@ -163,9 +163,9 @@ run next all the same, and the note would be filled, since the new session lacks
     again with their results.
 
 31. Each field of a return, each tool and each datum is defined once, its shape with its words: the engine's own
-    fields and tools in the engine, a datum in the flow's definition where it is declared, and what runs a cell, what
-    it may write and what it may ask for on the cell. All that is sent about returning is made from those definitions,
-    by rules that name no cell and no datum, and is written nowhere by hand, in three parts:
+    fields and tools in the files beside the flows (51), a datum in the flow's definition where it is declared, and
+    what runs a cell, what it may write and what it may ask for on the cell. All that is sent about returning is made
+    from those definitions, by rules that name no cell and no datum, and is written nowhere by hand, in three parts:
     - the line's form, the shape alone, given with every call (24, principle one-form-of-return-for-a-session);
     - in the line's system prompt, a part of its own after the engine's words: what is common to every return of the
       line, the two kinds of return, and no word of a field or a tool;
@@ -268,3 +268,17 @@ run next all the same, and the note would be filled, since the new session lacks
 
 50. A return may also say, in a sentence or two, what its round did and found, and a round told to stop how far it
     got. It is kept with the round for the owner to read, and like an observation it is no data of the work.
+
+## Where what is sent is written
+
+51. Every word an agent is sent, and every word the owner's page says of what it is sent, is in a file the flows'
+    definitions can be read in, and the code that puts a message together holds none: no word, no name of a part, a
+    field, a tool or a datum, and no path of the project. What every flow shares is written once beside the flows:
+    the project's files and settings in `project.toml`; in `agents/`, what a session begins with and in what order
+    (`session.toml`), the engine's own words, the rules for the agents, the return with each of its fields
+    (`return/`), each tool (`tools/`), and the parts of a message with how a datum is put in by its kind
+    (`message/`); the engine's own data, which a flow names among those it uses, in `data/`. A flow's directory holds
+    its own: `flow.toml` for what is the flow's as a whole, and one file to each line, cell, datum and named test, in a
+    directory of its kind. One thing is in one file, so that a thing defined twice is two files of one name, which is
+    refused; and a datum each cell has its own of (as what runs a cell the owner spoke to) is defined once and named by
+    the cell, not written again for each. The page names, for each part, the file it comes from.
