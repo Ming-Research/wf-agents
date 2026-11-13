@@ -163,10 +163,16 @@ run next all the same, and the note would be filled, since the new session lacks
     again with their results.
 
 31. Each field of a return, each tool and each datum is defined once, its shape with its words: the engine's own
-    fields and tools in the engine, a datum in the flow's definition where it is declared, and what a cell may write
-    and ask for on the cell. The form given to the agent's program, the shape of each cell's return the owner reads on
-    the page, and the words that tell the agent what each field means and how each tool is used are all made from
-    those definitions, the words only for what the line's cells use. Nothing of them is written a second time by hand.
+    fields and tools in the engine, a datum in the flow's definition where it is declared, and what runs a cell, what
+    it may write and what it may ask for on the cell. All that is sent about returning is made from those definitions,
+    by rules that name no cell and no datum, and is written nowhere by hand, in three parts:
+    - the line's form, the shape alone, given with every call (24, principle one-form-of-return-for-a-session);
+    - in the line's system prompt, a part of its own after the engine's words: the two kinds of return, and the words
+      of each field and each tool that a cell of the line uses, and of no other; a line none of whose cells asks for
+      calls has no word of them, and one none of whose cells is spoken to has no word of the reply;
+    - with the cell's task, where the session lacks it, what this cell returns: the tools it may ask for, or that it may
+      ask for none; the names it may say it has dealt with; the blocks it may write, each with its words; whether it
+      may reply. The page shows the same for each cell, and the engine checks a return against it.
 
 ## What a person answers
 
