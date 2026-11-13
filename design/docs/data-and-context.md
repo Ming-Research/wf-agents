@@ -144,8 +144,8 @@ run next all the same, and the note would be filled, since the new session lacks
 27. What an agent needs from the engine, such as its records or a check, it asks for in its return: a call is data the
     round writes, under the name of the tool. The agent's own program reaches nothing of the engine, which may be on
     another machine. Which tools a cell may ask for, the flow says on the cell, and the chart shows them. How each tool
-    is used is said once, in the engine's own words of the system prompt of each line that has it (24); the message
-    that enters a cell says which of them the cell may ask for, and a return that asks for another is sent back.
+    is used is told to a cell that may ask for it, with what it returns (31); a return that asks for another is sent
+    back.
 
 28. A round that asks for a call waits for its result: it ends with what ran it not dealt with (9), and the engine
     enters the cell again only once every result it asked for is there. The result is data the cell is given, and it
