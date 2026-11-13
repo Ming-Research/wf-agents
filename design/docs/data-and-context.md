@@ -167,12 +167,12 @@ run next all the same, and the note would be filled, since the new session lacks
     it may write and what it may ask for on the cell. All that is sent about returning is made from those definitions,
     by rules that name no cell and no datum, and is written nowhere by hand, in three parts:
     - the line's form, the shape alone, given with every call (24, principle one-form-of-return-for-a-session);
-    - in the line's system prompt, a part of its own after the engine's words: the two kinds of return, and the words
-      of each field and each tool that a cell of the line uses, and of no other; a line none of whose cells asks for
-      calls has no word of them, and one none of whose cells is spoken to has no word of the reply;
-    - with the cell's task, where the session lacks it, what this cell returns: the tools it may ask for, or that it may
-      ask for none; the names it may say it has dealt with; the blocks it may write, each with its words; whether it
-      may reply. The page shows the same for each cell, and the engine checks a return against it.
+    - in the line's system prompt, a part of its own after the engine's words: what is common to every return of the
+      line, the two kinds of return, and no word of a field or a tool;
+    - with the cell's task, where the session lacks it, what this cell returns, and only that: each field it may use
+      and each tool it may ask for, with its words; the names it may say it has dealt with; the blocks it may write,
+      each with its words. A cell is told nothing of what it may not return. The page shows the same for each cell,
+      and the engine checks a return against it.
 
 ## What a person answers
 
