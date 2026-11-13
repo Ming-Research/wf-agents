@@ -9,8 +9,9 @@ which the engine makes without being asked, are not built.
    the run rests at the call, the result comes back into its next round, and the run finishes when its return has met
    them.
 
-2. A call holds no place in the order of cells and writes no block. The flow declares it on the cell, and the chart
-   draws it beside the cell.
+2. A call holds no place in the order of cells and writes no block, but for what a cell says to the owner, which the
+   engine adds to the record of what is said (the design of data and context). The flow declares it on the cell, and
+   the chart draws it beside the cell.
 
 3. A call the flow requires is made by the engine, never left to the agent to ask for: what a task only asks of an
    agent, the agent may leave undone.

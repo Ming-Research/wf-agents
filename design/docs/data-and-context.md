@@ -2,7 +2,8 @@
 
 What decides which cell runs next, and what decides what a round is given, are two things, and they are kept apart.
 Which cell runs depends only on the data: on which of it is new and not yet consumed. What a round is given depends
-only on what the context of its session already has. Neither reads what the other keeps.
+only on what the context of its session already has. Neither reads what the other keeps. So a cell says the two
+apart: the data that run it, and the data it is given (5).
 
 Whatever a cell needs is brought under this as data with versions, and no second way is made where this one serves.
 The document speaks of the data and of the context only. What else the flow has stays as it is and is not said again
@@ -14,8 +15,7 @@ here: the conditions a cell runs under, the limits, the owner's pauses, when a w
    added to the ones before it, and none is written over.
 
 2. A new version comes from outside or from a cell. From outside: a person writes, the branch the works merge into
-   moves, a file of the project that the cells work under changes (`AGENTS.md`, the design tree), a session is
-   reopened. From a cell: what it hands in when a round of it ends.
+   moves, the design tree changes, a session is reopened. From a cell: what it hands in when a round of it ends.
 
 3. A file's version is its content. It has a new version whenever its content changed, whoever changed it and
    wherever: on the branch the works merge into, or in the work itself.
@@ -25,116 +25,167 @@ here: the conditions a cell runs under, the limits, the owner's pauses, when a w
 
 ## Which cell runs
 
-5. A cell names the data it takes, its inputs, and the data it produces, its outputs. Of each input the cell has
-   consumed the versions up to one of them. An input is new to the cell while its latest version is later than that
-   one. At a cell's first round nothing is consumed yet, and every input is new.
+5. A cell names the data that run it, the data it is given, and the data it produces, its outputs. The first two are
+   named apart, each for one of the two things this design keeps apart. Most of what a cell takes is on both sides: a
+   new version of it runs the cell, and its content is given. Some data only run a cell: the design tree, which the
+   agent reads by itself (25), and data that only say that something happened, as that a session was reopened or that
+   the owner spoke to the cell (30). Some are only given: what the cell must hold and what asks nothing of it, as the
+   record of what is said (29) and an output of its own that it brings up to date (21).
 
-6. The engine chooses by this. Going through the flow from its start, it takes the first cell that has a new input and
-   that the flow lets run, and runs it for one round. Entering a cell means this: each round is one entering.
+6. Of each of the data that run it, a cell has consumed the versions up to one of them. Such a datum is new to the
+   cell while its latest version is later than that one. At a cell's first round nothing is consumed yet, and each of
+   them that has a version is new.
 
-7. The engine knows nothing of sessions. A session that is reopened reaches it only as a new version of data (24),
+7. The engine chooses by this. Going through the flow from its start, it takes the first cell that something new runs
+   and that the flow lets run, and runs it for one round. Entering a cell means this: each round is one entering.
+
+8. The engine knows nothing of sessions. A session that is reopened reaches it only as a new version of data (25),
    and it chooses as always.
 
-8. When the round ends, the versions it ran on are consumed, and are old to this cell from then on. A round that fails
+9. When the round ends, the versions it ran on are consumed, and are old to this cell from then on. A round that fails
    or is given up before its end consumes nothing. Data become old in no other way.
 
-9. What the round hands in becomes new versions of the cell's outputs. They are new to the other cells that take them,
-   and not to the cell that wrote them. A round that hands in nothing new makes nothing new, and no cell runs because
-   of it. The same holds for a version its writer hands in as changing nothing in meaning: it is kept, and is new to
-   no cell. A change stops there.
+10. What the round hands in becomes new versions of the cell's outputs. They are new to the other cells that they run,
+    and not to the cell that wrote them. A round that hands in nothing new makes nothing new, and no cell runs because
+    of it. The same holds for a version its writer hands in as changing nothing in meaning: it is kept, and is new to
+    no cell. A change stops there.
 
-10. Between two rounds of a cell an input may have gone on by several versions: two cells before it went back and
+11. Between two rounds of a cell a datum may have gone on by several versions: two cells before it went back and
     forth, or people wrote more than once. What a cell last worked from is therefore the version it consumed, which
     need not be the one before the latest.
 
-11. The engine tells each round which of its inputs are new, and for each of them the version the cell last consumed
-    and the latest. The cell's task says how the agent brings its outputs up to date for what is new.
+12. The engine tells each round which of the data that run its cell are new, and for each of them the version the cell
+    last consumed and the latest. It tells this of data that have no content too, as the design tree and a session
+    reopened: a round that is not told what ran it does not know what to do. The cell's task says, for each of the
+    data that run it, what the agent does when it is new, and how it brings its outputs up to date.
 
 ## The context manager
 
-12. The context of a session holds data: what was put into it, what the agent fetched for itself, and what the cells
+13. The context of a session holds data: what was put into it, what the agent fetched for itself, and what the cells
     that ran in it wrote. The context manager keeps, for each session, which versions of which data its context has.
     What a round hands in counts: it is in the context of the session the round ran in.
 
-13. The context manager chooses no cell. Each time the engine runs a cell for a round, the manager compares the cell's
-    inputs with what the session has and fills in what is missing, each input by its kind (16), in the order the cell
-    names them.
+14. The context manager chooses no cell. Each time the engine runs a cell for a round, the manager compares the data
+    the cell is given with what the session has and fills in what is missing, each by its kind (17), in the order the
+    cell names them. It fills what the cell is given whether or not that is what ran the cell.
 
-14. A session that is reopened has nothing, and its record is emptied. The next round in it is filled with all that
-    its cell's inputs ask for, from the top. What every cell is given alike comes first, `AGENTS.md` before all, so
-    that sessions share it in the cache.
+15. A session that is reopened has nothing, and its record is emptied. The next round in it is filled with all that
+    its cell is given, from the top. What every cell of the line is given alike is not filled: the session begins
+    with it (24).
 
-15. Whether a cell runs is never the manager's matter, and what is filled is never the engine's.
+16. Whether a cell runs is never the manager's matter, and what is filled is never the engine's.
 
 An example. The cell that implements writes a note for the cell that researches, in a session they share. The note is
 new to the researching cell, so that cell runs next. The note is already in the session's context, since the session
 wrote it, so nothing is filled. Had the session been reopened after the note was written, the researching cell would
 run next all the same, and the note would be filled, since the new session lacks it.
 
-## The three kinds of input
+## The three kinds
 
-16. Each input of a cell is of one of three kinds, which says what the context must hold of it when the cell runs.
+17. Each datum a cell is given is of one of three kinds, which says what the context must hold of it when the cell
+    runs.
 
     - **The latest.** Only the latest version.
     - **The last and the latest.** The version the cell last consumed, and the latest, so that the agent sees what
       changed between them.
-    - **All of it.** Every version, as with what people say to a cell.
+    - **All of it.** Every version, as with what is said to a work.
 
-    At a cell's first round there is no version last consumed, and an input of the second kind is filled as its
+    At a cell's first round there is no version last consumed, and a datum of the second kind is filled as its
     latest.
 
-17. The kind belongs to a cell's input, not to the data: two cells may take the same data in different kinds.
+18. The kind belongs to the cell and the datum together, not to the data: two cells may be given the same data in
+    different kinds.
 
-18. Where several inputs are new in one round, each is filled by its own kind, and none changes how another is filled.
+19. Where several data are new in one round, each is filled by its own kind, and none changes how another is filled.
 
-19. The kind says what is filled. What the agent does with what is new is said by the cell's task (11): to make an
+20. The kind says what is filled. What the agent does with what is new is said by the cell's task (12): to make an
     output anew, or to bring the last one up to date. An output brought up to date may be handed in whole.
 
-20. A cell that brings an output up to date takes that output as an input too, and the flow says so as of any input:
-    the manager fills it by its kind where the session lacks it, as in a session reopened since, and what the cell
-    itself handed in is not new to it (9). What a cell does not take as an input is not filled into its session, its
-    own outputs included.
+21. A cell that brings an output up to date is given that output, and the flow says so as of anything a cell is given:
+    the manager fills it by its kind where the session lacks it, as in a session reopened since. Nothing is filled
+    into a session that its cell is not given, its own outputs included. Being given an output does not have the
+    output run the cell: what runs it is named apart (5).
 
-21. How far a change travels follows from this. An output made anew is a new version each time, so the change reaches
+22. How far a change travels follows from this. An output made anew is a new version each time, so the change reaches
     the cells after. A round that brings its outputs up to date may find that they stand as they are and hand in
-    nothing new, and the change ends there (9). So when `AGENTS.md` changes, the cell of every agent runs again, and
-    each does only this: it sees that `AGENTS.md` changed and nothing else, looks over its outputs for what the change
-    touches, and where there is nothing, hands in nothing new.
+    nothing new, and the change ends there (10).
 
-## What an agent reads by itself
+## What a session begins with, and what an agent reads by itself
 
-22. Not everything in a context is data. What an agent reads on its own account, the design tree and the code, is in
+23. Not everything in a context is data. What an agent reads on its own account, the design tree and the code, is in
     the context of the session that read it and nowhere else, and the context manager cannot fill it in.
 
-23. `AGENTS.md` can be put into a context as it is. So it is data, which the cell of every agent takes: the context
-    manager fills it into each new session, and a cell runs again because of it only when its content changed.
+24. What every cell of a line is given alike, and what stays the same for as long as a session lasts, is no data: it
+    is the system prompt of the line's session, which the flow writes once on the line (principle
+    the-system-prompt-holds-what-a-line-shares). It holds the project's guide for its agents (`AGENTS.md`), the
+    constitution, the rules of the design tree, the rules for the agents that the line takes, and the engine's own
+    words on working in it, in that order. The agent's program takes it as the session begins and keeps it: a change
+    of one of them reaches a session only when it is reopened, and runs no cell.
 
-24. The design tree is read by the agent, which chooses what bears on the problem. One cell does this reading for the
-    cells that follow it in its session. So that the reading is done again in a session reopened, this cell takes
-    `session`: data that stand for the session of a line, one for each line, and get a new version each time that
-    session is reopened. The cell also takes the design tree, so that a change of the tree has it read again. No data
-    stand for the reading itself. What the cell finds for other cells it hands in as any cell does; run again for a
-    new session alone, it finds nothing changed and hands in nothing new, so that no cell runs because of it (9).
+25. The design tree is read by the agent, which chooses what bears on the problem. One cell does this reading for the
+    cells that follow it in its session. So that the reading is done again in a session reopened, `session` runs this
+    cell: data that stand for the session of a line, one for each line, with no content, and with a new version each
+    time that session is reopened. The design tree runs the cell as well, so that a change of the tree has it read
+    again. No data stand for the reading itself. What the cell finds for other cells it hands in as any cell does;
+    run again for a new session alone, it finds nothing changed and hands in nothing new, so that no cell runs because
+    of it (10).
 
-25. A session reopened while a round is under way is no case of its own. `session` has a new version; the round did
-    not end and consumed nothing (8); the engine takes the first cell with a new input, which is the cell that reads,
-    and after it the cell whose round did not end.
+26. A session reopened while a round is under way is no case of its own. `session` has a new version; the round did
+    not end and consumed nothing (9); the engine takes the first cell that something new runs, which is the cell that
+    reads, and after it the cell whose round did not end.
 
 ## What a person answers
 
-26. What a person answers to a cell's question is data. The question is an output of the cell, and the answer gives it
-    a new version. The cell takes it as an input: it runs again when it is answered, and a session reopened is filled
-    with the answer as with any input.
+27. What a person answers to a cell's question is data. The question is an output of the cell, and the answer gives it
+    a new version. The answer runs the cell and is given to it: the cell runs again when it is answered, and a session
+    reopened is filled with the answer as with anything the cell is given.
+
+## What is said to a work
+
+28. What the owner says to a work is not an answer to a question: it may be said at any time, wherever the work
+    stands, and may go back and forth.
+
+29. What the owner says and what the agents say back are kept as one record, each entry with who spoke, in the order
+    they were said. The cells that can be spoken to are the research, the deep research and the implementation. Each
+    of them is given the record, all of it (17), so that a session reopened holds everything that was said. The
+    record runs none of them.
+
+30. What runs a cell that is spoken to is a datum of its own, with no content, which has a new version when the owner
+    speaks to that cell. The owner chooses a line: the engineer's, or the deep research's once it has begun. The cell
+    spoken to is the one of that line's cells that the work has reached. Which cells of a line can be spoken to, the
+    flow says.
+
+31. The cell answers at once and goes on with its work. Its answer is not among the blocks it hands in: it is said
+    through the engine, which adds it to the record, and saying it does not end the cell's work. What a cell said is
+    in its own session already.
+
+32. While a round of the cell spoken to is under way, the words are put into its session right after its next use of
+    one of its program's own tools, so that they do not wait for the round's end. This is done for what the owner says
+    and for nothing else. Words that did not reach the round before it ended are still new to the cell, and it runs
+    again.
+
+33. While the cell spoken to has no round under way and its run rests at a call, the engine begins a round of that run
+    for the words, and the run goes on resting at its call.
+
+34. While a round of a cell later in the flow is under way, that round is told to stop, the cell spoken to runs, and
+    the flow comes back to the cell that stopped. A round that stopped so has not handed in: it consumed nothing (9),
+    and its cell runs again.
+
+35. A round that was given the owner's words and did not answer them has its return sent back.
+
+36. What the words ask that is not the cell's to change, the cell passes on in the block it already writes for the
+    cell whose it is, and the flow goes on as for any such block.
 
 ## Data that more than one cell may write
 
-27. Some data may be written by more than one cell, as the plan is by the research and by the deep research. Which of
+37. Some data may be written by more than one cell, as the plan is by the research and by the deep research. Which of
     them is in charge is decided before both: the cell that decides hands in the answer, and that answer is a
     condition of its own next round as it is of the other cell's. From then on only the cell in charge runs, and the
     way forks right where the two cells stand, not after one of them.
 
-28. What another cell says to whoever is in charge is one datum, which each cell that may be in charge takes. The
+38. What another cell says to whoever is in charge is one datum, which runs each cell that may be in charge. The
     flow's condition says which of them acts on it. An agent is never left to choose where to write by who is in
     charge: where there is one place to write, nothing can be written to the wrong one.
 
-29. A round is not told who wrote a version: nothing in this design needs it.
+39. A round is not told who wrote a version of a block: nothing in this design needs it. In the record of what is said
+    (29), who spoke is part of the entry.
