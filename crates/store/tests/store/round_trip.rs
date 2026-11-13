@@ -102,7 +102,9 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
     // at the cancel, a run that asks having ended with its round.
     assert_eq!(given.len(), r.rounds.len());
     assert_eq!(back.len(), r.returned.len());
-    assert!(w.contents.len() >= r.written.len() + r.finished.len());
+    // A content for each write, and for each finish that wrote something: a run that only asked writes nothing.
+    let wrote = r.finished.iter().filter(|f| !f.writes.is_empty()).count();
+    assert!(w.contents.len() >= r.written.len() + wrote);
     assert!(w.moments.len() > 20);
 }
 
