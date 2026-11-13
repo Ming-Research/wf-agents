@@ -114,6 +114,7 @@ fn runs_of_the_new_form_load_back_with_what_they_dealt_with_what_was_put_in_and_
     let flow = judged();
     let decision = decide::decide(&flow.flow, &new.records);
     assert!(!matches!(decision, decide::Decision::Fault(_)), "{decision:?}");
+    assert_eq!(work::filled::check(&new), Ok(()));
     let mut d = Driver::new();
     history(&mut d);
     let db = Db::new();

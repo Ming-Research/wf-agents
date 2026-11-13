@@ -437,12 +437,12 @@ fn history(d: &mut Driver) {
 /// A work on the judged flow whose returns are of the form every cell's return takes (design document
 /// `data-and-context`), which the engine does not make yet, built entry by entry as such a work can go:
 ///
-/// - The owner writes the request, and the writer is entered: its session is filled with which work and item it is
+/// - The owner writes the request, and the writer is entered: its first try begins, and its session is filled with which work and item it is
 ///   for, the task, and the request whole. While its round is under way the owner writes the request again, and that
 ///   version is put in to it. Its return deals with the request and hands in the text.
-/// - The judge is entered for the text, filled likewise. Its return asks for a tool and deals with nothing; the call
-///   has its result.
-/// - The judge is entered again for the result: its session, which holds the rest, is filled with the result alone.
+/// - The judge is entered for the text, filled likewise. Its return asks for a tool and deals with nothing: the call is
+///   made as the return is taken, which ends the run, and the cell waits until the call has its result.
+/// - The judge is entered again, as a new run, for the result: its session, which holds the rest, is filled with the result alone.
 ///   That try finds the session lost, and the next, in a new one, is filled from the top. Its return deals with
 ///   nothing that ran it and hands in its opinions and a verdict.
 /// - The owner writes the request a third time, and the writer is entered for that and the opinions: its session holds
@@ -460,7 +460,11 @@ fn of_the_new_form() -> Work {
             ("text", None),
         ],
     );
-    b.filled(writer, 1, vec![b.for_work(), b.task(WRITE), whole("request", first)]);
+    b.filled(
+        writer,
+        1,
+        vec![b.for_work(), Fill::task(WRITE), whole("request", first)],
+    );
     let second = b.person_writes("request");
     b.put_in(writer, "request", second);
     b.returns(writer);
@@ -475,10 +479,11 @@ fn of_the_new_form() -> Work {
             ("verdict", None),
         ],
     );
-    b.filled(judge, 1, vec![b.for_work(), b.task(JUDGE), whole("text", text)]);
+    b.filled(judge, 1, vec![b.for_work(), Fill::task(JUDGE), whole("text", text)]);
     b.returns(judge);
+    let call = b.asks(judge, "check");
     b.finishes(judge, &[], &[]);
-    let call = b.calls(judge, "check");
+    b.answered(call, "check");
 
     let judge = b.enters(
         "judge",
@@ -494,7 +499,7 @@ fn of_the_new_form() -> Work {
     b.anew("other");
     let refill = vec![
         b.for_work(),
-        b.task(JUDGE),
+        Fill::task(JUDGE),
         whole("text", text),
         Fill::Results(vec![call]),
     ];
@@ -528,15 +533,9 @@ fn of_the_new_form() -> Work {
     b.w
 }
 
-/// The tasks of the judged flow's two agents, and the digests of their texts as the context manager takes them.
-const WRITE: (&str, &str) = (
-    "Write the text the request asks for.",
-    "760573051761ee1732c257aaed8506937aa6181adcf188dd14060813213e7b26",
-);
-const JUDGE: (&str, &str) = (
-    "Judge the text, and give a verdict.",
-    "5ac83f0f57cae021adaa450db5d3ffa5d5c47ab61c1003de7f537a6218af38ba",
-);
+/// The tasks of the judged flow's two agents.
+const WRITE: &str = "Write the text the request asks for.";
+const JUDGE: &str = "Judge the text, and give a verdict.";
 
 /// A version of a block filled whole.
 fn whole(block: &str, version: Seq) -> Fill {
@@ -590,18 +589,26 @@ impl Building {
         Fill::For { work: 1, item: 1 }
     }
 
-    fn task(&self, (_, digest): (&str, &str)) -> Fill {
-        Fill::Task {
-            digest: digest.to_string(),
-        }
-    }
-
     /// The first try of the round is filled with these.
     fn filled(&mut self, run: RunId, round: usize, fills: Vec<Fill>) {
         self.filled_at(run, round, 1, fills);
     }
 
+    /// The try of the round begins, on a level and model, and its session is filled with these.
     fn filled_at(&mut self, run: RunId, round: usize, attempt: usize, fills: Vec<Fill>) {
+        let at = self.w.tick();
+        self.w.ran.push(engine::Ran {
+            at,
+            run,
+            round,
+            attempt,
+            on: engine::RanOn {
+                level: "2".to_string(),
+                model: "a model".to_string(),
+                effort: None,
+                account: None,
+            },
+        });
         let at = self.w.tick();
         self.w.filled.push(Filled {
             at,
@@ -659,8 +666,8 @@ impl Building {
         at
     }
 
-    /// The tool the run's return asked for is called, and has its result.
-    fn calls(&mut self, run: RunId, tool: &str) -> CallId {
+    /// The tool the run's return asks for is called, as the return is taken.
+    fn asks(&mut self, run: RunId, tool: &str) -> CallId {
         let call = CallId(self.w.name());
         let at = self.w.tick();
         self.w.records.called.push(Called {
@@ -676,9 +683,13 @@ impl Building {
                 input: format!("what {tool} is run on"),
             }),
         );
+        call
+    }
+
+    /// The call has its result, whole.
+    fn answered(&mut self, call: CallId, tool: &str) {
         let at = self.w.tick();
         self.w.records.done.push(Done { call, at });
         self.w.results.insert(call, format!("the whole result of {tool}"));
-        call
     }
 }

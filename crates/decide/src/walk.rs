@@ -345,6 +345,14 @@ fn check(records: &Records) -> Result<(), RecordFault> {
     for p in &records.put_in {
         put_in_fault(records, p)?;
     }
+    for c in &records.called {
+        let ended = (records.finished.iter().filter(|f| f.run == c.run).map(|f| f.at))
+            .chain(records.abandoned.iter().filter(|a| a.run == c.run).map(|a| a.at))
+            .any(|at| at < c.at);
+        if ended {
+            return Err(RecordFault::CalledAfterEnd(c.call));
+        }
+    }
     for f in &records.finished {
         let Some(dealt_with) = &f.dealt_with else {
             continue;
@@ -369,9 +377,7 @@ fn check(records: &Records) -> Result<(), RecordFault> {
 /// put in or after, or its run had no round under way there, between a round's beginning and its end, and before the
 /// run finished or was abandoned.
 fn put_in_fault(records: &Records, p: &PutIn) -> Result<(), RecordFault> {
-    let by_people = (records.written.iter()).any(|w| w.block == p.block && w.at == p.version);
-    let by_runs = (records.finished.iter()).any(|f| f.at == p.version && f.writes.iter().any(|w| w.block == p.block));
-    if !by_people && !by_runs {
+    if !records.wrote(&p.block, p.version) {
         return Err(RecordFault::PutInNoVersion(p.at));
     }
     if p.version >= p.at {

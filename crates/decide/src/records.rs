@@ -59,6 +59,13 @@ pub struct Records {
 }
 
 impl Records {
+    /// Whether the entry at this place wrote a version of the block: a person's or the outside's write of it, or a run
+    /// that finished there writing it.
+    pub fn wrote(&self, block: &BlockId, at: Seq) -> bool {
+        (self.written.iter()).any(|w| &w.block == block && w.at == at)
+            || (self.finished.iter()).any(|f| f.at == at && f.writes.iter().any(|w| &w.block == block))
+    }
+
     /// The records as they stood before this place: every entry at an earlier place, and none at it or after. Records
     /// are only added to, so these are what was recorded then, and what was decided then is decided again from them.
     pub fn before(&self, place: Seq) -> Records {
@@ -294,4 +301,6 @@ pub enum RecordFault {
     DealtWithUnknown(RunId),
     /// The run's return names one block twice as dealt with.
     DealtWithTwice(RunId),
+    /// The call was made after its run had finished or was abandoned: a run makes its calls before it ends.
+    CalledAfterEnd(CallId),
 }

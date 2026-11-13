@@ -10,8 +10,10 @@ use decide::run::{Failure, Limit, Unmet};
 use decide::{BlockId, CallId, Records, RunId, Seq, Who};
 use serde::{Deserialize, Serialize};
 
+pub mod filled;
 pub mod sessions;
 
+pub use filled::{Fill, FillFault, Filled};
 pub use sessions::{Ran, RanOn, Session, Why};
 
 /// Everything kept of one work.
@@ -129,38 +131,6 @@ pub enum Given {
     Results(Vec<CallId>),
     /// Why what the round before handed in was sent back.
     SentBack(Vec<Unmet>),
-}
-
-/// What was filled into the session of a try of a round, at a place of its own in the order of what happened to the
-/// work, so that what the session held at any place can be read.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Filled {
-    /// The place of the entry in the order of what happened to the work.
-    pub at: Seq,
-    pub run: RunId,
-    /// The round's number in its run, the first being one.
-    pub round: usize,
-    /// The try's number in its round, the first being one, as in [`Ran`].
-    pub attempt: usize,
-    /// What was filled, in the order it was filled; none where the session lacked nothing.
-    pub fills: Vec<Fill>,
-}
-
-/// One thing filled into a session, because the round's cell is given it and the session lacked it (design document
-/// `data-and-context`, 14).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Fill {
-    /// Which work, and which item it is done for, the session is for, by their numbers.
-    For { work: u64, item: u64 },
-    /// The cell's task, as the flow the round ran on has it; `digest` is the SHA-256 of its text, in hexadecimal, by
-    /// which a task the flow changed since is told apart.
-    Task { digest: String },
-    /// A version of a block, whole: the version is named by the place of the entry that wrote it.
-    Whole { block: BlockId, version: Seq },
-    /// A version of a block, as what changed in it since an earlier version, which the session held.
-    Change { block: BlockId, version: Seq, since: Seq },
-    /// The results of these calls: those the cell's last round asked for (design document `data-and-context`, 28).
-    Results(Vec<CallId>),
 }
 
 /// What came back at the end of a round.

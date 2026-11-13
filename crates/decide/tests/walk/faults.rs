@@ -248,3 +248,39 @@ fn a_return_dealing_with_one_block_twice_is_a_fault() {
     w.records.finished[0].dealt_with = Some(vec!["p".into(), "p".into()]);
     assert_eq!(w.decide(), Decision::Fault(RecordFault::DealtWithTwice(run)));
 }
+
+/// A call of the run, made here.
+fn called(w: &mut World, run: RunId) {
+    let at = w.tick();
+    w.records.called.push(decide::Called {
+        call: CallId(99),
+        run,
+        on: None,
+        at,
+    });
+}
+
+#[test]
+fn a_call_made_after_its_run_ended_is_a_fault() {
+    // After it finished.
+    let mut w = World::with_gate(vec![cell("a", &["p"], &["q"])]);
+    w.person_writes("p");
+    let run = w.start("a");
+    w.finish("a", &[("q", Matters)]);
+    called(&mut w, run);
+    assert_eq!(w.decide(), Decision::Fault(RecordFault::CalledAfterEnd(CallId(99))));
+    // After it was abandoned.
+    let (mut w, run, _) = begun();
+    let gone = w.tick();
+    w.records.abandoned.push(Abandoned { run, at: gone });
+    called(&mut w, run);
+    assert_eq!(w.decide(), Decision::Fault(RecordFault::CalledAfterEnd(CallId(99))));
+    // A call made as the return is taken, before the run's finish, is none.
+    let mut w = World::with_gate(vec![cell("a", &["p"], &["q"])]);
+    w.person_writes("p");
+    let run = w.start("a");
+    w.returns("a");
+    called(&mut w, run);
+    w.finish("a", &[]);
+    assert!(!matches!(w.decide(), Decision::Fault(_)), "{:?}", w.decide());
+}

@@ -183,6 +183,7 @@ pub fn record_fault_words(fault: &RecordFault) -> String {
             )
         }
         RecordFault::DealtWithTwice(run) => format!("run {} names one block twice as dealt with", run.0),
+        RecordFault::CalledAfterEnd(call) => format!("call {} was made after its run had ended", call.0),
     }
 }
 
