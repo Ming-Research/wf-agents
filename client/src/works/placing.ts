@@ -4,18 +4,20 @@
 // The chart's columns are the cells of the work's flow in the order of the walk, and its rows the steps in the order
 // they happened. A run stands in its cell's column, in the row of its start. What is not a run (a write by a person or
 // the outside, a let-go, a pause, a let-on, a cancel) is a row of its own: its words at the row's left, and, for a
-// write, a ring in the column of each cell that reads the block, as the flow's chart marks a read; for a let-go, a mark
-// in the column of the cell let go. A run that is a way round is drawn as the flow's chart draws a way back: a line in
-// the way back's purple from the columns of the cells after it whose writes it ran for, each marked, to the run, with an
-// arrow there. A run of a cell the flow no longer has keeps its row, in no column.
+// write, a mark in the column of each cell the block runs or is given to, as the flow's chart marks these; for a
+// let-go, a mark in the column of the cell let go. A run that is a way round is drawn as the flow's chart draws a way
+// back: a line in the way back's purple from the columns of the cells after it whose writes it ran for, each marked, to
+// the run, with an arrow there. A run of a cell the flow no longer has keeps its row, in no column.
 
 import type { Flow } from '../api';
+import type { Takes } from '../words';
 import type { Block, Item, Run, Step, Summary } from '../works-api';
 import { isWayRound, waitsForOwner } from './words';
 
-/// What a row marks in a cell's column besides a run: the cell reads the block written, its condition reads it, or it
-/// is the cell let go on.
-export type RowMark = 'read' | 'condition' | 'letGo';
+/// What a row marks in a cell's column besides a run: the block written runs the cell and is given to it, only runs
+/// it, or is only given to it, as the flow's chart marks these; its condition reads the block; or it is the cell let go
+/// on.
+export type RowMark = Takes | 'condition' | 'letGo';
 
 export interface HistoryRow {
   /// Unique among the rows: the step's kind and place.
@@ -74,9 +76,12 @@ export function placeSteps(steps: Step[], flow: Flow, versions: Block[] = []): H
         const c = column.get(id);
         if (c !== undefined) marks.set(c, 'condition');
       }
-      for (const id of block?.readBy.cells ?? []) {
+      const runs = block?.readBy.runs ?? [];
+      const given = block?.readBy.given ?? [];
+      for (const id of new Set([...runs, ...given])) {
         const c = column.get(id);
-        if (c !== undefined) marks.set(c, 'read');
+        const takes = runs.includes(id) ? (given.includes(id) ? 'both' : 'runs') : 'given';
+        if (c !== undefined) marks.set(c, takes);
       }
     } else if (step.kind === 'letGo') {
       const c = column.get(step.cell);

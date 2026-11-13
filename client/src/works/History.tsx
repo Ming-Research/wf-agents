@@ -1,14 +1,14 @@
 // A work's history as a chart, drawn as the flow's chart is: the cells across in the order of the walk, each head with
 // how the cell stands now; the steps down, one to a row in the order they happened, each with its time and why at the
 // left. A run is in its cell's column, saying how it stands, how many rounds it had, how long it took, what it cost
-// and what it wrote; what is not a run is a row of its own, its words at the left and, for a write, a ring where each
-// cell that reads the block stands. The oldest step is at the top, as the walk goes down the flow's chart, and the
-// chart opens scrolled to its end, the newest step.
+// and what it wrote; what is not a run is a row of its own, its words at the left and, for a write, the mark of the
+// flow's chart where each cell the block runs or is given to stands. The oldest step is at the top, as the walk goes
+// down the flow's chart, and the chart opens scrolled to its end, the newest step.
 
 import { type CSSProperties, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { Flow } from '../api';
-import { Breakable, MarkGlyph, WIDTHS, tableWidth, useWheel } from '../Chart';
+import { Breakable, MarkGlyph, WIDTHS, markWords, tableWidth, useWheel } from '../Chart';
 import { NO_MARK, type Spot } from '../matrix';
 import { Edge, Sign } from '../parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from '../sizes';
@@ -36,11 +36,16 @@ export type Chosen = { step: number } | { cell: string } | null;
 /// The width of the column of times and words at first, and the least and most it is dragged to.
 const STEPS = { first: 260, min: 160, max: 520 };
 
-/// A mark of the flow's chart, for a row of its own: a ring where a cell reads what was written, a diamond where its
-/// condition does.
+/// A mark of the flow's chart, for a row of its own: the ring, or the half of it, of what was written running the cell
+/// and being given to it, and a diamond where its condition reads it.
 function spotOf(mark: RowMark): Spot {
   return {
-    mark: { ...NO_MARK, runs: mark === 'read', given: mark === 'read', condition: mark === 'condition' },
+    mark: {
+      ...NO_MARK,
+      runs: mark === 'both' || mark === 'runs',
+      given: mark === 'both' || mark === 'given',
+      condition: mark === 'condition',
+    },
     added: NO_MARK,
     removed: NO_MARK,
     line: 'none',
@@ -281,7 +286,7 @@ function StepRow(props: {
               <>
                 <MarkGlyph spot={spotOf(mark)} />
                 <span className="visually-hidden">
-                  {mark === 'read' ? `${c.id} reads it` : `${c.id}'s condition reads it`}
+                  {step.kind === 'wrote' ? markWords(c.id, step.block, spotOf(mark)) : ''}
                 </span>
               </>
             )}

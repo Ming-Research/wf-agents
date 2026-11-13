@@ -362,7 +362,7 @@ describe('the panel of a step', () => {
     const panel = page.querySelector('aside[aria-label="Write of opinions_plan"]') as HTMLElement;
     expect(panel.querySelector('.drawer-belongs')?.textContent).toBe('written by a person');
     expect(panel.textContent).toContain('Changed its meaning');
-    expect(panel.textContent).toContain('Read by plan');
+    expect(panel.textContent).toContain('Runs plan; given to plan');
     await click(button(panel, 'Show content'));
     expect(panel.querySelector('pre.content')?.textContent).toBe(
       'The plan must say where the totals of a whole item are shown too.',

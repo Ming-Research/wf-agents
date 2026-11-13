@@ -32,7 +32,7 @@ describe('the words of the page', () => {
       name: 'main',
       values: null, what: null,
       writtenBy: { cells: [], people: true, note: false, outside: 'main' },
-      readBy: { cells: [], conditions: [], tests: [], shown: false },
+      readBy: { runs: [], given: [], conditions: [], tests: [], shown: false },
     };
     expect(writersBesideCells(block)).toEqual(['people', 'the outside (main)']);
   });
@@ -145,7 +145,7 @@ describe('the words of the page', () => {
       name: 'opinions',
       values: null, what: null,
       writtenBy: { cells: [], people: true, note: true, outside: null },
-      readBy: { cells: ['plan'], conditions: [], tests: [], shown: false },
+      readBy: { runs: ['plan'], given: ['plan'], conditions: [], tests: [], shown: false },
     };
     expect(writersBesideCells(block)).toEqual(['people, as a note to the cells that read it']);
     expect(changeWords({ kind: 'note', block: 'opinions', before: false, after: true })).toEqual({
@@ -271,6 +271,9 @@ describe('the words of the page', () => {
     expect(cellSays(plan, 'ping')).toBe('runs it');
     expect(cellSays(plan, 'plan')).toBe('is given the last and the latest; writes every time, brought up to date');
     expect(cellSays(plan, 'request')).toBe('');
+    // A version is added to what a cell is given all of: nothing is said of bringing it up to date.
+    const talk = cell('talk', { given: [{ block: 'discussion', kind: 'all', why: null }], outputs: ['discussion'] });
+    expect(cellSays(talk, 'discussion')).toBe('is given all of it; may write');
     expect(changeWords({ kind: 'givenKind', cell: 'plan', block: 'opinions', before: 'latest', after: 'all' })).toEqual({
       what: 'Is given opinions as',
       before: 'the latest',

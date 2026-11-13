@@ -15,6 +15,7 @@
 
 import { mocksShown } from '../mock-data';
 import type { Test } from '../api';
+import { readers } from '../matrix';
 import type { Item, Version, VersionPage, WorkPage, Writer } from '../works-api';
 import { askedMock, bodyMock, type ItemMock, itemMock, workTierMock } from './mock';
 import type { Body, Choice, Message, Part } from './window';
@@ -94,13 +95,13 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
     deliver ? Promise.resolve([]) : current('questions'),
   ]);
   // The owner's notes, each to the one cell that reads it, and the cells' replies, each from the cell that writes it.
-  const notes = page.flow.blocks.filter((b) => b.writtenBy.people && b.values === null && b.readBy.cells.length === 1);
+  const notes = page.flow.blocks.filter((b) => b.writtenBy.people && b.values === null && readers(b).length === 1);
   const replies = page.flow.blocks.filter((b) => b.name.startsWith('reply_'));
   const said = await Promise.all([
     ...notes.flatMap((b) =>
       versionsOf(page, b.name).map(async (v): Promise<Message & { place: number }> => {
         const { quote, text } = quoted(await contentOf(load, work, b.name, v.at));
-        return { who: 'owner', at: v.time, to: [b.readBy.cells[0]], quote, text, place: v.at };
+        return { who: 'owner', at: v.time, to: readers(b), quote, text, place: v.at };
       }),
     ),
     ...replies.flatMap((b) =>

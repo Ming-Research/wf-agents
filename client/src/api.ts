@@ -99,8 +99,10 @@ export interface Block {
   /// `outside`: the source outside the work that writes it; none where the outside does not.
   /// `note`: what people write in it is a note, their words to the cells that read it.
   writtenBy: { cells: string[]; people: boolean; note: boolean; outside: string | null };
-  /// `tests`: the named tests that read its value, by name. `shown`: the owner's page reads it.
-  readBy: { cells: string[]; conditions: string[]; tests: string[]; shown: boolean };
+  /// `runs`: the cells a new version of it runs; `given`: the cells it is given to; `conditions`: the cells whose
+  /// condition reads its value; each in the order of the walk. `tests`: the named tests that read its value, by name.
+  /// `shown`: the owner's page reads it.
+  readBy: { runs: string[]; given: string[]; conditions: string[]; tests: string[]; shown: boolean };
 }
 
 export interface Flow {

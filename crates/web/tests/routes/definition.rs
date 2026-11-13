@@ -92,35 +92,35 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "values": ["yes", "no"],
                         "what": null,
                         "writtenBy": { "cells": ["review"], "people": false, "note": false, "outside": null },
-                        "readBy": { "cells": ["merge"], "conditions": [], "tests": [], "shown": false },
+                        "readBy": { "runs": ["merge"], "given": [], "conditions": [], "tests": [], "shown": false },
                     },
                     {
                         "name": "go",
                         "values": ["yes", "no"],
                         "what": null,
                         "writtenBy": { "cells": [], "people": true, "note": false, "outside": null },
-                        "readBy": { "cells": [], "conditions": [], "tests": ["may_merge"], "shown": false },
+                        "readBy": { "runs": [], "given": [], "conditions": [], "tests": ["may_merge"], "shown": false },
                     },
                     {
                         "name": "opinions",
                         "values": null,
                         "what": null,
                         "writtenBy": { "cells": ["review"], "people": true, "note": false, "outside": null },
-                        "readBy": { "cells": ["plan"], "conditions": [], "tests": [], "shown": false },
+                        "readBy": { "runs": ["plan"], "given": ["plan"], "conditions": [], "tests": [], "shown": false },
                     },
                     {
                         "name": "plan",
                         "values": null,
                         "what": null,
                         "writtenBy": { "cells": ["plan"], "people": false, "note": false, "outside": null },
-                        "readBy": { "cells": ["review"], "conditions": [], "tests": [], "shown": false },
+                        "readBy": { "runs": ["review"], "given": ["review"], "conditions": [], "tests": [], "shown": false },
                     },
                     {
                         "name": "request",
                         "values": null,
                         "what": null,
                         "writtenBy": { "cells": [], "people": true, "note": false, "outside": null },
-                        "readBy": { "cells": ["plan"], "conditions": [], "tests": [], "shown": false },
+                        "readBy": { "runs": ["plan"], "given": ["plan"], "conditions": [], "tests": [], "shown": false },
                     },
                 ],
             },
@@ -166,7 +166,7 @@ async fn a_condition_is_given_with_its_block_and_value_or_with_its_test_as_decla
     );
     assert_eq!(
         answer["flow"]["blocks"][0]["readBy"],
-        json!({ "cells": ["merge"], "conditions": ["redo"], "tests": [], "shown": true })
+        json!({ "runs": ["merge"], "given": [], "conditions": ["redo"], "tests": [], "shown": true })
     );
 }
 
@@ -245,10 +245,16 @@ async fn what_runs_a_cell_what_it_is_given_and_the_tools_it_may_ask_for_are_give
     );
     assert_eq!(plan["tools"], json!(["run_tests"]));
     assert_eq!(plan["takesMain"], json!(true));
-    // The plan is named by the cell that writes it, which is among those that read it.
+    // Of each block, the cells it runs and those it is given to, apart: the plan runs review and is given to both, the
+    // cell that writes it among them; the opinions run plan and are given to no cell.
+    let blocks = &answer["flow"]["blocks"];
     assert_eq!(
-        answer["flow"]["blocks"][3]["readBy"]["cells"],
-        json!(["plan", "review"])
+        (&blocks[3]["readBy"]["runs"], &blocks[3]["readBy"]["given"]),
+        (&json!(["review"]), &json!(["plan", "review"]))
+    );
+    assert_eq!(
+        (&blocks[2]["readBy"]["runs"], &blocks[2]["readBy"]["given"]),
+        (&json!(["plan"]), &json!([]))
     );
 }
 

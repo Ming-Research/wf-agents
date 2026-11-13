@@ -77,7 +77,8 @@ function flowOf(
         outside: blocks[b].outside ?? null,
       },
       readBy: {
-        cells: cells.filter((c) => c.inputs.includes(b)).map((c) => c.id),
+        runs: all.filter((c) => c.runsOn.some((r) => r.block === b)).map((c) => c.id),
+        given: all.filter((c) => c.given.some((g) => g.block === b)).map((c) => c.id),
         conditions: all.filter((c) => c.condition?.on === 'block' && c.condition.block === b).map((c) => c.id),
         tests: tests.filter((t) => t.reads.includes(b)).map((t) => t.name),
         shown: blocks[b].shown ?? false,

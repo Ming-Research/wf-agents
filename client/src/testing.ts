@@ -2,7 +2,7 @@
 // give it, with who writes and reads each block worked out as the compiler does.
 
 import type { Block, Cell, Flow, Given, Limits, RunsOn, Test, TestKind } from './api';
-import { named } from './matrix';
+import { givenTo, runsCell } from './matrix';
 
 const LIMITS: Limits = { runs: 3, returns: 2, calls: 40 };
 
@@ -70,7 +70,8 @@ export function flowOf(cells: Cell[], blocks: Record<string, Declared>, name = '
         outside: blocks[b].outside ?? null,
       },
       readBy: {
-        cells: cells.filter((c) => named(c).includes(b)).map((c) => c.id),
+        runs: cells.filter((c) => runsCell(c, b)).map((c) => c.id),
+        given: cells.filter((c) => givenTo(c, b)).map((c) => c.id),
         conditions: cells.filter((c) => c.condition?.on === 'block' && c.condition.block === b).map((c) => c.id),
         tests: tests.filter((t) => t.reads.includes(b)).map((t) => t.name),
         shown: blocks[b].shown ?? false,

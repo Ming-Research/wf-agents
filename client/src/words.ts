@@ -253,7 +253,7 @@ export function changeWords(change: Change): ChangeWords {
     case 'system':
       return { what: 'Rules of its line', before: names(c.before), after: names(c.after) };
     case 'takesMain':
-      return { what: 'Takes main in as it starts', before: yesNo(c.before), after: yesNo(c.after) };
+      return { what: label(TAKES.takesMain), before: yesNo(c.before), after: yesNo(c.after) };
     case 'task':
       return { what: 'Task', before: c.before ?? 'none', after: c.after ?? 'none' };
     case 'act':
@@ -265,13 +265,13 @@ export function changeWords(change: Change): ChangeWords {
     case 'preconditionRemoved':
       return { what: 'Waits until', before: testWords(c.test), after: '' };
     case 'runsOnAdded':
-      return { what: 'Runs it', before: '', after: c.block };
+      return { what: label(TAKES.runsIt), before: '', after: c.block };
     case 'runsOnRemoved':
-      return { what: 'Runs it', before: c.block, after: '' };
+      return { what: label(TAKES.runsIt), before: c.block, after: '' };
     case 'givenAdded':
-      return { what: 'Is given', before: '', after: c.block };
+      return { what: label(TAKES.isGiven), before: '', after: c.block };
     case 'givenRemoved':
-      return { what: 'Is given', before: c.block, after: '' };
+      return { what: label(TAKES.isGiven), before: c.block, after: '' };
     case 'outputAdded':
       return { what: 'May write', before: '', after: c.block };
     case 'outputRemoved':
@@ -285,17 +285,17 @@ export function changeWords(change: Change): ChangeWords {
     case 'describesRemoved':
       return { what: 'Says what the work is by', before: c.block, after: '' };
     case 'toolAdded':
-      return { what: 'May ask the engine for', before: '', after: c.tool };
+      return { what: label(TAKES.mayAsk), before: '', after: c.tool };
     case 'toolRemoved':
-      return { what: 'May ask the engine for', before: c.tool, after: '' };
+      return { what: label(TAKES.mayAsk), before: c.tool, after: '' };
     case 'runsWhy':
-      return { what: `${c.block} runs it because`, before: c.before ?? 'not said', after: c.after ?? 'not said' };
+      return { what: `${c.block} ${TAKES.runsIt} because`, before: c.before ?? 'not said', after: c.after ?? 'not said' };
     case 'givenKind':
-      return { what: `Is given ${c.block} as`, before: inputKindWords(c.before), after: inputKindWords(c.after) };
+      return { what: `${label(TAKES.isGiven)} ${c.block} as`, before: inputKindWords(c.before), after: inputKindWords(c.after) };
     case 'givenOrder':
-      return { what: 'Is given, in the order', before: names(c.before), after: names(c.after) };
+      return { what: `${label(TAKES.isGiven)}, in the order`, before: names(c.before), after: names(c.after) };
     case 'givenWhy':
-      return { what: `Is given ${c.block} because`, before: c.before ?? 'not said', after: c.after ?? 'not said' };
+      return { what: `${label(TAKES.isGiven)} ${c.block} because`, before: c.before ?? 'not said', after: c.after ?? 'not said' };
     case 'cellLimit':
       return { what: `Limit of ${LIMIT_WORDS[c.limit]}`, before: `${c.before}`, after: `${c.after}` };
     case 'effort':
@@ -329,17 +329,39 @@ export const KIND_WORDS: Record<InputKind, string> = {
   all: 'all of it',
 };
 
-/// What each kind means, on pointing at its name.
-export const KIND_TIPS: Record<InputKind, string> = {
-  latest: 'Its session holds the latest version of it',
-  lastAndLatest:
-    'Its session holds the version the cell last worked from and the latest, so that its agent sees what changed; ' +
-    "at the cell's first run, the latest alone",
-  all: 'Its session holds every version of it',
-};
-
 export function inputKindWords(kind: InputKind): string {
   return KIND_WORDS[kind];
+}
+
+/// The words of what a cell does with the blocks it names, of the tools it may ask for and of taking main in, each
+/// written once: where one heads a list or a line it is given a capital (`label`). What a tool does, what a kind fills
+/// and what taking main in does are said by the definitions of those, not by the page.
+export const TAKES = {
+  /// Of a block, said of the cell: a new version of it runs the cell.
+  runsIt: 'runs it',
+  /// Of a block, said of the cell: the cell is given it.
+  isGiven: 'is given',
+  /// Of a block that runs an agent's cell that is not given it.
+  notGiven: 'not given',
+  /// Of a block an agent's cell is given that does not run it.
+  doesNotRunIt: 'does not run it',
+  /// Of a cell, said of the block: a new version of the block runs the cell.
+  isRunBy: 'is run by',
+  /// Of a block, before the cells it runs.
+  runs: 'runs',
+  /// Of a block, before the cells it is given to.
+  givenTo: 'given to',
+  /// The first thing an agent's cell is given.
+  task: 'task',
+  /// Of a cell, before the tools of the engine's it may ask for.
+  mayAsk: 'may ask the engine for',
+  /// Of a cell whose run starts by taking the latest main into the work's branch.
+  takesMain: 'takes main in',
+} as const;
+
+/// Words that head a list or a line: with a capital.
+export function label(words: string): string {
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 /// What a cell does with a block it names: the block runs it and it is given the block, the block only runs it, or it
@@ -348,26 +370,17 @@ export type Takes = 'both' | 'runs' | 'given';
 
 /// The words for each, as the legend says them.
 export const TAKES_WORDS: Record<Takes, string> = {
-  both: 'runs it and is given',
-  runs: 'only runs it',
+  both: `${TAKES.runsIt} and ${TAKES.isGiven}`,
+  runs: `only ${TAKES.runsIt}`,
   given: 'only given',
 };
 
-/// What each tool of the engine's does, as the chart and a cell's panel say it; a tool the page has no words for is
-/// shown by its name alone.
-export const TOOL_WORDS: Record<string, string> = {
-  query: "one read-only query of the engine's records, its result given back",
-  run_tests: "runs the tests and checks it names, or the whole CI, on the work's last commit",
-};
-
-/// What the cell panel says of a cell's task, the first thing every agent's cell is given.
-export const TASK_GIVEN = {
-  kind: 'its own, the latest',
-  tip: 'Put in its session once, and again only when the session is reopened or the task changes',
-};
-
-/// What the panel says of a cell that takes main in.
-export const TAKES_MAIN_WORDS = "into the work's branch, as each run of it starts";
+/// Whether what a cell hands in of a block is the version it was given brought up to date: of a block it is given
+/// and may write, unless it is given all of it, to which a version is added.
+export function bringsUpToDate(cell: Cell, block: string): boolean {
+  const given = cell.given.find((g) => g.block === block);
+  return given !== undefined && given.kind !== 'all' && cell.outputs.includes(block);
+}
 
 /// When a block is there for a cell to read, where that is not plain from who writes it: a cell before the reader
 /// that runs only under a condition, or that need not write the block each time. Empty where there is nothing to add.
@@ -386,20 +399,20 @@ export function thereWhen(flow: Flow, reader: string, block: Block): string {
 
 /// What a cell says of a block, on one line, for the chart's column of words: of a block that runs it, that and why;
 /// of one it is given, how and why; of one it may write, whether each time, and whether it brings up to date what it
-/// is given; of one whose value says whether it runs or what it waits for, that. Empty where the cell has nothing to do
-/// with the block.
+/// is given (`bringsUpToDate`); of one whose value says whether it runs or what it waits for, that. Empty where the
+/// cell has nothing to do with the block.
 export function cellSays(cell: Cell, block: string): string {
   const parts: string[] = [];
   const runs = cell.runsOn.find((r) => r.block === block);
-  if (runs) parts.push(runs.why ? `runs it: ${runs.why}` : 'runs it');
+  if (runs) parts.push(runs.why ? `${TAKES.runsIt}: ${runs.why}` : TAKES.runsIt);
   const given = cell.given.find((g) => g.block === block);
   if (given) {
-    const how = `is given ${inputKindWords(given.kind)}`;
+    const how = `${TAKES.isGiven} ${inputKindWords(given.kind)}`;
     parts.push(given.why ? `${how}: ${given.why}` : how);
   }
   if (cell.outputs.includes(block)) {
     const write = cell.mustWrite.includes(block) ? 'writes every time' : 'may write';
-    parts.push(given ? `${write}, ${BROUGHT_UP_TO_DATE}` : write);
+    parts.push(bringsUpToDate(cell, block) ? `${write}, ${BROUGHT_UP_TO_DATE}` : write);
   }
   const condition = cell.condition;
   if (condition !== null && (condition.on === 'block' ? condition.block === block : condition.test.reads.includes(block))) {
@@ -411,8 +424,8 @@ export function cellSays(cell: Cell, block: string): string {
   return parts.join('; ');
 }
 
-/// What is said of a block a cell is given and may write: what it hands in is the block it was given, brought up to
-/// date.
+/// What is said of a block a cell is given and may write, unless it is given all of it: what it hands in is the
+/// version it was given, brought up to date.
 export const BROUGHT_UP_TO_DATE = 'brought up to date';
 
 /// Who runs a cell: an agent in its line, named by the line, or the engine.

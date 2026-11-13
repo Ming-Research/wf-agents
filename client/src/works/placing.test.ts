@@ -4,6 +4,7 @@ import type { Block, Cause, Item, Now, Run, Step, Summary, Version, Writer } fro
 import { FLOW, fixtureWork } from './fixtures';
 import { stepWords } from './History';
 import { orderWorks, placeSteps } from './placing';
+import { cell, flowOf } from '../testing';
 
 const DAY = 86_400_000;
 
@@ -31,10 +32,10 @@ describe('the rows and columns of a history', () => {
     expect(rows.map((r) => r.index)).toEqual(page.steps.map((_, i) => i));
     const at = (index: number) => rows[index];
     const step = (index: number) => page.steps[index];
-    // The request is written by a person, and plan reads it.
+    // The request is written by a person, and runs plan and is given to it.
     expect(at(0).step.kind).toBe('wrote');
     expect(at(0).column).toBeNull();
-    expect([...at(0).marks]).toEqual([[0, 'read']]);
+    expect([...at(0).marks]).toEqual([[0, 'both']]);
     // plan, deep research and the implementation's first run, which was abandoned.
     expect([1, 2, 3].map((i) => at(i).column)).toEqual([0, 1, 2]);
     const abandoned = step(3);
@@ -42,12 +43,43 @@ describe('the rows and columns of a history', () => {
     // The owner's opinion for plan, then plan again.
     const opinion = step(4);
     expect(opinion.kind === 'wrote' && opinion.block).toBe('opinions_plan');
-    expect([...at(4).marks]).toEqual([[0, 'read']]);
+    expect([...at(4).marks]).toEqual([[0, 'both']]);
     expect(at(5).column).toBe(0);
-    // The main the outside wrote is read by check.
+    // The main the outside wrote runs check, an engine's cell, which is given nothing.
     const main = step(13);
     expect(main.kind === 'wrote' && main.by.kind).toBe('outside');
-    expect([...at(13).marks]).toEqual([[4, 'read']]);
+    expect([...at(13).marks]).toEqual([[4, 'runs']]);
+  });
+
+  it('marks apart the cells a write runs and is given to, those it only runs and those it is only given to', () => {
+    const flow = flowOf(
+      [
+        cell('r1', { runsOn: ['r1_spoken_to'], given: ['discussion'] }),
+        cell('i1', { runsOn: ['plan'], given: ['plan', 'discussion'] }),
+        cell('m1', { kind: 'engine', line: null, runsOn: ['main'] }),
+      ],
+      { r1_spoken_to: { people: true }, discussion: { people: true }, plan: { people: true }, main: { outside: 'main' } },
+    );
+    const wrote = (block: string, at: number): Step => ({
+      kind: 'wrote',
+      at,
+      time: at,
+      block,
+      by: { kind: 'person' },
+      changed: true,
+      value: null,
+      chars: 1,
+    });
+    const rows = placeSteps([wrote('discussion', 1), wrote('plan', 2), wrote('main', 3), wrote('r1_spoken_to', 4)], flow);
+    expect(rows.map((r) => [...r.marks])).toEqual([
+      [
+        [0, 'given'],
+        [1, 'given'],
+      ],
+      [[1, 'both']],
+      [[2, 'runs']],
+      [[0, 'runs']],
+    ]);
   });
 
   it('draws a way round from the cell whose write it ran for back to the run', () => {

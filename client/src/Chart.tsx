@@ -31,14 +31,14 @@ import {
 } from './matrix';
 import { Edge, STATUS_WORDS, Sign } from './parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from './sizes';
-import { TAKES_WORDS, TOOL_WORDS, cellSays, headFacts, runBy } from './words';
+import { TAKES, TAKES_WORDS, cellSays, headFacts, runBy } from './words';
 
 /// What the owner chose: a cell, a block, or nothing.
 export type Chosen = { cell: string } | { block: string } | null;
 
 const PART_WORDS: Record<MarkPart, string> = {
-  runs: 'is run by',
-  given: 'is given',
+  runs: TAKES.isRunBy,
+  given: TAKES.isGiven,
   write: 'may write',
   condition: 'runs only by the value of',
   precondition: 'waits on the value of',
@@ -131,7 +131,7 @@ export function Legend({ waysBack, comparing }: { waysBack: number; comparing: b
         <MarkGlyph spot={spot({ precondition: true })} /> its precondition reads
       </li>
       <li>
-        <ToolGlyph spot={{ asks: true, added: false, removed: false }} /> may ask the engine for
+        <ToolGlyph spot={{ asks: true, added: false, removed: false }} /> {TAKES.mayAsk}
       </li>
       <li>
         <span className="legend-back" aria-hidden="true" /> way back ({waysBack})
@@ -492,8 +492,9 @@ function BlockHead(props: { row: BlockRow; chosen: boolean; onChoose: () => void
   );
 }
 
-/// The row of a tool of the engine's, over the blocks: its name, a mark under each cell that may ask for it, and what
-/// the tool does; on the row of a tool the chosen cell may ask for, that it may.
+/// The row of a tool of the engine's, over the blocks: its name, a mark under each cell that may ask for it, and, on
+/// the row of a tool the chosen cell may ask for, that it may. What the tool does is its definition's to say, not the
+/// page's.
 function ToolLine(props: {
   row: ToolRow;
   cells: CellColumn[];
@@ -503,9 +504,7 @@ function ToolLine(props: {
   onPoint: (c: number | null) => void;
 }) {
   const { row, cells, chosenCell, saying, pointed, onPoint } = props;
-  const what = TOOL_WORDS[row.name] ?? '';
-  const asks = saying?.tools.includes(row.name) ?? false;
-  const says = asks ? (what ? `may ask for it: ${what}` : 'may ask for it') : '';
+  const says = saying?.tools.includes(row.name) ? `${TAKES.mayAsk} it` : '';
   return (
     <tr className="row tool-row">
       <th scope="row" className="lead tool-head" onMouseEnter={() => onPoint(null)}>
@@ -517,7 +516,7 @@ function ToolLine(props: {
       {cells.map((column, c) => {
         const spot = row.spots[c];
         const change = spot.added ? ' (put in)' : spot.removed ? ' (taken out)' : '';
-        const words = spot.asks || spot.added || spot.removed ? `${column.id} may ask for ${row.name}${change}` : '';
+        const words = spot.asks || spot.added || spot.removed ? `${column.id} ${TAKES.mayAsk} ${row.name}${change}` : '';
         return (
           <td
             key={column.id}
@@ -534,10 +533,10 @@ function ToolLine(props: {
       })}
       <td
         className={`words ${says ? 'said' : saying ? 'beside' : ''}`}
-        title={says || what || undefined}
+        title={says || undefined}
         onMouseEnter={() => onPoint(null)}
       >
-        {says || what}
+        {says}
       </td>
     </tr>
   );

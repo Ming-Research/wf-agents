@@ -8,7 +8,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Comparison, Definition } from './api';
 import { FlowPage, Shell } from './App';
 import { cell, flowOf, small, test } from './testing';
-import { KIND_TIPS, TAKES_MAIN_WORDS, TOOL_WORDS } from './words';
 
 const NOTHING: Comparison = { state: 'nothingToCompare' };
 
@@ -144,10 +143,10 @@ describe('the chart', () => {
     expect(rows.slice(0, 6)).toEqual([
       '1 request written by people',
       '2 opinions written by judge, people way back from judge',
-      '1 task its own, the latest',
+      '1 task',
       '2 request the last and the latest',
       '3 opinions the last and the latest',
-      'plan read by judge, design, answer',
+      'plan runs judge, design, answer; given to judge, design, answer',
     ]);
     click([...panel.querySelectorAll('button.link')].find((b) => b.textContent === 'opinions'));
     const block = page.querySelector('aside[aria-label="Block opinions"]') as HTMLElement;
@@ -228,7 +227,7 @@ describe('the chart', () => {
     const rows = [...mayWrite.querySelectorAll('.uses li')].map((li) =>
       [...li.children].map((c) => c.textContent?.trim()).join(' '),
     );
-    expect(rows).toEqual(['opinions read by plan way back to plan', 'verdict written every time shown']);
+    expect(rows).toEqual(['opinions runs plan; given to plan way back to plan', 'verdict written every time shown']);
     expect(texts(panel, '.changes-here li')).toEqual(['Writes every timeverdict']);
   });
 
@@ -237,7 +236,7 @@ describe('the chart', () => {
     click(rowOf(page, 'ci').querySelector('.head-button'));
     const panel = page.querySelector('aside[aria-label="Block ci"]') as HTMLElement;
     expect(panel.textContent).toContain('a choice of green, red');
-    expect(texts(panel, '.status-line')).toContain('Read bymerge; the test may_merge');
+    expect(texts(panel, '.status-line')).toContain('Read byruns merge; the test may_merge');
     expect(panel.querySelector('[title="The work may merge (ci is not red)"]')?.textContent).toBe('may_merge');
     expect(rowOf(page, 'ci').className).toContain('chosen');
   });
@@ -304,13 +303,14 @@ describe('what runs a cell, what it is given and the tools it may ask for', () =
     // In the order of the first cell that may ask for each.
     expect(texts(page, 'tbody.tools .tool-name')).toEqual(['run_tests', 'query']);
     expect(texts(toolRow(page, 'run_tests'), '.spot .visually-hidden')).toEqual([
-      'plan may ask for run_tests',
-      'review may ask for run_tests',
+      'plan may ask the engine for run_tests',
+      'review may ask the engine for run_tests',
     ]);
-    expect(texts(toolRow(page, 'query'), '.spot .visually-hidden')).toEqual(['review may ask for query']);
-    expect(toolRow(page, 'query').querySelector('.words')?.textContent).toBe(TOOL_WORDS.query);
+    expect(texts(toolRow(page, 'query'), '.spot .visually-hidden')).toEqual(['review may ask the engine for query']);
+    // What a tool does is said by its definition, not by the page.
+    expect(toolRow(page, 'query').querySelector('.words')?.textContent).toBe('');
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
-    expect(toolRow(page, 'run_tests').querySelector('.words')?.textContent).toBe(`may ask for it: ${TOOL_WORDS.run_tests}`);
+    expect(toolRow(page, 'run_tests').querySelector('.words')?.textContent).toBe('may ask the engine for it');
     expect(toolRow(page, 'query').querySelector('.words')?.className).toContain('beside');
   });
 
@@ -323,7 +323,7 @@ describe('what runs a cell, what it is given and the tools it may ask for', () =
         changes: [{ kind: 'toolAdded', cell: 'plan', tool: 'run_tests' }],
       },
     );
-    expect(texts(toolRow(page, 'run_tests'), '.spot .visually-hidden')[0]).toBe('plan may ask for run_tests (put in)');
+    expect(texts(toolRow(page, 'run_tests'), '.spot .visually-hidden')[0]).toBe('plan may ask the engine for run_tests (put in)');
     expect(toolRow(page, 'query').querySelectorAll('.part.tool.added')).toHaveLength(0);
   });
 
@@ -336,13 +336,24 @@ describe('what runs a cell, what it is given and the tools it may ask for', () =
       '2 ping not given written by review, people way back from review A word to plan again.',
     ]);
     expect(partRows(panel, 'Is given')).toEqual([
-      '1 task its own, the latest',
+      '1 task',
       '2 request all of it It is what to plan.',
       '3 record the latest does not run it written by review What the review found.',
     ]);
-    expect(panel.querySelector(`[title="${KIND_TIPS.all}"]`)?.textContent).toBe('all of it');
-    expect(partRows(panel, 'May ask the engine for')).toEqual([`run_tests ${TOOL_WORDS.run_tests}`]);
-    expect(texts(panel, '.status-line')).toContain(`Takes main in${TAKES_MAIN_WORDS}`);
+    expect(partRows(panel, 'May ask the engine for')).toEqual(['run_tests']);
+    expect(texts(panel, '.status-line')).toContain('Takes main in');
+  });
+
+  it('says in a block’s panel the cells it runs and those it is given to, apart', () => {
+    const page = draw({ state: 'compiled', flow: flow() });
+    click(rowOf(page, 'record').querySelector('.head-button'));
+    expect(texts(page.querySelector('aside[aria-label="Block record"]') as HTMLElement, '.status-line')).toContain(
+      'Read bygiven to plan',
+    );
+    click(rowOf(page, 'plan').querySelector('.head-button'));
+    expect(texts(page.querySelector('aside[aria-label="Block plan"]') as HTMLElement, '.status-line')).toContain(
+      'Read byruns review; given to review',
+    );
   });
 });
 

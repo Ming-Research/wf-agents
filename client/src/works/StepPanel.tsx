@@ -9,6 +9,7 @@ import type { ReactNode } from 'react';
 import type { Flow } from '../api';
 import { ListRow, Panel, PanelPart, StatusLine, type Tone } from '../parts';
 import type { Fold } from '../Side';
+import { TAKES, label } from '../words';
 import type { Block, CallRow, Handed, Round, RoundPage, Run, Step, ToldPage, WorkPage } from '../works-api';
 import type { Chosen } from './History';
 import { findRun } from './placing';
@@ -347,15 +348,17 @@ export function RunPanel({ run, page, reader, fold }: PanelProps & { run: Run })
   );
 }
 
-/// The cells that read a block, and those whose condition reads it, in words.
+/// The cells a block runs, those it is given to, and those whose condition reads it, in words: "Runs plan; given to
+/// plan, judge".
 export function readersWords(flow: Flow, block: string): string {
   const b = flow.blocks.find((x) => x.name === block);
   if (!b) return 'No cell of the flow reads it';
   const parts = [
-    ...(b.readBy.cells.length > 0 ? [`Read by ${b.readBy.cells.join(', ')}`] : []),
+    ...(b.readBy.runs.length > 0 ? [`${TAKES.runs} ${b.readBy.runs.join(', ')}`] : []),
+    ...(b.readBy.given.length > 0 ? [`${TAKES.givenTo} ${b.readBy.given.join(', ')}`] : []),
     ...(b.readBy.conditions.length > 0 ? [`decides whether ${b.readBy.conditions.join(', ')} runs`] : []),
   ];
-  return parts.length > 0 ? parts.join('; ') : 'No cell reads it';
+  return parts.length > 0 ? label(parts.join('; ')) : 'No cell reads it';
 }
 
 /// A write by a person, the outside or a run, as a step of its own.

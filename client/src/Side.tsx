@@ -23,19 +23,18 @@ function ChangeStatus({ status, changes }: { status: Status; changes: number }) 
 }
 import {
   BROUGHT_UP_TO_DATE,
+  bringsUpToDate,
   changeWords,
   conditionWords,
   faultWords,
   inputKindWords,
-  KIND_TIPS,
+  label,
   LIMIT_WORDS,
   placeOf,
   runBy,
-  TAKES_MAIN_WORDS,
-  TASK_GIVEN,
+  TAKES,
   testWords,
   thereWhen,
-  TOOL_WORDS,
   type Place,
   writersBesideCells,
 } from './words';
@@ -289,14 +288,14 @@ export function CellPanel(props: {
           {cell.preconditions.length > 0 && (
             <StatusLine word="Waits until">{cell.preconditions.map(testWords).join('; ')}</StatusLine>
           )}
-          {cell.takesMain && <StatusLine word="Takes main in">{TAKES_MAIN_WORDS}</StatusLine>}
+          {cell.takesMain && <StatusLine word={label(TAKES.takesMain)} />}
           <OwnLimits cell={cell} flow={flow} />
         </>
       }
       {...fold}
     >
       {!column.cell && <p className="muted">Not in the version shown: this is the cell as the other version has it</p>}
-      <PanelPart label="Runs it" count={cell.runsOn.length}>
+      <PanelPart label={label(TAKES.runsIt)} count={cell.runsOn.length}>
         <ul className="uses">
           {cell.runsOn.map(({ block: name, why }, place) => {
             const block = blocks.get(name) as Block;
@@ -310,7 +309,7 @@ export function CellPanel(props: {
                 <Choose chosen={{ block: name }} onChoose={onChoose}>
                   <span className="mono">{name}</span>
                 </Choose>
-                {cell.kind === 'agent' && !given && <span className="muted">not given</span>}
+                {cell.kind === 'agent' && !given && <span className="muted">{TAKES.notGiven}</span>}
                 <WrittenBy flow={flow} cell={cell} block={block} onChoose={onChoose} />
                 {back.length > 0 && <span className="way-back">way back from {back.join(', ')}</span>}
                 {!given && block.what !== null && <span className="row-note">{block.what}</span>}
@@ -325,16 +324,13 @@ export function CellPanel(props: {
       </PanelPart>
 
       {cell.kind === 'agent' && (
-        <PanelPart label="Is given" count={cell.given.length + 1}>
+        <PanelPart label={label(TAKES.isGiven)} count={cell.given.length + 1}>
           <ul className="uses">
             <ListRow key="task">
               <span className="muted mono" title={GIVEN_PLACE}>
                 1
               </span>
-              <span className="mono">task</span>
-              <span className="muted" title={TASK_GIVEN.tip}>
-                {TASK_GIVEN.kind}
-              </span>
+              <span className="mono">{TAKES.task}</span>
             </ListRow>
             {cell.given.map(({ block: name, kind, why }, place) => {
               const block = blocks.get(name) as Block;
@@ -348,10 +344,8 @@ export function CellPanel(props: {
                   <Choose chosen={{ block: name }} onChoose={onChoose}>
                     <span className="mono">{name}</span>
                   </Choose>
-                  <span className="muted" title={KIND_TIPS[kind]}>
-                    {inputKindWords(kind)}
-                  </span>
-                  {!runs && <span className="muted">does not run it</span>}
+                  <span className="muted">{inputKindWords(kind)}</span>
+                  {!runs && <span className="muted">{TAKES.doesNotRunIt}</span>}
                   {!runs && <WrittenBy flow={flow} cell={cell} block={block} onChoose={onChoose} />}
                   {block.what !== null && <span className="row-note">{block.what}</span>}
                   {why !== null && <span className="row-note">{why}</span>}
@@ -367,7 +361,7 @@ export function CellPanel(props: {
         <ul className="uses">
           {cell.outputs.map((name) => {
             const block = blocks.get(name) as Block;
-            const above = block.readBy.cells.filter((id) => where(flow, cell.id, id) === 'above');
+            const above = block.readBy.runs.filter((id) => where(flow, cell.id, id) === 'above');
             const aboveConditions = block.readBy.conditions.filter((id) => where(flow, cell.id, id) === 'above');
             const sendsBack = [...new Set([...above, ...aboveConditions])];
             return (
@@ -376,7 +370,9 @@ export function CellPanel(props: {
                   <span className="mono">{name}</span>
                 </Choose>
                 {cell.mustWrite.includes(name) && <span className="muted">written every time</span>}
-                {givenTo(cell, name) && <span className="muted">also given: {BROUGHT_UP_TO_DATE}</span>}
+                {givenTo(cell, name) && (
+                  <span className="muted">also given{bringsUpToDate(cell, name) ? `: ${BROUGHT_UP_TO_DATE}` : ''}</span>
+                )}
                 <span>
                   <Readers flow={flow} from={cell.id} block={block} onChoose={onChoose} />
                 </span>
@@ -389,12 +385,11 @@ export function CellPanel(props: {
       </PanelPart>
 
       {cell.kind === 'agent' && (
-        <PanelPart label="May ask the engine for" count={cell.tools.length}>
+        <PanelPart label={label(TAKES.mayAsk)} count={cell.tools.length}>
           <ul className="uses">
             {cell.tools.map((tool) => (
               <ListRow key={tool}>
                 <span className="mono">{tool}</span>
-                {TOOL_WORDS[tool] !== undefined && <span className="muted">{TOOL_WORDS[tool]}</span>}
               </ListRow>
             ))}
           </ul>
@@ -457,28 +452,38 @@ function OwnLimits({ cell, flow }: { cell: Cell; flow: Flow }) {
   );
 }
 
-/// Who reads a block, in words: after its name (`read by plan`), or alone, after a label that says it (`plan`). The
-/// named tests that read it are named, each with its words on the pointer's tip.
-function Readers(props: { flow: Flow; from?: string; block: Block; alone?: boolean; onChoose: (c: Chosen) => void }) {
-  const { flow, from, block, alone, onChoose } = props;
-  const { cells, conditions, tests, shown } = block.readBy;
-  if (cells.length === 0 && conditions.length === 0 && tests.length === 0 && !shown) return null;
-  const before = cells.length + conditions.length;
+/// Who reads a block, in words: the cells it runs, those it is given to, those whose condition reads its value, the
+/// named tests that read it, each with its words on the pointer's tip, and whether the page shows it: "runs plan;
+/// given to plan, judge; decides whether design runs; the test may_merge; shown".
+function Readers(props: { flow: Flow; from?: string; block: Block; onChoose: (c: Chosen) => void }) {
+  const { flow, from, block, onChoose } = props;
+  const { runs, given, conditions, tests, shown } = block.readBy;
+  if (runs.length === 0 && given.length === 0 && conditions.length === 0 && tests.length === 0 && !shown) return null;
+  const before = runs.length + given.length + conditions.length;
   const words = (name: string) => {
     const test = flow.tests.find((t) => t.name === name);
     return test ? testWords(test) : undefined;
   };
   return (
     <>
-      {cells.length > 0 && (
+      {runs.length > 0 && (
         <>
-          {!alone && <span className="muted">read by </span>}
-          <Cells flow={flow} from={from} ids={cells} onChoose={onChoose} />
+          <span className="muted">{TAKES.runs} </span>
+          <Cells flow={flow} from={from} ids={runs} onChoose={onChoose} />
+        </>
+      )}
+      {given.length > 0 && (
+        <>
+          <span className="muted">
+            {runs.length > 0 ? '; ' : ''}
+            {TAKES.givenTo}{' '}
+          </span>
+          <Cells flow={flow} from={from} ids={given} onChoose={onChoose} />
         </>
       )}
       {conditions.length > 0 && (
         <>
-          <span className="muted">{cells.length > 0 ? '; ' : ''}decides whether </span>
+          <span className="muted">{runs.length + given.length > 0 ? '; ' : ''}decides whether </span>
           <Cells flow={flow} from={from} ids={conditions} onChoose={onChoose} />
           <span className="muted"> run{conditions.length === 1 ? 's' : ''}</span>
         </>
@@ -486,7 +491,7 @@ function Readers(props: { flow: Flow; from?: string; block: Block; alone?: boole
       {tests.length > 0 && (
         <>
           <span className="muted">
-            {before > 0 ? '; ' : !alone ? 'read by ' : ''}the test{tests.length === 1 ? '' : 's'}{' '}
+            {before > 0 ? '; ' : ''}the test{tests.length === 1 ? '' : 's'}{' '}
           </span>
           {tests.map((name, i) => (
             <span key={name}>
@@ -536,7 +541,7 @@ export function BlockPanel(props: {
             {besides.join(', ')}
           </StatusLine>
           <StatusLine word="Read by">
-            <Readers flow={flow} block={block} alone onChoose={onChoose} />
+            <Readers flow={flow} block={block} onChoose={onChoose} />
           </StatusLine>
         </>
       }

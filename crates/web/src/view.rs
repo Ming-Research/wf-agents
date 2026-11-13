@@ -221,8 +221,10 @@ pub struct WrittenBy {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReadBy {
-    /// The cells that read it, in the order of the walk.
-    pub cells: Vec<String>,
+    /// The cells a new version of it runs, in the order of the walk.
+    pub runs: Vec<String>,
+    /// The cells it is given to, in the order of the walk.
+    pub given: Vec<String>,
     /// The cells whose condition reads its value, in the order of the walk.
     pub conditions: Vec<String>,
     /// The named tests that read its value, by name.
@@ -755,22 +757,31 @@ impl Flow {
         let blocks = compiled
             .blocks
             .iter()
-            .map(|(name, block)| Block {
-                name: name.to_string(),
-                values: block.values.clone(),
-                what: block.what.clone(),
-                written_by: WrittenBy {
-                    cells: names(&block.writers.cells),
-                    people: block.writers.people,
-                    note: block.writers.note,
-                    outside: block.writers.outside.clone(),
-                },
-                read_by: ReadBy {
-                    cells: names(&block.readers.cells),
-                    conditions: names(&block.readers.conditions),
-                    tests: names(&block.readers.tests),
-                    shown: block.readers.shown,
-                },
+            .map(|(name, block)| {
+                let cells = |takes: fn(&flow::CellSpec, &BlockId) -> bool| -> Vec<String> {
+                    (compiled.cells.iter())
+                        .filter(|spec| takes(spec, name))
+                        .map(|spec| spec.id.to_string())
+                        .collect()
+                };
+                Block {
+                    name: name.to_string(),
+                    values: block.values.clone(),
+                    what: block.what.clone(),
+                    written_by: WrittenBy {
+                        cells: names(&block.writers.cells),
+                        people: block.writers.people,
+                        note: block.writers.note,
+                        outside: block.writers.outside.clone(),
+                    },
+                    read_by: ReadBy {
+                        runs: cells(|spec, block| spec.runs_on.iter().any(|r| &r.block == block)),
+                        given: cells(|spec, block| spec.given.iter().any(|g| &g.block == block)),
+                        conditions: names(&block.readers.conditions),
+                        tests: names(&block.readers.tests),
+                        shown: block.readers.shown,
+                    },
+                }
             })
             .collect();
         Flow {

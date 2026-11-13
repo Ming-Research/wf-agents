@@ -40,6 +40,11 @@ export function named(cell: Cell): string[] {
   return [...new Set([...cell.runsOn.map((r) => r.block), ...cell.given.map((g) => g.block)])];
 }
 
+/// The cells a block runs or is given to, each once: those it runs, then those it is only given to.
+export function readers(block: Block): string[] {
+  return [...new Set([...block.readBy.runs, ...block.readBy.given])];
+}
+
 /// The mark of a cell on a block.
 export function markOf(cell: Cell | undefined, block: string): Mark {
   if (!cell) return NO_MARK;

@@ -34,6 +34,7 @@ import {
   useState,
 } from 'react';
 
+import { readers } from '../matrix';
 import { Button, Confirm, PanelPart, Switch } from '../parts';
 import { mocksShown } from '../mock-data';
 import {
@@ -985,7 +986,7 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
     // The block that is the owner's words to this cell alone: one people write that this cell reads and no other cell
     // does. A block several cells read, such as the background, is no message to one of them and is never written
     // from here.
-    block: blocks.find((b) => b.readBy.cells.length === 1 && b.readBy.cells[0] === t.cell),
+    block: blocks.find((b) => readers(b).length === 1 && readers(b)[0] === t.cell),
     off: t.cell === 'D1' && !went(work, 'D1'),
   }));
   const usable = targets.filter((t) => t.block !== undefined && !t.off);
@@ -1034,7 +1035,7 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
             work={work}
             block={block.name}
             to={target?.cell ?? 'R1'}
-            readers={block.readBy.cells.map((c) => titleOf(read, c))}
+            readers={readers(block).map((c) => titleOf(read, c))}
             quote={quote}
             unquote={unquote}
             box={box}
