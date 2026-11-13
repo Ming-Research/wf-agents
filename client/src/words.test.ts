@@ -228,7 +228,7 @@ describe('the words of the page', () => {
       }),
     ).toBe(
       'The test may_merge reads ci, which the cell itself writes: the cell would decide by what it writes itself ' +
-        'whether it runs, or whether the work waits before it.',
+        'whether the work waits before it, or, beside another writer, whether it runs.',
     );
     expect(
       faultWords({ file: 'design.toml', field: 'when.block', what: { kind: 'conditionNotWrittenBefore', block: 'go' } }),

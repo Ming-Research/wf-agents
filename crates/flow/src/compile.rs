@@ -264,7 +264,9 @@ pub enum FaultKind {
     NotAChoice { block: String },
     /// A condition or a named test waits for a value the choice does not offer.
     NotAValue { block: String, is: String },
-    /// A condition reads a block its own cell writes: the cell would decide by what it writes itself whether it runs.
+    /// A condition reads a block its own cell writes, and another writes it too: the cell would decide by what it writes
+    /// itself, beside another, whether it runs. Where the cell is the block's only writer, the block says which of two
+    /// cells is in charge, and is the cell's own to decide.
     ConditionOnOwnOutput { block: String },
     /// A condition reads a block that neither a cell before it, people nor the outside write, so that it is decided
     /// by nothing that comes before the cell.
@@ -277,8 +279,9 @@ pub enum FaultKind {
     ReadsEmpty { test: String },
     /// A declared test is used by no cell.
     UnusedTest { test: String },
-    /// A cell's condition or precondition is a test that reads a block the cell itself writes: the cell would decide by
-    /// what it writes itself whether it runs, or whether the work waits before it.
+    /// A cell's precondition is a test that reads a block the cell itself writes, or its condition one that reads a
+    /// block it writes beside another writer: the cell would decide by what it writes itself whether the work waits
+    /// before it, or, beside another, whether it runs.
     TestOnOwnOutput { test: String, block: String },
     /// A cell's condition or precondition is a test that reads a block that neither a cell before it, people nor the
     /// outside write, so that it is decided by nothing that comes before the cell.
@@ -788,7 +791,7 @@ impl<'a> Definition<'a> {
                 }
                 When::Test(WhenTest { test }) => {
                     if self.flow.tests.contains_key(test) {
-                        found.extend(self.check_use(place, file, test, "when.test"));
+                        found.extend(self.check_use(place, file, test, "when.test", true));
                     } else {
                         let what = FaultKind::UndeclaredTest { test: test.clone() };
                         found.push(("when.test".to_string(), what));
@@ -804,7 +807,7 @@ impl<'a> Definition<'a> {
         }));
         for (i, test) in file.requires.iter().enumerate() {
             if !file.requires[..i].contains(test) && self.flow.tests.contains_key(test) {
-                found.extend(self.check_use(place, file, test, &format!("requires[{i}]")));
+                found.extend(self.check_use(place, file, test, &format!("requires[{i}]"), false));
             }
         }
         let declared = |block: &str| {
@@ -960,7 +963,7 @@ impl<'a> Definition<'a> {
             }
             Some(_) => {}
         }
-        match self.not_before(place, file, block, declared, true) {
+        match self.not_before(place, file, block, declared, true, true) {
             Some(NotBefore::OwnOutput) => found.push((field(), FaultKind::ConditionOnOwnOutput { block: name })),
             Some(NotBefore::Later | NotBefore::After(_)) => {
                 found.push((field(), FaultKind::ConditionNotWrittenBefore { block: name }));
@@ -971,10 +974,13 @@ impl<'a> Definition<'a> {
     }
 
     /// Why the block, which the condition or a precondition of the cell of this file at this place reads, is not
-    /// decided before the cell; `None` where it is. A block the cell itself writes is not; nor is one that neither a
-    /// cell before it, people nor the outside write. What people or the outside write can be written before any cell
-    /// runs. A block a cell after it writes as well is, where `later_writes_allowed`: that cell's write decides again
-    /// whether this one runs, a way back. A test of what stands allows none.
+    /// decided before the cell; `None` where it is. A block the cell itself writes is not, but where it is the cell's
+    /// `condition` and the cell is the block's only writer: the cell that decides which of two cells is in charge has
+    /// that answer as a condition of its own next round (design document `data-and-context`, 44), unwritten as it is
+    /// before its first. Nor is a block that neither a cell before it, people nor the outside write. What people or the
+    /// outside write can be written before any cell runs. A block a cell after it writes as well is, where
+    /// `later_writes_allowed`: that cell's write decides again whether this one runs, a way back. A test of what stands
+    /// allows none.
     fn not_before(
         &self,
         place: usize,
@@ -982,9 +988,15 @@ impl<'a> Definition<'a> {
         block: &str,
         declared: &BlockFile,
         later_writes_allowed: bool,
+        condition: bool,
     ) -> Option<NotBefore<'a>> {
         let later = self.uses[block].writers.iter().find(|&&(p, _)| p > place);
-        if file.outputs.iter().any(|o| o == block) {
+        let own = file.outputs.iter().any(|o| o == block);
+        let only_writer =
+            !declared.people && declared.outside.is_none() && self.uses[block].writers.iter().all(|&(p, _)| p == place);
+        if own && condition && only_writer {
+            None
+        } else if own {
             Some(NotBefore::OwnOutput)
         } else if let Some(&(_, cell)) = later.filter(|_| !later_writes_allowed) {
             Some(NotBefore::After(cell))
@@ -1001,7 +1013,14 @@ impl<'a> Definition<'a> {
     /// The faults of a declared test used by the cell of this file at this place, as its condition or a precondition,
     /// each at the field that names the test, by [`Self::not_before`]. A block the test reads that is not
     /// declared is the test's fault, not the cell's.
-    fn check_use(&self, place: usize, file: &CellFile, test: &str, field: &str) -> Vec<(String, FaultKind)> {
+    fn check_use(
+        &self,
+        place: usize,
+        file: &CellFile,
+        test: &str,
+        field: &str,
+        condition: bool,
+    ) -> Vec<(String, FaultKind)> {
         let mut found = Vec::new();
         let declared_test = &self.flow.tests[test];
         let later_writes_allowed = declared_test.kind != TestKind::NoneStanding;
@@ -1011,7 +1030,7 @@ impl<'a> Definition<'a> {
                 continue;
             };
             let (test, block) = (test.to_string(), block.clone());
-            let what = match self.not_before(place, file, &block, declared, later_writes_allowed) {
+            let what = match self.not_before(place, file, &block, declared, later_writes_allowed, condition) {
                 Some(NotBefore::OwnOutput) => FaultKind::TestOnOwnOutput { test, block },
                 Some(NotBefore::After(cell)) => FaultKind::TestWrittenAfter {
                     test,

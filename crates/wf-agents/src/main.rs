@@ -467,8 +467,8 @@ fn words(what: &FaultKind) -> String {
             format!("a condition or a test waits for {block} to be {is}, which is not one of its values")
         }
         F::ConditionOnOwnOutput { block } => format!(
-            "the condition reads {block}, which the cell itself writes: the cell would decide by what it writes itself \
-             whether it runs"
+            "the condition reads {block}, which the cell itself writes and another writes too: the cell would decide by \
+             what it writes itself, beside another, whether it runs"
         ),
         F::ConditionNotWrittenBefore { block } => {
             format!("the condition reads {block}, which neither a cell before this one, people nor the outside write")
@@ -482,7 +482,7 @@ fn words(what: &FaultKind) -> String {
         F::UnusedTest { test } => format!("no cell uses the test {test}"),
         F::TestOnOwnOutput { test, block } => format!(
             "the test {test} reads {block}, which the cell itself writes: the cell would decide by what it writes itself \
-             whether it runs, or whether the work waits before it"
+             whether the work waits before it, or, beside another writer, whether it runs"
         ),
         F::TestNotWrittenBefore { test, block } => {
             format!("the test {test} reads {block}, which neither a cell before this one, people nor the outside write")

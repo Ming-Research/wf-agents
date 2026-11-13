@@ -193,7 +193,9 @@ fn straight() -> (Ending, usize) {
         ],
         "the history did not end as it was written to"
     );
-    for kind in ["Stop", "Withdraw", "SentBack", "Results", "Call"] {
+    // A call is withdrawn only where a run at rest at it is abandoned, or the work ends with a cell waiting for it, which
+    // this history does not reach.
+    for kind in ["Stop", "SentBack", "Results", "Call"] {
         let mut given = ending.ever.iter().chain(&ending.undone);
         assert!(given.any(|k| k.contains(kind)), "nothing of the kind {kind} was given");
     }

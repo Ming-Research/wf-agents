@@ -293,3 +293,42 @@ fn for_every_kind_but_what_stands_what_a_cell_skipped_now_wrote_still_counts() {
     // Only a test of what stands leaves out the skipped writer's yes.
     assert!(after_the_writer_is_skipped(TestKind::NoneStanding));
 }
+
+/// A cell that decides which of two cells is in charge of the research, its condition a test of the choice it alone
+/// writes (design document `data-and-context`, 44): it applies while the choice is not yes, unwritten counting as
+/// not yes; the deep research applies once it is.
+fn in_charge() -> World {
+    let cells = vec![
+        on_test("in_charge", cell("research", &["brief"], &["deep", "plan"])),
+        when("deep", "yes", cell("deep_research", &["brief"], &["plan"])),
+        cell("merge", &["plan"], &[]),
+    ];
+    World::with_tests(cells, tests(&[("in_charge", test(TestKind::None, &["deep"], "yes"))]))
+}
+
+/// The cell the walk runs next.
+fn running(w: &World) -> String {
+    match w.decide() {
+        Decision::Run { cell, .. } => cell.to_string(),
+        other => panic!("the walk decides {other:?}"),
+    }
+}
+
+#[test]
+fn a_cell_whose_condition_reads_its_own_choice_runs_until_it_hands_the_work_to_another() {
+    let mut w = in_charge();
+    w.person_writes("brief");
+    assert_eq!(running(&w), "research");
+    w.run("research", &[("deep", Value("no")), ("plan", Matters)]);
+    assert_eq!(running(&w), "merge");
+
+    let mut w = in_charge();
+    w.person_writes("brief");
+    w.run("research", &[("deep", Value("yes"))]);
+    assert_eq!(running(&w), "deep_research");
+    w.run("deep_research", &[("plan", Matters)]);
+    assert_eq!(running(&w), "merge");
+    // A new brief runs the deep research, which is in charge now; the cell that handed it over no longer applies.
+    w.person_writes("brief");
+    assert_eq!(running(&w), "deep_research");
+}

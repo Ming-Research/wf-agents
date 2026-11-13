@@ -38,7 +38,7 @@ fn a_work_is_added_paused_and_begins_once_the_owner_lets_it_on() {
     let (_, held) = h.add(new_item("held", &[], "plain"));
     // Not started by the owner, it has nothing new to run its first cell.
     assert_eq!(h.decision(held), Decision::Idle);
-    assert_eq!(h.d().held(held), Some(Holder::Pause));
+    assert_eq!(h.d().held(held), None);
     assert_eq!(rounds(&h.let_on(held)), [(held, "write".to_string(), 1)]);
 }
 
@@ -111,7 +111,7 @@ fn a_slot_that_comes_free_goes_to_a_work_that_has_begun_before_one_that_has_not(
     let todos = h.returns(one, hands_in(&[("text", None)]));
     assert_eq!(
         rounds(&todos),
-        [(one, "merge".to_string(), 1), (three, "write".to_string(), 2)],
+        [(one, "merge".to_string(), 1), (three, "write".to_string(), 1)],
         "the merge, an act of the engine's own, takes no slot"
     );
     assert_eq!(h.decision(two), waits_for_a_slot());

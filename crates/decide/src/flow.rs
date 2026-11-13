@@ -114,8 +114,9 @@ pub enum FlowFault {
     Empty,
     /// Two cells have this name.
     Twice(CellId),
-    /// The cell's condition reads a block the cell itself writes: it would decide by what it writes itself whether it
-    /// runs.
+    /// The cell's condition reads a block the cell itself writes, and another writer writes it too. A cell that is the
+    /// block's only writer may: the block says which of two cells is in charge, which the cell decides for its own
+    /// next round (design document `data-and-context`, 44).
     ConditionOnOwnOutput(CellId),
     /// The last cell has a condition: a work ends when its last cell has a record, so the last cell always runs.
     LastHasCondition(CellId),
@@ -151,7 +152,11 @@ impl Flow {
             if let Some(Condition::Is { block, .. }) = &cell.applies
                 && cell.outputs.contains(block)
             {
-                return Err(FlowFault::ConditionOnOwnOutput(cell.id.clone()));
+                let others = cells.iter().any(|c| c.id != cell.id && c.outputs.contains(block))
+                    || outsiders.get(block).is_some_and(|o| o.people || o.outside.is_some());
+                if others {
+                    return Err(FlowFault::ConditionOnOwnOutput(cell.id.clone()));
+                }
             }
             let condition = match &cell.applies {
                 Some(Condition::Test(test)) => Some(test),

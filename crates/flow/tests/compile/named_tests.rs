@@ -99,13 +99,15 @@ fn a_test_reads_declared_choices_each_once_that_offer_the_value_it_looks_for() {
 }
 
 #[test]
-fn a_cell_s_condition_or_precondition_is_no_test_that_reads_what_the_cell_writes() {
+fn a_cell_s_precondition_is_no_test_that_reads_what_the_cell_writes_and_its_condition_may_be_where_it_alone_writes() {
     let both = format!("kind = \"engine\"\nwhen = {{ test = \"may_merge\" }}\n{REQUIRES}");
     let source = edit(valid(), "check.toml", "kind = \"engine\"", &both);
     let what = || TestOnOwnOutput {
         test: "may_merge".into(),
         block: "ci".into(),
     };
+    assert_eq!(faults(&source), [at("check.toml", "requires[0]", what())]);
+    let source = edit(source, FLOW_FILE, "[blocks.ci]\n", "[blocks.ci]\npeople = true\n");
     assert_eq!(
         faults(&source),
         [
