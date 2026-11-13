@@ -14,8 +14,8 @@ use work::sessions::{moved, of_round};
 
 use super::*;
 
-/// The flow: `load` reads the session block and loads the engineer's session, `build` goes on in it, and `review` has
-/// a line of its own.
+/// The flow: `load` reads the session block and loads the engineer's session, `build` goes on in it unless a person
+/// stops it, and `review` has a line of its own.
 fn flow() -> Compiled {
     let flow = r#"
         name = "sessions"
@@ -26,8 +26,17 @@ fn flow() -> Compiled {
         calls = 3
         [lines.engineer]
         [lines.review]
+        [tests.going]
+        says = "Nobody stopped the build"
+        kind = "none"
+        reads = ["stop"]
+        is = "yes"
         [blocks.request]
         people = true
+        [blocks.stop]
+        values = ["yes", "no"]
+        people = true
+        shown = true
         [blocks.session]
         outside = "session"
         [blocks.context]
@@ -42,7 +51,7 @@ fn flow() -> Compiled {
         )
     };
     let load = cell("engineer", r#"["request", "session"]"#, r#"["context"]"#);
-    let build = cell("engineer", r#"["request", "context"]"#, r#"["code"]"#);
+    let build = cell("engineer", r#"["request", "context"]"#, r#"["code"]"#) + "when = { test = \"going\" }\n";
     let review = cell("review", r#"["code"]"#, r#"["verdict"]"#);
     let merge =
         "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"verdict\"]\noutputs = [\"merged\"]\n";
@@ -332,6 +341,28 @@ fn a_round_past_the_limit_has_the_cell_that_loads_the_session_run_again_once_the
     assert_eq!(s.engineer(load, 1), (1, true));
     s.hands_in(100, false);
     assert_eq!(s.session_block().len(), 1, "nothing more is written");
+}
+
+#[test]
+fn a_cell_skipped_after_it_asked_for_calls_holds_its_lines_session_no_longer() {
+    let mut s = S::new();
+    s.hands_in(100, true);
+    // The build asks for a tool past the limit: the line goes on in its session while the build waits.
+    s.asks(600);
+    assert!(s.sessions().is_empty(), "a cell of the line waits for its result");
+    // A person stops the build: skipped now, it waits for nothing, and the limit ends the line's session.
+    s.on(Event::Wrote {
+        block: "stop".into(),
+        by: Outsider::Person,
+        content: "Stop.".to_string(),
+        matters: true,
+        value: Some("yes".to_string()),
+    });
+    let limit = Why::Limit {
+        context: 600,
+        limit: 500,
+    };
+    assert_eq!(s.sessions().last(), Some(&("engineer".to_string(), limit)));
 }
 
 #[test]

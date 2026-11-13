@@ -582,13 +582,24 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At, effects: &mut Vec<
 
 /// Takes the run's return, which met everything the flow requires: the calls it asks for are made, and the run
 /// finishes, recording what it dealt with, the blocks it wrote and their content under the place of the finish. A
-/// return of the form before a return that asks ended its run made its calls as it was taken, and its run rested at
-/// them: such a run finishes making none again, and its cell is owed those it made.
+/// return of the form before a return that asks ended its run made all its calls at once as it was taken, and its run
+/// rested at them, unless the owner's word at the limit of calls was asked for first: such a run finishes making none
+/// again, or all it asked for where it made none, and its cell is owed those it made.
 fn finish(work: &mut Work, run: RunId, dealt_with: Vec<BlockId>, writes: Vec<Write>, effects: &mut Vec<Effect>) {
     let (handed, asks) = match work.back.get(&(run, ended(work, run))) {
         Some(Back::Returned { handed, asks, .. }) => (handed.clone(), asks.clone()),
         Some(Back::HandedIn(handed)) => (handed.clone(), Vec::new()),
-        Some(Back::Asked(_) | Back::Failed { .. }) | None => (Vec::new(), Vec::new()),
+        Some(Back::Asked(asks)) => {
+            let r = &work.records;
+            let ended_at = (r.returned.iter()).filter(|e| e.run == run).map(|e| e.at).max();
+            let made = (r.called.iter()).any(|c| {
+                c.run == run
+                    && ended_at.is_none_or(|e| c.at > e)
+                    && matches!(work.calls.get(&c.call), Some(Call::Asked(_)))
+            });
+            (Vec::new(), if made { Vec::new() } else { asks.clone() })
+        }
+        Some(Back::Failed { .. }) | None => (Vec::new(), Vec::new()),
     };
     for ask in asks {
         let on = match &ask {

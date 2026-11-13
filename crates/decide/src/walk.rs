@@ -290,11 +290,18 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
     })
 }
 
-/// The calls the cell is owed the results of, in the order they were made: those its runs asked for, as their returns
-/// were taken, that no run of it that finished since was given. None where the cell is not in the flow.
-pub fn owed(flow: &Flow, records: &Records, cell: &CellId) -> Vec<CallId> {
+/// Of each cell that applies now and is owed the results of calls, those calls, in the order they were made: those its
+/// runs asked for, as their returns were taken, that no run of it that finished since was given. A cell that is skipped
+/// now waits for nothing: it is entered for them only if it applies again.
+pub fn owed(flow: &Flow, records: &Records) -> BTreeMap<CellId, Vec<CallId>> {
     let walk = Walk::new(flow, records);
-    flow.place(cell).map_or_else(Vec::new, |i| walk.owed(i).0)
+    (0..flow.cells().len())
+        .filter(|&i| walk.applies(i))
+        .filter_map(|i| {
+            let (calls, _) = walk.owed(i);
+            (!calls.is_empty()).then(|| (flow.cells()[i].id.clone(), calls))
+        })
+        .collect()
 }
 
 /// What the pause of the work holds back of the run's rounds: nothing where the work is not paused; where it is, of a

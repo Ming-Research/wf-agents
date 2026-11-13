@@ -125,7 +125,10 @@ fn the_owner_turning_to_a_cell_that_waits_for_the_results_of_its_calls_enters_it
     // The round answers the owner and the cell goes on waiting: it is held to nothing its cell must write.
     let told = decide::told(&w.flow, &w.records, answering).expect("the run started");
     assert!(told.waits_for_calls);
-    assert_eq!(decide::owed(&w.flow, &w.records, &"research".into()), vec![call]);
+    assert_eq!(
+        decide::owed(&w.flow, &w.records),
+        BTreeMap::from([("research".into(), vec![call])])
+    );
     w.finish("research", &[]);
     assert_eq!(w.decide(), wait("research", vec![Waited::Call { call, on: None }]));
     w.done(call);

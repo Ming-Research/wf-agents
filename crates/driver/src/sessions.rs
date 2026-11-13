@@ -200,14 +200,12 @@ fn past_limit(flow: &Compiled, work: &Work, line: &str, limit: u64) -> Option<u6
         .filter(|b| b.writers.outside.as_deref() == Some(SESSION))
         .any(|b| b.readers.cells.contains(&started.cell));
     // A run of the line that has not ended, as on a return sent back, goes on in the session it ran in, and so does a
-    // cell of the line whose run asked for calls and that has not been entered again for their results: the limit
-    // takes effect once the line's runs have ended and none of its cells waits so.
+    // cell of the line that applies and is owed the results of the calls its run asked for: the limit takes effect
+    // once the line's runs have ended and none of its cells waits so. A cell skipped since it asked waits for nothing.
     let r = &work.records;
     let of_line = || (r.started.iter()).filter(|s| line_of_cell(flow, s.cell.as_str()) == Some(line));
     let open =
         of_line().any(|s| !(r.finished.iter().any(|f| f.run == s.run) || r.abandoned.iter().any(|a| a.run == s.run)));
-    let waiting = (flow.flow.cells().iter())
-        .filter(|c| line_of_cell(flow, c.id.as_str()) == Some(line))
-        .any(|c| !decide::owed(&flow.flow, r, &c.id).is_empty());
+    let waiting = (decide::owed(&flow.flow, r).keys()).any(|cell| line_of_cell(flow, cell.as_str()) == Some(line));
     (!loads && !open && !waiting).then_some(context)
 }

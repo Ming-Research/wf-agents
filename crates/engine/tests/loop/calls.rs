@@ -119,3 +119,50 @@ fn a_run_kept_resting_at_its_calls_from_before_a_return_that_asks_ended_its_run_
     assert_eq!(start_of(&w, again).0, because);
     let _ = request;
 }
+
+#[test]
+fn a_run_kept_resting_at_the_owners_word_at_the_old_limit_of_calls_makes_what_it_asked_for_once_let_go() {
+    let (mut w, write, request) = W::requested();
+    let asks = vec![tool("search"), question(Who::Owner)];
+    w.returns(write, Came::asks(asks.clone()));
+    // The work as an engine kept it before: the return that asked was taken without ending its run, and the owner's
+    // word at the limit of calls was asked for before any of its calls was made.
+    let r = &mut w.work.records;
+    r.finished.retain(|f| f.run != write);
+    r.called.retain(|c| c.run != write);
+    w.work.calls.clear();
+    w.work.back.insert((write, 1), engine::Back::Asked(asks.clone()));
+    let limit = CallId(w.work.name());
+    let at = w.work.tick();
+    w.work.records.called.push(decide::Called {
+        call: limit,
+        run: write,
+        on: Some(Who::Owner),
+        at,
+    });
+    w.work.calls.insert(limit, Call::AtLimit(Limit::Calls { made: 0 }));
+    // Let go, the run finishes, making the calls it asked for.
+    let made = calls_of(&w.done(limit));
+    assert_eq!(
+        made.iter()
+            .map(|(_, run, what)| (*run, what.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            (write, Call::Asked(asks[0].clone())),
+            (write, Call::Asked(asks[1].clone()))
+        ]
+    );
+    let finished = (w.work.records.finished.iter())
+        .find(|f| f.run == write)
+        .expect("the run finished");
+    assert_eq!(finished.dealt_with, Some(vec![]));
+    // Once both have their results, the cell is entered for them, after the owner's word.
+    assert_eq!(w.done(made[0].0), vec![]);
+    w.done(made[1].0);
+    let again = w.work.records.started.last().expect("a run").run;
+    assert_ne!(again, write);
+    let calls = vec![limit, made[0].0, made[1].0];
+    let because = vec![changed("request", None, false), Cause::Results { calls }];
+    assert_eq!(start_of(&w, again).0, because);
+    let _ = request;
+}
