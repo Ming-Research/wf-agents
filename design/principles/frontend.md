@@ -32,6 +32,13 @@ out or left out.
 Why: What goes in and comes out has a structure of its own, and when the page chose what to show it left out things
 of value.
 
+### principle definitions-shown-as-written
+What the flow's files define is shown by its key and its value as they are written there: the page puts no sentence
+of its own in place of a key or a value, and holds no words of its own about what a definition holds. What a reader
+needs to know of a thing is written in the files, with the thing.
+Why: Sentences the page made up for each attribute could not be found in the files, said less than the key, and were
+a second copy kept by hand in the code, which drifted from the definition.
+
 ### principle told-apart-by-shape
 What the page says to the owner, what was sent to an agent and what an agent handed back each have one fixed look and
 are told apart by shape. What was sent is shown as it was sent, in order, with no words of the page between, and a
