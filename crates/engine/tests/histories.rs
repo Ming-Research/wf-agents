@@ -173,10 +173,12 @@ fn shape(n: usize, binds: &mut Rng) -> Compiled {
     let source = Source {
         flow: flow_file(&order, &blocks),
         cells: files,
+        ..Default::default()
     };
     let has = Has {
         sources: ["main".to_string()].into(),
         acts: ["merge".to_string()].into(),
+        ..Default::default()
     };
     compile(&source, &has).expect("the shape compiles")
 }

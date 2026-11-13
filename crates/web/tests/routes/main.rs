@@ -153,6 +153,7 @@ pub fn has(_: &Source) -> flow::Has {
     flow::Has {
         sources: BTreeSet::from(["main".to_string()]),
         acts: BTreeSet::from(["check".to_string(), "merge".to_string()]),
+        ..Default::default()
     }
 }
 
@@ -200,6 +201,7 @@ pub(crate) fn trial_has(_: &Source) -> flow::Has {
     flow::Has {
         sources: BTreeSet::from([driver::DEPENDENCIES.to_string()]),
         acts: BTreeSet::from(["merge".to_string()]),
+        ..Default::default()
     }
 }
 

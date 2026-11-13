@@ -13,6 +13,8 @@ mod levels;
 mod must_write;
 mod named_tests;
 mod notes;
+mod system;
 mod takes;
 mod takes_main;
+mod tools;
 mod valid;

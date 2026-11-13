@@ -103,6 +103,7 @@ fn judged_source() -> Source {
             .iter()
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
+        ..Default::default()
     }
 }
 
@@ -111,6 +112,7 @@ fn has(sources: &[&str]) -> Has {
     Has {
         sources: sources.iter().map(|s| s.to_string()).collect(),
         acts: ["merge".to_string()].into(),
+        ..Default::default()
     }
 }
 

@@ -47,6 +47,7 @@ fn acts_flow() -> Compiled {
     let has = flow::Has {
         sources: names(&[]),
         acts: names(&["start", "check", "merge"]),
+        ..Default::default()
     };
     flow::compile(&source, &has).unwrap()
 }

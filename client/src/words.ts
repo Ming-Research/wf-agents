@@ -83,8 +83,20 @@ export function faultWords(fault: Fault): string {
       return "An engine's cell names a reasoning effort, which no agent runs at.";
     case 'noEffort':
       return "An agent's cell names no reasoning effort for its rounds to run at.";
+    case 'engineHasTools':
+      return "An engine's cell names tools, which no agent asks for.";
     case 'unknownAct':
       return `The engine has no act named "${w.act}".`;
+    case 'unknownTool':
+      return `The engine has no tool named "${w.tool}".`;
+    case 'noSuchRules':
+      return `The line names the rules ${w.name}, but the flow has no rules/${w.name}.md.`;
+    case 'enginePart':
+      return `The engine places ${w.name} in every system prompt itself: a line names only its own sets of rules.`;
+    case 'rulesNamedAsEnginePart':
+      return `A set of rules is named ${w.name}, which is a part the engine places in every system prompt itself.`;
+    case 'unusedRules':
+      return `No line names the rules ${w.name}, so no agent would be given them.`;
     case 'valuesEmpty':
       return 'A choice has no values to choose from.';
     case 'noteNotByPeople':
@@ -95,10 +107,24 @@ export function faultWords(fault: Fault): string {
       return `The block ${w.block} is not declared in flow.toml.`;
     case 'notAnOutput':
       return `The cell must write ${w.block} every time, but ${w.block} is not among the blocks it may write.`;
-    case 'notAnInput':
-      return `The cell says what the work is by ${w.block}, but ${w.block} is not among the blocks it reads.`;
+    case 'describedNotRunOn':
+      return `The cell says what the work is by ${w.block}, but ${w.block} does not run it.`;
     case 'takenNotRead':
       return `The cell says how it takes ${w.block}, but ${w.block} is not among the blocks it reads.`;
+    case 'twoForms':
+      return 'Name them one way: either inputs, or runs_on and given.';
+    case 'engineIsGiven':
+      return `An engine's cell says how it is given ${w.block}, but it has no session.`;
+    case 'runByNothing':
+      return "Nothing runs this agent's cell, so it would never be entered.";
+    case 'noKind':
+      return `The cell is given ${w.block}, but does not say its kind.`;
+    case 'saysNothing':
+      return `The table for ${w.block} says nothing.`;
+    case 'notRunOn':
+      return `The cell says why ${w.block} runs it, but ${w.block} is not among what runs it.`;
+    case 'notGiven':
+      return `The cell says how it is given ${w.block}, but it is not given ${w.block}.`;
     case 'noWriter':
       return `Nothing writes ${w.block}: no cell of the order, no person and nothing outside.`;
     case 'noReader':
@@ -152,6 +178,9 @@ export function placeOf(change: Change): Place {
   switch (change.kind) {
     case 'name':
     case 'flowLimit':
+    case 'rulesAdded':
+    case 'rulesRemoved':
+    case 'rulesChanged':
       return { on: 'flow' };
     case 'testAdded':
     case 'testRemoved':
@@ -183,6 +212,7 @@ export interface ChangeWords {
 
 const yesNo = (b: boolean) => (b ? 'yes' : 'no');
 const values = (v: string[] | null) => (v ? v.join(', ') : 'not a choice');
+const names = (v: string[]) => (v.length > 0 ? v.join(', ') : 'none');
 const place = (p: number) => `place ${p + 1}`;
 
 export function changeWords(change: Change): ChangeWords {
@@ -200,6 +230,12 @@ export function changeWords(change: Change): ChangeWords {
       return { what: 'Words', before: c.before, after: c.after };
     case 'testChanged':
       return { what: 'Holds when', before: readsWords(c.before), after: readsWords(c.after) };
+    case 'rulesAdded':
+      return { what: `Rules ${c.name}`, before: '', after: c.text };
+    case 'rulesRemoved':
+      return { what: `Rules ${c.name}`, before: c.text, after: '' };
+    case 'rulesChanged':
+      return { what: `Rules ${c.name}`, before: c.before, after: c.after };
     case 'cellAdded':
       return { what: 'Put in', before: '', after: place(c.place) };
     case 'cellRemoved':
@@ -214,6 +250,10 @@ export function changeWords(change: Change): ChangeWords {
       return { what: 'Line', before: c.before ?? 'none', after: c.after ?? 'none' };
     case 'readsOnly':
       return { what: 'Only reads', before: yesNo(c.before), after: yesNo(c.after) };
+    case 'system':
+      return { what: 'Rules of its line', before: names(c.before), after: names(c.after) };
+    case 'takesMain':
+      return { what: 'Takes main in as it starts', before: yesNo(c.before), after: yesNo(c.after) };
     case 'task':
       return { what: 'Task', before: c.before ?? 'none', after: c.after ?? 'none' };
     case 'act':
@@ -224,10 +264,14 @@ export function changeWords(change: Change): ChangeWords {
       return { what: 'Waits until', before: '', after: testWords(c.test) };
     case 'preconditionRemoved':
       return { what: 'Waits until', before: testWords(c.test), after: '' };
-    case 'inputAdded':
-      return { what: 'Reads', before: '', after: c.block };
-    case 'inputRemoved':
-      return { what: 'Reads', before: c.block, after: '' };
+    case 'runsOnAdded':
+      return { what: 'Runs it', before: '', after: c.block };
+    case 'runsOnRemoved':
+      return { what: 'Runs it', before: c.block, after: '' };
+    case 'givenAdded':
+      return { what: 'Is given', before: '', after: c.block };
+    case 'givenRemoved':
+      return { what: 'Is given', before: c.block, after: '' };
     case 'outputAdded':
       return { what: 'May write', before: '', after: c.block };
     case 'outputRemoved':
@@ -240,10 +284,18 @@ export function changeWords(change: Change): ChangeWords {
       return { what: 'Says what the work is by', before: '', after: c.block };
     case 'describesRemoved':
       return { what: 'Says what the work is by', before: c.block, after: '' };
-    case 'inputKind':
-      return { what: `Takes ${c.block} as`, before: inputKindWords(c.before), after: inputKindWords(c.after) };
-    case 'inputWhy':
-      return { what: `Reads ${c.block} because`, before: c.before ?? 'not said', after: c.after ?? 'not said' };
+    case 'toolAdded':
+      return { what: 'May ask the engine for', before: '', after: c.tool };
+    case 'toolRemoved':
+      return { what: 'May ask the engine for', before: c.tool, after: '' };
+    case 'runsWhy':
+      return { what: `${c.block} runs it because`, before: c.before ?? 'not said', after: c.after ?? 'not said' };
+    case 'givenKind':
+      return { what: `Is given ${c.block} as`, before: inputKindWords(c.before), after: inputKindWords(c.after) };
+    case 'givenOrder':
+      return { what: 'Is given, in the order', before: names(c.before), after: names(c.after) };
+    case 'givenWhy':
+      return { what: `Is given ${c.block} because`, before: c.before ?? 'not said', after: c.after ?? 'not said' };
     case 'cellLimit':
       return { what: `Limit of ${LIMIT_WORDS[c.limit]}`, before: `${c.before}`, after: `${c.after}` };
     case 'effort':

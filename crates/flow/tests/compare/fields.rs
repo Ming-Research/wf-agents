@@ -75,6 +75,9 @@ fn a_cell_s_title_kind_line_task_and_act_are_each_a_change_with_both_values() {
                     after: None,
                 },
             ),
+            // In the old form an agent cell is given what runs it, and an engine cell nothing.
+            of("check", CellChange::GivenAdded("main".into())),
+            of("check", CellChange::GivenAdded("design".into())),
             of(
                 "check",
                 CellChange::Effort {
@@ -232,28 +235,42 @@ fn each_input_output_and_precondition_taken_out_or_put_in_is_a_change() {
         from_valid(&after),
         [
             of("plan", CellChange::OutputAdded("design".into())),
-            of("judge", CellChange::InputAdded("request".into())),
-            of("answer", CellChange::InputRemoved("plan".into())),
+            // In the old form a block of an agent cell's `inputs` runs it and is given to it.
+            of("judge", CellChange::RunsOnAdded("request".into())),
+            of("judge", CellChange::GivenAdded("request".into())),
+            of("answer", CellChange::RunsOnRemoved("plan".into())),
+            of("answer", CellChange::GivenRemoved("plan".into())),
             of("merge", CellChange::PreconditionAdded("plan_confirmed".into())),
         ]
     );
 }
 
 #[test]
-fn a_list_in_another_order_with_the_same_names_changes_nothing() {
+fn a_list_in_another_order_with_the_same_names_changes_nothing_but_what_a_cell_is_given() {
     let after = edit(
         valid(),
-        "plan.toml",
-        "inputs = [\"request\", \"opinions\"]",
-        "inputs = [\"opinions\", \"request\"]",
-    );
-    let after = edit(
-        after,
         "judge.toml",
         "outputs = [\"needs_design\", \"opinions\"]",
         "outputs = [\"opinions\", \"needs_design\"]",
     );
     assert_eq!(from_valid(&after), []);
+    // A cell is given its blocks in the order it names them: the old form's `inputs` are what an agent cell is given.
+    let after = edit(
+        after,
+        "plan.toml",
+        "inputs = [\"request\", \"opinions\"]",
+        "inputs = [\"opinions\", \"request\"]",
+    );
+    assert_eq!(
+        from_valid(&after),
+        [of(
+            "plan",
+            CellChange::GivenOrder {
+                before: vec!["request".into(), "opinions".into()],
+                after: vec!["opinions".into(), "request".into()],
+            },
+        )]
+    );
 }
 
 #[test]
@@ -326,32 +343,47 @@ fn a_cell_s_own_limit_is_a_change_and_a_limit_that_only_follows_the_flow_s_is_no
     );
 }
 
+/// The small flow whose judge names what it takes in the new form: the lists this says in place of its `inputs`, and
+/// the tables it says, from the first, at the end of the file, after the cell's other fields.
+fn judge_takes(said: &str) -> flow::Source {
+    let (lists, tables) = said.split_once("\n\n[").unwrap_or((said, ""));
+    let mut source = edit(valid(), "judge.toml", "inputs = [\"plan\"]", lists);
+    if !tables.is_empty() {
+        let text = source.cells.get_mut("judge").expect("the judge's file");
+        text.push_str(&format!("\n[{tables}\n"));
+    }
+    source
+}
+
 #[test]
-fn how_a_cell_takes_an_input_and_why_are_each_a_change_with_both_values() {
-    let takes = |tables: &str| {
-        edit(
-            valid(),
-            "judge.toml",
-            "outputs = [\"needs_design\", \"opinions\"]",
-            &format!("outputs = [\"needs_design\", \"opinions\"]\n\n{tables}"),
-        )
-    };
-    let before = takes("[input.plan]\nkind = \"latest\"");
-    let after = takes("[input.plan]\nkind = \"all\"\nwhy = \"It is what to judge.\"");
+fn how_a_cell_is_given_a_block_and_why_a_block_runs_it_are_each_a_change_with_both_values() {
+    let before = judge_takes("runs_on = [\"plan\"]\ngiven = [\"plan\"]\n\n[give.plan]\nkind = \"latest\"");
+    let after = judge_takes(
+        "runs_on = [\"plan\"]\ngiven = [\"plan\"]\n\n[run.plan]\nwhy = \"It changed what to judge.\"\n\n\
+         [give.plan]\nkind = \"all\"\nwhy = \"It is what to judge.\"",
+    );
     assert_eq!(
         flow::compare(&compiled(&before), &compiled(&after)),
         [
             of(
                 "judge",
-                CellChange::InputKind {
+                CellChange::RunsWhy {
                     block: "plan".into(),
-                    before: Some(InputKind::Latest),
-                    after: Some(InputKind::All),
+                    before: None,
+                    after: Some("It changed what to judge.".to_string()),
                 },
             ),
             of(
                 "judge",
-                CellChange::InputWhy {
+                CellChange::GivenKind {
+                    block: "plan".into(),
+                    before: InputKind::Latest,
+                    after: InputKind::All,
+                },
+            ),
+            of(
+                "judge",
+                CellChange::GivenWhy {
                     block: "plan".into(),
                     before: None,
                     after: Some("It is what to judge.".to_string()),
@@ -359,15 +391,24 @@ fn how_a_cell_takes_an_input_and_why_are_each_a_change_with_both_values() {
             ),
         ]
     );
-    // Said for the first time, each is a change from nothing said; said alike in both, neither is one.
+    // A why said for the first time is a change from nothing said; said alike in both, neither is one. The old form and
+    // the new that say the same are the same definition, and a kind the old form leaves unsaid is the version last
+    // worked from and the latest.
+    let old = edit(
+        valid(),
+        "judge.toml",
+        "outputs = [\"needs_design\", \"opinions\"]",
+        "outputs = [\"needs_design\", \"opinions\"]\n\n[input.plan]\nkind = \"latest\"",
+    );
+    assert_eq!(flow::compare(&compiled(&old), &compiled(&before)), []);
     assert_eq!(
         from_valid(&before),
         [of(
             "judge",
-            CellChange::InputKind {
+            CellChange::GivenKind {
                 block: "plan".into(),
-                before: None,
-                after: Some(InputKind::Latest),
+                before: InputKind::LastAndLatest,
+                after: InputKind::Latest,
             },
         )]
     );
@@ -375,25 +416,184 @@ fn how_a_cell_takes_an_input_and_why_are_each_a_change_with_both_values() {
 }
 
 #[test]
-fn an_input_put_in_or_taken_out_with_what_is_said_of_it_is_one_change() {
-    let with = edit(
-        valid(),
-        "answer.toml",
-        "limit = 5",
-        "limit = 5\n\n[input.plan]\nkind = \"latest\"\nwhy = \"It is what was commented on.\"",
+fn the_blocks_a_cell_is_given_in_another_order_are_a_change_with_both_lists() {
+    // The planning cell runs on the request and is given these blocks, each the latest of it.
+    let given = |blocks: &[&str]| {
+        let list: Vec<String> = blocks.iter().map(|b| format!("\"{b}\"")).collect();
+        let tables: Vec<String> = blocks
+            .iter()
+            .map(|b| format!("[give.{b}]\nkind = \"latest\""))
+            .collect();
+        plan_takes(&format!(
+            "runs_on = [\"request\"]\ngiven = [{}]\n\n{}",
+            list.join(", "),
+            tables.join("\n\n")
+        ))
+    };
+    let before = given(&["request", "opinions"]);
+    let blocks = |names: &[&str]| names.iter().map(|&n| n.into()).collect::<Vec<_>>();
+    assert_eq!(
+        flow::compare(&compiled(&before), &compiled(&given(&["opinions", "request"]))),
+        [of(
+            "plan",
+            CellChange::GivenOrder {
+                before: blocks(&["request", "opinions"]),
+                after: blocks(&["opinions", "request"]),
+            },
+        )]
     );
-    let without = edit(
-        valid(),
-        "answer.toml",
-        "inputs = [\"comments\", \"plan\"]",
-        "inputs = [\"comments\"]",
+    // A block put in where the others keep their order is only that.
+    assert_eq!(
+        flow::compare(&compiled(&before), &compiled(&given(&["plan", "request", "opinions"]))),
+        [of("plan", CellChange::GivenAdded("plan".into()))]
     );
+}
+
+/// The small flow whose planning cell names what it takes in the new form: the lists this says in place of its
+/// `inputs`, and the tables it says, from the first, at the end of the file.
+fn plan_takes(said: &str) -> flow::Source {
+    let (lists, tables) = said.split_once("\n\n[").unwrap_or((said, ""));
+    let mut source = edit(valid(), "plan.toml", "inputs = [\"request\", \"opinions\"]", lists);
+    if !tables.is_empty() {
+        let text = source.cells.get_mut("plan").expect("the planning cell's file");
+        text.push_str(&format!("\n[{tables}\n"));
+    }
+    source
+}
+
+#[test]
+fn a_block_put_in_or_taken_out_with_what_is_said_of_it_is_one_change_of_each_list_it_is_in() {
+    // What is said of the plan comes and goes with it; what is said of the request, which runs the cell in both, is a
+    // change of its own.
+    let with = judge_takes(
+        "runs_on = [\"request\", \"plan\"]\ngiven = [\"plan\"]\n\n[run.request]\nwhy = \"It is what was asked.\"\n\n\
+         [run.plan]\nwhy = \"It changed what to judge.\"\n\n[give.plan]\nkind = \"latest\"",
+    );
+    let without = judge_takes("runs_on = [\"request\"]");
     assert_eq!(
         flow::compare(&compiled(&with), &compiled(&without)),
-        [of("answer", CellChange::InputRemoved("plan".into()))]
+        [
+            of("judge", CellChange::RunsOnRemoved("plan".into())),
+            of("judge", CellChange::GivenRemoved("plan".into())),
+            of(
+                "judge",
+                CellChange::RunsWhy {
+                    block: "request".into(),
+                    before: Some("It is what was asked.".to_string()),
+                    after: None,
+                },
+            ),
+        ]
     );
     assert_eq!(
         flow::compare(&compiled(&without), &compiled(&with)),
-        [of("answer", CellChange::InputAdded("plan".into()))]
+        [
+            of("judge", CellChange::RunsOnAdded("plan".into())),
+            of("judge", CellChange::GivenAdded("plan".into())),
+            of(
+                "judge",
+                CellChange::RunsWhy {
+                    block: "request".into(),
+                    before: None,
+                    after: Some("It is what was asked.".to_string()),
+                },
+            ),
+        ]
+    );
+}
+
+#[test]
+fn the_tools_a_cell_may_ask_for_and_whether_it_takes_main_in_are_each_a_change() {
+    let after = edit(
+        valid(),
+        "judge.toml",
+        "inputs = [\"plan\"]",
+        "inputs = [\"plan\"]\ntools = [\"run_tests\", \"query\"]",
+    );
+    let after = edit(
+        after,
+        "design.toml",
+        "inputs = [\"plan\"]",
+        "inputs = [\"plan\"]\ntakes_main = true",
+    );
+    assert_eq!(
+        from_valid(&after),
+        [
+            of("judge", CellChange::ToolAdded("run_tests".to_string())),
+            of("judge", CellChange::ToolAdded("query".to_string())),
+            of(
+                "design",
+                CellChange::TakesMain {
+                    before: false,
+                    after: true,
+                },
+            ),
+        ]
+    );
+    let fewer = edit(after.clone(), "judge.toml", "[\"run_tests\", \"query\"]", "[\"query\"]");
+    assert_eq!(
+        flow::compare(&compiled(&after), &compiled(&fewer)),
+        [of("judge", CellChange::ToolRemoved("run_tests".to_string()))]
+    );
+}
+
+#[test]
+fn the_sets_of_rules_a_line_names_are_a_change_of_each_cell_of_the_line_and_their_texts_of_the_flow() {
+    let rules = |source: flow::Source, texts: &[(&str, &str)]| {
+        let mut source = source;
+        source.rules = texts.iter().map(|(n, t)| (n.to_string(), t.to_string())).collect();
+        source
+    };
+    let review = |list: &str| {
+        edit(
+            valid(),
+            FLOW_FILE,
+            "[lines.review]",
+            &format!("[lines.review]\nsystem = {list}"),
+        )
+    };
+    let after = rules(review(r#"["general"]"#), &[("general", "Say one thing.")]);
+    let system = |before: &[&str], after: &[&str]| CellChange::System {
+        before: before.iter().map(|p| p.to_string()).collect(),
+        after: after.iter().map(|p| p.to_string()).collect(),
+    };
+    assert_eq!(
+        from_valid(&after),
+        [
+            Change::RulesAdded {
+                name: "general".to_string(),
+                text: "Say one thing.".to_string(),
+            },
+            of("judge", system(&[], &["general"])),
+        ]
+    );
+    let reordered = rules(
+        review(r#"["review", "general"]"#),
+        &[("general", "Say one thing per sentence."), ("review", "Judge.")],
+    );
+    assert_eq!(
+        flow::compare(&compiled(&after), &compiled(&reordered)),
+        [
+            Change::RulesChanged {
+                name: "general".to_string(),
+                before: "Say one thing.".to_string(),
+                after: "Say one thing per sentence.".to_string(),
+            },
+            Change::RulesAdded {
+                name: "review".to_string(),
+                text: "Judge.".to_string(),
+            },
+            of("judge", system(&["general"], &["review", "general"])),
+        ]
+    );
+    assert_eq!(
+        flow::compare(&compiled(&after), &compiled(&valid())),
+        [
+            Change::RulesRemoved {
+                name: "general".to_string(),
+                text: "Say one thing.".to_string(),
+            },
+            of("judge", system(&["general"], &[])),
+        ]
     );
 }

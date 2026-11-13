@@ -85,6 +85,7 @@ pub fn trial_flow() -> Compiled {
     let has = flow::Has {
         sources: BTreeSet::from([driver::DEPENDENCIES.to_string()]),
         acts: BTreeSet::from(["merge".to_string()]),
+        ..Default::default()
     };
     flow::compile(&source, &has).expect("the trial flow compiles")
 }

@@ -341,13 +341,13 @@ describe('a comparison', () => {
         against: { state: 'compiled', flow: before },
         changes: [
           { kind: 'title', cell: 'a', before: 'A', after: 'First' },
-          { kind: 'inputAdded', cell: 'b', block: 'y' },
+          { kind: 'runsOnAdded', cell: 'b', block: 'y' },
           { kind: 'blockAdded', block: 'y' },
         ],
       },
     );
     expect(texts(page, '.change-group h3')).toEqual(['a First', 'b B', 'Block y']);
-    expect(texts(page, '.changes .change')).toEqual(['TitleA → First', 'Readsy', 'Declared']);
+    expect(texts(page, '.changes .change')).toEqual(['TitleA → First', 'Runs ity', 'Declared']);
     expect(page.querySelector('thead .cell-head')?.className).toContain('status-changed');
     expect(rowOf(page, 'y').className).toContain('status-added');
     expect(page.querySelectorAll('.part.added')).toHaveLength(1);

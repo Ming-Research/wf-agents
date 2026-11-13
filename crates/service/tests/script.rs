@@ -16,6 +16,7 @@ fn trial() -> Compiled {
     let has = flow::Has {
         sources: BTreeSet::from([driver::DEPENDENCIES.to_string()]),
         acts: BTreeSet::from(["merge".to_string()]),
+        ..Default::default()
     };
     flow::compile(&source, &has).unwrap()
 }
@@ -133,6 +134,7 @@ fn trial_reviewing_every_time() -> Compiled {
     let has = flow::Has {
         sources: BTreeSet::from([driver::DEPENDENCIES.to_string()]),
         acts: BTreeSet::from(["merge".to_string()]),
+        ..Default::default()
     };
     flow::compile(&source, &has).unwrap()
 }

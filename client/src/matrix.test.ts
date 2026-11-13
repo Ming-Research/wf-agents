@@ -186,7 +186,7 @@ describe('what changed', () => {
   );
   const changes: Change[] = [
     { kind: 'title', cell: 'plan', before: 'plan', after: 'Plan it' },
-    { kind: 'inputAdded', cell: 'plan', block: 'notes' },
+    { kind: 'runsOnAdded', cell: 'plan', block: 'notes' },
     { kind: 'cellAdded', cell: 'new', place: 1 },
     { kind: 'cellRemoved', cell: 'old', place: 1 },
     { kind: 'blockAdded', block: 'notes' },
@@ -201,7 +201,7 @@ describe('what changed', () => {
       ['new', 'added', true],
       ['merge', 'same', true],
     ]);
-    expect([...m.cells[0].changed]).toEqual(['title', 'inputAdded']);
+    expect([...m.cells[0].changed]).toEqual(['title', 'runsOnAdded']);
     expect(m.blocks.map((b) => [b.name, b.status])).toEqual([
       ['request', 'same'],
       ['notes', 'added'],

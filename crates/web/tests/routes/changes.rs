@@ -54,7 +54,8 @@ async fn the_changes_are_given_in_their_order_with_the_definition_compared_again
                 "after": "The owner confirmed the merge",
             },
             { "kind": "title", "cell": "review", "before": "Review", "after": "Review the plan" },
-            { "kind": "inputAdded", "cell": "review", "block": "request" },
+            { "kind": "runsOnAdded", "cell": "review", "block": "request" },
+            { "kind": "givenAdded", "cell": "review", "block": "request" },
             { "kind": "values", "block": "content", "before": ["yes", "no"], "after": ["yes", "no", "later"] },
         ])
     );
@@ -72,15 +73,15 @@ async fn how_a_cell_takes_a_block_why_and_what_a_block_is_are_each_given_as_a_ch
         after,
         Some("review"),
         "must_write = [\"content\"]",
-        "must_write = [\"content\"]\n\n[input.plan]\nkind = \"last_and_latest\"\nwhy = \"It is what to review.\"",
+        "must_write = [\"content\"]\n\n[input.plan]\nkind = \"all\"\nwhy = \"It is what to review.\"",
     );
     let router = serve(&Shared::new(Ok(after)), Some(&Shared::new(Ok(tiny()))));
     assert_eq!(
         get_json(&router, "/api/v1/flow/changes").await["changes"],
         json!([
-            { "kind": "inputKind", "cell": "review", "block": "plan", "before": null, "after": "lastAndLatest" },
+            { "kind": "givenKind", "cell": "review", "block": "plan", "before": "lastAndLatest", "after": "all" },
             {
-                "kind": "inputWhy",
+                "kind": "givenWhy",
                 "cell": "review",
                 "block": "plan",
                 "before": null,

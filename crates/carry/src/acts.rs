@@ -661,6 +661,7 @@ mod tests {
         let has = flow::Has {
             sources: names(&[]),
             acts: names(&["start", "check", "merge"]),
+            ..Default::default()
         };
         flow::compile(&source, &has).unwrap()
     }
