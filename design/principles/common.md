@@ -6,6 +6,10 @@ Why: Telling someone about one occurrence ends nothing; someone has to type it i
 Once a way to solve a problem is chosen, ask again, by reasoning about the problem rather than listing options, whether it is the best way and whether a better one exists.
 Why: Without that reasoning, a fix solved one problem while making others, and the work did not converge.
 
+### principle solve-within-the-design-first
+Before a new mechanism is added to the system (a new kind of thing, or a new rule in how it works: a special case, a switch, a second way of doing what one way already does), a clean solution is looked for in the design as it stands: one with no case handled apart, no part going around another and no rule that holds only with exceptions (Article 6). Only where the design as it stands cannot solve the problem cleanly is a new mechanism added.
+Why: Every mechanism is one more that each agent and each later design must know and keep consistent with the rest, and a second way of doing one thing drifts from the first (principle one-thing-one-place). Twice, in designing how the owner's words reach a work's cells, a new rule was proposed where data with versions and an input of each cell's own already served (the design of data and context).
+
 ### principle one-thing-one-place
 Each thing (a value, a computation, a capability, a rule, a reason) is defined in one place and referred to elsewhere. It has one name everywhere, named for what it is, and a name, field, relation or state carries one meaning, never two folded into one even where they usually go together.
 Why: Two copies drift apart and contradict each other, and a second name is one more thing every reader must learn: reasons once written into the flow definition were sent to agents every round and drifted from the tree's. Two meanings in one tangle: a relation that meant both dependency and grouping, and a status that made an item read five ways and contradict itself.
