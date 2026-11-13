@@ -147,12 +147,13 @@ impl Shared {
     }
 }
 
-/// What the engine is taken to have for the small flows: one source outside a work, `main`, and two acts, `check` and
-/// `merge`.
+/// What the engine is taken to have for the small flows: one source outside a work, `main`, two acts, `check` and
+/// `merge`, and one tool, `run_tests`.
 pub fn has(_: &Source) -> flow::Has {
     flow::Has {
         sources: BTreeSet::from(["main".to_string()]),
         acts: BTreeSet::from(["check".to_string(), "merge".to_string()]),
+        tools: BTreeSet::from(["run_tests".to_string()]),
         ..Default::default()
     }
 }

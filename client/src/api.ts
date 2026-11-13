@@ -38,14 +38,22 @@ export interface Test {
 
 export type Kind = 'agent' | 'engine';
 
-/// What the context of a cell's session must hold of a block the cell reads when the cell runs: its latest version,
-/// the version the cell last consumed and the latest, or every version.
+/// What the context of a cell's session must hold of a block the cell is given when the cell runs: its latest
+/// version, the version the cell last consumed and the latest, or every version.
 export type InputKind = 'latest' | 'lastAndLatest' | 'all';
 
-/// How a cell takes one of the blocks it reads; each none where the definition does not say.
-export interface Input {
-  kind: InputKind | null;
-  /// Why the cell takes the block.
+/// A block whose new version runs a cell.
+export interface RunsOn {
+  block: string;
+  /// What the cell's agent does when the block is new; none where the definition does not say.
+  why: string | null;
+}
+
+/// A block a cell is given.
+export interface Given {
+  block: string;
+  kind: InputKind;
+  /// What the cell's agent does with the block; none where the definition does not say.
   why: string | null;
 }
 
@@ -64,16 +72,21 @@ export interface Cell {
   act: string | null;
   /// The reasoning effort an agent's cell's rounds run at; an engine's cell has none.
   effort: string | null;
+  /// The work's branch takes the latest main in as each run of the cell starts; an engine's cell's never does.
+  takesMain: boolean;
   /// None is always.
   condition: Condition | null;
   preconditions: Test[];
-  /// The blocks it names: those that run it, in the order it names them, then those it is only given.
-  inputs: string[];
-  /// How it takes the blocks it names, by the block's name, for each of them the definition says it of.
-  input: Record<string, Input>;
+  /// The blocks whose new version runs it, in the order it names them.
+  runsOn: RunsOn[];
+  /// The blocks it is given, its session kept supplied with them, in the order it names them; none for an engine's
+  /// cell.
+  given: Given[];
   outputs: string[];
   /// The blocks among its outputs that every hand-in of it includes.
   mustWrite: string[];
+  /// The tools of the engine's that an agent's cell may ask for in its return, by name; none for an engine's cell.
+  tools: string[];
   limits: Limits;
 }
 

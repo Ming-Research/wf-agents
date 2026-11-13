@@ -1,6 +1,7 @@
 // The chart as a matrix: the blocks as rows, the cells as columns in the order of the walk, and at each crossing what
-// the cell does with the block. Everything the chart draws is worked out here, from the interface's JSON alone, so
-// that it can be tested without drawing: the order of the rows, the marks, the ways back and what changed.
+// the cell does with the block; over the blocks, a row for each tool of the engine's a cell may ask for. Everything the
+// chart draws is worked out here, from the interface's JSON alone, so that it can be tested without drawing: the order
+// of the rows, the marks, the ways back and what changed.
 //
 // When there is a definition to compare against, the matrix holds the cells and blocks of both: the one whose version
 // is shown in its order, each that only the other has standing after the one it followed there (of those that did not
@@ -8,27 +9,44 @@
 
 import type { Block, Cell, Change, Flow } from './api';
 
-/// What a cell does with a block: reads it as an input, may write it as an output, reads its value in its condition
-/// (directly, or by the named test that is its condition), or reads its value in a named test that is one of its
-/// preconditions.
+/// What a cell does with a block: a new version of it runs the cell, the cell is given it, may write it as an output,
+/// reads its value in its condition (directly, or by the named test that is its condition), or reads its value in a
+/// named test that is one of its preconditions.
 export interface Mark {
-  read: boolean;
+  runs: boolean;
+  given: boolean;
   write: boolean;
   condition: boolean;
   precondition: boolean;
 }
 
-export const NO_MARK: Mark = { read: false, write: false, condition: false, precondition: false };
+export const NO_MARK: Mark = { runs: false, given: false, write: false, condition: false, precondition: false };
 
-export const MARK_PARTS = ['read', 'write', 'condition', 'precondition'] as const;
+export const MARK_PARTS = ['runs', 'given', 'write', 'condition', 'precondition'] as const;
 export type MarkPart = (typeof MARK_PARTS)[number];
+
+/// Whether a new version of the block runs the cell.
+export function runsCell(cell: Cell, block: string): boolean {
+  return cell.runsOn.some((r) => r.block === block);
+}
+
+/// Whether the cell is given the block.
+export function givenTo(cell: Cell, block: string): boolean {
+  return cell.given.some((g) => g.block === block);
+}
+
+/// The blocks a cell names, each once: those that run it, in their order, then those it is only given, in theirs.
+export function named(cell: Cell): string[] {
+  return [...new Set([...cell.runsOn.map((r) => r.block), ...cell.given.map((g) => g.block)])];
+}
 
 /// The mark of a cell on a block.
 export function markOf(cell: Cell | undefined, block: string): Mark {
   if (!cell) return NO_MARK;
   const condition = cell.condition;
   return {
-    read: cell.inputs.includes(block),
+    runs: runsCell(cell, block),
+    given: givenTo(cell, block),
     write: cell.outputs.includes(block),
     condition:
       condition !== null && (condition.on === 'block' ? condition.block === block : condition.test.reads.includes(block)),
@@ -37,15 +55,16 @@ export function markOf(cell: Cell | undefined, block: string): Mark {
 }
 
 export function hasMark(mark: Mark): boolean {
-  return mark.read || mark.write || mark.condition || mark.precondition;
+  return mark.runs || mark.given || mark.write || mark.condition || mark.precondition;
 }
 
 /// The order of the blocks' rows. A block stands where it is first written in the walk, a cell's outputs together
 /// in the order the cell lists them; a block no cell writes (what people or the outside write) stands just before the
-/// first cell that reads it: the blocks its condition reads first, then those its preconditions read, then its inputs
-/// in their order; a block no cell writes or reads stands last. Ties go by name. The marks then step down to the right
-/// like a staircase, each cell's writes one under another and next to the reads that follow from them, and a write
-/// right of a read stands out as a way back.
+/// first cell that has to do with it: the blocks its condition reads first, then those its preconditions read, then
+/// those it names, those that run it and then those it is only given, in their order; a block no cell writes or reads
+/// stands last. Ties go by name. The marks then step down to the right like a staircase, each cell's writes one under
+/// another and next to the marks that follow from them, and a write right of a block that runs a cell stands out as a
+/// way back.
 export function blockOrder(flow: Flow): string[] {
   const place = new Map(flow.cells.map((c, i) => [c.id, i]));
   const key = (block: Block): [number, number, number] => {
@@ -58,7 +77,7 @@ export function blockOrder(flow: Flow): string[] {
     if (first !== -1) {
       const cell = flow.cells[first];
       const mark = markOf(cell, block.name);
-      return [first, 0, mark.condition ? -2 : mark.precondition ? -1 : cell.inputs.indexOf(block.name)];
+      return [first, 0, mark.condition ? -2 : mark.precondition ? -1 : named(cell).indexOf(block.name)];
     }
     return [Infinity, 0, 0];
   };
@@ -134,13 +153,30 @@ export interface Spot {
   /// Those only the version compared against has: taken out by the change.
   removed: Mark;
   /// The row's line, which the eye follows along the cells: from the first mark that no way back reaches to the
-  /// last mark. A read left of every write is reached by the way back alone, so the line starts at the first cell
-  /// that writes the block, the way the block goes on from there; where no cell writes it, at the first mark.
+  /// last mark. A cell left of every write that a way back reaches is reached by the way back alone, so the line
+  /// starts at the first cell that writes the block, the way the block goes on from there; where no cell writes it, at
+  /// the first mark.
   line: Segment;
-  /// The way back: from a later cell's write leftwards to the reads of the same block by cells before it.
+  /// The way back: from a later cell's write leftwards to the cells before it that the same block runs, or whose
+  /// condition reads it. A block a cell is only given does not run it, so no way back reaches it.
   back: Segment;
-  /// A read that a write right of it sends the work back to.
+  /// A cell that a write right of it sends the work back to.
   backTo: boolean;
+}
+
+/// Where a tool's row crosses a cell's column: whether the cell may ask for the tool in the version shown, and whether
+/// the change put that in or took it out.
+export interface ToolSpot {
+  asks: boolean;
+  added: boolean;
+  removed: boolean;
+}
+
+/// The row of a tool of the engine's, which an agent's cell may ask for in its return.
+export interface ToolRow {
+  name: string;
+  /// By cell, in the order of the columns.
+  spots: ToolSpot[];
 }
 
 export type Version = 'after' | 'before';
@@ -154,7 +190,11 @@ export interface Matrix {
   cells: CellColumn[];
   /// By block, then by cell.
   spots: Spot[][];
-  /// How many ways back the version shown has: pairs of a block's read and a later cell's write of it.
+  /// The rows of the tools that a cell of either version may ask for, over the blocks' rows: each tool in the order
+  /// of the first column whose cell may ask for it, those of one column as its cell lists them.
+  tools: ToolRow[];
+  /// How many ways back the version shown has: pairs of a cell a block runs, or whose condition reads it, and a later
+  /// cell's write of it.
   waysBack: number;
 }
 
@@ -227,7 +267,8 @@ export function matrix(versions: Versions, version: Version): Matrix {
   });
 
   const only = (x: Mark, y: Mark): Mark => ({
-    read: x.read && !y.read,
+    runs: x.runs && !y.runs,
+    given: x.given && !y.given,
     write: x.write && !y.write,
     condition: x.condition && !y.condition,
     precondition: x.precondition && !y.precondition,
@@ -245,7 +286,7 @@ export function matrix(versions: Versions, version: Version): Matrix {
   for (const row of spots) {
     const marks = row.map((spot) => spot.mark);
     const marked = marks.flatMap((m, c) => (hasMark(m) ? [c] : []));
-    const reads = marks.flatMap((m, c) => (m.read || m.condition ? [c] : []));
+    const reads = marks.flatMap((m, c) => (m.runs || m.condition ? [c] : []));
     const writes = marks.flatMap((m, c) => (m.write ? [c] : []));
     const lastWrite = writes[writes.length - 1];
     const reached = reads.filter((c) => lastWrite !== undefined && c < lastWrite);
@@ -263,7 +304,18 @@ export function matrix(versions: Versions, version: Version): Matrix {
     }
   }
 
-  return { version, blocks, cells, spots, waysBack };
+  const asks = (flow: Flow | undefined, id: string, tool: string) => cellIn(flow, id)?.tools.includes(tool) ?? false;
+  const toolNames = cells.flatMap((column) => [...(column.cell?.tools ?? []), ...(column.other?.tools ?? [])]);
+  const tools: ToolRow[] = [...new Set(toolNames)].map((name) => ({
+    name,
+    spots: cells.map((column) => {
+      const a = asks(after, column.id, name);
+      const b = before ? asks(before, column.id, name) : a;
+      return { asks: asks(shown, column.id, name), added: a && !b, removed: b && !a };
+    }),
+  }));
+
+  return { version, blocks, cells, spots, tools, waysBack };
 }
 
 /// Paints a line along a row from the middle of the crossing at `from` to the middle of the one at `to`.

@@ -17,6 +17,10 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
         "reads": ["go"],
         "is": "yes",
     });
+    // The cells are in the old form, one list each: each block of it runs the cell, and an agent's cell is given it,
+    // the version it last worked from and the latest where the cell names no kind.
+    let runs = |block: &str| json!({ "block": block, "why": null });
+    let given = |block: &str| json!({ "block": block, "kind": "lastAndLatest", "why": null });
     assert_eq!(
         get_json(&router, "/api/v1/flow").await,
         json!({
@@ -35,15 +39,14 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "task": "Write the plan from the request.",
                         "act": null,
                         "effort": "high",
+                        "takesMain": false,
                         "condition": null,
                         "preconditions": [],
-                        "inputs": ["request", "opinions"],
-                        "input": {
-                            "request": { "kind": "lastAndLatest", "why": null },
-                            "opinions": { "kind": "lastAndLatest", "why": null },
-                        },
+                        "runsOn": [runs("request"), runs("opinions")],
+                        "given": [given("request"), given("opinions")],
                         "outputs": ["plan"],
                         "mustWrite": [],
+                        "tools": [],
                         "limits": limits(3),
                     },
                     {
@@ -54,12 +57,14 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "task": "Review the plan.\nSay whether it is content.",
                         "act": null,
                         "effort": "high",
+                        "takesMain": false,
                         "condition": null,
                         "preconditions": [],
-                        "inputs": ["plan"],
-                        "input": { "plan": { "kind": "lastAndLatest", "why": null } },
+                        "runsOn": [runs("plan")],
+                        "given": [given("plan")],
                         "outputs": ["opinions", "content"],
                         "mustWrite": ["content"],
+                        "tools": [],
                         "limits": limits(5),
                     },
                     {
@@ -70,12 +75,14 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "task": null,
                         "act": "merge",
                         "effort": null,
+                        "takesMain": false,
                         "condition": null,
                         "preconditions": [may_merge],
-                        "inputs": ["content"],
-                        "input": {},
+                        "runsOn": [runs("content")],
+                        "given": [],
                         "outputs": [],
                         "mustWrite": [],
+                        "tools": [],
                         "limits": limits(3),
                     },
                 ],
@@ -186,23 +193,62 @@ async fn how_a_cell_takes_a_block_and_what_a_block_is_are_given_as_written() {
     let router = serve(&Shared::new(Ok(source)), None);
     let answer = get_json(&router, "/api/v1/flow").await;
     assert_eq!(
-        answer["flow"]["cells"][1]["input"],
-        json!({ "plan": { "kind": "lastAndLatest", "why": "It is what to review." } })
+        answer["flow"]["cells"][1]["given"],
+        json!([{ "block": "plan", "kind": "lastAndLatest", "why": "It is what to review." }])
     );
     // Of a block an agent's cell names no kind of, it is given the version it last worked from and the latest; a why
     // it leaves unsaid is none; an engine's cell is given nothing.
     assert_eq!(
-        answer["flow"]["cells"][0]["input"],
-        json!({
-            "request": { "kind": "all", "why": null },
-            "opinions": { "kind": "lastAndLatest", "why": null },
-        })
+        answer["flow"]["cells"][0]["given"],
+        json!([
+            { "block": "request", "kind": "all", "why": null },
+            { "block": "opinions", "kind": "lastAndLatest", "why": null },
+        ])
     );
-    assert_eq!(answer["flow"]["cells"][2]["input"], json!({}));
+    assert_eq!(answer["flow"]["cells"][2]["given"], json!([]));
     let plan = &answer["flow"]["blocks"][3];
     assert_eq!(
         (&plan["name"], &plan["what"]),
         (&json!("plan"), &json!("What will be done."))
+    );
+}
+
+#[tokio::test]
+async fn what_runs_a_cell_what_it_is_given_and_the_tools_it_may_ask_for_are_given_apart_as_written() {
+    let source = edit(
+        tiny(),
+        Some("plan"),
+        "inputs = [\"request\", \"opinions\"]\noutputs = [\"plan\"]",
+        "runs_on = [\"opinions\", \"request\"]\ngiven = [\"request\", \"plan\"]\noutputs = [\"plan\"]\n\
+         takes_main = true\ntools = [\"run_tests\"]\n\n\
+         [run.opinions]\nwhy = \"Answer each opinion.\"\n\n\
+         [give.request]\nkind = \"latest\"\nwhy = \"It is what to plan.\"\n\n\
+         [give.plan]\nkind = \"last_and_latest\"",
+    );
+    let router = serve(&Shared::new(Ok(source)), None);
+    let answer = get_json(&router, "/api/v1/flow").await;
+    let plan = &answer["flow"]["cells"][0];
+    // Each list in the order the cell names it: opinions only runs the cell, plan it is only given.
+    assert_eq!(
+        plan["runsOn"],
+        json!([
+            { "block": "opinions", "why": "Answer each opinion." },
+            { "block": "request", "why": null },
+        ])
+    );
+    assert_eq!(
+        plan["given"],
+        json!([
+            { "block": "request", "kind": "latest", "why": "It is what to plan." },
+            { "block": "plan", "kind": "lastAndLatest", "why": null },
+        ])
+    );
+    assert_eq!(plan["tools"], json!(["run_tests"]));
+    assert_eq!(plan["takesMain"], json!(true));
+    // The plan is named by the cell that writes it, which is among those that read it.
+    assert_eq!(
+        answer["flow"]["blocks"][3]["readBy"]["cells"],
+        json!(["plan", "review"])
     );
 }
 

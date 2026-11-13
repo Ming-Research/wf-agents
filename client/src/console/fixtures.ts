@@ -30,6 +30,7 @@ type CellIn = {
   task?: string;
   /// The engine's act that carries out an engine's cell.
   act?: string;
+  /// The blocks that run it; an agent's cell is given each of them too, the last and the latest.
   inputs: string[];
   outputs: string[];
   /// The blocks among its outputs that every hand-in of it includes; none where it is left out.
@@ -52,12 +53,14 @@ function flowOf(
     task: c.task ?? null,
     act: c.act ?? null,
     effort: c.line === null ? null : 'high',
+    takesMain: false,
     condition: c.condition ?? null,
     preconditions: c.preconditions ?? [],
-    inputs: c.inputs,
-    input: {},
+    runsOn: c.inputs.map((block) => ({ block, why: null })),
+    given: c.line === null ? [] : c.inputs.map((block) => ({ block, kind: 'lastAndLatest', why: null })),
     outputs: c.outputs,
     mustWrite: c.mustWrite ?? [],
+    tools: [],
     limits: LIMITS,
   }));
   const tests = [...new Map(all.flatMap((c) => c.preconditions).map((t) => [t.name, t])).values()];
@@ -74,7 +77,7 @@ function flowOf(
         outside: blocks[b].outside ?? null,
       },
       readBy: {
-        cells: all.filter((c) => c.inputs.includes(b)).map((c) => c.id),
+        cells: cells.filter((c) => c.inputs.includes(b)).map((c) => c.id),
         conditions: all.filter((c) => c.condition?.on === 'block' && c.condition.block === b).map((c) => c.id),
         tests: tests.filter((t) => t.reads.includes(b)).map((t) => t.name),
         shown: blocks[b].shown ?? false,
@@ -494,7 +497,7 @@ function pageOf(item: Item, summary: Summary): WorkPage {
   const cells: CellDetail[] = FLOW.cells.map((c) => ({
     cell: c.id,
     needs: [],
-    inputs: c.inputs.map((block) => ({ block, current: null, known: null, changed: false })),
+    inputs: c.runsOn.map(({ block }) => ({ block, current: null, known: null, changed: false })),
   }));
   return { summary, title: item.title, level: item.level, history: item.history, flow: FLOW, cells, blocks: [], steps: [] };
 }

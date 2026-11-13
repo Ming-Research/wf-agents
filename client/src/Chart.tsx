@@ -1,14 +1,17 @@
 // The chart: the matrix of the blocks, one to a row, against the cells, one to a column in the order of the walk. It is
 // how the owner checks the flow (Article 7), so every cell and every block is on it, and what a cell does with a block
-// is a mark where they cross. A write right of a read of the same block, by a later cell, is the work going back: its
-// line is drawn leftwards along the row to each read it sends the work back to, in the way back's purple, so that
-// every way back shows at a glance. The blocks' names stay in place as the chart scrolls sideways, and the cells' heads
-// as it scrolls down, in the chart's own frame.
+// is a mark where they cross. A write of a block by a cell right of one the block runs is the work going back: its line
+// is drawn leftwards along the row to each cell it sends the work back to, in the way back's purple, so that every way
+// back shows at a glance. The blocks' names stay in place as the chart scrolls sideways, and the cells' heads as it
+// scrolls down, in the chart's own frame.
 //
 // A cell's column holds only marks, so it is only as wide as they are, and its head holds the cell's id and the first
 // word of its line. The width this leaves, right of the marks, is a column of words, one line to a row: what the block
 // is, or, on the rows of the cell chosen, what that cell says of the block. What a head has no room for, the cell's
 // title and when it runs, stands over that column for the cell under the pointer.
+//
+// Over the blocks stand the rows of the engine's tools, one to a tool that a cell may ask for in its return, with a
+// mark under each cell that may.
 
 import { type CSSProperties, type RefObject, useEffect, useRef, useState } from 'react';
 
@@ -22,23 +25,26 @@ import {
   type Matrix,
   NO_MARK,
   type Spot,
+  type ToolRow,
+  type ToolSpot,
   hasMark,
 } from './matrix';
 import { Edge, STATUS_WORDS, Sign } from './parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from './sizes';
-import { cellSays, headFacts, runBy } from './words';
+import { TAKES_WORDS, TOOL_WORDS, cellSays, headFacts, runBy } from './words';
 
 /// What the owner chose: a cell, a block, or nothing.
 export type Chosen = { cell: string } | { block: string } | null;
 
 const PART_WORDS: Record<MarkPart, string> = {
-  read: 'reads',
+  runs: 'is run by',
+  given: 'is given',
   write: 'may write',
   condition: 'runs only by the value of',
   precondition: 'waits on the value of',
 };
 
-/// The words a mark says, for the pointer's tip and for a reader of the screen: "plan reads opinions".
+/// The words a mark says, for the pointer's tip and for a reader of the screen: "plan is run by, is given opinions".
 export function markWords(cell: string, block: string, spot: Pick<Spot, 'mark' | 'added' | 'removed'>): string {
   const parts = MARK_PARTS.flatMap((part) => {
     if (spot.added[part]) return [`${PART_WORDS[part]} (put in)`];
@@ -55,22 +61,38 @@ function partClass(part: MarkPart, spot: Spot): string | null {
   return spot.mark[part] ? 'plain' : null;
 }
 
-/// A mark: a ring where the cell reads the block, a dot where it may write it, both where both, a diamond round them
-/// where its condition reads the block's value, and a square round them where a precondition does.
+/// A mark: a ring where the block runs the cell and the cell is given it, the ring's left half alone where the block
+/// only runs the cell, its right half alone where the cell is only given the block; a dot where the cell may write it,
+/// inside the ring or a half of it where both; a diamond round them where its condition reads the block's value, and a
+/// square round them where a precondition does.
 export function MarkGlyph({ spot }: { spot: Spot }) {
-  const read = partClass('read', spot);
+  const runs = partClass('runs', spot);
+  const given = partClass('given', spot);
   const write = partClass('write', spot);
   const condition = partClass('condition', spot);
   const precondition = partClass('precondition', spot);
-  if (!read && !write && !condition && !precondition) return null;
+  if (!runs && !given && !write && !condition && !precondition) return null;
   return (
     <svg className="glyph" viewBox="0 0 24 24" aria-hidden="true">
       {condition && <polygon className={`part condition ${condition}`} points="12,1.5 22.5,12 12,22.5 1.5,12" />}
       {precondition && (
         <rect className={`part precondition ${precondition}`} x="3.5" y="3.5" width="17" height="17" />
       )}
-      {read && <circle className={`part read ${read}`} cx="12" cy="12" r="6.5" />}
-      {write && <circle className={`part write ${write}`} cx="12" cy="12" r={read ? 3.25 : 6} />}
+      {runs && <path className={`part runs ${runs}`} d="M12 5.5 A6.5 6.5 0 0 0 12 18.5" />}
+      {given && <path className={`part given ${given}`} d="M12 5.5 A6.5 6.5 0 0 1 12 18.5" />}
+      {write && <circle className={`part write ${write}`} cx="12" cy="12" r={runs || given ? 3.25 : 6} />}
+    </svg>
+  );
+}
+
+/// The mark of a tool a cell may ask for: a small triangle, in the change's colour where the change put it in or took
+/// it out.
+function ToolGlyph({ spot }: { spot: ToolSpot }) {
+  const status = spot.added ? 'added' : spot.removed ? 'removed' : spot.asks ? 'plain' : null;
+  if (!status) return null;
+  return (
+    <svg className="glyph" viewBox="0 0 24 24" aria-hidden="true">
+      <path className={`part tool ${status}`} d="M8.5 7 L17 12 L8.5 17 Z" />
     </svg>
   );
 }
@@ -88,19 +110,28 @@ export function Legend({ waysBack, comparing }: { waysBack: number; comparing: b
   return (
     <ul className="legend" aria-label="What the marks mean">
       <li>
-        <MarkGlyph spot={spot({ read: true })} /> reads
+        <MarkGlyph spot={spot({ runs: true, given: true })} /> {TAKES_WORDS.both}
+      </li>
+      <li>
+        <MarkGlyph spot={spot({ runs: true })} /> {TAKES_WORDS.runs}
+      </li>
+      <li>
+        <MarkGlyph spot={spot({ given: true })} /> {TAKES_WORDS.given}
       </li>
       <li>
         <MarkGlyph spot={spot({ write: true })} /> may write
       </li>
       <li>
-        <MarkGlyph spot={spot({ read: true, write: true })} /> both
+        <MarkGlyph spot={spot({ runs: true, given: true, write: true })} /> {TAKES_WORDS.both} and may write
       </li>
       <li>
         <MarkGlyph spot={spot({ condition: true })} /> its condition reads
       </li>
       <li>
         <MarkGlyph spot={spot({ precondition: true })} /> its precondition reads
+      </li>
+      <li>
+        <ToolGlyph spot={{ asks: true, added: false, removed: false }} /> may ask the engine for
       </li>
       <li>
         <span className="legend-back" aria-hidden="true" /> way back ({waysBack})
@@ -190,7 +221,7 @@ interface ChartProps {
 }
 
 export function Chart({ matrix, chosen, onChoose }: ChartProps) {
-  const { blocks, cells, spots } = matrix;
+  const { blocks, cells, spots, tools } = matrix;
   const [pointed, setPointed] = useState<number | null>(null);
   const frame = useRef<HTMLDivElement>(null);
   const [names, setNames] = useKeptWidth(WIDTH_KEYS.names, WIDTHS.namesMin, WIDTHS.namesMax);
@@ -259,6 +290,21 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
             <WordsHead about={about} saying={saying} onPoint={unpoint} />
           </tr>
         </thead>
+        {tools.length > 0 && (
+          <tbody className="tools">
+            {tools.map((row) => (
+              <ToolLine
+                key={row.name}
+                row={row}
+                cells={cells}
+                chosenCell={chosenCell}
+                saying={saying}
+                pointed={pointed}
+                onPoint={setPointed}
+              />
+            ))}
+          </tbody>
+        )}
         <tbody>
           {blocks.map((row, r) => {
             const isChosen = chosenBlock === row.name;
@@ -443,6 +489,57 @@ function BlockHead(props: { row: BlockRow; chosen: boolean; onChoose: () => void
         )}
       </button>
     </th>
+  );
+}
+
+/// The row of a tool of the engine's, over the blocks: its name, a mark under each cell that may ask for it, and what
+/// the tool does; on the row of a tool the chosen cell may ask for, that it may.
+function ToolLine(props: {
+  row: ToolRow;
+  cells: CellColumn[];
+  chosenCell: string | null;
+  saying: Cell | null;
+  pointed: number | null;
+  onPoint: (c: number | null) => void;
+}) {
+  const { row, cells, chosenCell, saying, pointed, onPoint } = props;
+  const what = TOOL_WORDS[row.name] ?? '';
+  const asks = saying?.tools.includes(row.name) ?? false;
+  const says = asks ? (what ? `may ask for it: ${what}` : 'may ask for it') : '';
+  return (
+    <tr className="row tool-row">
+      <th scope="row" className="lead tool-head" onMouseEnter={() => onPoint(null)}>
+        <span className="tool-name" title={`Tool ${row.name}`}>
+          {row.name}
+        </span>
+        <span className="tool-label">tool</span>
+      </th>
+      {cells.map((column, c) => {
+        const spot = row.spots[c];
+        const change = spot.added ? ' (put in)' : spot.removed ? ' (taken out)' : '';
+        const words = spot.asks || spot.added || spot.removed ? `${column.id} may ask for ${row.name}${change}` : '';
+        return (
+          <td
+            key={column.id}
+            className={`spot ${words ? 'has-mark' : ''} ${column.cell ? '' : 'absent'} ${
+              chosenCell === column.id ? 'chosen' : ''
+            } ${pointed === c ? 'pointed' : ''}`}
+            title={words || undefined}
+            onMouseEnter={() => onPoint(c)}
+          >
+            <ToolGlyph spot={spot} />
+            {words && <span className="visually-hidden">{words}</span>}
+          </td>
+        );
+      })}
+      <td
+        className={`words ${says ? 'said' : saying ? 'beside' : ''}`}
+        title={says || what || undefined}
+        onMouseEnter={() => onPoint(null)}
+      >
+        {says || what}
+      </td>
+    </tr>
   );
 }
 

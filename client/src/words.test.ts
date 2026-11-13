@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import type { TestKind } from './api';
-import { test } from './testing';
-import { changeWords, conditionWords, faultWords, readsWords, writersBesideCells } from './words';
+import { cell, test } from './testing';
+import { cellSays, changeWords, conditionWords, faultWords, readsWords, writersBesideCells } from './words';
 
 describe('the words of the page', () => {
   it('say a condition by its block and value, or by its test’s words and what the test reads', () => {
@@ -258,5 +258,23 @@ describe('the words of the page', () => {
     expect(faultWords({ file: 'check.toml', field: 'act', what: { kind: 'unknownAct', act: 'merge ' } })).toBe(
       'The engine has no act named "merge ".',
     );
+  });
+
+  it('say of a block what a cell does with it: what runs it and why, what it is given, how and why, what it writes', () => {
+    const plan = cell('plan', {
+      runsOn: [{ block: 'opinions', why: 'Answer each opinion.' }, 'ping'],
+      given: [{ block: 'opinions', kind: 'all', why: 'They are what to answer.' }, { block: 'plan', kind: 'lastAndLatest', why: null }],
+      outputs: ['plan'],
+      mustWrite: ['plan'],
+    });
+    expect(cellSays(plan, 'opinions')).toBe('runs it: Answer each opinion.; is given all of it: They are what to answer.');
+    expect(cellSays(plan, 'ping')).toBe('runs it');
+    expect(cellSays(plan, 'plan')).toBe('is given the last and the latest; writes every time, brought up to date');
+    expect(cellSays(plan, 'request')).toBe('');
+    expect(changeWords({ kind: 'givenKind', cell: 'plan', block: 'opinions', before: 'latest', after: 'all' })).toEqual({
+      what: 'Is given opinions as',
+      before: 'the latest',
+      after: 'all of it',
+    });
   });
 });

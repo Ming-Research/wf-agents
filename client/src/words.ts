@@ -321,19 +321,53 @@ export function changeWords(change: Change): ChangeWords {
   }
 }
 
-/// The words for what the context must hold of an input.
-export function inputKindWords(kind: InputKind | null): string {
-  switch (kind) {
-    case 'latest':
-      return 'the latest';
-    case 'lastAndLatest':
-      return 'the last and the latest';
-    case 'all':
-      return 'all of it';
-    case null:
-      return 'not said';
-  }
+/// The name of each kind of a block a cell is given: what the context of its session must hold of the block when the
+/// cell runs.
+export const KIND_WORDS: Record<InputKind, string> = {
+  latest: 'the latest',
+  lastAndLatest: 'the last and the latest',
+  all: 'all of it',
+};
+
+/// What each kind means, on pointing at its name.
+export const KIND_TIPS: Record<InputKind, string> = {
+  latest: 'Its session holds the latest version of it',
+  lastAndLatest:
+    'Its session holds the version the cell last worked from and the latest, so that its agent sees what changed; ' +
+    "at the cell's first run, the latest alone",
+  all: 'Its session holds every version of it',
+};
+
+export function inputKindWords(kind: InputKind): string {
+  return KIND_WORDS[kind];
 }
+
+/// What a cell does with a block it names: the block runs it and it is given the block, the block only runs it, or it
+/// is only given the block; none where it names neither.
+export type Takes = 'both' | 'runs' | 'given';
+
+/// The words for each, as the legend says them.
+export const TAKES_WORDS: Record<Takes, string> = {
+  both: 'runs it and is given',
+  runs: 'only runs it',
+  given: 'only given',
+};
+
+/// What each tool of the engine's does, as the chart and a cell's panel say it; a tool the page has no words for is
+/// shown by its name alone.
+export const TOOL_WORDS: Record<string, string> = {
+  query: "one read-only query of the engine's records, its result given back",
+  run_tests: "runs the tests and checks it names, or the whole CI, on the work's last commit",
+};
+
+/// What the cell panel says of a cell's task, the first thing every agent's cell is given.
+export const TASK_GIVEN = {
+  kind: 'its own, the latest',
+  tip: 'Put in its session once, and again only when the session is reopened or the task changes',
+};
+
+/// What the panel says of a cell that takes main in.
+export const TAKES_MAIN_WORDS = "into the work's branch, as each run of it starts";
 
 /// When a block is there for a cell to read, where that is not plain from who writes it: a cell before the reader
 /// that runs only under a condition, or that need not write the block each time. Empty where there is nothing to add.
@@ -350,20 +384,22 @@ export function thereWhen(flow: Flow, reader: string, block: Block): string {
   return parts.join('; ');
 }
 
-/// What a cell says of a block, on one line, for the chart's column of words: of a block it reads, how it takes it and
-/// why; of one it may write, whether each time, and whether it brings up to date what it read; of one whose value says
-/// whether it runs or what it waits for, that. Empty where the cell has nothing to do with the block.
+/// What a cell says of a block, on one line, for the chart's column of words: of a block that runs it, that and why;
+/// of one it is given, how and why; of one it may write, whether each time, and whether it brings up to date what it
+/// is given; of one whose value says whether it runs or what it waits for, that. Empty where the cell has nothing to do
+/// with the block.
 export function cellSays(cell: Cell, block: string): string {
   const parts: string[] = [];
-  const reads = cell.inputs.includes(block);
-  if (reads) {
-    const taken = cell.input[block];
-    const how = taken?.kind ? `takes ${inputKindWords(taken.kind)}` : 'reads';
-    parts.push(taken?.why ? `${how}: ${taken.why}` : how);
+  const runs = cell.runsOn.find((r) => r.block === block);
+  if (runs) parts.push(runs.why ? `runs it: ${runs.why}` : 'runs it');
+  const given = cell.given.find((g) => g.block === block);
+  if (given) {
+    const how = `is given ${inputKindWords(given.kind)}`;
+    parts.push(given.why ? `${how}: ${given.why}` : how);
   }
   if (cell.outputs.includes(block)) {
     const write = cell.mustWrite.includes(block) ? 'writes every time' : 'may write';
-    parts.push(reads ? `${write}, ${BROUGHT_UP_TO_DATE}` : write);
+    parts.push(given ? `${write}, ${BROUGHT_UP_TO_DATE}` : write);
   }
   const condition = cell.condition;
   if (condition !== null && (condition.on === 'block' ? condition.block === block : condition.test.reads.includes(block))) {
@@ -375,7 +411,7 @@ export function cellSays(cell: Cell, block: string): string {
   return parts.join('; ');
 }
 
-/// What is said of a block a cell both reads and may write: what it hands in is the block it read, brought up to
+/// What is said of a block a cell is given and may write: what it hands in is the block it was given, brought up to
 /// date.
 export const BROUGHT_UP_TO_DATE = 'brought up to date';
 

@@ -1,13 +1,28 @@
 // What the page's tests and the works page's fixtures build definitions from: cells written in short, and the flow they make as the interface would
 // give it, with who writes and reads each block worked out as the compiler does.
 
-import type { Block, Cell, Flow, Limits, Test, TestKind } from './api';
+import type { Block, Cell, Flow, Given, Limits, RunsOn, Test, TestKind } from './api';
+import { named } from './matrix';
 
 const LIMITS: Limits = { runs: 3, returns: 2, calls: 40 };
 
-/// A cell of an agent in the line `engineer`, told to do its part, that reads and writes nothing, with these fields over
-/// it.
-export function cell(id: string, fields: Partial<Cell> = {}): Cell {
+/// A cell's fields written in short. What runs it and what it is given are either one list, `inputs`, as a cell in the
+/// old form names them: each block of it runs the cell, and an agent's cell is given it, the last and the latest; or
+/// the two lists apart, each entry a block's name, which says nothing of why or of its kind but the last and the
+/// latest, or the whole entry.
+export type CellFields = Omit<Partial<Cell>, 'runsOn' | 'given'> & {
+  inputs?: string[];
+  runsOn?: (string | RunsOn)[];
+  given?: (string | Given)[];
+};
+
+/// A cell of an agent in the line `engineer`, told to do its part, that nothing runs and that writes nothing, with
+/// these fields over it.
+export function cell(id: string, fields: CellFields = {}): Cell {
+  const { inputs = [], runsOn, given, ...rest } = fields;
+  const agent = (rest.kind ?? 'agent') === 'agent';
+  const runs = (b: string | RunsOn): RunsOn => (typeof b === 'string' ? { block: b, why: null } : b);
+  const gives = (b: string | Given): Given => (typeof b === 'string' ? { block: b, kind: 'lastAndLatest', why: null } : b);
   return {
     id,
     title: id,
@@ -16,14 +31,16 @@ export function cell(id: string, fields: Partial<Cell> = {}): Cell {
     task: `Do the part of ${id}.`,
     act: null,
     effort: 'high',
+    takesMain: false,
     condition: null,
     preconditions: [],
-    inputs: [],
-    input: {},
     outputs: [],
     mustWrite: [],
+    tools: [],
     limits: LIMITS,
-    ...fields,
+    ...rest,
+    runsOn: (runsOn ?? (given ? [] : inputs)).map(runs),
+    given: (given ?? (agent && !runsOn ? inputs : [])).map(gives),
   };
 }
 
@@ -53,7 +70,7 @@ export function flowOf(cells: Cell[], blocks: Record<string, Declared>, name = '
         outside: blocks[b].outside ?? null,
       },
       readBy: {
-        cells: cells.filter((c) => c.inputs.includes(b)).map((c) => c.id),
+        cells: cells.filter((c) => named(c).includes(b)).map((c) => c.id),
         conditions: cells.filter((c) => c.condition?.on === 'block' && c.condition.block === b).map((c) => c.id),
         tests: tests.filter((t) => t.reads.includes(b)).map((t) => t.name),
         shown: blocks[b].shown ?? false,

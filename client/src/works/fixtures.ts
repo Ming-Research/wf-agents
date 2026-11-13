@@ -11,6 +11,7 @@
 // write by the outside.
 
 import type { Flow } from '../api';
+import { named } from '../matrix';
 import { cell, flowOf, test } from '../testing';
 import type {
   Ask,
@@ -223,7 +224,7 @@ class History {
     const at = this.next(minutes);
     const c = FLOW.cells.find((x) => x.id === cellId);
     if (!c) throw new Error(`no cell ${cellId}`);
-    const basis = [...new Set([...c.inputs, ...c.outputs])].map((block) => ({
+    const basis = [...new Set([...named(c), ...c.outputs])].map((block) => ({
       block,
       version: this.current(block)?.at ?? null,
     }));
@@ -394,7 +395,7 @@ class History {
     const order = new Map(FLOW.cells.map((x, i) => [x.id, i]));
     const finished = this.runsOf(cellId).filter((r) => r.end?.kind === 'finished');
     const record = finished[finished.length - 1];
-    const inputs = c.inputs.map((block) => {
+    const inputs = named(c).map((block) => {
       const current = this.current(block)?.at ?? null;
       let known: number | null = null;
       if (record?.end?.kind === 'finished') {

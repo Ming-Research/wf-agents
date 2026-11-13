@@ -3,8 +3,6 @@
 //! but what the definition itself holds (titles, the words of the tests) and what the parser said of a file it could
 //! not read.
 
-use std::collections::BTreeMap;
-
 use decide::{BlockId, CellId, Condition as Applies, FlowFault, TestName};
 use flow::{BlockChange, CellChange, Compiled, FaultKind, Kind as CellKind, Limit as LimitOf, TestKind as KindOfTest};
 use serde::{Deserialize, Serialize};
@@ -114,59 +112,45 @@ pub struct Cell {
     pub act: Option<String>,
     /// The reasoning effort an agent's cell's rounds run at; an engine's cell has none.
     pub effort: Option<String>,
+    /// The work's branch takes the latest main in as each run of the cell starts; an engine's cell's never does.
+    pub takes_main: bool,
     /// When the cell runs at all; none is always.
     pub condition: Option<Condition>,
     /// What the work waits for before the cell.
     pub preconditions: Vec<Test>,
-    /// The blocks it names: those that run it, in the order it names them, then those it is only given.
-    pub inputs: Vec<String>,
-    /// How it takes the blocks it names, by the block's name, for each of them the definition says it of: how it is
-    /// given one and why, or why one it is not given runs it.
-    pub input: BTreeMap<String, Input>,
+    /// The blocks whose new version runs it, in the order it names them.
+    pub runs_on: Vec<RunsOn>,
+    /// The blocks it is given, its session kept supplied with their content, in the order it names them; none for an
+    /// engine's cell, which has no session.
+    pub given: Vec<Given>,
     /// The blocks it may write, as the definition lists them.
     pub outputs: Vec<String>,
     /// The blocks among those that every hand-in of it includes, as the definition lists them.
     pub must_write: Vec<String>,
+    /// The tools of the engine's that an agent's cell may ask for in its return, by name, as the definition lists
+    /// them; none for an engine's cell.
+    pub tools: Vec<String>,
     pub limits: Limits,
 }
 
-/// How a cell takes one of the blocks it names.
+/// A block whose new version runs a cell.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Input {
-    /// What the context of the cell's session must hold of the block when the cell runs; none where the cell is not
-    /// given the block.
-    pub kind: Option<InputKind>,
-    /// Why the cell is given the block, or of one it is not given, why the block runs it; none where the definition
-    /// does not say.
+pub struct RunsOn {
+    pub block: String,
+    /// What the cell's agent does when the block is new; none where the definition does not say.
     pub why: Option<String>,
 }
 
-impl Input {
-    /// How the cell takes each block it names, of those the definition says something of.
-    fn of(spec: &flow::CellSpec) -> BTreeMap<String, Input> {
-        let given = (spec.given.iter()).map(|g| {
-            let input = Input {
-                kind: Some(InputKind::of(g.kind)),
-                why: g.why.clone(),
-            };
-            (g.block.to_string(), input)
-        });
-        let only_runs = (spec.runs_on.iter())
-            .filter(|r| !spec.given.iter().any(|g| g.block == r.block))
-            .map(|r| {
-                (
-                    r.block.to_string(),
-                    Input {
-                        kind: None,
-                        why: r.why.clone(),
-                    },
-                )
-            });
-        (given.chain(only_runs))
-            .filter(|(_, input)| input.kind.is_some() || input.why.is_some())
-            .collect()
-    }
+/// A block a cell is given.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Given {
+    pub block: String,
+    /// What the context of the cell's session must hold of the block when the cell runs.
+    pub kind: InputKind,
+    /// What the cell's agent does with the block; none where the definition does not say.
+    pub why: Option<String>,
 }
 
 /// What the context must hold of a block a cell is given: its latest version, the version the cell last consumed and
@@ -742,12 +726,25 @@ impl Flow {
                 task: spec.task.clone(),
                 act: spec.act.clone(),
                 effort: spec.effort.map(|effort| effort.name().to_string()),
+                takes_main: spec.takes_main,
                 condition: cell.applies.as_ref().map(|c| Condition::of(c, compiled)),
                 preconditions: cell.requires.iter().map(|t| Test::of(t, compiled)).collect(),
-                inputs: names(&cell.inputs),
-                input: Input::of(spec),
+                runs_on: (spec.runs_on.iter())
+                    .map(|runs| RunsOn {
+                        block: runs.block.to_string(),
+                        why: runs.why.clone(),
+                    })
+                    .collect(),
+                given: (spec.given.iter())
+                    .map(|given| Given {
+                        block: given.block.to_string(),
+                        kind: InputKind::of(given.kind),
+                        why: given.why.clone(),
+                    })
+                    .collect(),
                 outputs: names(&cell.outputs),
                 must_write: names(&spec.must_write),
+                tools: spec.tools.clone(),
                 limits: Limits {
                     runs: cell.limit,
                     returns: spec.returns,

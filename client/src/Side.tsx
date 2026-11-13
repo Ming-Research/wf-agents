@@ -6,7 +6,7 @@ import type { ReactNode } from 'react';
 import type { Block, Cell, Change, Fault, Flow } from './api';
 import type { Chosen } from './Chart';
 import { markedChange } from './diff';
-import { type BlockRow, type CellColumn, type Matrix, markOf, where } from './matrix';
+import { type BlockRow, type CellColumn, type Matrix, givenTo, markOf, runsCell, where } from './matrix';
 import { ListRow, Panel, PanelPart, STATUS_WORDS, type Status, StatusLine } from './parts';
 
 /// Whether the panel is folded away, and the way to fold it or bring it back.
@@ -27,14 +27,21 @@ import {
   conditionWords,
   faultWords,
   inputKindWords,
+  KIND_TIPS,
   LIMIT_WORDS,
   placeOf,
   runBy,
+  TAKES_MAIN_WORDS,
+  TASK_GIVEN,
   testWords,
   thereWhen,
+  TOOL_WORDS,
   type Place,
   writersBesideCells,
 } from './words';
+
+/// The tip of a place in the list of what a cell is given.
+const GIVEN_PLACE = 'Its place among what the cell is given, in the order it is given them';
 
 /// A name the owner can choose to see it on the chart and in the panel.
 function Choose({ chosen, onChoose, children }: { chosen: Chosen; onChoose: (c: Chosen) => void; children: ReactNode }) {
@@ -232,9 +239,11 @@ function ChangesHere({ changes }: { changes: Change[] }) {
   );
 }
 
-/// Everything about a cell: what its agent is told to do or the engine's act that carries it out, what it reads and
-/// who writes each, what it may write and who reads each, when it runs, what it waits for, its limits and the cells it
-/// shares a session with.
+/// Everything about a cell: what runs it and who writes each; what an agent's cell is given, its task first, and how
+/// and why; what it may write and who reads each; the tools of the engine's its agent may ask for; what its agent is
+/// told to do or the engine's act that carries it out; when it runs, what it waits for, whether it takes main in, its
+/// limits and the cells it shares a session with. Of a block that both runs the cell and is given to it, who writes it
+/// is said among what runs the cell, and what it is and when it is there among what the cell is given, each once.
 export function CellPanel(props: {
   column: CellColumn;
   matrix: Matrix;
@@ -280,39 +289,33 @@ export function CellPanel(props: {
           {cell.preconditions.length > 0 && (
             <StatusLine word="Waits until">{cell.preconditions.map(testWords).join('; ')}</StatusLine>
           )}
+          {cell.takesMain && <StatusLine word="Takes main in">{TAKES_MAIN_WORDS}</StatusLine>}
           <OwnLimits cell={cell} flow={flow} />
         </>
       }
       {...fold}
     >
       {!column.cell && <p className="muted">Not in the version shown: this is the cell as the other version has it</p>}
-      <PanelPart label="Reads" count={cell.inputs.length}>
+      <PanelPart label="Runs it" count={cell.runsOn.length}>
         <ul className="uses">
-          {cell.inputs.map((name, place) => {
+          {cell.runsOn.map(({ block: name, why }, place) => {
             const block = blocks.get(name) as Block;
             const back = later(block.writtenBy.cells.filter((id) => id !== cell.id));
-            const besides = writersBesideCells(block);
-            const writers = block.writtenBy.cells;
-            const taken = cell.input[name];
+            const given = givenTo(cell, name);
             return (
               <ListRow key={name}>
-                <span className="muted mono" title="Its place among what the cell reads, in the order the cell is given them">
+                <span className="muted mono" title="Its place among what runs the cell, in the order the cell names them">
                   {place + 1}
                 </span>
                 <Choose chosen={{ block: name }} onChoose={onChoose}>
                   <span className="mono">{name}</span>
                 </Choose>
-                {taken?.kind && <span className="muted">{inputKindWords(taken.kind)}</span>}
-                <span>
-                  <span className="muted">written by </span>
-                  {writers.length > 0 && <Cells flow={flow} from={cell.id} ids={writers} onChoose={onChoose} />}
-                  {writers.length > 0 && besides.length > 0 && ', '}
-                  {besides.join(', ')}
-                </span>
+                {cell.kind === 'agent' && !given && <span className="muted">not given</span>}
+                <WrittenBy flow={flow} cell={cell} block={block} onChoose={onChoose} />
                 {back.length > 0 && <span className="way-back">way back from {back.join(', ')}</span>}
-                {block.what !== null && <span className="row-note">{block.what}</span>}
-                {taken?.why && <span className="row-note">{taken.why}</span>}
-                {thereWhen(flow, cell.id, block) !== '' && (
+                {!given && block.what !== null && <span className="row-note">{block.what}</span>}
+                {why !== null && <span className="row-note">{why}</span>}
+                {!given && thereWhen(flow, cell.id, block) !== '' && (
                   <span className="row-note muted">there {thereWhen(flow, cell.id, block)}</span>
                 )}
               </ListRow>
@@ -320,6 +323,45 @@ export function CellPanel(props: {
           })}
         </ul>
       </PanelPart>
+
+      {cell.kind === 'agent' && (
+        <PanelPart label="Is given" count={cell.given.length + 1}>
+          <ul className="uses">
+            <ListRow key="task">
+              <span className="muted mono" title={GIVEN_PLACE}>
+                1
+              </span>
+              <span className="mono">task</span>
+              <span className="muted" title={TASK_GIVEN.tip}>
+                {TASK_GIVEN.kind}
+              </span>
+            </ListRow>
+            {cell.given.map(({ block: name, kind, why }, place) => {
+              const block = blocks.get(name) as Block;
+              const runs = runsCell(cell, name);
+              const there = thereWhen(flow, cell.id, block);
+              return (
+                <ListRow key={name}>
+                  <span className="muted mono" title={GIVEN_PLACE}>
+                    {place + 2}
+                  </span>
+                  <Choose chosen={{ block: name }} onChoose={onChoose}>
+                    <span className="mono">{name}</span>
+                  </Choose>
+                  <span className="muted" title={KIND_TIPS[kind]}>
+                    {inputKindWords(kind)}
+                  </span>
+                  {!runs && <span className="muted">does not run it</span>}
+                  {!runs && <WrittenBy flow={flow} cell={cell} block={block} onChoose={onChoose} />}
+                  {block.what !== null && <span className="row-note">{block.what}</span>}
+                  {why !== null && <span className="row-note">{why}</span>}
+                  {there !== '' && <span className="row-note muted">there {there}</span>}
+                </ListRow>
+              );
+            })}
+          </ul>
+        </PanelPart>
+      )}
 
       <PanelPart label="May write" count={cell.outputs.length}>
         <ul className="uses">
@@ -334,7 +376,7 @@ export function CellPanel(props: {
                   <span className="mono">{name}</span>
                 </Choose>
                 {cell.mustWrite.includes(name) && <span className="muted">written every time</span>}
-                {cell.inputs.includes(name) && <span className="muted">also read: {BROUGHT_UP_TO_DATE}</span>}
+                {givenTo(cell, name) && <span className="muted">also given: {BROUGHT_UP_TO_DATE}</span>}
                 <span>
                   <Readers flow={flow} from={cell.id} block={block} onChoose={onChoose} />
                 </span>
@@ -345,6 +387,19 @@ export function CellPanel(props: {
           })}
         </ul>
       </PanelPart>
+
+      {cell.kind === 'agent' && (
+        <PanelPart label="May ask the engine for" count={cell.tools.length}>
+          <ul className="uses">
+            {cell.tools.map((tool) => (
+              <ListRow key={tool}>
+                <span className="mono">{tool}</span>
+                {TOOL_WORDS[tool] !== undefined && <span className="muted">{TOOL_WORDS[tool]}</span>}
+              </ListRow>
+            ))}
+          </ul>
+        </PanelPart>
+      )}
 
       {cell.task !== null && (
         <PanelPart label="Task">
@@ -373,6 +428,21 @@ export function CellPanel(props: {
 
       <ChangesHere changes={changes} />
     </Panel>
+  );
+}
+
+/// Who writes a block a cell names, each cell chosen by its name with where it stands from the cell.
+function WrittenBy(props: { flow: Flow; cell: Cell; block: Block; onChoose: (c: Chosen) => void }) {
+  const { flow, cell, block, onChoose } = props;
+  const besides = writersBesideCells(block);
+  const writers = block.writtenBy.cells;
+  return (
+    <span>
+      <span className="muted">written by </span>
+      {writers.length > 0 && <Cells flow={flow} from={cell.id} ids={writers} onChoose={onChoose} />}
+      {writers.length > 0 && besides.length > 0 && ', '}
+      {besides.join(', ')}
+    </span>
   );
 }
 
@@ -447,9 +517,9 @@ export function BlockPanel(props: {
   const besides = writersBesideCells(block);
   const backs = flow.cells.flatMap((reader, r) => {
     const mark = markOf(reader, block.name);
-    if (!mark.read && !mark.condition) return [];
+    if (!mark.runs && !mark.condition) return [];
     const writers = flow.cells.filter((w, i) => i > r && markOf(w, block.name).write).map((w) => w.id);
-    return writers.length > 0 ? [{ reader: reader.id, writers, byCondition: !mark.read }] : [];
+    return writers.length > 0 ? [{ reader: reader.id, writers, byCondition: !mark.runs }] : [];
   });
   return (
     <Panel

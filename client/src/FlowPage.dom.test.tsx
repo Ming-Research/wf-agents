@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { Comparison, Definition } from './api';
 import { FlowPage, Shell } from './App';
 import { cell, flowOf, small, test } from './testing';
+import { KIND_TIPS, TAKES_MAIN_WORDS, TOOL_WORDS } from './words';
 
 const NOTHING: Comparison = { state: 'nothingToCompare' };
 
@@ -76,9 +77,9 @@ describe('the chart', () => {
     ]);
     expect(texts(rowOf(page, 'plan'), '.spot .visually-hidden')).toEqual([
       'plan may write plan',
-      'judge reads plan',
-      'design reads plan',
-      'answer reads plan',
+      'judge is run by, is given plan',
+      'design is run by, is given plan',
+      'answer is run by, is given plan',
     ]);
     expect(texts(rowOf(page, 'needs_design'), '.spot .visually-hidden')).toEqual([
       'judge may write needs_design',
@@ -99,11 +100,11 @@ describe('the chart', () => {
       'answer Answer comments, engineer line, runs when The item has a comment (commented is yes), ' +
         'waits until The owner confirmed the plan (confirmed is yes)',
     );
-    // The one way back: judge writes the opinions plan reads, and the arrow is at plan's read.
+    // The one way back: judge writes the opinions that run plan, and the arrow is at plan's mark.
     expect(page.querySelector('.legend')?.textContent).toContain('way back (1)');
     const arrows = [...page.querySelectorAll('.arrow')];
     expect(arrows).toHaveLength(1);
-    expect(arrows[0].closest('td')?.textContent).toBe('plan reads opinions');
+    expect(arrows[0].closest('td')?.textContent).toBe('plan is run by, is given opinions');
   });
 
   it('marks each block a named test reads, by the condition’s mark or by a mark of a precondition’s own', () => {
@@ -114,7 +115,7 @@ describe('the chart', () => {
     expect(texts(rowOf(page, 'confirmed'), '.spot .visually-hidden')).toEqual(['answer waits on the value of confirmed']);
     expect(texts(rowOf(page, 'ci'), '.spot .visually-hidden')).toEqual([
       'check may write ci',
-      'merge reads, waits on the value of ci',
+      'merge is run by, waits on the value of ci',
     ]);
     expect(rowOf(page, 'confirmed').querySelectorAll('.part.precondition')).toHaveLength(1);
     expect(rowOf(page, 'commented').querySelectorAll('.part.condition')).toHaveLength(1);
@@ -138,9 +139,14 @@ describe('the chart', () => {
     const rows = [...panel.querySelectorAll('.uses li')].map((li) =>
       [...li.children].map((c) => c.textContent?.trim()).join(' '),
     );
-    expect(rows.slice(0, 3)).toEqual([
+    // What runs it, then what it is given, the task first, then what it may write. Who writes a block that both runs
+    // the cell and is given to it is said once, among what runs it.
+    expect(rows.slice(0, 6)).toEqual([
       '1 request written by people',
       '2 opinions written by judge, people way back from judge',
+      '1 task its own, the latest',
+      '2 request the last and the latest',
+      '3 opinions the last and the latest',
       'plan read by judge, design, answer',
     ]);
     click([...panel.querySelectorAll('button.link')].find((b) => b.textContent === 'opinions'));
@@ -153,11 +159,18 @@ describe('the chart', () => {
     const heads = page.querySelectorAll('thead .cell-head .head-button');
     click(heads[0]);
     const plan = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
-    expect(texts(plan, '.panel-part-label')).toEqual(['Reads 2', 'May write 1', 'Task', 'Session']);
+    expect(texts(plan, '.panel-part-label')).toEqual([
+      'Runs it 2',
+      'Is given 3',
+      'May write 1',
+      'May ask the engine for 0',
+      'Task',
+      'Session',
+    ]);
     expect(plan.querySelector('.content')?.textContent).toBe('Write the plan from the request.\nSay what it leaves out.');
     click(heads[4]);
     const check = page.querySelector('aside[aria-label="Cell check"]') as HTMLElement;
-    expect(texts(check, '.panel-part-label')).toEqual(['Reads 2', 'May write 1', 'Act']);
+    expect(texts(check, '.panel-part-label')).toEqual(['Runs it 2', 'May write 1', 'Act']);
     const act = [...check.querySelectorAll('.panel-part')].find((p) => p.querySelector('.panel-part-label')?.textContent === 'Act');
     expect(act?.querySelector('.mono')?.textContent).toBe('check');
   });
@@ -230,6 +243,109 @@ describe('the chart', () => {
   });
 });
 
+describe('what runs a cell, what it is given and the tools it may ask for', () => {
+  /// plan is run by request and given it, only run by ping, and only given record, which review writes; review is run
+  /// by the plan and given it. Each may ask the engine for tools.
+  const flow = () =>
+    flowOf(
+      [
+        cell('plan', {
+          runsOn: [{ block: 'request', why: 'Plan anew for each request.' }, 'ping'],
+          given: [
+            { block: 'request', kind: 'all', why: 'It is what to plan.' },
+            { block: 'record', kind: 'latest', why: null },
+          ],
+          outputs: ['plan'],
+          tools: ['run_tests'],
+          takesMain: true,
+        }),
+        cell('review', { inputs: ['plan'], outputs: ['record', 'ping'], tools: ['query', 'run_tests'] }),
+      ],
+      {
+        request: { people: true },
+        ping: { people: true, what: 'A word to plan again.' },
+        record: { what: 'What the review found.' },
+        plan: {},
+      },
+    );
+  /// The rows of the part of a panel whose label starts with these words, each row's parts joined by a space.
+  const partRows = (panel: HTMLElement, label: string) => {
+    const part = [...panel.querySelectorAll('.panel-part')].find((p) =>
+      p.querySelector('.panel-part-label')?.textContent?.startsWith(label),
+    ) as HTMLElement;
+    return [...part.querySelectorAll('.uses li')].map((li) => [...li.children].map((c) => c.textContent?.trim()).join(' '));
+  };
+  const toolRow = (page: HTMLElement, tool: string) =>
+    [...page.querySelectorAll('tbody.tools tr')].find((tr) => tr.querySelector('.tool-name')?.textContent === tool) as HTMLElement;
+
+  it('marks apart a block that runs a cell and is given to it, one that only runs it and one it is only given', () => {
+    const page = draw({ state: 'compiled', flow: flow() });
+    expect(texts(rowOf(page, 'request'), '.spot .visually-hidden')).toEqual(['plan is run by, is given request']);
+    expect(texts(rowOf(page, 'ping'), '.spot .visually-hidden')).toEqual(['plan is run by ping', 'review may write ping']);
+    expect(texts(rowOf(page, 'record'), '.spot .visually-hidden')).toEqual(['plan is given record', 'review may write record']);
+    // The ring's left half is what runs the cell, its right half what it is given.
+    const at = (block: string) => rowOf(page, block).querySelector('.spot') as HTMLElement;
+    expect([at('request'), at('ping'), at('record')].map((td) => [!!td.querySelector('.part.runs'), !!td.querySelector('.part.given')])).toEqual([
+      [true, true],
+      [true, false],
+      [false, true],
+    ]);
+    // review's write of ping runs plan again; its write of the record, which plan is only given, does not.
+    expect(page.querySelector('.legend')?.textContent).toContain('way back (1)');
+    expect(page.querySelectorAll('.arrow')).toHaveLength(1);
+    expect(page.querySelector('.arrow')?.closest('tr')?.querySelector('.block-name')?.textContent).toBe('ping');
+    expect(texts(page, '.legend li')).toEqual(
+      expect.arrayContaining(['runs it and is given', 'only runs it', 'only given', 'may ask the engine for']),
+    );
+  });
+
+  it('puts a row over the blocks for each tool a cell may ask for, with a mark under each cell that may', () => {
+    const page = draw({ state: 'compiled', flow: flow() });
+    // In the order of the first cell that may ask for each.
+    expect(texts(page, 'tbody.tools .tool-name')).toEqual(['run_tests', 'query']);
+    expect(texts(toolRow(page, 'run_tests'), '.spot .visually-hidden')).toEqual([
+      'plan may ask for run_tests',
+      'review may ask for run_tests',
+    ]);
+    expect(texts(toolRow(page, 'query'), '.spot .visually-hidden')).toEqual(['review may ask for query']);
+    expect(toolRow(page, 'query').querySelector('.words')?.textContent).toBe(TOOL_WORDS.query);
+    click(page.querySelectorAll('thead .cell-head .head-button')[0]);
+    expect(toolRow(page, 'run_tests').querySelector('.words')?.textContent).toBe(`may ask for it: ${TOOL_WORDS.run_tests}`);
+    expect(toolRow(page, 'query').querySelector('.words')?.className).toContain('beside');
+  });
+
+  it('marks a tool a change put in for a cell in the colour of what was put in', () => {
+    const page = draw(
+      { state: 'compiled', flow: flow() },
+      {
+        state: 'compared',
+        against: { state: 'compiled', flow: flowOf([cell('plan'), cell('review', { tools: ['query'] })], {}) },
+        changes: [{ kind: 'toolAdded', cell: 'plan', tool: 'run_tests' }],
+      },
+    );
+    expect(texts(toolRow(page, 'run_tests'), '.spot .visually-hidden')[0]).toBe('plan may ask for run_tests (put in)');
+    expect(toolRow(page, 'query').querySelectorAll('.part.tool.added')).toHaveLength(0);
+  });
+
+  it('says in a cell’s panel what runs it, what it is given, its task first, and the tools it may ask for', () => {
+    const page = draw({ state: 'compiled', flow: flow() });
+    click(page.querySelectorAll('thead .cell-head .head-button')[0]);
+    const panel = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
+    expect(partRows(panel, 'Runs it')).toEqual([
+      '1 request written by people Plan anew for each request.',
+      '2 ping not given written by review, people way back from review A word to plan again.',
+    ]);
+    expect(partRows(panel, 'Is given')).toEqual([
+      '1 task its own, the latest',
+      '2 request all of it It is what to plan.',
+      '3 record the latest does not run it written by review What the review found.',
+    ]);
+    expect(panel.querySelector(`[title="${KIND_TIPS.all}"]`)?.textContent).toBe('all of it');
+    expect(partRows(panel, 'May ask the engine for')).toEqual([`run_tests ${TOOL_WORDS.run_tests}`]);
+    expect(texts(panel, '.status-line')).toContain(`Takes main in${TAKES_MAIN_WORDS}`);
+  });
+});
+
 describe('the column of words', () => {
   const flow = () =>
     flowOf(
@@ -238,8 +354,8 @@ describe('the column of words', () => {
         cell('b', {
           title: 'Second',
           condition: { on: 'block', block: 'y', value: 'yes' },
-          inputs: ['x', 'said'],
-          input: { x: { kind: 'latest', why: 'It is what to judge.' } },
+          runsOn: ['x', 'said'],
+          given: [{ block: 'x', kind: 'latest', why: 'It is what to judge.' }, 'said'],
           outputs: ['said'],
         }),
       ],
@@ -263,9 +379,9 @@ describe('the column of words', () => {
     const heads = page.querySelectorAll('thead .cell-head .head-button');
     click(heads[1]);
     expect(words(page)).toEqual({
-      x: 'takes the latest: It is what to judge.',
+      x: 'runs it; is given the latest: It is what to judge.',
       y: 'runs when y is yes',
-      said: 'reads; may write, brought up to date: What was said of it.',
+      said: 'runs it; is given the last and the latest; may write, brought up to date: What was said of it.',
     });
     expect(page.querySelector('.words-label')?.textContent).toBe('What b says of each block');
     expect(page.querySelector('.words-about')?.textContent).toBe('b Second · engineer line · runs when y is yes');
@@ -342,15 +458,18 @@ describe('a comparison', () => {
         changes: [
           { kind: 'title', cell: 'a', before: 'A', after: 'First' },
           { kind: 'runsOnAdded', cell: 'b', block: 'y' },
+          { kind: 'givenAdded', cell: 'b', block: 'y' },
           { kind: 'blockAdded', block: 'y' },
         ],
       },
     );
     expect(texts(page, '.change-group h3')).toEqual(['a First', 'b B', 'Block y']);
-    expect(texts(page, '.changes .change')).toEqual(['TitleA → First', 'Runs ity', 'Declared']);
+    expect(texts(page, '.changes .change')).toEqual(['TitleA → First', 'Runs ity', 'Is giveny', 'Declared']);
     expect(page.querySelector('thead .cell-head')?.className).toContain('status-changed');
     expect(rowOf(page, 'y').className).toContain('status-added');
-    expect(page.querySelectorAll('.part.added')).toHaveLength(1);
+    // Both halves of the ring are put in: y now runs b, and b is given it.
+    expect(page.querySelectorAll('.part.added')).toHaveLength(2);
+    expect(rowOf(page, 'y').querySelectorAll('.part.runs.added, .part.given.added')).toHaveLength(2);
 
     click([...page.querySelectorAll('button')].find((b) => b.textContent === 'As it was'));
     expect(headNames(page)).toEqual(['a A, engineer line, changed', 'b B, engineer line, changed']);
