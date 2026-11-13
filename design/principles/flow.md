@@ -18,6 +18,10 @@ Why: The prompt cache matches only the leading bytes of a request, so only an id
 The system prompt of a line's session holds only what every cell of the line is given alike and what is the same in every session of the line. Everything else is sent in a message as its cell is entered.
 Why: The agent's program takes a session's system prompt once, as the session begins, and keeps it; one given again when the session is taken up is ignored. So what is put there reaches every cell of the line and can be neither changed nor added to until the session is reopened. And two sessions share it in the cache only where it is the same to the byte: a difference anywhere in it loses all of it.
 
+### principle one-form-of-return-for-a-session
+The form of a return given to the agent's program is the same on every call of a session: one for a line, never one for each cell. What differs from cell to cell, such as which blocks a cell may or must hand in and which tools it has, is not said by a form of its own: the line's form holds what any of its cells may return, and the engine checks the rest once the return is read, sending back a return that fails.
+Why: The agent's program puts the form with the tools at the very front of every request, before the system prompt and the session's messages, and does not keep it with the session as it keeps the system prompt; so a form that differs from the call before leaves nothing of the session in the cache (principle cache-order). Measured in one session, a call with the form of the call before read 77,555 tokens from the cache and wrote 248, and the call whose form differed read none and wrote 38,961.
+
 ### principle yes-no-forks
 Where an agent decides which way the work goes, the fork is one yes/no question asked by the cell right before it, answered by the facts, never by caution, and the way on depends on that answer alone. Being unable to go on is not a fork: the work comes back to the same cell.
 Why: A label kept for later routing compresses information, so judging by it later distorts, and it hides steps no one sees. "When unsure, take the heavier path" makes works that do not need it pay for it.
