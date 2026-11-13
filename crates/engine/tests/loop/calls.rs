@@ -88,3 +88,34 @@ fn a_calls_result_is_kept() {
         vec![call]
     );
 }
+
+#[test]
+fn a_run_kept_resting_at_its_calls_from_before_a_return_that_asks_ended_its_run_finishes_making_none_again() {
+    let (mut w, write, request) = W::requested();
+    let asks = vec![tool("search"), question(Who::Owner)];
+    let calls: Vec<CallId> = calls_of(&w.returns(write, Came::asks(asks.clone())))
+        .iter()
+        .map(|(c, ..)| *c)
+        .collect();
+    // The work as an engine kept it before: the return that asked was taken without ending its run, its calls made
+    // after its round ended, and the run rests at them.
+    w.work.records.finished.retain(|f| f.run != write);
+    w.work.back.insert((write, 1), engine::Back::Asked(asks));
+    assert_eq!(w.done(calls[0]), vec![]);
+    let effects = w.done(calls[1]);
+    // The run finishes with no call made again, and the cell is entered for the results of the calls it made.
+    assert_eq!(w.work.records.called.len(), 2);
+    let finished = (w.work.records.finished.iter())
+        .find(|f| f.run == write)
+        .expect("the run finished");
+    assert_eq!(finished.dealt_with, Some(vec![]));
+    let again = w.work.records.started.last().expect("a run").run;
+    assert_ne!(again, write);
+    assert_eq!(
+        effects,
+        vec![round_effect(again, "write", 1, Given::Results(calls.clone()))]
+    );
+    let because = vec![changed("request", None, false), Cause::Results { calls }];
+    assert_eq!(start_of(&w, again).0, because);
+    let _ = request;
+}

@@ -5,18 +5,18 @@
 //! With the installation's [`Policy`], a line begins a new session at its next round when the account or the model its
 //! session's rounds ran on, as the work's records say, is not the one its rounds run on now, or when its last round
 //! ended with a context past the limit. The limit waits while a run of the line has not ended, as one rewriting a
-//! return that was sent back, or a cell of the line waits for the results of the calls its run asked for: it goes on
-//! in the session that holds what it did, and the next round of the line after that begins the new one. Nor does the limit end a session whose last
-//! round was of a cell that reads the [`SESSION`] block: that cell loads the session, and a new session for its own
-//! size would load it again without end. A new session for any other reason begins at once, and a round whose run ran
-//! in the session before is told what the run was doing.
+//! return that was sent back, or a cell of the line waits for the results of the calls its run asked for: it goes on in
+//! the session that holds what it did, and the next round of the line after that begins the new one. Nor does the limit
+//! end a session whose last round was of a cell that reads the [`SESSION`] block: that cell loads the session, and a
+//! new session for its own size would load it again without end. A new session for any other reason begins at once, and
+//! a round whose run ran in the session before is told what the run was doing.
 //!
 //! Whatever the policy, a line a round of whose session the service's safety check flagged begins a new session, in
 //! which that round is tried again, so that the check is not given the same context.
 //!
 //! Nothing follows for a work that has ended. Without a policy, nothing more is worked out, and only what others record
-//! is followed: whatever records a new session, the driver then writes the work's [`SESSION`] block, where the line has a
-//! cell that reads it, so that the cell runs again and what it reads is in the new session. A line's first session,
+//! is followed: whatever records a new session, the driver then writes the work's [`SESSION`] block, where the line has
+//! a cell that reads it, so that the cell runs again and what it reads is in the new session. A line's first session,
 //! which begins with its first round, writes nothing: that cell runs then anyway.
 
 use decide::run::Failure;
@@ -206,14 +206,8 @@ fn past_limit(flow: &Compiled, work: &Work, line: &str, limit: u64) -> Option<u6
     let of_line = || (r.started.iter()).filter(|s| line_of_cell(flow, s.cell.as_str()) == Some(line));
     let open =
         of_line().any(|s| !(r.finished.iter().any(|f| f.run == s.run) || r.abandoned.iter().any(|a| a.run == s.run)));
-    let waiting = of_line().any(|s| {
-        let Some(finished) = r.finished.iter().find(|f| f.run == s.run) else {
-            return false;
-        };
-        let ended = (r.returned.iter()).filter(|e| e.run == s.run).map(|e| e.at).max();
-        let asked = (r.called.iter()).any(|c| c.run == s.run && ended.is_some_and(|e| c.at > e));
-        let entered_since = of_line().any(|later| later.cell == s.cell && later.at > finished.at);
-        asked && !entered_since
-    });
+    let waiting = (flow.flow.cells().iter())
+        .filter(|c| line_of_cell(flow, c.id.as_str()) == Some(line))
+        .any(|c| !decide::owed(&flow.flow, r, &c.id).is_empty());
     (!loads && !open && !waiting).then_some(context)
 }

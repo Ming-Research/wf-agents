@@ -57,5 +57,8 @@ fn a_block_written_by_another_since_the_round_was_told_of_it_stands_at_a_later_v
     });
     let told = decide::told(&w.flow, &w.records, review).expect("the run started");
     assert_eq!(told.outputs[&BlockId::from("opinions")].told, Some(opinion));
+    // A block the cell writes, put in so that the round does not write over it, runs nothing: the return need not
+    // name it as dealt with to be held to what the cell must write (design document `data-and-context`, 12).
+    assert_eq!(told.ran_by, vec![BlockId::from("code")]);
     let _ = code;
 }

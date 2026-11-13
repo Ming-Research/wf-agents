@@ -32,8 +32,8 @@
 //!   what the cell may not, or deals with nothing. A return that meets everything is taken at once, its calls made
 //!   before its run finishes; one that does not is sent back, the next round told of any version it would have written
 //!   over; at the limit of returns the owner is asked. From the third round of a run the agent returns what meets
-//!   everything. In half the histories of the first test that have no judge, a round before the third fails in twelve in
-//!   a hundred, of a kind that pauses the work, in passing, or of a kind the run takes up itself.
+//!   everything. In half the histories of the first test that have no judge, a round before the third fails in twelve
+//!   in a hundred, of a kind that pauses the work, in passing, or of a kind the run takes up itself.
 //! - the engine: while the work is paused, a run at rest has its next round only where it started for the owner's words
 //!   and its last round did not fail in a way that paused the work with no letting on since (`pausing`).
 //! - the room the engine leaves the work (`room`), as before: the owner's pause of everything and the slot come and go

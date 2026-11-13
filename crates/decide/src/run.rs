@@ -1,23 +1,23 @@
 //! What a run does next, from what it has done so far.
 //!
-//! A run is one entering of its cell (design document `data-and-context`, 7). It is made of rounds: the first, each
-//! one after a return was sent back, and each one after a round failed. At the end of a round its agent, or the
-//! engine's own act, returns, and a return is of one of two kinds (design document `data-and-context`, 30): it asks
-//! for calls and for nothing else, dealing with nothing; or it does the cell's work, saying which of what ran the
-//! round it has dealt with and writing its blocks. A return that does not meet what the flow requires, one that mixes
-//! the two among it, is sent back: the next round is given why. One that meets it is taken, and ends the run: the
-//! calls it asks for are made, or the run writes its blocks and what it dealt with is consumed. A cell whose run asked
-//! for calls is entered again as a new run once their results are in, which the walk says. How often a return is sent back has a limit, at which the owner lets the run go on or cancels
-//! the work.
+//! A run is one entering of its cell (design document `data-and-context`, 7). It is made of rounds: the first, each one
+//! after a return was sent back, and each one after a round failed. At the end of a round its agent, or the engine's
+//! own act, returns, and a return is of one of two kinds (design document `data-and-context`, 30): it asks for calls
+//! and for nothing else, dealing with nothing; or it does the cell's work, saying which of what ran the round it has
+//! dealt with and writing its blocks. A return that does not meet what the flow requires, one that mixes the two among
+//! it, is sent back: the next round is given why. One that meets it is taken, and ends the run: the calls it asks for
+//! are made, or the run writes its blocks and what it dealt with is consumed. A cell whose run asked for calls is
+//! entered again as a new run once their results are in, which the walk says. How often a return is sent back has a
+//! limit, at which the owner lets the run go on or cancels the work.
 //!
 //! A round may also fail: nothing came back, as when whatever carries it out could not start or gave nothing usable.
 //! Whatever carried it out tells the cause apart ([`Failure`]), and each kind is handled its own way. A failure in
 //! passing is tried again, after a wait that grows each time, as a call of the run that the engine makes; so many in a
-//! row and the next pauses the work ([`pausing`]). A return that could not be read is sent back, as any return that does
-//! not meet what the flow requires. A round the service's safety check flagged is tried again, in a new session of its
-//! line, and the second in a row pauses the work. A cause every work shares (the account's usage limit, a command line
-//! that cannot run, no network) holds the agents' rounds of every work, which is no matter of one run's: the run only
-//! has its next round once they may begin again. Any other failure pauses the work as the round fails, so that the
+//! row and the next pauses the work ([`pausing`]). A return that could not be read is sent back, as any return that
+//! does not meet what the flow requires. A round the service's safety check flagged is tried again, in a new session of
+//! its line, and the second in a row pauses the work. A cause every work shares (the account's usage limit, a command
+//! line that cannot run, no network) holds the agents' rounds of every work, which is no matter of one run's: the run
+//! only has its next round once they may begin again. Any other failure pauses the work as the round fails, so that the
 //! owner sees the cause first. Once the work is let on, the run has its next round, given what the failed round was
 //! given, and the failures counted in a row start anew. A round that failed, or a return that was sent back, deals with
 //! nothing.
@@ -156,6 +156,10 @@ pub struct Told {
     pub ran_by: Vec<BlockId>,
     /// Of each block the cell may write, the version the round was told of and the latest.
     pub outputs: BTreeMap<BlockId, Standing>,
+    /// Whether the round's cell still waits for the results of calls its runs asked for: the round was entered for the
+    /// owner turning to the cell meanwhile, answers and goes on waiting, and so is held to no block its cell must write
+    /// (design document `data-and-context`, 40, 42).
+    pub waits_for_calls: bool,
 }
 
 /// A block a cell may write: the version its run's round was told of, and the latest, with its value.
@@ -175,7 +179,7 @@ pub struct Requires<'a> {
     /// The blocks the cell may write.
     pub outputs: &'a [BlockId],
     /// The blocks among those that a return dealing with everything that ran its round, and asking for no call,
-    /// includes (plan, D8).
+    /// includes (plan, D8), unless its cell still waits for the results of calls ([`Told::waits_for_calls`]).
     pub must_write: &'a [BlockId],
     /// The values of each block that is a choice.
     pub choices: &'a BTreeMap<BlockId, Vec<String>>,
@@ -390,9 +394,9 @@ fn passing_in_a_row(log: &Log) -> u32 {
 
 /// Why the engine pauses the work as the run's last round fails, if it does: the failure is of a kind running again
 /// cannot help; or it is in passing, and more of the run's last rounds in a row failed so than are tried again
-/// ([`PASSING`]); or the round was flagged, and so was another of the run's last rounds in a row, whatever failed between
-/// them, the first having had its line's session begun anew. Any other failure the run takes up itself ([`next`]).
-/// The failures in a row start anew where the owner let the work on.
+/// ([`PASSING`]); or the round was flagged, and so was another of the run's last rounds in a row, whatever failed
+/// between them, the first having had its line's session begun anew. Any other failure the run takes up itself
+/// ([`next`]). The failures in a row start anew where the owner let the work on.
 pub fn pausing(log: &Log) -> Option<Pausing> {
     let mut row = failures_in_a_row(log);
     match row.next()? {
@@ -467,7 +471,7 @@ fn unmet(dealt_with: &[BlockId], writes: &[Write], calls: usize, requires: Requi
     if calls == 0 && dealt_with.is_empty() && !told.ran_by.is_empty() {
         unmet.push(Unmet::DealtWithNothing);
     }
-    if calls == 0 && everything {
+    if calls == 0 && everything && !told.waits_for_calls {
         for block in requires.must_write {
             if !writes.iter().any(|w| w.block == *block) {
                 unmet.push(Unmet::NotHandedIn { block: block.clone() });

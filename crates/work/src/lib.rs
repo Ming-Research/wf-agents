@@ -128,7 +128,8 @@ pub enum Given {
     /// run's `Started` entry of the records, read there by whoever needs them.
     Task,
     /// The results of calls: of those the earlier runs of the cell asked for, given to the first round of the run
-    /// entered for them; or, in works kept before a return that asks ended its run, of those the round before asked for.
+    /// entered for them; or, in works kept before a return that asks ended its run, of those the round before asked
+    /// for.
     Results(Vec<CallId>),
     /// Why what the round before handed in was sent back.
     SentBack(Vec<Unmet>),

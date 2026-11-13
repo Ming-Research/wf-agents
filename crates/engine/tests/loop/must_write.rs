@@ -125,3 +125,26 @@ fn an_engine_act_s_hand_in_is_held_to_what_its_cell_must_write() {
     );
     assert_eq!(w.decision(), decide::Decision::Ended(decide::End::Merged));
 }
+
+#[test]
+fn a_version_put_in_so_that_a_round_does_not_write_over_it_runs_nothing_and_the_round_must_still_write() {
+    let (mut w, judge) = judging();
+    // A person gives a verdict while the judge's round is under way; the judge's, given over it unseen, is sent back.
+    w.on(wrote("verdict", Outsider::Person, true, Some("no")));
+    let verdict = w.last_written();
+    let unmet = vec![Unmet::WrittenOver {
+        block: "verdict".into(),
+        version: verdict,
+    }];
+    assert_eq!(
+        w.returns(judge, hands_in(&[("verdict", Some("yes"))])),
+        vec![round_effect(judge, "judge", 2, Given::SentBack(unmet))]
+    );
+    // The verdict put in to the next round ran nothing: a return that deals with the text it was run by is held to
+    // the verdict the judge must write.
+    assert_eq!(
+        w.returns(judge, Came::works(vec!["text".into()], vec![])),
+        vec![round_effect(judge, "judge", 3, Given::SentBack(no_verdict()))]
+    );
+    assert!(!finished(&w, judge));
+}

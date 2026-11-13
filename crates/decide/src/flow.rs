@@ -70,7 +70,7 @@ pub struct Outsiders {
     /// The source outside the work that writes it, where one does.
     pub outside: Option<String>,
     /// A new version of it is the owner turning to the cells it runs: the owner's words to a cell, or an answer that
-    /// takes another option than the one the work goes by (design document `data-and-context`, 33, 37). It stops a
+    /// takes another option than the one the work goes by (design document `data-and-context`, 35, 39). It stops a
     /// round under way of a cell after the one it runs, enters a cell that waits for the results of its calls, and is
     /// answered while the work is paused, as a note is.
     pub interrupts: bool,
@@ -116,7 +116,7 @@ pub enum FlowFault {
     Twice(CellId),
     /// The cell's condition reads a block the cell itself writes, and another writer writes it too. A cell that is the
     /// block's only writer may: the block says which of two cells is in charge, which the cell decides for its own
-    /// next round (design document `data-and-context`, 44).
+    /// next round (design document `data-and-context`, 46).
     ConditionOnOwnOutput(CellId),
     /// The last cell has a condition: a work ends when its last cell has a record, so the last cell always runs.
     LastHasCondition(CellId),

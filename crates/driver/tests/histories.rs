@@ -822,8 +822,8 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
         ("added while people acted", seen.added),
         ("cancelled", seen.cancels),
         ("calls at a limit", seen.limits),
-        // A call is withdrawn only as a run at rest at it is abandoned or its work ends with a cell waiting for it, which
-        // these histories all but never reach; the engine's own histories put it to the test.
+        // A call is withdrawn only as a run at rest at it is abandoned or its work ends with a cell waiting for it,
+        // which these histories all but never reach; the engine's own histories put it to the test.
         ("rounds stopped", seen.stopped),
         ("first rounds given by another work's merge", seen.started_at_merge),
         ("works waiting for their dependencies", seen.waited),

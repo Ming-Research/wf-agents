@@ -581,13 +581,14 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At, effects: &mut Vec<
 }
 
 /// Takes the run's return, which met everything the flow requires: the calls it asks for are made, and the run
-/// finishes, recording what it dealt with, the blocks it wrote and their content under the place of the finish.
+/// finishes, recording what it dealt with, the blocks it wrote and their content under the place of the finish. A
+/// return of the form before a return that asks ended its run made its calls as it was taken, and its run rested at
+/// them: such a run finishes making none again, and its cell is owed those it made.
 fn finish(work: &mut Work, run: RunId, dealt_with: Vec<BlockId>, writes: Vec<Write>, effects: &mut Vec<Effect>) {
     let (handed, asks) = match work.back.get(&(run, ended(work, run))) {
         Some(Back::Returned { handed, asks, .. }) => (handed.clone(), asks.clone()),
         Some(Back::HandedIn(handed)) => (handed.clone(), Vec::new()),
-        Some(Back::Asked(asks)) => (Vec::new(), asks.clone()),
-        _ => (Vec::new(), Vec::new()),
+        Some(Back::Asked(_) | Back::Failed { .. }) | None => (Vec::new(), Vec::new()),
     };
     for ask in asks {
         let on = match &ask {

@@ -117,8 +117,8 @@ pub struct Returned {
     pub at: Seq,
 }
 
-/// A call of a run: one its return asked for, made as the return was taken and before the run finished, whose result the
-/// cell is given when it is entered again; or one the engine makes for a run at rest, which goes on once it has the
+/// A call of a run: one its return asked for, made as the return was taken and before the run finished, whose result
+/// the cell is given when it is entered again; or one the engine makes for a run at rest, which goes on once it has the
 /// result, as a wait before a round is tried again or the owner's word at a limit. Runs kept before a return that asks
 /// ended its run made the calls they asked for between their rounds, and rested at them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -176,7 +176,7 @@ pub struct Abandoned {
 }
 
 /// A version of a block was put into the round of the run that was under way, after the round began, so that the
-/// round was told of it: what the owner says reaches a round so (design document `data-and-context`, 39). The version
+/// round was told of it: what the owner says reaches a round so (design document `data-and-context`, 41). The version
 /// was written before it was put in, and the round was under way then. A version the round was never told of stays
 /// new to its cell, however the round ends.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

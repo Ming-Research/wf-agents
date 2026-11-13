@@ -357,9 +357,9 @@ fn question(who: Who) -> Ask {
 }
 
 /// A history that leaves an entry of every kind: writes by a person and the outside with values and without, runs
-/// finished, sent back and abandoned, calls for a tool and a person, done and withdrawn, a run's limit of returns let go
-/// by the owner, a pause and a resume, a round that failed and the engine's pause for it, a cell let go, and a cancel
-/// with a run at rest at the owner's call.
+/// finished, sent back and abandoned, calls for a tool and a person, done and withdrawn, a run's limit of returns let
+/// go by the owner, a pause and a resume, a round that failed and the engine's pause for it, a cell let go, and a
+/// cancel with a run at rest at the owner's call.
 fn history(d: &mut Driver) {
     d.wrote("request", Outsider::Person, None);
     // The outside writes while the writer's first round is under way: its return deals with the request it was told
@@ -448,14 +448,14 @@ fn history(d: &mut Driver) {
 /// A work on the judged flow whose returns are of the form every cell's return takes (design document
 /// `data-and-context`), which the engine does not make yet, built entry by entry as such a work can go:
 ///
-/// - The owner writes the request, and the writer is entered: its first try begins, and its session is filled with which work and item it is
-///   for, the task, and the request whole. While its round is under way the owner writes the request again, and that
-///   version is put in to it. Its return deals with the request and hands in the text.
+/// - The owner writes the request, and the writer is entered: its first try begins, and its session is filled with
+///   which work and item it is for, the task, and the request whole. While its round is under way the owner writes the
+///   request again, and that version is put in to it. Its return deals with the request and hands in the text.
 /// - The judge is entered for the text, filled likewise. Its return asks for a tool and deals with nothing: the call is
 ///   made as the return is taken, which ends the run, and the cell waits until the call has its result.
-/// - The judge is entered again, as a new run, for the result: its session, which holds the rest, is filled with the result alone.
-///   That try finds the session lost, and the next, in a new one, is filled from the top. Its return deals with
-///   nothing that ran it and hands in its opinions and a verdict.
+/// - The judge is entered again, as a new run, for the result: its session, which holds the rest, is filled with the
+///   result alone. That try finds the session lost, and the next, in a new one, is filled from the top. Its return
+///   deals with nothing that ran it and hands in its opinions and a verdict.
 /// - The owner writes the request a third time, and the writer is entered for that and the opinions: its session holds
 ///   the request it was told of last, so the request is filled as what changed since, and the opinions whole. Its
 ///   return deals with both and hands its text in as changing nothing in meaning.

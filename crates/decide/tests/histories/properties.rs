@@ -242,9 +242,9 @@ fn shuffled(r: &Records, seed: u64) -> Records {
 /// The run starts from the latest version of each block that runs its cell or that it may write, and of nothing else.
 /// Its reasons are exactly what the records give: each block that runs the cell with a version new to it, `was` being
 /// the version the cell consumed, then the results it is owed where all are in; or, while one has no result, only the
-/// owner turning to it. For each `Changed { block, behind }`, `behind` is true exactly when every new version was written
-/// by a cell after this one (decision every-way-round-has-a-limit), and no cell starts a way round once its last
-/// finished runs since the owner last let it go on, as many in a row as its limit, were each one by this reading.
+/// owner turning to it. For each `Changed { block, behind }`, `behind` is true exactly when every new version was
+/// written by a cell after this one (decision every-way-round-has-a-limit), and no cell starts a way round once its
+/// last finished runs since the owner last let it go on, as many in a row as its limit, were each one by this reading.
 pub fn started(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started) {
     let i = flow.place(&s.cell).expect("the histories do not change the flow");
     let cell = &flow.cells()[i];
@@ -317,7 +317,8 @@ pub fn started(v: &mut Verdict, flow: &Flow, reading: &Reading, s: &Started) {
             v.fail(
                 SPOKE,
                 format!(
-                    "run {:?} of {} starts for {block} with behind {behind}, but its new versions were written by {who:?}",
+                    "run {:?} of {} starts for {block} with behind {behind}, but its new versions were written by \
+                     {who:?}",
                     s.run, s.cell
                 ),
             );
@@ -679,11 +680,11 @@ fn made_by(
     }
 }
 
-/// Property no-merge-on-what-is-not-settled, which is there because a merge cannot be taken back: as a round of the merge
-/// begins, any of which may be its last, every precondition of the merge holds by the histories' own reading. For the
-/// judges' verdicts that is said from the records ([`Reading::refused`]): no round of the merge begins while some judge
-/// that applies now has, as its own last write of its verdict, no, with no person's write of the verdict since, nor
-/// while a person's no is the latest write. And nothing is new to a cell before the merge that is not skipped.
+/// Property no-merge-on-what-is-not-settled, which is there because a merge cannot be taken back: as a round of the
+/// merge begins, any of which may be its last, every precondition of the merge holds by the histories' own reading. For
+/// the judges' verdicts that is said from the records ([`Reading::refused`]): no round of the merge begins while some
+/// judge that applies now has, as its own last write of its verdict, no, with no person's write of the verdict since,
+/// nor while a person's no is the latest write. And nothing is new to a cell before the merge that is not skipped.
 fn settled(v: &mut Verdict, flow: &Flow, reading: &Reading) {
     v.count(MERGE_ROUNDS);
     let cells = flow.cells();

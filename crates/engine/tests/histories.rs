@@ -23,11 +23,10 @@
 //!   that has ended with nothing else to be done has it to let go until it is let go.
 //!
 //! And once people stop, the owner lets the work on if it is paused, for whatever reason, and no round fails any more:
-//! the work then rests within
-//! the bound stated on `bound` (property a-work-comes-to-rest), at rest it is not paused and the walk waits, has nothing
-//! new to any cell, or has ended, and `pending` holds only calls for a person; a work that ended has let go of what it held; a cancelled work
-//! ends with nothing pending, and a look at it gives nothing. The same history ends with the same work run twice, and
-//! with its stops as without them, failed rounds among them.
+//! the work then rests within the bound stated on `bound` (property a-work-comes-to-rest), at rest it is not paused and
+//! the walk waits, has nothing new to any cell, or has ended, and `pending` holds only calls for a person; a work that
+//! ended has let go of what it held; a cancelled work ends with nothing pending, and a look at it gives nothing. The
+//! same history ends with the same work run twice, and with its stops as without them, failed rounds among them.
 //!
 //! What a step is, roughly. In the first 0 to 59 steps people act at a step with a chance of one in four; otherwise,
 //! and always once they stop, the driver does one of the things it holds, each with an equal chance:
@@ -327,8 +326,8 @@ impl Shape {
 
 /// How many steps, once people stop, the work may take before it rests (property a-work-comes-to-rest).
 ///
-/// Once people stop, the driver ends rounds and gives tools their results, and nothing else. A run's rounds are at
-/// most `returns + 1` that are sent back or end it: past the limit the run waits for the owner, who no longer answers. A
+/// Once people stop, the driver ends rounds and gives tools their results, and nothing else. A run's rounds are at most
+/// `returns + 1` that are sent back or end it: past the limit the run waits for the owner, who no longer answers. A
 /// return that asks for calls ends its run, and the cell is entered again for their results as a new run, at most
 /// `calls` runs in a row that only ask before the work waits for the owner. A run takes at most four steps a round, the
 /// round's end and the results of up to three calls, and four to be undone, its round stopped and up to three calls

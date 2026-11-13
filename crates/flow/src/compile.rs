@@ -45,7 +45,7 @@ pub struct Limits {
 
 /// The sources outside a work a new version of whose block is the owner turning to the cells it runs: the owner's words
 /// to a cell, and an answer that takes another option than the one the work goes by (design document
-/// `data-and-context`, 33, 37). Such a block stops a round under way of a later cell ([`decide::Outsiders`]).
+/// `data-and-context`, 35, 39). Such a block stops a round under way of a later cell ([`decide::Outsiders`]).
 pub const TURNING: [&str; 2] = ["words", "answer"];
 
 /// What the engine that runs a flow has, by name. A definition that names another source, act or tool is refused.
@@ -264,9 +264,9 @@ pub enum FaultKind {
     NotAChoice { block: String },
     /// A condition or a named test waits for a value the choice does not offer.
     NotAValue { block: String, is: String },
-    /// A condition reads a block its own cell writes, and another writes it too: the cell would decide by what it writes
-    /// itself, beside another, whether it runs. Where the cell is the block's only writer, the block says which of two
-    /// cells is in charge, and is the cell's own to decide.
+    /// A condition reads a block its own cell writes, and another writes it too: the cell would decide by what it
+    /// writes itself, beside another, whether it runs. Where the cell is the block's only writer, the block says which
+    /// of two cells is in charge, and is the cell's own to decide.
     ConditionOnOwnOutput { block: String },
     /// A condition reads a block that neither a cell before it, people nor the outside write, so that it is decided
     /// by nothing that comes before the cell.
@@ -976,7 +976,7 @@ impl<'a> Definition<'a> {
     /// Why the block, which the condition or a precondition of the cell of this file at this place reads, is not
     /// decided before the cell; `None` where it is. A block the cell itself writes is not, but where it is the cell's
     /// `condition` and the cell is the block's only writer: the cell that decides which of two cells is in charge has
-    /// that answer as a condition of its own next round (design document `data-and-context`, 44), unwritten as it is
+    /// that answer as a condition of its own next round (design document `data-and-context`, 46), unwritten as it is
     /// before its first. Nor is a block that neither a cell before it, people nor the outside write. What people or the
     /// outside write can be written before any cell runs. A block a cell after it writes as well is, where
     /// `later_writes_allowed`: that cell's write decides again whether this one runs, a way back. A test of what stands
