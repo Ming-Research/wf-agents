@@ -142,12 +142,13 @@ run next all the same, and the note would be filled, since the new session lacks
     there; it may also stand alone. Writing a question gives that text no new version, so no cell runs again for the
     text because something was asked about it. What the owner answers is data written on the question. An answer
     runs no cell; the cell that asked is given it (5). A cell that waits ends its round with what ran it not dealt
-    with (9), and the engine enters it again only once the answer is there. Where the cell does not wait, the work
-    goes on by the option it recommends, and the merge waits until every question is answered. An answer that takes
-    the recommended option does nothing more. An answer that takes another is also words of the owner to the cell
-    that asked: it is added to the record, and the datum that runs that cell for the owner's words has a new version
-    (30). So a question that is not waited for is written only by a cell that can be spoken to. What is said about a
-    question is said to the work (28), and is not its answer.
+    with (9), and the engine enters it again only once the answer is there. A cell that cannot go on without the
+    owner asks so, with a question that stands alone and is waited for: there is no other way of waiting for the
+    owner. Where the cell does not wait, the work goes on by the option it recommends, and the merge waits until
+    every question is answered. An answer that takes the recommended option does nothing more. An answer that takes
+    another is also words of the owner to the cell that asked: it is added to the record, and the datum that runs
+    that cell for the owner's words has a new version (30). So a question that is not waited for is written only by
+    a cell that can be spoken to. What is said about a question is said to the work (28), and is not its answer.
 
 ## What is said to a work
 
