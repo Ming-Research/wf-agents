@@ -1,5 +1,5 @@
 //! What a test is called: the one place that says which test a name names. Brought over from the old engine
-//! (`crates/engine/src/test_name.rs` on main).
+//! (`crates/engine/src/test_name.rs` on `old-main`).
 //!
 //! An agent names a test in its `check` and `check_before`, and a run of the fast CI reports each test it ran by its
 //! unit and its name within it ([`Reported`], read from the run's results by `results`). Whether a name names a test is

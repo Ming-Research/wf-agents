@@ -1,6 +1,6 @@
 // A passage of markdown as the item window shows it: paragraphs, blocks of code between fences (a diagram among them,
 // shown as its source: the page has no library that draws one), and in a line `code` and **strong** words. The page on
-// `main` drew them with its markdown library; the new page has none, and the window's passages need no more.
+// `old-main` drew them with its markdown library; the new page has none, and the window's passages need no more.
 
 import { type ReactNode } from 'react';
 

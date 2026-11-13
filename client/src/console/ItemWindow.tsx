@@ -16,8 +16,8 @@
 // has the keys. What the owner sends is sent once: its button cannot be pressed while it is under way, and a refusal is
 // said under the item it was for, and only there.
 //
-// Brought over from the console of the engine on `main` (`client/src/console/ItemWindow.tsx`), its layout as it was,
-// its parts the page's own (parts.tsx) where it used Primer's. What the engine does not give yet comes from the
+// Brought over from the console of the engine on `old-main` (`client/src/console/ItemWindow.tsx`), its layout as it
+// was, its parts the page's own (parts.tsx) where it used Primer's. What the engine does not give yet comes from the
 // console's made-up data (`mock.ts`), which says what of it is made up, when the page shows the mocks; otherwise the
 // body and the messages are read from the work's blocks, and the rest is not drawn (`real.ts`). What the new console
 // added is kept in that layout: the work line's facts, the row of what the owner does to the work under the lines, the

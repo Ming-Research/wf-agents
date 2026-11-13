@@ -1,6 +1,6 @@
 // Made-up contents for the console, for what the new engine does not give yet: every value here that the drawing
 // shows is mock, and each is replaced by the engine's own once it gives it, without changing the drawing code. Brought
-// over from the console of the engine on `main` (`client/src/console/window-mock.ts`), its bodies as they were.
+// over from the console of the engine on `old-main` (`client/src/console/window-mock.ts`), its bodies as they were.
 //
 // Mock, field by field:
 // - On a card: `openQuestions`, the questions that wait for the owner's answer and do not stop the work yet (the

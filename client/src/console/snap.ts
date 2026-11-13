@@ -19,9 +19,9 @@
 // pointer has a line of blue, faded in as the pointer comes. Only what is on the screen is drawn. What it draws and how
 // fast is kept in `stats`.
 //
-// Brought over from the console of the engine on `main` (`client/src/console/snap.ts`), its layout, its motion and every
-// constant as they were. What changed: a card's second row draws the works page's strip of the work's cells where it
-// drew the stages; what the new interface has nothing for
+// Brought over from the console of the engine on `old-main` (`client/src/console/snap.ts`), its layout, its motion and
+// every constant as they were. What changed: a card's second row draws the works page's strip of the work's cells where
+// it drew the stages; what the new interface has nothing for
 // yet (an item new to the owner, messages unread) is read from the console's made-up data (`mock.ts`); the colours the
 // page's tokens came from are read from the tokens, so that the canvas follows light and dark; and the canvas follows
 // the size of what holds it, besides the window's.
@@ -154,7 +154,7 @@ const LIGHT = {
   track: '#818b98',
   trackAlpha: 0x1f / 255,
   /// What joins an item to those under it: Primer's neutral muted, `#818b981f` in light and `#656c7633` in dark, as
-  /// the console on `main` read it, a little lighter.
+  /// the console on `old-main` read it, a little lighter.
   other: '#818b98',
   otherAlpha: 0.85 * (0x1f / 255),
 };
@@ -439,7 +439,7 @@ type Styles = {
   mono: (fill: string) => TextStyle;
 };
 
-/// The faces of a node's words: Primer's stacks, which the console on `main` drew in, without the face Primer names
+/// The faces of a node's words: Primer's stacks, which the console on `old-main` drew in, without the face Primer names
 /// first and the page never loaded. A canvas resolves a stack by its own rules (PixiJS quotes every name but the
 /// generic ones), so the page's own stacks (`--font`, `--mono`) could draw another face in some browsers.
 const SANS = '-apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif';

@@ -116,7 +116,7 @@ const FAMILIES: [&str; 5] = ["haiku", "sonnet", "opus", "fable", "mythos"];
 /// Whether the command line takes a model by this name, in the forms its `--model` takes: the alias of a family's
 /// latest model (`opus`) or a model's full name (`claude-opus-5-5`, `claude-3-5-sonnet-20241022`), each with `[1m]`
 /// after it or not; a family it does not know, or a name in no such form, it does not take. Brought over from the
-/// engine on `main`, which checked the models of its levels so.
+/// engine on `old-main`, which checked the models of its levels so.
 pub fn knows_model(model: &str) -> bool {
     let name = model.strip_suffix("[1m]").unwrap_or(model);
     if FAMILIES.contains(&name) {

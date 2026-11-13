@@ -1,6 +1,6 @@
 //! The engine's loop, rule by rule: each test takes a small work through `handle` and says what the records hold and
 //! what is to be done outside, as a whole. What each test expects is taken from the crate's documentation and the
-//! entries of the design, never from its code. The tests are kept in modules by subject, so that a new test goes into
+//! design tree, never from its code. The tests are kept in modules by subject, so that a new test goes into
 //! the module of what it tests.
 
 mod abandoning;

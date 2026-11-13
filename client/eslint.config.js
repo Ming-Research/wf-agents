@@ -1,5 +1,5 @@
 // The page's lint: the recommended JavaScript and TypeScript rules and the rules of hooks, with no warning let through
-// (`npm run lint` passes --max-warnings 0). Brought over from the page of the engine on `main`.
+// (`npm run lint` passes --max-warnings 0). Brought over from the page of the engine on `old-main`.
 import js from '@eslint/js';
 import reactHooks from 'eslint-plugin-react-hooks';
 import globals from 'globals';

@@ -1,5 +1,5 @@
 //! The walk, rule by rule: each test builds a small work through the helper, which records exactly what each decision
-//! gives, and says what the walk decides, as a whole. What each test expects is taken from the entries of the design,
+//! gives, and says what the walk decides, as a whole. What each test expects is taken from the design tree (`design/`),
 //! never from the deciding code. The tests are kept in modules by subject, so that a new test goes into the module of
 //! what it tests; this file holds what the modules build their expectations from, and the works several of them start
 //! from.

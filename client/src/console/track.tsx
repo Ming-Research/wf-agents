@@ -1,6 +1,6 @@
 // Where a work's time went, as the item window draws it: one block for each stretch of a model or of the tools and one
 // for each stretch no round ran between them, from the work's first round to its last, on a muted ground. Brought over
-// from the page on `main` (`client/src/charts.tsx`, `TimeTrack` and `barSpans`), as it was.
+// from the page on `old-main` (`client/src/charts.tsx`, `TimeTrack` and `barSpans`), as it was.
 
 import type { WorkPage } from '../works-api';
 

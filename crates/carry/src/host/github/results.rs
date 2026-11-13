@@ -1,7 +1,7 @@
 //! What a run of a project's fast CI reports of its tests, read from the JUnit XML files of the artifact the
 //! installation's settings name (`github.fast.results`): each test it reported, with what became of it and what it
 //! said, and each unit it did not build; and what became of each test an agent named. Brought over from the old engine
-//! (`crates/engine/src/results.rs` on main). The fast workflow and the engine hold to three conventions:
+//! (`crates/engine/src/results.rs` on `old-main`). The fast workflow and the engine hold to three conventions:
 //!
 //! - The results are JUnit XML: the artifact holds one or more files ending in `.xml`. Each `testsuite` is a unit (a
 //!   test binary, a test file), named by its `name`; each `testcase` in it is a test, named by its `name` within the

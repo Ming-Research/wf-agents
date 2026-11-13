@@ -1,7 +1,7 @@
 // The console's tree, indexed for drawing: its items in the order of a walk down it, each with its parent, level, and
 // place among the items of its level. Pure, so that it is tested on its own.
 //
-// Brought over unchanged from the console of the engine on `main` (`client/src/console/tree.ts`).
+// Brought over unchanged from the console of the engine on `old-main` (`client/src/console/tree.ts`).
 
 export type Tree = {
   /// In the order of a walk down the tree, each item before those under it.

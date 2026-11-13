@@ -3,8 +3,8 @@
 // the edge, the tab with it, and another slides it back. Its left edge dragged changes its width, which the browser
 // keeps. It floats over the tree, which keeps its whole width under it.
 //
-// Brought over from the console of the engine on `main` (`client/src/console/Drawer.tsx`); its tab is the handle every
-// panel of the page has.
+// Brought over from the console of the engine on `old-main` (`client/src/console/Drawer.tsx`); its tab is the handle
+// every panel of the page has.
 
 import { type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, useState } from 'react';
 
