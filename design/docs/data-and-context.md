@@ -140,15 +140,14 @@ run next all the same, and the note would be filled, since the new session lacks
 27. A question a cell puts to the owner is data of its own, written by the cell, with its options, the one the cell
     recommends, and whether the cell waits for the answer. It may say where in a text it belongs, and is shown
     there; it may also stand alone. Writing a question gives that text no new version, so no cell runs again for the
-    text because something was asked about it. What the owner answers is data written on the question. An answer
-    runs no cell; the cell that asked is given it (5). A cell that waits ends its round with what ran it not dealt
+    text because something was asked about it. What the owner answers is data written on the question: it runs the
+    cell that asked, and no other, and is given to it. A cell that waits ends its round with what ran it not dealt
     with (9), and the engine enters it again only once the answer is there. A cell that cannot go on without the
     owner asks so, with a question that stands alone and is waited for: there is no other way of waiting for the
     owner. Where the cell does not wait, the work goes on by the option it recommends, and the merge waits until
-    every question is answered. An answer that takes the recommended option does nothing more. An answer that takes
-    another is also words of the owner to the cell that asked: it is added to the record, and the datum that runs
-    that cell for the owner's words has a new version (30). So a question that is not waited for is written only by
-    a cell that can be spoken to. What is said about a question is said to the work (28), and is not its answer.
+    every question is answered. An answer that takes that option changes nothing in meaning, since the work has gone
+    on by it already: it is kept, and runs no cell (10). An answer is not something said to the work (28), and what
+    is said about a question is not its answer: neither stands in for the other.
 
 ## What is said to a work
 
