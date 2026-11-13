@@ -48,8 +48,8 @@ here: the conditions a cell runs under, the limits, the owner's pauses, when a w
 
 10. What the round hands in becomes new versions of the cell's outputs. They are new to the other cells that they run,
     and not to the cell that wrote them. A round that hands in nothing new makes nothing new, and no cell runs because
-    of it. The same holds for a version its writer hands in as changing nothing in meaning: it is kept, and is new to
-    no cell. A change stops there.
+    of it. A version its writer hands in as changing nothing in meaning is a new version all the same, and is filled
+    into a session that lacks it as any version is (14); it only runs no cell. A change stops there.
 
 11. Between two rounds of a cell a datum may have gone on by several versions: two cells before it went back and
     forth, or people wrote more than once. What a cell last worked from is therefore the version it consumed, which
