@@ -135,7 +135,7 @@ fn in_the_new_form_an_agent_cell_that_nothing_runs_is_refused() {
 #[test]
 fn a_table_that_says_nothing_is_refused() {
     let source = plan_names(
-        "runs_on = [\"request\"]\ngiven = [\"request\"]\n\n[run.request]\n\n[give.request]\nkind = \"latest\"",
+        "runs_on = [\"request\", \"opinions\"]\ngiven = [\"request\"]\n\n[run.request]\n\n[give.request]\nkind = \"latest\"",
     );
     let says_nothing = |block: &str| SaysNothing {
         block: block.to_string(),
