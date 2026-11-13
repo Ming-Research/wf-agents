@@ -14,6 +14,10 @@ Why: A short id is easier to type than a name, and its number tells where the ce
 What is sent to an agent is ordered from the widest scope to the narrowest: what every cell shares first, what changes every round last. Which part each thing belongs to is declared in the flow definition, not computed in code, and every change of the order is confirmed from the cache reads and writes of real rounds.
 Why: The prompt cache matches only the leading bytes of a request, so only an identical beginning is read from it. One order that should have hit missed because of a detail no one noticed, and content placed after the varying part was rewritten for every work, a fifth of the cost of early research. An order computed in code is invisible to anyone reading the flow. (Article 7)
 
+### principle the-system-prompt-holds-what-a-line-shares
+The system prompt of a line's session holds only what every cell of the line is given alike and what is the same in every session of the line. Everything else is sent in a message as its cell is entered.
+Why: The agent's program takes a session's system prompt once, as the session begins, and keeps it; one given again when the session is taken up is ignored. So what is put there reaches every cell of the line and can be neither changed nor added to until the session is reopened. And two sessions share it in the cache only where it is the same to the byte: a difference anywhere in it loses all of it.
+
 ### principle yes-no-forks
 Where an agent decides which way the work goes, the fork is one yes/no question asked by the cell right before it, answered by the facts, never by caution, and the way on depends on that answer alone. Being unable to go on is not a fork: the work comes back to the same cell.
 Why: A label kept for later routing compresses information, so judging by it later distorts, and it hides steps no one sees. "When unsure, take the heavier path" makes works that do not need it pay for it.
