@@ -106,3 +106,59 @@ fn a_new_work_loads_with_nothing_kept_of_it() {
     store.save(work, &Work::default()).expect("nothing is saved");
     assert_eq!(store.load(work), Ok(Work::default()));
 }
+
+#[test]
+fn runs_of_the_new_form_load_back_with_what_they_dealt_with_what_was_put_in_and_what_filled_their_sessions() {
+    let new = of_the_new_form();
+    // They are records a work can have.
+    let flow = judged();
+    let decision = decide::decide(&flow.flow, &new.records);
+    assert!(!matches!(decision, decide::Decision::Fault(_)), "{decision:?}");
+    assert_eq!(work::filled::check(&new), Ok(()));
+    let mut d = Driver::new();
+    history(&mut d);
+    let db = Db::new();
+    let mut store = db.open();
+    let before = first_work(&mut store);
+    let (_, work) = store
+        .add("second", "2", &[], "judged", Time(START), &Work::default())
+        .expect("the item is added");
+    store.save(before, &d.work).expect("the work is saved");
+    store.save(work, &new).expect("the work is saved");
+    let opened = db.open();
+    assert_eq!(opened.load(work), Ok(new.clone()));
+    assert_eq!(opened.load(before), Ok(d.work.clone()));
+
+    // In the file, the runs that finished by handing in say nothing of what they dealt with, and those of the new form
+    // say it, some naming nothing.
+    let rows = dump(&db.path);
+    let of = |n: WorkNumber| move |row: &&Vec<String>| row[0] == format!("Integer({})", n.0);
+    let dealt = |n: WorkNumber| -> Vec<String> {
+        rows["finished"]
+            .iter()
+            .filter(of(n))
+            .map(|row| row[3].clone())
+            .collect()
+    };
+    assert!(dealt(before).iter().all(|v| v == "Null"));
+    let mut said = dealt(work);
+    said.sort();
+    let mut expected = [
+        r#"Text("[\"request\"]")"#,
+        r#"Text("[]")"#,
+        r#"Text("[]")"#,
+        r#"Text("[\"request\",\"opinions\"]")"#,
+    ];
+    expected.sort();
+    assert_eq!(said, expected);
+    // A version handed in as changing nothing in meaning is kept as a change that does not matter, as one was before.
+    let mattering: Vec<&str> = (rows["writes"].iter().filter(of(work)))
+        .filter(|row| row[3] == r#"Text("text")"#)
+        .map(|row| row[4].as_str())
+        .collect();
+    assert_eq!(mattering, ["Integer(1)", "Integer(0)"]);
+    assert_eq!(rows["put_in"].len(), 1);
+    // Each try that was filled, the round tried twice among them.
+    assert_eq!(rows["filled"].len(), 5);
+    assert!(new.filled.iter().any(|f| f.attempt == 2));
+}

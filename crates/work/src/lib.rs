@@ -10,8 +10,10 @@ use decide::run::{Failure, Limit, Unmet};
 use decide::{BlockId, CallId, Records, RunId, Seq, Who};
 use serde::{Deserialize, Serialize};
 
+pub mod filled;
 pub mod sessions;
 
+pub use filled::{Fill, FillFault, Filled};
 pub use sessions::{Ran, RanOn, Session, Why};
 
 /// Everything kept of one work.
@@ -23,6 +25,10 @@ pub struct Work {
     pub contents: BTreeMap<(BlockId, Seq), String>,
     /// What each round that began was given, by its run and its number in the run, the first being one.
     pub given: BTreeMap<(RunId, usize), Given>,
+    /// Each time something was filled into the session of a try of a round, in order: what a session holds is read
+    /// from here, and from what the rounds that ran in it handed in, never worked out again (design document
+    /// `data-and-context`, 13). A try may be filled more than once, as when its session is begun anew under it.
+    pub filled: Vec<Filled>,
     /// What came back at the end of each round that ended while its run was open, by its run and its number in the
     /// run, the first being one. A round that ended after its run was abandoned has none: what came back was dropped.
     pub back: BTreeMap<(RunId, usize), Back>,
@@ -55,12 +61,14 @@ impl Work {
             .chain(r.done.iter().map(|e| e.at))
             .chain(r.finished.iter().map(|e| e.at))
             .chain(r.abandoned.iter().map(|e| e.at))
+            .chain(r.put_in.iter().map(|e| e.at))
             .chain(r.written.iter().map(|e| e.at))
             .chain(r.let_go.iter().map(|e| e.at))
             .chain(r.pauses.iter().map(|e| e.at))
             .chain(r.cancelled)
             .chain(r.released)
             .chain(self.sessions.iter().map(|s| s.at))
+            .chain(self.filled.iter().map(|f| f.at))
             .chain(self.ran.iter().map(|r| r.at));
         Seq(places.map(|at| at.0).max().unwrap_or(0) + 1)
     }

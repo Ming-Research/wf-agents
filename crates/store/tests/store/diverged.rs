@@ -12,11 +12,16 @@ use super::*;
 fn held() -> (Db, Store, WorkNumber, Work) {
     let mut d = Driver::new();
     history(&mut d);
+    held_as(d.work)
+}
+
+/// A store holding the work, and the work.
+fn held_as(kept: Work) -> (Db, Store, WorkNumber, Work) {
     let db = Db::new();
     let mut store = db.open();
     let work = first_work(&mut store);
-    store.save(work, &d.work).expect("the work is saved");
-    (db, store, work, d.work)
+    store.save(work, &kept).expect("the work is saved");
+    (db, store, work, kept)
 }
 
 /// Each way of changing an entry the store holds: the table that holds it, and the entry it changes.
@@ -56,7 +61,12 @@ fn changes() -> Vec<Change> {
         },
         |w| {
             let e = &mut w.records.finished[0];
-            e.writes[0].matters = !e.writes[0].matters;
+            e.writes[0].meaning_unchanged = !e.writes[0].meaning_unchanged;
+            ("finished", Entry::At(e.at))
+        },
+        |w| {
+            let e = &mut w.records.finished[0];
+            e.dealt_with = Some(vec![]);
             ("finished", Entry::At(e.at))
         },
         |w| {
@@ -254,4 +264,56 @@ fn a_work_the_store_does_not_have_is_neither_saved_nor_loaded() {
     let none = WorkNumber(2);
     assert_eq!(store.save(none, &Work::default()), Err(Fault::NoSuchWork(none)));
     assert_eq!(store.load(none), Err(Fault::NoSuchWork(none)));
+}
+
+#[test]
+fn a_work_of_the_new_form_changed_at_or_lacking_an_entry_the_store_holds_is_refused() {
+    let (db, mut store, work, kept) = held_as(of_the_new_form());
+    let changes: Vec<Change> = vec![
+        |w| {
+            let e = &mut w.records.finished[0];
+            e.dealt_with = None;
+            ("finished", Entry::At(e.at))
+        },
+        |w| {
+            let e = &mut w.records.finished[0];
+            e.writes[0].meaning_unchanged = !e.writes[0].meaning_unchanged;
+            ("finished", Entry::At(e.at))
+        },
+        |w| {
+            let e = &mut w.records.put_in[0];
+            e.run = RunId(999);
+            ("put_in", Entry::At(e.at))
+        },
+        |w| {
+            let e = &mut w.filled[0];
+            e.fills.pop();
+            ("filled", Entry::At(e.at))
+        },
+        |w| {
+            let e = &mut w.filled[0];
+            e.attempt += 1;
+            ("filled", Entry::At(e.at))
+        },
+    ];
+    for change in changes {
+        let mut given = kept.clone();
+        let (table, entry) = change(&mut given);
+        refused(&db, &mut store, work, &given, table, entry, Divergence::Changed);
+    }
+    let removals: Vec<Change> = vec![
+        |w| {
+            (
+                "put_in",
+                Entry::At(w.records.put_in.pop().expect("a version put in").at),
+            )
+        },
+        |w| ("filled", Entry::At(w.filled.pop().expect("a filling").at)),
+    ];
+    for removal in removals {
+        let mut given = kept.clone();
+        let (table, entry) = removal(&mut given);
+        refused(&db, &mut store, work, &given, table, entry, Divergence::Missing);
+    }
+    assert_eq!(store.load(work), Ok(kept));
 }

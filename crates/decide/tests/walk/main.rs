@@ -7,6 +7,7 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+mod before;
 mod changed_flow;
 mod failing;
 mod faults;
@@ -28,7 +29,7 @@ use std::collections::BTreeMap;
 
 use decide::{
     Abandoned, Abandoning, BlockId, CallId, Cause, Cell, Condition, Decision, Done, End, Flow, FlowFault, Maker,
-    Pauser, RecordFault, Returned, Round, RunId, Seq, Waited, Who, Write, Written,
+    Pauser, PutIn, RecordFault, Returned, Round, RunId, Seq, Waited, Who, Write, Written,
 };
 use support::Says::{DoesNotMatter, Matters, Value};
 use support::{World, cell, gate, merge_word, resting};

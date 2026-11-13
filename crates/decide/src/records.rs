@@ -39,6 +39,10 @@ pub struct Records {
     pub finished: Vec<Finished>,
     /// Each run that was abandoned, leaving no record.
     pub abandoned: Vec<Abandoned>,
+    /// Each version of a block put into a round while it was under way, which the round was told of beside those it
+    /// began with. Records kept before a version reached a round so have none, and read so.
+    #[serde(default)]
+    pub put_in: Vec<PutIn>,
     /// Every write of a block by a person or from outside the work.
     pub written: Vec<Written>,
     /// Each time the owner let a cell go on after it reached its limit.
@@ -55,6 +59,13 @@ pub struct Records {
 }
 
 impl Records {
+    /// Whether the entry at this place wrote a version of the block: a person's or the outside's write of it, or a run
+    /// that finished there writing it.
+    pub fn wrote(&self, block: &BlockId, at: Seq) -> bool {
+        (self.written.iter()).any(|w| &w.block == block && w.at == at)
+            || (self.finished.iter()).any(|f| f.at == at && f.writes.iter().any(|w| &w.block == block))
+    }
+
     /// The records as they stood before this place: every entry at an earlier place, and none at it or after. Records
     /// are only added to, so these are what was recorded then, and what was decided then is decided again from them.
     pub fn before(&self, place: Seq) -> Records {
@@ -69,6 +80,7 @@ impl Records {
             done: kept(&self.done, |e| e.at, place),
             finished: kept(&self.finished, |e| e.at, place),
             abandoned: kept(&self.abandoned, |e| e.at, place),
+            put_in: kept(&self.put_in, |e| e.at, place),
             written: kept(&self.written, |e| e.at, place),
             let_go: kept(&self.let_go, |e| e.at, place),
             pauses: kept(&self.pauses, |e| e.at, place),
@@ -129,16 +141,25 @@ pub struct Finished {
     pub at: Seq,
     /// The blocks the run wrote. Each is a version of its block, named by this entry's place.
     pub writes: Vec<Write>,
+    /// The blocks its return says it has dealt with, by name, in the order it named them, each once: each is a block of
+    /// the run's `basis` or one [put in](PutIn) to it. Of each, what the run consumes is the latest version it was told
+    /// of: the one it began from, or one put in to it later (design document `data-and-context`, 9). A return that
+    /// dealt with nothing names none. None where the return did not say, as no return of the earlier form does and no
+    /// record kept before returns said it holds: such a run dealt with every block of its `basis`. That is read from
+    /// the run's own record, never from what the flow says runs its cell now, so that a run reads the same after the
+    /// flow changes.
+    #[serde(default)]
+    pub dealt_with: Option<Vec<BlockId>>,
 }
 
 /// A block a run wrote as it finished.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Write {
     pub block: BlockId,
-    /// Whether the change matters to the cells that read the block, compared with the version the run started from.
-    /// Where it does not, the version keeps that version's meaning. Not read for a block with a value: a choice
+    /// Whether the run hands the version in as changing nothing in meaning, compared with the version the run started
+    /// from. Where it does, the version keeps that version's meaning. Not read for a block with a value: a choice
     /// changes its meaning when its value does.
-    pub matters: bool,
+    pub meaning_unchanged: bool,
     /// The block's value, where a condition reads it: a choice such as yes or no.
     pub value: Option<String>,
 }
@@ -147,6 +168,19 @@ pub struct Write {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Abandoned {
     pub run: RunId,
+    pub at: Seq,
+}
+
+/// A version of a block was put into the round of the run that was under way, after the round began, so that the
+/// round was told of it: what the owner says reaches a round so (design document `data-and-context`, 39). The version
+/// was written before it was put in, and the round was under way then. A version the round was never told of stays
+/// new to its cell, however the round ends.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PutIn {
+    pub run: RunId,
+    pub block: BlockId,
+    /// The version put into the round, named by the place of the entry that wrote it.
+    pub version: Seq,
     pub at: Seq,
 }
 
@@ -257,4 +291,16 @@ pub enum RecordFault {
     ReturnedWithoutRound(RunId),
     /// Two entries share this place.
     PlaceTwice(Seq),
+    /// What was put in at this place is no version of its block.
+    PutInNoVersion(Seq),
+    /// What was put in at this place is a version written at that place or after it.
+    PutInBeforeWritten(Seq),
+    /// What was put in at this place was put into a run that had no round under way then.
+    PutInNoRound(Seq),
+    /// The run's return names, as dealt with, a block that is neither in its `basis` nor was put in to it.
+    DealtWithUnknown(RunId),
+    /// The run's return names one block twice as dealt with.
+    DealtWithTwice(RunId),
+    /// The call was made after its run had finished or was abandoned: a run makes its calls before it ends.
+    CalledAfterEnd(CallId),
 }

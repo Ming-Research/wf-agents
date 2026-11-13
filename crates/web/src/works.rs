@@ -1795,7 +1795,7 @@ fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                     .map(|write| {
                         Ok(Handed {
                             block: write.block.to_string(),
-                            matters: write.matters,
+                            matters: !write.meaning_unchanged,
                             value: write.value.clone(),
                             chars: chars(work, &write.block, finished.at)?,
                         })

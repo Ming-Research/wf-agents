@@ -121,7 +121,7 @@ fn step_paused_answering(rounds: Vec<Round>, spec: &Spec) -> Step {
 fn prose(block: &str) -> Write {
     Write {
         block: block.into(),
-        matters: true,
+        meaning_unchanged: false,
         value: None,
     }
 }
@@ -130,7 +130,7 @@ fn prose(block: &str) -> Write {
 fn valued(block: &str, value: &str) -> Write {
     Write {
         block: block.into(),
-        matters: true,
+        meaning_unchanged: false,
         value: Some(value.to_string()),
     }
 }
