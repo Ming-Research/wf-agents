@@ -77,9 +77,12 @@ fn an_item_is_added_at_the_level_it_is_given_and_one_the_engine_lacks_is_refused
     );
     assert_eq!(engine.says(&["list"]), "Works go on; 0 of 2 slots taken.\nNo items.\n");
     engine.says(&add("1"));
+    // Added with no request, nothing runs its first cell: it waits at the merge's precondition, as any work that has
+    // nothing else to do.
     assert_eq!(
         engine.says(&["list"]),
-        "Works go on; 0 of 2 slots taken.\nItem 1 \"Greet the user\" at level 1, work 1 on trial: paused\n"
+        "Works go on; 0 of 2 slots taken.\nItem 1 \"Greet the user\" at level 1, work 1 on trial: waits at merge for \
+         cell review: The review is content\n"
     );
     // An item is put at another level as it is added, and refused alike.
     assert_eq!(
