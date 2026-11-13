@@ -245,3 +245,6 @@ run next all the same, and the note would be filled, since the new session lacks
     of the work: they run no cell, and no cell is given them. Each is kept as an observation of the installation, with
     the work, the cell and the round it came from, and shown as not yet read. Whether it is urgent, and whether it
     becomes an item, is judged by whoever reads it, not by the agent that wrote it.
+
+48. A return may also say, in a sentence or two, what its round did and found, and a round told to stop how far it
+    got. It is kept with the round for the owner to read, and like an observation it is no data of the work.
