@@ -19,3 +19,7 @@ An agent's program runs in a group of processes of its own and can outlive the e
 ended left running is stopped before its round is run again.
 Why: Left to run, it would meet the next engine running its round again: two agents in one worktree, as with two
 engines on one data directory (decision one-engine-on-a-data-directory).
+
+### decision tool-inputs-are-checked-before-they-stream
+The agents' program is run with the service checking each tool's input as JSON before it streams the input.
+Why: An input the service did not check could come cut off, and a return cut off is no return.

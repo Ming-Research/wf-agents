@@ -20,7 +20,7 @@ Why: Deciding then needs no clock, a wait made is known as made after a stop, an
 
 ### decision an-unread-return-is-sent-back
 A return that could not be read is sent back to the agent in its session, as any return that does not meet the form, and counts against the run's limit of returns sent back.
-Why: The agent's work is done and only its hand-in is wrong, so running the round from its start would pay for it twice; repairing the text in the engine or by a cheap model was turned down, since the command line's one result does not give the text of the attempts it refused.
+Why: The agent's work is done and only its hand-in is wrong, so running the round from its start would pay for it twice. Repairing a text that is no JSON, in the engine or by a cheap model, was turned down: the agent that wrote it holds in its session what it meant, while a repair guesses at it (judgment, not measured).
 
 ### decision a-flagged-round-begins-a-new-session
 A round the service's safety check flagged is given again at once in a new session of its line, whose name is worked out from how many of the line's rounds were flagged; flagged again in the same run, with only failures between, the work is paused.

@@ -4,16 +4,17 @@
 //! give it to the program (`permissions`). How many run at once is the engine's to bound: it gives at most as many
 //! rounds at once as the settings give slots, and holds the others back in its own order.
 //!
-//! A round fails, handing in nothing, where the worktree is not there, the program cannot be started, it exits with
-//! an error or prints a result that is one, or what it prints is no result with a structured return of the form. The
-//! kind of its cause is told apart from what the program reported ([`failure`](crate::failure)): a program that cannot
-//! be started cannot run, a return not of the form could not be read, and a round that failed before its program ran
-//! failed for a cause no kind tells apart. It is not tried again here: the engine handles it as its kind says. A round
-//! that fails takes what the result the program printed says it cost, as any round does, and is held to the budget as
-//! any round is, its work paused where it went over; where the program printed nothing that reads as a result, what
-//! the round took is not known, and is recorded as nothing. Stopped, the program's process group is sent TERM, and
-//! KILL after three seconds, and the round ends with nothing handed in; what it spent is not known, and is recorded
-//! as nothing.
+//! A round fails, handing in nothing, where the worktree is not there, the program cannot be started, or its stream
+//! holds no return of the form: neither one the command line took, nor, where it gave up on the return, its last
+//! attempt at one, rebuilt from the stream (`cli::Stream`); a return the stream holds is read however the program
+//! exited. The kind of its cause is told apart from what the program reported ([`failure`](crate::failure)): a
+//! program that cannot be started cannot run, a return not of the form could not be read, and a round that failed
+//! before its program ran failed for a cause no kind tells apart. It is not tried again here: the engine handles it as
+//! its kind says. A round that fails takes what the result the program printed says it cost, as any round does, and
+//! is held to the budget as any round is, its work paused where it went over; where the program printed nothing that
+//! reads as a result, what the round took is not known, and is recorded as nothing. Stopped, the program's process
+//! group is sent TERM, and KILL after three seconds, and the round ends with nothing handed in; what it spent is not
+//! known, and is recorded as nothing.
 //!
 //! The program is given an environment of its own, not the engine's (`cli::environment`). Which of its line's sessions
 //! a round runs in, and whether it begins it, is counted from the work's records (`cli::in_session`); what it is told
@@ -22,7 +23,8 @@
 //! the program no longer has is begun again under its id, and that is said to the loop at once, so that it is
 //! recorded with why. Where the program compacts the session during the round, a hook it is given marks the
 //! compaction, which the round counts among what it took, and gives the session the round's whole message again, as a
-//! session that begins is told it.
+//! session that begins is told it. After each use of a tool another hook gives the session what the owner said to the
+//! round while it runs, where the runner put it in the round's files (`cli::Words`).
 //!
 //! Before the first round of each run of a cell that takes main in, the work's branch takes in main's head as the host
 //! last gave it ([`catch_up`](crate::catch_up)), and what came of it is kept beside the run's rounds before the round
@@ -33,13 +35,14 @@
 //! effort its cell sets (`Settings::ran_on`); a round whose item's level the settings no longer allow fails, saying so.
 //! What each try runs on is said to the loop as it begins, and recorded in the work's records.
 //!
-//! What each round was told and what the program printed are kept for reading, in `rounds/<work>/<run>-<round>` in
-//! the data directory: `.message.md` and `.result.json` for its first try, `.message.2.md` and `.result.2.json` for
-//! the next, and so on; `.compacted` holds a byte for each compaction of the session during the round, and
-//! `.again.md`, while the program runs, what the hook gives again. While the program runs, its process group is
-//! written in `.pgid` there; a group left named there by a process of the engine that ended is stopped before the
-//! round is run again, or before the round's stop ends it, so that a session has one program at a time and a stopped
-//! round's program does not run on.
+//! What each round was told and the program's stream are kept for reading, in `rounds/<work>/<run>-<round>` in the
+//! data directory: `.message.md` and `.stream.jsonl` for its first try, `.message.2.md` and `.stream.2.jsonl` for the
+//! next, and so on, the stream written as it comes; `.compacted` holds a byte for each compaction of the session
+//! during the round, and `.again.md`, while the program runs, what the hook gives again; `.words.json` what the owner
+//! said that waits for the hook, and `.delivered.1.json` and on what the hook gave. While the program runs, its
+//! process group is written in `.pgid` there; a group left named there by a process of the engine that ended is
+//! stopped before the round is run again, or before the round's stop ends it, so that a session has one program at a
+//! time and a stopped round's program does not run on.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -55,7 +58,7 @@ use uuid::Uuid;
 use work::{RanOn, Spent, Why};
 
 use crate::catch_up::{self, CaughtUp};
-use crate::cli::{self, Begin, Compacted, InSession};
+use crate::cli::{self, Begin, Compacted, InSession, Words};
 use crate::held::{Failing, Held, Stop};
 use crate::permissions::Permissions;
 use crate::process::{self, Ran};
@@ -247,12 +250,17 @@ impl Inner {
             marks: base.with_extension("compacted"),
             again: base.with_extension("again.md"),
         };
+        // What the owner says to the round while it runs waits beside it, for the hook after the next use of a tool.
+        let words = Words {
+            waiting: base.with_extension("words.json"),
+            delivered: base.with_extension("delivered"),
+        };
         let mut tried = false;
         // The session the program lost is begun again under its id, and that is recorded once for the round.
         let at = work::sessions::began_at(work, round.run, round.number);
         let recorded =
             (work::sessions::of_line(work, line)).any(|s| s.why == Why::Lost && at.is_some_and(|a| a < s.at));
-        let (status, stdout, stderr) = loop {
+        let (status, stream, stderr) = loop {
             // A round whose run ran in another session before is told what a session that begins is told: the
             // session it goes on in never saw the run.
             let opening = message::Opening {
@@ -269,28 +277,31 @@ impl Inner {
             // The round takes what its last try took, so it counts that try's compactions alone: an earlier try's, or
             // a try's before the engine stopped, are not its.
             let _ = tokio::fs::remove_file(&compacted.marks).await;
-            let (n, told_at, result_at) = attempt(&base).await;
+            let (n, told_at, stream_at) = attempt(&base).await;
             // What the try runs on is said before its message is written, which makes the try one that was kept.
             teller.ran_on(n, on.clone());
             write(&told_at, told.as_bytes()).await?;
-            let command = self.command(&dir, &on, &permissions, &compacted, session, begin);
+            let command = self.command(&dir, &on, &permissions, &compacted, &words, session, begin);
+            // The stream is kept as it comes, so that what the agent is doing can be read while it does it.
+            let mut kept = Keeping::to(&stream_at)?;
+            let mut each = |line: &[u8]| kept.line(line);
             // A program that cannot be started printed no result: its words say whether it is missing, which holds
             // every work, and any other cause pauses the work.
-            let ran = match process::run(command, Some(told.into_bytes()), Some(&group), stop).await {
+            let ran = match process::streamed(command, Some(cli::stdin(&told)), Some(&group), stop, &mut each).await {
                 Ok(ran) => ran,
                 Err(why) => {
                     let kind = failure::of(&why, None);
                     return Ok(Carried::Failed(why, kind, Spent::default()));
                 }
             };
-            let Ran::Ended { status, stdout, stderr } = ran else {
+            let Ran::Ended { status, stderr, .. } = ran else {
                 return Ok(Carried::Stopped);
             };
-            write(&result_at, &stdout).await?;
+            let stream = kept.done()?;
             let stderr = String::from_utf8_lossy(&stderr).into_owned();
             // A session begun before its first round was cut off, or one the program no longer has, is tried the
             // other way, once.
-            if !status.success() && stdout.is_empty() && !tried && begin.refused(&stderr) {
+            if !status.success() && stream.is_empty() && !tried && begin.refused(&stderr) {
                 if begin == Begin::Resume && !recorded {
                     teller.session_began(line.to_string(), Why::Lost);
                 }
@@ -298,14 +309,15 @@ impl Inner {
                 tried = true;
                 continue;
             }
-            break (status, stdout, stderr);
+            break (status, stream, stderr);
         };
         let _ = tokio::fs::remove_file(&compacted.again).await;
         let compactions = match tokio::fs::metadata(&compacted.marks).await {
             Ok(marks) => u32::try_from(marks.len()).unwrap_or(u32::MAX),
             Err(_) => 0,
         };
-        let read = cli::read(&stdout, begin, before).map(|mut read| {
+        let had_result = stream.has_result();
+        let read = stream.read(begin, before).map(|mut read| {
             read.spent.compactions = compactions;
             read
         });
@@ -316,26 +328,24 @@ impl Inner {
             no
         });
         // A failure whose result was read took what the result says; one with none, what is not known. Its kind is
-        // told by what the program reported and what it took.
+        // told by what the program reported and what it took. A return the stream holds is read however the program
+        // exited: the one the command line took, or the last attempt of one it gave up on, after which it exits with
+        // an error.
         let failed = |why: String, spent: Option<Spent>| {
             let kind = failure::of(&why, spent.as_ref());
             Ok(Carried::Failed(why, kind, spent.unwrap_or_default()))
         };
-        if !status.success() {
-            let tail = || process::tail(stderr.trim().as_bytes());
-            let (why, spent) = match read {
-                Err(no) if !stdout.is_empty() => (no.why, no.spent),
-                Err(no) => (tail(), no.spent),
-                Ok(read) => (tail(), Some(read.spent)),
-            };
-            return failed(
-                format!("{} exited with {status}: {why}", self.settings.agents.command),
-                spent,
-            );
-        }
         let read = match read {
             Ok(read) => read,
-            Err(no) => return failed(no.why, no.spent),
+            Err(no) if status.success() => return failed(no.why, no.spent),
+            Err(no) => {
+                let why = match had_result {
+                    true => no.why,
+                    false => process::tail(stderr.trim().as_bytes()),
+                };
+                let command = &self.settings.agents.command;
+                return failed(format!("{command} exited with {status}: {why}"), no.spent);
+            }
         };
         match returns::came(&read.structured) {
             Ok(came) => Ok(Carried::Came(came, read.spent)),
@@ -345,12 +355,14 @@ impl Inner {
 
     /// The program's command line for a round on what it runs on, of a line with these permissions, in the session,
     /// begun or gone on in, in the worktree. The system prompt says what the line may do.
+    #[allow(clippy::too_many_arguments)]
     fn command(
         &self,
         dir: &Path,
         on: &RanOn,
         permissions: &Permissions,
         compacted: &Compacted,
+        words: &Words,
         session: Uuid,
         begin: Begin,
     ) -> Command {
@@ -364,6 +376,7 @@ impl Inner {
             returns::SCHEMA,
             permissions,
             compacted,
+            words,
             session,
             begin,
         );
@@ -435,15 +448,53 @@ fn resets(failure: Failure, why: &str, clock: &dyn Clock) -> Option<work::Time> 
     failure::resets_at(why, now.0, &failure::zone_offset).map(work::Time)
 }
 
-/// The number of the next try of the round, and where it keeps what it is told and what it returns: the first that
-/// has kept nothing yet.
+/// The number of the next try of the round, and where it keeps what it is told and its stream: the first that has
+/// kept nothing yet.
 async fn attempt(base: &Path) -> (usize, PathBuf, PathBuf) {
     let mut n = 1;
     while tokio::fs::try_exists(&kept::at(base, n).0).await.unwrap_or(false) {
         n += 1;
     }
-    let (told, result) = kept::at(base, n);
-    (n, told, result)
+    (n, kept::at(base, n).0, kept::stream_at(base, n))
+}
+
+/// The stream of a try as it comes: read, and each line kept that is kept with the round ([`cli::Stream::line`]),
+/// written to its file as it comes; the first fault of the writing is kept, and said once the try has ended.
+struct Keeping {
+    stream: cli::Stream,
+    file: std::fs::File,
+    path: PathBuf,
+    fault: Option<std::io::Error>,
+}
+
+impl Keeping {
+    /// Keeping a stream in the file, which is made anew.
+    fn to(path: &Path) -> Result<Keeping, String> {
+        let file = std::fs::File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        Ok(Keeping {
+            stream: cli::Stream::default(),
+            file,
+            path: path.to_path_buf(),
+            fault: None,
+        })
+    }
+
+    /// Takes a line of the stream, without its newline.
+    fn line(&mut self, line: &[u8]) {
+        use std::io::Write;
+        if self.stream.line(line) && self.fault.is_none() {
+            let written = (self.file.write_all(line)).and_then(|()| self.file.write_all(b"\n"));
+            self.fault = written.err();
+        }
+    }
+
+    /// The stream as it was read; or why it could not be kept.
+    fn done(self) -> Result<cli::Stream, String> {
+        match self.fault {
+            Some(e) => Err(format!("{}: {e}", self.path.display())),
+            None => Ok(self.stream),
+        }
+    }
 }
 
 /// Writes the file, making its directory where there is none.

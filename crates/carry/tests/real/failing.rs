@@ -1,7 +1,8 @@
 //! A round that fails for a cause running it again cannot help pauses its work with the reason, its end kept in the
 //! records with its kind; once the owner lets the work on, the run's next round is given what the failed one was, and
-//! begins the session the failed one could not. A return the command line gave up on is sent back, in the session. A session
-//! the command line no longer has is begun again, and its round told everything a run's first round is.
+//! begins the session the failed one could not. A return the command line gave up on is rebuilt from its stream and
+//! taken, and one that cannot be read is sent back, in the session. A session the command line no longer has is begun
+//! again, and its round told everything a run's first round is.
 
 use decide::Pauser;
 use decide::run::{Failure, Unmet};
@@ -57,7 +58,7 @@ async fn a_failed_round_pauses_the_work_with_the_reason_and_the_next_round_runs_
     for n in [1, 2] {
         let base = real.data.join(format!("rounds/1/{}-{n}", plan_run.0));
         assert!(base.with_extension("message.md").is_file(), "{}", base.display());
-        assert!(base.with_extension("result.json").is_file(), "{}", base.display());
+        assert!(base.with_extension("stream.jsonl").is_file(), "{}", base.display());
     }
 }
 
@@ -203,7 +204,7 @@ async fn a_failed_round_whose_result_says_what_it_cost_is_charged_it_and_the_nex
     let Some(Back::Failed { why, failure, .. }) = kept.back.get(&(plan_run, 1)) else {
         panic!("the plan's round did not fail: {:?}", kept.back);
     };
-    assert!(why.contains("Out of structured output retries."), "{why}");
+    assert!(why.contains(crate::GAVE_UP), "{why}");
     assert_eq!(*failure, Failure::Unread);
     assert!(decide::pause(&kept.records).is_none(), "the work is paused");
     let failed = kept.spent[&(plan_run, 1)];
@@ -232,6 +233,34 @@ async fn a_failed_round_whose_result_says_what_it_cost_is_charged_it_and_the_nex
 }
 
 #[tokio::test]
+async fn a_return_the_command_line_gave_up_on_is_rebuilt_from_its_stream_and_taken() {
+    let fake = Fake {
+        refuses_first: true,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    assert_eq!(real.failures, 0, "no round failed");
+    assert_eq!(real.calls().len(), 3, "the plan's program was run once");
+    let kept = real.work(work);
+    let plan_run = kept.records.started[0].run;
+    let Some(Back::HandedIn(handed)) = kept.back.get(&(plan_run, 1)) else {
+        panic!("the plan's round handed nothing in: {:?}", kept.back);
+    };
+    let handed: Vec<(&str, &str)> = (handed.iter())
+        .map(|h| (h.block.0.as_str(), h.content.as_str()))
+        .collect();
+    assert_eq!(handed, [("plan", "Greet by name.")]);
+    assert_eq!(kept.spent[&(plan_run, 1)].usd_micros, 400_000, "what the call cost");
+    // What is kept of the stream holds the pieces the return was rebuilt from.
+    let stream = real.data.join(format!("rounds/1/{}-1.stream.jsonl", plan_run.0));
+    let stream = std::fs::read_to_string(stream).expect("the stream is kept");
+    assert_eq!(stream.matches("input_json_delta").count(), 4, "{stream}");
+}
+
+#[tokio::test]
 async fn a_failed_round_that_takes_the_work_over_its_budget_says_both() {
     let mut real = Real::open(crate::On::Trial, erring(), Some(0.5), "true");
     let work = real.add().await;
@@ -241,6 +270,6 @@ async fn a_failed_round_that_takes_the_work_over_its_budget_says_both() {
     let why = decide::pause(&kept.records)
         .and_then(|p| p.why.clone())
         .expect("a reason");
-    assert!(why.contains("Out of structured output retries."), "{why}");
+    assert!(why.contains(crate::GAVE_UP), "{why}");
     assert!(why.contains("over its budget of $0.50"), "{why}");
 }
