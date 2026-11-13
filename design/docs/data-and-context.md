@@ -138,14 +138,16 @@ run next all the same, and the note would be filled, since the new session lacks
 ## What a person answers
 
 27. A question a cell puts to the owner is data of its own, written by the cell, with its options, the one the cell
-    recommends, and whether the cell waits for the answer. It may say where in a text it belongs, and is shown
-    there; it may also stand alone. Writing a question gives that text no new version, so no cell runs again for the
-    text because something was asked about it.
+    recommends, and whether the cell waits for the answer. A text points to a question by its name at the place the
+    question belongs, and the question is shown there; a question no text points to stands alone. Writing a
+    question, writing it anew or withdrawing it gives no text a new version, so no cell runs again for a text
+    because something was asked about it.
 
-28. Each question has a number, which the engine gives it, and versions of its own. A round writes only the
-    questions it adds, writes anew or withdraws; a question it does not name stands as it is, with its answer. A
-    question written anew has a new version, and an answer given on an earlier version no longer answers it.
-    However the text a question belongs to is changed, the question and its answer stand.
+28. Each question has a name, which the cell gives it when it first writes it and which no other question of the
+    work has, and versions of its own. A round writes only the questions it adds, writes anew or withdraws, each
+    under its name; a question it does not name stands as it is, with its answer. A question written again under its
+    name has a new version, and an answer given on an earlier version no longer answers it. However the text that
+    points to a question is changed, the question and its answer stand.
 
 29. What the owner answers is data written on the question: it runs the cell that asked, and no other, and is given
     to it. Where the cell does not wait, the work goes on by the option it recommends, and the merge waits until
