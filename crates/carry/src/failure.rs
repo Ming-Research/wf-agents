@@ -62,6 +62,7 @@ const KINDS: [(Failure, &[&str]); 6] = [
             "hit your limit",
             "limit reached",
             "limit will reset",
+            "weekly limit",
             "out of extra usage",
         ],
     ),
@@ -157,6 +158,10 @@ pub fn resets_at(report: &str, now: u64, offset: &dyn Fn(Option<&str>) -> Option
     let after = after.trim_start().trim_start_matches("at ").trim_start();
     // The time of day: the first run of digits, with minutes after a colon, and am or pm after it.
     let start = after.find(|c: char| c.is_ascii_digit())?;
+    // A weekday named before the time (`resets Fri 5pm`): the reset is on the next such day.
+    let weekday = after[..start]
+        .split(|c: char| !c.is_ascii_alphabetic())
+        .find_map(weekday_of);
     let rest = &after[start..];
     let hour_text: String = rest.chars().take_while(char::is_ascii_digit).collect();
     let mut hour: i64 = hour_text.parse().ok()?;
@@ -185,10 +190,34 @@ pub fn resets_at(report: &str, now: u64, offset: &dyn Fn(Option<&str>) -> Option
     let local = i64::try_from(now / 1000).ok()? + off;
     let day = local - local.rem_euclid(86_400);
     let mut at = day + hour * 3600 + minute * 60;
-    if at <= local {
+    if let Some(want) = weekday {
+        // The day count since 1970-01-01, a Thursday, gives the weekday, Monday being 0.
+        let today = (day / 86_400 + 3).rem_euclid(7);
+        at += (want - today).rem_euclid(7) * 86_400;
+        if at <= local {
+            at += 7 * 86_400;
+        }
+    } else if at <= local {
         at += 86_400;
     }
     u64::try_from((at - off) * 1000).ok()
+}
+
+/// The weekday a word names, in lower case, in full or as its three letters: Monday is 0.
+fn weekday_of(word: &str) -> Option<i64> {
+    const DAYS: [&str; 7] = [
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+    ];
+    let at = DAYS
+        .iter()
+        .position(|d| word == *d || (word.len() == 3 && d.starts_with(word)))?;
+    i64::try_from(at).ok()
 }
 
 /// A time zone's distance from UTC in seconds, as `date` gives it there; the local one for none.
@@ -311,5 +340,57 @@ mod tests {
             Some(now + 2 * 3_600_000)
         );
         assert_eq!(resets_at("usage limit reached", now, &utc), None);
+    }
+
+    #[test]
+    fn a_weekly_limit_is_a_usage_limit() {
+        for report in [
+            "You've hit your weekly limit · resets Fri 5pm",
+            "You've hit your weekly limit · resets Fri 5pm (Europe/Paris)",
+            "Weekly limit reached ∙ resets Mon 9am",
+            "You've reached your weekly limit",
+            "You've hit your Opus weekly limit · resets Sat 12am",
+        ] {
+            assert_eq!(kind(report), Failure::UsageLimit, "{report}");
+        }
+    }
+
+    #[test]
+    fn a_reset_with_a_weekday_is_on_the_next_such_day() {
+        let utc = |_: Option<&str>| Some(0);
+        // 2026-10-25 20:00 UTC, a Sunday.
+        let now = 1_792_958_400_000;
+        let day = 86_400_000;
+        let sunday = now - 20 * 3_600_000;
+        let five = 17 * 3_600_000;
+        let days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+        for (i, name) in days.into_iter().enumerate() {
+            let want = Some(sunday + (i as u64 + 1) * day + five);
+            let short = name[..3].to_string();
+            assert_eq!(
+                resets_at(&format!("You've hit your weekly limit · resets {short} 5pm"), now, &utc),
+                want
+            );
+            assert_eq!(
+                resets_at(&format!("hit your weekly limit, resets {name} at 5pm"), now, &utc),
+                want
+            );
+        }
+        // Today, the time still ahead: today; the time past: a week on.
+        assert_eq!(resets_at("resets Sun 9pm", now, &utc), Some(now + 3_600_000));
+        assert_eq!(
+            resets_at("resets Sunday 7:30pm", now, &utc),
+            Some(now + 7 * day - 1_800_000)
+        );
+        assert_eq!(resets_at("resets Sun 8pm", now, &utc), Some(now + 7 * day));
+        // The weekday is the zone's: it is Sunday 21:00 in Paris (UTC+1), where Monday 12am is three hours ahead.
+        let paris = |z: Option<&str>| (z == Some("Europe/Paris")).then_some(3600);
+        assert_eq!(
+            resets_at("resets Mon 12am (Europe/Paris)", now, &paris),
+            Some(now + 3 * 3_600_000)
+        );
+        // Without a weekday, or without a time, as before.
+        assert_eq!(resets_at("resets 9pm", now, &utc), Some(now + 3_600_000));
+        assert_eq!(resets_at("resets Fri", now, &utc), None);
     }
 }

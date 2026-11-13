@@ -5,9 +5,10 @@
 //! not red. A work that has ended has the branches of its checks before the change taken away and, where it did not
 //! merge, its pull request closed.
 //!
-//! Of the named checks, the check before the merge and an agent's check alike, one that fails on main's head as well is
-//! not the change's and holds no work; one that failed in a run the work read before is run again, and passing then it
-//! fails now and then. A check that is not named does not count.
+//! Of the named checks, the check before the merge and an agent's check alike, one that fails counts as failed even
+//! where it is red on main's head as well: the failure is said to be also on main, since whether the change adds one of
+//! its own is not known, and it is not set aside. Nothing is run again: a failed check stays failed until a new commit
+//! is checked. A check that is not named does not count.
 //!
 //! What it does is found again on GitHub by the work's branch and the commit, never kept by the engine: a check given
 //! again after the engine started again pushes nothing GitHub has, finds the pull request it opened and reads the CI
