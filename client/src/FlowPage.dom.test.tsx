@@ -236,7 +236,8 @@ describe('the chart', () => {
     click(rowOf(page, 'ci').querySelector('.head-button'));
     const panel = page.querySelector('aside[aria-label="Block ci"]') as HTMLElement;
     expect(panel.textContent).toContain('a choice of green, red');
-    expect(texts(panel, '.status-line')).toContain('Read byruns merge; the test may_merge');
+    // merge, an engine's cell, is run by ci and given nothing: no line of what it is given to.
+    expect(texts(panel, '.status-line').slice(1)).toEqual(['Runsmerge', 'Tested bymay_merge']);
     expect(panel.querySelector('[title="The work may merge (ci is not red)"]')?.textContent).toBe('may_merge');
     expect(rowOf(page, 'ci').className).toContain('chosen');
   });
@@ -344,16 +345,20 @@ describe('what runs a cell, what it is given and the tools it may ask for', () =
     expect(texts(panel, '.status-line')).toContain('Takes main in');
   });
 
-  it('says in a block’s panel the cells it runs and those it is given to, apart', () => {
+  it('says in a block’s panel the cells it runs and those it is given to, each on a line of its own where there are any', () => {
     const page = draw({ state: 'compiled', flow: flow() });
     click(rowOf(page, 'record').querySelector('.head-button'));
-    expect(texts(page.querySelector('aside[aria-label="Block record"]') as HTMLElement, '.status-line')).toContain(
-      'Read bygiven to plan',
-    );
+    expect(texts(page.querySelector('aside[aria-label="Block record"]') as HTMLElement, '.status-line')).toEqual([
+      'What it isWhat the review found.',
+      'Written byreview',
+      'Given toplan',
+    ]);
     click(rowOf(page, 'plan').querySelector('.head-button'));
-    expect(texts(page.querySelector('aside[aria-label="Block plan"]') as HTMLElement, '.status-line')).toContain(
-      'Read byruns review; given to review',
-    );
+    expect(texts(page.querySelector('aside[aria-label="Block plan"]') as HTMLElement, '.status-line')).toEqual([
+      'Written byplan',
+      'Runsreview',
+      'Given toreview',
+    ]);
   });
 });
 

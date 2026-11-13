@@ -7,7 +7,7 @@ import type { Block, Cell, Change, Fault, Flow } from './api';
 import type { Chosen } from './Chart';
 import { markedChange } from './diff';
 import { type BlockRow, type CellColumn, type Matrix, givenTo, markOf, runsCell, where } from './matrix';
-import { ListRow, Panel, PanelPart, STATUS_WORDS, type Status, StatusLine } from './parts';
+import { ListRow, Panel, PanelPart, SIGN_WORDS, STATUS_WORDS, type Status, StatusLine } from './parts';
 
 /// Whether the panel is folded away, and the way to fold it or bring it back.
 export type Fold = { folded: boolean; onFold: () => void; edge?: ReactNode };
@@ -460,10 +460,6 @@ function Readers(props: { flow: Flow; from?: string; block: Block; onChoose: (c:
   const { runs, given, conditions, tests, shown } = block.readBy;
   if (runs.length === 0 && given.length === 0 && conditions.length === 0 && tests.length === 0 && !shown) return null;
   const before = runs.length + given.length + conditions.length;
-  const words = (name: string) => {
-    const test = flow.tests.find((t) => t.name === name);
-    return test ? testWords(test) : undefined;
-  };
   return (
     <>
       {runs.length > 0 && (
@@ -493,14 +489,7 @@ function Readers(props: { flow: Flow; from?: string; block: Block; onChoose: (c:
           <span className="muted">
             {before > 0 ? '; ' : ''}the test{tests.length === 1 ? '' : 's'}{' '}
           </span>
-          {tests.map((name, i) => (
-            <span key={name}>
-              {i > 0 && ', '}
-              <span className="mono" title={words(name)}>
-                {name}
-              </span>
-            </span>
-          ))}
+          <TestNames flow={flow} names={tests} />
         </>
       )}
       {shown && <span className="muted">{before + tests.length > 0 ? '; ' : ''}shown</span>}
@@ -508,7 +497,29 @@ function Readers(props: { flow: Flow; from?: string; block: Block; onChoose: (c:
   );
 }
 
-/// Everything about a block: its values, who writes it, who reads it, and the ways back through it.
+/// The names of named tests, each with its words on the pointer's tip.
+function TestNames({ flow, names }: { flow: Flow; names: string[] }) {
+  const words = (name: string) => {
+    const test = flow.tests.find((t) => t.name === name);
+    return test ? testWords(test) : undefined;
+  };
+  return (
+    <>
+      {names.map((name, i) => (
+        <span key={name}>
+          {i > 0 && ', '}
+          <span className="mono" title={words(name)}>
+            {name}
+          </span>
+        </span>
+      ))}
+    </>
+  );
+}
+
+/// Everything about a block: its values, who writes it, the cells it runs, those it is given to, those whose condition
+/// reads its value, the named tests that read it, whether the page shows it, each on a line of its own where there is
+/// any, and the ways back through it.
 export function BlockPanel(props: {
   row: BlockRow;
   matrix: Matrix;
@@ -520,6 +531,7 @@ export function BlockPanel(props: {
   const { row, flow, changes, onChoose, fold } = props;
   const block = (row.block ?? row.other) as Block;
   const besides = writersBesideCells(block);
+  const { runs, given, conditions, tests, shown } = block.readBy;
   const backs = flow.cells.flatMap((reader, r) => {
     const mark = markOf(reader, block.name);
     if (!mark.runs && !mark.condition) return [];
@@ -540,9 +552,27 @@ export function BlockPanel(props: {
             {block.writtenBy.cells.length > 0 && besides.length > 0 && ', '}
             {besides.join(', ')}
           </StatusLine>
-          <StatusLine word="Read by">
-            <Readers flow={flow} block={block} onChoose={onChoose} />
-          </StatusLine>
+          {runs.length > 0 && (
+            <StatusLine word={label(TAKES.runs)}>
+              <Cells flow={flow} ids={runs} onChoose={onChoose} />
+            </StatusLine>
+          )}
+          {given.length > 0 && (
+            <StatusLine word={label(TAKES.givenTo)}>
+              <Cells flow={flow} ids={given} onChoose={onChoose} />
+            </StatusLine>
+          )}
+          {conditions.length > 0 && (
+            <StatusLine word="Decides whether">
+              <Cells flow={flow} ids={conditions} onChoose={onChoose} /> run{conditions.length === 1 ? 's' : ''}
+            </StatusLine>
+          )}
+          {tests.length > 0 && (
+            <StatusLine word="Tested by">
+              <TestNames flow={flow} names={tests} />
+            </StatusLine>
+          )}
+          {shown && <StatusLine word={label(SIGN_WORDS.shown)} />}
         </>
       }
       {...fold}
