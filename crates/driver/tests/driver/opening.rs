@@ -122,13 +122,12 @@ fn a_store_holding_works_gives_exactly_what_was_to_be_done_and_is_not_known_as_d
     let (_, c) = h.add(new_item("c", &[], "short"));
     h.let_on(c);
     h.on(c, Event::Cancelled { why: None });
-    // A work whose call, asked of a person, is to be withdrawn: a person wrote what its run started from; its cell
-    // runs again.
+    // A work whose cell waits for a person's answer to its call, though a person wrote what runs it since.
     let (_, d) = h.add(new_item("d", &[], "plain"));
     h.let_on(d);
     h.returns(d, Came::asks(vec![question(Who::Owner)]));
     h.on(d, wrote("request", Outsider::Person, None));
-    // A paused work, and a merged one.
+    // A work never let on, and a merged one.
     let (_, e) = h.add(new_item("e", &[], "short"));
     let (_, f) = h.add(new_item("f", &[], "plain"));
     h.let_on(f);
@@ -148,7 +147,7 @@ fn a_store_holding_works_gives_exactly_what_was_to_be_done_and_is_not_known_as_d
         })
         .collect();
     // The merged work's release is answered as it merges.
-    let mut expected = vec![(a, "round"), (b, "call"), (c, "stop"), (d, "round"), (d, "withdraw")];
+    let mut expected = vec![(a, "round"), (b, "call"), (c, "stop"), (d, "call")];
     expected.sort();
     let mut got = kinds.clone();
     got.sort();
@@ -169,7 +168,8 @@ fn a_store_holding_works_gives_exactly_what_was_to_be_done_and_is_not_known_as_d
     assert_eq!(rows.len(), 1, "the driver paused everything once: {rows:?}");
     rows.clear();
     assert_eq!(after, before, "opened again, the driver holds otherwise");
-    assert_eq!(h.decision(e), Decision::Paused);
+    // Never started by the owner, it has nothing new to run its first cell.
+    assert_eq!(h.decision(e), Decision::Idle);
     assert_eq!(h.decision(f), Decision::Ended(End::Merged));
 }
 

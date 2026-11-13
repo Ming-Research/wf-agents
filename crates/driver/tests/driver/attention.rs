@@ -537,6 +537,8 @@ fn a_work_waiting_for_a_precondition_the_owner_makes_hold_is_a_line() {
         people = true
         [blocks.merged]
         shown = true
+        [blocks.start]
+        outside = "start"
         [tests.may_merge]
         says = "The owner let the work merge"
         kind = "all"
@@ -549,7 +551,7 @@ fn a_work_waiting_for_a_precondition_the_owner_makes_hold_is_a_line() {
         line = "main"
         task = "Write the text the request asks for."
         effort = "high"
-        inputs = ["request"]
+        inputs = ["start", "request"]
         outputs = ["text"]
     "#;
     let merge = r#"

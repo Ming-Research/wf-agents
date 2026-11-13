@@ -551,8 +551,8 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
 }
 
 /// Property entered-only-for-what-is-new, the order: where the walk enters a cell, goes on with its run or waits at it,
-/// no cell before it that applies has a run of its own at rest, anything to be entered for, or calls it waits for, by
-/// the histories' own reading.
+/// no cell before it that applies has a run of its own at rest, anything to be entered for, calls it waits for, or a
+/// precondition that does not hold, by the histories' own reading.
 fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
     let now = Seq(u64::MAX);
     let records = reading.records;
@@ -567,9 +567,8 @@ fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
         });
         let entering = reading.entering(flow, cell, now);
         let owed_open = reading.owed(&cell.id, now).iter().any(|c| !reading.done(*c, now));
-        // A precondition that does not hold holds the work only at a cell that has something to be entered for.
         let unmet = cell.requires.iter().any(|t| !reading.holds(flow, t, j));
-        if at_rest || !entering.is_empty() || owed_open {
+        if at_rest || !entering.is_empty() || owed_open || unmet {
             v.fail(
                 FIRST,
                 format!(

@@ -60,7 +60,7 @@ async fn cancelling_at_a_tool_withdraws_it() {
     trial.act(work, Act::Cancel { why: None }).unwrap();
     assert_eq!(trial.decision(work), Decision::Ended(End::Cancelled));
     trial.step().await.unwrap();
-    assert_eq!(trial.work(work).results[&CallId(4)], WITHDRAWN);
+    assert_eq!(trial.work(work).results[&CallId(5)], WITHDRAWN);
     assert_eq!(
         trial.step().await,
         Some(Event::Released),

@@ -239,11 +239,14 @@ pub(crate) const MIGRATIONS: [&str; 9] = [
 
 #[test]
 fn a_file_of_version_9_is_migrated_and_its_runs_read_as_dealing_with_everything_that_ran_them() {
-    // A work of the engine, whose runs finish by handing in; one of its versions was handed in as changing nothing in
-    // meaning.
+    // A work of the engine as one kept at version 9 holds it: its runs say nothing of what they dealt with; one of its
+    // versions was handed in as changing nothing in meaning.
     let mut d = Driver::new();
     history(&mut d);
     let mut work = d.work;
+    for finished in &mut work.records.finished {
+        finished.dealt_with = None;
+    }
     work.records.finished[0].writes[0].meaning_unchanged = true;
     let (old, new) = kept_in(9, &work);
     let mut store = old.open();

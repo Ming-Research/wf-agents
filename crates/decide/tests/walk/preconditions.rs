@@ -96,9 +96,6 @@ fn a_precondition_on_what_a_source_outside_the_work_writes_waits_for_that_source
     let (start, named) = waiting_for_all("may start", &["dependencies"], cell("start", &["dependencies"], &[]));
     let mut w = World::with_tests(vec![start, gate()], BTreeMap::from([named]));
     w.written_outside("dependencies", "dependencies");
-    // Nothing runs the start until the source writes what the items it depends on say.
-    assert_eq!(w.decide(), resting());
-    w.outside_sets("dependencies", "no");
     assert_eq!(
         w.decide(),
         wait("start", vec![precondition("may start", vec![dependencies()])])

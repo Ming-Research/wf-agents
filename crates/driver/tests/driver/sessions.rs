@@ -297,18 +297,21 @@ fn a_round_past_the_limit_has_the_cell_that_loads_the_session_run_again_once_the
     let mut s = S::new();
     s.hands_in(100, true);
     let (build, _) = s.round();
-    // The build asks for a tool past the limit: its run waits on the result in the session that holds what it did.
+    // The build asks for a tool past the limit: it waits on the result in the session that holds what it did.
     s.asks(600);
-    assert!(s.sessions().is_empty(), "a run of the line has not ended");
+    assert!(s.sessions().is_empty(), "a cell of the line waits for its result");
     assert!(s.session_block().is_empty());
     let call = s.kept().records.called.last().expect("the build's call").call;
     s.on(Event::Done {
         call,
         result: "the request".to_string(),
     });
-    assert_eq!(s.round(), (build, "build".to_string()));
-    assert_eq!(s.engineer(build, 2), (0, false), "the build goes on in its session");
-    assert!(!moved(s.kept(), "engineer", build, 2));
+    // Entered again for the result, the build goes on in its session.
+    let (again, cell) = s.round();
+    assert_eq!(cell, "build");
+    assert_ne!(again, build);
+    assert_eq!(s.engineer(again, 1), (0, false), "the build goes on in its session");
+    assert!(!moved(s.kept(), "engineer", again, 1));
     // Its run ends past the limit: the line begins a new session at its next round.
     s.hands_in(600, true);
     let limit = Why::Limit {
@@ -350,11 +353,13 @@ fn a_run_waiting_on_a_tools_result_as_its_line_begins_a_new_session_is_told_what
         call,
         result: "the request".to_string(),
     });
-    assert_eq!(s.round(), (build, "build".to_string()));
-    // The build goes on in the session the load began, which never saw the build's first round: it is told its task
-    // and that round again.
-    assert_eq!(s.engineer(build, 2), (1, false));
-    assert!(moved(s.kept(), "engineer", build, 2));
+    // Entered again for the result, the build goes on in the session the load began, which never saw the run that
+    // asked: it is told what a session that begins is told.
+    let (again, cell) = s.round();
+    assert_eq!(cell, "build");
+    assert_ne!(again, build);
+    assert_eq!(s.engineer(again, 1), (1, false));
+    assert!(moved(s.kept(), "engineer", again, 1));
     s.hands_in(100, true);
     let (review, _) = s.round();
     assert!(!moved(s.kept(), "review", review, 1), "a run's first round");
@@ -427,11 +432,13 @@ fn a_flagged_round_of_a_store_kept_before_sessions_were_recorded_has_its_line_be
         call,
         result: "the code".to_string(),
     });
-    assert_eq!(s.round().0, review);
-    // The review's next round does not go on in the session its round was flagged in: it begins the new one, and is
-    // told what its run was doing.
-    assert_eq!(of_round(s.kept(), "review", |r| r == review, review, 3), (1, true));
-    assert!(moved(s.kept(), "review", review, 3));
+    // The review, entered again for the result, does not go on in the session its round was flagged in: it begins
+    // the new one, and is told what a session that begins is told.
+    let again = s.round().0;
+    assert_ne!(again, review);
+    let line = |r: RunId| r == review || r == again;
+    assert_eq!(of_round(s.kept(), "review", line, again, 1), (1, true));
+    assert!(moved(s.kept(), "review", again, 1));
 }
 
 #[test]
@@ -461,23 +468,25 @@ fn a_round_under_way_as_a_store_kept_before_sessions_were_recorded_opens_runs_in
         call,
         result: "the code".to_string(),
     });
-    assert_eq!(s.round().0, review);
-    // As a store kept before sessions were recorded holds it, and the engine opens on it. (Its round 3's try is not
+    let again = s.round().0;
+    assert_ne!(again, review);
+    // As a store kept before sessions were recorded holds it, and the engine opens on it. (Its round's try is not
     // recorded here: the record would be the work's last entry, and deleting it would give the opening's moment the
     // place of the moment that record was taken at, which no store holds.)
     let db = rusqlite::Connection::open(&s.db.path).unwrap();
     db.execute_batch("DELETE FROM sessions; DELETE FROM ran;").unwrap();
     drop(db);
     let todos = reopened(&mut s, policy("opus"));
-    let again = todos
+    let given = todos
         .iter()
-        .any(|todo| matches!(&todo.effect, Effect::Round { run, number: 3, .. } if *run == review));
-    assert!(again, "the round under way is given again: {todos:?}");
+        .any(|todo| matches!(&todo.effect, Effect::Round { run, number: 1, .. } if *run == again));
+    assert!(given, "the round under way is given again: {todos:?}");
     assert_eq!(s.sessions(), [("review".to_string(), Why::Flagged)]);
-    // Given again, it does not go on in the session its run's first round was flagged in: it begins the new one, and
-    // is told what its run was doing.
-    assert_eq!(of_round(s.kept(), "review", |r| r == review, review, 3), (1, true));
-    assert!(moved(s.kept(), "review", review, 3));
+    // Given again, it does not go on in the session the review's round was flagged in: it begins the new one, and is
+    // told what a session that begins is told.
+    let line = |r: RunId| r == review || r == again;
+    assert_eq!(of_round(s.kept(), "review", line, again, 1), (1, true));
+    assert!(moved(s.kept(), "review", again, 1));
 }
 
 #[test]
@@ -549,8 +558,10 @@ fn a_line_whose_rounds_now_run_under_another_account_begins_a_new_session_as_the
         call,
         result: "the request".to_string(),
     });
-    assert_eq!(s.round(), (build, "build".to_string()));
-    assert!(moved(s.kept(), "engineer", build, 2));
+    let (again, cell) = s.round();
+    assert_eq!(cell, "build");
+    assert_ne!(again, build);
+    assert!(moved(s.kept(), "engineer", again, 1));
     assert_eq!(s.sessions().len(), 1);
 }
 

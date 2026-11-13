@@ -357,9 +357,9 @@ fn question(who: Who) -> Ask {
 }
 
 /// A history that leaves an entry of every kind: writes by a person and the outside with values and without, runs
-/// finished, sent back and abandoned, calls for a tool and a person, a run's limit of returns let go by the owner, a
-/// pause and a resume, a round that failed and the engine's pause for it, a cell let go, and a cancel with a round
-/// under way.
+/// finished, sent back and abandoned, calls for a tool and a person, done and withdrawn, a run's limit of returns let go
+/// by the owner, a pause and a resume, a round that failed and the engine's pause for it, a cell let go, and a cancel
+/// with a run at rest at the owner's call.
 fn history(d: &mut Driver) {
     d.wrote("request", Outsider::Person, None);
     // The outside writes while the writer's first round is under way: its return deals with the request it was told
@@ -428,10 +428,15 @@ fn history(d: &mut Driver) {
         d.end(hands_in(&[("opinions", None), ("verdict", Some("yes"))]));
     }
     assert_eq!(d.under_way().1, "write", "the judge never finished");
+    // The writer is sent back to its limit of returns, and the work is cancelled while its run rests at the owner's
+    // call: the run is abandoned and the call withdrawn.
+    for _ in 0..3 {
+        d.end(wanting());
+    }
     let effects = d.on(Event::Cancelled { why: None });
     assert!(
-        effects.iter().any(|e| matches!(e, Effect::Stop { .. })),
-        "no round was under way at the cancel: {effects:?}"
+        effects.iter().any(|e| matches!(e, Effect::Withdraw { .. })),
+        "no call was withdrawn at the cancel: {effects:?}"
     );
     d.stopped();
     d.withdraw();

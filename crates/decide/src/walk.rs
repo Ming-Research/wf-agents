@@ -7,9 +7,9 @@
 //! keeps no place where a work is. Each time a round ends or something else happens to the work, it walks the cells
 //! from the first, in their order: a cell whose condition is not met is skipped, what it wrote before still counting;
 //! at the first that has a run at rest the run goes on, unless it waits for something; a cell whose last runs asked for
-//! calls waits there until every result is in, and is then entered again, given them; at the first that something new
-//! runs whose preconditions do not hold or that has reached a limit the work waits; the first that something new runs
-//! is otherwise entered; the rest are passed. A work in which nothing new runs a cell, and nothing is under way or waited for, rests until someone writes
+//! calls waits there until every result is in, and is then entered again, given them; at the first whose preconditions
+//! do not hold, or that something new runs and that has reached a limit, the work waits; the first that something new
+//! runs is otherwise entered; the rest are passed. A work in which nothing new runs a cell, and nothing is under way or waited for, rests until someone writes
 //! what runs one. One round of a work is under way at a time: a round of a cell after one the owner turned to, by words
 //! or by an answer, is stopped, nothing else beginning until it has ended, and its cell runs again later. A work has ended when its last cell has a record or its
 //! item is cancelled.
@@ -202,14 +202,14 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
                 run: run.started.run,
             };
         }
-        // A precondition holds the work only at a cell that is to be entered or waits there: one that nothing new runs
-        // is passed whatever its preconditions.
+        // A precondition that does not hold holds the work at its cell whether or not something new runs the cell: a
+        // gate guards what comes after it as much as its own cell.
         let (because, mut on) = walk.entering(i);
-        if because.is_empty() && on.is_empty() {
-            continue;
-        }
         on.extend(walk.unmet(i));
         if because.is_empty() {
+            if on.is_empty() {
+                continue;
+            }
             return wait(on);
         }
         on.extend(walk.at_limit(cell, &because));

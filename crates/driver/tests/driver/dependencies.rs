@@ -324,9 +324,10 @@ fn a_block_left_to_bring_to_agree_on_a_store_that_fails_as_it_is_written_stops_t
         "the opening made no save"
     );
     assert_eq!(opened.err(), Some(Fault::Store(failure())));
+    // The work holds its dependencies block as it was added and the owner's start, and no more.
     assert_eq!(
         h.reader.load(wb).expect("the work loads").records.written.len(),
-        1,
+        2,
         "a failed write was kept"
     );
     // Opened on a store that works, and the pause of everything it made as it opened lifted at once by the owner, it

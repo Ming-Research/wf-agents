@@ -111,10 +111,12 @@ pub fn merge_word() -> Waited {
     }
 }
 
-/// What a work whose last cell is [`gate`] decides when nothing else is to be done and the owner has not given the word:
-/// nothing new runs any cell.
+/// What a work whose last cell is [`gate`] decides when nothing else is to be done: it waits for the owner's word.
 pub fn resting() -> Decision {
-    Decision::Idle
+    Decision::Wait {
+        at: "merge".into(),
+        on: vec![merge_word()],
+    }
 }
 
 /// A cell that these blocks run and that may write those.

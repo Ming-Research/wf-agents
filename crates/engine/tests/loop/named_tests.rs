@@ -28,7 +28,7 @@ fn forked() -> Compiled {
                inputs = [\"request\"]\noutputs = [\"choice\"]\n";
     let extra = "title = \"Extra\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write the notes.\"\n\
                  when = { test = \"more\" }\ninputs = [\"request\"]\noutputs = [\"notes\"]\n";
-    let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"notes\"]\n";
+    let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"choice\", \"notes\"]\n";
     let source = Source {
         flow: flow.to_string(),
         cells: [("ask", ask), ("extra", extra), ("merge", merge)]
