@@ -90,7 +90,8 @@ run next all the same, and the note would be filled, since the new session lacks
 
     - **The latest.** Only the latest version.
     - **The last and the latest.** The version the cell last consumed, and the latest, so that the agent sees what
-      changed between them.
+      changed between them. Where the session holds the one last consumed, the latest is filled as what changed
+      since, unless that would be longer than the whole.
     - **All of it.** Every version, as with what is said to a work.
 
     At a cell's first round there is no version last consumed, and a datum of the second kind is filled as its
