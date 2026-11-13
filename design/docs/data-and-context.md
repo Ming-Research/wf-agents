@@ -29,8 +29,8 @@ here: the conditions a cell runs under, the limits, the owner's pauses, when a w
    named apart, each for one of the two things this design keeps apart. Most of what a cell takes is on both sides: a
    new version of it runs the cell, and its content is given. Some data only run a cell: the design tree, which the
    agent reads by itself (25), and data that only say that something happened, as that a session was reopened or that
-   the owner spoke to the cell (37). Some are only given: what the cell must hold and what asks nothing of it, as the
-   record of what is said (36) and an output of its own that it brings up to date (21).
+   the owner spoke to the cell (39). Some are only given: what the cell must hold and what asks nothing of it, as the
+   record of what is said (38) and an output of its own that it brings up to date (21).
 
 6. Of each of the data that run it, a cell has consumed the versions up to one of them. Such a datum is new to the
    cell while its latest version is later than that one. At a cell's first round nothing is consumed yet, and each of
@@ -156,95 +156,109 @@ run next all the same, and the note would be filled, since the new session lacks
     the cell is given its beginning, with word that it was cut for its size, how large it is, and the query that gets
     the rest.
 
+30. A return is of one of two kinds, and the form of the line's return holds both apart, so that the agent's program
+    refuses one that mixes them: a return that asks the engine for calls, which holds the calls and may hold a summary
+    (50), and nothing else; and a return that does the cell's work, which holds what it has dealt with (9), what it
+    writes, and what is said to the owner. A return that asks for calls has dealt with nothing, so the cell is entered
+    again with their results.
+
+31. Each field of a return, each tool and each datum is defined once, its shape with its words: the engine's own
+    fields and tools in the engine, a datum in the flow's definition where it is declared, and what a cell may write
+    and ask for on the cell. The form given to the agent's program, the shape of each cell's return the owner reads on
+    the page, and the words that tell the agent what each field means and how each tool is used are all made from
+    those definitions, the words only for what the line's cells use. Nothing of them is written a second time by hand.
+
 ## What a person answers
 
-30. A question a cell puts to the owner is data of its own, written by the cell, with its options, the one the cell
+32. A question a cell puts to the owner is data of its own, written by the cell, with its options, the one the cell
     recommends, and whether the cell waits for the answer. A text points to a question by its name at the place the
     question belongs, and the question is shown there; a question no text points to stands alone. Writing a
     question, writing it anew or withdrawing it gives no text a new version, so no cell runs again for a text
     because something was asked about it.
 
-31. Each question has a name, which the cell gives it when it first writes it and which no other question of the
+33. Each question has a name, which the cell gives it when it first writes it and which no other question of the
     work has, and versions of its own. A round writes only the questions it adds, writes anew or withdraws, each
     under its name; a question it does not name stands as it is, with its answer. A question written again under its
     name has a new version, and an answer given on an earlier version no longer answers it. However the text that
     points to a question is changed, the question and its answer stand.
 
-32. What the owner answers is data of its own, apart from the question: one record for the work, to which the owner
+34. What the owner answers is data of its own, apart from the question: one record for the work, to which the owner
     adds an entry for each answer, and no entry is changed. An entry names the question, the version of it that is
     answered, the option taken, and the owner's reason where one is given; the last entry for a question is its
     answer. The record runs no cell, and each cell that asks is given it. An answer is not something said to the
-    work (35), and what is said about a question is not its answer: neither stands in for the other.
+    work (37), and what is said about a question is not its answer: neither stands in for the other.
 
-33. Where the cell does not wait, the work goes on by the option it recommends. What then runs the cell that asked
-    is a datum of its own, with no content, as for what the owner says (37): it has a new version when the owner
+35. Where the cell does not wait, the work goes on by the option it recommends. What then runs the cell that asked
+    is a datum of its own, with no content, as for what the owner says (39): it has a new version when the owner
     takes another option than the one the work goes by. An answer that takes the option the work goes by adds its
     entry and runs no cell. Which cells have such a datum, the flow says: those that may write a question that is
     not waited for. An answer that runs the cell that asked stops a round of a later cell that is under way, as the
-    owner's words do (41); it is not put into a round under way.
+    owner's words do (43); it is not put into a round under way.
 
-34. A cell that waits ends its round with what ran it not dealt with (9), and the engine enters it again only once
-    the answer is in the record: nothing more has to run it. A cell that cannot go on without the owner asks so,
+36. A question that waits stops the work at the cell that asked it: the engine goes past that cell to no later one
+    while the question stands unanswered. Any answer to it runs the cell again, by the datum of (35), since the work
+    goes by none of its options; what ran the cell before is dealt with or not as the round said, as in any round.
+    A cell that cannot go on without the owner asks so,
     with a question that stands alone and is waited for: there is no other way of waiting for the owner. The merge
     waits in the same way, until every question that stands is answered.
 
 ## What is said to a work
 
-35. What the owner says to a work is not an answer to a question: it may be said at any time, wherever the work
+37. What the owner says to a work is not an answer to a question: it may be said at any time, wherever the work
     stands, and may go back and forth.
 
-36. What the owner says and what the agents say back are kept as one record, each entry with who spoke, in the order
+38. What the owner says and what the agents say back are kept as one record, each entry with who spoke, in the order
     they were said: the owner adds to it, and so do the cells that answer, and no entry is changed. The cells that can
     be spoken to are the research, the deep research and the implementation. Each of them is given the record, all of
     it (17), so that a session reopened holds everything that was said. The record runs none of them.
 
-37. What runs a cell that is spoken to is a datum of its own, with no content, which has a new version when the owner
+39. What runs a cell that is spoken to is a datum of its own, with no content, which has a new version when the owner
     speaks to that cell. The owner chooses a line: the engineer's, or the deep research's once it has begun. The cell
     spoken to is the one of that line's cells that the work has reached. Which cells of a line can be spoken to, the
     flow says.
 
-38. The cell answers at once and goes on with its work. It hands in its answer as it hands in anything, and the
+40. The cell answers at once and goes on with its work. It hands in its answer as it hands in anything, and the
     answer is added to the record; with it the round says that it has dealt with the owner's words. What else ran the
     cell is still new, so the cell is entered again and goes on with the rest (9). No tool is needed for answering.
 
-39. While a round of the cell spoken to is under way, the words are put into its session right after its next use of
+41. While a round of the cell spoken to is under way, the words are put into its session right after its next use of
     one of its program's own tools, so that they do not wait for the round's end. This is done for what the owner says
     and for nothing else. Words that did not reach the round before it ended are still new to the cell, and it runs
     again.
 
-40. While the cell spoken to has no round under way and waits for the result of a call, the engine enters it for the
+42. While the cell spoken to has no round under way and waits for the result of a call, the engine enters it for the
     words, and it goes on waiting for the result.
 
-41. While a round of a cell later in the flow is under way, that round is told to stop, the cell spoken to runs, and
+43. While a round of a cell later in the flow is under way, that round is told to stop, the cell spoken to runs, and
     the flow comes back to the cell that stopped: a round that stopped so has dealt with nothing (9), and its cell
     runs again.
 
-42. A round that says it has dealt with the owner's words and has handed in no answer has its return sent back.
+44. A round that says it has dealt with the owner's words and has handed in no answer has its return sent back.
 
-43. What the words ask that is not the cell's to change, the cell passes on in the block it already writes for the
+45. What the words ask that is not the cell's to change, the cell passes on in the block it already writes for the
     cell whose it is, and the flow goes on as for any such block.
 
 ## Data that more than one cell may write
 
-44. Some data may be written by more than one cell, as the plan is by the research and by the deep research. Which of
+46. Some data may be written by more than one cell, as the plan is by the research and by the deep research. Which of
     them is in charge is decided before both: the cell that decides hands in the answer, and that answer is a
     condition of its own next round as it is of the other cell's. From then on only the cell in charge runs, and the
     way forks right where the two cells stand, not after one of them.
 
-45. What another cell says to whoever is in charge is one datum, which runs each cell that may be in charge. The
+47. What another cell says to whoever is in charge is one datum, which runs each cell that may be in charge. The
     flow's condition says which of them acts on it. An agent is never left to choose where to write by who is in
     charge: where there is one place to write, nothing can be written to the wrong one.
 
-46. A round is not told who wrote a version of a block: nothing in this design needs it. In the record of what is said
-    (36), who spoke is part of the entry.
+48. A round is not told who wrote a version of a block: nothing in this design needs it. In the record of what is said
+    (38), who spoke is part of the entry.
 
 ## What a return says that is no data of the work
 
-47. What an agent comes across beyond its work that is worth an item of its own, a defect or something that should
+49. What an agent comes across beyond its work that is worth an item of its own, a defect or something that should
     change, it may write in its return as observations, each a text that says what it is and where. They are no data
     of the work: they run no cell, and no cell is given them. Each is kept as an observation of the installation, with
     the work, the cell and the round it came from, and shown as not yet read. Whether it is urgent, and whether it
     becomes an item, is judged by whoever reads it, not by the agent that wrote it.
 
-48. A return may also say, in a sentence or two, what its round did and found, and a round told to stop how far it
+50. A return may also say, in a sentence or two, what its round did and found, and a round told to stop how far it
     got. It is kept with the round for the owner to read, and like an observation it is no data of the work.
