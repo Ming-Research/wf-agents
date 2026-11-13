@@ -240,7 +240,7 @@ impl S {
             matters,
             value: None,
         };
-        self.ends(context, Came::HandsIn(vec![handed]));
+        self.ends(context, Came::hands_in(vec![handed]));
     }
 
     fn asks(&mut self, context: u64) {
@@ -248,7 +248,7 @@ impl S {
             name: "read".to_string(),
             input: "request".to_string(),
         };
-        self.ends(context, Came::Asks(vec![ask]));
+        self.ends(context, Came::asks(vec![ask]));
     }
 
     fn sessions(&self) -> Vec<(String, Why)> {
@@ -372,7 +372,7 @@ fn the_limit_ends_no_session_at_a_return_sent_back_nor_at_the_round_of_the_cell_
         matters: true,
         value: None,
     };
-    s.ends(900, Came::HandsIn(vec![wrong]));
+    s.ends(900, Came::hands_in(vec![wrong]));
     assert_eq!(s.round().0, build, "sent back");
     assert!(
         s.sessions().is_empty(),
@@ -600,7 +600,7 @@ fn another_account_begins_the_new_session_before_a_context_past_the_limit_does()
     };
     s.on(Event::Returned {
         run,
-        came: Came::HandsIn(vec![handed]),
+        came: Came::hands_in(vec![handed]),
         spent,
     });
     assert_eq!(s.sessions(), [("engineer".to_string(), Why::Account { was: None })]);

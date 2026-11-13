@@ -64,7 +64,7 @@ fn with_no_slot_free_the_calls_a_round_asks_for_are_made_and_the_round_after_the
     let effects = w.on_in(
         Event::Returned {
             run: write,
-            came: Came::Asks(vec![tool("ci")]),
+            came: Came::asks(vec![tool("ci")]),
             spent: spent(1),
         },
         FULL,

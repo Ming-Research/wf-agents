@@ -66,7 +66,7 @@ fn calls_asked_for_during_a_pause_are_made_and_the_round_given_their_results_wai
         by: Pauser::Owner,
         why: None,
     });
-    let calls = calls_of(&w.returns(write, Came::Asks(vec![tool("a")])));
+    let calls = calls_of(&w.returns(write, Came::asks(vec![tool("a")])));
     assert_eq!(
         calls.iter().map(|(_, r, what)| (*r, what.clone())).collect::<Vec<_>>(),
         vec![(write, Call::Asked(tool("a")))]
@@ -111,7 +111,7 @@ fn the_owner_is_asked_at_a_limit_during_a_pause() {
 #[test]
 fn a_stale_run_is_abandoned_during_a_pause_and_its_cell_runs_again_once_the_work_is_let_on() {
     let (mut w, write, _) = W::requested();
-    let call = calls_of(&w.returns(write, Came::Asks(vec![question(Who::Owner)])))[0].0;
+    let call = calls_of(&w.returns(write, Came::asks(vec![question(Who::Owner)])))[0].0;
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,

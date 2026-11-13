@@ -246,7 +246,7 @@ fn handed(block: &str, value: Option<&str>) -> Handed {
 
 /// What came back: these blocks handed in.
 fn hands_in(blocks: &[(&str, Option<&str>)]) -> Came {
-    Came::HandsIn(blocks.iter().map(|(b, v)| handed(b, *v)).collect())
+    Came::hands_in(blocks.iter().map(|(b, v)| handed(b, *v)).collect())
 }
 
 /// What the writer hands in that does not meet what the flow requires: the judge's verdict.

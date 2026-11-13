@@ -104,7 +104,7 @@ fn after_a_cancel_nothing_more_is_given_but_letting_go_once_the_stopped_round_en
 #[test]
 fn a_cancelled_work_lets_go_once_its_calls_are_withdrawn() {
     let (mut w, write, _) = W::requested();
-    let call = calls_of(&w.returns(write, Came::Asks(vec![tool("a")])))[0].0;
+    let call = calls_of(&w.returns(write, Came::asks(vec![tool("a")])))[0].0;
     // A tool may be working in the worktree until its call has its result.
     assert_eq!(w.on(Event::Cancelled { why: None }), vec![Effect::Withdraw { call }]);
     assert_eq!(w.done(call), vec![CANCELLED]);

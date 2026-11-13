@@ -178,7 +178,7 @@ impl Small {
 
     /// The round given hands these blocks in, each with its value where it has one.
     pub(crate) fn hands_in(&mut self, blocks: &[(&str, &str, Option<&str>)]) {
-        let came = Came::HandsIn(
+        let came = Came::hands_in(
             (blocks.iter())
                 .map(|(block, content, value)| Handed {
                     block: BlockId::from(*block),
@@ -418,7 +418,7 @@ fn a_round_that_begins_a_session_is_given_the_task_and_the_list_before_the_resul
 /// The build's second run asks for the check, which passes.
 fn asked() -> Small {
     let mut small = objected();
-    small.back(Came::Asks(vec![Ask::Tool {
+    small.back(Came::asks(vec![Ask::Tool {
         name: "check".to_string(),
         input: "the branch".to_string(),
     }]));
@@ -429,12 +429,12 @@ fn asked() -> Small {
 #[test]
 fn a_later_round_that_begins_a_session_is_given_every_earlier_call_of_its_run() {
     let mut small = objected();
-    small.back(Came::Asks(vec![Ask::Person {
+    small.back(Came::asks(vec![Ask::Person {
         who: decide::Who::Owner,
         question: "Which name?".to_string(),
     }]));
     small.done("By name.");
-    small.back(Came::Asks(vec![Ask::Tool {
+    small.back(Came::asks(vec![Ask::Tool {
         name: "check".to_string(),
         input: String::new(),
     }]));
@@ -468,12 +468,12 @@ Go on with the task.
 #[test]
 fn an_earlier_read_is_named_and_not_given_again() {
     let mut small = objected();
-    small.back(Came::Asks(vec![Ask::Tool {
+    small.back(Came::asks(vec![Ask::Tool {
         name: "read".to_string(),
         input: "plan@5 opinions".to_string(),
     }]));
     small.done("### `plan`, version 5\n\nGreet by name.");
-    small.back(Came::Asks(vec![Ask::Tool {
+    small.back(Came::asks(vec![Ask::Tool {
         name: "read".to_string(),
         input: "request".to_string(),
     }]));

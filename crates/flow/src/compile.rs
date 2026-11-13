@@ -38,9 +38,15 @@ pub struct Limits {
     pub runs: u32,
     /// How often a return may be sent back within one run.
     pub returns: u32,
-    /// How many calls one run may make.
+    /// How many runs of a cell in a row may each ask for calls and deal with nothing, before the work waits for the
+    /// owner instead of entering the cell again for their results.
     pub calls: u32,
 }
+
+/// The sources outside a work a new version of whose block is the owner turning to the cells it runs: the owner's words
+/// to a cell, and an answer that takes another option than the one the work goes by (design document
+/// `data-and-context`, 33, 37). Such a block stops a round under way of a later cell ([`decide::Outsiders`]).
+pub const TURNING: [&str; 2] = ["words", "answer"];
 
 /// What the engine that runs a flow has, by name. A definition that names another source, act or tool is refused.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -90,7 +96,8 @@ pub struct CellSpec {
     pub system: Vec<String>,
     /// How often a return of the cell may be sent back within one run.
     pub returns: u32,
-    /// How many calls one run of the cell may make.
+    /// How many of the cell's runs in a row may each ask for calls and deal with nothing, before the work waits for the
+    /// owner instead of entering it again for their results.
     pub calls: u32,
     /// The reasoning effort an agent cell's rounds run at; an engine cell has none.
     pub effort: Option<Effort>,
@@ -340,6 +347,7 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
                 people: b.people,
                 note: b.note,
                 outside: b.outside.clone(),
+                interrupts: b.outside.as_deref().is_some_and(|source| TURNING.contains(&source)),
             };
             (BlockId(name.clone()), outsiders)
         })
@@ -507,7 +515,9 @@ impl<'a> Definition<'a> {
                     u.writers.push((place, id));
                 }
             }
-            for block in takes(file).named() {
+            let takes = takes(file);
+            let named = (takes.runs_on.iter().map(|r| &r.block)).chain(takes.given.iter().map(|g| &g.block));
+            for block in named {
                 if let Some(u) = uses.get_mut(block.as_str())
                     && !u.readers.contains(&id)
                 {
@@ -804,7 +814,6 @@ impl<'a> Definition<'a> {
             (!self.flow.blocks.contains_key(block)).then_some(what)
         };
         let takes = takes(file);
-        let named = takes.named();
         if takes.old {
             found.extend(check_list(&file.inputs, "inputs", declared));
         } else {
@@ -839,9 +848,10 @@ impl<'a> Definition<'a> {
             id: CellId(id.to_string()),
             applies,
             requires: file.requires.iter().map(|t| TestName(t.clone())).collect(),
-            inputs: named,
+            runs_on: takes.runs_on.iter().map(|r| r.block.clone()).collect(),
             outputs: file.outputs.iter().map(|b| BlockId(b.clone())).collect(),
             limit: runs,
+            calls: limits.calls,
             slot: file.kind == Kind::Agent,
         };
         let spec = CellSpec {
@@ -1054,23 +1064,6 @@ struct Takes {
     old: bool,
     runs_on: Vec<RunsOn>,
     given: Vec<Given>,
-}
-
-impl Takes {
-    /// Every block the cell names, each once: those that run it, in their order, then those it is only given, in
-    /// theirs. The walk takes these as the cell's inputs, a new version of any of them running the cell, until it
-    /// chooses by what runs a cell alone (`design/docs/data-and-context.md`, statements 5 to 7). Of a file in the old
-    /// form they are its `inputs`, as the walk took them before.
-    fn named(&self) -> Vec<BlockId> {
-        let mut named: Vec<BlockId> = Vec::new();
-        let blocks = (self.runs_on.iter().map(|r| &r.block)).chain(self.given.iter().map(|g| &g.block));
-        for block in blocks {
-            if !named.contains(block) {
-                named.push(block.clone());
-            }
-        }
-        named
-    }
 }
 
 /// What an agent cell in the old form is given of a block of its `inputs` whose `[input.<block>]` names no kind: the

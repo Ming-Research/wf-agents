@@ -98,7 +98,8 @@ pub struct Started {
     pub at: Seq,
     /// Why the run was started, as the decision gave it.
     pub because: Vec<Cause>,
-    /// The version the run started from, of each block its cell reads or may write; `None` where there was none.
+    /// The version the run started from, of each block that runs its cell or that it may write; `None` where there was
+    /// none. Of a block that runs the cell, it is the version the round was told of as it began.
     pub basis: BTreeMap<BlockId, Option<Seq>>,
 }
 
@@ -116,7 +117,10 @@ pub struct Returned {
     pub at: Seq,
 }
 
-/// A run rests at a call until the call has its result.
+/// A call of a run: one its return asked for, made as the return was taken and before the run finished, whose result the
+/// cell is given when it is entered again; or one the engine makes for a run at rest, which goes on once it has the
+/// result, as a wait before a round is tried again or the owner's word at a limit. Runs kept before a return that asks
+/// ended its run made the calls they asked for between their rounds, and rested at them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Called {
     pub call: CallId,
@@ -246,26 +250,31 @@ pub enum Pauser {
 /// Why a cell runs.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Cause {
-    /// It has no record.
+    /// It had no record: a cell ran once before anything else ran it, as runs started before the walk chose by what is
+    /// new say. The walk no longer gives it: a cell runs only for what is new to it.
     NoRecord,
-    /// A block it reads has another meaning than the one its record knows. `was` is the version the record knows:
-    /// the one its run started from, or the one it wrote itself; the run now starts from the current one. `behind`
-    /// says every change of the block's meaning since that version was written by a cell after this one: a judging
-    /// cell's opinion on what it wrote, for one.
+    /// A block that runs the cell is new to it: it has a version, changing its meaning, later than the one the cell
+    /// consumed, that the cell did not write itself (design document `data-and-context`, 6). `was` is the version the
+    /// cell consumed, `None` where it consumed none; the run starts from the latest, as its `basis` says. `behind` says
+    /// every such new version was written by a cell after this one: a judging cell's opinion on what it wrote, for one.
     Changed {
         block: BlockId,
         was: Option<Seq>,
         behind: bool,
     },
+    /// The calls the cell's earlier runs asked for, as their returns were taken, all have their results, which no
+    /// run of the cell was given yet (design document `data-and-context`, 28). The run is given them.
+    Results { calls: Vec<CallId> },
 }
 
 impl Cause {
-    /// Whether the cause is no way round: a first run, or a change of meaning that a person, the outside or a cell
-    /// before this one made.
+    /// Whether the cause is no way round: a first run, or a version that a person, the outside or a cell before this
+    /// one wrote.
     pub fn forward(&self) -> bool {
         match self {
             Cause::NoRecord => true,
             Cause::Changed { behind, .. } => !behind,
+            Cause::Results { .. } => false,
         }
     }
 }

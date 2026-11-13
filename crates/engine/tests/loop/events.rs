@@ -92,7 +92,7 @@ fn a_return_that_does_not_meet_what_is_required_is_sent_back_to_the_same_run_wit
 #[test]
 fn a_return_asking_for_nothing_is_sent_back_as_asking_nothing() {
     let (mut w, write, _) = W::requested();
-    let effects = w.returns(write, Came::Asks(vec![]));
+    let effects = w.returns(write, Came::asks(vec![]));
     assert_eq!(
         effects,
         vec![round_effect(

@@ -5,13 +5,12 @@ use super::*;
 #[test]
 fn a_return_that_meets_everything_finishes_the_run_with_exactly_its_writes() {
     let writes = vec![prose("plan"), valued("verdict", "no")];
-    let finish = Step::Finish { writes: writes.clone() };
-    assert_eq!(step(vec![handed_in(writes)], &spec()), finish);
+    assert_eq!(step(vec![handed_in(writes.clone())], &spec()), finish(writes));
 }
 
 #[test]
 fn a_return_that_writes_nothing_meets_everything() {
-    assert_eq!(step(vec![handed_in(vec![])], &spec()), Step::Finish { writes: vec![] });
+    assert_eq!(step(vec![handed_in(vec![])], &spec()), finish(vec![]));
 }
 
 #[test]
@@ -33,8 +32,10 @@ fn a_return_that_lacks_a_block_the_cell_must_hand_in_is_sent_back_naming_each_bl
 #[test]
 fn a_return_with_every_block_the_cell_must_hand_in_finishes_the_run() {
     let writes = vec![valued("verdict", "yes"), prose("plan")];
-    let finish = Step::Finish { writes: writes.clone() };
-    assert_eq!(step(vec![handed_in(writes)], &must_write(&["plan", "verdict"])), finish);
+    assert_eq!(
+        step(vec![handed_in(writes.clone())], &must_write(&["plan", "verdict"])),
+        finish(writes)
+    );
 }
 
 #[test]
@@ -63,8 +64,58 @@ fn what_a_return_lacks_is_said_after_what_its_writes_do_not_meet() {
 }
 
 #[test]
-fn a_return_that_asks_for_calls_hands_in_nothing_and_is_not_held_to_what_the_cell_must_hand_in() {
-    assert_eq!(step(vec![asks(2)], &must_write(&["verdict"])), Step::Make);
+fn a_return_that_deals_with_only_part_of_what_ran_its_round_is_not_held_to_what_the_cell_must_hand_in() {
+    let s = must_write(&["verdict"]);
+    let partial = works(&["opinions"], vec![prose("plan")]);
+    let finish = Step::Finish {
+        dealt_with: vec!["opinions".into()],
+        writes: vec![prose("plan")],
+    };
+    assert_eq!(step(vec![partial], &s), finish);
+}
+
+#[test]
+fn a_return_that_names_as_dealt_with_what_did_not_run_its_round_or_names_a_block_twice_is_sent_back() {
+    let unmet = vec![
+        Unmet::NotRunBy { block: "plan".into() },
+        Unmet::DealtWithTwice {
+            block: "request".into(),
+        },
+    ];
+    let round = works(&["request", "plan", "request"], vec![]);
+    assert_eq!(step(vec![round], &spec()), send_back(unmet));
+}
+
+#[test]
+fn a_return_that_writes_over_a_version_its_round_was_not_told_of_is_sent_back_naming_the_version() {
+    let mut s = spec();
+    s.told.outputs.get_mut(&BlockId::from("plan")).expect("the plan").latest = Some(Seq(9));
+    let unmet = vec![Unmet::WrittenOver {
+        block: "plan".into(),
+        version: Seq(9),
+    }];
+    assert_eq!(step(vec![handed_in(vec![prose("plan")])], &s), send_back(unmet));
+    // A block it does not write it may leave as another wrote it.
+    assert_eq!(
+        step(vec![handed_in(vec![valued("verdict", "no")])], &s),
+        finish(vec![valued("verdict", "no")])
+    );
+}
+
+#[test]
+fn a_choice_handed_in_as_changing_nothing_in_meaning_with_another_value_is_sent_back() {
+    let unchanged = |value: &str| Write {
+        meaning_unchanged: true,
+        ..valued("verdict", value)
+    };
+    let unmet = vec![Unmet::ChoiceChanged {
+        block: "verdict".into(),
+    }];
+    assert_eq!(step(vec![handed_in(vec![unchanged("no")])], &spec()), send_back(unmet));
+    assert_eq!(
+        step(vec![handed_in(vec![unchanged("yes")])], &spec()),
+        finish(vec![unchanged("yes")])
+    );
 }
 
 #[test]
@@ -160,14 +211,9 @@ fn a_choice_of_a_block_the_cell_may_not_write_is_said_only_not_to_be_an_output()
 }
 
 #[test]
-fn a_return_handed_in_after_calls_is_judged_on_its_own() {
-    let rounds = vec![asked_done(1, 2), handed_in(vec![prose("plan")])];
-    assert_eq!(
-        step(rounds, &spec()),
-        Step::Finish {
-            writes: vec![prose("plan")]
-        }
-    );
+fn a_return_handed_in_after_one_sent_back_is_judged_on_its_own() {
+    let rounds = vec![wanting(), handed_in(vec![prose("plan")])];
+    assert_eq!(step(rounds, &spec()), finish(vec![prose("plan")]));
 }
 
 #[test]

@@ -21,7 +21,7 @@ fn a_cancel_stops_the_round_under_way_and_abandons_its_run() {
 #[test]
 fn a_cancel_withdraws_the_calls_a_run_rests_at_in_the_order_they_were_made() {
     let (mut w, write, _) = W::requested();
-    let calls = calls_of(&w.returns(write, Came::Asks(vec![tool("a"), question(Who::Owner), tool("b")])));
+    let calls = calls_of(&w.returns(write, Came::asks(vec![tool("a"), question(Who::Owner), tool("b")])));
     w.done(calls[0].0);
     let withdrawn = vec![
         Effect::Withdraw { call: calls[1].0 },
@@ -36,7 +36,7 @@ fn a_cancel_withdraws_the_calls_a_run_rests_at_in_the_order_they_were_made() {
 fn two_open() -> (W, RunId, CallId, RunId) {
     let (mut w, write, _) = W::requested();
     let judge = round(&w.returns(write, hands_in(&[("text", None)]))).0;
-    let call = calls_of(&w.returns(judge, Came::Asks(vec![question(Who::Owner)])))[0].0;
+    let call = calls_of(&w.returns(judge, Came::asks(vec![question(Who::Owner)])))[0].0;
     let (effects, _) = w.person_writes("request");
     let again = round(&effects).0;
     (w, judge, call, again)

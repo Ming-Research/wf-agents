@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn each_thing_asked_for_is_one_call_for_a_tool_with_nobody_and_for_a_person_with_that_person() {
     let (mut w, write, _) = W::requested();
-    let effects = w.returns(write, Came::Asks(vec![tool("search"), question(Who::Architect)]));
+    let effects = w.returns(write, Came::asks(vec![tool("search"), question(Who::Architect)]));
     let calls = calls_of(&effects);
     assert_eq!(
         calls
@@ -30,7 +30,7 @@ fn each_thing_asked_for_is_one_call_for_a_tool_with_nobody_and_for_a_person_with
 #[test]
 fn the_round_after_calls_is_given_their_results_only_once_the_last_has_its_result() {
     let (mut w, write, _) = W::requested();
-    let effects = w.returns(write, Came::Asks(vec![tool("search"), question(Who::Architect)]));
+    let effects = w.returns(write, Came::asks(vec![tool("search"), question(Who::Architect)]));
     let calls: Vec<CallId> = calls_of(&effects).iter().map(|(c, ..)| *c).collect();
     assert_eq!(w.done(calls[0]), vec![]);
     let effects = w.done(calls[1]);
@@ -43,7 +43,7 @@ fn the_round_after_calls_is_given_their_results_only_once_the_last_has_its_resul
 #[test]
 fn a_calls_result_is_kept() {
     let (mut w, write, _) = W::requested();
-    let effects = w.returns(write, Came::Asks(vec![tool("search")]));
+    let effects = w.returns(write, Came::asks(vec![tool("search")]));
     let call = calls_of(&effects)[0].0;
     w.on(Event::Done {
         call,

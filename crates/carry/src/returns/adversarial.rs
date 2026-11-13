@@ -10,7 +10,7 @@ fn form() -> Value {
 }
 
 fn handed(content: &str) -> Result<Came, String> {
-    Ok(Came::HandsIn(vec![Handed {
+    Ok(Came::hands_in(vec![Handed {
         block: "plan".into(),
         content: content.to_string(),
         matters: true,
@@ -98,7 +98,7 @@ fn a_wrapped_string_form_with_trailing_brackets_is_read() {
 #[test]
 fn asks_win_over_hands_in_when_normalised() {
     let r = json!({"o": {"hands_in": form()["hands_in"], "asks": [{"question": "Which?"}]}});
-    assert!(matches!(came(&r), Ok(Came::Asks(a)) if a.len() == 1));
+    assert!(matches!(came(&r), Ok(Came { asks: a, .. }) if a.len() == 1));
     let r = json!({"hands_in": form()["hands_in"], "asks": null});
     assert_eq!(came(&r), handed("Greet."));
 }
@@ -106,7 +106,7 @@ fn asks_win_over_hands_in_when_normalised() {
 #[test]
 fn an_unwrap_never_fires_on_a_return_with_a_list() {
     let r = json!({"asks": [{"question": "Which?"}]});
-    assert!(matches!(came(&r), Ok(Came::Asks(_))));
+    assert!(matches!(came(&r), Ok(Came { asks, .. }) if !asks.is_empty()));
     let r = json!({"hands_in": {"hands_in": [], "asks": []}});
     assert!(came(&r).is_err());
 }
@@ -116,7 +116,7 @@ fn a_value_of_a_hand_in_is_kept() {
     let r = json!({"hands_in": [{"block": "ok", "content": "x", "matters": false, "value": "yes"}], "asks": []});
     assert_eq!(
         came(&r),
-        Ok(Came::HandsIn(vec![Handed {
+        Ok(Came::hands_in(vec![Handed {
             block: "ok".into(),
             content: "x".to_string(),
             matters: false,

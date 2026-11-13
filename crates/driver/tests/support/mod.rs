@@ -1171,7 +1171,7 @@ impl H {
                     number.0
                 );
             }
-            Decision::Wait { .. } | Decision::Ended(_) => {}
+            Decision::Wait { .. } | Decision::Ended(_) | Decision::Idle => {}
         }
         if !matches!(shown, Decision::Busy { .. }) {
             assert_eq!(
@@ -1469,7 +1469,7 @@ pub fn proper(flow: &Compiled, cell: &str) -> Came {
             }
         })
         .collect();
-    Came::HandsIn(handed)
+    Came::hands_in(handed)
 }
 
 /// What a round took, told apart by this number.
@@ -1524,6 +1524,7 @@ pub fn for_a_note(flow: &Compiled, work: &Work, run: RunId) -> bool {
     started.because.iter().any(|c| match c {
         Cause::NoRecord => started.basis.keys().any(|block| by_person(block, None)),
         Cause::Changed { block, was, .. } => by_person(block, *was),
+        Cause::Results { .. } => false,
     })
 }
 
@@ -1550,7 +1551,7 @@ pub fn handed(block: &str, value: Option<&str>) -> Handed {
 
 /// What came back: these blocks handed in.
 pub fn hands_in(blocks: &[(&str, Option<&str>)]) -> Came {
-    Came::HandsIn(blocks.iter().map(|(b, v)| handed(b, *v)).collect())
+    Came::hands_in(blocks.iter().map(|(b, v)| handed(b, *v)).collect())
 }
 
 pub fn tool(name: &str) -> Ask {

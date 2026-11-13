@@ -35,7 +35,7 @@ fn after_every_call_the_store_holds_what_the_driver_shows() {
     let todos = h.answer(wa, limit[0]);
     assert_eq!(rounds(&todos), [(wa, "write".to_string(), 4)]);
     // A tool and a question for the architect.
-    let todos = h.returns(wa, Came::Asks(vec![tool("a"), question(Who::Architect)]));
+    let todos = h.returns(wa, Came::asks(vec![tool("a"), question(Who::Architect)]));
     let asked = calls_of(&todos);
     assert_eq!(asked.len(), 2);
     for call in asked {
@@ -51,12 +51,12 @@ fn after_every_call_the_store_holds_what_the_driver_shows() {
             why: None,
         },
     );
-    let todos = h.returns(wa, Came::Asks(vec![tool("b")]));
+    let todos = h.returns(wa, Came::asks(vec![tool("b")]));
     h.answer(wa, calls_of(&todos)[0]);
     h.let_on(wa);
     // The judge rests at a question while a person writes the opinions it may write: its run is abandoned, the
     // question withdrawn, and the writer runs again for them.
-    let todos = h.returns(wa, Came::Asks(vec![question(Who::Owner)]));
+    let todos = h.returns(wa, Came::asks(vec![question(Who::Owner)]));
     let question = calls_of(&todos)[0];
     let todos = h.on(wa, wrote("opinions", Outsider::Person, None));
     assert!(

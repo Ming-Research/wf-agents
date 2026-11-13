@@ -431,7 +431,7 @@ impl History {
             },
             Effect::Stop { run } => Event::Returned {
                 run,
-                came: Came::Asks(vec![]),
+                came: Came::asks(vec![]),
                 spent: self.spent(run),
             },
             Effect::Release { .. } => Event::Released,
@@ -446,7 +446,7 @@ impl History {
         let flow = kept.flow.clone();
         if engine_cell(&flow, cell) {
             return if self.rng.chance(14) {
-                Came::Asks(vec![])
+                Came::asks(vec![])
             } else {
                 proper(&flow, cell)
             };
@@ -470,7 +470,7 @@ impl History {
                         value,
                     });
                 }
-                Came::HandsIn(handed)
+                Came::hands_in(handed)
             }
             10..=12 => {
                 if self.rng.chance(50) {
@@ -485,7 +485,7 @@ impl History {
             }
             13..=15 => {
                 let n = 1 + self.rng.below(3);
-                Came::Asks((0..n).map(|i| tool(&format!("tool {i}"))).collect())
+                Came::asks((0..n).map(|i| tool(&format!("tool {i}"))).collect())
             }
             16..=18 => {
                 let who = if self.rng.chance(50) {
@@ -493,9 +493,9 @@ impl History {
                 } else {
                     Who::Architect
                 };
-                Came::Asks(vec![question(who)])
+                Came::asks(vec![question(who)])
             }
-            _ => Came::Asks(vec![]),
+            _ => Came::asks(vec![]),
         }
     }
 
@@ -631,7 +631,7 @@ impl History {
             2 => {
                 let returned = Event::Returned {
                     run: RunId(10_000),
-                    came: Came::Asks(vec![]),
+                    came: Came::asks(vec![]),
                     spent: Spent::default(),
                 };
                 d.happened(now, work, returned).map(drop)
@@ -658,7 +658,8 @@ impl History {
                 let rounds = u64::from(flow.limits.returns + flow.limits.calls + 2);
                 let mut before: u64 = 0;
                 for c in flow.flow.cells() {
-                    let s = (u64::from(c.limit) + 2).saturating_mul(3 + c.inputs.len() as u64 + before);
+                    let s = (u64::from(c.limit) + u64::from(c.calls) + 2)
+                        .saturating_mul(3 + c.runs_on.len() as u64 + before);
                     before = before.saturating_add(s);
                 }
                 (before + 1).saturating_mul(4 * rounds + 4)

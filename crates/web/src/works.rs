@@ -215,6 +215,9 @@ pub enum Now {
     Waits { at: String, on: Vec<Waited> },
     /// It is about to do something at this cell. A work is never left so between two things that happen to it.
     Next { cell: String },
+    /// Nothing new runs a cell, and nothing of it is under way or waited for: it goes on once someone writes what runs
+    /// a cell.
+    Idle {},
 }
 
 /// What a work waits for.
@@ -233,6 +236,9 @@ pub enum Waited {
     /// The cell's last runs, this many in a row, were each for what a cell after it wrote, and so would the next be:
     /// the owner lets it go on or cancels the work.
     Limit { runs: u32 },
+    /// The cell's last runs, this many in a row, each asked for calls and dealt with nothing, and it would be entered
+    /// again for their results: the owner lets it go on or cancels the work.
+    Calls { runs: u32 },
     /// A free slot: as many rounds of agents are under way as the engine has slots, and the engine gives it the first
     /// that comes free, in its order.
     Slot {},
@@ -372,9 +378,10 @@ pub struct WorkPage {
 #[serde(rename_all = "camelCase")]
 pub struct CellDetail {
     pub cell: String,
-    /// Why the cell would run were the walk to reach it with nothing holding it; empty where it would not.
+    /// What is new to the cell: why it would run were the walk to reach it with nothing holding it; empty where
+    /// nothing is.
     pub needs: Vec<Cause>,
-    /// The blocks it reads, in the order it lists them.
+    /// The blocks that run it, in the order it lists them.
     pub inputs: Vec<Input>,
 }
 
@@ -382,27 +389,29 @@ pub struct CellDetail {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Cause {
-    /// It has no record.
+    /// It had no record, as a run started before a cell ran only for what is new says.
     NoRecord,
-    /// The block has another meaning than the one its record knows. `was` is the version the record knows; `behind`
-    /// says a cell after this one gave the block the meaning it has now.
+    /// The block is new to the cell. `was` is the version the cell consumed; `behind` says every new version was
+    /// written by a cell after this one.
     Changed {
         block: String,
         was: Option<u64>,
         behind: bool,
     },
+    /// The results of the calls its earlier runs asked for are all in.
+    Results { calls: Vec<u64> },
 }
 
-/// A block a cell reads, as the cell's record knows it and as it is now.
+/// A block that runs a cell, as the cell consumed it and as it is now.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Input {
     pub block: String,
     /// The block's current version; none where it has none.
     pub current: Option<u64>,
-    /// The version the cell's record knows; none where the cell has no record, or the block had no version then.
+    /// The version the cell consumed; none where it consumed none.
     pub known: Option<u64>,
-    /// Whether the block now has another meaning than the one the cell's record knows.
+    /// Whether the block is new to the cell.
     pub changed: bool,
 }
 
@@ -601,6 +610,18 @@ pub enum Unmet {
     NotHandedIn { block: String },
     /// What came back could not be read as a return, for this reason.
     Unreadable { why: String },
+    /// The block is named as dealt with, and it did not run the round.
+    NotRunBy { block: String },
+    /// The block is named twice as dealt with.
+    DealtWithTwice { block: String },
+    /// Something ran the round, and the return deals with none of it and asks for no call.
+    DealtWithNothing,
+    /// The block got this version from another writer since the round was told of the one it writes over.
+    WrittenOver { block: String, version: u64 },
+    /// The block is a choice, written as changing nothing in meaning with another value than it has.
+    ChoiceChanged { block: String },
+    /// The return asks for calls and also does the cell's work.
+    AsksAndWorks,
 }
 
 /// What came back at the end of a round.
@@ -1208,6 +1229,7 @@ impl Now {
                                 by: by.iter().map(Maker::of).collect(),
                             },
                             WaitedOf::Limit { runs } => Waited::Limit { runs: *runs },
+                            WaitedOf::Calls { runs } => Waited::Calls { runs: *runs },
                             WaitedOf::Slot => Waited::Slot {},
                         })
                     })
@@ -1216,6 +1238,7 @@ impl Now {
             Decision::Run { cell, .. } | Decision::GoOn { cell, .. } | Decision::Abandon { cell, .. } => {
                 Now::Next { cell: cell.to_string() }
             }
+            Decision::Idle => Now::Idle {},
         })
     }
 
@@ -1311,12 +1334,12 @@ impl WorkPage {
             .map(|cell| CellDetail {
                 cell: cell.cell.to_string(),
                 needs: cell.needs.iter().map(Cause::of).collect(),
-                inputs: (cell.inputs.iter())
+                inputs: (cell.runs_on.iter())
                     .map(|input| Input {
                         block: input.block.to_string(),
                         current: input.current.map(|at| at.0),
-                        known: input.known.map(|at| at.0),
-                        changed: input.changed,
+                        known: input.consumed.map(|at| at.0),
+                        changed: input.new,
                     })
                     .collect(),
             })
@@ -1422,6 +1445,9 @@ impl Cause {
                 was: was.map(|at| at.0),
                 behind: *behind,
             },
+            CauseOf::Results { calls } => Cause::Results {
+                calls: calls.iter().map(|call| call.0).collect(),
+            },
         }
     }
 }
@@ -1457,7 +1483,7 @@ impl RoundPage {
             GivenOf::Task | GivenOf::SentBack(_) => Vec::new(),
         };
         let handed = match work.back.get(&(run, number)) {
-            Some(BackOf::HandedIn(handed)) => (handed.iter())
+            Some(BackOf::HandedIn(handed) | BackOf::Returned { handed, .. }) => (handed.iter())
                 .map(|h| HandedContent {
                     block: h.block.to_string(),
                     content: h.content.clone(),
@@ -1695,6 +1721,21 @@ impl Unmet {
             UnmetOf::NotHandedIn { block } => Unmet::NotHandedIn {
                 block: block.to_string(),
             },
+            UnmetOf::NotRunBy { block } => Unmet::NotRunBy {
+                block: block.to_string(),
+            },
+            UnmetOf::DealtWithTwice { block } => Unmet::DealtWithTwice {
+                block: block.to_string(),
+            },
+            UnmetOf::DealtWithNothing => Unmet::DealtWithNothing,
+            UnmetOf::WrittenOver { block, version } => Unmet::WrittenOver {
+                block: block.to_string(),
+                version: version.0,
+            },
+            UnmetOf::ChoiceChanged { block } => Unmet::ChoiceChanged {
+                block: block.to_string(),
+            },
+            UnmetOf::AsksAndWorks => Unmet::AsksAndWorks,
         }
     }
 }
@@ -1726,11 +1767,15 @@ fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                 },
                 None => return Err(Broken(format!("round {number} of run {} was given nothing", run.0))),
             };
+            // A return asks for calls or does the cell's work, and is shown as one that asked or one that handed in.
             let back = work.back.get(&(run, number)).map(|back| match back {
                 BackOf::Asked(asks) => Back::Asked {
                     asks: asks.iter().map(Ask::of).collect(),
                 },
-                BackOf::HandedIn(handed) => Back::HandedIn {
+                BackOf::Returned { asks, .. } if !asks.is_empty() => Back::Asked {
+                    asks: asks.iter().map(Ask::of).collect(),
+                },
+                BackOf::HandedIn(handed) | BackOf::Returned { handed, .. } => Back::HandedIn {
                     blocks: (handed.iter())
                         .map(|h| Handed {
                             block: h.block.to_string(),

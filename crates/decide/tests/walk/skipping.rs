@@ -3,7 +3,7 @@
 use super::*;
 
 #[test]
-fn a_skipped_cell_is_not_run_though_its_inputs_changed_and_what_it_wrote_is_still_what_later_cells_start_from() {
+fn a_skipped_cell_is_not_run_though_something_is_new_to_it_and_what_it_wrote_still_stands() {
     let (mut w, c1, tests) = tested();
     w.person_writes("brief");
     let c2 = w.run("implement", &[("code", Matters)]);
@@ -19,7 +19,7 @@ fn a_skipped_cell_is_not_run_though_its_inputs_changed_and_what_it_wrote_is_stil
 }
 
 #[test]
-fn a_condition_on_a_value_a_person_writes_puts_the_cell_back_and_it_runs_for_inputs_its_record_does_not_know() {
+fn a_condition_on_a_value_a_person_writes_puts_the_cell_back_and_it_runs_for_what_is_new_to_it() {
     let (mut w, c1, tests) = tested();
     w.person_writes("brief");
     let c2 = w.run("implement", &[("code", Matters)]);
@@ -38,7 +38,7 @@ fn a_condition_on_a_value_a_person_writes_puts_the_cell_back_and_it_runs_for_inp
 }
 
 #[test]
-fn a_cell_whose_condition_is_met_again_is_passed_when_its_inputs_are_what_its_record_knows() {
+fn a_cell_whose_condition_is_met_again_is_passed_when_nothing_is_new_to_it() {
     let (mut w, ..) = tested();
     w.person_sets("more", "no");
     assert_eq!(w.decide(), resting());
@@ -49,20 +49,25 @@ fn a_cell_whose_condition_is_met_again_is_passed_when_its_inputs_are_what_its_re
 #[test]
 fn a_condition_on_a_block_that_has_no_version_is_not_met() {
     let mut w = World::with_gate(vec![
-        cell("ask", &[], &[]),
-        when("more", "yes", cell("extra", &[], &[])),
+        cell("ask", &["brief"], &[]),
+        when("more", "yes", cell("extra", &["brief"], &[])),
     ]);
+    w.person_writes("brief");
     w.run("ask", &[]);
     assert_eq!(w.decide(), resting());
 }
 
 #[test]
 fn a_condition_that_is_a_named_test_lets_its_cell_run_while_the_test_holds() {
-    let mut w = World::with_gate(vec![on_test("there is a remark", cell("remarks", &[], &[]))]);
+    let mut w = World::with_gate(vec![on_test("there is a remark", cell("remarks", &["remark"], &[]))]);
     w.says("there is a remark", false);
+    let remark = w.person_writes("remark");
     assert_eq!(w.decide(), resting());
     w.says("there is a remark", true);
-    assert_eq!(w.decide(), runs("remarks", vec![NO_RECORD], &[]));
+    assert_eq!(
+        w.decide(),
+        runs("remarks", first(&["remark"]), &[("remark", Some(remark))])
+    );
 }
 
 #[test]
@@ -89,11 +94,18 @@ fn a_run_at_rest_whose_cell_becomes_skipped_is_abandoned_and_the_cell_does_not_r
 #[test]
 fn a_condition_on_a_block_a_later_cell_writes_is_met_once_that_cell_wrote_it() {
     let cells = vec![
-        when("choice", "yes", cell("first", &[], &["x"])),
-        cell("later", &[], &["choice"]),
+        when("choice", "yes", cell("first", &["brief"], &["x"])),
+        cell("later", &["brief"], &["choice"]),
     ];
     let mut w = World::with_gate(cells);
-    assert_eq!(w.decide(), runs("later", vec![NO_RECORD], &[("choice", None)]));
+    let brief = w.person_writes("brief");
+    assert_eq!(
+        w.decide(),
+        runs("later", first(&["brief"]), &[("brief", Some(brief)), ("choice", None)])
+    );
     w.run("later", &[("choice", Value("yes"))]);
-    assert_eq!(w.decide(), runs("first", vec![NO_RECORD], &[("x", None)]));
+    assert_eq!(
+        w.decide(),
+        runs("first", first(&["brief"]), &[("brief", Some(brief)), ("x", None)])
+    );
 }

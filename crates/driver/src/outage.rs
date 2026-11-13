@@ -141,9 +141,12 @@ pub fn outage<'a>(works: impl IntoIterator<Item = (WorkNumber, &'a Compiled, &'a
     // the same time may have begun before it ended.
     let after = |r: &&Agents| r.began > since || (r.work == round.work && r.began_at > ended_at);
     let later: Vec<&Agents> = rounds.iter().filter(after).collect();
-    let came_back = later
-        .iter()
-        .any(|r| matches!(&r.ended, Some((_, _, Some(Back::Asked(_) | Back::HandedIn(_))))));
+    let came_back = later.iter().any(|r| {
+        matches!(
+            &r.ended,
+            Some((_, _, Some(Back::Asked(_) | Back::HandedIn(_) | Back::Returned { .. })))
+        )
+    });
     if came_back {
         return None;
     }

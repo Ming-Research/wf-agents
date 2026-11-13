@@ -68,7 +68,7 @@ fn opened_on_works_going_on_it_pauses_everything_and_begins_nothing_until_the_ow
     // A work with a round under way; one resting at a tool's call; one never let on.
     let (_, under_way) = h.add_let_on(new_item("under way", &[], "judged"));
     let (_, at_call) = h.add_let_on(new_item("at a call", &[], "judged"));
-    h.returns(at_call, Came::Asks(vec![tool("search")]));
+    h.returns(at_call, Came::asks(vec![tool("search")]));
     let (_, never) = h.add(new_item("never let on", &[], "plain"));
     let pending = h.d().pending();
 

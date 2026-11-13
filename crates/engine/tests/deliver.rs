@@ -128,9 +128,9 @@ fn the_deliver_flow_is_one_act_of_the_engines_held_until_the_items_it_is_made_of
         flow.blocks[&BlockId::from("delivered")].readers.shown,
         "the owner reads what was delivered"
     );
-    // What the item is to deliver: people write it, the owner reads it, and no cell does, so that the cell takes no
-    // input from it and an edit of it runs nothing.
-    assert_eq!(cell.inputs, Vec::<BlockId>::new());
+    // The cell is run by what the items it is made of say, each merge of one a new version; what the item is to
+    // deliver people write and the owner reads, and no cell does, so that an edit of it runs nothing.
+    assert_eq!(cell.runs_on, vec![dependencies(&flow)]);
     let background = &flow.blocks[&BlockId::from("background")];
     assert!(background.writers.people && background.readers.shown);
     assert_eq!(background.values, None);
@@ -181,7 +181,7 @@ fn a_work_waits_at_its_cell_until_its_items_have_merged_then_runs_it_once_and_ha
         panic!("the cell's first round is not given: {effects:?}");
     };
     assert_eq!(cell.as_str(), "V1");
-    let came = Came::HandsIn(delivered(&flow));
+    let came = Came::hands_in(delivered(&flow));
     let effects = take(
         &mut work,
         Event::Returned {
@@ -222,7 +222,7 @@ impl Part for Deliverable {
                 value: Some(self.merged.clone()),
             });
         }
-        Came::HandsIn(handed)
+        Came::hands_in(handed)
     }
 
     fn acts(&mut self, d: &mut Driver) -> Event {

@@ -684,6 +684,7 @@ fn now(now: &Now) -> String {
             format!("waits at {at} for {}", on.join("; and for "))
         }
         Now::Next { cell } => format!("about to go on at {cell}"),
+        Now::Idle {} => "at rest: nothing new runs a cell, until someone writes what runs one".to_string(),
     }
 }
 
@@ -703,6 +704,9 @@ fn waited(waited: &Waited) -> String {
         Waited::Limit { runs } => {
             format!("the owner to let it go on, its last {runs} runs having each been for what a cell after it wrote")
         }
+        Waited::Calls { runs } => format!(
+            "the owner to let it go on, its last {runs} runs having each asked for calls and dealt with nothing"
+        ),
         Waited::Slot {} => "a free slot".to_string(),
         Waited::Agents { outage: o } => format!("the agents' rounds to begin again: {}", outage(o)),
     }

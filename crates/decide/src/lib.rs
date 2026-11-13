@@ -1,13 +1,14 @@
 //! What a work does next.
 //!
-//! This crate is the deciding code of the engine (principle `decide-purely`). A work's state is its blocks; a cell
-//! reads some and writes some, and runs again only when a block it reads has changed in meaning. Given the flow, with
-//! the named tests its cells' conditions and preconditions are, and a work's records, the crate says which cell runs
-//! and because of what, which run goes on or is abandoned, or what the work waits for and who can give it. It reads
-//! no database, clock or network and changes nothing, and it depends on no other part of the engine (principle
-//! `dependencies-one-way`).
+//! This crate is the deciding code of the engine (principle `decide-purely`). A work's state is its data, each with
+//! versions; a cell names the blocks that run it and those it writes, and runs when one that runs it has a version new
+//! to it, which a run of it consumes by saying, as its return is taken, that it dealt with it (design document
+//! `data-and-context`). Given the flow, with the named tests its cells' conditions and preconditions are, and a work's
+//! records, the crate says which cell runs and because of what, which run goes on or is abandoned, or what the work
+//! waits for and who can give it. It reads no database, clock or network and changes nothing, and it depends on no
+//! other part of the engine (principle `dependencies-one-way`).
 //!
-//! - [`flow`]: the cells in their order, the blocks each reads and writes, and the named tests.
+//! - [`flow`]: the cells in their order, the blocks that run each and those it writes, and the named tests.
 //! - [`records`]: what ran and what was written, each list only added to.
 //! - [`walk`]: the decision: which cell runs, which run goes on.
 //! - [`run`]: what a run that goes on does next.
@@ -28,4 +29,4 @@ pub use records::{
 };
 pub use room::{Holder, Room, begun, taking_slot};
 pub use view::{CellView, InputView, OpenRun, VersionView, View, Writer, versions, view, view_in};
-pub use walk::{Abandoning, Decision, End, Maker, Waited, decide, decide_in, hold, hold_in, pause, paused, stale};
+pub use walk::{Abandoning, Decision, End, Maker, Waited, decide, decide_in, hold, hold_in, pause, paused, told};

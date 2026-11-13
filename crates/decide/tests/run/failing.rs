@@ -32,7 +32,7 @@ fn passing(n: usize) -> Vec<Round> {
 #[test]
 fn a_run_whose_round_failed_has_that_round_again() {
     assert_eq!(step(vec![failed()], &spec()), Step::Retry);
-    assert_eq!(step(vec![asked_done(1, 2), failed()], &spec()), Step::Retry);
+    assert_eq!(step(vec![wanting(), failed()], &spec()), Step::Retry);
     for kind in [
         Failure::Flagged,
         Failure::UsageLimit,
@@ -51,15 +51,15 @@ fn a_run_whose_round_failed_is_held_while_its_work_is_paused() {
 
 #[test]
 fn failed_rounds_count_against_no_limit() {
-    // However many rounds failed, none was a return sent back nor made a call.
-    let s = limited(1, 2);
+    // However many rounds failed, none was a return sent back.
+    let s = limited(1);
     let failures = || vec![failed(), failed(), failed(), failed()];
     assert_eq!(step([failures(), vec![failed()]].concat(), &s), Step::Retry);
     assert_eq!(
         step([failures(), vec![wanting()]].concat(), &s),
         send_back(wanting_unmet())
     );
-    assert_eq!(step([failures(), vec![asks(2)]].concat(), &s), Step::Make);
+    assert_eq!(step([failures(), vec![asks(2)]].concat(), &s), finish_asking());
     let between = vec![wanting(), failed(), failed(), wanting()];
     assert_eq!(step(between, &s), returns_limit(1));
 }
@@ -115,7 +115,7 @@ fn a_failure_in_passing_counts_only_those_in_a_row_since_the_work_was_let_on() {
         ms: FIRST_WAIT,
     };
     // A round that did not fail ends the row.
-    let after_a_return = [passing(3), vec![asked_done(9, 1), failed_as(Failure::Passing)]].concat();
+    let after_a_return = [passing(3), vec![wanting(), failed_as(Failure::Passing)]].concat();
     assert_eq!(step(after_a_return, &s), first);
     // A failure of another kind between is in the row, and counts nothing.
     let other_between = [
@@ -159,7 +159,7 @@ fn so_many_failures_in_passing_in_a_row_pause_the_work_and_the_round_waits_no_mo
 
 #[test]
 fn what_could_not_be_read_is_sent_back_and_counts_as_a_return_sent_back() {
-    let s = limited(1, 3);
+    let s = limited(1);
     let unread = || failed_as(Failure::Unread);
     let unmet = vec![Unmet::Unreadable {
         why: "it failed".to_string(),
@@ -190,7 +190,7 @@ fn a_flagged_round_is_tried_again_once_and_flagged_again_pauses_the_work() {
     .concat();
     assert_eq!(pausing(&let_on(between, 0)), Some(Pausing::FlaggedAgain));
     // A round that came back between, or the work let on between, starts anew.
-    assert_eq!(pausing(&let_on(vec![flagged(), asked_done(1, 1), flagged()], 0)), None);
+    assert_eq!(pausing(&let_on(vec![flagged(), wanting(), flagged()], 0)), None);
     assert_eq!(pausing(&let_on(vec![flagged(), flagged()], 1)), None);
 }
 
@@ -205,6 +205,6 @@ fn a_failure_running_again_cannot_help_pauses_the_work_and_one_every_work_shares
     }
     assert!(!Failure::Passing.shared() && !Failure::Flagged.shared() && !Failure::Other.shared());
     // A log whose last round did not fail pauses nothing.
-    assert_eq!(pausing(&let_on(vec![asked_done(1, 1)], 0)), None);
+    assert_eq!(pausing(&let_on(vec![wanting()], 0)), None);
     assert_eq!(pausing(&let_on(vec![], 0)), None);
 }

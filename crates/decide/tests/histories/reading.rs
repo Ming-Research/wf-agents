@@ -1,12 +1,14 @@
 //! The histories' own reading of a work's records, written from the design tree and not from the walk: the
-//! versions of each block, the meaning of each, what each cell's record knows and why a run would start. The
-//! properties are judged by this reading, so that a fault in the walk's own reading is not repeated in the judging.
-//! It reads only the records and the flow, with its named tests, never what the deciding code works out of them.
+//! versions of each block, the meaning of each, what each cell consumed, what is new to it, what calls it is owed and
+//! why a run would start (design document `data-and-context`). The properties are judged by this reading, so that a
+//! fault in the walk's own reading is not repeated in the judging. It reads only the records and the flow, with its
+//! named tests, never what the deciding code works out of them.
 
 use std::collections::BTreeMap;
 
 use decide::{
-    BlockId, Cell, CellId, Condition, Finished, Flow, Outsider, Records, RunId, Seq, Started, TestKind, TestName,
+    BlockId, CallId, Cause, Cell, CellId, Condition, Finished, Flow, Outsider, Records, RunId, Seq, Started, TestKind,
+    TestName,
 };
 
 /// Who wrote a version of a block.
@@ -36,12 +38,12 @@ impl Version {
     }
 }
 
-/// Why a run of a cell would start, as the entries say: it has no record, or these inputs have another meaning than
-/// the version its record knows (`was`).
+/// Why a run of a cell would start, as the entries say: a block that runs it is new to it, `was` being the version it
+/// consumed; or the results of the calls it is owed are all in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Reason {
-    NoRecord,
     Changed { block: BlockId, was: Option<Seq> },
+    Results { calls: Vec<CallId> },
 }
 
 pub struct Reading<'a> {
@@ -141,13 +143,6 @@ impl<'a> Reading<'a> {
         self.versions.get(block).map_or(&[], Vec::as_slice)
     }
 
-    /// The meaning of the version of the block written at this place; `None` for no version.
-    pub fn meaning(&self, block: &BlockId, version: Option<Seq>) -> Option<Seq> {
-        let at = version?;
-        let v = self.of(block).iter().find(|v| v.at == at);
-        Some(v.unwrap_or_else(|| panic!("{block} has no version at {at:?}")).meaning)
-    }
-
     /// The version of the block that was current just before this place.
     pub fn current_before(&self, block: &BlockId, place: Seq) -> Option<&Version> {
         self.of(block).iter().rev().find(|v| v.at < place)
@@ -158,14 +153,6 @@ impl<'a> Reading<'a> {
         self.of(block).last()
     }
 
-    /// The versions of the block after `after` (all where it is `None`) up to and including `upto` that changed what
-    /// it says.
-    pub fn changes(&self, block: &BlockId, after: Option<Seq>, upto: Seq) -> Vec<&Version> {
-        (self.of(block).iter())
-            .filter(|v| after.is_none_or(|a| v.at > a) && v.at <= upto && v.changed_meaning())
-            .collect()
-    }
-
     /// The cell's record just before this place: its latest run that had finished.
     pub fn record(&self, cell: &CellId, place: Seq) -> Option<RunId> {
         (self.finished.values())
@@ -174,56 +161,129 @@ impl<'a> Reading<'a> {
             .map(|f| f.run)
     }
 
-    /// The version of the block a finished run knows: the one it wrote, if it did, and otherwise the one it started
-    /// from.
-    pub fn known(&self, run: RunId, block: &BlockId) -> Option<Seq> {
-        match self.finished.get(&run) {
-            Some(f) if f.writes.iter().any(|w| &w.block == block) => Some(f.at),
-            _ => self.started[&run].basis.get(block).copied().flatten(),
+    /// The latest version of the block the run was told of: the one it started from, or one put in to it.
+    pub fn told(&self, run: RunId, block: &BlockId) -> Option<Seq> {
+        let began = self.started[&run].basis.get(block).copied().flatten();
+        let put_in = (self.records.put_in.iter())
+            .filter(|p| p.run == run && &p.block == block)
+            .map(|p| p.version);
+        began.into_iter().chain(put_in).max()
+    }
+
+    /// Whether the run finished before this place saying it dealt with the block: its return named it, or, where it did
+    /// not say, the run began from it.
+    pub fn dealt_with(&self, run: RunId, block: &BlockId, place: Seq) -> bool {
+        let Some(f) = self.finished.get(&run).filter(|f| f.at < place) else {
+            return false;
+        };
+        match &f.dealt_with {
+            Some(named) => named.contains(block),
+            None => self.started[&run].basis.contains_key(block),
         }
     }
 
-    /// Why the cell would start a run at this place (the design of data and context): no record, or each input whose
-    /// current meaning differs from the meaning of the version its record knows; empty when it needs no run.
+    /// The version of the block the cell consumed before this place: the latest one a run of it that finished dealing
+    /// with the block was told of. Nothing else consumes: no run that failed, was sent back, stopped or abandoned.
+    pub fn consumed(&self, cell: &CellId, block: &BlockId, place: Seq) -> Option<Seq> {
+        (self.started.values())
+            .filter(|s| &s.cell == cell && self.dealt_with(s.run, block, place))
+            .filter_map(|s| self.told(s.run, block))
+            .max()
+    }
+
+    /// The versions of the block written before this place that are new to the cell: after the one it consumed,
+    /// changing what the block says, and not written by a run of the cell itself.
+    pub fn new_to(&self, cell: &CellId, block: &BlockId, place: Seq) -> Vec<&Version> {
+        let was = self.consumed(cell, block, place);
+        (self.of(block).iter())
+            .filter(|v| v.at < place && Some(v.at) > was && v.changed_meaning())
+            .filter(|v| !matches!(&v.by, Writer::Cell(c, _) if c == cell))
+            .collect()
+    }
+
+    /// What is new to the cell at this place: each block that runs it with a version new to it, in the order the cell
+    /// names them.
     pub fn reasons(&self, cell: &Cell, place: Seq) -> Vec<Reason> {
-        let Some(record) = self.record(&cell.id, place) else {
-            return vec![Reason::NoRecord];
-        };
-        (cell.inputs.iter())
-            .filter_map(|block| {
-                let was = self.known(record, block);
-                let now = self.current_before(block, place).map(|v| v.meaning);
-                (self.meaning(block, was) != now).then(|| Reason::Changed {
-                    block: block.clone(),
-                    was,
-                })
+        (cell.runs_on.iter())
+            .filter(|block| !self.new_to(&cell.id, block, place).is_empty())
+            .map(|block| Reason::Changed {
+                block: block.clone(),
+                was: self.consumed(&cell.id, block, place),
             })
             .collect()
     }
 
-    /// Whether a change of the block from `was` to `now` is a way round for the cell at place `i` of the flow (decision
-    /// every-way-round-has-a-limit): every change of its meaning between the two was written by a cell after it in the
-    /// order. One made by a person, the outside, the cell itself or a cell before it makes it no way round.
-    pub fn behind(&self, flow: &Flow, i: usize, block: &BlockId, was: Option<Seq>, now: Seq) -> bool {
-        let changes = self.changes(block, was, now);
-        !changes.is_empty()
-            && changes.iter().all(|v| match &v.by {
-                Writer::Cell(cell, _) => flow.place(cell).is_some_and(|j| j > i),
+    /// The calls the cell is owed the results of before this place, in the order they were made: each one a run of it
+    /// asked for as its return was taken, after its last round ended and before it finished, that no run of the cell
+    /// that finished since was given.
+    pub fn owed(&self, cell: &CellId, place: Seq) -> Vec<CallId> {
+        let given: Vec<CallId> = (self.finished.values())
+            .filter(|f| f.at < place && &self.started[&f.run].cell == cell)
+            .flat_map(|f| &self.started[&f.run].because)
+            .flat_map(|c| match c {
+                Cause::Results { calls } => calls.clone(),
+                _ => Vec::new(),
+            })
+            .collect();
+        let mut owed: Vec<(Seq, CallId)> = (self.records.called.iter())
+            .filter(|c| c.at < place && !given.contains(&c.call))
+            .filter(|c| {
+                let Some(f) = self.finished.get(&c.run).filter(|f| f.at < place) else {
+                    return false;
+                };
+                let ended = (self.records.returned.iter())
+                    .filter(|e| e.run == c.run)
+                    .map(|e| e.at)
+                    .max();
+                &self.started[&c.run].cell == cell && c.at < f.at && ended.is_none_or(|e| c.at > e)
+            })
+            .map(|c| (c.at, c.call))
+            .collect();
+        owed.sort();
+        owed.into_iter().map(|(_, call)| call).collect()
+    }
+
+    /// Whether the call has its result before this place.
+    pub fn done(&self, call: CallId, place: Seq) -> bool {
+        self.records.done.iter().any(|d| d.call == call && d.at < place)
+    }
+
+    /// Why the cell would be entered at this place: what is new to it, and the results it is owed once all are in.
+    /// While one has no result, only the owner turning to it (a block that interrupts) enters it.
+    pub fn entering(&self, flow: &Flow, cell: &Cell, place: Seq) -> Vec<Reason> {
+        let mut reasons = self.reasons(cell, place);
+        let owed = self.owed(&cell.id, place);
+        if owed.iter().any(|c| !self.done(*c, place)) {
+            reasons.retain(|r| matches!(r, Reason::Changed { block, .. } if flow.interrupts(block)));
+        } else if !owed.is_empty() {
+            reasons.push(Reason::Results { calls: owed });
+        }
+        reasons
+    }
+
+    /// Whether every version of the block new to the cell at place `i` of the flow, before `place`, was written by a
+    /// cell after it in the order (decision every-way-round-has-a-limit). One a person, the outside or a cell before it
+    /// wrote makes it no way round.
+    pub fn behind(&self, flow: &Flow, i: usize, block: &BlockId, place: Seq) -> bool {
+        let cell = &flow.cells()[i].id;
+        let new = self.new_to(cell, block, place);
+        !new.is_empty()
+            && new.iter().all(|v| match &v.by {
+                Writer::Cell(c, _) => flow.place(c).is_some_and(|j| j > i),
                 Writer::Person | Writer::Outside => false,
             })
     }
 
-    /// Whether the run that starts or started at this place for these reasons is a way round: it has reasons, and
-    /// each is a change of meaning that only cells after it made.
+    /// Whether a run that starts at this place for these reasons is a way round: something new runs it, and every new
+    /// version was written by a cell after it.
     pub fn way_round(&self, flow: &Flow, i: usize, reasons: &[Reason], place: Seq) -> bool {
-        !reasons.is_empty()
-            && reasons.iter().all(|r| match r {
-                Reason::NoRecord => false,
-                Reason::Changed { block, was } => {
-                    let now = self.current_before(block, place).map(|v| v.at);
-                    now.is_some_and(|now| self.behind(flow, i, block, *was, now))
-                }
+        let changed: Vec<&BlockId> = (reasons.iter())
+            .filter_map(|r| match r {
+                Reason::Changed { block, .. } => Some(block),
+                Reason::Results { .. } => None,
             })
+            .collect();
+        !changed.is_empty() && changed.iter().all(|b| self.behind(flow, i, b, place))
     }
 
     /// Whether the condition of the cell at place `i` of the flow is met now: with none it always is.

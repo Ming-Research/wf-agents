@@ -1,6 +1,6 @@
 //! Runs whose round failed: to the walk, the run is at rest like any other, its work paused by the engine with the
-//! reason. It goes on once the work is let on, unless what it started from changed meanwhile, and a cancel ends it as it
-//! ends any run.
+//! reason. It goes on once the work is let on, whatever was written meanwhile, which stays new to its cell; a cancel
+//! ends it as it ends any run.
 
 use super::*;
 
@@ -30,21 +30,23 @@ fn once_the_work_is_let_on_the_run_whose_round_failed_goes_on() {
 }
 
 #[test]
-fn a_run_whose_round_failed_is_abandoned_when_the_owner_writes_one_of_its_inputs_and_its_cell_runs_anew() {
-    let (mut w, _, _) = judged();
+fn a_run_whose_round_failed_goes_on_once_let_on_and_what_was_written_meanwhile_stays_new_to_its_cell() {
+    let (mut w, _, code) = judged();
     let review = w.start("review");
     w.fails("review", "the agent could not start");
-    // The owner mends the cause by writing what the review reads.
-    w.person_writes("code");
-    assert_eq!(w.decide(), abandon("review", review, outdated("code")));
-    w.abandon();
-    // Paused, no run starts; let on, the review runs anew.
-    assert_eq!(w.decide(), Decision::Paused);
+    // The owner mends the cause by writing what runs the review.
+    let mended = w.person_writes("code");
+    assert_eq!(w.decide(), go_on("review", review));
     w.resume();
-    let now = w.records.written.last().expect("a write").at;
+    w.go_on("review");
+    w.finish("review", &[]);
     assert_eq!(
         w.decide(),
-        runs("review", vec![NO_RECORD], &[("code", Some(now)), ("opinions", None)])
+        runs(
+            "review",
+            vec![changed("code", Some(code), false)],
+            &[("code", Some(mended)), ("opinions", None)]
+        )
     );
 }
 

@@ -1,11 +1,13 @@
 //! The histories' own reading of a work's records as they were at a place, written from the design tree and
 //! not from the walk: the versions of each block with their meaning, the current value of each, whether a cell's
-//! condition holds, and each cell's record. The properties are judged by this reading, never by what the deciding code
+//! condition holds, each cell's record, and what is new to it. The properties are judged by this reading, never by what the deciding code
 //! works out, so that a fault of the walk's reading is not repeated in the judging.
 
 use std::collections::BTreeMap;
 
-use decide::{BlockId, CellId, Condition, Finished, Flow, Outsider, Records, RunId, Seq, Started, TestKind, TestName};
+use decide::{
+    BlockId, CellId, Condition, Finished, Flow, Outsider, PutIn, Records, RunId, Seq, Started, TestKind, TestName,
+};
 
 /// Who wrote a version of a block.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -41,6 +43,8 @@ pub struct Reading<'a> {
     started: BTreeMap<RunId, &'a Started>,
     /// The runs that finished before the place, in the order they finished.
     finished: Vec<&'a Finished>,
+    /// The versions put in to rounds before the place.
+    put_in: Vec<&'a PutIn>,
 }
 
 impl<'a> Reading<'a> {
@@ -125,6 +129,7 @@ impl<'a> Reading<'a> {
             versions,
             started,
             finished,
+            put_in: records.put_in.iter().filter(|p| counts(p.at)).collect(),
         }
     }
 
@@ -141,17 +146,6 @@ impl<'a> Reading<'a> {
     /// The block's value now, where it has one.
     pub fn value(&self, block: &BlockId) -> Option<&str> {
         self.current(block).and_then(|v| v.value.as_deref())
-    }
-
-    /// The meaning of the version of the block written at this place.
-    pub fn meaning_of(&self, block: &BlockId, version: Option<Seq>) -> Option<Seq> {
-        let at = version?;
-        self.of(block).iter().find(|v| v.at == at).map(|v| v.meaning)
-    }
-
-    /// The meaning the block has now.
-    pub fn meaning_now(&self, block: &BlockId) -> Option<Seq> {
-        self.current(block).map(|v| v.meaning)
     }
 
     /// The run's start.
@@ -172,6 +166,29 @@ impl<'a> Reading<'a> {
         (self.finished.iter().rev())
             .find(|f| &self.started[&f.run].cell == cell)
             .copied()
+    }
+
+    /// The versions of the block new to the cell (design document `data-and-context`, 6, 9, 10): after the latest
+    /// version a run of the cell was told of and dealt with, changing what the block says, and not written by the
+    /// cell itself.
+    pub fn new_to(&self, cell: &CellId, block: &BlockId) -> Vec<&Version> {
+        let consumed = (self.finished.iter())
+            .filter(|f| &self.started[&f.run].cell == cell)
+            .filter(|f| match &f.dealt_with {
+                Some(named) => named.contains(block),
+                None => self.started[&f.run].basis.contains_key(block),
+            })
+            .filter_map(|f| {
+                let began = self.started[&f.run].basis.get(block).copied().flatten();
+                let put_in = (self.put_in.iter())
+                    .filter(|p| p.run == f.run && &p.block == block)
+                    .map(|p| p.version);
+                began.into_iter().chain(put_in).max()
+            })
+            .max();
+        (self.of(block).iter())
+            .filter(|v| Some(v.at) > consumed && v.changed_meaning() && self.cell_of(v) != Some(cell))
+            .collect()
     }
 
     /// The runs that finished, in the order they finished.

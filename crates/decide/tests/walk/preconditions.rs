@@ -5,8 +5,12 @@ use decide::{Test, TestKind, TestName};
 use super::*;
 
 #[test]
-fn a_precondition_holds_the_work_before_its_cell_even_when_the_cell_needs_nothing() {
-    let mut w = World::with_gate(vec![requiring("a may go", cell("a", &[], &[])), cell("b", &["y"], &[])]);
+fn a_precondition_holds_the_work_before_its_cell_even_when_nothing_is_new_to_the_cell() {
+    let mut w = World::with_gate(vec![
+        requiring("a may go", cell("a", &["x"], &[])),
+        cell("b", &["y"], &[]),
+    ]);
+    w.person_writes("x");
     w.person_writes("y");
     w.run("a", &[]);
     w.run("b", &[]);
@@ -20,8 +24,9 @@ fn a_precondition_holds_the_work_before_its_cell_even_when_the_cell_needs_nothin
 
 #[test]
 fn a_precondition_of_a_skipped_cell_holds_nothing() {
-    let extra = requiring("extra may go", when("more", "yes", cell("extra", &[], &[])));
-    let mut w = World::with_gate(vec![cell("ask", &[], &["more"]), extra]);
+    let extra = requiring("extra may go", when("more", "yes", cell("extra", &["brief"], &[])));
+    let mut w = World::with_gate(vec![cell("ask", &["brief"], &["more"]), extra]);
+    w.person_writes("brief");
     w.says("extra may go", false);
     w.run("ask", &[("more", Value("no"))]);
     assert_eq!(w.decide(), resting());
@@ -29,7 +34,8 @@ fn a_precondition_of_a_skipped_cell_holds_nothing() {
 
 #[test]
 fn a_call_and_an_unmet_precondition_at_one_cell_are_waited_for_at_once() {
-    let mut w = World::with_gate(vec![requiring("a may go", cell("a", &[], &[]))]);
+    let mut w = World::with_gate(vec![requiring("a may go", cell("a", &["brief"], &[]))]);
+    w.person_writes("brief");
     w.start("a");
     let call = w.calls("a", Some(Who::Owner));
     w.says("a may go", false);
@@ -87,7 +93,7 @@ fn dependencies() -> Maker {
 
 #[test]
 fn a_precondition_on_what_a_source_outside_the_work_writes_waits_for_that_source_and_not_the_owner() {
-    let (start, named) = waiting_for_all("may start", &["dependencies"], cell("start", &[], &[]));
+    let (start, named) = waiting_for_all("may start", &["dependencies"], cell("start", &["dependencies"], &[]));
     let mut w = World::with_tests(vec![start, gate()], BTreeMap::from([named]));
     w.written_outside("dependencies", "dependencies");
     assert_eq!(

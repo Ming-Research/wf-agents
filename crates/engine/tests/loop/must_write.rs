@@ -98,7 +98,7 @@ fn hand_ins_sent_back_for_what_they_lack_reach_the_limit_of_returns_and_the_run_
 #[test]
 fn a_return_that_asks_for_calls_is_no_hand_in_and_its_calls_are_made() {
     let (mut w, judge) = judging();
-    let made = calls_of(&w.returns(judge, Came::Asks(vec![tool("lint")])));
+    let made = calls_of(&w.returns(judge, Came::asks(vec![tool("lint")])));
     assert_eq!(
         made.into_iter().map(|(_, run, what)| (run, what)).collect::<Vec<_>>(),
         vec![(judge, Call::Asked(tool("lint")))]

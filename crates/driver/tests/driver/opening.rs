@@ -116,7 +116,7 @@ fn a_store_holding_works_gives_exactly_what_was_to_be_done_and_is_not_known_as_d
     // A work resting at a call.
     let (_, b) = h.add(new_item("b", &[], "judged"));
     h.let_on(b);
-    let todos = h.returns(b, Came::Asks(vec![tool("search")]));
+    let todos = h.returns(b, Came::asks(vec![tool("search")]));
     assert_eq!(todos.len(), 1);
     // A cancelled work whose round is still to be stopped.
     let (_, c) = h.add(new_item("c", &[], "short"));
@@ -126,7 +126,7 @@ fn a_store_holding_works_gives_exactly_what_was_to_be_done_and_is_not_known_as_d
     // runs again.
     let (_, d) = h.add(new_item("d", &[], "plain"));
     h.let_on(d);
-    h.returns(d, Came::Asks(vec![question(Who::Owner)]));
+    h.returns(d, Came::asks(vec![question(Who::Owner)]));
     h.on(d, wrote("request", Outsider::Person, None));
     // A paused work, and a merged one.
     let (_, e) = h.add(new_item("e", &[], "short"));

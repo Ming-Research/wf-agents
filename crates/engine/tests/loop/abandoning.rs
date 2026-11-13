@@ -11,7 +11,7 @@ fn a_run_at_rest_whose_start_changed_is_abandoned_its_calls_withdrawn_and_its_ce
     assert_eq!(effects, vec![]);
     let judge = w.work.records.started[1].run;
     let (rerun, ..) = round(&w.returns(judge, hands_in(&[])));
-    let calls: Vec<CallId> = calls_of(&w.returns(rerun, Came::Asks(vec![tool("a"), question(Who::Owner)])))
+    let calls: Vec<CallId> = calls_of(&w.returns(rerun, Came::asks(vec![tool("a"), question(Who::Owner)])))
         .iter()
         .map(|(c, ..)| *c)
         .collect();

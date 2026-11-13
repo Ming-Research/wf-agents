@@ -23,7 +23,9 @@ mod preconditions;
 mod room;
 mod rounds;
 mod skipping;
-mod stale;
+mod stopping;
+mod waiting;
+mod written_over;
 
 use std::collections::BTreeMap;
 
@@ -49,8 +51,8 @@ fn runs(cell: &str, because: Vec<Cause>, basis: Versions<'_>) -> Decision {
     }
 }
 
-/// A block the cell reads has another meaning than the version its record knows; `behind` where a cell after it
-/// wrote the current version.
+/// A block that runs the cell is new to it, which consumed the version `was`; `behind` where cells after it wrote every
+/// new version.
 fn changed(block: &str, was: Option<Seq>, behind: bool) -> Cause {
     Cause::Changed {
         block: block.into(),
@@ -79,8 +81,14 @@ fn wait(at: &str, on: Vec<Waited>) -> Decision {
     Decision::Wait { at: at.into(), on }
 }
 
-fn outdated(block: &str) -> Abandoning {
-    Abandoning::Outdated { block: block.into() }
+/// The first run of a cell, for each of these blocks that has a version, none consumed.
+fn first(blocks: &[&str]) -> Vec<Cause> {
+    blocks.iter().map(|b| changed(b, None, false)).collect()
+}
+
+/// The results of these calls, which the cell's earlier runs asked for, are all in.
+fn results(calls: &[CallId]) -> Cause {
+    Cause::Results { calls: calls.to_vec() }
 }
 
 /// The wait on the precondition, which these can make hold.
@@ -127,12 +135,11 @@ fn reasons(decision: &Decision) -> (String, Vec<(String, bool)>) {
         .map(|c| match c {
             Cause::Changed { block, behind, .. } => (block.0.clone(), *behind),
             Cause::NoRecord => ("no record".to_string(), false),
+            Cause::Results { .. } => ("results".to_string(), false),
         })
         .collect();
     (cell.0.clone(), because)
 }
-
-const NO_RECORD: Cause = Cause::NoRecord;
 
 /// The implementation and its review, which writes its opinions for the implementation; both ran once, the review
 /// with nothing to say.

@@ -141,7 +141,7 @@ fn kept_before() -> Work {
     d.wrote("request", Outsider::Person, None);
     d.on(Event::Resumed);
     d.end(hands_in(&[("text", None)]));
-    d.end(Came::Asks(vec![question(Who::Owner)]));
+    d.end(Came::asks(vec![question(Who::Owner)]));
     // Its rounds were kept before a round said the context it ended with and how often it was compacted.
     for spent in d.work.spent.values_mut() {
         spent.context_tokens = None;

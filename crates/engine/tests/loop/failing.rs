@@ -51,7 +51,7 @@ fn once_let_on_the_run_whose_round_failed_has_its_next_round_given_what_the_fail
     w.on(failed(write));
     assert_eq!(w.on(Event::Resumed), vec![round_effect(write, "write", 2, Given::Task)]);
     // A round given the results of calls fails, and the round after it is given the same results.
-    let call = calls_of(&w.returns(write, Came::Asks(vec![tool("a")])))[0].0;
+    let call = calls_of(&w.returns(write, Came::asks(vec![tool("a")])))[0].0;
     let results = Given::Results(vec![call]);
     assert_eq!(w.done(call), vec![round_effect(write, "write", 3, results.clone())]);
     w.on(failed(write));

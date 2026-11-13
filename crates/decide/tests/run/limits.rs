@@ -13,28 +13,24 @@ fn a_return_is_sent_back_as_often_as_the_limit_allows_and_the_next_unmet_one_rea
 #[test]
 fn a_return_that_meets_everything_finishes_the_run_though_the_limit_of_returns_is_reached() {
     let rounds = vec![wanting(), wanting(), handed_in(vec![prose("plan")])];
-    assert_eq!(
-        step(rounds, &spec()),
-        Step::Finish {
-            writes: vec![prose("plan")]
-        }
-    );
+    assert_eq!(step(rounds, &spec()), finish(vec![prose("plan")]));
 }
 
 #[test]
-fn rounds_that_asked_for_calls_between_two_returns_are_not_counted_as_sent_back() {
-    let rounds = vec![wanting(), asked_done(1, 1), asked_done(2, 1), wanting()];
+fn rounds_that_failed_between_two_returns_are_not_counted_as_sent_back() {
+    let failed = || failed_as(Failure::Flagged);
+    let rounds = vec![wanting(), failed(), failed(), wanting()];
     assert_eq!(step(rounds, &spec()), send_back(wanting_unmet()));
-    let rounds = vec![wanting(), asked_done(1, 1), wanting(), asked_done(2, 1), wanting()];
+    let rounds = vec![wanting(), failed(), wanting(), failed(), wanting()];
     assert_eq!(step(rounds, &spec()), returns_limit(2));
 }
 
 #[test]
-fn rounds_that_ask_for_nothing_are_sent_back_and_reach_the_limit_of_returns() {
+fn returns_that_deal_with_nothing_are_sent_back_and_reach_the_limit_of_returns() {
     let s = spec();
     assert_eq!(
         step(vec![asks_nothing(), asks_nothing()], &s),
-        send_back(vec![Unmet::AsksNothing])
+        send_back(vec![Unmet::DealtWithNothing])
     );
     assert_eq!(
         step(vec![asks_nothing(), asks_nothing(), asks_nothing()], &s),
@@ -43,11 +39,11 @@ fn rounds_that_ask_for_nothing_are_sent_back_and_reach_the_limit_of_returns() {
 }
 
 #[test]
-fn a_return_handed_in_unmet_and_a_round_asking_nothing_are_counted_together_as_sent_back() {
+fn a_return_handed_in_unmet_and_one_dealing_with_nothing_are_counted_together_as_sent_back() {
     let s = spec();
     assert_eq!(
         step(vec![wanting(), asks_nothing()], &s),
-        send_back(vec![Unmet::AsksNothing])
+        send_back(vec![Unmet::DealtWithNothing])
     );
     assert_eq!(step(vec![wanting(), asks_nothing(), wanting()], &s), returns_limit(2));
     assert_eq!(
@@ -58,7 +54,7 @@ fn a_return_handed_in_unmet_and_a_round_asking_nothing_are_counted_together_as_s
 
 #[test]
 fn a_limit_of_no_returns_sends_none_back() {
-    let s = limited(0, 3);
+    let s = limited(0);
     assert_eq!(step(vec![wanting()], &s), returns_limit(0));
     assert_eq!(step(vec![asks_nothing()], &s), returns_limit(0));
 }
@@ -82,7 +78,10 @@ fn letting_the_run_go_on_at_its_limit_of_returns_sends_the_return_back_and_start
 }
 
 #[test]
-fn letting_the_run_go_on_at_a_round_asking_nothing_that_reached_the_limit_sends_it_back() {
+fn letting_the_run_go_on_at_a_return_dealing_with_nothing_that_reached_the_limit_sends_it_back() {
     let rounds = vec![asks_nothing(), asks_nothing(), asks_nothing()];
-    assert_eq!(step_let_go(rounds, 3, &spec()), send_back(vec![Unmet::AsksNothing]));
+    assert_eq!(
+        step_let_go(rounds, 3, &spec()),
+        send_back(vec![Unmet::DealtWithNothing])
+    );
 }

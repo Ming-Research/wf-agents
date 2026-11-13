@@ -47,7 +47,7 @@ fn what_happened_to_a_work_gives_what_is_to_be_done_for_it_next() {
     let (write, ..) = h.round(w);
     assert_eq!(todos, vec![round_todo(w, write, "write", 1, Given::Task)]);
     // The writer asks for a tool: the call is made, and the work waits for the engine.
-    let todos = h.returns(w, Came::Asks(vec![tool("search")]));
+    let todos = h.returns(w, Came::asks(vec![tool("search")]));
     let (call, run) = one_call(&todos);
     assert_eq!(run, write);
     assert_eq!(
@@ -86,7 +86,7 @@ fn what_happened_to_a_work_gives_what_is_to_be_done_for_it_next() {
     assert_ne!(judge, write);
     assert_eq!(todos, vec![round_todo(w, judge, "judge", 1, Given::Task)]);
     // The judge asks the owner: the work waits for the owner.
-    let todos = h.returns(w, Came::Asks(vec![question(Who::Owner)]));
+    let todos = h.returns(w, Came::asks(vec![question(Who::Owner)]));
     let (call, _) = one_call(&todos);
     assert_eq!(
         h.decision(w),
@@ -159,7 +159,7 @@ fn what_cannot_have_happened_to_a_work_is_refused_and_leaves_the_driver_and_the_
         (
             Event::Returned {
                 run: RunId(99),
-                came: Came::Asks(vec![]),
+                came: Came::asks(vec![]),
                 spent: Spent::default(),
             },
             engine::Refused::NoRoundUnderWay(RunId(99)),
@@ -170,7 +170,7 @@ fn what_cannot_have_happened_to_a_work_is_refused_and_leaves_the_driver_and_the_
         assert_eq!(got, Failed::Refused(why));
     }
     // A call that has its result already.
-    let todos = h.returns(w, Came::Asks(vec![tool("search")]));
+    let todos = h.returns(w, Came::asks(vec![tool("search")]));
     let (call, _) = one_call(&todos);
     h.answer(w, call);
     let got = h.refused(|d, now| {
@@ -237,7 +237,7 @@ fn a_pause_holds_back_only_what_would_begin_a_round() {
         vec![]
     );
     // What the round asks for while the work is paused is still taken, and the call is made.
-    let todos = h.returns(w, Came::Asks(vec![tool("search")]));
+    let todos = h.returns(w, Came::asks(vec![tool("search")]));
     let (call, run) = one_call(&todos);
     assert_eq!(run, write);
     // Its result is taken; the next round waits for the work to be let on.
@@ -284,7 +284,7 @@ fn a_cancel_stops_the_round_under_way_and_nothing_of_the_work_goes_on() {
     assert_eq!(h.decision(w), Decision::Ended(End::Cancelled));
     // The end of the stopped round gives nothing more, and nor does a person's write.
     let spent = h.spent();
-    let came = Came::Asks(vec![]);
+    let came = Came::asks(vec![]);
     // Nothing of it is under way then: what it held is let go.
     let release = vec![Todo {
         work: w,

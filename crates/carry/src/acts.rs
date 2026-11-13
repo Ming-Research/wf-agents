@@ -162,18 +162,18 @@ impl<H: Host> Rounds for Acts<H> {
             match done {
                 Ok(Done::HandsIn(handed)) => {
                     if let Some(reply) = inner.held.take(key) {
-                        reply.ended(Came::HandsIn(handed), Spent::default());
+                        reply.ended(Came::hands_in(handed), Spent::default());
                     }
                 }
                 Ok(Done::Stopped) => {
                     if let Some(reply) = inner.held.take(key) {
-                        reply.ended(Came::HandsIn(Vec::new()), Spent::default());
+                        reply.ended(Came::hands_in(Vec::new()), Spent::default());
                     }
                 }
                 Err(why) => match inner.held.fail(key) {
                     // An act of the engine's takes no cost and no tokens, failed or not.
                     Some(Failing::Fail(reply)) => reply.failed(why, Spent::default()),
-                    Some(Failing::End(reply)) => reply.ended(Came::HandsIn(Vec::new()), Spent::default()),
+                    Some(Failing::End(reply)) => reply.ended(Came::hands_in(Vec::new()), Spent::default()),
                     None => {}
                 },
             }
@@ -184,7 +184,7 @@ impl<H: Host> Rounds for Acts<H> {
         prune(&self.inner.held, &round);
         let key = (round.work, round.run, round.number);
         if let Some(reply) = self.inner.held.stop(key, reply) {
-            reply.ended(Came::HandsIn(Vec::new()), Spent::default());
+            reply.ended(Came::hands_in(Vec::new()), Spent::default());
         }
     }
 

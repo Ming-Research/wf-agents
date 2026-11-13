@@ -55,7 +55,7 @@ fn act(h: &H, s: usize) -> Option<Act> {
         11 => Act::On(w(6), Event::Resumed),
         12 => {
             let (run, ..) = h.round(w(6));
-            let came = Came::Asks(vec![question(Who::Owner)]);
+            let came = Came::asks(vec![question(Who::Owner)]);
             Act::On(
                 w(6),
                 Event::Returned {
@@ -104,7 +104,7 @@ fn answer(h: &H, s: usize) -> Option<Act> {
             let came = if engine_cell(kept.flow, cell.as_str()) || matches!(given, Given::SentBack(_)) {
                 proper(kept.flow, cell.as_str())
             } else if number == 1 && s % 5 == 1 {
-                Came::Asks(vec![tool("search")])
+                Came::asks(vec![tool("search")])
             } else if number == 1 && s % 7 == 3 {
                 hands_in(&[("request", None)])
             } else {
@@ -126,7 +126,7 @@ fn answer(h: &H, s: usize) -> Option<Act> {
         },
         Effect::Stop { run } => Event::Returned {
             run,
-            came: Came::Asks(vec![]),
+            came: Came::asks(vec![]),
             spent: spent(s as u64),
         },
         Effect::Release { .. } => Event::Released,

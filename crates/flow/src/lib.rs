@@ -19,6 +19,8 @@ pub mod compile;
 pub mod source;
 
 pub use compare::{BlockChange, CellChange, Change, Limit, compare};
-pub use compile::{Block, CellSpec, Compiled, Fault, FaultKind, Given, Has, Limits, Readers, RunsOn, Writers, compile};
+pub use compile::{
+    Block, CellSpec, Compiled, Fault, FaultKind, Given, Has, Limits, Readers, RunsOn, TURNING, Writers, compile,
+};
 pub use decide::{Test, TestKind};
 pub use source::{Effort, FLOW_FILE, GiveFile, InputKind, Kind, RULES_DIR, RunFile, Source, read};

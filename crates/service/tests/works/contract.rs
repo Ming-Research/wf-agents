@@ -24,9 +24,9 @@ impl Rounds for Twice {
 
     fn stop(&self, _: Round, reply: RoundReply) {
         for given in self.given.lock().unwrap().drain(..) {
-            given.ended(Came::HandsIn(Vec::new()), Spent::default());
+            given.ended(Came::hands_in(Vec::new()), Spent::default());
         }
-        reply.ended(Came::HandsIn(Vec::new()), Spent::default());
+        reply.ended(Came::hands_in(Vec::new()), Spent::default());
     }
 }
 

@@ -4,9 +4,9 @@
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoned, Abandoning, BlockId, CallId, Called, Cell, CellId, Condition, Decision, Done, Finished, Flow, LetGo,
-    Maker, Outsider, Outsiders, Pause, Pauser, Records, Returned, Round, RunId, Seq, Started, Test, TestKind, TestName,
-    Waited, Who, Write, Written, decide,
+    Abandoned, Abandoning, BlockId, CallId, Called, Cause, Cell, CellId, Condition, Decision, Done, Finished, Flow,
+    LetGo, Maker, Outsider, Outsiders, Pause, Pauser, Records, Returned, Round, RunId, Seq, Started, Test, TestKind,
+    TestName, Waited, Who, Write, Written, decide,
 };
 
 /// The owner's word of this name: a named test of the choice of the same name, which people write, that holds unless
@@ -94,9 +94,11 @@ pub struct World {
     ids: u64,
 }
 
-/// The merge a work rests at when nothing else is to be done: it waits for the owner's word, [`gate_word`].
+/// The merge a work rests at when nothing else is to be done: it waits for the owner's word, [`gate_word`], which is
+/// also what runs it.
 pub fn gate() -> Cell {
     let mut merge = Cell::new("merge");
+    merge.runs_on = vec![GATE.into()];
     merge.requires = vec![GATE.into()];
     merge
 }
@@ -117,10 +119,10 @@ pub fn resting() -> Decision {
     }
 }
 
-/// A cell that reads these blocks and may write those.
-pub fn cell(id: &str, inputs: &[&str], outputs: &[&str]) -> Cell {
+/// A cell that these blocks run and that may write those.
+pub fn cell(id: &str, runs_on: &[&str], outputs: &[&str]) -> Cell {
     let mut c = Cell::new(id);
-    c.inputs = inputs.iter().map(|b| (*b).into()).collect();
+    c.runs_on = runs_on.iter().map(|b| (*b).into()).collect();
     c.outputs = outputs.iter().map(|b| (*b).into()).collect();
     c
 }
@@ -172,6 +174,18 @@ impl World {
     pub fn written_outside(&mut self, block: &str, source: &str) {
         let outsiders = Outsiders {
             outside: Some(source.to_string()),
+            ..Outsiders::default()
+        };
+        self.outsiders.insert(block.into(), outsiders);
+        self.install(self.flow.cells().to_vec());
+    }
+
+    /// Makes the block the owner turning to the cells it runs: written from outside by the source of the owner's
+    /// words, each new version stops a round under way of a later cell.
+    pub fn turning(&mut self, block: &str) {
+        let outsiders = Outsiders {
+            outside: Some("words".to_string()),
+            interrupts: true,
             ..Outsiders::default()
         };
         self.outsiders.insert(block.into(), outsiders);
@@ -259,7 +273,9 @@ impl World {
         self.records.returned.push(Returned { run, at });
     }
 
-    /// The round under way of the cell's run ends at a call: for this person, or one the engine makes (`None`).
+    /// The round under way of the cell's run ends, and its run rests at a call: one the engine makes (`None`), as a
+    /// wait before a round that failed in passing is tried again, or one for this person, as the owner's word at a
+    /// limit.
     pub fn calls(&mut self, cell: &str, on: Option<Who>) -> CallId {
         self.returns(cell);
         let run = self.open(cell);
@@ -285,9 +301,38 @@ impl World {
         self.records.rounds.push(Round { run, at });
     }
 
-    /// The cell's run, whose round under way ends here, finishes with these writes; the place of the entry names the
-    /// versions it wrote.
+    /// What ran the round of the cell's open run, which its return may name as dealt with: each block new to the cell
+    /// as the run started, then each put in to it since.
+    pub fn ran_by(&self, cell: &str) -> Vec<String> {
+        let run = self.open(cell);
+        let started = (self.records.started.iter())
+            .find(|s| s.run == run)
+            .expect("the run started");
+        let mut ran: Vec<String> = (started.because.iter())
+            .filter_map(|c| match c {
+                Cause::Changed { block, .. } => Some(block.0.clone()),
+                _ => None,
+            })
+            .collect();
+        for p in self.records.put_in.iter().filter(|p| p.run == run) {
+            if !ran.contains(&p.block.0) {
+                ran.push(p.block.0.clone());
+            }
+        }
+        ran
+    }
+
+    /// The cell's run, whose round under way ends here, finishes with these writes, its return having dealt with
+    /// everything that ran its round; the place of the entry names the versions it wrote.
     pub fn finish(&mut self, cell: &str, writes: &[(&str, Says)]) -> Seq {
+        let ran = self.ran_by(cell);
+        let ran: Vec<&str> = ran.iter().map(String::as_str).collect();
+        self.finish_dealing(cell, &ran, writes)
+    }
+
+    /// The cell's run, whose round under way ends here, finishes with these writes, its return having dealt with
+    /// these; the place of the entry names the versions it wrote.
+    pub fn finish_dealing(&mut self, cell: &str, dealt_with: &[&str], writes: &[(&str, Says)]) -> Seq {
         let run = self.open(cell);
         if self.under_way(run) {
             let at = self.tick();
@@ -308,9 +353,22 @@ impl World {
             run,
             at,
             writes,
-            dealt_with: None,
+            dealt_with: Some(dealt_with.iter().map(|b| (*b).into()).collect()),
         });
         at
+    }
+
+    /// The round under way of the cell's run ends with a return that asks for a call, for this person or one the
+    /// engine makes (`None`): the call is made as the return is taken, and the run finishes, having dealt with
+    /// nothing. The cell is entered again once the call has its result.
+    pub fn asks(&mut self, cell: &str, on: Option<Who>) -> CallId {
+        let run = self.open(cell);
+        self.returns(cell);
+        let call = CallId(self.id());
+        let at = self.tick();
+        self.records.called.push(Called { call, run, on, at });
+        self.finish_dealing(cell, &[], &[]);
+        call
     }
 
     /// Starts and finishes the cell; the place of its finish names the versions it wrote.

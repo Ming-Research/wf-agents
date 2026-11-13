@@ -127,7 +127,8 @@ pub enum Given {
     /// The first round: the cell's task. Why the cell runs and the version of each block it starts from are the
     /// run's `Started` entry of the records, read there by whoever needs them.
     Task,
-    /// The results of the calls the round before asked for.
+    /// The results of calls: of those the earlier runs of the cell asked for, given to the first round of the run
+    /// entered for them; or, in works kept before a return that asks ended its run, of those the round before asked for.
     Results(Vec<CallId>),
     /// Why what the round before handed in was sent back.
     SentBack(Vec<Unmet>),
@@ -136,11 +137,20 @@ pub enum Given {
 /// What came back at the end of a round.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Back {
-    /// Calls were asked for. The calls made for them are in the records: those of the run made after this round
-    /// ended and before its next began.
+    /// Calls were asked for, by a return of the form before a return said what it dealt with. The calls made for them
+    /// are in the records: those of the run made after this round ended and before its next began.
     Asked(Vec<Ask>),
-    /// These blocks were handed in.
+    /// These blocks were handed in, by a return of the form before a return said what it dealt with: it dealt with
+    /// everything that ran its round.
     HandedIn(Vec<Handed>),
+    /// A return: which of what ran the round it dealt with, in the order it named them, the blocks it writes, and the
+    /// calls it asks for (design document `data-and-context`, 9, 27, 30). Taken, the calls are made as its run
+    /// finishes, before the finish.
+    Returned {
+        dealt_with: Vec<BlockId>,
+        handed: Vec<Handed>,
+        asks: Vec<Ask>,
+    },
     /// Nothing came back: the round failed, for this reason, as whatever carried it out says, with the kind of cause
     /// it told apart. The run's next round is given what this one was given, as the kind's handling lets it (crate
     /// `decide`, module `run`). Records kept before kinds were told apart hold none, and read as a failure that
@@ -161,7 +171,8 @@ pub enum Back {
 pub struct Handed {
     pub block: BlockId,
     pub content: String,
-    /// Whether the change matters to the cells that read the block.
+    /// Whether the change matters to the cells the block runs: one that does not is handed in as changing nothing in
+    /// meaning, and runs no cell.
     pub matters: bool,
     /// The block's value, where it is a choice.
     pub value: Option<String>,

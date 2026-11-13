@@ -18,6 +18,9 @@
 //! run, what it depends on ([`Driver::change`], module [`changes`]). Each change is kept as a record of the item's own;
 //! a change of what it depends on writes the work's block of [`DEPENDENCIES`] anew, as an add does.
 //!
+//! The driver writes the block of a flow whose source is [`START`] as the owner starts the work: as the work, added
+//! paused, is first let on with nothing of it started, so that the cell it runs, the work's start, is entered.
+//!
 //! The driver writes one more block of a work: the block of a flow whose source is [`SESSION`], which a cell reads that
 //! loads into a line's session what the line's other cells work from. As a line of a work begins a new session, the
 //! driver records it and writes the block, so that the cell runs again before the line goes on; when a line begins one
@@ -84,6 +87,10 @@ pub const DEPENDENCIES: &str = "dependencies";
 pub const WAITING: &str = "waiting";
 /// The value of a [`DEPENDENCIES`] block once every item the work's item depends on has merged, or it depends on none.
 pub const MERGED: &str = "merged";
+
+/// The source of the block the driver writes as the owner starts a work: the work, added paused, is let on with nothing
+/// of it started. The block has no content to speak of; its version is what runs the cell that starts the work.
+pub const START: &str = "start";
 
 /// Drives the engine for every work the store holds.
 pub struct Driver {
@@ -720,13 +727,13 @@ impl Driver {
     /// Takes what a source outside the works says now, at the time the caller's clock gives: it is written into the
     /// block of that source of each work that has not ended, where the block does not say it already, as a change of
     /// its meaning; and gives what is to be done. A work whose flow has no block of the source is written nothing, and
-    /// [`DEPENDENCIES`], the driver's own source, is written by the driver alone. Fails only where the driver is
-    /// stopped, or stops on it.
+    /// [`DEPENDENCIES`] and [`START`], the driver's own sources, are written by the driver alone. Fails only where the
+    /// driver is stopped, or stops on it.
     pub fn outside(&mut self, now: Time, source: &str, content: &str) -> Result<Vec<Todo>, Fault> {
         if let Some(fault) = &self.fault {
             return Err(fault.clone());
         }
-        if source == DEPENDENCIES {
+        if source == DEPENDENCIES || source == START {
             return Ok(Vec::new());
         }
         let mut todos = Vec::new();
@@ -1016,13 +1023,33 @@ fn step(
 ) -> Result<Vec<Effect>, Halt> {
     let before = held.work.tick();
     let item = &held.item;
-    let then = |flow: &Compiled, work: &Work| sessions::follow(flow, work, item, policy);
+    let then = |flow: &Compiled, work: &Work| {
+        let mut events = sessions::follow(flow, work, item, policy);
+        events.extend(start(flow, work));
+        events
+    };
     let effects = handle_then(&held.flow, &mut held.work, now, event, room, gate, &then).map_err(Halt::Refused)?;
     if held.work.tick() != before {
         store.save(held.head.number, &held.work).map_err(Halt::Store)?;
         held.standing = standing_of(&held.flow, &held.work);
     }
     Ok(effects)
+}
+
+/// The write of the work's block of [`START`], where its flow has one and the owner has just started the work: the work
+/// is not paused, was let on since it was added paused, has started no run and has no version of the block.
+fn start(flow: &Compiled, work: &Work) -> Option<Event> {
+    let (block, _) = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(START))?;
+    let r = &work.records;
+    let started = !decide::paused(r) && r.pauses.iter().any(|p| !p.paused);
+    let fresh = r.started.is_empty() && !r.written.iter().any(|w| w.block == *block);
+    (started && fresh).then(|| Event::Wrote {
+        block: block.clone(),
+        by: Outsider::Outside,
+        content: "The owner started the work.".to_string(),
+        matters: true,
+        value: None,
+    })
 }
 
 /// The rounds a wait for a cause of this kind holds: without the network every round, the engine's own acts' too, which

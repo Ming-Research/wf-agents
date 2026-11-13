@@ -56,6 +56,8 @@ outside = "tree"
 outside = "session"
 [blocks.main]
 outside = "main"
+[blocks.start]
+outside = "start"
 
 # What the first cells make of the item.
 [blocks.place]

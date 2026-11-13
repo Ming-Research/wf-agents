@@ -70,7 +70,7 @@ export function standingOf(i: Item | undefined): ItemStanding {
 /// Who gives what a work waits for: the person a call names, the owner for a run let on at its limit or a precondition
 /// the engine says the owner can make hold, none where the engine, a source outside the work or a cell gives it.
 export function whoGives(w: Waited): 'owner' | 'architect' | null {
-  if (w.kind === 'limit') return 'owner';
+  if (w.kind === 'limit' || w.kind === 'calls') return 'owner';
   if (w.kind === 'precondition') return w.by.some((m) => m.kind === 'owner') ? 'owner' : null;
   if (w.kind === 'slot') return null;
   // A wait every work shares is the owner's to end only where the command line cannot run.

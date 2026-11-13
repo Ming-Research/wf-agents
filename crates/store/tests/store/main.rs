@@ -304,7 +304,7 @@ impl Driver {
         for e in pending(&self.flow, &self.work) {
             if let Effect::Stop { run } = e {
                 let spent = self.spent();
-                let came = Came::Asks(vec![]);
+                let came = Came::asks(vec![]);
                 self.on(Event::Returned { run, came, spent });
             }
         }
@@ -334,7 +334,7 @@ fn handed(block: &str, value: Option<&str>) -> Handed {
 
 /// What came back: these blocks handed in.
 fn hands_in(blocks: &[(&str, Option<&str>)]) -> Came {
-    Came::HandsIn(blocks.iter().map(|(b, v)| handed(b, *v)).collect())
+    Came::hands_in(blocks.iter().map(|(b, v)| handed(b, *v)).collect())
 }
 
 /// What the writer hands in that does not meet what the flow requires: the judge's verdict.
@@ -370,7 +370,7 @@ fn history(d: &mut Driver) {
         d.end(wanting());
     }
     d.answer();
-    d.end(Came::Asks(vec![tool("a"), question(Who::Owner)]));
+    d.end(Came::asks(vec![tool("a"), question(Who::Owner)]));
     // Two lines begin a new session.
     d.on(Event::Anew {
         line: "main".to_string(),
@@ -393,7 +393,7 @@ fn history(d: &mut Driver) {
         d.on(Event::Ran { run, attempt: 1, on });
     }
     // Two more calls would pass the limit of calls: the owner is called, lets the run go on, and they are made.
-    d.end(Came::Asks(vec![tool("b"), tool("c")]));
+    d.end(Came::asks(vec![tool("b"), tool("c")]));
     d.answer();
     d.end(hands_in(&[("text", None)]));
     // The judge asks the architect during a pause: the call is made, and its next round waits for the resume.
@@ -401,7 +401,7 @@ fn history(d: &mut Driver) {
         by: Pauser::Owner,
         why: None,
     });
-    d.end(Came::Asks(vec![question(Who::Architect)]));
+    d.end(Came::asks(vec![question(Who::Architect)]));
     d.answer();
     d.on(Event::Resumed);
     // The judge's round given the architect's answer fails, and the engine pauses the work; let on, the round is given
@@ -410,7 +410,7 @@ fn history(d: &mut Driver) {
     d.on(Event::Resumed);
     // The judge rests at a question while the writer runs again for a new request: what the writer writes then
     // abandons the judge's run, and its call is withdrawn.
-    d.end(Came::Asks(vec![question(Who::Owner)]));
+    d.end(Came::asks(vec![question(Who::Owner)]));
     d.wrote("request", Outsider::Person, None);
     d.end(hands_in(&[("text", None)]));
     d.withdraw();

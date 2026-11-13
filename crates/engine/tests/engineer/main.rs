@@ -8,9 +8,9 @@
 //!    refusal, with no person's write of the verdict since; nor while a person's write of a verdict is its latest and
 //!    is the refusal (property no-merge-on-what-is-not-settled).
 //! 2. No round of the merge begins unless the check's record wrote each choice it writes that a precondition of kind
-//!    `all` reads with the value that precondition looks for (property no-merge-on-what-is-not-settled), and the record
-//!    of every cell before the merge that is not skipped knows the current meaning of each of its inputs: the version
-//!    it wrote itself where it wrote the block, the one its run started from otherwise (property
+//!    `all` reads with the value that precondition looks for (property no-merge-on-what-is-not-settled), and nothing is
+//!    new to a cell before the merge that is not skipped: of each block that runs it, every version that changes what
+//!    the block says and that it did not write itself was dealt with by a return of it (property
 //!    merge-only-on-what-is-current).
 //! 3. From the state a random history reached, a work everyone is content with merges within `content_bound` steps
 //!    (property a-work-comes-to-rest).
@@ -22,8 +22,9 @@
 //! The first two are judged as each round of the merge begins, by the histories' own reading of the records as they
 //! were then (`reading`), never by the deciding code's tests.
 //!
-//! What a history is. With a chance of four in five it begins with the outside making the first cell's precondition
-//! hold (the items the work depends on merged); otherwise with a look. Then, for 0 to 199 steps, the driver's random
+//! What a history is. It begins with the owner's start, the block that runs the first cell, which the outside writes
+//! once; then, with a chance of four in five, with the outside making the first cell's precondition hold (the items
+//! the work depends on merged); otherwise with a look. Then, for 0 to 199 steps, the driver's random
 //! steps, people acting at a step with a chance of one in four and the engine stopping at any step:
 //! - an agent's round ends with one to three calls in a tenth of the rounds (a tool in seven of ten, a question for the
 //!   owner or the architect otherwise), asking for nothing in one in twenty-five, handing in a block its cell may not
@@ -120,7 +121,7 @@ fn engineer() -> Compiled {
     let source = read(&dir).expect("the engineer's flow is read");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
     let has = Has {
-        sources: names(&["dependencies", "main", "session", "tree"]),
+        sources: names(&["dependencies", "main", "session", "start", "tree"]),
         acts: names(&["start", "check", "merge"]),
         ..Default::default()
     };
@@ -244,6 +245,18 @@ const OWNER_ASKED_A_CELL: &str = "the owner had a cell write again a choice a pr
 const ENGINE_STOPPED: &str = "the engine stopped";
 const LACKING_SENT_BACK: &str = "a hand-in that lacked a block its cell must write was sent back";
 
+/// The source of the block the driver writes as the owner starts a work, which runs the first cell.
+const START: &str = "start";
+
+/// The owner starts the work: the outside writes the block of [`START`], as the driver does when the owner first lets
+/// the work on.
+fn started(flow: &Compiled) -> Event {
+    let (block, _) = (flow.blocks.iter())
+        .find(|(_, b)| b.writers.outside.as_deref() == Some(START))
+        .expect("the flow has a block the owner's start writes");
+    wrote(block, Outsider::Outside, true, None)
+}
+
 /// The place of the cell.
 fn place(flow: &Compiled, cell: &str) -> usize {
     flow.flow.place(&cell.into()).expect("the cell is in the flow")
@@ -261,7 +274,7 @@ fn addressed(flow: &Compiled, block: &BlockId, i: usize) -> bool {
     let only_people =
         b.writers.people && b.writers.cells.is_empty() && b.writers.outside.is_none() && b.values.is_none();
     let from_after = (b.writers.cells.iter()).any(|c| flow.flow.place(c).is_some_and(|j| j > i));
-    flow.flow.cells()[i].inputs.contains(block) && (only_people || from_after)
+    flow.flow.cells()[i].runs_on.contains(block) && (only_people || from_after)
 }
 
 /// Whether the block was ever written.
@@ -424,7 +437,7 @@ impl Random {
         };
         let for_judges: Vec<&BlockId> = (self.roles.judges.iter())
             .filter(|(j, _)| reading.applies(*j))
-            .flat_map(|(j, _)| d.flow.flow.cells()[*j].inputs.iter().filter(only_people))
+            .flat_map(|(j, _)| d.flow.flow.cells()[*j].runs_on.iter().filter(only_people))
             .collect();
         if self.steering.chance(50) && !for_judges.is_empty() {
             self.refuse_next = true;
@@ -493,7 +506,7 @@ impl Random {
                 handed_in.push(handed(b, cell, true, None));
             }
         }
-        Came::HandsIn(handed_in)
+        Came::hands_in(handed_in)
     }
 }
 
@@ -512,18 +525,18 @@ impl Part for Random {
         if self.refuse_next && self.roles.judges.iter().any(|(j, _)| *j == i) {
             self.refuse_next = false;
             let handed_in = self.as_it_stands(d, i, cell, true);
-            return Came::HandsIn(handed_in);
+            return Came::hands_in(handed_in);
         }
         if self.steer == Steer::FailCheckAnswered && self.check_failed && self.answered.is_none() {
             let check = &d.flow.flow.cells()[self.roles.check].outputs;
-            let told = d.flow.flow.cells()[i].inputs.iter().any(|b| check.contains(b));
+            let told = d.flow.flow.cells()[i].runs_on.iter().any(|b| check.contains(b));
             if told {
                 self.answered = Some(run);
-                return Came::HandsIn(self.as_it_stands(d, i, cell, false));
+                return Came::hands_in(self.as_it_stands(d, i, cell, false));
             }
         }
         if self.sloppy && d.rng.chance(50) {
-            return Came::Asks(vec![]);
+            return Came::asks(vec![]);
         }
         match d.rng.below(100) {
             0..=9 => {
@@ -544,9 +557,9 @@ impl Part for Random {
                         }
                     })
                     .collect();
-                Came::Asks(asks)
+                Came::asks(asks)
             }
-            10..=13 => Came::Asks(vec![]),
+            10..=13 => Came::asks(vec![]),
             14..=17 => {
                 let mut handed_in = self.valid(d, i, cell);
                 let outputs = &d.flow.flow.cells()[i].outputs;
@@ -557,9 +570,9 @@ impl Part for Random {
                 let block = others[d.rng.below(others.len())].clone();
                 let value = d.flow.blocks[&block].values.as_ref().map(|v| v[0].clone());
                 handed_in.push(handed(&block, cell, true, value));
-                Came::HandsIn(handed_in)
+                Came::hands_in(handed_in)
             }
-            _ => Came::HandsIn(self.valid(d, i, cell)),
+            _ => Came::hands_in(self.valid(d, i, cell)),
         }
     }
 
@@ -574,8 +587,9 @@ impl Part for Random {
             .filter(|(_, b)| b.writers.people && b.values.is_none())
             .map(|(id, _)| id)
             .collect();
+        // The owner's start is written once, as the work begins.
         let outside: Vec<&BlockId> = (blocks.iter())
-            .filter(|(_, b)| b.writers.outside.is_some())
+            .filter(|(_, b)| b.writers.outside.is_some() && b.writers.outside.as_deref() != Some(START))
             .map(|(id, _)| id)
             .collect();
         // Around the check: a person pauses the work while the check's round is under way, and while the pause holds
@@ -592,7 +606,7 @@ impl Part for Random {
         }
         if paused && passed_before_merge(d, &self.roles) {
             let for_judges: Vec<&BlockId> = (self.roles.judges.iter())
-                .flat_map(|(j, _)| &d.flow.flow.cells()[*j].inputs)
+                .flat_map(|(j, _)| &d.flow.flow.cells()[*j].runs_on)
                 .filter(|b| blocks[*b].writers.people)
                 .collect();
             let verdicts: Vec<&BlockId> = self.roles.refusals.keys().collect();
@@ -720,7 +734,7 @@ impl Part for Content {
                 }
             })
             .collect();
-        Came::HandsIn(handed_in)
+        Came::hands_in(handed_in)
     }
 
     fn acts(&mut self, _: &mut Driver) -> Event {
@@ -752,7 +766,7 @@ fn content_bound(d: &Driver) -> u64 {
     let flow = &d.flow.flow;
     let changes = |b: &BlockId| 2 + 2 * d.flow.blocks[b].writers.cells.len() as u64;
     let runs: u64 = (flow.cells().iter())
-        .map(|c| 2 + c.inputs.iter().map(changes).sum::<u64>())
+        .map(|c| 2 + c.runs_on.iter().map(changes).sum::<u64>())
         .sum();
     let tested: BTreeSet<&BlockId> = flow.tests().values().flat_map(|t| &t.reads).collect();
     let asked: u64 = (tested.iter())
@@ -780,7 +794,7 @@ fn ask_a_cell(d: &Driver, name: &TestName) -> Option<Event> {
     (test.reads.iter().filter(|b| only_cells(b)))
         .flat_map(|b| &d.flow.blocks[b].writers.cells)
         .filter_map(|c| d.flow.flow.place(c))
-        .find_map(|j| d.flow.flow.cells()[j].inputs.iter().find(|b| only_people(b)))
+        .find_map(|j| d.flow.flow.cells()[j].runs_on.iter().find(|b| only_people(b)))
         .map(|b| wrote(b, Outsider::Person, true, None))
 }
 
@@ -952,32 +966,14 @@ impl History {
             if !r.applies(i) {
                 continue;
             }
-            let Some(f) = r.record(&cell.id) else {
-                broken.push((
-                    MERGE_ON_AN_OLD_CHECK,
-                    format!(
-                        "the merge's round at {at:?} began with no record of {}, which is not skipped",
-                        cell.id
-                    ),
-                ));
-                continue;
-            };
-            let basis = &r.started(f.run).basis;
-            for b in &cell.inputs {
-                // The version the record knows: its own write, or the one its run started from.
-                let known = if f.writes.iter().any(|w| &w.block == b) {
-                    Some(f.at)
-                } else {
-                    basis.get(b).copied().flatten()
-                };
-                let (was, now) = (r.meaning_of(b, known), r.meaning_now(b));
-                if was != now {
+            for b in &cell.runs_on {
+                let new: Vec<Seq> = r.new_to(&cell.id, b).iter().map(|v| v.at).collect();
+                if !new.is_empty() {
                     broken.push((
                         MERGE_ON_AN_OLD_CHECK,
                         format!(
-                            "the merge's round at {at:?} began while the record of {} (at {:?}) knows {b} at \
-                             {known:?}, of meaning {was:?}, and its meaning is {now:?}",
-                            cell.id, f.at
+                            "the merge's round at {at:?} began while {b} at {new:?} was new to {}",
+                            cell.id
                         ),
                     ));
                 }
@@ -1042,7 +1038,7 @@ impl History {
             return None;
         };
         on.iter().find_map(|w| match w {
-            Waited::Limit { .. } => Some((Event::LetGo { cell: at.clone() }, false)),
+            Waited::Limit { .. } | Waited::Calls { .. } => Some((Event::LetGo { cell: at.clone() }, false)),
             Waited::Precondition { test, .. } => {
                 (make_hold(&self.d, test).map(|e| (e, false))).or_else(|| ask_a_cell(&self.d, test).map(|e| (e, true)))
             }
@@ -1136,7 +1132,7 @@ impl History {
         }
         // The bound of a cell's runs `content_bound` rests on.
         let most = |cell: &CellId| {
-            let inputs = &flow.cells()[flow.place(cell).expect("a cell")].inputs;
+            let inputs = &flow.cells()[flow.place(cell).expect("a cell")].runs_on;
             2 + (inputs.iter())
                 .map(|b| 2 + 2 * self.d.flow.blocks[b].writers.cells.len() as u64)
                 .sum::<u64>()
@@ -1191,6 +1187,7 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
         ended: false,
     };
     let result = panic::catch_unwind(AssertUnwindSafe(|| {
+        h.d.take(started(&h.d.flow));
         let first = (h.d.flow.flow.cells()[0].requires.first())
             .filter(|_| starts)
             .and_then(|test| make_hold(&h.d, test))

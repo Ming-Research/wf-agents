@@ -14,8 +14,8 @@ mod rounds;
 
 use std::collections::BTreeMap;
 
-use decide::run::{Call, Failure, Hold, Limit, Log, Requires, Return, Round, Step, Unmet, next};
-use decide::{BlockId, CallId, Write};
+use decide::run::{Call, Failure, Hold, Limit, Log, Requires, Return, Round, Standing, Step, Told, Unmet, next};
+use decide::{BlockId, CallId, Seq, Write};
 
 /// What the flow requires of a cell, owned so that tests can lend it as `Requires`.
 struct Spec {
@@ -23,7 +23,7 @@ struct Spec {
     must_write: Vec<BlockId>,
     choices: BTreeMap<BlockId, Vec<String>>,
     returns: u32,
-    calls: u32,
+    told: Told,
 }
 
 impl Spec {
@@ -33,20 +33,32 @@ impl Spec {
             must_write: &self.must_write,
             choices: &self.choices,
             returns: self.returns,
-            calls: self.calls,
+            told: &self.told,
         }
     }
 }
 
 /// A cell that may write the plan and the verdict, a choice of yes or no, and need hand in neither; its returns may be
-/// sent back twice, and it may make three calls.
+/// sent back twice. Its round was run by the request and the opinions, and was told of the latest version of each
+/// block it may write: the plan's of version 4, the verdict's, yes, of version 5.
 fn spec() -> Spec {
+    let standing = |at: u64, value: Option<&str>| Standing {
+        told: Some(Seq(at)),
+        latest: Some(Seq(at)),
+        value: value.map(str::to_string),
+    };
     Spec {
         outputs: vec!["plan".into(), "verdict".into()],
         must_write: vec![],
         choices: BTreeMap::from([("verdict".into(), vec!["yes".to_string(), "no".to_string()])]),
         returns: 2,
-        calls: 3,
+        told: Told {
+            ran_by: vec!["request".into(), "opinions".into()],
+            outputs: BTreeMap::from([
+                ("plan".into(), standing(4, None)),
+                ("verdict".into(), standing(5, Some("yes"))),
+            ]),
+        },
     }
 }
 
@@ -58,13 +70,9 @@ fn must_write(blocks: &[&str]) -> Spec {
     }
 }
 
-/// The same cell with other limits.
-fn limited(returns: u32, calls: u32) -> Spec {
-    Spec {
-        returns,
-        calls,
-        ..spec()
-    }
+/// The same cell with another limit of returns sent back.
+fn limited(returns: u32) -> Spec {
+    Spec { returns, ..spec() }
 }
 
 /// What the run does next on these rounds, never let go on.
@@ -162,10 +170,27 @@ fn waited_after(failure: Failure, waits: &[(u64, bool)]) -> Round {
     }
 }
 
-/// A round that handed in these writes.
+/// A round whose return did the cell's work: it dealt with everything that ran the round, and wrote these.
 fn handed_in(writes: Vec<Write>) -> Round {
+    works(&["request", "opinions"], writes)
+}
+
+/// A round whose return dealt with these, and wrote these.
+fn works(dealt_with: &[&str], writes: Vec<Write>) -> Round {
     Round {
-        returned: Some(Return::HandedIn(writes)),
+        returned: Some(Return::Came {
+            dealt_with: dealt_with.iter().map(|&b| b.into()).collect(),
+            writes,
+            calls: 0,
+        }),
+    }
+}
+
+/// What a run finishes with that dealt with everything that ran its round and wrote these.
+fn finish(writes: Vec<Write>) -> Step {
+    Step::Finish {
+        dealt_with: vec!["request".into(), "opinions".into()],
+        writes,
     }
 }
 
@@ -179,45 +204,32 @@ fn wanting_unmet() -> Vec<Unmet> {
     vec![Unmet::NotAChoice { block: "plan".into() }]
 }
 
-/// A round that asked for this many calls, none of them made yet.
-fn asks(asked: usize) -> Round {
+/// A round whose return asked for this many calls, and for nothing else.
+fn asks(calls: usize) -> Round {
     Round {
-        returned: Some(Return::Asked { asked, made: vec![] }),
-    }
-}
-
-/// A round that asked for no calls at all.
-fn asks_nothing() -> Round {
-    asks(0)
-}
-
-/// A round whose calls were made, each with whether it has its result.
-fn made(calls: &[(u64, bool)]) -> Round {
-    Round {
-        returned: Some(Return::Asked {
-            asked: calls.len(),
-            made: calls
-                .iter()
-                .map(|(id, done)| Call {
-                    call: CallId(*id),
-                    done: *done,
-                })
-                .collect(),
+        returned: Some(Return::Came {
+            dealt_with: vec![],
+            writes: vec![],
+            calls,
         }),
     }
 }
 
-/// A round that asked for this many calls, each made and with its result, the ids starting at `from`.
-fn asked_done(from: u64, n: u64) -> Round {
-    made(&(from..from + n).map(|id| (id, true)).collect::<Vec<_>>())
+/// A round whose return dealt with nothing, wrote nothing and asked for nothing.
+fn asks_nothing() -> Round {
+    asks(0)
+}
+
+/// What a run finishes with whose return asked for calls: it dealt with nothing and writes nothing.
+fn finish_asking() -> Step {
+    Step::Finish {
+        dealt_with: vec![],
+        writes: vec![],
+    }
 }
 
 fn send_back(unmet: Vec<Unmet>) -> Step {
     Step::SendBack { unmet }
-}
-
-fn calls_limit(made: u32) -> Step {
-    Step::AtLimit(Limit::Calls { made })
 }
 
 fn returns_limit(sent_back: u32) -> Step {

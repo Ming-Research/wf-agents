@@ -257,7 +257,7 @@ impl Rounds for OverBudget {
                 matters: true,
                 value: None,
             };
-            reply.ended_and_paused(Came::HandsIn(vec![plan]), Spent::default(), OVER.to_string());
+            reply.ended_and_paused(Came::hands_in(vec![plan]), Spent::default(), OVER.to_string());
         } else {
             self.scripted.give(round, reply);
         }

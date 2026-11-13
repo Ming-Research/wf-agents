@@ -148,7 +148,7 @@ impl History {
                         }
                     })
                     .collect();
-                Came::HandsIn(handed)
+                Came::hands_in(handed)
             }
             5..=7 => {
                 let n = 1 + self.rng.below(3);
@@ -165,9 +165,9 @@ impl History {
                         }
                     })
                     .collect();
-                Came::Asks(asks)
+                Came::asks(asks)
             }
-            _ => Came::Asks(vec![]),
+            _ => Came::asks(vec![]),
         };
         let spent = self.spent(run);
         self.take(Event::Returned { run, came, spent });
@@ -262,7 +262,7 @@ impl History {
             }
             Effect::Stop { run } => {
                 let spent = self.spent(run);
-                let came = Came::Asks(vec![]);
+                let came = Came::asks(vec![]);
                 self.take(Event::Returned { run, came, spent });
             }
             Effect::Release { .. } => {

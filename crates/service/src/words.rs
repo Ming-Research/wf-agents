@@ -150,6 +150,24 @@ pub fn unmet_words(unmet: &Unmet) -> String {
             "what came back could not be read as a return of its form, each quote and each line break inside a text \
              needing to be escaped: {why}"
         ),
+        Unmet::NotRunBy { block } => format!("{block} is named as dealt with, but it did not run the round"),
+        Unmet::DealtWithTwice { block } => format!("{block} is named twice as dealt with"),
+        Unmet::DealtWithNothing => {
+            "it deals with nothing of what ran the round and asks for no call, so the cell would run again at once"
+                .to_string()
+        }
+        Unmet::WrittenOver { block, version } => format!(
+            "the block {block} has version {} from another writer since the round was told of the one it writes over",
+            version.0
+        ),
+        Unmet::ChoiceChanged { block } => {
+            format!("the block {block} is a choice, said to change nothing in meaning with another value than it has")
+        }
+        Unmet::AsksAndWorks => {
+            "it asks for calls and also deals with something or writes a block: a return that asks for calls asks for \
+             nothing else"
+                .to_string()
+        }
     }
 }
 

@@ -90,7 +90,7 @@ fn a_block_shown_on_the_page_still_has_a_writer() {
 fn a_block_a_cell_reads_may_be_written_by_a_cell_after_it() {
     let compiled = compiled(&valid());
     let plan = &compiled.flow.cells()[0];
-    assert!(plan.inputs.contains(&"opinions".into()));
+    assert!(plan.runs_on.contains(&"opinions".into()));
     assert_eq!(compiled.blocks[&"opinions".into()].writers.cells, ["judge".into()]);
 }
 

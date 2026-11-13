@@ -233,7 +233,7 @@ impl Part for Shape {
                         }
                     })
                     .collect();
-                Came::HandsIn(handed)
+                Came::hands_in(handed)
             }
             5..=7 => {
                 let n = 1 + d.rng.below(3);
@@ -253,9 +253,9 @@ impl Part for Shape {
                         }
                     })
                     .collect();
-                Came::Asks(asks)
+                Came::asks(asks)
             }
-            _ => Came::Asks(vec![]),
+            _ => Came::asks(vec![]),
         }
     }
 
@@ -306,7 +306,7 @@ impl Part for Shape {
             }
             _ => Event::Returned {
                 run: RunId(10_000),
-                came: Came::Asks(vec![]),
+                came: Came::asks(vec![]),
                 spent: Spent::default(),
             },
         }
@@ -342,7 +342,7 @@ fn bound(flow: &Compiled) -> u64 {
     let rounds = u64::from(flow.limits.returns + flow.limits.calls + 2);
     let mut before: u64 = 0;
     for c in flow.flow.cells() {
-        let s = (u64::from(c.limit) + 2).saturating_mul(3 + c.inputs.len() as u64 + before);
+        let s = (u64::from(c.limit) + 2).saturating_mul(3 + c.runs_on.len() as u64 + before);
         before = before.saturating_add(s);
     }
     (before + 1).saturating_mul(4 * rounds + 4)

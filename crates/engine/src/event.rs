@@ -56,13 +56,48 @@ pub enum Event {
     NotReleased { why: String },
 }
 
-/// What came back at the end of a round.
+/// What came back at the end of a round: the return of the agent, or of the engine's act. A return either asks for
+/// calls, and for nothing else, or does the cell's work (design document `data-and-context`, 30).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Came {
-    /// The agent asks for these.
-    Asks(Vec<Ask>),
-    /// The agent, or the engine's act, hands in these blocks.
-    HandsIn(Vec<Handed>),
+pub struct Came {
+    /// Which of what ran the round the return dealt with, in the order it names them; `None` where it does not say, as
+    /// no return read in the form before a return named it does: such a return dealt with everything that ran the
+    /// round, and the engine records that.
+    pub dealt_with: Option<Vec<BlockId>>,
+    /// The blocks it writes.
+    pub writes: Vec<Handed>,
+    /// The calls it asks for.
+    pub asks: Vec<Ask>,
+}
+
+impl Came {
+    /// A return that does the cell's work, writing these blocks, without naming what it dealt with: it dealt with
+    /// everything that ran its round, as the engine's acts and a return of the form before a return named it do.
+    pub fn hands_in(writes: Vec<Handed>) -> Came {
+        Came {
+            dealt_with: None,
+            writes,
+            asks: Vec::new(),
+        }
+    }
+
+    /// A return that asks for these calls, and so deals with nothing.
+    pub fn asks(asks: Vec<Ask>) -> Came {
+        Came {
+            dealt_with: Some(Vec::new()),
+            writes: Vec::new(),
+            asks,
+        }
+    }
+
+    /// A return that does the cell's work: it dealt with these, and writes these blocks.
+    pub fn works(dealt_with: Vec<BlockId>, writes: Vec<Handed>) -> Came {
+        Came {
+            dealt_with: Some(dealt_with),
+            writes,
+            asks: Vec::new(),
+        }
+    }
 }
 
 /// What is to be done for a work outside the engine.
@@ -78,11 +113,13 @@ pub enum Effect {
     },
     /// This call is made.
     Call { call: CallId, run: RunId, what: Call },
-    /// This call is withdrawn: its run was abandoned. It is to be done until the call is said to have its result,
-    /// which is then that it was withdrawn, or whatever came back before it could be.
+    /// This call is withdrawn: its run was abandoned, or its work ended before its cell was entered for its result.
+    /// It is to be done until the call is said to have its result, which is then that it was withdrawn, or whatever
+    /// came back before it could be.
     Withdraw { call: CallId },
-    /// The round of this run that is under way is stopped: the run was abandoned with its work cancelled. It is to
-    /// be done until the round is said to have ended; what comes back from it is dropped.
+    /// The round of this run that is under way is stopped: the run was abandoned, with its work cancelled or for a
+    /// cell before it that the owner turned to. It is to be done until the round is said to have ended; what comes
+    /// back from it is dropped.
     Stop { run: RunId },
     /// The work has ended so, and nothing of it is under way: what it holds outside the engine is let go (its
     /// worktree, and its pull request where it did not merge; its branch stays). It is to be done until the work is

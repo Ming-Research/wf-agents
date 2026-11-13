@@ -94,6 +94,8 @@ export type Waited =
   | { kind: 'precondition'; test: string; words: string; by: Maker[] }
   /// The cell's last runs, this many in a row, were each for what a cell after it wrote.
   | { kind: 'limit'; runs: number }
+  /// The cell's last runs, this many in a row, each asked for calls and dealt with nothing.
+  | { kind: 'calls'; runs: number }
   /// A free slot: as many rounds of agents are under way as the engine has slots, and it gives the next that comes free
   /// in its order.
   | { kind: 'slot' }
@@ -115,7 +117,9 @@ export type Now =
   /// It waits at this cell, for each of these.
   | { kind: 'waits'; at: string; on: Waited[] }
   /// It is about to do something at this cell; a work is never left so between two things that happen to it.
-  | { kind: 'next'; cell: string };
+  | { kind: 'next'; cell: string }
+  /// Nothing new runs a cell, and nothing of it is under way or waited for: it goes on once someone writes what runs one.
+  | { kind: 'idle' };
 
 /// How a cell stands for a work: a round of its run is under way; its run is at rest; its run's last round failed,
 /// and is given again once the work is let on; its condition is not met; it never finished a run; it has a record and
@@ -207,7 +211,10 @@ export interface Items {
 
 /// Why a cell runs: it has no record, or a block has another meaning than the one its record knows (`was`), which a
 /// cell after it gave the block where `behind`.
-export type Cause = { kind: 'noRecord' } | { kind: 'changed'; block: string; was: number | null; behind: boolean };
+export type Cause =
+  | { kind: 'noRecord' }
+  | { kind: 'changed'; block: string; was: number | null; behind: boolean }
+  | { kind: 'results'; calls: number[] };
 
 /// A block a cell reads, as the cell's record knows it and as it is now.
 export interface Input {
@@ -251,7 +258,13 @@ export type Unmet =
   | { kind: 'notAValue'; block: string; value: string }
   | { kind: 'notAChoice'; block: string }
   | { kind: 'notHandedIn'; block: string }
-  | { kind: 'unreadable'; why: string };
+  | { kind: 'unreadable'; why: string }
+  | { kind: 'notRunBy'; block: string }
+  | { kind: 'dealtWithTwice'; block: string }
+  | { kind: 'dealtWithNothing' }
+  | { kind: 'writtenOver'; block: string; version: number }
+  | { kind: 'choiceChanged'; block: string }
+  | { kind: 'asksAndWorks' };
 
 /// What a round is given: the cell's task, the results of the calls the round before asked for, or why what the
 /// round before handed in was sent back.

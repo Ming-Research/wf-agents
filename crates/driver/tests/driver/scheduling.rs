@@ -17,7 +17,7 @@ fn waits_for_a_slot() -> Decision {
 
 /// The writer's round of the work asks for a tool; gives the call.
 fn asks_a_tool(h: &mut H, work: WorkNumber) -> CallId {
-    let todos = h.returns(work, Came::Asks(vec![tool("ci")]));
+    let todos = h.returns(work, Came::asks(vec![tool("ci")]));
     (todos.iter())
         .find_map(|todo| match &todo.effect {
             Effect::Call { call, .. } if todo.work == work => Some(*call),

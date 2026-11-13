@@ -15,33 +15,33 @@ fn blocks(names: &[&str]) -> Vec<BlockId> {
 }
 
 #[test]
-fn a_valid_flow_compiles_to_its_cells_in_order_with_the_blocks_each_reads_and_writes() {
+fn a_valid_flow_compiles_to_its_cells_in_order_with_the_blocks_that_run_each_and_that_each_writes() {
     let compiled = compiled(&valid());
     let mut plan = Cell::new("plan");
-    plan.inputs = blocks(&["request", "opinions"]);
+    plan.runs_on = blocks(&["request", "opinions"]);
     plan.outputs = blocks(&["plan"]);
     let mut judge = Cell::new("judge");
-    judge.inputs = blocks(&["plan"]);
+    judge.runs_on = blocks(&["plan"]);
     judge.outputs = blocks(&["needs_design", "opinions"]);
     let mut design = Cell::new("design");
     design.applies = Some(Condition::Is {
         block: "needs_design".into(),
         value: "yes".to_string(),
     });
-    design.inputs = blocks(&["plan"]);
+    design.runs_on = blocks(&["plan"]);
     design.outputs = blocks(&["design"]);
     let mut answer = Cell::new("answer");
     answer.applies = Some(Condition::Test("has_comment".into()));
     answer.requires = vec![TestName::from("plan_confirmed")];
-    answer.inputs = blocks(&["comments", "plan"]);
+    answer.runs_on = blocks(&["comments", "plan"]);
     answer.outputs = blocks(&["reply"]);
     answer.limit = 5;
     let mut check = Cell::new("check");
-    check.inputs = blocks(&["main", "design"]);
+    check.runs_on = blocks(&["main", "design"]);
     check.outputs = blocks(&["ci"]);
     let mut merge = Cell::new("merge");
     merge.requires = vec![TestName::from("may_merge")];
-    merge.inputs = blocks(&["ci"]);
+    merge.runs_on = blocks(&["ci"]);
     let expected = [plan, judge, design, answer, check, merge];
 
     let cells = compiled.flow.cells();
@@ -50,9 +50,10 @@ fn a_valid_flow_compiles_to_its_cells_in_order_with_the_blocks_each_reads_and_wr
         assert_eq!(cell.id, expected.id);
         assert_eq!(cell.applies, expected.applies, "{}", cell.id);
         assert_eq!(cell.requires, expected.requires, "{}", cell.id);
-        assert_eq!(cell.inputs, expected.inputs, "{}", cell.id);
+        assert_eq!(cell.runs_on, expected.runs_on, "{}", cell.id);
         assert_eq!(cell.outputs, expected.outputs, "{}", cell.id);
         assert_eq!(cell.limit, expected.limit, "{}", cell.id);
+        assert_eq!(cell.calls, 40, "{}", cell.id);
     }
 }
 

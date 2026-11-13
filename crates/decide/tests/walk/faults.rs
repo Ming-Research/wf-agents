@@ -2,9 +2,16 @@
 
 use super::*;
 
+/// A work on these cells and the merge, the brief that runs them written.
+fn briefed(cells: Vec<Cell>) -> World {
+    let mut w = World::with_gate(cells);
+    w.person_writes("brief");
+    w
+}
+
 #[test]
 fn two_runs_started_with_one_name_are_a_fault() {
-    let mut w = World::with_gate(vec![cell("a", &[], &[])]);
+    let mut w = briefed(vec![cell("a", &["brief"], &[])]);
     let run = w.start("a");
     let mut again = w.records.started[0].clone();
     again.at = w.tick();
@@ -14,7 +21,7 @@ fn two_runs_started_with_one_name_are_a_fault() {
 
 #[test]
 fn an_entry_naming_a_run_that_never_started_is_a_fault() {
-    let mut w = World::with_gate(vec![cell("a", &[], &[])]);
+    let mut w = briefed(vec![cell("a", &["brief"], &[])]);
     let at = w.tick();
     w.records.rounds.push(Round { run: RunId(99), at });
     assert_eq!(w.decide(), Decision::Fault(RecordFault::UnknownRun(RunId(99))));
@@ -22,7 +29,7 @@ fn an_entry_naming_a_run_that_never_started_is_a_fault() {
 
 #[test]
 fn a_result_of_a_call_never_made_is_a_fault() {
-    let mut w = World::with_gate(vec![cell("a", &[], &[])]);
+    let mut w = briefed(vec![cell("a", &["brief"], &[])]);
     let at = w.tick();
     w.records.done.push(Done { call: CallId(99), at });
     assert_eq!(w.decide(), Decision::Fault(RecordFault::UnknownCall(CallId(99))));
@@ -30,7 +37,7 @@ fn a_result_of_a_call_never_made_is_a_fault() {
 
 #[test]
 fn a_call_with_two_results_is_a_fault() {
-    let mut w = World::with_gate(vec![cell("a", &[], &[])]);
+    let mut w = briefed(vec![cell("a", &["brief"], &[])]);
     w.start("a");
     let call = w.calls("a", None);
     w.done(call);
@@ -40,7 +47,7 @@ fn a_call_with_two_results_is_a_fault() {
 
 #[test]
 fn a_run_finished_twice_is_a_fault() {
-    let mut w = World::with_gate(vec![cell("a", &[], &[])]);
+    let mut w = briefed(vec![cell("a", &["brief"], &[])]);
     w.run("a", &[]);
     let mut again = w.records.finished[0].clone();
     again.at = w.tick();
@@ -51,7 +58,7 @@ fn a_run_finished_twice_is_a_fault() {
 
 #[test]
 fn a_block_written_twice_by_one_run_is_a_fault() {
-    let mut w = World::with_gate(vec![cell("a", &[], &["p"])]);
+    let mut w = briefed(vec![cell("a", &["brief"], &["p"])]);
     w.run("a", &[("p", Matters)]);
     let write = Write {
         block: "p".into(),
@@ -65,7 +72,7 @@ fn a_block_written_twice_by_one_run_is_a_fault() {
 
 #[test]
 fn a_run_both_finished_and_abandoned_is_a_fault() {
-    let mut w = World::with_gate(vec![cell("a", &[], &[])]);
+    let mut w = briefed(vec![cell("a", &["brief"], &[])]);
     w.run("a", &[]);
     let run = w.records.finished[0].run;
     let at = w.tick();
@@ -75,7 +82,7 @@ fn a_run_both_finished_and_abandoned_is_a_fault() {
 
 #[test]
 fn more_rounds_ended_than_began_is_a_fault() {
-    let mut w = World::with_gate(vec![cell("a", &[], &[])]);
+    let mut w = briefed(vec![cell("a", &["brief"], &[])]);
     let run = w.start("a");
     w.returns("a");
     let at = w.tick();

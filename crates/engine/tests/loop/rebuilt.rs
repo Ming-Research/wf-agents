@@ -24,7 +24,7 @@ fn rebuilt(work: &Work) -> Work {
 fn a_work_rebuilt_from_its_parts_goes_on_exactly_as_the_original() {
     let (mut w, write, _) = W::requested();
     let judge = round(&w.returns(write, hands_in(&[("text", None)]))).0;
-    let calls = calls_of(&w.returns(judge, Came::Asks(vec![tool("a"), question(Who::Owner)])));
+    let calls = calls_of(&w.returns(judge, Came::asks(vec![tool("a"), question(Who::Owner)])));
     w.done(calls[0].0);
     let mut copy = W {
         flow: judged(),

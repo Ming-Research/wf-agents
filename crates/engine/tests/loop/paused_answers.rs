@@ -38,12 +38,12 @@ fn a_run_for_what_a_person_wrote_during_a_pause_has_its_rounds_and_calls_and_fin
     );
     assert_eq!(start_of(&w, again), start);
     // A tool, then a question for the owner: each made, and the next round given its result.
-    let tools = calls_of(&w.returns(again, Came::Asks(vec![tool("a")])));
+    let tools = calls_of(&w.returns(again, Came::asks(vec![tool("a")])));
     assert_eq!(
         w.done(tools[0].0),
         vec![round_effect(again, "write", 2, Given::Results(vec![tools[0].0]))]
     );
-    let questions = calls_of(&w.returns(again, Came::Asks(vec![question(Who::Owner)])));
+    let questions = calls_of(&w.returns(again, Came::asks(vec![question(Who::Owner)])));
     assert_eq!(
         w.done(questions[0].0),
         vec![round_effect(again, "write", 3, Given::Results(vec![questions[0].0]))]
@@ -124,7 +124,7 @@ fn a_run_for_what_a_person_wrote_that_started_before_the_pause_has_its_next_roun
     w.on(Event::Resumed);
     let (effects, _) = w.person_writes("opinions");
     let (again, ..) = round(&effects);
-    let call = calls_of(&w.returns(again, Came::Asks(vec![tool("a")])))[0].0;
+    let call = calls_of(&w.returns(again, Came::asks(vec![tool("a")])))[0].0;
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
@@ -138,7 +138,7 @@ fn a_run_for_what_a_person_wrote_that_started_before_the_pause_has_its_next_roun
 #[test]
 fn a_run_at_rest_for_what_no_person_wrote_is_held_while_a_later_cell_has_what_a_person_wrote() {
     let (mut w, write, _) = W::requested();
-    let call = calls_of(&w.returns(write, Came::Asks(vec![tool("a")])))[0].0;
+    let call = calls_of(&w.returns(write, Came::asks(vec![tool("a")])))[0].0;
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,

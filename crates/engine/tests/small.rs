@@ -78,7 +78,7 @@ fn small() -> Compiled {
 }
 
 fn hands_in(block: &str, value: Option<&str>) -> Came {
-    Came::HandsIn(vec![Handed {
+    Came::hands_in(vec![Handed {
         block: block.into(),
         content: format!("the {block}"),
         matters: true,
