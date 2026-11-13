@@ -150,8 +150,10 @@ run next all the same, and the note would be filled, since the new session lacks
 29. What the owner answers is data written on the question: it runs the cell that asked, and no other, and is given
     to it. Where the cell does not wait, the work goes on by the option it recommends, and the merge waits until
     every question that stands is answered. An answer that takes that option changes nothing in meaning, since the
-    work has gone on by it already: it is kept, and runs no cell (10). An answer is not something said to the work
-    (31), and what is said about a question is not its answer: neither stands in for the other.
+    work has gone on by it already: it is kept, and runs no cell (10). An answer that runs the cell that asked
+    stops a round of a later cell that is under way, as the owner's words do (37); it is not put into a round under
+    way. An answer is not something said to the work (31), and what is said about a question is not its answer:
+    neither stands in for the other.
 
 30. A cell that waits ends its round with what ran it not dealt with (9), and the engine enters it again only once
     the answer is there. A cell that cannot go on without the owner asks so, with a question that stands alone and
