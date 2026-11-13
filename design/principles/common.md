@@ -19,8 +19,8 @@ A check or a review reports every problem it finds in one pass, stopping early o
 Why: Each problem found on its own, and each requirement raised first by a review, sends the work back one more round. (Article 3)
 
 ### principle every-field-has-a-reader
-Nothing is kept in a return, storage or the flow definition without a reader: a cell, a page or a person who reads it. An agent is not made to fill a fixed list of questions: what does not apply is left out.
-Why: Unattended things pile up, and a return's format is sent with every call of its line. A question an agent cannot answer forces it to make something up, and later steps act on it. (Article 4)
+Nothing is kept in a return, storage or the flow definition without a reader: a cell, a page or a person who reads it. An agent is not made to fill a fixed list of questions: what does not apply is left out. What its readers read whole is a text: a field has a shape of its own only where a reader reads a part of it exactly, and a field another cell already returns serves before a new one is made.
+Why: Unattended things pile up, and a return's format is sent with every call of its line, so a shape no reader reads exactly is paid for at every call and checks nothing; a slip in a text costs one return written again, which is judged to cost less (not measured). A question an agent cannot answer forces it to make something up, and later steps act on it. (Article 4)
 
 ### principle lean-agent-input
 An agent is given only what it needs and does not already have: one thing per sentence; no warning against what it would not do anyway; nothing the flow, a tool or a permission already decides, or a review catches as a slip; nothing a continued session already holds. A prompt is fixed by rewriting a sentence rather than adding one; what must be added is paid for by cutting as much elsewhere, so that the prompt ends no longer than before.
