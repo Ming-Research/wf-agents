@@ -90,9 +90,10 @@ run next all the same, and the note would be filled, since the new session lacks
 19. The kind says what is filled. What the agent does with what is new is said by the cell's task (11): to make an
     output anew, or to bring the last one up to date. An output brought up to date may be handed in whole.
 
-20. A cell that brings an output up to date needs the latest version of that output, whoever wrote it. Where its
-    session lacks it, as one reopened since does, the manager fills it in, as it fills in the version last consumed of
-    an input of the second kind.
+20. A cell that brings an output up to date takes that output as an input too, and the flow says so as of any input:
+    the manager fills it by its kind where the session lacks it, as in a session reopened since, and what the cell
+    itself handed in is not new to it (9). What a cell does not take as an input is not filled into its session, its
+    own outputs included.
 
 21. How far a change travels follows from this. An output made anew is a new version each time, so the change reaches
     the cells after. A round that brings its outputs up to date may find that they stand as they are and hand in
