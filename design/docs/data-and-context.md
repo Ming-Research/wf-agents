@@ -123,8 +123,8 @@ run next all the same, and the note would be filled, since the new session lacks
 24. What every cell of a line is given alike, and what stays the same for as long as a session lasts, is no data: it
     is the system prompt of the line's session, which the flow writes once on the line (principle
     the-system-prompt-holds-what-a-line-shares). It holds the project's guide for its agents (`AGENTS.md`), the
-    constitution, the rules of the design tree, the rules for the agents that the line takes, and the engine's own
-    words on working in it, in that order. The agent's program takes it as the session begins and keeps it: a change
+    constitution, the rules of the design tree, the rules for the agents that the line takes, the engine's own
+    words on working in it, and what the line's cells return (31), in that order. The agent's program takes it as the session begins and keeps it: a change
     of one of them reaches a session only when it is reopened, and runs no cell.
 
 25. The design tree is read by the agent, which chooses what bears on the problem. One cell does this reading for the
