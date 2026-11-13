@@ -238,7 +238,7 @@ run next all the same, and the note would be filled, since the new session lacks
 46. A round is not told who wrote a version of a block: nothing in this design needs it. In the record of what is said
     (36), who spoke is part of the entry.
 
-## What an agent comes across beyond its work
+## What a return says that is no data of the work
 
 47. What an agent comes across beyond its work that is worth an item of its own, a defect or something that should
     change, it may write in its return as observations, each a text that says what it is and where. They are no data
