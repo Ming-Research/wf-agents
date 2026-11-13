@@ -25,7 +25,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::flow::{BlockId, Cell, CellId, Condition, Flow, TestKind, TestName};
 use crate::records::{
-    CallId, Cause, Finished, Outsider, Pause, Pauser, RecordFault, Records, RunId, Seq, Started, Who,
+    CallId, Cause, Finished, Outsider, Pause, Pauser, PutIn, RecordFault, Records, RunId, Seq, Started, Who,
 };
 use crate::room::Room;
 use crate::run::Hold;
@@ -288,7 +288,7 @@ fn check(records: &Records) -> Result<(), RecordFault> {
         .chain(records.called.iter().map(|c| c.run))
         .chain(records.finished.iter().map(|f| f.run))
         .chain(records.abandoned.iter().map(|a| a.run))
-        .chain(records.delivered.iter().map(|d| d.run));
+        .chain(records.put_in.iter().map(|d| d.run));
     for run in named {
         if !runs.contains(&run) {
             return Err(RecordFault::UnknownRun(run));
@@ -330,7 +330,7 @@ fn check(records: &Records) -> Result<(), RecordFault> {
         .chain(records.done.iter().map(|e| e.at))
         .chain(records.finished.iter().map(|e| e.at))
         .chain(records.abandoned.iter().map(|e| e.at))
-        .chain(records.delivered.iter().map(|e| e.at))
+        .chain(records.put_in.iter().map(|e| e.at))
         .chain(records.written.iter().map(|e| e.at))
         .chain(records.let_go.iter().map(|e| e.at))
         .chain(records.pauses.iter().map(|e| e.at))
@@ -341,6 +341,58 @@ fn check(records: &Records) -> Result<(), RecordFault> {
         if !seen.insert(at) {
             return Err(RecordFault::PlaceTwice(at));
         }
+    }
+    for p in &records.put_in {
+        put_in_fault(records, p)?;
+    }
+    for f in &records.finished {
+        let Some(dealt_with) = &f.dealt_with else {
+            continue;
+        };
+        let basis = (records.started.iter().find(|s| s.run == f.run)).map(|s| &s.basis);
+        let mut named = BTreeSet::new();
+        for block in dealt_with {
+            if !named.insert(block) {
+                return Err(RecordFault::DealtWithTwice(f.run));
+            }
+            let began_with = basis.is_some_and(|b| b.contains_key(block));
+            let put_in = (records.put_in.iter()).any(|p| p.run == f.run && &p.block == block);
+            if !began_with && !put_in {
+                return Err(RecordFault::DealtWithUnknown(f.run));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// What is wrong with a version put into a round: it is no version of its block, it was written at the place it was
+/// put in or after, or its run had no round under way there, between a round's beginning and its end, and before the
+/// run finished or was abandoned.
+fn put_in_fault(records: &Records, p: &PutIn) -> Result<(), RecordFault> {
+    let by_people = (records.written.iter()).any(|w| w.block == p.block && w.at == p.version);
+    let by_runs = (records.finished.iter()).any(|f| f.at == p.version && f.writes.iter().any(|w| w.block == p.block));
+    if !by_people && !by_runs {
+        return Err(RecordFault::PutInNoVersion(p.at));
+    }
+    if p.version >= p.at {
+        return Err(RecordFault::PutInBeforeWritten(p.at));
+    }
+    let mut began: Vec<Seq> = (records.rounds.iter())
+        .filter(|r| r.run == p.run)
+        .map(|r| r.at)
+        .collect();
+    let mut ended: Vec<Seq> = (records.returned.iter())
+        .filter(|r| r.run == p.run)
+        .map(|r| r.at)
+        .collect();
+    began.sort();
+    ended.sort();
+    let in_round = (began.iter().enumerate()).any(|(i, b)| *b < p.at && ended.get(i).is_none_or(|e| *e > p.at));
+    let gone = (records.finished.iter().filter(|f| f.run == p.run).map(|f| f.at))
+        .chain(records.abandoned.iter().filter(|a| a.run == p.run).map(|a| a.at))
+        .any(|at| at <= p.at);
+    if !in_round || gone {
+        return Err(RecordFault::PutInNoRound(p.at));
     }
     Ok(())
 }

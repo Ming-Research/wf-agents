@@ -532,7 +532,7 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At, effects: &mut Vec<
 }
 
 /// Records the run as finished: the blocks it wrote, and their content under the place of the finish. A run that
-/// finishes by handing its blocks in has dealt with everything that ran it, and its return says nothing of it.
+/// finishes by handing its blocks in has dealt with every block it began from, and its return says nothing of it.
 fn finish(work: &mut Work, run: RunId, writes: Vec<Write>) {
     let at = work.tick();
     if let Some(Back::HandedIn(handed)) = work.back.get(&(run, ended(work, run))) {

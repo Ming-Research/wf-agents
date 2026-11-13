@@ -4,13 +4,13 @@
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoned, BlockId, CallId, Called, CellId, Delivered, Done, Finished, LetGo, Pause, Returned, Round, RunId, Seq,
+    Abandoned, BlockId, CallId, Called, CellId, Done, Finished, LetGo, Pause, PutIn, Returned, Round, RunId, Seq,
     Started, Write, Written,
 };
 use rusqlite::{Connection, Row, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use work::{Moment, Ran, RanOn, Session, Spent, Time, Work};
+use work::{Filled, Moment, Ran, RanOn, Session, Spent, Time, Work};
 
 use crate::{Divergence, Entry, Fault, WorkNumber};
 
@@ -141,12 +141,12 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
         },
     )?;
 
-    r.delivered = rows(
+    r.put_in = rows(
         db,
-        "SELECT at, run, block, version FROM delivered WHERE work = ?1 ORDER BY at",
+        "SELECT at, run, block, version FROM put_in WHERE work = ?1 ORDER BY at",
         w,
         |row| {
-            Ok(Delivered {
+            Ok(PutIn {
                 at: Seq(row.get(0)?),
                 run: RunId(row.get(1)?),
                 block: BlockId(row.get(2)?),
@@ -238,10 +238,28 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     })? {
         out.given.insert(round, parse("given", &given)?);
     }
-    for (round, filled) in rows(db, "SELECT run, round, filled FROM filled WHERE work = ?1", w, |row| {
-        Ok(((RunId(row.get(0)?), row.get(1)?), row.get::<_, String>(2)?))
-    })? {
-        out.filled.insert(round, parse("filled", &filled)?);
+    let filled = rows(
+        db,
+        "SELECT at, run, round, attempt, filled FROM filled WHERE work = ?1 ORDER BY at",
+        w,
+        |row| {
+            Ok((
+                Seq(row.get(0)?),
+                RunId(row.get(1)?),
+                row.get(2)?,
+                row.get(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        },
+    )?;
+    for (at, run, round, attempt, fills) in filled {
+        out.filled.push(Filled {
+            at,
+            run,
+            round,
+            attempt,
+            fills: parse("filled", &fills)?,
+        });
     }
     for (round, back) in rows(db, "SELECT run, round, back FROM back WHERE work = ?1", w, |row| {
         Ok(((RunId(row.get(0)?), row.get(1)?), row.get::<_, String>(2)?))
@@ -343,7 +361,7 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     let done = grown("done", &h.done, &g.done, |e| Entry::At(e.at))?;
     let finished = grown("finished", &h.finished, &g.finished, |e| Entry::At(e.at))?;
     let abandoned = grown("abandoned", &h.abandoned, &g.abandoned, |e| Entry::At(e.at))?;
-    let delivered = grown("delivered", &h.delivered, &g.delivered, |e| Entry::At(e.at))?;
+    let put_in = grown("put_in", &h.put_in, &g.put_in, |e| Entry::At(e.at))?;
     let written = grown("written", &h.written, &g.written, |e| Entry::At(e.at))?;
     let let_go = grown("let_go", &h.let_go, &g.let_go, |e| Entry::At(e.at))?;
     let pauses = grown("pauses", &h.pauses, &g.pauses, |e| Entry::At(e.at))?;
@@ -366,7 +384,7 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         }
     })?;
     let given_rounds = gained("given", &held.given, &given.given, round_entry)?;
-    let filled = gained("filled", &held.filled, &given.filled, round_entry)?;
+    let filled = grown("filled", &held.filled, &given.filled, |f| Entry::At(f.at))?;
     let back = gained("back", &held.back, &given.back, round_entry)?;
     let calls = gained("calls", &held.calls, &given.calls, |c| Entry::Call(*c))?;
     let results = gained("results", &held.results, &given.results, |c| Entry::Call(*c))?;
@@ -433,9 +451,9 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
             params![w, a.at.0, a.run.0],
         )?;
     }
-    for d in delivered {
+    for d in put_in {
         db.execute(
-            "INSERT INTO delivered (work, at, run, block, version) VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO put_in (work, at, run, block, version) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![w, d.at.0, d.run.0, d.block.0, d.version.0],
         )?;
     }
@@ -480,10 +498,10 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
             params![w, run.0, round, json("given", what)?],
         )?;
     }
-    for ((run, round), what) in filled {
+    for f in filled {
         db.execute(
-            "INSERT INTO filled (work, run, round, filled) VALUES (?1, ?2, ?3, ?4)",
-            params![w, run.0, round, json("filled", what)?],
+            "INSERT INTO filled (work, at, run, round, attempt, filled) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![w, f.at.0, f.run.0, f.round, f.attempt, json("filled", &f.fills)?],
         )?;
     }
     for ((run, round), what) in back {

@@ -116,9 +116,10 @@ CREATE TABLE done (
     FOREIGN KEY (work, call) REFERENCES called (work, call)
 );
 
--- A run finished, writing the blocks of `writes`. `dealt_with` is what of the blocks that ran it its return says it has
--- dealt with (JSON: a list of names, in the order the return named them, empty where it dealt with nothing); null where
--- the return did not say, as none of the form before it did: such a run dealt with everything that ran it.
+-- A run finished, writing the blocks of `writes`. `dealt_with` is what its return says it has dealt with (JSON: a list
+-- of names, each of a block of the run's `basis` or one put in to it, in the order the return named them, empty where
+-- it dealt with nothing); null where the return did not say, as none of the form before it did: such a run dealt with
+-- every block of its `basis`.
 CREATE TABLE finished (
     work INTEGER NOT NULL,
     at INTEGER NOT NULL,
@@ -152,9 +153,9 @@ CREATE TABLE abandoned (
     FOREIGN KEY (work, run) REFERENCES started (work, run)
 );
 
--- A version of a block (`version`, the place of the entry that wrote it) was put into the round of a run that was
--- under way, after the round began, so that the round was told of it.
-CREATE TABLE delivered (
+-- A version of a block (`version`, the place of the entry that wrote it, before this one) was put into the round of a
+-- run that was under way, after the round began, so that the round was told of it.
+CREATE TABLE put_in (
     work INTEGER NOT NULL,
     at INTEGER NOT NULL,
     run INTEGER NOT NULL,
@@ -238,15 +239,18 @@ CREATE TABLE given (
     FOREIGN KEY (work, run) REFERENCES started (work, run)
 );
 
--- What was filled into the session of a round of a run as it began (JSON: a list, in the order it was filled, of the
--- cell's task, or a version of a block whole or as what changed since an earlier one), the first round being one. A
--- round with nothing to fill has an empty list.
+-- Something was filled into the session of a try of a round of a run, the round's first being one and the try's first
+-- in its round being one: `filled` is what (JSON: a list, in the order it was filled, of which work and item the
+-- session is for, the cell's task with the digest of its text, a version of a block whole or as what changed since an
+-- earlier one, or the results of calls), empty where the session lacked nothing.
 CREATE TABLE filled (
     work INTEGER NOT NULL,
+    at INTEGER NOT NULL,
     run INTEGER NOT NULL,
     round INTEGER NOT NULL,
+    attempt INTEGER NOT NULL,
     filled TEXT NOT NULL,
-    PRIMARY KEY (work, run, round),
+    PRIMARY KEY (work, at),
     FOREIGN KEY (work, run) REFERENCES started (work, run)
 );
 

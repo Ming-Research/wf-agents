@@ -63,7 +63,7 @@ fn a_return_that_meets_everything_finishes_the_run_keeps_each_block_under_the_fi
             meaning_unchanged: false,
             value: None,
         }],
-        // A return that only hands in says nothing of what it dealt with: it dealt with everything that ran it.
+        // A return that only hands in says nothing of what it dealt with: it dealt with every block it began from.
         dealt_with: None,
     };
     assert_eq!(w.work.records.finished, vec![finished]);

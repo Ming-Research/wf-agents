@@ -113,7 +113,7 @@ pub enum Entry {
     At(Seq),
     /// The content of a version of a block, the version named by the place of the entry that wrote it.
     Version { block: BlockId, at: Seq },
-    /// What a round of a run was given, was filled with, came back from it or it took, the first round being one.
+    /// What a round of a run was given, came back from it or it took, the first round being one.
     Round { run: RunId, round: usize },
     /// What a call is, or its result.
     Call(CallId),

@@ -165,6 +165,24 @@ pub fn record_fault_words(fault: &RecordFault) -> String {
         RecordFault::FinishedAndAbandoned(run) => format!("run {} both finished and was abandoned", run.0),
         RecordFault::ReturnedWithoutRound(run) => format!("more rounds of run {} ended than began", run.0),
         RecordFault::PlaceTwice(at) => format!("two entries are at place {}", at.0),
+        RecordFault::PutInNoVersion(at) => format!("what was put in at place {} is no version of its block", at.0),
+        RecordFault::PutInBeforeWritten(at) => {
+            format!(
+                "what was put in at place {} was written at that place or after it",
+                at.0
+            )
+        }
+        RecordFault::PutInNoRound(at) => format!(
+            "what was put in at place {} went to a run with no round under way",
+            at.0
+        ),
+        RecordFault::DealtWithUnknown(run) => {
+            format!(
+                "run {} says it dealt with a block that neither ran it nor was put in to it",
+                run.0
+            )
+        }
+        RecordFault::DealtWithTwice(run) => format!("run {} names one block twice as dealt with", run.0),
     }
 }
 

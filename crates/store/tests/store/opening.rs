@@ -254,10 +254,15 @@ fn a_file_of_version_9_is_migrated_and_its_runs_read_as_dealing_with_everything_
     assert!(loaded.records.finished.iter().all(|f| f.dealt_with.is_none()));
     assert!(loaded.records.finished[0].writes[0].meaning_unchanged);
     assert_eq!(loaded, work);
-    // Runs of the new form are kept in it after them, as in a file made at this version.
-    of_the_new_form(&mut work);
-    store.save(WorkNumber(1), &work).expect("the work is saved");
-    assert_eq!(old.open().load(WorkNumber(1)), Ok(work));
+    // A work of the new form is kept in it beside, as in a file made at this version.
+    let new = of_the_new_form();
+    let (_, number) = store
+        .add("second", "2", &[], "judged", Time(START), &Work::default())
+        .expect("the item is added");
+    store.save(number, &new).expect("the work is saved");
+    let opened = old.open();
+    assert_eq!(opened.load(number), Ok(new));
+    assert_eq!(opened.load(WorkNumber(1)), Ok(work));
 }
 
 #[test]

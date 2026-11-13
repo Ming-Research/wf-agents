@@ -15,14 +15,16 @@ mod round_trip;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use decide::{CallId, Delivered, Finished, Outsider, Pauser, Returned, Round, RunId, Seq, Started, Who, Write};
+use decide::{
+    CallId, Called, Done, Finished, Outsider, Pauser, PutIn, Returned, Round, RunId, Seq, Started, Who, Write, Written,
+};
 use engine::{Ask, Came, Effect, Event, Given, Handed, Spent, Time, Work, handle, pending};
 use flow::{Compiled, Has, Source, compile};
 use rusqlite::Connection;
 use rusqlite::types::Value;
 use store::{Storage, Store, WorkNumber};
 use tempfile::TempDir;
-use work::Fill;
+use work::{Fill, Filled};
 
 /// A writer that reads a request, the outside's main and the opinions on what it wrote; a judge that reads what the
 /// writer wrote and the outside's checks, a choice, and writes opinions for the writer and a verdict, a choice; and a
@@ -432,73 +434,251 @@ fn history(d: &mut Driver) {
     assert!(d.work.records.released.is_some(), "what the work held was not let go");
 }
 
-/// Adds to the work two runs of the form a return of every cell takes (design document `data-and-context`), which the
-/// engine does not make yet, after what the work holds. The writer's round was filled with its task, the first request
-/// whole and the last as what changed since, and was told of the last request while under way; its return dealt with
-/// the request and handed in its text as changing nothing in meaning. The judge's round was filled with nothing, and
-/// its return dealt with nothing and handed in opinions that change the meaning.
-fn of_the_new_form(w: &mut Work) {
-    let requests: Vec<Seq> = (w.contents.keys())
-        .filter(|(block, _)| block.0 == "request")
-        .map(|(_, at)| *at)
-        .collect();
-    let (first, last) = (requests[0], requests[requests.len() - 1]);
-    let runs = [
-        ("write", "text", true, vec!["request".into()]),
-        ("judge", "opinions", false, vec![]),
+/// A work on the judged flow whose returns are of the form every cell's return takes (design document
+/// `data-and-context`), which the engine does not make yet, built entry by entry as such a work can go:
+///
+/// - The owner writes the request, and the writer is entered: its session is filled with which work and item it is
+///   for, the task, and the request whole. While its round is under way the owner writes the request again, and that
+///   version is put in to it. Its return deals with the request and hands in the text.
+/// - The judge is entered for the text, filled likewise. Its return asks for a tool and deals with nothing; the call
+///   has its result.
+/// - The judge is entered again for the result: its session, which holds the rest, is filled with the result alone.
+///   That try finds the session lost, and the next, in a new one, is filled from the top. Its return deals with
+///   nothing that ran it and hands in its opinions and a verdict.
+/// - The owner writes the request a third time, and the writer is entered for that and the opinions: its session holds
+///   the request it was told of last, so the request is filled as what changed since, and the opinions whole. Its
+///   return deals with both and hands its text in as changing nothing in meaning.
+fn of_the_new_form() -> Work {
+    let mut b = Building::default();
+    let first = b.person_writes("request");
+    let writer = b.enters(
+        "write",
+        &[
+            ("request", Some(first)),
+            ("opinions", None),
+            ("main", None),
+            ("text", None),
+        ],
+    );
+    b.filled(writer, 1, vec![b.for_work(), b.task(WRITE), whole("request", first)]);
+    let second = b.person_writes("request");
+    b.put_in(writer, "request", second);
+    b.returns(writer);
+    let text = b.finishes(writer, &[("text", false, None)], &["request"]);
+
+    let judge = b.enters(
+        "judge",
+        &[
+            ("text", Some(text)),
+            ("checks", None),
+            ("opinions", None),
+            ("verdict", None),
+        ],
+    );
+    b.filled(judge, 1, vec![b.for_work(), b.task(JUDGE), whole("text", text)]);
+    b.returns(judge);
+    b.finishes(judge, &[], &[]);
+    let call = b.calls(judge, "check");
+
+    let judge = b.enters(
+        "judge",
+        &[
+            ("text", Some(text)),
+            ("checks", None),
+            ("opinions", None),
+            ("verdict", None),
+        ],
+    );
+    b.w.given.insert((judge, 1), Given::Results(vec![call]));
+    b.filled(judge, 1, vec![Fill::Results(vec![call])]);
+    b.anew("other");
+    let refill = vec![
+        b.for_work(),
+        b.task(JUDGE),
+        whole("text", text),
+        Fill::Results(vec![call]),
     ];
-    for (cell, block, meaning_unchanged, dealt_with) in runs {
-        let run = RunId(w.name());
-        let at = w.tick();
-        w.records.started.push(Started {
+    b.filled_at(judge, 1, 2, refill);
+    b.returns(judge);
+    let opinions = b.finishes(
+        judge,
+        &[("opinions", false, None), ("verdict", false, Some("yes"))],
+        &[],
+    );
+
+    let third = b.person_writes("request");
+    let basis = [
+        ("request", Some(third)),
+        ("opinions", Some(opinions)),
+        ("main", None),
+        ("text", Some(text)),
+    ];
+    let writer = b.enters("write", &basis);
+    let fills = vec![
+        Fill::Change {
+            block: "request".into(),
+            version: third,
+            since: second,
+        },
+        whole("opinions", opinions),
+    ];
+    b.filled(writer, 1, fills);
+    b.returns(writer);
+    b.finishes(writer, &[("text", true, None)], &["request", "opinions"]);
+    b.w
+}
+
+/// The tasks of the judged flow's two agents, and the digests of their texts as the context manager takes them.
+const WRITE: (&str, &str) = (
+    "Write the text the request asks for.",
+    "760573051761ee1732c257aaed8506937aa6181adcf188dd14060813213e7b26",
+);
+const JUDGE: (&str, &str) = (
+    "Judge the text, and give a verdict.",
+    "5ac83f0f57cae021adaa450db5d3ffa5d5c47ab61c1003de7f537a6218af38ba",
+);
+
+/// A version of a block filled whole.
+fn whole(block: &str, version: Seq) -> Fill {
+    Fill::Whole {
+        block: block.into(),
+        version,
+    }
+}
+
+/// A work built entry by entry, each at the next place.
+#[derive(Default)]
+struct Building {
+    w: Work,
+}
+
+impl Building {
+    fn person_writes(&mut self, block: &str) -> Seq {
+        let at = self.w.tick();
+        (self.w.contents).insert(
+            (block.into(), at),
+            format!("the {block}, as the owner wrote it at {}", at.0),
+        );
+        self.w.records.written.push(Written {
+            block: block.into(),
+            by: Outsider::Person,
+            matters: true,
+            value: None,
+            at,
+        });
+        at
+    }
+
+    /// The cell is entered: a run starts from these versions and its first round begins, given its task.
+    fn enters(&mut self, cell: &str, basis: &[(&str, Option<Seq>)]) -> RunId {
+        let run = RunId(self.w.name());
+        let at = self.w.tick();
+        self.w.records.started.push(Started {
             run,
             cell: cell.into(),
             at,
             because: vec![],
-            basis: [("request".into(), Some(first))].into(),
+            basis: basis.iter().map(|(b, v)| ((*b).into(), *v)).collect(),
         });
-        let at = w.tick();
-        w.records.rounds.push(Round { run, at });
-        w.given.insert((run, 1), Given::Task);
-        let filled = match cell {
-            "write" => {
-                let at = w.tick();
-                (w.records.delivered).push(Delivered {
-                    run,
-                    block: "request".into(),
-                    version: last,
-                    at,
-                });
-                vec![
-                    Fill::Task,
-                    Fill::Whole {
-                        block: "request".into(),
-                        version: first,
-                    },
-                    Fill::Change {
-                        block: "request".into(),
-                        version: last,
-                        since: first,
-                    },
-                ]
-            }
-            _ => vec![],
-        };
-        w.filled.insert((run, 1), filled);
-        let at = w.tick();
-        w.records.returned.push(Returned { run, at });
-        let at = w.tick();
-        w.contents
-            .insert((block.into(), at), format!("the {block}, of the new form"));
-        w.records.finished.push(Finished {
+        let at = self.w.tick();
+        self.w.records.rounds.push(Round { run, at });
+        self.w.given.insert((run, 1), Given::Task);
+        run
+    }
+
+    fn for_work(&self) -> Fill {
+        Fill::For { work: 1, item: 1 }
+    }
+
+    fn task(&self, (_, digest): (&str, &str)) -> Fill {
+        Fill::Task {
+            digest: digest.to_string(),
+        }
+    }
+
+    /// The first try of the round is filled with these.
+    fn filled(&mut self, run: RunId, round: usize, fills: Vec<Fill>) {
+        self.filled_at(run, round, 1, fills);
+    }
+
+    fn filled_at(&mut self, run: RunId, round: usize, attempt: usize, fills: Vec<Fill>) {
+        let at = self.w.tick();
+        self.w.filled.push(Filled {
+            at,
+            run,
+            round,
+            attempt,
+            fills,
+        });
+    }
+
+    /// The line begins a new session: the program no longer had the one it was in.
+    fn anew(&mut self, line: &str) {
+        let at = self.w.tick();
+        self.w.sessions.push(engine::Session {
+            at,
+            line: line.to_string(),
+            why: engine::Why::Lost,
+        });
+    }
+
+    fn put_in(&mut self, run: RunId, block: &str, version: Seq) {
+        let at = self.w.tick();
+        self.w.records.put_in.push(PutIn {
+            run,
+            block: block.into(),
+            version,
+            at,
+        });
+    }
+
+    fn returns(&mut self, run: RunId) {
+        let at = self.w.tick();
+        self.w.records.returned.push(Returned { run, at });
+    }
+
+    /// The run finishes, its return accepted: these blocks handed in, each with whether its meaning is unchanged and
+    /// its value, and these dealt with. Gives the place that names the versions it wrote.
+    fn finishes(&mut self, run: RunId, writes: &[(&str, bool, Option<&str>)], dealt_with: &[&str]) -> Seq {
+        let at = self.w.tick();
+        for (block, _, _) in writes {
+            (self.w.contents).insert(((*block).into(), at), format!("the {block}, of run {}", run.0));
+        }
+        self.w.records.finished.push(Finished {
             run,
             at,
-            writes: vec![Write {
-                block: block.into(),
-                meaning_unchanged,
-                value: None,
-            }],
-            dealt_with: Some(dealt_with),
+            writes: (writes.iter())
+                .map(|(block, meaning_unchanged, value)| Write {
+                    block: (*block).into(),
+                    meaning_unchanged: *meaning_unchanged,
+                    value: value.map(str::to_string),
+                })
+                .collect(),
+            dealt_with: Some(dealt_with.iter().map(|b| (*b).into()).collect()),
         });
+        at
+    }
+
+    /// The tool the run's return asked for is called, and has its result.
+    fn calls(&mut self, run: RunId, tool: &str) -> CallId {
+        let call = CallId(self.w.name());
+        let at = self.w.tick();
+        self.w.records.called.push(Called {
+            call,
+            run,
+            on: None,
+            at,
+        });
+        self.w.calls.insert(
+            call,
+            engine::Call::Asked(Ask::Tool {
+                name: tool.to_string(),
+                input: format!("what {tool} is run on"),
+            }),
+        );
+        let at = self.w.tick();
+        self.w.records.done.push(Done { call, at });
+        self.w.results.insert(call, format!("the whole result of {tool}"));
+        call
     }
 }
