@@ -9,7 +9,7 @@ use std::path::Path;
 use std::process::{ExitStatus, Stdio};
 use std::time::Duration;
 
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 
 use crate::held::Stop;
@@ -25,6 +25,7 @@ pub(crate) enum Ran {
     /// It ended by itself.
     Ended {
         status: ExitStatus,
+        /// What it printed on its standard output, where its lines were not each given as they came.
         stdout: Vec<u8>,
         stderr: Vec<u8>,
     },
@@ -32,14 +33,38 @@ pub(crate) enum Ran {
     Stopped,
 }
 
+/// What is done with each line of a program's standard output, without its newline, as it comes.
+pub(crate) type Lines<'a> = &'a mut (dyn FnMut(&[u8]) + Send);
+
 /// Runs the program, with this on its standard input where something is given, until it ends or is told to stop;
 /// or says why it could not be started. Where `group_file` is given, the program's process group is written there
 /// while it runs, and the file taken away once it has ended.
 pub(crate) async fn run(
+    command: Command,
+    stdin: Option<Vec<u8>>,
+    group_file: Option<&Path>,
+    stop: &mut Stop,
+) -> Result<Ran, String> {
+    run_with(command, stdin, group_file, stop, None).await
+}
+
+/// Runs the program as [`run`] does, each line of its standard output given to `lines` as it comes, and not kept.
+pub(crate) async fn streamed(
+    command: Command,
+    stdin: Option<Vec<u8>>,
+    group_file: Option<&Path>,
+    stop: &mut Stop,
+    lines: Lines<'_>,
+) -> Result<Ran, String> {
+    run_with(command, stdin, group_file, stop, Some(lines)).await
+}
+
+async fn run_with(
     mut command: Command,
     stdin: Option<Vec<u8>>,
     group_file: Option<&Path>,
     stop: &mut Stop,
+    lines: Option<Lines<'_>>,
 ) -> Result<Ran, String> {
     command
         .process_group(0)
@@ -56,39 +81,70 @@ pub(crate) async fn run(
         let started = started(group).await.unwrap_or_default();
         let _ = tokio::fs::write(file, format!("{group}\n{started}\n")).await;
     }
-    let ran = wait(child, stdin, group, &program, stop).await;
+    let ran = wait(child, stdin, group, &program, stop, lines).await;
     if let Some(file) = group_file {
         let _ = tokio::fs::remove_file(file).await;
     }
     ran
 }
 
-/// Waits for the child to end, writing its input, or stops its group once told to.
+/// Waits for the child to end, writing its input and reading its output, each line of it given to `lines` where
+/// they are given, or stops its group once told to.
 async fn wait(
     mut child: tokio::process::Child,
     stdin: Option<Vec<u8>>,
     group: Option<u32>,
     program: &str,
     stop: &mut Stop,
+    mut lines: Option<Lines<'_>>,
 ) -> Result<Ran, String> {
     if let (Some(bytes), Some(mut pipe)) = (stdin, child.stdin.take()) {
         // Written beside the reading of the output, so that a child that writes before it has read all does not
         // wait on a pipe nobody empties. A child that ends without reading all of it closes the pipe: that is no
-        // fault of the writing.
+        // fault of the writing. Dropped once written, the pipe closes, which tells the child it has all of it.
         tokio::spawn(async move {
             let _ = pipe.write_all(&bytes).await;
         });
     }
-    let output = child.wait_with_output();
+    // The standard error is read beside, so that neither pipe fills while the other is read.
+    let stderr = child.stderr.take().map(|mut pipe| {
+        tokio::spawn(async move {
+            let mut read = Vec::new();
+            let _ = pipe.read_to_end(&mut read).await;
+            read
+        })
+    });
+    let stdout = child.stdout.take();
+    let output = async {
+        let mut kept = Vec::new();
+        if let Some(stdout) = stdout {
+            let mut reader = BufReader::new(stdout);
+            let mut line = Vec::new();
+            loop {
+                line.clear();
+                let read = (reader.read_until(b'\n', &mut line).await)
+                    .map_err(|e| format!("{program}'s output could not be read: {e}"))?;
+                if read == 0 {
+                    break;
+                }
+                match &mut lines {
+                    Some(lines) => lines(line.strip_suffix(b"\n").unwrap_or(&line)),
+                    None => kept.extend_from_slice(&line),
+                }
+            }
+        }
+        let status = (child.wait().await).map_err(|e| format!("{program} could not be waited for: {e}"))?;
+        Ok::<_, String>((status, kept))
+    };
     tokio::pin!(output);
     tokio::select! {
         output = &mut output => {
-            let output = output.map_err(|e| format!("{program} could not be waited for: {e}"))?;
-            Ok(Ran::Ended {
-                status: output.status,
-                stdout: output.stdout,
-                stderr: output.stderr,
-            })
+            let (status, stdout) = output?;
+            let stderr = match stderr {
+                Some(read) => read.await.unwrap_or_default(),
+                None => Vec::new(),
+            };
+            Ok(Ran::Ended { status, stdout, stderr })
         }
         () = stop.told() => {
             if let Some(group) = group {

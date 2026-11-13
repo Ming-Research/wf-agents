@@ -39,7 +39,7 @@ async fn a_work_goes_to_its_merge_with_the_command_line() {
     assert_eq!(told, calls[0].stdin);
     assert!(
         real.data
-            .join(format!("rounds/1/{}-1.result.json", plan_run.0))
+            .join(format!("rounds/1/{}-1.stream.jsonl", plan_run.0))
             .is_file()
     );
     assert!(

@@ -1,22 +1,31 @@
-//! The `claude` command line, as a round is run with it: the arguments, which session it begins or goes on in, and
-//! what it printed, read into what came back and what it took. Each is a function of what it is given, with no I/O.
+//! The `claude` command line, as a round is run with it: the arguments, the environment, the message on its standard
+//! input, which session it begins or goes on in, the hooks it is given, and its stream read into what came back and
+//! what it took. Each is a function of what it is given, with no I/O, but for the hooks' shell commands and the files
+//! the owner's words wait in ([`Words`]).
 //!
-//! Learnt from the command line (version 2.1.321): `-p --output-format json` prints one JSON object, the result, on
-//! the standard output, with the structured return in `structured_output`, the tokens of this call in `usage`, and in
-//! `total_cost_usd` the cost of the whole session so far, every earlier call of it included: a round's own cost is
-//! that less what the session's earlier rounds cost. The message is read whole from the standard input. A failed call
-//! exits with 1 and, where it got as far, prints a result with `is_error` set and its reason in `result`. Beginning a
+//! As the old engine ran it (`crates/sessions/src/cli.rs` on `old-main`): `-p --input-format stream-json` reads the
+//! message from the standard input as one user message of the stream-json format, a line of JSON ([`stdin`]);
+//! `--output-format stream-json --verbose` prints a line of JSON for each thing that happens, and the result last,
+//! with the structured return in `structured_output`, the tokens of this call in `usage`, and in `total_cost_usd` the
+//! cost of the whole session so far, every earlier call of it included: a round's own cost is that less what the
+//! session's earlier rounds cost. With `--include-partial-messages` the stream also carries each message in pieces as
+//! the model writes it (`stream_event` lines), the input of each tool among them, which is the only place that holds
+//! an attempt at a return the command line refused: its result gives no text of one. A failed call exits with 1 and,
+//! where it got as far, prints a result with `is_error` set and its reason in `result` or `errors`. Beginning a
 //! session whose id is taken says on the standard error `Session ID <id> is already in use.`, and going on in one
 //! there is none of says `No conversation found with session ID: <id>`; both print nothing on the standard output.
 
 use std::path::{Path, PathBuf};
 
 use decide::RunId;
+use decide::run::Failure;
 use flow::Compiled;
 use serde::Deserialize;
+use serde_json::{Value, json};
 use uuid::Uuid;
 use work::{RanOn, Spent, Work, sessions};
 
+use crate::failure;
 use crate::permissions::Permissions;
 use crate::settings::Agents;
 
@@ -63,21 +72,94 @@ pub struct Compacted {
 }
 
 impl Compacted {
-    /// The settings that give the program the hook, as JSON: at the start of a session it compacted, the program adds
-    /// what the hook's command prints to the session.
-    fn settings(&self) -> String {
-        let quote = |path: &Path| format!("'{}'", path.display().to_string().replace('\'', "'\\''"));
-        let command = format!("printf x >> {} && cat {}", quote(&self.marks), quote(&self.again));
-        let hook = serde_json::json!({ "type": "command", "command": command });
-        let hooks = serde_json::json!({ "SessionStart": [{ "matcher": "compact", "hooks": [hook] }] });
-        serde_json::json!({ "hooks": hooks }).to_string()
+    /// The hook's shell command.
+    fn command(&self) -> String {
+        format!("printf x >> {} && cat {}", quote(&self.marks), quote(&self.again))
     }
 }
 
+/// What the owner says to a round while it runs, given to its session right after the next use of one of the
+/// program's own tools: the runner puts it in one file ([`Words::put`]), and the hook the command line runs after each
+/// use of a tool moves that file aside, as the first `<delivered>.<n>.json` there is none of, and prints it, which the
+/// program adds to the session. The hook needs nothing but the shell and these files, so that what runs the agents
+/// may be apart from the engine. After the program's own tool for the return the hook gives nothing: the round has
+/// made its return, and words given then would be taken as delivered and never read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Words {
+    /// The file the words wait in, as the hook prints them.
+    pub waiting: PathBuf,
+    /// Where the words the hook gave are moved, without the number and the extension.
+    pub delivered: PathBuf,
+}
+
+impl Words {
+    /// The hook's shell command: it reads what the program says of the tool on its standard input, and gives nothing
+    /// after the tool for the return.
+    fn command(&self) -> String {
+        let (waiting, delivered) = (quote(&self.waiting), quote(&self.delivered));
+        format!(
+            "if ! grep -Eq '\"tool_name\" *: *\"{STRUCTURED_OUTPUT}\"'; then if [ -e {waiting} ]; then n=1; \
+             while [ -e {delivered}.$n.json ]; do n=$((n+1)); done; \
+             {{ mv {waiting} {delivered}.$n.json 2>/dev/null && cat {delivered}.$n.json; }} || :; fi; fi"
+        )
+    }
+
+    /// Puts what is said where the hook reads it, as the hook is to print it: what the program adds to the session
+    /// after a use of a tool. What waits there still is taken back first and given before it, so that one file holds
+    /// everything said: a rename either takes it back whole or finds that the hook has moved it. One writer puts at a
+    /// time.
+    pub async fn put(&self, said: &str) -> std::result::Result<(), String> {
+        let named = |path: &Path, e: std::io::Error| format!("{}: {e}", path.display());
+        let taking = self.waiting.with_extension("json.taking");
+        let mut context = String::new();
+        match tokio::fs::rename(&self.waiting, &taking).await {
+            Ok(()) => {
+                let bytes = tokio::fs::read(&taking).await.map_err(|e| named(&taking, e))?;
+                let waited: Value = serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", taking.display()))?;
+                if let Some(text) = waited["hookSpecificOutput"]["additionalContext"].as_str() {
+                    context.push_str(text);
+                    context.push_str("\n\n");
+                }
+                tokio::fs::remove_file(&taking).await.map_err(|e| named(&taking, e))?;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(named(&self.waiting, e)),
+        }
+        context.push_str(said);
+        let output = json!({ "hookSpecificOutput": { "hookEventName": "PostToolUse", "additionalContext": context } });
+        // Written whole beside it and renamed into place, so that the hook never moves a file half written.
+        let part = self.waiting.with_extension("json.part");
+        tokio::fs::write(&part, output.to_string())
+            .await
+            .map_err(|e| named(&part, e))?;
+        tokio::fs::rename(&part, &self.waiting)
+            .await
+            .map_err(|e| named(&self.waiting, e))
+    }
+}
+
+/// A path as a shell reads it back as it is: in single quotes.
+fn quote(path: &Path) -> String {
+    format!("'{}'", path.display().to_string().replace('\'', "'\\''"))
+}
+
+/// The settings that give the program its hooks, as JSON: at the start of a session it compacted, and after each use
+/// of a tool, the program adds what the hook's command prints to the session.
+fn hooks(compacted: &Compacted, words: &Words) -> String {
+    let hook = |command: String| json!([{ "type": "command", "command": command }]);
+    let hooks = json!({
+        "SessionStart": [{ "matcher": "compact", "hooks": hook(compacted.command()) }],
+        "PostToolUse": [{ "matcher": "*", "hooks": hook(words.command()) }],
+    });
+    json!({ "hooks": hooks }).to_string()
+}
+
 /// The arguments of a round's command line, after the program: the engine's own, then the installation's, then the
-/// line's permissions, then the session. The schema is the same for every round, and the system prompt for every round
-/// of a line, so that they open every request of a session alike and the prompt cache keeps them. The round runs on the
-/// model and at the effort it was given.
+/// line's permissions, then the session. The message goes in, and the stream comes out, as stream-json; the stream
+/// carries each message in pieces as it is written, which rebuild an attempt at a return the command line refused. The
+/// schema is the same for every round, and the system prompt for every round of a line, so that they open every
+/// request of a session alike and the prompt cache keeps them. The round runs on the model and at the effort it was
+/// given.
 #[allow(clippy::too_many_arguments)]
 pub fn arguments(
     agents: &Agents,
@@ -86,20 +168,31 @@ pub fn arguments(
     schema: &str,
     permissions: &Permissions,
     compacted: &Compacted,
+    words: &Words,
     session: Uuid,
     begin: Begin,
 ) -> Vec<String> {
-    let mut args: Vec<String> = ["-p", "--output-format", "json", "--model", &ran.model]
-        .iter()
-        .map(|a| a.to_string())
-        .collect();
+    let mut args: Vec<String> = [
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--include-partial-messages",
+        "--model",
+        &ran.model,
+    ]
+    .iter()
+    .map(|a| a.to_string())
+    .collect();
     if let Some(effort) = &ran.effort {
         args.extend(["--effort".to_string(), effort.clone()]);
     }
     args.extend(["--append-system-prompt".to_string(), protocol.to_string()]);
     args.extend(["--json-schema".to_string(), schema.to_string()]);
     args.extend(["--setting-sources".to_string(), agents.setting_sources.clone()]);
-    args.extend(["--settings".to_string(), compacted.settings()]);
+    args.extend(["--settings".to_string(), hooks(compacted, words)]);
     args.extend(agents.args.iter().cloned());
     args.extend(permissions.arguments());
     let flag = match begin {
@@ -138,17 +231,28 @@ pub fn knows_model(model: &str) -> bool {
 /// name it.
 pub const KEPT: [&str; 7] = ["PATH", "HOME", "USER", "LANG", "TMPDIR", "TERM", "SHELL"];
 
+/// The variables the carrier sets for every round's command line: a round waits for whatever it starts, since a
+/// subagent left in the background has the command line ask for the return before it is back; each tool's input is
+/// streamed whole, not in pieces, so that the service checks its JSON, which ended returns that came cut off; the
+/// command line asks the model again three times, not five, for a return that does not fit its form, each try writing
+/// the whole return again; and rustup installs no Rust toolchain that a command an agent may run asks for and the
+/// machine lacks: the command fails instead of downloading it, which would write beyond the worktree.
+pub const ENVIRONMENT: [(&str, &str); 4] = [
+    ("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1"),
+    ("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0"),
+    ("MAX_STRUCTURED_OUTPUT_RETRIES", "3"),
+    ("RUSTUP_AUTO_INSTALL", "0"),
+];
+
 /// The environment a round's command line is given, in place of the engine's own: of the engine's variables, those
-/// [`KEPT`], every `LC_*`, and those the settings name; then the carrier's own: a round waits for whatever it starts,
-/// the command line asks the model again a few times for a return that does not fit its form, and its directory of
-/// settings is the installation's where the settings name one.
+/// [`KEPT`], every `LC_*`, and those the settings name; then the carrier's own, [`ENVIRONMENT`], and the directory of
+/// settings, the installation's where the settings name one.
 pub fn environment(agents: &Agents, engine: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
     let kept =
         |name: &str| KEPT.contains(&name) || name.starts_with("LC_") || agents.env.iter().any(|named| named == name);
     let mut env: Vec<(String, String)> = engine.into_iter().filter(|(name, _)| kept(name)).collect();
     env.sort();
-    env.push(("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS".to_string(), "1".to_string()));
-    env.push(("MAX_STRUCTURED_OUTPUT_RETRIES".to_string(), "3".to_string()));
+    env.extend(ENVIRONMENT.map(|(name, value)| (name.to_string(), value.to_string())));
     if let Some(dir) = &agents.config_dir {
         env.push(("CLAUDE_CONFIG_DIR".to_string(), dir.to_string_lossy().into_owned()));
     }
@@ -203,11 +307,15 @@ struct Result {
     is_error: bool,
     #[serde(default)]
     result: Option<String>,
+    /// What went wrong on the command line's side, such as running out of tries at the return, where the result
+    /// has no text of it.
+    #[serde(default)]
+    errors: Vec<String>,
     #[serde(default)]
     total_cost_usd: f64,
     #[serde(default)]
     usage: Usage,
-    structured_output: Option<serde_json::Value>,
+    structured_output: Option<Value>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -239,7 +347,7 @@ struct Iteration {
 /// What a round's command line printed, read: the structured return, and what the round took.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Read {
-    pub structured: serde_json::Value,
+    pub structured: Value,
     pub spent: Spent,
 }
 
@@ -252,41 +360,241 @@ pub struct NoResult {
     pub spent: Option<Spent>,
 }
 
-/// Reads what the command line printed on its standard output, for a round that began its session or went on in it
-/// with the session having cost `before`; or says why it is no result to take, with what the round took where the
-/// result could be read. A round that began its session cost the session's total; one that went on in it, that total
-/// less what the line's earlier rounds cost, or the whole total where that is less (measured: the total is the whole
-/// session's, even where two lines take turns in one worktree).
-pub fn read(stdout: &[u8], begin: Begin, before: u64) -> std::result::Result<Read, NoResult> {
-    let result: Result = serde_json::from_slice(stdout).map_err(|e| {
-        let text = String::from_utf8_lossy(stdout);
-        NoResult {
-            why: format!("what the command line printed is not its result ({e}): {}", text.trim()),
-            spent: None,
+/// The tool the command line hands a return in with, under `--json-schema`.
+pub const STRUCTURED_OUTPUT: &str = "StructuredOutput";
+
+/// What a partial message's line starts with, as the command line writes it.
+const PARTIAL: &str = r#"{"type":"stream_event""#;
+
+/// The command line's stream as it comes, line by line: its result, and each attempt at a return, rebuilt from the
+/// partial messages, with what the command line said of those it refused.
+#[derive(Debug, Default)]
+pub struct Stream {
+    /// Whether it gave any line.
+    any: bool,
+    /// Its result: the last it gave.
+    result: Option<Value>,
+    attempts: Attempts,
+    /// What the command line said of each use of a tool of the agent's own that it refused, by the use's id.
+    refusals: Vec<(String, String)>,
+}
+
+impl Stream {
+    /// Takes one line of the stream, without its newline, and says whether the line is kept with the round: every
+    /// line is but a partial message, which is kept only where it rebuilds an attempt at a return, so that what is
+    /// kept rebuilds the attempts again and holds each token of the model's once.
+    pub fn line(&mut self, line: &[u8]) -> bool {
+        self.any = true;
+        let Ok(text) = std::str::from_utf8(line) else {
+            return true;
+        };
+        if text.starts_with(PARTIAL) && !self.attempts.wants(text) {
+            return false;
         }
-    })?;
-    let spent = spent(&result, begin, before);
-    if result.is_error {
-        let why = result.result.unwrap_or_default();
+        let Ok(v) = serde_json::from_str::<Value>(text) else {
+            return true;
+        };
+        match v["type"].as_str() {
+            Some("stream_event") => return self.attempts.event(&v),
+            Some("result") => self.result = Some(v),
+            Some("user") if v["parent_tool_use_id"].is_null() => self.refusals.extend(refusals(&v)),
+            _ => {}
+        }
+        true
+    }
+
+    /// Whether the stream gave any line.
+    pub fn is_empty(&self) -> bool {
+        !self.any
+    }
+
+    /// Whether the stream gave a result.
+    pub fn has_result(&self) -> bool {
+        self.result.is_some()
+    }
+
+    /// Reads the stream, for a round that began its session or went on in it with the session having cost `before`:
+    /// the return the command line took, or, where it gave up on the return, its last attempt at it, rebuilt; or says
+    /// why there is no return to take, with what the round took where the result could be read. A round that began
+    /// its session cost the session's total; one that went on in it, that total less what the line's earlier rounds
+    /// cost, or the whole total where that is less (measured: the total is the whole session's, even where two lines
+    /// take turns in one worktree).
+    pub fn read(self, begin: Begin, before: u64) -> std::result::Result<Read, NoResult> {
+        let Some(result) = self.result else {
+            let why = "the command line's stream holds no result".to_string();
+            return Err(NoResult { why, spent: None });
+        };
+        let result: Result = serde_json::from_value(result).map_err(|e| NoResult {
+            why: format!("the command line's result cannot be read: {e}"),
+            spent: None,
+        })?;
+        let spent = spent(&result, begin, before);
+        if !result.is_error {
+            return match result.structured_output {
+                Some(structured) => Ok(Read { structured, spent }),
+                None => Err(NoResult {
+                    why: "the command line's result holds no structured return".to_string(),
+                    spent: Some(spent),
+                }),
+            };
+        }
+        let said = [result.result.unwrap_or_default(), result.errors.join("; ")];
+        let said = (said.into_iter())
+            .filter(|said| !said.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("; ");
         let why = match result.subtype.as_deref() {
             Some(subtype) if subtype != "success" => {
-                format!("the command line's result is an error ({subtype}): {why}")
+                format!("the command line's result is an error ({subtype}): {said}")
             }
-            _ => format!("the command line's result is an error: {why}"),
+            _ => format!("the command line's result is an error: {said}"),
         };
-        return Err(NoResult {
+        // The command line gave up on the return, having refused every attempt at it: the last is read as any return
+        // is, by the engine's own reading, which sends it back where it cannot be read.
+        if failure::kind(&why) == Failure::Unread
+            && let Some((id, raw)) = self.attempts.last()
+        {
+            return match serde_json::from_str::<Value>(&raw) {
+                Ok(structured) => Ok(Read { structured, spent }),
+                Err(e) => {
+                    let refused = (self.refusals.iter())
+                        .find(|(refused, _)| *refused == id)
+                        .map(|(_, said)| format!(", and the command line said: {}", without_quote(said)))
+                        .unwrap_or_default();
+                    Err(NoResult {
+                        why: format!("{why}; its last attempt at the return is no JSON ({e}){refused}"),
+                        spent: Some(spent),
+                    })
+                }
+            };
+        }
+        Err(NoResult {
             why,
             spent: Some(spent),
-        });
+        })
     }
-    let Some(structured) = result.structured_output else {
-        let why = "the command line's result holds no structured return".to_string();
-        return Err(NoResult {
-            why,
-            spent: Some(spent),
-        });
-    };
-    Ok(Read { structured, spent })
+}
+
+/// Reads a whole stream, line by line, as [`Stream::read`] does.
+pub fn read(stream: &[u8], begin: Begin, before: u64) -> std::result::Result<Read, NoResult> {
+    let mut read = Stream::default();
+    for line in stream.split(|b| *b == b'\n').filter(|line| !line.is_empty()) {
+        read.line(line);
+    }
+    read.read(begin, before)
+}
+
+/// The inputs the model gave the command line's tool for the return, each an attempt at a return, rebuilt whole from
+/// the partial messages (`input_json_delta`) of the agent's own messages; the pieces of every other input are passed
+/// over unread.
+#[derive(Debug, Default)]
+struct Attempts {
+    /// The input being written: its block's index in its message, its use's id, and the input so far.
+    open: Option<(i64, String, String)>,
+    /// Each input written, by its use's id, in order.
+    done: Vec<(String, String)>,
+}
+
+impl Attempts {
+    /// Whether a line that is a partial message may start, add to or end an input.
+    fn wants(&self, line: &str) -> bool {
+        let ends = ["input_json_delta", "content_block_stop", "message_start"];
+        line.contains("content_block_start") || (self.open.is_some() && ends.iter().any(|kind| line.contains(kind)))
+    }
+
+    /// Takes a partial message, and says whether it started, added to or ended an input.
+    fn event(&mut self, v: &Value) -> bool {
+        if !v["parent_tool_use_id"].is_null() {
+            return false;
+        }
+        let event = &v["event"];
+        let index = event["index"].as_i64();
+        match event["type"].as_str() {
+            // A new message numbers its blocks afresh: an input left open was cut off, and is kept as it came.
+            Some("message_start") => self.close(None),
+            Some("content_block_start") => {
+                let block = &event["content_block"];
+                let Some(index) = index.filter(|_| block["type"] == "tool_use" && block["name"] == STRUCTURED_OUTPUT)
+                else {
+                    return false;
+                };
+                self.close(None);
+                let id = block["id"].as_str().unwrap_or_default().to_string();
+                self.open = Some((index, id, String::new()));
+                true
+            }
+            Some("content_block_delta") if event["delta"]["type"] == "input_json_delta" => {
+                match (&mut self.open, event["delta"]["partial_json"].as_str()) {
+                    (Some((at, _, raw)), Some(piece)) if Some(*at) == index => {
+                        raw.push_str(piece);
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            Some("content_block_stop") => self.close(index),
+            _ => false,
+        }
+    }
+
+    /// Ends the input being written, at the stop of its block, or whatever block it is at for none; and says whether
+    /// one was ended.
+    fn close(&mut self, index: Option<i64>) -> bool {
+        match self.open.take() {
+            Some((at, id, raw)) if index.is_none_or(|index| index == at) => {
+                self.done.push((id, raw));
+                true
+            }
+            open => {
+                self.open = open;
+                false
+            }
+        }
+    }
+
+    /// The last input written, cut off or not, with its use's id.
+    fn last(mut self) -> Option<(String, String)> {
+        self.close(None);
+        self.done.pop()
+    }
+}
+
+/// The uses of tools the command line refused that a message of the agent's own answers, each by its use's id with
+/// what the command line said: the results of tools that are errors.
+fn refusals(message: &Value) -> Vec<(String, String)> {
+    let content = message["message"]["content"].as_array().into_iter().flatten();
+    (content.filter(|c| c["type"] == "tool_result" && c["is_error"] == true))
+        .map(|c| {
+            let said = match &c["content"] {
+                Value::String(text) => text.clone(),
+                Value::Array(parts) => (parts.iter().filter_map(|part| part["text"].as_str()))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                _ => String::new(),
+            };
+            (c["tool_use_id"].as_str().unwrap_or_default().to_string(), said)
+        })
+        .collect()
+}
+
+/// What the command line said of an input it refused, without the part of the input it quotes after "You sent (first
+/// 200 of N bytes):", which is the agent's own return.
+fn without_quote(said: &str) -> String {
+    let said = said.trim().trim_start_matches("<tool_use_error>");
+    match said.find("bytes):") {
+        Some(at) => said[..at + "bytes)".len()].to_string(),
+        None => said.trim_end_matches("</tool_use_error>").to_string(),
+    }
+}
+
+/// What a round's command line is given on its standard input: the message as one user message of the stream-json
+/// input format, a line of JSON.
+pub fn stdin(message: &str) -> Vec<u8> {
+    let content = json!([{ "type": "text", "text": message }]);
+    let line = json!({ "type": "user", "message": { "role": "user", "content": content } });
+    let mut bytes = line.to_string().into_bytes();
+    bytes.push(b'\n');
+    bytes
 }
 
 /// What the call whose result this is took.
@@ -317,9 +625,9 @@ mod tests {
 
     use super::*;
 
-    /// A result the command line printed for a session's first round, with what named the machine and the account
-    /// replaced.
-    const RESULT: &str = include_str!("../tests/fixtures/result.json");
+    /// A stream in the command line's form, with the result it printed for a session's first round last, what named
+    /// the machine and the account replaced: the return written in pieces, then taken.
+    const STREAM: &str = include_str!("../tests/fixtures/stream.jsonl");
 
     fn agents() -> Agents {
         Agents {
@@ -336,9 +644,48 @@ mod tests {
         }
     }
 
+    fn words() -> Words {
+        Words {
+            waiting: PathBuf::from("rounds/1/2-3.words.json"),
+            delivered: PathBuf::from("rounds/1/2-3.delivered"),
+        }
+    }
+
+    /// A partial message of the agent's own.
+    fn event(event: Value) -> String {
+        json!({ "type": "stream_event", "event": event, "parent_tool_use_id": null }).to_string()
+    }
+
+    /// The partial messages of an attempt at a return, its input written in these pieces, as the first block of a
+    /// message.
+    fn attempt(id: &str, pieces: &[&str]) -> Vec<String> {
+        let block = json!({ "type": "tool_use", "id": id, "name": STRUCTURED_OUTPUT, "input": {} });
+        let mut lines = vec![
+            event(json!({ "type": "message_start", "message": {} })),
+            event(json!({ "type": "content_block_start", "index": 0, "content_block": block })),
+        ];
+        for piece in pieces {
+            let delta = json!({ "type": "input_json_delta", "partial_json": piece });
+            lines.push(event(
+                json!({ "type": "content_block_delta", "index": 0, "delta": delta }),
+            ));
+        }
+        lines.push(event(json!({ "type": "content_block_stop", "index": 0 })));
+        lines
+    }
+
+    /// What the command line answers an attempt it refused with.
+    fn refused(id: &str, said: &str) -> String {
+        let result = json!({ "type": "tool_result", "tool_use_id": id, "is_error": true, "content": said });
+        json!({ "type": "user", "parent_tool_use_id": null, "message": { "content": [result] } }).to_string()
+    }
+
+    /// The result of a call that gave up on the return.
+    const GAVE_UP: &str = r#"{"type":"result","subtype":"error_max_structured_output_retries","is_error":true,"errors":["Failed to provide valid structured output after 3 attempts"],"total_cost_usd":0.4,"usage":{"input_tokens":10,"output_tokens":300}}"#;
+
     #[test]
-    fn the_fixture_reads_to_what_it_took() {
-        let read = read(RESULT.as_bytes(), Begin::New, 0).expect("the fixture reads");
+    fn the_stream_reads_to_its_return_and_what_it_took() {
+        let read = read(STREAM.as_bytes(), Begin::New, 0).expect("the fixture reads");
         assert_eq!(
             read.spent,
             Spent {
@@ -354,13 +701,117 @@ mod tests {
     }
 
     #[test]
+    fn a_partial_message_is_kept_only_where_it_rebuilds_an_attempt_at_a_return() {
+        let mut stream = Stream::default();
+        let kept: Vec<&str> = (STREAM.lines()).filter(|line| stream.line(line.as_bytes())).collect();
+        let partial = kept.iter().filter(|line| line.starts_with(PARTIAL)).count();
+        // The text's pieces, its message's start and end are passed over; the return's start, pieces and stop are kept.
+        assert_eq!(partial, 4, "{kept:#?}");
+        assert_eq!(kept.len() - partial, 5);
+        // What is kept rebuilds the same attempts.
+        let mut again = Stream::default();
+        for line in &kept {
+            assert!(again.line(line.as_bytes()), "{line}");
+        }
+        let raw = again.attempts.last().map(|(_, raw)| raw);
+        assert_eq!(
+            raw.as_deref(),
+            Some(r#"{"hands_in": [{"block": "greeting", "content": "hello"}], "asks": []}"#)
+        );
+    }
+
+    #[test]
+    fn a_return_the_command_line_gave_up_on_is_its_last_attempt_rebuilt_from_the_stream() {
+        // Lists written as strings, which the command line's schema refuses and the engine reads; the first inside text
+        // of characters of several bytes, cut into pieces anywhere.
+        let list = json!([{ "block": "plan", "content": "Greet \u{1f600}\u{2192}\"", "matters": true }]);
+        let first = json!({ "hands_in": list.to_string(), "asks": [] }).to_string();
+        let last = r#"{"hands_in": [{"block": "plan", "content": "Greet by name.", "matters": true}], "asks": "[]"}"#;
+        let cut: Vec<usize> = (first.char_indices().map(|(i, _)| i))
+            .filter(|i| i % 7 == 0)
+            .chain([first.len()])
+            .collect();
+        let pieces: Vec<&str> = cut.windows(2).map(|w| &first[w[0]..w[1]]).collect();
+        let init = json!({ "type": "system", "subtype": "init", "session_id": "s" }).to_string();
+        let mut lines = vec![init.clone()];
+        lines.extend(attempt("so-1", &pieces));
+        lines.push(refused(
+            "so-1",
+            "Output does not match required schema: /hands_in: must be array",
+        ));
+        lines.extend(attempt("so-2", &[&last[..20], &last[20..]]));
+        lines.push(refused(
+            "so-2",
+            "Output does not match required schema: /asks: must be array",
+        ));
+        lines.push(GAVE_UP.to_string());
+        let read = read(lines.join("\n").as_bytes(), Begin::New, 0).expect("the last attempt is taken");
+        assert_eq!(read.structured, serde_json::from_str::<Value>(last).unwrap());
+        assert_eq!(read.spent.usd_micros, 400_000, "what the call cost");
+        assert_eq!(read.spent.output_tokens, 300);
+
+        // The first attempt alone, rebuilt whole across the pieces that cut its characters.
+        let mut only = vec![init];
+        only.extend(attempt("so-1", &pieces));
+        only.push(GAVE_UP.to_string());
+        let read = super::read(only.join("\n").as_bytes(), Begin::New, 0).expect("it is taken");
+        assert_eq!(read.structured, serde_json::from_str::<Value>(&first).unwrap());
+    }
+
+    #[test]
+    fn a_last_attempt_that_is_no_json_is_no_return_and_says_why() {
+        let broken = r#"{"hands_in": [{"block": "plan", "content": "a "quoted" word", "matters": true}], "asks": []}"#;
+        let said = format!(
+            "<tool_use_error>InputValidationError: StructuredOutput was called with input that could not be parsed \
+             as JSON.\nYou sent (first 200 of {} bytes): {broken}</tool_use_error>",
+            broken.chars().count()
+        );
+        let mut lines = attempt("so-1", &[broken]);
+        lines.push(refused("so-1", &said));
+        lines.push(GAVE_UP.to_string());
+        let no = read(lines.join("\n").as_bytes(), Begin::New, 0).expect_err("no JSON is no return");
+        assert!(
+            no.why.contains("its last attempt at the return is no JSON"),
+            "{}",
+            no.why
+        );
+        assert!(no.why.contains("could not be parsed as JSON."), "{}", no.why);
+        assert!(
+            !no.why.contains("quoted"),
+            "the attempt itself is not quoted: {}",
+            no.why
+        );
+        assert_eq!(failure::kind(&no.why), Failure::Unread, "it is sent back");
+        assert_eq!(no.spent.map(|s| s.usd_micros), Some(400_000));
+        // Given up on with no attempt in the stream, the result's own words say why.
+        let no = read(GAVE_UP.as_bytes(), Begin::New, 0).expect_err("nothing to take");
+        assert!(
+            no.why.contains("Failed to provide valid structured output"),
+            "{}",
+            no.why
+        );
+    }
+
+    #[test]
+    fn an_attempt_of_a_subagent_or_of_another_failure_is_not_taken() {
+        let mut lines = attempt("so-1", &[r#"{"hands_in": [], "asks": []}"#]);
+        let error = r#"{"type":"result","subtype":"success","is_error":true,"result":"API Error: 529 Overloaded"}"#;
+        lines.push(error.to_string());
+        assert!(
+            read(lines.join("\n").as_bytes(), Begin::New, 0).is_err(),
+            "a failure of another kind"
+        );
+        let mut stream = Stream::default();
+        let sub = json!({ "type": "stream_event", "parent_tool_use_id": "toolu_9",
+            "event": { "type": "content_block_start", "index": 0,
+                       "content_block": { "type": "tool_use", "id": "x", "name": STRUCTURED_OUTPUT } } });
+        assert!(!stream.line(sub.to_string().as_bytes()), "a subagent's is not kept");
+        assert!(stream.attempts.last().is_none());
+    }
+
+    #[test]
     fn a_round_ended_with_the_context_of_its_last_call() {
-        let read = read(RESULT.as_bytes(), Begin::New, 0).expect("the fixture reads");
-        assert_eq!(read.spent.context_tokens, Some(4841));
-        let two = r#"{"type":"result","is_error":false,"total_cost_usd":0.1,"structured_output":{},
-            "usage":{"input_tokens":3,"output_tokens":9,"iterations":[
-                {"input_tokens":1,"cache_read_input_tokens":100,"cache_creation_input_tokens":20},
-                {"input_tokens":2,"cache_read_input_tokens":120,"cache_creation_input_tokens":30}]}}"#;
+        let two = r#"{"type":"result","is_error":false,"total_cost_usd":0.1,"structured_output":{},"usage":{"input_tokens":3,"output_tokens":9,"iterations":[{"input_tokens":1,"cache_read_input_tokens":100,"cache_creation_input_tokens":20},{"input_tokens":2,"cache_read_input_tokens":120,"cache_creation_input_tokens":30}]}}"#;
         let read = super::read(two.as_bytes(), Begin::New, 0).expect("it reads");
         assert_eq!(read.spent.context_tokens, Some(152), "the last call's prompt");
         let none = r#"{"type":"result","is_error":false,"total_cost_usd":0.1,"structured_output":{}}"#;
@@ -375,13 +826,13 @@ mod tests {
 
     #[test]
     fn a_resumed_round_costs_what_the_session_cost_more() {
-        let read = read(RESULT.as_bytes(), Begin::Resume, 1000).expect("the fixture reads");
+        let read = read(STREAM.as_bytes(), Begin::Resume, 1000).expect("the fixture reads");
         assert_eq!(read.spent.usd_micros, 15);
     }
 
     #[test]
     fn a_resumed_round_whose_session_cost_less_than_before_costs_the_whole_total() {
-        let read = read(RESULT.as_bytes(), Begin::Resume, 5000).expect("the fixture reads");
+        let read = read(STREAM.as_bytes(), Begin::Resume, 5000).expect("the fixture reads");
         assert_eq!(read.spent.usd_micros, 1015);
     }
 
@@ -392,6 +843,9 @@ mod tests {
         assert!(refused.why.contains("issue with the selected model"), "{}", refused.why);
         let nothing = read(b"Error: something", Begin::New, 0).expect_err("what is no JSON is not taken");
         assert_eq!(nothing.spent, None, "what the round took is not known");
+        let cut = STREAM.lines().take(5).collect::<Vec<_>>().join("\n");
+        let cut = read(cut.as_bytes(), Begin::New, 0).expect_err("a stream with no result is not taken");
+        assert_eq!(cut.spent, None);
         let bare = r#"{"type":"result","is_error":false,"result":"hello","total_cost_usd":0.1}"#;
         assert!(
             read(bare.as_bytes(), Begin::New, 0).is_err(),
@@ -401,8 +855,7 @@ mod tests {
 
     #[test]
     fn a_result_that_is_no_return_still_says_what_its_call_took() {
-        let error = r#"{"type":"result","is_error":true,"result":"Out of structured output retries.","total_cost_usd":0.8,
-            "usage":{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20}}"#;
+        let error = r#"{"type":"result","is_error":true,"result":"Out of structured output retries.","total_cost_usd":0.8,"usage":{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20}}"#;
         let spent = Spent {
             usd_micros: 300_000,
             input_tokens: 15,
@@ -415,6 +868,19 @@ mod tests {
         let bare = r#"{"type":"result","is_error":false,"total_cost_usd":0.8}"#;
         let refused = read(bare.as_bytes(), Begin::New, 0).expect_err("no structured return is not taken");
         assert_eq!(refused.spent.map(|s| s.usd_micros), Some(800_000));
+    }
+
+    #[test]
+    fn the_message_goes_in_as_one_user_message_of_the_stream() {
+        let bytes = stdin("# Plan\n\nSay \"hello\".");
+        assert_eq!(bytes.iter().filter(|b| **b == b'\n').count(), 1, "one line");
+        let line: Value = serde_json::from_slice(&bytes).expect("JSON");
+        assert_eq!(line["type"], "user");
+        assert_eq!(line["message"]["role"], "user");
+        assert_eq!(
+            line["message"]["content"],
+            json!([{ "type": "text", "text": "# Plan\n\nSay \"hello\"." }])
+        );
     }
 
     #[test]
@@ -439,15 +905,25 @@ mod tests {
                 "SCHEMA",
                 &permissions,
                 &compacted,
+                &words(),
                 session,
                 begin,
             )
         };
-        let hook = r#"{"hooks":{"SessionStart":[{"hooks":[{"command":"printf x >> 'rounds/1/2-3.compacted' && cat 'rounds/1/2-3.again.md'","type":"command"}],"matcher":"compact"}]}}"#;
+        let hooks = json!({ "hooks": {
+            "SessionStart": [{ "matcher": "compact", "hooks": [{ "type": "command",
+                "command": "printf x >> 'rounds/1/2-3.compacted' && cat 'rounds/1/2-3.again.md'" }] }],
+            "PostToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": words().command() }] }],
+        } });
+        let hooks = hooks.to_string();
         let common = [
             "-p",
+            "--input-format",
+            "stream-json",
             "--output-format",
-            "json",
+            "stream-json",
+            "--verbose",
+            "--include-partial-messages",
             "--model",
             "claude-haiku-5-5",
             "--append-system-prompt",
@@ -457,7 +933,7 @@ mod tests {
             "--setting-sources",
             "user",
             "--settings",
-            hook,
+            &hooks,
             "--strict-mcp-config",
         ];
         let mut new: Vec<String> = common.iter().map(|a| a.to_string()).collect();
@@ -468,6 +944,7 @@ mod tests {
         resumed.extend(["--resume".to_string(), session.to_string()]);
         assert_eq!(head(Begin::New), new);
         assert_eq!(head(Begin::Resume), resumed);
+        assert!(!new.iter().any(|a| a == "--fork-session"), "no session is forked");
     }
 
     #[test]
@@ -491,21 +968,76 @@ mod tests {
             "SCHEMA",
             &permissions,
             &compacted,
+            &words(),
             session,
             Begin::New,
         );
+        let at = args.iter().position(|a| a == "--model").expect("a model");
+        assert_eq!(args[at..at + 4], ["--model", "claude-opus-5-5", "--effort", "xhigh"]);
+    }
+
+    /// Runs the hook's command as the command line does after a use of the tool of this name, in the directory, and
+    /// gives what it printed.
+    fn after(words: &Words, tool: &str, dir: &Path) -> String {
+        use std::io::Write;
+        let mut hook = std::process::Command::new("sh")
+            .args(["-c", &words.command()])
+            .current_dir(dir)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .expect("sh runs");
+        let input = json!({ "hook_event_name": "PostToolUse", "tool_name": tool, "tool_input": {} });
+        (hook.stdin.take().expect("its input"))
+            .write_all(input.to_string().as_bytes())
+            .expect("the hook's input is written");
+        let output = hook.wait_with_output().expect("the hook ends");
+        assert!(output.status.success(), "{output:?}");
+        String::from_utf8(output.stdout).expect("text")
+    }
+
+    #[tokio::test]
+    async fn the_owners_words_are_given_once_after_a_tool_and_moved_aside_as_delivered() {
+        let dir = tempfile::tempdir().unwrap();
+        // A data directory whose path a shell would split, or end a quote at.
+        let rounds = dir.path().join("it's data").join("rounds");
+        std::fs::create_dir_all(&rounds).unwrap();
+        let words = Words {
+            waiting: rounds.join("2-3.words.json"),
+            delivered: rounds.join("2-3.delivered"),
+        };
+        assert_eq!(after(&words, "Bash", dir.path()), "", "nothing waits");
+
+        words.put("Use the name \"Ann\".").await.expect("put");
+        // Not after the tool for the return: the round has made it.
+        assert_eq!(after(&words, STRUCTURED_OUTPUT, dir.path()), "");
+        assert!(words.waiting.exists());
+        let given: Value = serde_json::from_str(&after(&words, "Bash", dir.path())).expect("the hook's JSON");
+        assert_eq!(given["hookSpecificOutput"]["hookEventName"], "PostToolUse");
         assert_eq!(
-            args[..7],
-            [
-                "-p",
-                "--output-format",
-                "json",
-                "--model",
-                "claude-opus-5-5",
-                "--effort",
-                "xhigh"
-            ]
+            given["hookSpecificOutput"]["additionalContext"],
+            "Use the name \"Ann\"."
         );
+        assert!(!words.waiting.exists(), "moved aside");
+        let first = rounds.join("2-3.delivered.1.json");
+        assert_eq!(
+            serde_json::from_slice::<Value>(&std::fs::read(&first).unwrap()).unwrap(),
+            given
+        );
+        assert_eq!(after(&words, "Read", dir.path()), "", "given once");
+
+        // Said twice before a tool, given once, together; the next delivery is kept beside the first.
+        words.put("First.").await.expect("put");
+        words.put("Second.").await.expect("put");
+        let given: Value = serde_json::from_str(&after(&words, "Edit", dir.path())).expect("the hook's JSON");
+        assert_eq!(given["hookSpecificOutput"]["additionalContext"], "First.\n\nSecond.");
+        assert!(rounds.join("2-3.delivered.2.json").is_file());
+        assert!(first.is_file());
+        let left: Vec<_> = std::fs::read_dir(&rounds)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(left.len(), 2, "nothing else is left: {left:?}");
     }
 
     #[test]
@@ -542,7 +1074,7 @@ mod tests {
     }
 
     #[test]
-    fn the_environment_is_built_from_what_is_kept_and_named() {
+    fn the_environment_is_built_from_what_is_kept_and_named_and_the_carriers_own() {
         let engine = [
             ("PATH", "/bin"),
             ("HOME", "/home/someone"),
@@ -551,25 +1083,25 @@ mod tests {
             ("ANTHROPIC_API_KEY", "k"),
         ]
         .map(|(n, v)| (n.to_string(), v.to_string()));
-        let names = |agents: &Agents| {
-            (environment(agents, engine.clone()).into_iter())
-                .map(|(name, _)| name)
-                .collect::<Vec<_>>()
-        };
         assert_eq!(
-            names(&agents()),
+            environment(&agents(), engine.clone()),
             [
-                "HOME",
-                "LC_ALL",
-                "PATH",
-                "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS",
-                "MAX_STRUCTURED_OUTPUT_RETRIES"
+                ("HOME", "/home/someone"),
+                ("LC_ALL", "C"),
+                ("PATH", "/bin"),
+                ("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "1"),
+                ("CLAUDE_CODE_ENABLE_FINE_GRAINED_TOOL_STREAMING", "0"),
+                ("MAX_STRUCTURED_OUTPUT_RETRIES", "3"),
+                ("RUSTUP_AUTO_INSTALL", "0"),
             ]
+            .map(|(n, v)| (n.to_string(), v.to_string()))
         );
         let mut configured = agents();
         configured.env = vec!["ANTHROPIC_API_KEY".to_string()];
         configured.config_dir = Some(PathBuf::from("config"));
-        let named = names(&configured);
+        let named: Vec<String> = (environment(&configured, engine).into_iter())
+            .map(|(name, _)| name)
+            .collect();
         assert!(named.contains(&"ANTHROPIC_API_KEY".to_string()));
         assert!(named.contains(&"CLAUDE_CONFIG_DIR".to_string()));
         assert!(!named.contains(&"SECRET_TOKEN".to_string()));

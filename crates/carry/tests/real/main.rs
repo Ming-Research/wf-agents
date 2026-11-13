@@ -63,6 +63,9 @@ pub struct Fake {
     pub compacts: bool,
     /// Whether the plan, run again, hands in what it wrote before, saying it changes nothing of what it means.
     pub plan_again_unchanged: bool,
+    /// Whether its first call prints a stream in which it refused every attempt at the return, the last writing the
+    /// plan's hand-ins as a string, gave up on the return, and exits with 1.
+    pub refuses_first: bool,
 }
 
 impl Default for Fake {
@@ -78,8 +81,49 @@ impl Default for Fake {
             context: None,
             compacts: false,
             plan_again_unchanged: false,
+            refuses_first: false,
         }
     }
+}
+
+/// The stream of a call that refused every attempt at the return and gave up on it, the plan's hand-ins written as a
+/// string in the last, each attempt written in two pieces as the stream's partial messages carry them.
+fn refused_stream() -> String {
+    use serde_json::json;
+    let event = |event: serde_json::Value| {
+        json!({ "type": "stream_event", "event": event, "parent_tool_use_id": null }).to_string()
+    };
+    let attempt = |id: &str, input: &str| {
+        let block = json!({ "type": "tool_use", "id": id, "name": "StructuredOutput", "input": {} });
+        let (one, two) = input.split_at(input.len() / 2);
+        let piece = |piece: &str| {
+            let delta = json!({ "type": "input_json_delta", "partial_json": piece });
+            event(json!({ "type": "content_block_delta", "index": 0, "delta": delta }))
+        };
+        vec![
+            event(json!({ "type": "message_start", "message": {} })),
+            event(json!({ "type": "content_block_start", "index": 0, "content_block": block })),
+            piece(one),
+            piece(two),
+            event(json!({ "type": "content_block_stop", "index": 0 })),
+        ]
+    };
+    let refused = |id: &str| {
+        let result = json!({ "type": "tool_result", "tool_use_id": id, "is_error": true,
+            "content": "Output does not match required schema: /hands_in: must be array" });
+        json!({ "type": "user", "parent_tool_use_id": null, "message": { "content": [result] } }).to_string()
+    };
+    let plan = json!([{ "block": "plan", "content": "Greet by name.", "matters": true }]).to_string();
+    let mut lines = vec![json!({ "type": "system", "subtype": "init", "session_id": "s" }).to_string()];
+    lines.extend(attempt("so-1", r#"{"hands_in": "[]", "#));
+    lines.push(refused("so-1"));
+    lines.extend(attempt("so-2", &json!({ "hands_in": plan, "asks": [] }).to_string()));
+    lines.push(refused("so-2"));
+    let gave_up = json!({ "type": "result", "subtype": "error_max_structured_output_retries", "is_error": true,
+        "errors": ["Failed to provide valid structured output after 3 attempts"], "total_cost_usd": 0.4,
+        "usage": { "input_tokens": 1000, "output_tokens": 300 } });
+    lines.push(gave_up.to_string());
+    lines.join("\n") + "\n"
 }
 
 /// Which flow a test runs on.
@@ -156,9 +200,13 @@ fn compiled(on: On) -> Compiled {
     flow::compile(&source, &has).expect("the flow compiles")
 }
 
-/// Writes the fake command line into the directory, keeping what it is given in `calls`.
+/// Writes the fake command line into the directory, keeping what it is given in `calls`. It is given its message as
+/// one line of JSON, and reads the message's first line, its heading, from it; it prints its result as a stream of one
+/// line, or, where it refuses its first return, the stream of [`refused_stream`].
 fn fake(dir: &Path, calls: &Path, fake: &Fake) -> PathBuf {
     let yes = |on: bool| if on { "yes" } else { "no" };
+    let refused = dir.join("refused.jsonl");
+    std::fs::write(&refused, refused_stream()).expect("the refused stream is written");
     let script = format!(
         r#"#!/bin/sh
 log='{calls}'
@@ -171,8 +219,12 @@ printf '%s\n' "$@" > "$log/$n.args"
 cat > "$log/$n.stdin"
 pwd > "$log/$n.pwd"
 if [ '{compacts}' = yes ]; then
-    hook=$(grep -A1 -x -- --settings "$log/$n.args" | tail -n 1 | sed 's/.*"command":"\([^"]*\)".*/\1/')
+    hook=$(grep -A1 -x -- --settings "$log/$n.args" | tail -n 1 | sed 's/.*"SessionStart".*"command":"\([^"]*\)".*/\1/')
     sh -c "$hook" > "$log/$n.again"
+fi
+if [ '{refuses}' = yes ] && [ "$n" = 1 ]; then
+    cat '{refused}'
+    exit 1
 fi
 if [ '{error}' = yes ] && [ "$n" = 1 ]; then
     printf '%s\n' '{{"type":"result","subtype":"error_max_structured_output_retries","is_error":true,"result":"Out of structured output retries.","total_cost_usd":0.8,"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":300}}}}'
@@ -186,7 +238,7 @@ if [ '{fail}' = yes ] && [ "$n" = 1 ]; then
     echo 'Prompt is too long: the fake fails its first call.' >&2
     exit 1
 fi
-first=$(head -n 1 "$log/$n.stdin")
+first=$(head -n 1 "$log/$n.stdin" | sed 's/^.*"text":"\([^\\]*\)\\n.*$/\1/')
 asks='[]'
 out=''
 case "$first" in
@@ -230,6 +282,8 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         cost = fake.cost,
         compacts = yes(fake.compacts),
         unchanged = yes(fake.plan_again_unchanged),
+        refuses = yes(fake.refuses_first),
+        refused = refused.display(),
         iterations = fake.context.map_or_else(String::new, |context| {
             format!(r#","iterations":[{{"input_tokens":{context},"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}]"#)
         }),
@@ -518,9 +572,16 @@ impl Real {
         (1..)
             .map_while(|n| {
                 let args = read(n, "args").ok()?;
+                // The message, from the one user message of the stream-json input the fake was given; nothing where
+                // the fake was stopped before it had read it.
+                let stdin = read(n, "stdin").unwrap_or_default();
+                let given = serde_json::from_str::<serde_json::Value>(&stdin).ok();
+                let text = given
+                    .as_ref()
+                    .and_then(|given| given["message"]["content"][0]["text"].as_str());
                 Some(Call {
                     args: args.lines().map(str::to_string).collect(),
-                    stdin: read(n, "stdin").unwrap_or_default(),
+                    stdin: text.unwrap_or_default().to_string(),
                     dir: PathBuf::from(read(n, "pwd").unwrap_or_default().trim_end()),
                     overlapped: self.calls.join(format!("{n}.overlap")).exists(),
                 })
