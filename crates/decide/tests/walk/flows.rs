@@ -30,7 +30,7 @@ fn a_condition_on_a_block_the_cell_itself_writes_is_refused_where_another_cell_w
 
 #[test]
 fn a_condition_on_a_block_the_cell_alone_writes_is_allowed() {
-    let cells = vec![when("more", "yes", cell("a", &[], &["more"])), gate()];
+    let cells = vec![when("more", "yes", cell("a", &[], &["more"])), Cell::new("merge")];
     assert!(flow(cells).is_ok());
 }
 

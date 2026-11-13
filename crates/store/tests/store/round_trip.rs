@@ -98,10 +98,10 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
     assert!(r.cancelled.is_some());
     assert_eq!(w.spent.len(), d.ended as usize, "a round's cost was not kept");
     assert_eq!(r.returned.len(), d.ended as usize);
-    // Each round that began was given something, and each that ended while its run was open came back with
-    // something: only the round stopped at the cancel did not.
+    // Each round that began was given something, and each that ended came back with something: no round is under way
+    // at the cancel, a run that asks having ended with its round.
     assert_eq!(given.len(), r.rounds.len());
-    assert_eq!(back.len() + 1, r.returned.len());
+    assert_eq!(back.len(), r.returned.len());
     assert!(w.contents.len() >= r.written.len() + r.finished.len());
     assert!(w.moments.len() > 20);
 }
