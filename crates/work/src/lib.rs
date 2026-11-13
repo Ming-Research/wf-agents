@@ -23,6 +23,11 @@ pub struct Work {
     pub contents: BTreeMap<(BlockId, Seq), String>,
     /// What each round that began was given, by its run and its number in the run, the first being one.
     pub given: BTreeMap<(RunId, usize), Given>,
+    /// What was filled into the session of each round as it began, in the order it was filled, by its run and its
+    /// number in the run, the first being one: what that session holds is read from here, and from what the rounds
+    /// that ran in it handed in, never worked out again (design document `data-and-context`, 13). A round with nothing
+    /// to fill has an empty list; a round with none was not filled so, as none kept before rounds were.
+    pub filled: BTreeMap<(RunId, usize), Vec<Fill>>,
     /// What came back at the end of each round that ended while its run was open, by its run and its number in the
     /// run, the first being one. A round that ended after its run was abandoned has none: what came back was dropped.
     pub back: BTreeMap<(RunId, usize), Back>,
@@ -55,6 +60,7 @@ impl Work {
             .chain(r.done.iter().map(|e| e.at))
             .chain(r.finished.iter().map(|e| e.at))
             .chain(r.abandoned.iter().map(|e| e.at))
+            .chain(r.delivered.iter().map(|e| e.at))
             .chain(r.written.iter().map(|e| e.at))
             .chain(r.let_go.iter().map(|e| e.at))
             .chain(r.pauses.iter().map(|e| e.at))
@@ -123,6 +129,17 @@ pub enum Given {
     Results(Vec<CallId>),
     /// Why what the round before handed in was sent back.
     SentBack(Vec<Unmet>),
+}
+
+/// One thing filled into the session of a round as it began, because its cell is given it and the session lacked it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Fill {
+    /// The cell's task, as the flow the round ran on has it.
+    Task,
+    /// A version of a block, whole: the version is named by the place of the entry that wrote it.
+    Whole { block: BlockId, version: Seq },
+    /// A version of a block, as what changed in it since an earlier version, which the session held.
+    Change { block: BlockId, version: Seq, since: Seq },
 }
 
 /// What came back at the end of a round.

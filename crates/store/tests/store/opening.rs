@@ -22,7 +22,7 @@ fn a_new_file_is_made_with_the_schema_its_version_and_a_write_ahead_log() {
     assert_eq!(store.works(), Ok(vec![]));
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, schema_tables());
-    assert_eq!(tables.len(), 33);
+    assert_eq!(tables.len(), 35);
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
     assert_eq!(version, SCHEMA_VERSION);
@@ -150,15 +150,14 @@ fn kept_before() -> Work {
     d.work
 }
 
-#[test]
-fn a_file_made_with_the_first_version_of_the_schema_is_migrated_and_its_pauses_read_as_the_owners() {
-    let work = kept_before();
-    // The same work as a store of this version keeps it, whose rows are copied into a file made with version 1.
+/// The work as a file made with this earlier version of the schema holds it, and a file of this version that holds
+/// it: the rows a store of this version keeps, each copied into the earlier file in the columns its table has there.
+fn kept_in(version: u32, work: &Work) -> (Db, Db) {
     let new = Db::new();
     {
         let mut store = new.open();
         let number = first_work(&mut store);
-        store.save(number, &work).expect("the work is saved");
+        store.save(number, work).expect("the work is saved");
     }
     let old = Db::new();
     {
@@ -169,6 +168,9 @@ fn a_file_made_with_the_first_version_of_the_schema_is_migrated_and_its_pauses_r
         file.execute_batch(SCHEMA_1).expect("the first schema is made");
         file.execute("INSERT INTO schema_version (version) VALUES (1)", [])
             .expect("its version is written");
+        for migration in &MIGRATIONS[..version as usize - 1] {
+            file.execute_batch(migration).expect("the migration runs");
+        }
         let path = new.path.to_str().expect("the path is text");
         file.execute("ATTACH DATABASE ?1 AS new", [path])
             .expect("the new file is attached");
@@ -187,6 +189,13 @@ fn a_file_made_with_the_first_version_of_the_schema_is_migrated_and_its_pauses_r
             .expect("the rows are copied");
         }
     }
+    (old, new)
+}
+
+#[test]
+fn a_file_made_with_the_first_version_of_the_schema_is_migrated_and_its_pauses_read_as_the_owners() {
+    let work = kept_before();
+    let (old, new) = kept_in(1, &work);
     let pauses: u64 = (Connection::open(&old.path).expect("the database opens"))
         .query_row("SELECT count(*) FROM pauses", [], |row| row.get(0))
         .expect("the pauses are counted");
@@ -210,7 +219,7 @@ fn a_file_made_with_the_first_version_of_the_schema_is_migrated_and_its_pauses_r
 }
 
 /// The migrations, in order, each bringing a file one version further, as the store's own list holds them.
-pub(crate) const MIGRATIONS: [&str; 8] = [
+pub(crate) const MIGRATIONS: [&str; 9] = [
     include_str!("../../../../db/migrations/202611101530-say-who-paused-a-work-and-why.sql"),
     include_str!("../../../../db/migrations/202611102304-give-items-a-level.sql"),
     include_str!("../../../../db/migrations/202611111400-say-when-a-work-let-go-of-what-it-held.sql"),
@@ -219,7 +228,37 @@ pub(crate) const MIGRATIONS: [&str; 8] = [
     include_str!("../../../../db/migrations/202611111830-keep-each-change-of-an-item-and-why-it-was-cancelled.sql"),
     include_str!("../../../../db/migrations/202611112000-say-who-paused-everything.sql"),
     include_str!("../../../../db/migrations/202611112100-record-backups.sql"),
+    include_str!(
+        "../../../../db/migrations/202611131500-keep-what-a-return-dealt-with-what-reached-a-round-and-what-filled-it.sql"
+    ),
 ];
+
+#[test]
+fn a_file_of_version_9_is_migrated_and_its_runs_read_as_dealing_with_everything_that_ran_them() {
+    // A work of the engine, whose runs finish by handing in; one of its versions was handed in as changing nothing in
+    // meaning.
+    let mut d = Driver::new();
+    history(&mut d);
+    let mut work = d.work;
+    work.records.finished[0].writes[0].meaning_unchanged = true;
+    let (old, new) = kept_in(9, &work);
+    let mut store = old.open();
+    assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
+    assert_eq!(
+        columns(&old.path),
+        columns(&new.path),
+        "the migrated file has other tables than a new one"
+    );
+    // Read as before: no run says what it dealt with, and what mattered and what did not is read as it was kept.
+    let loaded = store.load(WorkNumber(1)).expect("the work loads");
+    assert!(loaded.records.finished.iter().all(|f| f.dealt_with.is_none()));
+    assert!(loaded.records.finished[0].writes[0].meaning_unchanged);
+    assert_eq!(loaded, work);
+    // Runs of the new form are kept in it after them, as in a file made at this version.
+    of_the_new_form(&mut work);
+    store.save(WorkNumber(1), &work).expect("the work is saved");
+    assert_eq!(old.open().load(WorkNumber(1)), Ok(work));
+}
 
 #[test]
 fn a_file_of_every_earlier_version_is_brought_to_this_one_as_it_is_opened() {

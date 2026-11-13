@@ -531,7 +531,8 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At, effects: &mut Vec<
     false
 }
 
-/// Records the run as finished: the blocks it wrote, and their content under the place of the finish.
+/// Records the run as finished: the blocks it wrote, and their content under the place of the finish. A run that
+/// finishes by handing its blocks in has dealt with everything that ran it, and its return says nothing of it.
 fn finish(work: &mut Work, run: RunId, writes: Vec<Write>) {
     let at = work.tick();
     if let Some(Back::HandedIn(handed)) = work.back.get(&(run, ended(work, run))) {
@@ -539,7 +540,12 @@ fn finish(work: &mut Work, run: RunId, writes: Vec<Write>) {
             work.contents.insert((h.block.clone(), at), h.content.clone());
         }
     }
-    work.records.finished.push(Finished { run, at, writes });
+    work.records.finished.push(Finished {
+        run,
+        at,
+        writes,
+        dealt_with: None,
+    });
 }
 
 /// Records a call of the run, and gives it to be made.
@@ -593,7 +599,7 @@ pub(crate) fn log(work: &Work, run: RunId) -> run::Log {
             (handed.iter())
                 .map(|h| Write {
                     block: h.block.clone(),
-                    matters: h.matters,
+                    meaning_unchanged: !h.matters,
                     value: h.value.clone(),
                 })
                 .collect(),

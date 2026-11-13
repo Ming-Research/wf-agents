@@ -4,8 +4,8 @@
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoned, BlockId, CallId, Called, CellId, Done, Finished, LetGo, Pause, Returned, Round, RunId, Seq, Started,
-    Write, Written,
+    Abandoned, BlockId, CallId, Called, CellId, Delivered, Done, Finished, LetGo, Pause, Returned, Round, RunId, Seq,
+    Started, Write, Written,
 };
 use rusqlite::{Connection, Row, params};
 use serde::Serialize;
@@ -104,7 +104,7 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
         |row| {
             let write = Write {
                 block: BlockId(row.get(1)?),
-                matters: row.get(2)?,
+                meaning_unchanged: !row.get::<_, bool>(2)?,
                 value: row.get(3)?,
             };
             Ok((RunId(row.get(0)?), write))
@@ -114,13 +114,19 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     }
     let finished = rows(
         db,
-        "SELECT at, run FROM finished WHERE work = ?1 ORDER BY at",
+        "SELECT at, run, dealt_with FROM finished WHERE work = ?1 ORDER BY at",
         w,
-        |row| Ok((Seq(row.get(0)?), RunId(row.get(1)?))),
+        |row| Ok((Seq(row.get(0)?), RunId(row.get(1)?), row.get::<_, Option<String>>(2)?)),
     )?;
-    for (at, run) in finished {
+    for (at, run, dealt_with) in finished {
         let writes = writes.remove(&run).unwrap_or_default();
-        r.finished.push(Finished { run, at, writes });
+        let dealt_with = dealt_with.map(|names| parse("finished", &names)).transpose()?;
+        r.finished.push(Finished {
+            run,
+            at,
+            writes,
+            dealt_with,
+        });
     }
 
     r.abandoned = rows(
@@ -131,6 +137,20 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             Ok(Abandoned {
                 at: Seq(row.get(0)?),
                 run: RunId(row.get(1)?),
+            })
+        },
+    )?;
+
+    r.delivered = rows(
+        db,
+        "SELECT at, run, block, version FROM delivered WHERE work = ?1 ORDER BY at",
+        w,
+        |row| {
+            Ok(Delivered {
+                at: Seq(row.get(0)?),
+                run: RunId(row.get(1)?),
+                block: BlockId(row.get(2)?),
+                version: Seq(row.get(3)?),
             })
         },
     )?;
@@ -217,6 +237,11 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
         Ok(((RunId(row.get(0)?), row.get(1)?), row.get::<_, String>(2)?))
     })? {
         out.given.insert(round, parse("given", &given)?);
+    }
+    for (round, filled) in rows(db, "SELECT run, round, filled FROM filled WHERE work = ?1", w, |row| {
+        Ok(((RunId(row.get(0)?), row.get(1)?), row.get::<_, String>(2)?))
+    })? {
+        out.filled.insert(round, parse("filled", &filled)?);
     }
     for (round, back) in rows(db, "SELECT run, round, back FROM back WHERE work = ?1", w, |row| {
         Ok(((RunId(row.get(0)?), row.get(1)?), row.get::<_, String>(2)?))
@@ -318,6 +343,7 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     let done = grown("done", &h.done, &g.done, |e| Entry::At(e.at))?;
     let finished = grown("finished", &h.finished, &g.finished, |e| Entry::At(e.at))?;
     let abandoned = grown("abandoned", &h.abandoned, &g.abandoned, |e| Entry::At(e.at))?;
+    let delivered = grown("delivered", &h.delivered, &g.delivered, |e| Entry::At(e.at))?;
     let written = grown("written", &h.written, &g.written, |e| Entry::At(e.at))?;
     let let_go = grown("let_go", &h.let_go, &g.let_go, |e| Entry::At(e.at))?;
     let pauses = grown("pauses", &h.pauses, &g.pauses, |e| Entry::At(e.at))?;
@@ -340,6 +366,7 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         }
     })?;
     let given_rounds = gained("given", &held.given, &given.given, round_entry)?;
+    let filled = gained("filled", &held.filled, &given.filled, round_entry)?;
     let back = gained("back", &held.back, &given.back, round_entry)?;
     let calls = gained("calls", &held.calls, &given.calls, |c| Entry::Call(*c))?;
     let results = gained("results", &held.results, &given.results, |c| Entry::Call(*c))?;
@@ -388,14 +415,15 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         )?;
     }
     for f in finished {
+        let dealt_with = f.dealt_with.as_ref().map(|names| json("finished", names)).transpose()?;
         db.execute(
-            "INSERT INTO finished (work, at, run) VALUES (?1, ?2, ?3)",
-            params![w, f.at.0, f.run.0],
+            "INSERT INTO finished (work, at, run, dealt_with) VALUES (?1, ?2, ?3, ?4)",
+            params![w, f.at.0, f.run.0, dealt_with],
         )?;
         for (n, write) in (1..).zip(&f.writes) {
             db.execute(
                 "INSERT INTO writes (work, run, n, block, matters, value) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![w, f.run.0, n, write.block.0, write.matters, write.value],
+                params![w, f.run.0, n, write.block.0, !write.meaning_unchanged, write.value],
             )?;
         }
     }
@@ -403,6 +431,12 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         db.execute(
             "INSERT INTO abandoned (work, at, run) VALUES (?1, ?2, ?3)",
             params![w, a.at.0, a.run.0],
+        )?;
+    }
+    for d in delivered {
+        db.execute(
+            "INSERT INTO delivered (work, at, run, block, version) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![w, d.at.0, d.run.0, d.block.0, d.version.0],
         )?;
     }
     for e in written {
@@ -444,6 +478,12 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         db.execute(
             "INSERT INTO given (work, run, round, given) VALUES (?1, ?2, ?3, ?4)",
             params![w, run.0, round, json("given", what)?],
+        )?;
+    }
+    for ((run, round), what) in filled {
+        db.execute(
+            "INSERT INTO filled (work, run, round, filled) VALUES (?1, ?2, ?3, ?4)",
+            params![w, run.0, round, json("filled", what)?],
         )?;
     }
     for ((run, round), what) in back {

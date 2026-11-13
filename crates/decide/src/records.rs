@@ -39,6 +39,10 @@ pub struct Records {
     pub finished: Vec<Finished>,
     /// Each run that was abandoned, leaving no record.
     pub abandoned: Vec<Abandoned>,
+    /// Each version of a block put into a round while it was under way, which the round was told of beside those it
+    /// began with. Records kept before a version reached a round so have none, and read so.
+    #[serde(default)]
+    pub delivered: Vec<Delivered>,
     /// Every write of a block by a person or from outside the work.
     pub written: Vec<Written>,
     /// Each time the owner let a cell go on after it reached its limit.
@@ -69,6 +73,7 @@ impl Records {
             done: kept(&self.done, |e| e.at, place),
             finished: kept(&self.finished, |e| e.at, place),
             abandoned: kept(&self.abandoned, |e| e.at, place),
+            delivered: kept(&self.delivered, |e| e.at, place),
             written: kept(&self.written, |e| e.at, place),
             let_go: kept(&self.let_go, |e| e.at, place),
             pauses: kept(&self.pauses, |e| e.at, place),
@@ -129,16 +134,23 @@ pub struct Finished {
     pub at: Seq,
     /// The blocks the run wrote. Each is a version of its block, named by this entry's place.
     pub writes: Vec<Write>,
+    /// The blocks among those that ran the run that its return says it has dealt with, by name, in the order it named
+    /// them. Of each, what the run consumes is the latest version it was told of: one it began from, or one
+    /// [delivered](Delivered) to it later (design document `data-and-context`, 9). A return that dealt with nothing
+    /// names none. None where the return did not say, as no return of the earlier form does and no record kept
+    /// before returns said it holds: such a run dealt with everything that ran it.
+    #[serde(default)]
+    pub dealt_with: Option<Vec<BlockId>>,
 }
 
 /// A block a run wrote as it finished.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Write {
     pub block: BlockId,
-    /// Whether the change matters to the cells that read the block, compared with the version the run started from.
-    /// Where it does not, the version keeps that version's meaning. Not read for a block with a value: a choice
+    /// Whether the run hands the version in as changing nothing in meaning, compared with the version the run started
+    /// from. Where it does, the version keeps that version's meaning. Not read for a block with a value: a choice
     /// changes its meaning when its value does.
-    pub matters: bool,
+    pub meaning_unchanged: bool,
     /// The block's value, where a condition reads it: a choice such as yes or no.
     pub value: Option<String>,
 }
@@ -147,6 +159,18 @@ pub struct Write {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Abandoned {
     pub run: RunId,
+    pub at: Seq,
+}
+
+/// A version of a block was put into the round of the run that was under way, after the round began, so that the
+/// round was told of it: what the owner says reaches a round so (design document `data-and-context`, 39). A version
+/// the round was never told of stays new to its cell, however the round ends.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Delivered {
+    pub run: RunId,
+    pub block: BlockId,
+    /// The version put into the round, named by the place of the entry that wrote it.
+    pub version: Seq,
     pub at: Seq,
 }
 

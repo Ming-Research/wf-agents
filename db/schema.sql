@@ -116,18 +116,22 @@ CREATE TABLE done (
     FOREIGN KEY (work, call) REFERENCES called (work, call)
 );
 
--- A run finished, writing the blocks of `writes`.
+-- A run finished, writing the blocks of `writes`. `dealt_with` is what of the blocks that ran it its return says it has
+-- dealt with (JSON: a list of names, in the order the return named them, empty where it dealt with nothing); null where
+-- the return did not say, as none of the form before it did: such a run dealt with everything that ran it.
 CREATE TABLE finished (
     work INTEGER NOT NULL,
     at INTEGER NOT NULL,
     run INTEGER NOT NULL,
+    dealt_with TEXT,
     PRIMARY KEY (work, at),
     UNIQUE (work, run),
     FOREIGN KEY (work, run) REFERENCES started (work, run)
 );
 
 -- A block a run wrote as it finished, `n` its place among the run's writes, the first being one: whether the change
--- matters, and its value where it is a choice.
+-- matters, which is 0 where the run handed the version in as changing nothing in meaning and 1 otherwise, and its value
+-- where it is a choice.
 CREATE TABLE writes (
     work INTEGER NOT NULL,
     run INTEGER NOT NULL,
@@ -144,6 +148,18 @@ CREATE TABLE abandoned (
     work INTEGER NOT NULL,
     at INTEGER NOT NULL,
     run INTEGER NOT NULL,
+    PRIMARY KEY (work, at),
+    FOREIGN KEY (work, run) REFERENCES started (work, run)
+);
+
+-- A version of a block (`version`, the place of the entry that wrote it) was put into the round of a run that was
+-- under way, after the round began, so that the round was told of it.
+CREATE TABLE delivered (
+    work INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    run INTEGER NOT NULL,
+    block TEXT NOT NULL,
+    version INTEGER NOT NULL,
     PRIMARY KEY (work, at),
     FOREIGN KEY (work, run) REFERENCES started (work, run)
 );
@@ -218,6 +234,18 @@ CREATE TABLE given (
     run INTEGER NOT NULL,
     round INTEGER NOT NULL,
     given TEXT NOT NULL,
+    PRIMARY KEY (work, run, round),
+    FOREIGN KEY (work, run) REFERENCES started (work, run)
+);
+
+-- What was filled into the session of a round of a run as it began (JSON: a list, in the order it was filled, of the
+-- cell's task, or a version of a block whole or as what changed since an earlier one), the first round being one. A
+-- round with nothing to fill has an empty list.
+CREATE TABLE filled (
+    work INTEGER NOT NULL,
+    run INTEGER NOT NULL,
+    round INTEGER NOT NULL,
+    filled TEXT NOT NULL,
     PRIMARY KEY (work, run, round),
     FOREIGN KEY (work, run) REFERENCES started (work, run)
 );

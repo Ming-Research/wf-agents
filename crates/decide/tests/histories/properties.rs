@@ -173,6 +173,7 @@ pub fn last_place(r: &Records) -> Seq {
         .chain(r.done.iter().map(|e| e.at))
         .chain(r.finished.iter().map(|e| e.at))
         .chain(r.abandoned.iter().map(|e| e.at))
+        .chain(r.delivered.iter().map(|e| e.at))
         .chain(r.written.iter().map(|e| e.at))
         .chain(r.let_go.iter().map(|e| e.at))
         .chain(r.pauses.iter().map(|e| e.at))
@@ -195,6 +196,7 @@ pub fn as_of(r: &Records, upto: Seq) -> Records {
         done: kept(&r.done, |e| e.at, upto),
         finished: kept(&r.finished, |e| e.at, upto),
         abandoned: kept(&r.abandoned, |e| e.at, upto),
+        delivered: kept(&r.delivered, |e| e.at, upto),
         written: kept(&r.written, |e| e.at, upto),
         let_go: kept(&r.let_go, |e| e.at, upto),
         pauses: kept(&r.pauses, |e| e.at, upto),
@@ -223,6 +225,7 @@ fn shuffled(r: &Records, seed: u64) -> Records {
         shuffle(&mut f.writes, &mut rng);
     }
     shuffle(&mut r.abandoned, &mut rng);
+    shuffle(&mut r.delivered, &mut rng);
     shuffle(&mut r.written, &mut rng);
     shuffle(&mut r.let_go, &mut rng);
     shuffle(&mut r.pauses, &mut rng);

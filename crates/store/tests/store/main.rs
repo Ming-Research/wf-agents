@@ -15,13 +15,14 @@ mod round_trip;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use decide::{CallId, Outsider, Pauser, RunId, Who};
-use engine::{Ask, Came, Effect, Event, Handed, Spent, Time, Work, handle, pending};
+use decide::{CallId, Delivered, Finished, Outsider, Pauser, Returned, Round, RunId, Seq, Started, Who, Write};
+use engine::{Ask, Came, Effect, Event, Given, Handed, Spent, Time, Work, handle, pending};
 use flow::{Compiled, Has, Source, compile};
 use rusqlite::Connection;
 use rusqlite::types::Value;
 use store::{Storage, Store, WorkNumber};
 use tempfile::TempDir;
+use work::Fill;
 
 /// A writer that reads a request, the outside's main and the opinions on what it wrote; a judge that reads what the
 /// writer wrote and the outside's checks, a choice, and writes opinions for the writer and a verdict, a choice; and a
@@ -429,4 +430,75 @@ fn history(d: &mut Driver) {
     // Nothing of it is under way then: what it held is let go.
     d.on(Event::Released);
     assert!(d.work.records.released.is_some(), "what the work held was not let go");
+}
+
+/// Adds to the work two runs of the form a return of every cell takes (design document `data-and-context`), which the
+/// engine does not make yet, after what the work holds. The writer's round was filled with its task, the first request
+/// whole and the last as what changed since, and was told of the last request while under way; its return dealt with
+/// the request and handed in its text as changing nothing in meaning. The judge's round was filled with nothing, and
+/// its return dealt with nothing and handed in opinions that change the meaning.
+fn of_the_new_form(w: &mut Work) {
+    let requests: Vec<Seq> = (w.contents.keys())
+        .filter(|(block, _)| block.0 == "request")
+        .map(|(_, at)| *at)
+        .collect();
+    let (first, last) = (requests[0], requests[requests.len() - 1]);
+    let runs = [
+        ("write", "text", true, vec!["request".into()]),
+        ("judge", "opinions", false, vec![]),
+    ];
+    for (cell, block, meaning_unchanged, dealt_with) in runs {
+        let run = RunId(w.name());
+        let at = w.tick();
+        w.records.started.push(Started {
+            run,
+            cell: cell.into(),
+            at,
+            because: vec![],
+            basis: [("request".into(), Some(first))].into(),
+        });
+        let at = w.tick();
+        w.records.rounds.push(Round { run, at });
+        w.given.insert((run, 1), Given::Task);
+        let filled = match cell {
+            "write" => {
+                let at = w.tick();
+                (w.records.delivered).push(Delivered {
+                    run,
+                    block: "request".into(),
+                    version: last,
+                    at,
+                });
+                vec![
+                    Fill::Task,
+                    Fill::Whole {
+                        block: "request".into(),
+                        version: first,
+                    },
+                    Fill::Change {
+                        block: "request".into(),
+                        version: last,
+                        since: first,
+                    },
+                ]
+            }
+            _ => vec![],
+        };
+        w.filled.insert((run, 1), filled);
+        let at = w.tick();
+        w.records.returned.push(Returned { run, at });
+        let at = w.tick();
+        w.contents
+            .insert((block.into(), at), format!("the {block}, of the new form"));
+        w.records.finished.push(Finished {
+            run,
+            at,
+            writes: vec![Write {
+                block: block.into(),
+                meaning_unchanged,
+                value: None,
+            }],
+            dealt_with: Some(dealt_with),
+        });
+    }
 }

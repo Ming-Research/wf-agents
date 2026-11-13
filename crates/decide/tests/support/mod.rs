@@ -297,14 +297,19 @@ impl World {
         let writes = (writes.iter())
             .map(|(block, says)| Write {
                 block: (*block).into(),
-                matters: *says != Says::DoesNotMatter,
+                meaning_unchanged: *says == Says::DoesNotMatter,
                 value: match says {
                     Says::Value(v) => Some((*v).to_string()),
                     _ => None,
                 },
             })
             .collect();
-        self.records.finished.push(Finished { run, at, writes });
+        self.records.finished.push(Finished {
+            run,
+            at,
+            writes,
+            dealt_with: None,
+        });
         at
     }
 

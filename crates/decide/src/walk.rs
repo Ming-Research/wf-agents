@@ -287,7 +287,8 @@ fn check(records: &Records) -> Result<(), RecordFault> {
         .chain(records.returned.iter().map(|r| r.run))
         .chain(records.called.iter().map(|c| c.run))
         .chain(records.finished.iter().map(|f| f.run))
-        .chain(records.abandoned.iter().map(|a| a.run));
+        .chain(records.abandoned.iter().map(|a| a.run))
+        .chain(records.delivered.iter().map(|d| d.run));
     for run in named {
         if !runs.contains(&run) {
             return Err(RecordFault::UnknownRun(run));
@@ -329,6 +330,7 @@ fn check(records: &Records) -> Result<(), RecordFault> {
         .chain(records.done.iter().map(|e| e.at))
         .chain(records.finished.iter().map(|e| e.at))
         .chain(records.abandoned.iter().map(|e| e.at))
+        .chain(records.delivered.iter().map(|e| e.at))
         .chain(records.written.iter().map(|e| e.at))
         .chain(records.let_go.iter().map(|e| e.at))
         .chain(records.pauses.iter().map(|e| e.at))
@@ -704,7 +706,7 @@ pub(crate) fn read_versions<'a>(
             at: f.at,
             by: Some(f.run),
             outsider: None,
-            matters: w.matters,
+            matters: !w.meaning_unchanged,
             value: w.value.as_deref(),
         })
     });

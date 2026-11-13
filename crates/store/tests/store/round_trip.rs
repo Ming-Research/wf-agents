@@ -106,3 +106,35 @@ fn a_new_work_loads_with_nothing_kept_of_it() {
     store.save(work, &Work::default()).expect("nothing is saved");
     assert_eq!(store.load(work), Ok(Work::default()));
 }
+
+#[test]
+fn a_run_of_the_new_form_loads_back_with_what_it_dealt_with_what_reached_its_round_and_what_filled_it() {
+    let mut d = Driver::new();
+    history(&mut d);
+    of_the_new_form(&mut d.work);
+    let db = Db::new();
+    let mut store = db.open();
+    let work = first_work(&mut store);
+    store.save(work, &d.work).expect("the work is saved");
+    assert_eq!(db.open().load(work), Ok(d.work.clone()));
+
+    // In the file, the runs that finished by handing in say nothing of what they dealt with, and the two of the new
+    // form say it, one naming nothing.
+    let rows = dump(&db.path);
+    let dealt: Vec<&str> = rows["finished"].iter().map(|row| row[3].as_str()).collect();
+    let said = [r#"Text("[\"request\"]")"#, r#"Text("[]")"#];
+    assert_eq!(dealt.iter().filter(|v| **v == "Null").count(), dealt.len() - 2);
+    for said in said {
+        assert!(dealt.contains(&said), "{said} is not among {dealt:?}");
+    }
+    // A version handed in as changing nothing in meaning is kept as a change that does not matter, as one was before.
+    let r = &d.work.records;
+    let writer = r.finished[r.finished.len() - 2].run;
+    let kept: Vec<&Vec<String>> = (rows["writes"].iter())
+        .filter(|row| row[1] == format!("Integer({})", writer.0))
+        .collect();
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0][4], "Integer(0)");
+    assert_eq!(rows["delivered"].len(), 1);
+    assert_eq!(rows["filled"].len(), 2);
+}

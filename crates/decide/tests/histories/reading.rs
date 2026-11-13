@@ -90,7 +90,7 @@ impl<'a> Reading<'a> {
                     at: f.at,
                     block: &w.block,
                     by: Writer::Cell(cell.clone(), f.run),
-                    matters: w.matters,
+                    matters: !w.meaning_unchanged,
                     value: w.value.clone(),
                 });
             }

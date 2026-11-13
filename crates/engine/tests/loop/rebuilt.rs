@@ -8,6 +8,7 @@ fn rebuilt(work: &Work) -> Work {
         records: work.records.clone(),
         contents: work.contents.clone(),
         given: work.given.clone(),
+        filled: work.filled.clone(),
         back: work.back.clone(),
         calls: work.calls.clone(),
         results: work.results.clone(),

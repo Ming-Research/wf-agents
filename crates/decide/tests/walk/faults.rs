@@ -55,7 +55,7 @@ fn a_block_written_twice_by_one_run_is_a_fault() {
     w.run("a", &[("p", Matters)]);
     let write = Write {
         block: "p".into(),
-        matters: true,
+        meaning_unchanged: false,
         value: None,
     };
     w.records.finished[0].writes.push(write);
@@ -92,6 +92,35 @@ fn two_entries_at_one_place_are_a_fault() {
         by: decide::Outsider::Person,
         matters: true,
         value: None,
+        at,
+    });
+    assert_eq!(w.decide(), Decision::Fault(RecordFault::PlaceTwice(at)));
+}
+
+#[test]
+fn a_version_delivered_to_a_run_that_never_started_is_a_fault() {
+    let mut w = World::with_gate(vec![cell("a", &["p"], &[])]);
+    let version = w.person_writes("p");
+    let at = w.tick();
+    w.records.delivered.push(Delivered {
+        run: RunId(99),
+        block: "p".into(),
+        version,
+        at,
+    });
+    assert_eq!(w.decide(), Decision::Fault(RecordFault::UnknownRun(RunId(99))));
+}
+
+#[test]
+fn a_version_delivered_at_the_place_of_another_entry_is_a_fault() {
+    let mut w = World::with_gate(vec![cell("a", &["p"], &[])]);
+    w.person_writes("p");
+    let run = w.start("a");
+    let at = w.person_writes("p");
+    w.records.delivered.push(Delivered {
+        run,
+        block: "p".into(),
+        version: at,
         at,
     });
     assert_eq!(w.decide(), Decision::Fault(RecordFault::PlaceTwice(at)));
