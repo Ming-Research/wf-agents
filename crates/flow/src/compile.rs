@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use decide::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Outsiders, Test, TestKind, TestName};
 
 use crate::source::{
-    BlockFile, CellFile, Effort, FLOW_FILE, FlowFile, InputFile, Kind, Source, When, WhenIs, WhenTest,
+    BlockFile, CellFile, Effort, FLOW_FILE, FlowFile, InputKind, Kind, Source, When, WhenIs, WhenTest,
 };
 
 /// A flow's definition compiled.
@@ -40,13 +40,18 @@ pub struct Limits {
     pub calls: u32,
 }
 
-/// What the engine that runs a flow has, by name. A definition that names another source or another act is refused.
+/// What the engine that runs a flow has, by name. A definition that names another source, act or tool is refused, and
+/// so is a part of a line's system prompt that is none of the engine's and none of the flow's sets of rules.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Has {
     /// The sources outside a work that write blocks.
     pub sources: BTreeSet<String>,
     /// The acts of the engine's own that carry out an engine cell.
     pub acts: BTreeSet<String>,
+    /// The tools an agent may ask the engine for in its return.
+    pub tools: BTreeSet<String>,
+    /// The parts of a line's system prompt that the engine fills in itself.
+    pub system: BTreeSet<String>,
 }
 
 /// What the engine needs to know of a cell beyond what the walk reads.
@@ -68,10 +73,20 @@ pub struct CellSpec {
     /// The blocks among its outputs that every hand-in of the cell includes, in the order written: a hand-in that lacks
     /// one is sent back.
     pub must_write: Vec<BlockId>,
-    /// The blocks among its inputs that say what the work is where the host shows it, in the order written.
+    /// The blocks among those it names, that run it or that it is given, that say what the work is where the host
+    /// shows it, in the order written.
     pub describes: Vec<BlockId>,
-    /// How the cell takes the blocks it reads, for each of its inputs the definition says it of.
-    pub input: BTreeMap<BlockId, InputFile>,
+    /// The blocks whose new version runs the cell, in the order it names them.
+    pub runs_on: Vec<RunsOn>,
+    /// The blocks the cell is given, its session kept supplied with their content, in the order it names them; none
+    /// for an engine cell, which has no session.
+    pub given: Vec<Given>,
+    /// The tools of the engine's that the cell's agent may ask for in its return, in the order written; none for an
+    /// engine cell.
+    pub tools: Vec<String>,
+    /// The parts of the system prompt of the session of the cell's line, by name, in the order its line names them;
+    /// none for an engine cell.
+    pub system: Vec<String>,
     /// How often a return of the cell may be sent back within one run.
     pub returns: u32,
     /// How many calls one run of the cell may make.
@@ -83,6 +98,25 @@ pub struct CellSpec {
     /// The work's branch takes the latest main in as each run of the cell starts, as an agent cell that changes the
     /// code says; an engine cell's never does.
     pub takes_main: bool,
+}
+
+/// A block whose new version runs a cell.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunsOn {
+    pub block: BlockId,
+    /// What the cell's agent does when the block is new; none where the definition does not say.
+    pub why: Option<String>,
+}
+
+/// A block a cell is given.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Given {
+    pub block: BlockId,
+    /// What the context of the cell's session must hold of the block when the cell runs; none where the definition
+    /// does not say.
+    pub kind: Option<InputKind>,
+    /// What the cell's agent does with the block; none where the definition does not say.
+    pub why: Option<String>,
 }
 
 /// A block of a work's state, as the engine needs to know it.
@@ -114,7 +148,7 @@ pub struct Writers {
 /// Who reads a block.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Readers {
-    /// The cells that have it among their inputs, in the order of the walk.
+    /// The cells that name it, that it runs or that are given it, in the order of the walk.
     pub cells: Vec<CellId>,
     /// The cells whose condition reads its value, in the order of the walk.
     pub conditions: Vec<CellId>,
@@ -169,8 +203,15 @@ pub enum FaultKind {
     EngineHasEffort,
     /// An agent cell names no reasoning effort: how hard its rounds think is the flow's to say.
     NoEffort,
+    /// An engine cell names tools: no agent asks for them.
+    EngineHasTools,
     /// The cell names an act the engine does not have.
     UnknownAct { act: String },
+    /// The cell names a tool the engine does not have.
+    UnknownTool { tool: String },
+    /// A line's system prompt names a part that the engine does not fill in and that is no set of the flow's rules:
+    /// there is no `rules/<part>.md`.
+    UnknownPart { part: String },
     /// A choice has no values to choose from.
     ValuesEmpty,
     /// The block is a note, and people do not write it: a note is their words to the cells that read it.
@@ -181,11 +222,19 @@ pub enum FaultKind {
     NoSuchBlock { block: String },
     /// The cell must write the block each time, and it is not among its outputs.
     NotAnOutput { block: String },
-    /// The cell says what the work is by the block, and the block is not among its inputs: a change of it would not
-    /// run the cell again, and what the host shows would fall behind.
+    /// The cell says what the work is by the block, and the block neither runs it nor is given to it: a change of it
+    /// would not run the cell again, and what the host shows would fall behind.
     NotAnInput { block: String },
-    /// The cell says how or why it takes the block, and the block is not among its inputs.
+    /// In the old form, the cell says how or why it takes the block, and the block is not among its `inputs`.
     TakenNotRead { block: String },
+    /// The cell names what it takes both in the old form, `inputs`, and in the new, `runs_on` and `given`.
+    TwoForms,
+    /// An engine cell is given a block: it has no session to keep supplied with it.
+    EngineIsGiven,
+    /// The cell says why the block runs it, and the block is not among those that run it.
+    NotRunOn { block: String },
+    /// The cell says how or why it is given the block, and it is not given the block.
+    NotGiven { block: String },
     /// The block has no writer: no cell of the order, no person and nothing outside writes it.
     NoWriter { block: String },
     /// The block has no reader: no cell of the order reads it, no condition and no named test reads its value, and
@@ -247,13 +296,14 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
         returns: limit("limits.returns", flow_file.limits.returns),
         calls: limit("limits.calls", flow_file.limits.calls),
     };
+    def.check_lines(&has.system, &source.rules, &mut faults);
     def.check_blocks(&has.sources, &mut faults);
     def.check_tests(&mut faults);
 
     let mut cells = Vec::new();
     let mut specs = Vec::new();
     for (place, id, file) in def.ordered() {
-        let (cell, spec) = def.cell(place, id, file, &limits, &has.acts, &mut faults);
+        let (cell, spec) = def.cell(place, id, file, &limits, has, &mut faults);
         cells.push(cell);
         specs.push(spec);
     }
@@ -444,7 +494,7 @@ impl<'a> Definition<'a> {
                     u.writers.push((place, id));
                 }
             }
-            for block in &file.inputs {
+            for block in takes(file).named() {
                 if let Some(u) = uses.get_mut(block.as_str())
                     && !u.readers.contains(&id)
                 {
@@ -590,6 +640,21 @@ impl<'a> Definition<'a> {
         }
     }
 
+    /// The faults of the lines: a part of a line's system prompt named twice, or one that is neither a part the engine
+    /// fills in itself nor a set of the flow's rules.
+    fn check_lines(&self, parts: &BTreeSet<String>, rules: &BTreeMap<String, String>, faults: &mut Vec<Fault>) {
+        for (name, line) in &self.flow.lines {
+            let list = format!("lines.{name}.system");
+            let known = |part: &str| {
+                let what = FaultKind::UnknownPart { part: part.to_string() };
+                (!parts.contains(part) && !rules.contains_key(part)).then_some(what)
+            };
+            for (field, what) in check_list(&line.system, &list, known) {
+                faults.push(fault(FLOW_FILE, field, what));
+            }
+        }
+    }
+
     /// The faults of the order: empty, naming a cell twice or one with no file, or leaving out a cell's file.
     fn check_order(&self, faults: &mut Vec<Fault>) {
         if self.flow.order.is_empty() {
@@ -617,7 +682,7 @@ impl<'a> Definition<'a> {
         id: &str,
         file: &CellFile,
         limits: &Limits,
-        acts: &BTreeSet<String>,
+        has: &Has,
         faults: &mut Vec<Fault>,
     ) -> (Cell, CellSpec) {
         let name = cell_file(id);
@@ -643,7 +708,7 @@ impl<'a> Definition<'a> {
         }
         match (file.kind, &file.act) {
             (Kind::Engine, None) => found.push(("act".to_string(), FaultKind::NoAct)),
-            (Kind::Engine, Some(act)) if !acts.contains(act) => {
+            (Kind::Engine, Some(act)) if !has.acts.contains(act) => {
                 found.push(("act".to_string(), FaultKind::UnknownAct { act: act.clone() }));
             }
             (Kind::Agent, Some(act)) => {
@@ -655,6 +720,14 @@ impl<'a> Definition<'a> {
             (Kind::Engine, Some(_)) => found.push(("effort".to_string(), FaultKind::EngineHasEffort)),
             (Kind::Agent, None) => found.push(("effort".to_string(), FaultKind::NoEffort)),
             _ => {}
+        }
+        if file.kind == Kind::Engine && !file.tools.is_empty() {
+            found.push(("tools".to_string(), FaultKind::EngineHasTools));
+        } else {
+            found.extend(check_list(&file.tools, "tools", |tool| {
+                let what = FaultKind::UnknownTool { tool: tool.to_string() };
+                (!has.tools.contains(tool)).then_some(what)
+            }));
         }
         let runs = match file.limit.map(count) {
             None => limits.runs,
@@ -704,7 +777,13 @@ impl<'a> Definition<'a> {
             };
             (!self.flow.blocks.contains_key(block)).then_some(what)
         };
-        found.extend(check_list(&file.inputs, "inputs", declared));
+        let takes = takes(file);
+        let named = takes.named();
+        if takes.old {
+            found.extend(check_list(&file.inputs, "inputs", declared));
+        } else {
+            found.extend(self.check_takes(file));
+        }
         found.extend(check_list(&file.outputs, "outputs", declared));
         // Whether a block is declared is said once, where the outputs name it.
         found.extend(check_list(&file.must_write, "must_write", |block| {
@@ -717,12 +796,14 @@ impl<'a> Definition<'a> {
             let what = FaultKind::NotAnInput {
                 block: block.to_string(),
             };
-            (!file.inputs.iter().any(|i| i == block)).then_some(what)
+            (!named.iter().any(|b| b.as_str() == block)).then_some(what)
         }));
-        for block in file.input.keys() {
+        for (block, how) in file.input.iter().filter(|_| takes.old) {
             if !file.inputs.iter().any(|i| i == block) {
                 let what = FaultKind::TakenNotRead { block: block.clone() };
                 found.push((format!("input.{block}"), what));
+            } else if file.kind == Kind::Engine && how.kind.is_some() {
+                found.push((format!("input.{block}.kind"), FaultKind::EngineIsGiven));
             }
         }
         faults.extend(found.into_iter().map(|(field, what)| fault(&name, field, what)));
@@ -731,7 +812,7 @@ impl<'a> Definition<'a> {
             id: CellId(id.to_string()),
             applies,
             requires: file.requires.iter().map(|t| TestName(t.clone())).collect(),
-            inputs: file.inputs.iter().map(|b| BlockId(b.clone())).collect(),
+            inputs: named,
             outputs: file.outputs.iter().map(|b| BlockId(b.clone())).collect(),
             limit: runs,
             slot: file.kind == Kind::Agent,
@@ -747,9 +828,12 @@ impl<'a> Definition<'a> {
             act: file.act.clone(),
             must_write: file.must_write.iter().map(|b| BlockId(b.clone())).collect(),
             describes: file.describes.iter().map(|b| BlockId(b.clone())).collect(),
-            input: (file.input.iter())
-                .map(|(block, input)| (BlockId(block.clone()), input.clone()))
-                .collect(),
+            runs_on: takes.runs_on,
+            given: takes.given,
+            tools: file.tools.clone(),
+            system: (file.line.as_ref())
+                .and_then(|line| self.flow.lines.get(line))
+                .map_or_else(Vec::new, |line| line.system.clone()),
             returns: limits.returns,
             calls: limits.calls,
             effort: file.effort,
@@ -759,6 +843,45 @@ impl<'a> Definition<'a> {
             takes_main: file.kind == Kind::Agent && file.takes_main,
         };
         (cell, spec)
+    }
+
+    /// The faults of what a cell in the new form names that it takes: a block not declared, or named twice in one
+    /// list; a block given to an engine cell, or the file naming the old form as well; why a block runs the cell, of a
+    /// block that does not, and how it is given one, of a block it is not given. A block named in both lists is no
+    /// fault.
+    fn check_takes(&self, file: &CellFile) -> Vec<(String, FaultKind)> {
+        let declared = |block: &str| {
+            let what = FaultKind::NoSuchBlock {
+                block: block.to_string(),
+            };
+            (!self.flow.blocks.contains_key(block)).then_some(what)
+        };
+        let mut found = check_list(&file.runs_on, "runs_on", declared);
+        // Whether a block is declared is said once, where `runs_on` names it, if it does.
+        found.extend(check_list(&file.given, "given", |block| {
+            (!file.runs_on.iter().any(|r| r == block))
+                .then(|| declared(block))
+                .flatten()
+        }));
+        if file.kind == Kind::Engine && !file.given.is_empty() {
+            found.push(("given".to_string(), FaultKind::EngineIsGiven));
+        }
+        if !file.inputs.is_empty() {
+            found.push(("inputs".to_string(), FaultKind::TwoForms));
+        } else if !file.input.is_empty() {
+            found.push(("input".to_string(), FaultKind::TwoForms));
+        }
+        for block in file.run.keys() {
+            if !file.runs_on.contains(block) {
+                found.push((format!("run.{block}"), FaultKind::NotRunOn { block: block.clone() }));
+            }
+        }
+        for block in file.give.keys() {
+            if !file.given.contains(block) {
+                found.push((format!("give.{block}"), FaultKind::NotGiven { block: block.clone() }));
+            }
+        }
+        found
     }
 
     /// The faults of a condition on the value of a block, for the cell of this file at this place, each with its
@@ -876,4 +999,75 @@ impl<'a> Definition<'a> {
             })
             .collect()
     }
+}
+
+/// What a cell names that it takes, in whichever form its file is written: the blocks that run it and those it is
+/// given, each list in the order the file names them, with why and how where the file says.
+struct Takes {
+    /// The file names one list, `inputs`, for both, as a cell did before it named the two apart.
+    old: bool,
+    runs_on: Vec<RunsOn>,
+    given: Vec<Given>,
+}
+
+impl Takes {
+    /// Every block the cell names, each once: those that run it, in their order, then those it is only given, in
+    /// theirs. The walk takes these as the cell's inputs, a new version of any of them running the cell, until it
+    /// chooses by what runs a cell alone (`design/docs/data-and-context.md`, statements 5 to 7). Of a file in the old
+    /// form they are its `inputs`, as the walk took them before.
+    fn named(&self) -> Vec<BlockId> {
+        let mut named: Vec<BlockId> = Vec::new();
+        let blocks = (self.runs_on.iter().map(|r| &r.block)).chain(self.given.iter().map(|g| &g.block));
+        for block in blocks {
+            if !named.contains(block) {
+                named.push(block.clone());
+            }
+        }
+        named
+    }
+}
+
+/// What the cell of this file takes. A file in the new form names the two lists itself. One in the old form names one
+/// list, `inputs`, with how it takes a block in `[input.<block>]`: each block of it runs the cell, and an agent cell
+/// is given each of them as `[input.<block>]` says; an engine cell is given none, and what its `[input.<block>]` says
+/// is why the block runs it. A file that names both forms is read in the new.
+fn takes(file: &CellFile) -> Takes {
+    let new = !(file.runs_on.is_empty() && file.run.is_empty() && file.given.is_empty() && file.give.is_empty());
+    let old = !new && !(file.inputs.is_empty() && file.input.is_empty());
+    if !old {
+        let runs_on = (file.runs_on.iter())
+            .map(|block| RunsOn {
+                block: BlockId(block.clone()),
+                why: file.run.get(block).and_then(|run| run.why.clone()),
+            })
+            .collect();
+        let given = (file.given.iter())
+            .map(|block| {
+                let give = file.give.get(block);
+                Given {
+                    block: BlockId(block.clone()),
+                    kind: give.and_then(|g| g.kind),
+                    why: give.and_then(|g| g.why.clone()),
+                }
+            })
+            .collect();
+        return Takes { old, runs_on, given };
+    }
+    let how = |block: &String| file.input.get(block);
+    let agent = file.kind == Kind::Agent;
+    let runs_on = (file.inputs.iter())
+        .map(|block| RunsOn {
+            block: BlockId(block.clone()),
+            why: how(block).filter(|_| !agent).and_then(|h| h.why.clone()),
+        })
+        .collect();
+    let given = (file.inputs.iter())
+        .filter(|_| agent)
+        .map(|block| Given {
+            block: BlockId(block.clone()),
+            kind: how(block).and_then(|h| h.kind),
+            why: how(block).and_then(|h| h.why.clone()),
+        })
+        .collect();
+    Takes { old, runs_on, given }
 }

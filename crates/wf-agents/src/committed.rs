@@ -20,8 +20,9 @@ pub fn reader(dir: PathBuf) -> Option<web::Read> {
 
 /// The flow in this directory as the commit checked out in its repository has it, whatever its files say now.
 fn read(dir: &Path) -> Result<Source, String> {
-    // Each file and directory of the directory at that commit: its mode, its kind and its object, a tab, its name.
-    let listed = git(dir, &["ls-tree", "--full-tree", "-z", "HEAD:./"])?;
+    // Each file of the directory at that commit, in it or below it: its mode, its kind and its object, a tab, its path
+    // within the directory.
+    let listed = git(dir, &["ls-tree", "-r", "--full-tree", "-z", "HEAD:./"])?;
     let mut files = Vec::new();
     for entry in listed.split('\0') {
         let Some((about, name)) = entry.split_once('\t') else {
@@ -32,8 +33,12 @@ fn read(dir: &Path) -> Result<Source, String> {
         let (Some("100644" | "100755"), Some("blob"), Some(object)) = (about.next(), about.next(), about.next()) else {
             continue;
         };
-        // Only the files a flow is made of are read.
-        if name.ends_with(".toml") {
+        // Only the files a flow is made of are read: its own, directly in the directory, and its sets of rules.
+        let of_the_flow = match name.split_once('/') {
+            None => name.ends_with(".toml"),
+            Some((parent, rules)) => parent == flow::RULES_DIR && !rules.contains('/') && rules.ends_with(".md"),
+        };
+        if of_the_flow {
             files.push((name.to_string(), git(dir, &["cat-file", "blob", object])?));
         }
     }
@@ -92,6 +97,10 @@ mod tests {
         std::fs::write(dir.join("a.toml"), "title = \"A\"\n").unwrap();
         std::fs::write(dir.join("README.md"), "not of the flow\n").unwrap();
         std::fs::write(dir.join("notes").join("b.toml"), "not directly in it\n").unwrap();
+        std::fs::create_dir_all(dir.join("rules").join("old")).unwrap();
+        std::fs::write(dir.join("rules").join("general.md"), "Say one thing per sentence.\n").unwrap();
+        std::fs::write(dir.join("rules").join("notes.txt"), "not a set of rules\n").unwrap();
+        std::fs::write(dir.join("rules").join("old").join("general.md"), "not directly in it\n").unwrap();
         run(repository.path(), &["init", "--quiet"]);
         run(repository.path(), &["add", "."]);
         run(repository.path(), &["commit", "--quiet", "-m", "a flow"]);
@@ -105,6 +114,10 @@ mod tests {
         assert_eq!(
             committed.cells.into_iter().collect::<Vec<_>>(),
             [("a".to_string(), "title = \"A\"\n".to_string())]
+        );
+        assert_eq!(
+            committed.rules.into_iter().collect::<Vec<_>>(),
+            [("general".to_string(), "Say one thing per sentence.\n".to_string())]
         );
     }
 

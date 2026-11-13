@@ -83,8 +83,14 @@ export function faultWords(fault: Fault): string {
       return "An engine's cell names a reasoning effort, which no agent runs at.";
     case 'noEffort':
       return "An agent's cell names no reasoning effort for its rounds to run at.";
+    case 'engineHasTools':
+      return "An engine's cell names tools, which no agent asks for.";
     case 'unknownAct':
       return `The engine has no act named "${w.act}".`;
+    case 'unknownTool':
+      return `The engine has no tool named "${w.tool}".`;
+    case 'unknownPart':
+      return `The engine fills in no part of a system prompt named "${w.part}", and the flow has no rules/${w.part}.md.`;
     case 'valuesEmpty':
       return 'A choice has no values to choose from.';
     case 'noteNotByPeople':
@@ -96,9 +102,17 @@ export function faultWords(fault: Fault): string {
     case 'notAnOutput':
       return `The cell must write ${w.block} every time, but ${w.block} is not among the blocks it may write.`;
     case 'notAnInput':
-      return `The cell says what the work is by ${w.block}, but ${w.block} is not among the blocks it reads.`;
+      return `The cell says what the work is by ${w.block}, but ${w.block} neither runs it nor is given to it.`;
     case 'takenNotRead':
       return `The cell says how it takes ${w.block}, but ${w.block} is not among the blocks it reads.`;
+    case 'twoForms':
+      return 'The cell names what it takes both as inputs and as runs_on and given: it is to name it in one way.';
+    case 'engineIsGiven':
+      return "An engine's cell is given blocks, but it has no session to keep supplied.";
+    case 'notRunOn':
+      return `The cell says why ${w.block} runs it, but ${w.block} is not among what runs it.`;
+    case 'notGiven':
+      return `The cell says how it is given ${w.block}, but it is not given ${w.block}.`;
     case 'noWriter':
       return `Nothing writes ${w.block}: no cell of the order, no person and nothing outside.`;
     case 'noReader':
@@ -183,6 +197,7 @@ export interface ChangeWords {
 
 const yesNo = (b: boolean) => (b ? 'yes' : 'no');
 const values = (v: string[] | null) => (v ? v.join(', ') : 'not a choice');
+const names = (v: string[]) => (v.length > 0 ? v.join(', ') : 'none');
 const place = (p: number) => `place ${p + 1}`;
 
 export function changeWords(change: Change): ChangeWords {
@@ -214,6 +229,10 @@ export function changeWords(change: Change): ChangeWords {
       return { what: 'Line', before: c.before ?? 'none', after: c.after ?? 'none' };
     case 'readsOnly':
       return { what: 'Only reads', before: yesNo(c.before), after: yesNo(c.after) };
+    case 'system':
+      return { what: 'The system prompt of its line', before: names(c.before), after: names(c.after) };
+    case 'takesMain':
+      return { what: 'Takes main in as it starts', before: yesNo(c.before), after: yesNo(c.after) };
     case 'task':
       return { what: 'Task', before: c.before ?? 'none', after: c.after ?? 'none' };
     case 'act':
@@ -224,10 +243,14 @@ export function changeWords(change: Change): ChangeWords {
       return { what: 'Waits until', before: '', after: testWords(c.test) };
     case 'preconditionRemoved':
       return { what: 'Waits until', before: testWords(c.test), after: '' };
-    case 'inputAdded':
-      return { what: 'Reads', before: '', after: c.block };
-    case 'inputRemoved':
-      return { what: 'Reads', before: c.block, after: '' };
+    case 'runsOnAdded':
+      return { what: 'Runs on', before: '', after: c.block };
+    case 'runsOnRemoved':
+      return { what: 'Runs on', before: c.block, after: '' };
+    case 'givenAdded':
+      return { what: 'Is given', before: '', after: c.block };
+    case 'givenRemoved':
+      return { what: 'Is given', before: c.block, after: '' };
     case 'outputAdded':
       return { what: 'May write', before: '', after: c.block };
     case 'outputRemoved':
@@ -240,10 +263,16 @@ export function changeWords(change: Change): ChangeWords {
       return { what: 'Says what the work is by', before: '', after: c.block };
     case 'describesRemoved':
       return { what: 'Says what the work is by', before: c.block, after: '' };
-    case 'inputKind':
-      return { what: `Takes ${c.block} as`, before: inputKindWords(c.before), after: inputKindWords(c.after) };
-    case 'inputWhy':
-      return { what: `Reads ${c.block} because`, before: c.before ?? 'not said', after: c.after ?? 'not said' };
+    case 'toolAdded':
+      return { what: 'May ask for', before: '', after: c.tool };
+    case 'toolRemoved':
+      return { what: 'May ask for', before: c.tool, after: '' };
+    case 'runsWhy':
+      return { what: `Runs on ${c.block} because`, before: c.before ?? 'not said', after: c.after ?? 'not said' };
+    case 'givenKind':
+      return { what: `Is given ${c.block} as`, before: inputKindWords(c.before), after: inputKindWords(c.after) };
+    case 'givenWhy':
+      return { what: `Is given ${c.block} because`, before: c.before ?? 'not said', after: c.after ?? 'not said' };
     case 'cellLimit':
       return { what: `Limit of ${LIMIT_WORDS[c.limit]}`, before: `${c.before}`, after: `${c.after}` };
     case 'effort':

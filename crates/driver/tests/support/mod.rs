@@ -44,6 +44,7 @@ pub fn has() -> Has {
     Has {
         sources: [DEPENDENCIES.to_string()].into(),
         acts: ["merge".to_string(), "start".to_string()].into(),
+        ..Default::default()
     }
 }
 
@@ -54,6 +55,7 @@ pub fn compiled(flow: &str, cells: &[(&str, &str)]) -> Compiled {
         cells: (cells.iter())
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
+        ..Default::default()
     };
     compile(&source, &has()).expect("the definition compiles")
 }
@@ -212,6 +214,7 @@ pub fn deliver() -> Compiled {
     let has = Has {
         sources: [DEPENDENCIES.to_string()].into(),
         acts: ["deliver".to_string()].into(),
+        ..Default::default()
     };
     compile(&source, &has).expect("the deliver flow compiles")
 }

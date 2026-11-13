@@ -68,6 +68,7 @@ fn small() -> Compiled {
             .iter()
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
+        ..Default::default()
     };
     let has = Has {
         acts: ["merge".to_string()].into(),

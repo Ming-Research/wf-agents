@@ -118,9 +118,10 @@ pub struct Cell {
     pub condition: Option<Condition>,
     /// What the work waits for before the cell.
     pub preconditions: Vec<Test>,
-    /// The blocks it reads, as the definition lists them.
+    /// The blocks it names: those that run it, in the order it names them, then those it is only given.
     pub inputs: Vec<String>,
-    /// How it takes the blocks it reads, by the block's name, for each of them the definition says it of.
+    /// How it takes the blocks it names, by the block's name, for each of them the definition says it of: how it is
+    /// given one and why, or why one it is not given runs it.
     pub input: BTreeMap<String, Input>,
     /// The blocks it may write, as the definition lists them.
     pub outputs: Vec<String>,
@@ -129,28 +130,47 @@ pub struct Cell {
     pub limits: Limits,
 }
 
-/// How a cell takes one of the blocks it reads.
+/// How a cell takes one of the blocks it names.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Input {
     /// What the context of the cell's session must hold of the block when the cell runs; none where the definition
-    /// does not say.
+    /// does not say or the cell is not given the block.
     pub kind: Option<InputKind>,
-    /// Why the cell takes the block; none where the definition does not say.
+    /// Why the cell is given the block, or of one it is not given, why the block runs it; none where the definition
+    /// does not say.
     pub why: Option<String>,
 }
 
 impl Input {
-    fn of(input: &flow::InputFile) -> Input {
-        Input {
-            kind: input.kind.map(InputKind::of),
-            why: input.why.clone(),
-        }
+    /// How the cell takes each block it names, of those the definition says something of.
+    fn of(spec: &flow::CellSpec) -> BTreeMap<String, Input> {
+        let given = (spec.given.iter()).map(|g| {
+            let input = Input {
+                kind: g.kind.map(InputKind::of),
+                why: g.why.clone(),
+            };
+            (g.block.to_string(), input)
+        });
+        let only_runs = (spec.runs_on.iter())
+            .filter(|r| !spec.given.iter().any(|g| g.block == r.block))
+            .map(|r| {
+                (
+                    r.block.to_string(),
+                    Input {
+                        kind: None,
+                        why: r.why.clone(),
+                    },
+                )
+            });
+        (given.chain(only_runs))
+            .filter(|(_, input)| input.kind.is_some() || input.why.is_some())
+            .collect()
     }
 }
 
-/// What the context must hold of an input: its latest version, the version the cell last consumed and the latest, or
-/// every version.
+/// What the context must hold of a block a cell is given: its latest version, the version the cell last consumed and
+/// the latest, or every version.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum InputKind {
@@ -275,8 +295,17 @@ pub enum What {
     EngineHasEffort,
     /// An agent cell names no reasoning effort.
     NoEffort,
+    /// An engine cell names tools, which no agent asks for.
+    EngineHasTools,
     UnknownAct {
         act: String,
+    },
+    UnknownTool {
+        tool: String,
+    },
+    /// A line's system prompt names a part the engine does not fill in, and the flow has no set of rules of that name.
+    UnknownPart {
+        part: String,
     },
     ValuesEmpty,
     /// The block is a note, and people do not write it.
@@ -294,12 +323,24 @@ pub enum What {
     NotAnOutput {
         block: String,
     },
-    /// The cell says what the work is by the block, and it is not among its inputs.
+    /// The cell says what the work is by the block, and the block neither runs it nor is given to it.
     NotAnInput {
         block: String,
     },
-    /// The cell says how or why it takes the block, and it is not among its inputs.
+    /// In the old form, the cell says how or why it takes the block, and it is not among its inputs.
     TakenNotRead {
+        block: String,
+    },
+    /// The cell names what it takes both in the old form and in the new.
+    TwoForms,
+    /// An engine cell is given blocks, and has no session to keep supplied with them.
+    EngineIsGiven,
+    /// The cell says why the block runs it, and it is not among those that run it.
+    NotRunOn {
+        block: String,
+    },
+    /// The cell says how or why it is given the block, and it is not given it.
+    NotGiven {
         block: String,
     },
     NoWriter {
@@ -441,6 +482,18 @@ pub enum Change {
         before: bool,
         after: bool,
     },
+    /// The parts of the system prompt of the session of the cell's line, by name, in the order its line names them.
+    System {
+        cell: String,
+        before: Vec<String>,
+        after: Vec<String>,
+    },
+    /// Whether the work's branch takes the latest main in as each run of the cell starts.
+    TakesMain {
+        cell: String,
+        before: bool,
+        after: bool,
+    },
     Task {
         cell: String,
         before: Option<String>,
@@ -464,11 +517,23 @@ pub enum Change {
         cell: String,
         test: Test,
     },
-    InputAdded {
+    /// The block now runs the cell.
+    RunsOnAdded {
         cell: String,
         block: String,
     },
-    InputRemoved {
+    /// The block no longer runs the cell.
+    RunsOnRemoved {
+        cell: String,
+        block: String,
+    },
+    /// The cell is now given the block.
+    GivenAdded {
+        cell: String,
+        block: String,
+    },
+    /// The cell is no longer given the block.
+    GivenRemoved {
         cell: String,
         block: String,
     },
@@ -500,15 +565,32 @@ pub enum Change {
         cell: String,
         block: String,
     },
-    /// What the context must hold of a block the cell reads; none where the definition does not say.
-    InputKind {
+    /// A tool of the engine's the cell may now ask for, by name.
+    ToolAdded {
+        cell: String,
+        tool: String,
+    },
+    /// A tool of the engine's the cell may no longer ask for, by name.
+    ToolRemoved {
+        cell: String,
+        tool: String,
+    },
+    /// Why a block runs the cell; none where the definition does not say.
+    RunsWhy {
+        cell: String,
+        block: String,
+        before: Option<String>,
+        after: Option<String>,
+    },
+    /// What the context must hold of a block the cell is given; none where the definition does not say.
+    GivenKind {
         cell: String,
         block: String,
         before: Option<InputKind>,
         after: Option<InputKind>,
     },
-    /// Why the cell takes a block it reads; none where the definition does not say.
-    InputWhy {
+    /// Why the cell is given a block; none where the definition does not say.
+    GivenWhy {
         cell: String,
         block: String,
         before: Option<String>,
@@ -617,9 +699,7 @@ impl Flow {
                 condition: cell.applies.as_ref().map(|c| Condition::of(c, compiled)),
                 preconditions: cell.requires.iter().map(|t| Test::of(t, compiled)).collect(),
                 inputs: names(&cell.inputs),
-                input: (spec.input.iter())
-                    .map(|(block, input)| (block.to_string(), Input::of(input)))
-                    .collect(),
+                input: Input::of(spec),
                 outputs: names(&cell.outputs),
                 must_write: names(&spec.must_write),
                 limits: Limits {
@@ -752,7 +832,10 @@ impl What {
             F::AgentHasAct { act } => What::AgentHasAct { act },
             F::EngineHasEffort => What::EngineHasEffort,
             F::NoEffort => What::NoEffort,
+            F::EngineHasTools => What::EngineHasTools,
             F::UnknownAct { act } => What::UnknownAct { act },
+            F::UnknownTool { tool } => What::UnknownTool { tool },
+            F::UnknownPart { part } => What::UnknownPart { part },
             F::ValuesEmpty => What::ValuesEmpty,
             F::NoteNotByPeople { block } => What::NoteNotByPeople { block },
             F::NoteIsAChoice { block } => What::NoteIsAChoice { block },
@@ -760,6 +843,10 @@ impl What {
             F::NotAnOutput { block } => What::NotAnOutput { block },
             F::NotAnInput { block } => What::NotAnInput { block },
             F::TakenNotRead { block } => What::TakenNotRead { block },
+            F::TwoForms => What::TwoForms,
+            F::EngineIsGiven => What::EngineIsGiven,
+            F::NotRunOn { block } => What::NotRunOn { block },
+            F::NotGiven { block } => What::NotGiven { block },
             F::NoWriter { block } => What::NoWriter { block },
             F::NoReader { block } => What::NoReader { block },
             F::UnknownSource { block, source } => What::UnknownSource { block, source },
@@ -883,6 +970,15 @@ impl Change {
                 after: to.clone(),
             },
             &CellChange::ReadsOnly { before, after } => Change::ReadsOnly { cell, before, after },
+            CellChange::System {
+                before: from,
+                after: to,
+            } => Change::System {
+                cell,
+                before: from.clone(),
+                after: to.clone(),
+            },
+            &CellChange::TakesMain { before, after } => Change::TakesMain { cell, before, after },
             CellChange::Task {
                 before: from,
                 after: to,
@@ -915,29 +1011,49 @@ impl Change {
                 cell,
                 test: Test::of(test, before),
             },
-            CellChange::InputAdded(b) => Change::InputAdded { cell, block: block(b) },
-            CellChange::InputRemoved(b) => Change::InputRemoved { cell, block: block(b) },
+            CellChange::RunsOnAdded(b) => Change::RunsOnAdded { cell, block: block(b) },
+            CellChange::RunsOnRemoved(b) => Change::RunsOnRemoved { cell, block: block(b) },
+            CellChange::GivenAdded(b) => Change::GivenAdded { cell, block: block(b) },
+            CellChange::GivenRemoved(b) => Change::GivenRemoved { cell, block: block(b) },
             CellChange::OutputAdded(b) => Change::OutputAdded { cell, block: block(b) },
             CellChange::OutputRemoved(b) => Change::OutputRemoved { cell, block: block(b) },
             CellChange::MustWriteAdded(b) => Change::MustWriteAdded { cell, block: block(b) },
             CellChange::MustWriteRemoved(b) => Change::MustWriteRemoved { cell, block: block(b) },
             CellChange::DescribesAdded(b) => Change::DescribesAdded { cell, block: block(b) },
             CellChange::DescribesRemoved(b) => Change::DescribesRemoved { cell, block: block(b) },
-            CellChange::InputKind {
+            CellChange::ToolAdded(tool) => Change::ToolAdded {
+                cell,
+                tool: tool.clone(),
+            },
+            CellChange::ToolRemoved(tool) => Change::ToolRemoved {
+                cell,
+                tool: tool.clone(),
+            },
+            CellChange::RunsWhy {
                 block: b,
                 before,
                 after,
-            } => Change::InputKind {
+            } => Change::RunsWhy {
+                cell,
+                block: block(b),
+                before: before.clone(),
+                after: after.clone(),
+            },
+            CellChange::GivenKind {
+                block: b,
+                before,
+                after,
+            } => Change::GivenKind {
                 cell,
                 block: block(b),
                 before: before.map(InputKind::of),
                 after: after.map(InputKind::of),
             },
-            CellChange::InputWhy {
+            CellChange::GivenWhy {
                 block: b,
                 before,
                 after,
-            } => Change::InputWhy {
+            } => Change::GivenWhy {
                 cell,
                 block: block(b),
                 before: before.clone(),

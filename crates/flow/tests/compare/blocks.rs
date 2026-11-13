@@ -137,7 +137,11 @@ fn a_block_declared_is_added_after_the_changes_of_the_cells_that_use_it() {
         [
             Change::Cell {
                 cell: "answer".into(),
-                change: CellChange::InputAdded("notes".into()),
+                change: CellChange::RunsOnAdded("notes".into()),
+            },
+            Change::Cell {
+                cell: "answer".into(),
+                change: CellChange::GivenAdded("notes".into()),
             },
             Change::BlockAdded { block: "notes".into() },
         ]

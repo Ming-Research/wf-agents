@@ -43,10 +43,12 @@ fn watched() -> Compiled {
             .iter()
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
+        ..Default::default()
     };
     let has = Has {
         sources: ["dependencies".to_string(), "main".to_string()].into(),
         acts: ["merge".to_string()].into(),
+        ..Default::default()
     };
     compile(&source, &has).expect("the flow compiles")
 }

@@ -64,7 +64,11 @@ fn the_flow_s_changes_come_first_then_the_cells_in_the_new_order_then_the_blocks
             },
             Change::Cell {
                 cell: "judge".into(),
-                change: CellChange::InputAdded("agenda".into()),
+                change: CellChange::RunsOnAdded("agenda".into()),
+            },
+            Change::Cell {
+                cell: "judge".into(),
+                change: CellChange::GivenAdded("agenda".into()),
             },
             Change::CellRemoved {
                 cell: "check".into(),

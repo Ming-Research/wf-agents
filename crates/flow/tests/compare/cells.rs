@@ -53,7 +53,7 @@ fn a_cell_taken_out_is_listed_where_it_stood_before_the_cells_that_followed_it()
             },
             Change::Cell {
                 cell: "check".into(),
-                change: CellChange::InputRemoved("design".into()),
+                change: CellChange::RunsOnRemoved("design".into()),
             },
             Change::BlockRemoved { block: "design".into() },
             Change::Block {

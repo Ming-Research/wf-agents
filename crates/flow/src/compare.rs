@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use decide::{BlockId, Cell, CellId, Condition, Test, TestName};
 
 use crate::compile::{Block, CellSpec, Compiled, Limits};
-use crate::source::{Effort, InputFile, InputKind, Kind};
+use crate::source::{Effort, InputKind, Kind};
 
 /// One difference between two definitions of a flow.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,7 +47,8 @@ pub enum Change {
     /// A block is no longer declared.
     BlockRemoved { block: BlockId },
     /// Something of a block that both definitions declare. Who of the cells and the tests writes and reads it is not
-    /// here: that is a change of those cells' outputs, inputs or conditions, or of what those tests read.
+    /// here: that is a change of those cells' outputs, of what runs them or what they are given, or of their
+    /// conditions, or of what those tests read.
     Block { block: BlockId, change: BlockChange },
 }
 
@@ -82,6 +83,16 @@ pub enum CellChange {
         before: bool,
         after: bool,
     },
+    /// The parts of the system prompt of the session of the cell's line, by name, in the order its line names them.
+    System {
+        before: Vec<String>,
+        after: Vec<String>,
+    },
+    /// Whether the work's branch takes the latest main in as each run of the cell starts.
+    TakesMain {
+        before: bool,
+        after: bool,
+    },
     /// What an agent cell's agent is told to do; none for an engine cell.
     Task {
         before: Option<String>,
@@ -99,8 +110,14 @@ pub enum CellChange {
     },
     PreconditionAdded(TestName),
     PreconditionRemoved(TestName),
-    InputAdded(BlockId),
-    InputRemoved(BlockId),
+    /// A block that now runs the cell.
+    RunsOnAdded(BlockId),
+    /// A block that no longer runs the cell.
+    RunsOnRemoved(BlockId),
+    /// A block the cell is now given.
+    GivenAdded(BlockId),
+    /// A block the cell is no longer given.
+    GivenRemoved(BlockId),
     OutputAdded(BlockId),
     OutputRemoved(BlockId),
     /// A block every hand-in of the cell must now include.
@@ -111,15 +128,25 @@ pub enum CellChange {
     DescribesAdded(BlockId),
     /// A block the cell no longer says what the work is by.
     DescribesRemoved(BlockId),
-    /// What the context must hold of a block the cell reads when the cell runs; none where the definition does not
+    /// A tool of the engine's the cell may now ask for.
+    ToolAdded(String),
+    /// A tool of the engine's the cell may no longer ask for.
+    ToolRemoved(String),
+    /// Why a block runs the cell; none where the definition does not say.
+    RunsWhy {
+        block: BlockId,
+        before: Option<String>,
+        after: Option<String>,
+    },
+    /// What the context must hold of a block the cell is given when the cell runs; none where the definition does not
     /// say.
-    InputKind {
+    GivenKind {
         block: BlockId,
         before: Option<InputKind>,
         after: Option<InputKind>,
     },
-    /// Why the cell takes a block it reads; none where the definition does not say.
-    InputWhy {
+    /// Why the cell is given a block; none where the definition does not say.
+    GivenWhy {
         block: BlockId,
         before: Option<String>,
         after: Option<String>,
@@ -384,6 +411,18 @@ fn cell_changes(before: &Placed, after: &Placed, flow_limits: &[(Limit, u32, u32
             after: a.reads_only,
         });
     }
+    if b.system != a.system {
+        changes.push(CellChange::System {
+            before: b.system.clone(),
+            after: a.system.clone(),
+        });
+    }
+    if b.takes_main != a.takes_main {
+        changes.push(CellChange::TakesMain {
+            before: b.takes_main,
+            after: a.takes_main,
+        });
+    }
     if b.task != a.task {
         changes.push(CellChange::Task {
             before: b.task.clone(),
@@ -410,11 +449,20 @@ fn cell_changes(before: &Placed, after: &Placed, flow_limits: &[(Limit, u32, u32
         CellChange::PreconditionAdded,
         &mut changes,
     );
+    let runs_on = |spec: &CellSpec| -> Vec<BlockId> { spec.runs_on.iter().map(|r| r.block.clone()).collect() };
+    let given = |spec: &CellSpec| -> Vec<BlockId> { spec.given.iter().map(|g| g.block.clone()).collect() };
     list(
-        &b_cell.inputs,
-        &a_cell.inputs,
-        CellChange::InputRemoved,
-        CellChange::InputAdded,
+        &runs_on(b),
+        &runs_on(a),
+        CellChange::RunsOnRemoved,
+        CellChange::RunsOnAdded,
+        &mut changes,
+    );
+    list(
+        &given(b),
+        &given(a),
+        CellChange::GivenRemoved,
+        CellChange::GivenAdded,
         &mut changes,
     );
     list(
@@ -438,27 +486,43 @@ fn cell_changes(before: &Placed, after: &Placed, flow_limits: &[(Limit, u32, u32
         CellChange::DescribesAdded,
         &mut changes,
     );
-    // Only of a block both read: an input put in or taken out is said once, as that, and not again as how it is
-    // taken going from or to nothing said.
-    let taken: BTreeSet<&BlockId> = (b.input.keys().chain(a.input.keys()))
-        .filter(|block| b_cell.inputs.contains(block) && a_cell.inputs.contains(block))
-        .collect();
-    for block in taken {
-        let (before, after) = (b.input.get(block), a.input.get(block));
-        let kind = |input: Option<&InputFile>| input.and_then(|i| i.kind);
-        if kind(before) != kind(after) {
-            changes.push(CellChange::InputKind {
-                block: block.clone(),
-                before: kind(before),
-                after: kind(after),
+    list(
+        &b.tools,
+        &a.tools,
+        CellChange::ToolRemoved,
+        CellChange::ToolAdded,
+        &mut changes,
+    );
+    // Only of a block that runs the cell, or that the cell is given, in both: a block put in or taken out of a list is
+    // said once, as that, and not again as why or how going from or to nothing said.
+    for after_runs in &a.runs_on {
+        let Some(before_runs) = b.runs_on.iter().find(|r| r.block == after_runs.block) else {
+            continue;
+        };
+        if before_runs.why != after_runs.why {
+            changes.push(CellChange::RunsWhy {
+                block: after_runs.block.clone(),
+                before: before_runs.why.clone(),
+                after: after_runs.why.clone(),
             });
         }
-        let why = |input: Option<&InputFile>| input.and_then(|i| i.why.clone());
-        if why(before) != why(after) {
-            changes.push(CellChange::InputWhy {
-                block: block.clone(),
-                before: why(before),
-                after: why(after),
+    }
+    for after_given in &a.given {
+        let Some(before_given) = b.given.iter().find(|g| g.block == after_given.block) else {
+            continue;
+        };
+        if before_given.kind != after_given.kind {
+            changes.push(CellChange::GivenKind {
+                block: after_given.block.clone(),
+                before: before_given.kind,
+                after: after_given.kind,
+            });
+        }
+        if before_given.why != after_given.why {
+            changes.push(CellChange::GivenWhy {
+                block: after_given.block.clone(),
+                before: before_given.why.clone(),
+                after: after_given.why.clone(),
             });
         }
     }

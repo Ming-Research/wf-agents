@@ -51,7 +51,7 @@ async fn the_small_flow_compiles_and_what_changed_from_its_earlier_version_is_li
             },
             { "kind": "outputAdded", "cell": "judge", "block": "opinions" },
             { "kind": "cellAdded", "cell": "answer", "place": 3 },
-            { "kind": "inputAdded", "cell": "check", "block": "design" },
+            { "kind": "runsOnAdded", "cell": "check", "block": "design" },
             { "kind": "blockAdded", "block": "commented" },
             { "kind": "blockAdded", "block": "comments" },
             { "kind": "blockAdded", "block": "confirmed" },

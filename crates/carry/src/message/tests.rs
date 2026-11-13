@@ -101,10 +101,12 @@ fn flow() -> Compiled {
         cells: (CELLS.iter())
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect::<BTreeMap<_, _>>(),
+        ..Default::default()
     };
     let has = Has {
         sources: BTreeSet::new(),
         acts: BTreeSet::from(["merge".to_string()]),
+        ..Default::default()
     };
     flow::compile(&source, &has).expect("the small flow compiles")
 }

@@ -67,8 +67,9 @@ export interface Cell {
   /// None is always.
   condition: Condition | null;
   preconditions: Test[];
+  /// The blocks it names: those that run it, in the order it names them, then those it is only given.
   inputs: string[];
-  /// How it takes the blocks it reads, by the block's name, for each of them the definition says it of.
+  /// How it takes the blocks it names, by the block's name, for each of them the definition says it of.
   input: Record<string, Input>;
   outputs: string[];
   /// The blocks among its outputs that every hand-in of it includes.
@@ -117,17 +118,28 @@ export type What =
   | { kind: 'agentHasAct'; act: string }
   | { kind: 'engineHasEffort' }
   | { kind: 'noEffort' }
+  | { kind: 'engineHasTools' }
   | { kind: 'unknownAct'; act: string }
+  | { kind: 'unknownTool'; tool: string }
+  /// A line's system prompt names a part the engine does not fill in, and the flow has no set of rules of that name.
+  | { kind: 'unknownPart'; part: string }
   | { kind: 'valuesEmpty' }
   | { kind: 'noteNotByPeople'; block: string }
   | { kind: 'noteIsAChoice'; block: string }
   | { kind: 'noSuchBlock'; block: string }
   /// The cell must write the block each time, and it is not among its outputs.
   | { kind: 'notAnOutput'; block: string }
-  /// The cell says what the work is by the block, and it is not among its inputs.
+  /// The cell says what the work is by the block, and the block neither runs it nor is given to it.
   | { kind: 'notAnInput'; block: string }
-  /// The cell says how or why it takes the block, and it is not among its inputs.
+  /// In the old form, the cell says how or why it takes the block, and it is not among its inputs.
   | { kind: 'takenNotRead'; block: string }
+  /// The cell names what it takes both in the old form and in the new.
+  | { kind: 'twoForms' }
+  | { kind: 'engineIsGiven' }
+  /// The cell says why the block runs it, and it is not among those that run it.
+  | { kind: 'notRunOn'; block: string }
+  /// The cell says how or why it is given the block, and it is not given it.
+  | { kind: 'notGiven'; block: string }
   | { kind: 'noWriter'; block: string }
   | { kind: 'noReader'; block: string }
   | { kind: 'unknownSource'; block: string; source: string }
@@ -176,21 +188,29 @@ export type Change =
   | { kind: 'kind'; cell: string; before: Kind; after: Kind }
   | { kind: 'line'; cell: string; before: string | null; after: string | null }
   | { kind: 'readsOnly'; cell: string; before: boolean; after: boolean }
+  /// The parts of the system prompt of the session of the cell's line, by name.
+  | { kind: 'system'; cell: string; before: string[]; after: string[] }
+  | { kind: 'takesMain'; cell: string; before: boolean; after: boolean }
   | { kind: 'task'; cell: string; before: string | null; after: string | null }
   | { kind: 'act'; cell: string; before: string | null; after: string | null }
   | { kind: 'condition'; cell: string; before: Condition | null; after: Condition | null }
   | { kind: 'preconditionAdded'; cell: string; test: Test }
   | { kind: 'preconditionRemoved'; cell: string; test: Test }
-  | { kind: 'inputAdded'; cell: string; block: string }
-  | { kind: 'inputRemoved'; cell: string; block: string }
+  | { kind: 'runsOnAdded'; cell: string; block: string }
+  | { kind: 'runsOnRemoved'; cell: string; block: string }
+  | { kind: 'givenAdded'; cell: string; block: string }
+  | { kind: 'givenRemoved'; cell: string; block: string }
   | { kind: 'outputAdded'; cell: string; block: string }
   | { kind: 'outputRemoved'; cell: string; block: string }
   | { kind: 'mustWriteAdded'; cell: string; block: string }
   | { kind: 'mustWriteRemoved'; cell: string; block: string }
   | { kind: 'describesAdded'; cell: string; block: string }
   | { kind: 'describesRemoved'; cell: string; block: string }
-  | { kind: 'inputKind'; cell: string; block: string; before: InputKind | null; after: InputKind | null }
-  | { kind: 'inputWhy'; cell: string; block: string; before: string | null; after: string | null }
+  | { kind: 'toolAdded'; cell: string; tool: string }
+  | { kind: 'toolRemoved'; cell: string; tool: string }
+  | { kind: 'runsWhy'; cell: string; block: string; before: string | null; after: string | null }
+  | { kind: 'givenKind'; cell: string; block: string; before: InputKind | null; after: InputKind | null }
+  | { kind: 'givenWhy'; cell: string; block: string; before: string | null; after: string | null }
   | { kind: 'cellLimit'; cell: string; limit: LimitName; before: number; after: number }
   | { kind: 'effort'; cell: string; before: string | null; after: string | null }
   | { kind: 'levelsAbove'; cell: string; before: number; after: number }

@@ -337,12 +337,24 @@ const SOURCES: [&str; 4] = ["dependencies", "main", "session", "tree"];
 /// of the items it depends on, is delivered.
 const ACTS: [&str; 4] = ["start", "check", "merge", "deliver"];
 
+/// The names of the tools an agent may ask the engine for in its return: `query`, one read-only query on the engine's
+/// records, and `run_tests`, which runs named tests and checks, or all of them, where the host checks the work. Neither
+/// is built yet: a cell may name them, and its agent is not told of them until they are.
+const TOOLS: [&str; 2] = ["query", "run_tests"];
+
+/// The names of the parts of a line's system prompt that the engine fills in itself: `guide`, the project's guide for
+/// its agents; `constitution`, the constitution of the project's design tree; `tree_rules`, the rules of that tree;
+/// and `how_you_work_here`, the engine's own words on working in it. None is filled in yet.
+const SYSTEM: [&str; 4] = ["guide", "constitution", "tree_rules", "how_you_work_here"];
+
 /// What the engine has, by name, for any definition.
 fn has(_: &Source) -> Has {
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
     Has {
         sources: names(&SOURCES),
         acts: names(&ACTS),
+        tools: names(&TOOLS),
+        system: names(&SYSTEM),
     }
 }
 
@@ -408,7 +420,12 @@ fn words(what: &FaultKind) -> String {
         F::AgentHasAct { act } => format!("an agent carries the cell out, but the cell names the act \"{act}\""),
         F::EngineHasEffort => "an engine's cell names a reasoning effort, which no agent runs at".to_string(),
         F::NoEffort => "an agent's cell names no reasoning effort for its rounds to run at".to_string(),
+        F::EngineHasTools => "an engine's cell names tools, which no agent asks for".to_string(),
         F::UnknownAct { act } => format!("the engine has no act named \"{act}\""),
+        F::UnknownTool { tool } => format!("the engine has no tool named \"{tool}\""),
+        F::UnknownPart { part } => format!(
+            "the engine fills in no part of a system prompt named \"{part}\", and the flow has no rules/{part}.md"
+        ),
         F::ValuesEmpty => "a choice has no values to choose from".to_string(),
         F::NoteNotByPeople { block } => format!("{block} is a note, but people do not write it"),
         F::NoteIsAChoice { block } => format!("{block} is a note, but it is a choice, and a note is words to a cell"),
@@ -417,11 +434,18 @@ fn words(what: &FaultKind) -> String {
             format!("the cell must write {block} every time, but {block} is not among the blocks it may write")
         }
         F::NotAnInput { block } => {
-            format!("the cell says what the work is by {block}, but {block} is not among the blocks it reads")
+            format!("the cell says what the work is by {block}, but {block} neither runs it nor is given to it")
         }
         F::TakenNotRead { block } => {
             format!("the cell says how it takes {block}, but {block} is not among the blocks it reads")
         }
+        F::TwoForms => {
+            "the cell names what it takes both as inputs and as runs_on and given: it is to name it in one way"
+                .to_string()
+        }
+        F::EngineIsGiven => "an engine's cell is given blocks, but it has no session to keep supplied".to_string(),
+        F::NotRunOn { block } => format!("the cell says why {block} runs it, but {block} is not among what runs it"),
+        F::NotGiven { block } => format!("the cell says how it is given {block}, but it is not given {block}"),
         F::NoWriter { block } => format!("nothing writes {block}: no cell of the order, no person and nothing outside"),
         F::NoReader { block } => {
             format!("nothing reads {block}: no cell, no condition, no test, and the page does not show it")

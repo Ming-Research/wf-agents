@@ -93,10 +93,12 @@ fn judged() -> Compiled {
             .iter()
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
+        ..Default::default()
     };
     let has = Has {
         sources: ["main".to_string()].into(),
         acts: ["merge".to_string()].into(),
+        ..Default::default()
     };
     compile(&source, &has).expect("the definition compiles")
 }

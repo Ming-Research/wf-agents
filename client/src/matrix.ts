@@ -108,7 +108,7 @@ export interface CellColumn {
   other?: Cell;
   /// From the version compared against to the one it is compared with.
   status: Status;
-  /// The fields that changed, by the kind of their change (`title`, `condition`, `inputAdded`...).
+  /// The fields that changed, by the kind of their change (`title`, `condition`, `runsOnAdded`...).
   changed: Set<Change['kind']>;
 }
 

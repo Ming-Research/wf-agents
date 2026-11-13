@@ -122,6 +122,7 @@ fn engineer() -> Compiled {
     let has = Has {
         sources: names(&["dependencies", "main", "session", "tree"]),
         acts: names(&["start", "check", "merge"]),
+        ..Default::default()
     };
     compile(&source, &has).expect("the engineer's flow compiles")
 }

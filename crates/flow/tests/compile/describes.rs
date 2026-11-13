@@ -56,3 +56,23 @@ fn a_block_a_cell_describes_the_work_by_is_among_its_inputs_and_named_once() {
         ]
     );
 }
+
+#[test]
+fn in_the_new_form_a_cell_describes_the_work_by_a_block_that_runs_it_or_that_it_is_given() {
+    let source = edit(
+        valid(),
+        "answer.toml",
+        "inputs = [\"comments\", \"plan\"]",
+        "runs_on = [\"comments\"]\ngiven = [\"plan\"]\ndescribes = [\"plan\", \"comments\", \"reply\"]",
+    );
+    assert_eq!(
+        faults(&source),
+        [at(
+            "answer.toml",
+            "describes[2]",
+            NotAnInput {
+                block: "reply".to_string()
+            }
+        )]
+    );
+}

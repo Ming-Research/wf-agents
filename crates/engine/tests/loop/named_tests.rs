@@ -35,6 +35,7 @@ fn forked() -> Compiled {
             .iter()
             .map(|(id, text)| (id.to_string(), text.to_string()))
             .collect(),
+        ..Default::default()
     };
     compile(&source, &has(&[])).expect("the definition compiles")
 }

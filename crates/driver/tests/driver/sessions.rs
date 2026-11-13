@@ -57,10 +57,12 @@ fn flow() -> Compiled {
         .into_iter()
         .map(|(id, text)| (id.to_string(), text))
         .collect(),
+        ..Default::default()
     };
     let has = Has {
         sources: [SESSION.to_string()].into(),
         acts: ["merge".to_string()].into(),
+        ..Default::default()
     };
     flow::compile(&source, &has).expect("the flow compiles")
 }

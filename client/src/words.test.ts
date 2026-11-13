@@ -46,7 +46,18 @@ describe('the words of the page', () => {
     expect(
       changeWords({ kind: 'condition', cell: 'a', before: null, after: { on: 'block', block: 'x', value: 'no' } }),
     ).toEqual({ what: 'Runs when', before: 'always', after: 'x is no' });
-    expect(changeWords({ kind: 'inputRemoved', cell: 'a', block: 'x' })).toEqual({ what: 'Reads', before: 'x', after: '' });
+    expect(changeWords({ kind: 'runsOnRemoved', cell: 'a', block: 'x' })).toEqual({ what: 'Runs on', before: 'x', after: '' });
+    expect(changeWords({ kind: 'givenAdded', cell: 'a', block: 'x' })).toEqual({ what: 'Is given', before: '', after: 'x' });
+    expect(changeWords({ kind: 'toolAdded', cell: 'a', tool: 'query' })).toEqual({
+      what: 'May ask for',
+      before: '',
+      after: 'query',
+    });
+    expect(changeWords({ kind: 'system', cell: 'a', before: [], after: ['guide', 'general'] })).toEqual({
+      what: 'The system prompt of its line',
+      before: 'none',
+      after: 'guide, general',
+    });
     expect(changeWords({ kind: 'readsOnly', cell: 'a', before: false, after: true })).toEqual({
       what: 'Only reads',
       before: 'no',
@@ -158,7 +169,13 @@ describe('the words of the page', () => {
       'The cell must write plan every time, but plan is not among the blocks it may write.',
     );
     expect(faultWords({ file: 'check.toml', field: 'describes[0]', what: { kind: 'notAnInput', block: 'ci' } })).toBe(
-      'The cell says what the work is by ci, but ci is not among the blocks it reads.',
+      'The cell says what the work is by ci, but ci neither runs it nor is given to it.',
+    );
+    expect(faultWords({ file: 'plan.toml', field: 'give.request', what: { kind: 'notGiven', block: 'request' } })).toBe(
+      'The cell says how it is given request, but it is not given request.',
+    );
+    expect(faultWords({ file: 'flow.toml', field: 'lines.engineer.system[1]', what: { kind: 'unknownPart', part: 'general' } })).toBe(
+      'The engine fills in no part of a system prompt named "general", and the flow has no rules/general.md.',
     );
     expect(faultWords({ file: 'judge.toml', field: 'input.opinions', what: { kind: 'takenNotRead', block: 'opinions' } })).toBe(
       'The cell says how it takes opinions, but opinions is not among the blocks it reads.',
