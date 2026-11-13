@@ -629,7 +629,7 @@ fn stuck(why: Stuck) -> &'static str {
 }
 
 /// A duration in its two largest units, as the owner's page writes one: 2d 03h, 2h 05m, 3m 07s, 41s. Brought over from
-/// the reminders of the engine on `main` (`crates/engine/src/reminders.rs`).
+/// the reminders of the engine on `old-main` (`crates/engine/src/reminders.rs`).
 fn duration(ms: u64) -> String {
     let s = ms / 1000;
     let (d, h, m, sec) = (s / 86_400, s % 86_400 / 3_600, s % 3_600 / 60, s % 60);

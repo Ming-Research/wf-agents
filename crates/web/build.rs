@@ -1,7 +1,7 @@
 //! Builds the page into the binary: every file of the page's build (`client/dist`, which `npm run build` writes in
 //! `client/`) becomes a file the server serves, so that one command serves the page with nothing beside it. The page
-//! is part of the program, so a build without it fails and says how to make it. Brought over from the engine on `main`,
-//! whose interface serves its page the same way.
+//! is part of the program, so a build without it fails and says how to make it. Brought over from the engine on
+//! `old-main`, whose interface serves its page the same way.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};

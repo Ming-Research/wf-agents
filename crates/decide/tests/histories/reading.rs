@@ -1,4 +1,4 @@
-//! The histories' own reading of a work's records, written from the entries of the design and not from the walk: the
+//! The histories' own reading of a work's records, written from the design tree and not from the walk: the
 //! versions of each block, the meaning of each, what each cell's record knows and why a run would start. The
 //! properties are judged by this reading, so that a fault in the walk's own reading is not repeated in the judging.
 //! It reads only the records and the flow, with its named tests, never what the deciding code works out of them.

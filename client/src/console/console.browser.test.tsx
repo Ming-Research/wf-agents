@@ -1,13 +1,13 @@
 // The console in a real browser (Chromium, through Vitest's browser mode): the tree is drawn by WebGL, which happy-dom
-// does not have, and its motion is the frames the browser draws. These pin what the console on `main` did, which had no
-// tests of its own for it: a scroll over a column moves that column and rests where the scroll stops, as far as leaves
-// three rows on the screen; a sideways scroll or a drag moves the columns sideways, no further than leaves half of the
-// first or the last column on the screen; a click selects the item under the pointer, and a click on a shadow the item
-// it points to, brought to the middle; the tree drawn again stands where it stood, the item selected kept; an item
-// revealed comes into the room the panel leaves, or to the middle when it is above or below what is seen; the columns
-// beside the one scrolled follow it, each where what joins it to the next near the middle of the screen is level, and
-// never faster than half again the one it follows; the view stands through a change of height or theme; and once
-// destroyed, the scene listens to nothing. The pointer and the wheel are events sent to the canvas at the points
+// does not have, and its motion is the frames the browser draws. These pin what the console on `old-main` did, which
+// had no tests of its own for it: a scroll over a column moves that column and rests where the scroll stops, as far as
+// leaves three rows on the screen; a sideways scroll or a drag moves the columns sideways, no further than leaves half
+// of the first or the last column on the screen; a click selects the item under the pointer, and a click on a shadow
+// the item it points to, brought to the middle; the tree drawn again stands where it stood, the item selected kept; an
+// item revealed comes into the room the panel leaves, or to the middle when it is above or below what is seen; the
+// columns beside the one scrolled follow it, each where what joins it to the next near the middle of the screen is
+// level, and never faster than half again the one it follows; the view stands through a change of height or theme; and
+// once destroyed, the scene listens to nothing. The pointer and the wheel are events sent to the canvas at the points
 // the test works out from where the columns stand (`place`), so that each lands where the test means; the keys are the
 // browser's own.
 

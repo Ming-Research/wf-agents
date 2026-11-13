@@ -3,7 +3,7 @@
 // questions a cell asked while working at its end), and the messages under it, the owner's and the replies. Pure, so
 // that the window draws made-up items as it will draw real ones.
 //
-// Brought over from the console of the engine on `main` (`client/src/console/window.ts`), as it was.
+// Brought over from the console of the engine on `old-main` (`client/src/console/window.ts`), as it was.
 
 /// Who writes a message, or is named in one to receive it.
 export type Who = 'owner' | 'engineer' | 'architect' | 'assistant';

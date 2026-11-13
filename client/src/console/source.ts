@@ -40,7 +40,8 @@ function changedOf(data: string): Heard {
   }
 }
 
-/// How long the page waits before it opens the stream again once the browser gave up on it, as the page on `main` did.
+/// How long the page waits before it opens the stream again once the browser gave up on it, as the page on `old-main`
+/// did.
 export const REOPEN_MS = 3000;
 
 /// `EventSource.CLOSED`: the browser has given up on the stream and will not open it again by itself.
@@ -53,10 +54,10 @@ export type Stream = Pick<EventSource, 'readyState' | 'close'> & {
   onmessage: ((e: MessageEvent<string>) => void) | null;
 };
 
-/// Listens to the stream of changes at `url`, as the page on `main` listened to its events: the browser opens it again
-/// after a cut by itself, and each time it opens after the first, `on` is told that anything may have happened; a stream
-/// the browser gives up on, which it does when it is answered with an error instead of being cut, is opened again after
-/// `REOPEN_MS`. Gives what stops it.
+/// Listens to the stream of changes at `url`, as the page on `old-main` listened to its events: the browser opens it
+/// again after a cut by itself, and each time it opens after the first, `on` is told that anything may have happened; a
+/// stream the browser gives up on, which it does when it is answered with an error instead of being cut, is opened
+/// again after `REOPEN_MS`. Gives what stops it.
 export function listen(
   on: (heard: Heard) => void,
   url = '/api/v1/changes',

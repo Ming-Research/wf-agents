@@ -1,7 +1,7 @@
 /* The console: the canvas of the tree, and over its right the window with the item selected. Brought over from the
-   console of the engine on `main` (`client/src/styles/console.css`), its Primer values the page's tokens or, where the
-   page has none, Primer's values as they were. Every value is a token (styles/tokens.css), but for the console's own
-   colours named below. */
+   console of the engine on `old-main` (`client/src/styles/console.css`), its Primer values the page's tokens or, where
+   the page has none, Primer's values as they were. Every value is a token (styles/tokens.css), but for the console's
+   own colours named below. */
 
 .console {
   /* A work waiting for something that is not the owner: the console's pale yellow, which asks nothing of them. It has
@@ -181,7 +181,7 @@
 }
 
 /* Where the work's time went: a model's stretches in blue, the tools' in orange, those no round ran in grey, on a muted
-   ground, as the page on `main` drew it from Primer's data colours. They have no token: no other view draws them. */
+   ground, as the page on `old-main` drew it from Primer's data colours. They have no token: no other view draws them. */
 .cw-track {
   --track-ground: #818b981f;
   --track-model: var(--accent);

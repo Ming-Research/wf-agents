@@ -5,8 +5,8 @@ import type { Shown } from './items';
 // roots and at most ten items side by side under any one. The same count always gives the same tree. From the browser's
 // console, `consoleScene.show(consoleFake(2000))` draws one.
 //
-// Brought over from the console of the engine on `main` (`client/src/console/fake.ts`); its made-up items that showed
-// every state the drawing has are `fixtures.ts` now, made as the interface gives items.
+// Brought over from the console of the engine on `old-main` (`client/src/console/fake.ts`); its made-up items that
+// showed every state the drawing has are `fixtures.ts` now, made as the interface gives items.
 
 export type FakeItem = {
   id: number;

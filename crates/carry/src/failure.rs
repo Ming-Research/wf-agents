@@ -1,6 +1,6 @@
 //! The kind of cause of a round of the command line that failed, told apart by what the command line reported, and,
 //! at the account's usage limit, when the limit resets. Brought from the old engine's reading of the same command line
-//! (`crates/sessions/src/cli.rs` on `main`), whose words were each met in a real report.
+//! (`crates/sessions/src/cli.rs` on `old-main`), whose words were each met in a real report.
 
 use std::net::{TcpStream, ToSocketAddrs};
 use std::process::Command;

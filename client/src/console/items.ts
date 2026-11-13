@@ -4,7 +4,7 @@
 // under them is still open. Each item carries its own state, its work while it goes on, whether the work has begun, and
 // how many of the things its work waits for wait for the owner. Pure, so that it is tested on its own.
 //
-// Brought over from the console of the engine on `main` (`client/src/console/items.ts`), reading the items as
+// Brought over from the console of the engine on `old-main` (`client/src/console/items.ts`), reading the items as
 // `works-api.ts` gives them. The interface does not say which of an item's dependents is its main one: the first of
 // them by number is.
 

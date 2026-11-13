@@ -9,8 +9,8 @@
 // drawn where they stand, the item selected and the panel as they were; when the stream opens again after a cut,
 // everything is. An answer older than the one shown is dropped. The page's shell mounts it lazily (`lazy.tsx`).
 //
-// Brought over from the console of the engine on `main` (`client/src/pages/Console.tsx`): the window slides over the
-// tree, which keeps its whole width under it (`Drawer.tsx`).
+// Brought over from the console of the engine on `old-main` (`client/src/pages/Console.tsx`): the window slides over
+// the tree, which keeps its whole width under it (`Drawer.tsx`).
 
 import './console.css';
 

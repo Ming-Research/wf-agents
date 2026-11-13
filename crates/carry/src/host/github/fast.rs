@@ -1,8 +1,8 @@
 //! The project's fast CI: a workflow the engine runs by hand, which runs only the tests and the checks an agent named
 //! and reports what became of each test (`results`). Brought over from the old engine's `ci` and `ci_before`
-//! (`crates/engine/src/tools.rs` on main): the tests and checks named, the run asked for and waited for, and each test's
-//! own result and time read from the run's JUnit. Unlike there, the workflow is always run by its file on main, given
-//! the commit to test, and its run is found by a value only that request knows, which the run's name holds.
+//! (`crates/engine/src/tools.rs` on `old-main`): the tests and checks named, the run asked for and waited for, and each
+//! test's own result and time read from the run's JUnit. Unlike there, the workflow is always run by its file on main,
+//! given the commit to test, and its run is found by a value only that request knows, which the run's name holds.
 //!
 //! What is said of a run: each test named, with what became of it and how long it ran, and what a failed one said;
 //! each check named; and, for a job that failed with nothing named to say why (a unit that did not compile, say), what
