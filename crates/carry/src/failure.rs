@@ -123,8 +123,20 @@ pub fn of(report: &str, spent: Option<&work::Spent>) -> Failure {
 pub fn kind(report: &str) -> Failure {
     let text = report.to_lowercase();
     (KINDS.iter())
-        .find(|(_, words)| words.iter().any(|w| text.contains(w)))
+        .find(|(kind, words)| {
+            words.iter().any(|w| text.contains(w)) || (*kind == Failure::UsageLimit && hit_a_limit(&text))
+        })
         .map_or(Failure::Passing, |(kind, _)| *kind)
+}
+
+/// Whether a report (in lower case) says the account hit a limit: "hit your", then within a few words a word that
+/// begins "limit", as in "hit your weekly limit" or "hit your Opus 5-hour limit". The command line puts the limit's
+/// kind or a model's name between them, and which words it puts there changes.
+fn hit_a_limit(text: &str) -> bool {
+    text.match_indices("hit your ").any(|(at, said)| {
+        let after = &text[at + said.len()..];
+        after.split_whitespace().take(4).any(|w| w.starts_with("limit"))
+    })
 }
 
 /// When a usage limit the command line reported resets, in milliseconds since the start of 1970: from the time it
@@ -214,6 +226,16 @@ mod tests {
         );
         assert_eq!(kind("Claude AI usage limit reached|1760000000"), Failure::UsageLimit);
         assert_eq!(kind("You've hit your limit · resets 5pm"), Failure::UsageLimit);
+        assert_eq!(
+            kind("You've hit your weekly limit · resets Fri 5pm"),
+            Failure::UsageLimit
+        );
+        assert_eq!(kind("You've hit your Opus 5-hour limit"), Failure::UsageLimit);
+        // "Hit your" alone, or with a limit far off, is no usage limit.
+        assert_eq!(
+            kind("API Error: 429 You hit your rate of requests, retry in a moment; the limit is per minute"),
+            Failure::Passing
+        );
         assert_eq!(kind("Invalid API key · Please run /login"), Failure::CannotRun);
         assert_eq!(kind("Prompt is too long"), Failure::PromptTooLong);
         assert_eq!(
