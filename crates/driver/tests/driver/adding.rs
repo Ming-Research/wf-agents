@@ -201,9 +201,10 @@ fn the_work_is_paused_from_its_first_entry_and_holds_its_dependencies_block_and_
         assert_eq!(deps_write.by, Outsider::Outside);
         assert_eq!(deps_write.value.as_deref(), Some(deps));
         assert_eq!(h.dependencies(work).as_deref(), Some(deps));
-        // Paused, it would run its first cell, or waits before it for its dependencies.
+        // With nothing written that runs its first cell, nothing is to be done; with the request written, it waits before
+        // its first cell for its dependencies.
         let decision = if deps == MERGED {
-            Decision::Paused
+            Decision::Idle
         } else {
             waits_for_dependencies("write")
         };

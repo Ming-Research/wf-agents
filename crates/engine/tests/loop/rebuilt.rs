@@ -32,13 +32,18 @@ fn a_work_rebuilt_from_its_parts_goes_on_exactly_as_the_original() {
         clock: w.clock,
     };
     assert_eq!(copy.work, w.work);
+    let done = Event::Done {
+        call: calls[1].0,
+        result: "yes".into(),
+    };
+    assert_eq!(copy.on(done.clone()), w.on(done));
+    assert_eq!(copy.work, w.work);
+    // The judge is entered again, given the results.
+    let again = w.work.records.started.last().expect("a run").run;
+    assert_ne!(again, judge);
     let events = [
-        Event::Done {
-            call: calls[1].0,
-            result: "yes".into(),
-        },
         Event::Returned {
-            run: judge,
+            run: again,
             came: hands_in(&[("opinions", None)]),
             spent: spent(7),
         },

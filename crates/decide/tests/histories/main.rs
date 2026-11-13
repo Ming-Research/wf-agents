@@ -775,6 +775,11 @@ impl History {
         let rounds = self.backs.get(&run).map_or(0, Vec::len);
         let at = self.w.tick();
         self.w.records.returned.push(Returned { run, at });
+        // A round being stopped ends with what came back dropped.
+        if self.w.records.abandoned.iter().any(|a| a.run == run) {
+            self.note(format!("{cell}'s stopped round ends"));
+            return;
+        }
         if !is_merge
             && rounds < ROUNDS
             && let Some(failing) = &mut self.failing

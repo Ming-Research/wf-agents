@@ -135,10 +135,11 @@ pub fn for_a_note(flow: &decide::Flow, records: &Records, run: RunId) -> bool {
     let Some(started) = r.started.iter().find(|s| s.run == run) else {
         return false;
     };
-    // Since the cell last ran: since the start of the run of its record, or with no record of its first run.
+    // Since the cell last ran: since the start of its latest run that finished dealing with something, or with none of
+    // its first run. A run that only asked for calls dealt with nothing.
     let of_cell = || (r.started.iter()).filter(|s| s.cell == started.cell && s.at < started.at);
     let record = (r.finished.iter())
-        .filter(|f| f.at < started.at)
+        .filter(|f| f.at < started.at && f.dealt_with.as_ref().is_none_or(|d| !d.is_empty()))
         .filter_map(|f| of_cell().find(|s| s.run == f.run).map(|s| (f.at, s.at)))
         .max();
     let Some(since) = record.map(|(_, at)| at).or_else(|| of_cell().map(|s| s.at).min()) else {

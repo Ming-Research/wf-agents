@@ -35,7 +35,8 @@ fn a_work_is_added_paused_and_begins_once_the_owner_lets_it_on() {
     assert_eq!(rounds(&h.let_on(going)), [(going, "write".to_string(), 1)]);
     assert_eq!(rounds(&h.d().pending()), [(going, "write".to_string(), 1)]);
     let (_, held) = h.add(new_item("held", &[], "plain"));
-    assert_eq!(h.decision(held), Decision::Paused);
+    // Not started by the owner, it has nothing new to run its first cell.
+    assert_eq!(h.decision(held), Decision::Idle);
     assert_eq!(h.d().held(held), Some(Holder::Pause));
     assert_eq!(rounds(&h.let_on(held)), [(held, "write".to_string(), 1)]);
 }
@@ -239,7 +240,7 @@ fn the_pause_of_everything_holds_back_every_work_and_lifted_lets_on_all_but_thos
     assert_eq!(h.ops(), []);
     let todos = h.pause_everything(false);
     assert_eq!(rounds(&todos), [(going, "write".to_string(), 1)]);
-    assert_eq!(h.decision(held), Decision::Paused);
+    assert_eq!(h.decision(held), Decision::Idle);
     assert!(h.d().everything_paused().is_none());
 }
 

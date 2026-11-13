@@ -142,10 +142,14 @@ fn kept_before() -> Work {
     d.on(Event::Resumed);
     d.end(hands_in(&[("text", None)]));
     d.end(Came::asks(vec![question(Who::Owner)]));
-    // Its rounds were kept before a round said the context it ended with and how often it was compacted.
+    // Its rounds were kept before a round said the context it ended with and how often it was compacted, and its
+    // runs before a return said what it dealt with.
     for spent in d.work.spent.values_mut() {
         spent.context_tokens = None;
         spent.compactions = 0;
+    }
+    for finished in &mut d.work.records.finished {
+        finished.dealt_with = None;
     }
     d.work
 }

@@ -7,11 +7,11 @@
 //! keeps no place where a work is. Each time a round ends or something else happens to the work, it walks the cells
 //! from the first, in their order: a cell whose condition is not met is skipped, what it wrote before still counting;
 //! at the first that has a run at rest the run goes on, unless it waits for something; a cell whose last runs asked for
-//! calls waits there until every result is in, and is then entered again, given them; at the first whose preconditions
-//! do not hold or that has reached a limit the work waits; the first that something new runs is entered; the rest are
-//! passed. A work in which nothing new runs a cell, and nothing is under way or waited for, rests until someone writes
+//! calls waits there until every result is in, and is then entered again, given them; at the first that something new
+//! runs whose preconditions do not hold or that has reached a limit the work waits; the first that something new runs
+//! is otherwise entered; the rest are passed. A work in which nothing new runs a cell, and nothing is under way or waited for, rests until someone writes
 //! what runs one. One round of a work is under way at a time: a round of a cell after one the owner turned to, by words
-//! or by an answer, is stopped, and its cell runs again later. A work has ended when its last cell has a record or its
+//! or by an answer, is stopped, nothing else beginning until it has ended, and its cell runs again later. A work has ended when its last cell has a record or its
 //! item is cancelled.
 //!
 //! A pause of the work changes none of this order. It holds back the run the walk comes to, unless one of that run's
@@ -40,7 +40,8 @@ pub enum Decision {
     Fault(RecordFault),
     /// The work has ended.
     Ended(End),
-    /// A round of this run is under way: nothing is decided until it ends, unless the work is cancelled.
+    /// A round of this run is under way: nothing is decided until it ends, unless the work is cancelled or the owner
+    /// turns to a cell before it. The run may have been abandoned already, its round being stopped.
     Busy { cell: CellId, run: RunId },
     /// The work is paused, and what it would do next is run a cell none of whose reasons is a change of a note a person
     /// made: that run waits for the work to be let on. A cell one of whose reasons is such a change runs as if the work
@@ -150,7 +151,14 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
             None => Decision::Ended(End::Cancelled),
         };
     }
-    // One round of a work at a time: a round under way is stopped only for a cell before it that the owner turned to.
+    // One round of a work at a time: a round being stopped is under way until it has ended, and nothing else begins.
+    if let Some(run) = walk.runs.values().find(|r| r.began > r.ended && !r.open()) {
+        return Decision::Busy {
+            cell: run.started.cell.clone(),
+            run: run.started.run,
+        };
+    }
+    // A round under way is stopped only for a cell before it that the owner turned to.
     if let Some(run) = walk.runs.values().find(|r| r.under_way()) {
         if let Some((cell, block)) = walk.stopping(run, room) {
             return Decision::Abandon {
@@ -194,12 +202,14 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
                 run: run.started.run,
             };
         }
+        // A precondition holds the work only at a cell that is to be entered or waits there: one that nothing new runs
+        // is passed whatever its preconditions.
         let (because, mut on) = walk.entering(i);
+        if because.is_empty() && on.is_empty() {
+            continue;
+        }
         on.extend(walk.unmet(i));
         if because.is_empty() {
-            if on.is_empty() {
-                continue;
-            }
             return wait(on);
         }
         on.extend(walk.at_limit(cell, &because));
@@ -785,16 +795,22 @@ impl<'a> Walk<'a> {
 
     /// Whether one of these reasons of a run of the cell at this place, which starts at `before` (now where `None`), is
     /// the owner's since the cell last ran: a note a person wrote to the cell, or the owner turning to it, written
-    /// after the start of the run of its record, or with no record after the start of its first run, after the
-    /// version the cell consumed, and before `before`. A cell with no record and one with a record so both count it
+    /// after the start of its latest run that finished dealing with something, or with none after the start of its
+    /// first run, after the version the cell consumed, and before `before`. A cell with no record and one with a record so both count it
     /// until a run of it finishes, whatever runs were abandoned since. A cell no run of which has started has not run,
     /// and answers no one: a work added paused begins nothing.
     fn for_a_note(&self, i: usize, because: &[Cause], before: Option<Seq>) -> bool {
         let cell = &self.flow.cells()[i];
         let earlier = |at: Seq| before.is_none_or(|before| at < before);
         let of_cell = || (self.runs.values()).filter(|r| r.started.cell == cell.id && earlier(r.started.at));
+        // A run that only asked for calls dealt with nothing: the cell has not run for anything by it.
+        let dealt = |f: &Finished| f.dealt_with.as_ref().is_none_or(|d| !d.is_empty());
         let record = (of_cell())
-            .filter_map(|r| r.finished.filter(|f| earlier(f.at)).map(|f| (f.at, r.started.at)))
+            .filter_map(|r| {
+                r.finished
+                    .filter(|f| earlier(f.at) && dealt(f))
+                    .map(|f| (f.at, r.started.at))
+            })
             .max();
         let Some(since) = record
             .map(|(_, at)| at)

@@ -47,11 +47,11 @@ pub struct Fake {
     /// Whether its first call prints a result that is an error, as when it ran out of retries of its structured
     /// return, the session having cost eighty cents by then, and exits with 1.
     pub error_first: bool,
-    /// Whether the build asks for the check in its first round, and its second round, going on in the session, is
-    /// told the first time that the session is not found.
+    /// Whether the build asks for the check in its first run, and its run entered for the result, going on in the
+    /// session, is told the first time that the session is not found.
     pub lose_session: bool,
-    /// Whether the build asks the owner a question in its first round, and for the check in its second, before it
-    /// hands in; with `lose_session`, its last round is the one told the session is not found.
+    /// Whether the build asks the owner a question in its first run, and for the check in the run entered for the
+    /// answer, before it hands in; with `lose_session`, its last run is the one told the session is not found.
     pub question_first: bool,
     /// How many seconds the plan's first call sleeps before it answers.
     pub plan_sleeps: u32,
@@ -265,10 +265,13 @@ case "$first" in
         touch "$log/planned"
         out="{{\"block\":\"plan\",\"content\":\"Greet by name.\",\"matters\":$matters}}" ;;
     *'cell `build`'*)
-        round=${{first##*, round }}
-        if [ "$round" = 1 ] && [ '{question}' = yes ]; then
+        results=no
+        grep -q 'The results of what you asked for' "$log/$n.stdin" && results=yes
+        checked=no
+        grep -q 'The tool `check`' "$log/$n.stdin" && checked=yes
+        if [ "$results" = no ] && [ '{question}' = yes ]; then
             asks='[{{"question":"Which name?"}}]'
-        elif {{ [ "$round" = 1 ] && [ '{lose}' = yes ]; }} || {{ [ "$round" = 2 ] && [ '{question}' = yes ]; }}; then
+        elif {{ [ "$results" = no ] && [ '{lose}' = yes ]; }} || {{ [ "$checked" = no ] && [ '{question}' = yes ]; }}; then
             asks='[{{"tool":"check","input":""}}]'
         else
             if [ '{lose}' = yes ] && [ ! -f "$log/lost" ] && grep -qx -- --resume "$log/$n.args"; then

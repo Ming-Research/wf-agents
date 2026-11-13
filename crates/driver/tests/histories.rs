@@ -730,6 +730,8 @@ fn one_history(seed: u64, faults: bool, log: &mut Vec<String>) -> (Ending, Seen)
                     }
                     x.seen.rested_waiting += 1;
                 }
+                // Nothing new runs any of its cells: it rests until someone writes what runs one.
+                Decision::Idle => x.seen.rested_waiting += 1,
                 other => panic!("work {} rests deciding {other:?}", number.0),
             }
         }

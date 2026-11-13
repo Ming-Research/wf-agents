@@ -27,11 +27,16 @@ pub const UNPAUSED_ANSWERS: &str =
 
 /// Whether one of these reasons, of a run of the cell that starts or started at this place, is the owner's since the
 /// cell last ran: a version of a note that runs it that a person wrote, or of a block that interrupts that the outside
-/// wrote, changing its meaning, after the version the cell consumed, after the start of the run of its record, or with
-/// no record after the start of its first run, and before the place. A cell no run of which started before the place
+/// wrote, changing its meaning, after the version the cell consumed, after the start of its latest run that finished
+/// dealing with something, or with none after the start of its first run, and before the place. A cell no run of which started before the place
 /// has not run, and has none.
 pub fn for_a_note(flow: &Flow, reading: &Reading, cell: &Cell, reasons: &[Reason], place: Seq) -> bool {
-    let record = reading.record(&cell.id, place).map(|run| reading.started[&run].at);
+    // A run that only asked for calls dealt with nothing: the cell has not run for anything by it.
+    let record = (reading.finished.values())
+        .filter(|f| f.at < place && reading.started[&f.run].cell == cell.id)
+        .filter(|f| f.dealt_with.as_ref().is_none_or(|d| !d.is_empty()))
+        .max_by_key(|f| f.at)
+        .map(|f| reading.started[&f.run].at);
     let first = (reading.started.values())
         .filter(|s| s.cell == cell.id && s.at < place)
         .map(|s| s.at)

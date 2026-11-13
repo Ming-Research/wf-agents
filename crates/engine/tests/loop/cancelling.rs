@@ -1,6 +1,6 @@
 //! A cancel: nothing of the work goes on. Each open run is abandoned, run by run in the order they started: its round
-//! under way is stopped and the calls it rests at are withdrawn, each of which is to be done until the driver says it
-//! was.
+//! under way is stopped and the calls it rests at are withdrawn; and the calls a cell waits for the results of are
+//! withdrawn as the work ends. Each is to be done until the driver says it was.
 
 use super::*;
 
@@ -19,7 +19,7 @@ fn a_cancel_stops_the_round_under_way_and_abandons_its_run() {
 }
 
 #[test]
-fn a_cancel_withdraws_the_calls_a_run_rests_at_in_the_order_they_were_made() {
+fn a_cancel_withdraws_the_calls_a_cell_waits_for_in_the_order_they_were_made() {
     let (mut w, write, _) = W::requested();
     let calls = calls_of(&w.returns(write, Came::asks(vec![tool("a"), question(Who::Owner), tool("b")])));
     w.done(calls[0].0);
@@ -28,11 +28,13 @@ fn a_cancel_withdraws_the_calls_a_run_rests_at_in_the_order_they_were_made() {
         Effect::Withdraw { call: calls[2].0 },
     ];
     assert_eq!(w.on(Event::Cancelled { why: None }), withdrawn);
-    assert_eq!(abandoned(&w), vec![write]);
+    // The run that asked had finished: none is abandoned.
+    assert_eq!(abandoned(&w), Vec::<RunId>::new());
+    assert!(w.work.records.finished.iter().any(|f| f.run == write));
     assert_eq!(pending(&w.flow, &w.work), withdrawn);
 }
 
-/// The judge rests at a question for the owner, and the writer, before it, runs again for a new request.
+/// The judge waits for a question for the owner it asked, and the writer, before it, runs again for a new request.
 fn two_open() -> (W, RunId, CallId, RunId) {
     let (mut w, write, _) = W::requested();
     let judge = round(&w.returns(write, hands_in(&[("text", None)]))).0;
@@ -45,10 +47,14 @@ fn two_open() -> (W, RunId, CallId, RunId) {
 #[test]
 fn a_cancel_ends_every_open_run_in_the_order_the_runs_started() {
     let (mut w, judge, call, again) = two_open();
-    let undo = vec![Effect::Withdraw { call }, Effect::Stop { run: again }];
+    // The open run is stopped as it is abandoned, and the question the judge waits for withdrawn as the work ends.
+    let undo = vec![Effect::Stop { run: again }, Effect::Withdraw { call }];
     assert_eq!(w.on(Event::Cancelled { why: None }), undo);
-    assert_eq!(abandoned(&w), vec![judge, again]);
-    assert_eq!(pending(&w.flow, &w.work), undo);
+    assert_eq!(abandoned(&w), vec![again]);
+    assert!(w.work.records.finished.iter().any(|f| f.run == judge));
+    // What is pending is said run by run, in the order they started.
+    let pending_now = vec![Effect::Withdraw { call }, Effect::Stop { run: again }];
+    assert_eq!(pending(&w.flow, &w.work), pending_now);
 }
 
 #[test]

@@ -1,6 +1,6 @@
-//! A pause holds back only what would begin a round: what a round hands in is taken, the calls it asks for are made,
-//! the owner is asked at a limit and a stale run is abandoned, while no round begins until the work is let on but one
-//! of a run that answers a note (`paused_answers`). A request a person writes is no note.
+//! A pause holds back only what would begin a round: what a round returns is taken, the calls it asks for are made,
+//! and the owner is asked at a limit, while no round begins until the work is let on but one of a run that answers a
+//! note (`paused_answers`). A request a person writes is no note.
 
 use super::*;
 
@@ -23,7 +23,7 @@ fn a_return_handed_in_during_a_pause_finishes_the_run_and_the_next_cells_round_w
     let effects = w.on(Event::Resumed);
     let judge = w.work.records.started.last().expect("a run").run;
     let start = started_with(
-        vec![Cause::NoRecord],
+        vec![changed("text", None, false)],
         &[("text", Some(text)), ("opinions", None), ("verdict", None)],
     );
     assert_eq!(effects, vec![round_effect(judge, "judge", 1, Given::Task)]);
@@ -72,9 +72,11 @@ fn calls_asked_for_during_a_pause_are_made_and_the_round_given_their_results_wai
         vec![(write, Call::Asked(tool("a")))]
     );
     assert_eq!(w.done(calls[0].0), vec![]);
+    let effects = w.on(Event::Resumed);
+    let again = w.work.records.started.last().expect("a run").run;
     assert_eq!(
-        w.on(Event::Resumed),
-        vec![round_effect(write, "write", 2, Given::Results(vec![calls[0].0]))]
+        effects,
+        vec![round_effect(again, "write", 1, Given::Results(vec![calls[0].0]))]
     );
 }
 
@@ -109,19 +111,20 @@ fn the_owner_is_asked_at_a_limit_during_a_pause() {
 }
 
 #[test]
-fn a_stale_run_is_abandoned_during_a_pause_and_its_cell_runs_again_once_the_work_is_let_on() {
-    let (mut w, write, _) = W::requested();
+fn a_cell_that_waits_for_the_owners_answer_during_a_pause_is_entered_for_it_and_what_came_since_once_let_on() {
+    let (mut w, write, first) = W::requested();
     let call = calls_of(&w.returns(write, Came::asks(vec![question(Who::Owner)])))[0].0;
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
     });
     let (effects, request) = w.person_writes("request");
-    assert_eq!(effects, vec![Effect::Withdraw { call }]);
+    assert_eq!(effects, vec![]);
+    assert_eq!(w.done(call), vec![]);
     let effects = w.on(Event::Resumed);
     let again = w.work.records.started.last().expect("a run").run;
     let start = started_with(
-        vec![Cause::NoRecord],
+        vec![changed("request", None, false), Cause::Results { calls: vec![call] }],
         &[
             ("request", Some(request)),
             ("opinions", None),
@@ -129,8 +132,12 @@ fn a_stale_run_is_abandoned_during_a_pause_and_its_cell_runs_again_once_the_work
             ("text", None),
         ],
     );
-    assert_eq!(effects, vec![round_effect(again, "write", 1, Given::Task)]);
+    assert_eq!(
+        effects,
+        vec![round_effect(again, "write", 1, Given::Results(vec![call]))]
+    );
     assert_eq!(start_of(&w, again), start);
+    let _ = first;
 }
 
 #[test]

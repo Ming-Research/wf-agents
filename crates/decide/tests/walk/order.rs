@@ -38,6 +38,10 @@ fn a_work_in_which_nothing_new_runs_a_cell_rests_idle_until_someone_writes_what_
 #[test]
 fn a_merge_waits_for_its_precondition() {
     let mut w = World::with_gate(vec![]);
+    // Nothing runs the merge yet.
+    assert_eq!(w.decide(), Decision::Idle);
+    // The owner's word, a no, runs it, and its precondition holds it.
+    w.says("the merge may go", false);
     assert_eq!(w.decide(), wait("merge", vec![merge_word()]));
     let word = w.says("the merge may go", true);
     assert_eq!(

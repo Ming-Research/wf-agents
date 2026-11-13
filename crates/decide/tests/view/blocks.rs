@@ -25,7 +25,8 @@ fn each_version_shows_who_wrote_it_a_person_the_outside_or_a_run() {
 
 #[test]
 fn a_choice_shows_its_value() {
-    let mut w = World::with_gate(vec![cell("ask", &[], &["more"])]);
+    let mut w = World::with_gate(vec![cell("ask", &["brief"], &["more"])]);
+    w.person_writes("brief");
     let at = w.run("ask", &[("more", Value("yes"))]);
     let run = finished_by(&w, at);
     let person = w.person_sets("more", "no");

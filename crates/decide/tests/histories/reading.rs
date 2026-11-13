@@ -153,14 +153,6 @@ impl<'a> Reading<'a> {
         self.of(block).last()
     }
 
-    /// The cell's record just before this place: its latest run that had finished.
-    pub fn record(&self, cell: &CellId, place: Seq) -> Option<RunId> {
-        (self.finished.values())
-            .filter(|f| f.at < place && &self.started[&f.run].cell == cell)
-            .max_by_key(|f| f.at)
-            .map(|f| f.run)
-    }
-
     /// The latest version of the block the run was told of: the one it started from, or one put in to it.
     pub fn told(&self, run: RunId, block: &BlockId) -> Option<Seq> {
         let began = self.started[&run].basis.get(block).copied().flatten();

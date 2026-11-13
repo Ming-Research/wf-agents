@@ -14,17 +14,26 @@ use crate::{START, Trial, act_on, add_to, new_item, trial_dir, trial_flow};
 
 const WHY: &str = "The agent's program could not start.";
 
-/// The trial's script, the plan's second round, the one given the owner's answer, failing.
+/// The plan's second run, entered for the owner's answer to its question.
+fn answering(kept: &Work) -> decide::RunId {
+    (kept.records.started.iter())
+        .filter(|s| s.cell.as_str() == "plan")
+        .nth(1)
+        .expect("the plan was entered again for the answer")
+        .run
+}
+
+/// The trial's script, the plan's second run, the one entered for the owner's answer, failing.
 fn failing() -> Script {
     let text = std::fs::read_to_string(trial_dir().join("script.toml")).expect("the script is read");
-    let text = format!("{text}\n[[flows.trial.rounds]]\ncell = \"plan\"\nround = 2\nfails = \"{WHY}\"\n");
+    let text = format!("{text}\n[[flows.trial.rounds]]\ncell = \"plan\"\nrun = 2\nfails = \"{WHY}\"\n");
     let script = Script::read(&text).expect("the script reads");
     assert_eq!(script.check(&[trial_flow()]), Vec::<String>::new());
     script
 }
 
-/// The trial work with the failing script, let on, the owner answering the plan's question: the plan's second round
-/// is under way.
+/// The trial work with the failing script, let on, the owner answering the plan's question: the plan's second run,
+/// entered for the answer, has its round under way.
 async fn answered() -> (Trial, store::WorkNumber) {
     let mut trial = Trial::with(failing());
     let (_, work) = trial.add("Greet the user", &[]);
@@ -40,9 +49,9 @@ async fn a_round_that_fails_pauses_its_work_with_the_reason_and_hands_out_nothin
     let event = trial.step().await.unwrap();
     assert!(matches!(&event, Event::Failed { why, .. } if why == WHY), "{event:?}");
     let kept = trial.work(work);
-    let plan = kept.records.started[0].run;
+    let plan = answering(&kept);
     assert_eq!(
-        kept.back.get(&(plan, 2)),
+        kept.back.get(&(plan, 1)),
         Some(&Back::Failed {
             why: WHY.to_string(),
             failure: decide::run::Failure::Other,
@@ -77,9 +86,9 @@ async fn a_restart_while_the_work_is_paused_hands_out_nothing_and_the_owners_res
 
     trial.act(work, Act::Resume).unwrap();
     let kept = trial.work(work);
-    let plan = kept.records.started[0].run;
+    let plan = answering(&kept);
     // The round after the one that failed is given what that one was: the owner's answer.
-    assert_eq!(kept.given.get(&(plan, 3)), kept.given.get(&(plan, 2)));
+    assert_eq!(kept.given.get(&(plan, 2)), kept.given.get(&(plan, 1)));
     assert_eq!(trial.drive(work).await, Decision::Ended(End::Merged));
     assert_eq!(
         trial.finished(work),
@@ -153,13 +162,13 @@ async fn a_stop_at_any_step_of_a_work_whose_round_fails_changes_nothing() {
     }
 }
 
-/// The trial's script, the plan's second round, the one given the owner's answer, failing for a cause of this kind;
+/// The trial's script, the plan's second run, the one entered for the owner's answer, failing for a cause of this kind;
 /// where `resets`, the usage limit resets that many milliseconds after the start.
 pub(crate) fn failing_as(failure: &str, resets: Option<u64>) -> Script {
     let text = std::fs::read_to_string(trial_dir().join("script.toml")).expect("the script is read");
     let resets = resets.map_or(String::new(), |ms| format!("resets = {}\n", START.0 + ms));
     let text = format!(
-        "{text}\n[[flows.trial.rounds]]\ncell = \"plan\"\nround = 2\nfails = \"{WHY}\"\nfailure = \"{failure}\"\n{resets}"
+        "{text}\n[[flows.trial.rounds]]\ncell = \"plan\"\nrun = 2\nfails = \"{WHY}\"\nfailure = \"{failure}\"\n{resets}"
     );
     let script = Script::read(&text).expect("the script reads");
     assert_eq!(script.check(&[trial_flow()]), Vec::<String>::new());
@@ -177,7 +186,7 @@ async fn a_round_that_fails_in_passing_is_given_again_once_its_wait_is_over_and_
     assert!(matches!(&event, Event::Failed { .. }), "{event:?}");
     let kept = trial.work(work);
     assert!(!decide::paused(&kept.records), "a failure in passing pauses nothing");
-    let plan = kept.records.started[0].run;
+    let plan = answering(&kept);
     let wait = kept.calls.values().find_map(|c| match c {
         Call::Wait { until, failed } => Some((*until, *failed)),
         _ => None,
@@ -186,10 +195,10 @@ async fn a_round_that_fails_in_passing_is_given_again_once_its_wait_is_over_and_
     assert_eq!(wait, Some((Time(failed_at.0 + decide::run::FIRST_WAIT), 1)));
     assert_eq!(trial.drive(work).await, Decision::Ended(End::Merged));
     let kept = trial.work(work);
-    assert_eq!(kept.given.get(&(plan, 3)), kept.given.get(&(plan, 2)));
+    assert_eq!(kept.given.get(&(plan, 2)), kept.given.get(&(plan, 1)));
     let given_again = (kept.records.rounds.iter())
         .filter(|r| r.run == plan)
-        .nth(2)
+        .nth(1)
         .unwrap()
         .at;
     let again_at = kept.time_of(given_again).unwrap();
@@ -227,10 +236,10 @@ async fn at_the_usage_limit_no_round_begins_until_it_resets_and_then_the_work_go
     assert!(!decide::paused(&trial.work(work).records));
     assert_eq!(trial.drive(work).await, Decision::Ended(End::Merged));
     let kept = trial.work(work);
-    let plan = kept.records.started[0].run;
+    let plan = answering(&kept);
     let given_again = (kept.records.rounds.iter())
         .filter(|r| r.run == plan)
-        .nth(2)
+        .nth(1)
         .unwrap()
         .at;
     assert!(

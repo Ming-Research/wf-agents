@@ -318,6 +318,8 @@ impl Standing {
                     Standing::Going
                 }
             }
+            // A work at rest that a pause holds is the pauser's to let on.
+            Decision::Idle if decide::paused(records) => paused(),
             Decision::Idle => Standing::Still,
             Decision::Busy { .. } | Decision::Run { .. } | Decision::GoOn { .. } | Decision::Abandon { .. } => {
                 Standing::Going

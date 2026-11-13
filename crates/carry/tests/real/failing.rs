@@ -112,7 +112,7 @@ async fn a_session_not_found_is_begun_again_with_the_task_and_the_list() {
     real.until(|real| ended(&real.decision(work))).await;
     assert_eq!(real.failures, 0);
     let calls = real.calls();
-    // The plan, the build's first round, its second refused, the second again, the review.
+    // The plan, the build's first run, the run entered for the check's result refused and begun again, the review.
     assert_eq!(calls.len(), 5);
     let (refused, again) = (&calls[2], &calls[3]);
     assert_eq!(refused.session().0, "--resume");
@@ -133,7 +133,7 @@ async fn a_session_not_found_is_begun_again_with_the_task_and_the_list() {
         assert!(again.stdin.contains(part), "{part} is missing from:\n{}", again.stdin);
     }
     let build = real.run_of(work, "build");
-    let base = real.data.join(format!("rounds/1/{}-2", build.0));
+    let base = real.data.join(format!("rounds/1/{}-1", build.0));
     assert_eq!(
         std::fs::read_to_string(base.with_extension("message.2.md")).unwrap(),
         again.stdin
@@ -141,7 +141,7 @@ async fn a_session_not_found_is_begun_again_with_the_task_and_the_list() {
 }
 
 #[tokio::test]
-async fn a_session_lost_on_a_later_round_is_begun_again_with_every_earlier_call_of_the_run() {
+async fn a_session_lost_on_a_later_run_is_begun_again_with_the_task_and_the_runs_own_results() {
     let fake = Fake {
         lose_session: true,
         question_first: true,
@@ -162,20 +162,18 @@ async fn a_session_lost_on_a_later_round_is_begun_again_with_every_earlier_call_
     );
     real.until(|real| ended(&real.decision(work))).await;
     let calls = real.calls();
-    // The plan, the build's question, its check, its third round refused and begun again, the review.
+    // The plan, the build's question, its check, the run entered for the check's result refused and begun again, the
+    // review.
     assert_eq!(calls.len(), 6);
     let again = &calls[4];
     assert_eq!(again.session().0, "--session-id");
     assert!(
-        again.stdin.starts_with("# Build (cell `build`), round 3\n"),
+        again.stdin.starts_with("# Build (cell `build`), round 1\n"),
         "{}",
         again.stdin
     );
     for part in [
         "## Your task",
-        "## Round 2 of this run: the results of what you asked for",
-        "### Your question: Which name?",
-        answer.as_str(),
         "## The results of what you asked for",
         "The check `true` passed.",
     ] {
@@ -246,7 +244,7 @@ async fn a_return_the_command_line_gave_up_on_is_rebuilt_from_its_stream_and_tak
     assert_eq!(real.calls().len(), 3, "the plan's program was run once");
     let kept = real.work(work);
     let plan_run = kept.records.started[0].run;
-    let Some(Back::HandedIn(handed)) = kept.back.get(&(plan_run, 1)) else {
+    let Some(Back::Returned { handed, .. }) = kept.back.get(&(plan_run, 1)) else {
         panic!("the plan's round handed nothing in: {:?}", kept.back);
     };
     let handed: Vec<(&str, &str)> = (handed.iter())

@@ -1,4 +1,5 @@
-//! What a driver that starts anew is given again: the round under way, and the calls that have no result.
+//! What a driver that starts anew is given again: the round under way, and the calls that have no result and are still
+//! wanted.
 
 use super::*;
 
@@ -58,12 +59,11 @@ fn nothing_is_pending_once_the_work_is_cancelled_what_was_to_be_undone_is_done_a
 }
 
 #[test]
-fn of_an_abandoned_run_only_the_withdrawing_of_its_calls_is_pending_until_it_is_done() {
+fn the_calls_a_finished_run_asked_for_stay_pending_while_the_work_goes_on() {
     let (mut w, write, _) = W::requested();
-    let call = calls_of(&w.returns(write, Came::asks(vec![question(Who::Owner)])))[0].0;
-    let effects = w.person_writes("request").0;
+    let effects = w.returns(write, Came::asks(vec![question(Who::Owner)]));
+    assert!(w.work.records.finished.iter().any(|f| f.run == write));
+    // A new request does not enter the writer while it waits for the answer.
+    assert_eq!(w.person_writes("request").0, vec![]);
     assert_eq!(pending(&w.flow, &w.work), effects);
-    assert_eq!(effects[0], Effect::Withdraw { call });
-    w.done(call);
-    assert_eq!(pending(&w.flow, &w.work), effects[1..].to_vec());
 }

@@ -1,4 +1,5 @@
-//! Calls: one made for each thing asked, the round given the results only once all have them.
+//! Calls: a return that asks ends its run, one call made for each thing asked; the cell is entered again, as a new run
+//! given the results, only once all have them.
 
 use super::*;
 
@@ -28,16 +29,48 @@ fn each_thing_asked_for_is_one_call_for_a_tool_with_nobody_and_for_a_person_with
 }
 
 #[test]
-fn the_round_after_calls_is_given_their_results_only_once_the_last_has_its_result() {
-    let (mut w, write, _) = W::requested();
+fn a_return_that_asks_ends_its_run_having_dealt_with_nothing_and_its_cell_waits_for_every_result() {
+    let (mut w, write, request) = W::requested();
     let effects = w.returns(write, Came::asks(vec![tool("search"), question(Who::Architect)]));
     let calls: Vec<CallId> = calls_of(&effects).iter().map(|(c, ..)| *c).collect();
+    let finished = w.work.records.finished.last().expect("the run finished");
+    assert_eq!((finished.run, finished.writes.clone()), (write, vec![]));
+    assert_eq!(finished.dealt_with, Some(vec![]));
+    // The calls were made before the finish.
+    assert!(w.work.records.called.iter().all(|c| c.at < finished.at));
     assert_eq!(w.done(calls[0]), vec![]);
     let effects = w.done(calls[1]);
+    let again = w.work.records.started.last().expect("a run").run;
+    assert_ne!(again, write);
     assert_eq!(
         effects,
-        vec![round_effect(write, "write", 2, Given::Results(calls.clone()))]
+        vec![round_effect(again, "write", 1, Given::Results(calls.clone()))]
     );
+    // It is entered for the results, and for the request it has not dealt with yet.
+    let because = vec![changed("request", None, false), Cause::Results { calls }];
+    assert_eq!(start_of(&w, again).0, because);
+    let _ = request;
+}
+
+#[test]
+fn a_return_that_asks_and_also_does_the_cells_work_is_sent_back() {
+    let (mut w, write, _) = W::requested();
+    let mixed = Came {
+        dealt_with: None,
+        writes: vec![handed("text", None)],
+        asks: vec![tool("search")],
+    };
+    let effects = w.returns(write, mixed);
+    assert_eq!(
+        effects,
+        vec![round_effect(
+            write,
+            "write",
+            2,
+            Given::SentBack(vec![Unmet::AsksAndWorks])
+        )]
+    );
+    assert!(w.work.records.called.is_empty());
 }
 
 #[test]

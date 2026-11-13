@@ -357,12 +357,13 @@ fn question(who: Who) -> Ask {
 }
 
 /// A history that leaves an entry of every kind: writes by a person and the outside with values and without, runs
-/// finished, sent back and abandoned, calls for a tool and a person, done and withdrawn, both limits of a run let go
-/// by the owner, a pause and a resume, a round that failed and the engine's pause for it, a cell let go, and a cancel
-/// with a round under way.
+/// finished, sent back and abandoned, calls for a tool and a person, a run's limit of returns let go by the owner, a
+/// pause and a resume, a round that failed and the engine's pause for it, a cell let go, and a cancel with a round
+/// under way.
 fn history(d: &mut Driver) {
     d.wrote("request", Outsider::Person, None);
-    // The outside writes while the writer's first round is under way: as the round ends its run is abandoned.
+    // The outside writes while the writer's first round is under way: its return deals with the request it was told
+    // of, and the writer runs again for what the outside wrote.
     d.wrote("main", Outsider::Outside, None);
     d.end(hands_in(&[("text", None)]));
     // Sent back twice, then the owner is called at the limit of returns and lets the run go on.
@@ -370,6 +371,7 @@ fn history(d: &mut Driver) {
         d.end(wanting());
     }
     d.answer();
+    // A return that asks ends the run; the writer is entered again once both calls have their results.
     d.end(Came::asks(vec![tool("a"), question(Who::Owner)]));
     // Two lines begin a new session.
     d.on(Event::Anew {
@@ -381,7 +383,8 @@ fn history(d: &mut Driver) {
         why: engine::Why::Owner,
     });
     d.answer();
-    // The round given the results is tried twice, once at each effort, the second time with an account of its own.
+    // The round of the run given the results is tried twice, once at each effort, the second time with an account of
+    // its own.
     let (run, _) = d.under_way();
     for (effort, account) in [(None, None), (Some("high"), Some("an account"))] {
         let on = engine::RanOn {
@@ -392,11 +395,11 @@ fn history(d: &mut Driver) {
         };
         d.on(Event::Ran { run, attempt: 1, on });
     }
-    // Two more calls would pass the limit of calls: the owner is called, lets the run go on, and they are made.
+    // It asks again, and is entered again for those results.
     d.end(Came::asks(vec![tool("b"), tool("c")]));
     d.answer();
     d.end(hands_in(&[("text", None)]));
-    // The judge asks the architect during a pause: the call is made, and its next round waits for the resume.
+    // The judge asks the architect during a pause: the call is made, and entering it again waits for the resume.
     d.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
@@ -408,16 +411,16 @@ fn history(d: &mut Driver) {
     // again.
     d.fail("The agent's program could not start.");
     d.on(Event::Resumed);
-    // The judge rests at a question while the writer runs again for a new request: what the writer writes then
-    // abandons the judge's run, and its call is withdrawn.
+    // The judge asks the owner, and the writer runs again for a new request while the judge waits for the answer.
     d.end(Came::asks(vec![question(Who::Owner)]));
     d.wrote("request", Outsider::Person, None);
     d.end(hands_in(&[("text", None)]));
-    d.withdraw();
     d.wrote("checks", Outsider::Outside, Some("pass"));
     d.wrote("verdict", Outsider::Person, Some("no"));
     d.on(Event::LetGo { cell: "write".into() });
-    // The judge hands in until a run of it finishes, writing a choice; the writer then runs for its opinions.
+    // Answered, the judge is entered again, and hands in until a run of it finishes, writing a choice; the writer then
+    // runs for its opinions.
+    d.answer();
     for _ in 0..5 {
         if d.under_way().1 != "judge" {
             break;
@@ -431,6 +434,7 @@ fn history(d: &mut Driver) {
         "no round was under way at the cancel: {effects:?}"
     );
     d.stopped();
+    d.withdraw();
     // Nothing of it is under way then: what it held is let go.
     d.on(Event::Released);
     assert!(d.work.records.released.is_some(), "what the work held was not let go");

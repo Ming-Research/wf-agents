@@ -80,7 +80,6 @@ pub const REACHED: &[&str] = &[
     STANDING_NO_HOLDS,
     PERSON_NO_HOLDS,
     SKIPPED_NO_PASSES,
-    IDLE,
     FAILED,
     FAILED_GOES_ON,
     FAILED_IN_PASSING,
@@ -115,6 +114,7 @@ const MAKERS_CHECKED: &str = "a work waits on a precondition";
 const STANDING_NO_HOLDS: &str = "the merge waits on a judge's no while the judge is not skipped";
 const PERSON_NO_HOLDS: &str = "the merge waits on a person's no";
 const SKIPPED_NO_PASSES: &str = "a round of the merge begins over the no of a judge that is skipped";
+/// Not required: the histories' merge waits for its word while nothing else is to be done.
 const IDLE: &str = "a work rests with nothing new to any cell";
 pub const FAILED: &str = "a round fails and the engine pauses its work";
 pub const FAILED_GOES_ON: &str = "a run whose round failed goes on once the work is let on";
@@ -551,8 +551,8 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
 }
 
 /// Property entered-only-for-what-is-new, the order: where the walk enters a cell, goes on with its run or waits at it,
-/// no cell before it that applies has a run of its own at rest, anything to be entered for, or a precondition that does
-/// not hold, by the histories' own reading.
+/// no cell before it that applies has a run of its own at rest, anything to be entered for, or calls it waits for, by
+/// the histories' own reading.
 fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
     let now = Seq(u64::MAX);
     let records = reading.records;
@@ -567,8 +567,9 @@ fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
         });
         let entering = reading.entering(flow, cell, now);
         let owed_open = reading.owed(&cell.id, now).iter().any(|c| !reading.done(*c, now));
+        // A precondition that does not hold holds the work only at a cell that has something to be entered for.
         let unmet = cell.requires.iter().any(|t| !reading.holds(flow, t, j));
-        if at_rest || !entering.is_empty() || owed_open || unmet {
+        if at_rest || !entering.is_empty() || owed_open {
             v.fail(
                 FIRST,
                 format!(

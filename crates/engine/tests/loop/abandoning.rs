@@ -1,71 +1,54 @@
-//! Runs that are abandoned: their calls withdrawn, their cell run again, nothing they handed in kept.
+//! What changes under a round: a run at rest goes on and what it was not told of stays new to its cell; a return that
+//! would write over a version its round was never told of is sent back, the next round told of it.
 
 use super::*;
 
 #[test]
-fn a_run_at_rest_whose_start_changed_is_abandoned_its_calls_withdrawn_and_its_cell_runs_again_for_the_change() {
+fn a_return_taken_after_what_ran_its_round_changed_deals_with_the_version_it_was_told_and_the_cell_runs_again() {
     let (mut w, write, first) = W::requested();
-    w.returns(write, hands_in(&[("text", None)]));
-    // The writer runs again for a new request, and rests at two calls.
-    let (effects, _) = w.person_writes("request");
+    // A person rewrites the request while the round is under way.
+    let (effects, request) = w.person_writes("request");
     assert_eq!(effects, vec![]);
-    let judge = w.work.records.started[1].run;
-    let (rerun, ..) = round(&w.returns(judge, hands_in(&[])));
-    let calls: Vec<CallId> = calls_of(&w.returns(rerun, Came::asks(vec![tool("a"), question(Who::Owner)])))
-        .iter()
-        .map(|(c, ..)| *c)
-        .collect();
-    w.done(calls[0]);
-    let (effects, third) = w.person_writes("request");
+    w.returns(write, hands_in(&[("text", None)]));
+    let finished = w.work.records.finished.last().expect("the run finished");
+    assert_eq!(
+        (finished.run, finished.dealt_with.clone()),
+        (write, Some(vec!["request".into()]))
+    );
+    // The request it was not told of stays new to the writer, which runs again before the judge.
     let again = w.work.records.started.last().expect("a run").run;
     let text = w.work.records.finished[0].at;
     let start = started_with(
         vec![changed("request", Some(first), false)],
         &[
-            ("request", Some(third)),
+            ("request", Some(request)),
             ("opinions", None),
             ("main", None),
             ("text", Some(text)),
         ],
     );
-    assert_eq!(
-        effects,
-        vec![
-            Effect::Withdraw { call: calls[1] },
-            round_effect(again, "write", 1, Given::Task)
-        ]
-    );
     assert_eq!(start_of(&w, again), start);
-    assert!(w.work.records.abandoned.iter().any(|a| a.run == rerun));
-    // The withdrawal is to be done until the call is said to have its result, which then changes nothing else.
-    assert_eq!(pending(&w.flow, &w.work)[0], Effect::Withdraw { call: calls[1] });
-    assert_eq!(w.done(calls[1]), vec![]);
-    assert_eq!(
-        pending(&w.flow, &w.work),
-        vec![round_effect(again, "write", 1, given_of(&w, again))]
-    );
+    assert_eq!(w.work.records.started[1].cell.as_str(), "write");
 }
 
 #[test]
-fn a_run_whose_last_round_ends_after_what_it_started_from_changed_is_abandoned_and_hands_in_nothing() {
+fn a_return_that_would_write_over_a_version_its_round_was_never_told_of_is_sent_back_told_of_it() {
     let (mut w, write, _) = W::requested();
-    // A person rewrites the request while the round is under way.
-    let (effects, request) = w.person_writes("request");
-    assert_eq!(effects, vec![]);
-    let effects = w.returns(write, hands_in(&[("text", None)]));
-    assert_eq!(w.work.records.finished, vec![]);
-    assert!(w.work.records.abandoned.iter().any(|a| a.run == write));
-    assert!(!w.work.contents.keys().any(|(b, _)| b.as_str() == "text"));
-    let again = w.work.records.started.last().expect("a run").run;
-    let start = started_with(
-        vec![Cause::NoRecord],
-        &[
-            ("request", Some(request)),
-            ("opinions", None),
-            ("main", None),
-            ("text", None),
-        ],
+    let judge = round(&w.returns(write, hands_in(&[("text", None)]))).0;
+    // A person writes the verdict while the judge's round is under way.
+    let (_, verdict) = w.on_and_place(wrote("verdict", Outsider::Person, true, Some("no")));
+    let effects = w.returns(judge, hands_in(&[("verdict", Some("yes"))]));
+    let unmet = vec![Unmet::WrittenOver {
+        block: "verdict".into(),
+        version: verdict,
+    }];
+    assert_eq!(effects, vec![round_effect(judge, "judge", 2, Given::SentBack(unmet))]);
+    let put_in = w.work.records.put_in.last().expect("the version is put in");
+    assert_eq!(
+        (put_in.run, put_in.block.as_str(), put_in.version),
+        (judge, "verdict", verdict)
     );
-    assert_eq!(effects, vec![round_effect(again, "write", 1, Given::Task)]);
-    assert_eq!(start_of(&w, again), start);
+    // Told of it, the next return is taken.
+    w.returns(judge, hands_in(&[("verdict", Some("yes"))]));
+    assert!(w.work.records.finished.iter().any(|f| f.run == judge));
 }

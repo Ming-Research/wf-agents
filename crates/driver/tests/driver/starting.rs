@@ -100,7 +100,8 @@ fn opened_on_works_going_on_it_pauses_everything_and_begins_nothing_until_the_ow
         [(under_way, "judge".to_string(), 1), (at_call, "write".to_string(), 2)]
     );
     assert_eq!(h.d().everything_paused(), None);
-    assert_eq!(h.decision(never), Decision::Paused);
+    // Never started by the owner, it has nothing new to run its first cell.
+    assert_eq!(h.decision(never), Decision::Idle);
 }
 
 #[test]

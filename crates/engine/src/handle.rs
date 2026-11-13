@@ -104,8 +104,14 @@ pub fn handle_then(
     let at = At { from, now, room, gate };
     advance(flow, work, at, &mut effects);
     // A work that has just ended withdraws the calls its cells were waiting on: no cell is entered for their results.
+    // Those of a run abandoned were withdrawn as it was.
     if !ended && matches!(decide(&flow.flow, &work.records), Decision::Ended(_)) {
-        effects.extend(unwanted(flow, work).into_iter().map(|call| Effect::Withdraw { call }));
+        let finished = |call: &CallId| {
+            (work.records.called.iter())
+                .any(|c| c.call == *call && work.records.finished.iter().any(|f| f.run == c.run))
+        };
+        let calls: Vec<CallId> = unwanted(flow, work).into_iter().filter(finished).collect();
+        effects.extend(calls.into_iter().map(|call| Effect::Withdraw { call }));
     }
     // The work's end lets go of what it holds outside once, as the last of it comes to rest.
     if !releasing && let Some(end) = release(flow, work) {

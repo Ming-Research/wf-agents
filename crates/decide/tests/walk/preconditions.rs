@@ -96,6 +96,9 @@ fn a_precondition_on_what_a_source_outside_the_work_writes_waits_for_that_source
     let (start, named) = waiting_for_all("may start", &["dependencies"], cell("start", &["dependencies"], &[]));
     let mut w = World::with_tests(vec![start, gate()], BTreeMap::from([named]));
     w.written_outside("dependencies", "dependencies");
+    // Nothing runs the start until the source writes what the items it depends on say.
+    assert_eq!(w.decide(), resting());
+    w.outside_sets("dependencies", "no");
     assert_eq!(
         w.decide(),
         wait("start", vec![precondition("may start", vec![dependencies()])])
@@ -106,7 +109,7 @@ fn a_precondition_on_what_a_source_outside_the_work_writes_waits_for_that_source
 
 #[test]
 fn a_precondition_on_what_only_a_cell_writes_waits_for_that_cell() {
-    let (merge, named) = waiting_for_all("checked", &["checked"], Cell::new("merge"));
+    let (merge, named) = waiting_for_all("checked", &["checked"], cell("merge", &["code"], &[]));
     let cells = vec![cell("check", &["code"], &["checked"]), merge];
     let mut w = World::with_tests(cells, BTreeMap::from([named]));
     w.written_by_cells("checked");
@@ -120,7 +123,7 @@ fn a_precondition_on_what_only_a_cell_writes_waits_for_that_cell() {
 
 #[test]
 fn a_precondition_on_what_a_cell_and_people_write_waits_for_either() {
-    let (merge, named) = waiting_for_all("settled", &["settled"], Cell::new("merge"));
+    let (merge, named) = waiting_for_all("settled", &["settled"], cell("merge", &["code"], &[]));
     let cells = vec![cell("review", &["code"], &["settled"]), merge];
     let mut w = World::with_tests(cells, BTreeMap::from([named]));
     w.person_writes("code");
@@ -131,7 +134,7 @@ fn a_precondition_on_what_a_cell_and_people_write_waits_for_either() {
 
 #[test]
 fn a_precondition_waits_only_for_the_writers_of_the_blocks_that_keep_it_from_holding() {
-    let (merge, named) = waiting_for_all("both", &["dependencies", "checked"], Cell::new("merge"));
+    let (merge, named) = waiting_for_all("both", &["dependencies", "checked"], cell("merge", &["code"], &[]));
     let cells = vec![cell("check", &["code"], &["checked"]), merge];
     let mut w = World::with_tests(cells, BTreeMap::from([named]));
     w.written_outside("dependencies", "dependencies");

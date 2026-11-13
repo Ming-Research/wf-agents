@@ -31,6 +31,9 @@ fn the_owner_turning_to_an_earlier_cell_stops_a_later_round_and_the_earlier_cell
     };
     assert_eq!(w.decide(), abandon("implement", run, stopped));
     w.abandon();
+    // Nothing begins until the stopped round has ended.
+    assert_eq!(w.decide(), busy("implement", run));
+    w.stopped(run);
     let Decision::Run { cell, because, .. } = w.decide() else {
         panic!("nothing runs: {:?}", w.decide())
     };
@@ -40,9 +43,10 @@ fn the_owner_turning_to_an_earlier_cell_stops_a_later_round_and_the_earlier_cell
 
 #[test]
 fn a_stopped_round_consumed_nothing_and_its_cell_runs_again_for_what_ran_it() {
-    let (mut w, first, second, _) = implementing();
+    let (mut w, first, second, run) = implementing();
     w.outside_writes("spoken to research");
     w.abandon();
+    w.stopped(run);
     w.run("research", &[]);
     let Decision::Run { cell, because, .. } = w.decide() else {
         panic!("nothing runs: {:?}", w.decide())
@@ -80,8 +84,8 @@ fn a_round_under_way_is_not_stopped_for_an_earlier_cell_that_could_not_run() {
     w.turning("spoken to research");
     w.person_writes("brief");
     w.run("research", &[("plan", Matters)]);
-    w.says("ready", false);
     let run = w.start("implement");
+    w.says("ready", false);
     w.outside_writes("spoken to research");
     assert_eq!(w.decide(), busy("implement", run));
     // The precondition holds again: the round is stopped.

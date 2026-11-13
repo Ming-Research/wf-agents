@@ -327,12 +327,20 @@ impl Trial {
             .clone()
     }
 
-    /// The cells of the work's runs that finished, in the order they finished.
+    /// The cells of the work's runs that finished doing their work, in the order they finished: a run whose return only
+    /// asked for calls is left out.
     pub fn finished(&self, work: WorkNumber) -> Vec<String> {
         let kept = self.work(work);
-        (kept.records.finished.iter())
+        let r = &kept.records;
+        // A run whose return only asked for calls made them after its last round ended.
+        let asked = |run: RunId| {
+            let ended = r.returned.iter().filter(|e| e.run == run).map(|e| e.at).max();
+            r.called.iter().any(|c| c.run == run && ended.is_some_and(|e| c.at > e))
+        };
+        (r.finished.iter())
+            .filter(|finished| !asked(finished.run))
             .map(|finished| {
-                let started = kept.records.started.iter().find(|s| s.run == finished.run);
+                let started = r.started.iter().find(|s| s.run == finished.run);
                 started.expect("a finished run started").cell.to_string()
             })
             .collect()

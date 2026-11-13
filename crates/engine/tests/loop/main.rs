@@ -159,6 +159,12 @@ impl W {
         why
     }
 
+    /// Takes the write, which the loop must take; the place of the entry names the version.
+    fn on_and_place(&mut self, event: Event) -> (Vec<Effect>, Seq) {
+        let effects = self.on(event);
+        (effects, self.last_written())
+    }
+
     /// A person writes the block; the place of the entry names the version.
     fn person_writes(&mut self, block: &str) -> (Vec<Effect>, Seq) {
         let effects = self.on(wrote(block, Outsider::Person, true, None));
@@ -320,11 +326,6 @@ fn changed(block: &str, was: Option<Seq>, behind: bool) -> Cause {
         was,
         behind,
     }
-}
-
-/// What the run's first round was given.
-fn given_of(w: &W, run: RunId) -> Given {
-    w.work.given.get(&(run, 1)).expect("a round was given").clone()
 }
 
 /// The calls given to be made, each with its run and what it is.

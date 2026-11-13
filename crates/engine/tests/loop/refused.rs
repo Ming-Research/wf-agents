@@ -79,7 +79,7 @@ fn letting_go_a_cell_the_flow_does_not_have_is_refused() {
 fn a_return_of_a_run_with_no_round_under_way_is_refused() {
     let (mut w, write, _) = W::requested();
     w.returns(write, Came::asks(vec![tool("search")]));
-    // The run rests at its call.
+    // The return that asks ended the run.
     assert_eq!(
         w.refused(Event::Returned {
             run: write,

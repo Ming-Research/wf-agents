@@ -30,7 +30,8 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
     let not_yet = |cell: &str| json!({ "cell": cell, "state": "notYet", "finished": 0, "record": null, "open": null });
     let input =
         |block: &str, current: Value| json!({ "block": block, "current": current, "known": null, "changed": false });
-    let no_record = json!([{ "kind": "noRecord" }]);
+    // The request is new to the plan, whose run that asked dealt with nothing.
+    let for_the_request = json!([{ "kind": "changed", "block": "request", "was": null, "behind": false }]);
     let flow = get_json(&running.router, "/api/v1/flow").await["flow"].clone();
     assert_eq!(
         get_json(&running.router, "/api/v1/works/1").await,
@@ -47,7 +48,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                     "on": [{ "kind": "call", "call": 2, "who": "owner", "what": question() }],
                 },
                 "cells": [
-                    { "cell": "plan", "state": "resting", "finished": 0, "record": null, "open": 1 },
+                    { "cell": "plan", "state": "again", "finished": 1, "record": 1, "open": null },
                     not_yet("build"),
                     not_yet("review"),
                     not_yet("merge"),
@@ -67,14 +68,18 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
             },
             "flow": flow,
             "cells": [
-                { "cell": "plan", "needs": no_record, "inputs": [input("request", json!(3))] },
+                {
+                    "cell": "plan",
+                    "needs": for_the_request,
+                    "inputs": [{ "block": "request", "current": 3, "known": null, "changed": true }],
+                },
                 {
                     "cell": "build",
-                    "needs": no_record,
+                    "needs": [],
                     "inputs": [input("plan", Value::Null), input("opinions", Value::Null)],
                 },
-                { "cell": "review", "needs": no_record, "inputs": [input("code", Value::Null)] },
-                { "cell": "merge", "needs": no_record, "inputs": [input("code", Value::Null)] },
+                { "cell": "review", "needs": [], "inputs": [input("code", Value::Null)] },
+                { "cell": "merge", "needs": [], "inputs": [input("code", Value::Null)] },
             ],
             "blocks": [
                 {
@@ -129,7 +134,7 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                     "cell": "plan",
                     "at": 5,
                     "time": resumed,
-                    "because": no_record,
+                    "because": for_the_request,
                     "basis": [{ "block": "plan", "version": null }, { "block": "request", "version": 3 }],
                     "rounds": [{
                         "number": 1,
@@ -142,7 +147,8 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "compactions": 0,
                     }],
                     "calls": [{ "call": 2, "what": question(), "made": asked, "done": null, "chars": null }],
-                    "end": null,
+                    // A return that asks ends its run, having dealt with nothing.
+                    "end": { "kind": "finished", "at": 9, "time": asked, "writes": [] },
                     "spent": spent(1),
                 },
             ],
@@ -175,15 +181,15 @@ async fn a_version_a_round_and_a_call_are_given_with_their_content() {
     );
     let answered = json!({ "call": 2, "what": question(), "result": "Yes, by name." });
     assert_eq!(get_json(router, "/api/v1/works/1/calls/2").await, answered);
-    // The plan's second round is given the answer, and hands in the plan a second and a half later.
+    // The plan, entered again as its second run, is given the answer, and hands in the plan a second and a half later.
     pass(1600).await;
     assert_eq!(
-        get_json(router, "/api/v1/works/1/runs/1/rounds/2").await,
+        get_json(router, "/api/v1/works/1/runs/3/rounds/1").await,
         json!({
-            "run": 1,
-            "number": 2,
+            "run": 3,
+            "number": 1,
             "results": [answered],
-            "handed": [{ "block": "plan", "content": "The plan as plan wrote it in its run 1, round 2." }],
+            "handed": [{ "block": "plan", "content": "The plan as plan wrote it in its run 2, round 1." }],
         })
     );
 }

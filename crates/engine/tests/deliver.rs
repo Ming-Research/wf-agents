@@ -9,9 +9,8 @@
 //!
 //! 1. No run of the cell starts unless the dependencies block's current value, as the run starts, is the one the
 //!    precondition looks for (decision conditions-and-preconditions).
-//! 2. The cell finishes at most one run, and once it has, the work has ended as merged;
-//!    every run of it starts for its having no record, so that what people write of the item, its background, runs
-//!    nothing.
+//! 2. The cell finishes at most one run, and once it has, the work has ended as merged; every run of it starts for
+//!    what the items it is made of say, so that what people write of the item, its background, runs nothing.
 //! 3. Once people stop, the outside says the items have merged and the owner lets the work on and lets on any run at a
 //!    limit, the work ends within `CONTENT` steps: merged, with the one finished run, unless it was cancelled (property
 //!    a-work-comes-to-rest).
@@ -280,11 +279,11 @@ struct Seen {
 fn check(d: &Driver, part: &Deliverable) {
     let r = &d.work.records;
     for s in &r.started {
-        assert_eq!(
-            s.because,
-            [Cause::NoRecord],
-            "{:?} started for what was written, though the cell reads nothing",
-            s.run
+        assert!(
+            matches!(s.because.as_slice(), [Cause::Changed { block, .. }] if *block == part.deps),
+            "{:?} started for {:?}, though only what the items it is made of say runs the cell",
+            s.run,
+            s.because
         );
         let value = (r.written.iter())
             .filter(|w| w.block == part.deps && w.at < s.at)

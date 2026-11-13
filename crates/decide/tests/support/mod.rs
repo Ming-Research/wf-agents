@@ -111,12 +111,10 @@ pub fn merge_word() -> Waited {
     }
 }
 
-/// What a work whose last cell is [`gate`] decides when nothing else is to be done: it waits for the owner's word.
+/// What a work whose last cell is [`gate`] decides when nothing else is to be done and the owner has not given the word:
+/// nothing new runs any cell.
 pub fn resting() -> Decision {
-    Decision::Wait {
-        at: "merge".into(),
-        on: vec![merge_word()],
-    }
+    Decision::Idle
 }
 
 /// A cell that these blocks run and that may write those.
@@ -385,6 +383,12 @@ impl World {
         let at = self.tick();
         self.records.abandoned.push(Abandoned { run, at });
         because
+    }
+
+    /// The round of the run, abandoned with its round under way, ends as it was stopped: nothing it returned is taken.
+    pub fn stopped(&mut self, run: RunId) {
+        let at = self.tick();
+        self.records.returned.push(Returned { run, at });
     }
 
     /// A person writes the block; the place of the entry names the version.

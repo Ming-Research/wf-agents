@@ -104,8 +104,9 @@ fn a_store_that_fails_from_some_call_on_stops_the_driver_at_the_first() {
         })
     );
     refuses_everything(&mut h, w);
-    // What was not kept did not happen: opened anew, the work is still paused.
+    // What was not kept did not happen: opened anew, the work is still paused, and was never started.
     h.reopen();
-    assert_eq!(h.decision(w), Decision::Paused);
+    assert!(decide::paused(&h.d().work(w).expect("the work is there").work.records));
+    assert_eq!(h.decision(w), Decision::Idle);
     assert_eq!(h.d().pending(), vec![]);
 }

@@ -8,7 +8,7 @@
 //! What each try of a round ran on is recorded as the try begins ([`RanOn`]), so that what a session was begun on is
 //! the records' too ([`began_on`]).
 
-use decide::{RunId, Seq};
+use decide::{Cause, RunId, Seq};
 use serde::{Deserialize, Serialize};
 
 use crate::{Spent, Work};
@@ -143,13 +143,14 @@ pub fn of_round(work: &Work, line: &str, on_line: impl Fn(RunId) -> bool, run: R
     (session, !went_on)
 }
 
-/// Whether the session the round runs in holds none of its run's earlier rounds: the run has earlier rounds, and none
-/// of them ran in this session and reached the model. The session never saw what the run was doing, so the round is
-/// told its task and what each earlier round of the run was given, as a round that begins a session is, even where it
-/// goes on in a session another cell's round began; once a round of the run has been told so in the session, the
-/// session holds the run. A session the program lost and a round began again under its id holds nothing from before:
-/// an earlier round of the run holds it only where it reached it after the line's latest loss of it before the round,
-/// as the round that found it lost did in its try after that.
+/// Whether the session the round runs in holds none of what the round goes on from: its run's earlier rounds, and, of
+/// the first round of a run entered for the results of calls, the rounds of the runs of its cell that asked for them;
+/// there are some, and none of them ran in this session and reached the model. The session never saw what the round
+/// goes on from, so the round is told its task and what each earlier round of the run was given, as a round that
+/// begins a session is, even where it goes on in a session another cell's round began; once a round of the run has
+/// been told so in the session, the session holds the run. A session the program lost and a round began again under
+/// its id holds nothing from before: an earlier round holds it only where it reached it after the line's latest loss
+/// of it before the round, as the round that found it lost did in its try after that.
 pub fn moved(work: &Work, line: &str, run: RunId, number: usize) -> bool {
     let at = start(work, run, number);
     let session = number_at(work, line, at);
@@ -157,12 +158,33 @@ pub fn moved(work: &Work, line: &str, run: RunId, number: usize) -> bool {
         .filter(|s| s.why == Why::Lost && s.at < at && number_at(work, line, s.at) == session)
         .map(|s| s.at)
         .last();
-    let held = (1..number).any(|earlier| {
-        let here = number_at(work, line, start(work, run, earlier)) == session;
-        let since = lost.is_none_or(|lost| last_try(work, run, earlier) > lost);
-        here && since && work.spent.get(&(run, earlier)).is_some_and(spent)
+    let mut before: Vec<(RunId, usize)> = (1..number).map(|earlier| (run, earlier)).collect();
+    if number == 1 {
+        let results = (work.records.started.iter())
+            .filter(|s| s.run == run)
+            .flat_map(|s| &s.because)
+            .flat_map(|cause| match cause {
+                Cause::Results { calls } => calls.as_slice(),
+                _ => &[],
+            });
+        for call in results {
+            let Some(asked) = work.records.called.iter().find(|c| c.call == *call).map(|c| c.run) else {
+                continue;
+            };
+            let rounds = work.records.rounds.iter().filter(|r| r.run == asked).count();
+            for n in 1..=rounds {
+                if !before.contains(&(asked, n)) {
+                    before.push((asked, n));
+                }
+            }
+        }
+    }
+    let held = before.iter().any(|&(r, earlier)| {
+        let here = number_at(work, line, start(work, r, earlier)) == session;
+        let since = lost.is_none_or(|lost| last_try(work, r, earlier) > lost);
+        here && since && work.spent.get(&(r, earlier)).is_some_and(spent)
     });
-    number > 1 && !held
+    !before.is_empty() && !held
 }
 
 /// Where the round of this number of the run last reached its session: where its last try began, as its record says,

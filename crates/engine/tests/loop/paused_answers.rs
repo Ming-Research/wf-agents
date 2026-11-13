@@ -37,21 +37,25 @@ fn a_run_for_what_a_person_wrote_during_a_pause_has_its_rounds_and_calls_and_fin
         ],
     );
     assert_eq!(start_of(&w, again), start);
-    // A tool, then a question for the owner: each made, and the next round given its result.
+    // A tool, then a question for the owner: each made, and the cell entered again as a run given its result.
     let tools = calls_of(&w.returns(again, Came::asks(vec![tool("a")])));
+    let effects = w.done(tools[0].0);
+    let again = w.work.records.started.last().expect("a run").run;
     assert_eq!(
-        w.done(tools[0].0),
-        vec![round_effect(again, "write", 2, Given::Results(vec![tools[0].0]))]
+        effects,
+        vec![round_effect(again, "write", 1, Given::Results(vec![tools[0].0]))]
     );
     let questions = calls_of(&w.returns(again, Came::asks(vec![question(Who::Owner)])));
+    let effects = w.done(questions[0].0);
+    let again = w.work.records.started.last().expect("a run").run;
     assert_eq!(
-        w.done(questions[0].0),
-        vec![round_effect(again, "write", 3, Given::Results(vec![questions[0].0]))]
+        effects,
+        vec![round_effect(again, "write", 1, Given::Results(vec![questions[0].0]))]
     );
     // What does not meet what the flow requires is sent back.
     assert_eq!(
         w.returns(again, wanting()),
-        vec![round_effect(again, "write", 4, Given::SentBack(wanting_unmet()))]
+        vec![round_effect(again, "write", 2, Given::SentBack(wanting_unmet()))]
     );
     // It finishes; the judge would run for the new text, and waits for the work to be let on.
     assert_eq!(w.returns(again, hands_in(&[("text", None)])), vec![]);
@@ -93,7 +97,7 @@ fn a_failed_round_of_a_run_for_what_a_person_wrote_is_given_again_only_once_the_
 }
 
 #[test]
-fn a_first_run_abandoned_for_what_a_person_wrote_during_a_pause_is_run_again_at_once() {
+fn a_note_written_to_a_cell_while_its_first_round_is_under_way_during_a_pause_runs_it_again_at_once() {
     let (mut w, write, request) = W::requested();
     w.on(Event::Paused {
         by: Pauser::Owner,
@@ -101,18 +105,19 @@ fn a_first_run_abandoned_for_what_a_person_wrote_during_a_pause_is_run_again_at_
     });
     let (effects, opinions) = w.person_writes("opinions");
     assert_eq!(effects, vec![]);
-    // What the round hands in is dropped, the run stale; the writer has no record, and it ran before the person wrote.
+    // The round's return is taken, dealing with the request it was told of; the note stays new to the writer.
     let effects = w.returns(write, hands_in(&[("text", None)]));
-    assert!(w.work.records.abandoned.iter().any(|a| a.run == write));
+    let text = w.last_finished();
+    assert!(w.work.records.finished.iter().any(|f| f.run == write));
     let again = w.work.records.started.last().expect("a run").run;
     assert_eq!(effects, vec![round_effect(again, "write", 1, Given::Task)]);
     let start = started_with(
-        vec![Cause::NoRecord],
+        vec![changed("opinions", None, false)],
         &[
             ("request", Some(request)),
             ("opinions", Some(opinions)),
             ("main", None),
-            ("text", None),
+            ("text", Some(text)),
         ],
     );
     assert_eq!(start_of(&w, again), start);
@@ -129,26 +134,33 @@ fn a_run_for_what_a_person_wrote_that_started_before_the_pause_has_its_next_roun
         by: Pauser::Owner,
         why: None,
     });
+    // Entered again for the result, the writer still has the note to answer: the pause lets that run be.
+    let effects = w.done(call);
+    let results = w.work.records.started.last().expect("a run").run;
+    assert_ne!(results, again);
     assert_eq!(
-        w.done(call),
-        vec![round_effect(again, "write", 2, Given::Results(vec![call]))]
+        effects,
+        vec![round_effect(results, "write", 1, Given::Results(vec![call]))]
     );
 }
 
 #[test]
-fn a_run_at_rest_for_what_no_person_wrote_is_held_while_a_later_cell_has_what_a_person_wrote() {
+fn a_cell_entered_for_its_results_and_no_note_is_held_while_a_later_cell_has_what_a_person_wrote() {
     let (mut w, write, _) = W::requested();
     let call = calls_of(&w.returns(write, Came::asks(vec![tool("a")])))[0].0;
     w.on(Event::Paused {
         by: Pauser::Owner,
         why: None,
     });
-    // The writer ran for having no record; its round given the tool's result waits for the work to be let on, whatever
-    // a person writes for a cell after it.
+    // The writer ran for the request; its run given the tool's result waits for the work to be let on, whatever a
+    // person writes for a cell after it.
     assert_eq!(w.done(call), vec![]);
     assert_eq!(w.on(wrote("verdict", Outsider::Person, true, Some("no"))), vec![]);
+    let effects = w.on(Event::Resumed);
+    let results = w.work.records.started.last().expect("a run").run;
+    assert_ne!(results, write);
     assert_eq!(
-        w.on(Event::Resumed),
-        vec![round_effect(write, "write", 2, Given::Results(vec![call]))]
+        effects,
+        vec![round_effect(results, "write", 1, Given::Results(vec![call]))]
     );
 }

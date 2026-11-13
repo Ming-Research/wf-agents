@@ -1238,6 +1238,8 @@ impl Now {
             Decision::Run { cell, .. } | Decision::GoOn { cell, .. } | Decision::Abandon { cell, .. } => {
                 Now::Next { cell: cell.to_string() }
             }
+            // A work at rest that its own pause holds is shown paused: it is the owner's, or the engine's, to let on.
+            Decision::Idle if decide::paused(&work.records) => Now::paused(work)?,
             Decision::Idle => Now::Idle {},
         })
     }

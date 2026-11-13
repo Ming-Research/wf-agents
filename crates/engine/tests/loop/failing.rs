@@ -1,7 +1,7 @@
 //! A round that fails: it ends with nothing come back, what it took is kept, and the engine pauses its work with the
 //! reason in the same moment. Once the owner lets the work on, the run has its next round, given what the failed one
-//! was given, unless what the run started from changed meanwhile, when it is abandoned and its cell runs anew. A
-//! failure counts against no limit, and of a run that was abandoned it pauses nothing.
+//! was given, whatever was written meanwhile, which stays new to its cell. A failure counts against no limit, and of a
+//! run that was abandoned it pauses nothing.
 
 use decide::run::Failure;
 use decide::{Decision, End};
@@ -53,38 +53,37 @@ fn once_let_on_the_run_whose_round_failed_has_its_next_round_given_what_the_fail
     // A round given the results of calls fails, and the round after it is given the same results.
     let call = calls_of(&w.returns(write, Came::asks(vec![tool("a")])))[0].0;
     let results = Given::Results(vec![call]);
-    assert_eq!(w.done(call), vec![round_effect(write, "write", 3, results.clone())]);
-    w.on(failed(write));
-    assert_eq!(w.on(Event::Resumed), vec![round_effect(write, "write", 4, results)]);
+    let effects = w.done(call);
+    let given = w.work.records.started.last().expect("a run").run;
+    assert_eq!(effects, vec![round_effect(given, "write", 1, results.clone())]);
+    w.on(failed(given));
+    assert_eq!(w.on(Event::Resumed), vec![round_effect(given, "write", 2, results)]);
     // And it goes on to finish as any run does.
-    let judge = round(&w.returns(write, hands_in(&[("text", None)]))).0;
-    assert_ne!(judge, write);
-    assert!(w.work.records.finished.iter().any(|f| f.run == write));
+    let judge = round(&w.returns(given, hands_in(&[("text", None)]))).0;
+    assert_ne!(judge, given);
+    assert!(w.work.records.finished.iter().any(|f| f.run == given));
 }
 
 #[test]
-fn a_run_whose_round_failed_is_abandoned_when_the_owner_writes_an_input_and_once_let_on_its_cell_runs_anew() {
-    let (mut w, write, _) = W::requested();
+fn a_run_whose_round_failed_goes_on_once_let_on_and_what_the_owner_wrote_meanwhile_runs_its_cell_again() {
+    let (mut w, write, first) = W::requested();
     w.on(failed(write));
-    // The owner mends the cause by writing the request again: the run, at rest, is stale, and is abandoned while the
-    // work is paused.
+    // The owner mends the cause by writing the request again: the run, at rest, stays.
     let (effects, request) = w.person_writes("request");
     assert_eq!(effects, vec![]);
-    assert_eq!(
-        w.work.records.abandoned.iter().map(|a| a.run).collect::<Vec<_>>(),
-        vec![write]
-    );
-    let effects = w.on(Event::Resumed);
+    assert!(w.work.records.abandoned.is_empty());
+    assert_eq!(w.on(Event::Resumed), vec![round_effect(write, "write", 2, Given::Task)]);
+    w.returns(write, hands_in(&[("text", None)]));
+    let text = w.last_finished();
     let again = w.work.records.started.last().expect("a run").run;
     assert_ne!(again, write);
-    assert_eq!(effects, vec![round_effect(again, "write", 1, Given::Task)]);
     let start = started_with(
-        vec![Cause::NoRecord],
+        vec![changed("request", Some(first), false)],
         &[
             ("request", Some(request)),
             ("opinions", None),
             ("main", None),
-            ("text", None),
+            ("text", Some(text)),
         ],
     );
     assert_eq!(start_of(&w, again), start);

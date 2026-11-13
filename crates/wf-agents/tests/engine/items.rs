@@ -34,12 +34,19 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
         shown.starts_with("Work 1 of item 1 \"Greet the user\" at level 1, on the flow trial.\n"),
         "{shown}"
     );
-    assert!(shown.contains("\n  plan: resting in run 1\n"), "{shown}");
+    // The plan's return asked, which ended its run: it is to run again once the owner answers.
+    assert!(
+        shown.contains("\n  plan: runs again, its record being run 1\n"),
+        "{shown}"
+    );
     assert!(
         shown.contains("\n  request: 1 version, the latest 23 characters, by a person\n"),
         "{shown}"
     );
-    assert!(shown.contains("\n  run 1 of plan: 1 round, calls 2, open"), "{shown}");
+    assert!(
+        shown.contains("\n  run 1 of plan: 1 round, calls 2, finished"),
+        "{shown}"
+    );
 
     assert_eq!(
         engine.says(&["answer", "1", "2", "Yes, by name."]),
