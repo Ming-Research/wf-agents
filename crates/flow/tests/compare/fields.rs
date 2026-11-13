@@ -246,20 +246,31 @@ fn each_input_output_and_precondition_taken_out_or_put_in_is_a_change() {
 }
 
 #[test]
-fn a_list_in_another_order_with_the_same_names_changes_nothing() {
+fn a_list_in_another_order_with_the_same_names_changes_nothing_but_what_a_cell_is_given() {
     let after = edit(
         valid(),
-        "plan.toml",
-        "inputs = [\"request\", \"opinions\"]",
-        "inputs = [\"opinions\", \"request\"]",
-    );
-    let after = edit(
-        after,
         "judge.toml",
         "outputs = [\"needs_design\", \"opinions\"]",
         "outputs = [\"opinions\", \"needs_design\"]",
     );
     assert_eq!(from_valid(&after), []);
+    // A cell is given its blocks in the order it names them: the old form's `inputs` are what an agent cell is given.
+    let after = edit(
+        after,
+        "plan.toml",
+        "inputs = [\"request\", \"opinions\"]",
+        "inputs = [\"opinions\", \"request\"]",
+    );
+    assert_eq!(
+        from_valid(&after),
+        [of(
+            "plan",
+            CellChange::GivenOrder {
+                before: vec!["request".into(), "opinions".into()],
+                after: vec!["opinions".into(), "request".into()],
+            },
+        )]
+    );
 }
 
 #[test]
@@ -366,8 +377,8 @@ fn how_a_cell_is_given_a_block_and_why_a_block_runs_it_are_each_a_change_with_bo
                 "judge",
                 CellChange::GivenKind {
                     block: "plan".into(),
-                    before: Some(InputKind::Latest),
-                    after: Some(InputKind::All),
+                    before: InputKind::Latest,
+                    after: InputKind::All,
                 },
             ),
             of(
@@ -380,8 +391,9 @@ fn how_a_cell_is_given_a_block_and_why_a_block_runs_it_are_each_a_change_with_bo
             ),
         ]
     );
-    // Said for the first time, each is a change from nothing said; said alike in both, neither is one. The old form
-    // and the new that say the same are the same definition.
+    // A why said for the first time is a change from nothing said; said alike in both, neither is one. The old form and
+    // the new that say the same are the same definition, and a kind the old form leaves unsaid is the version last
+    // worked from and the latest.
     let old = edit(
         valid(),
         "judge.toml",
@@ -395,12 +407,58 @@ fn how_a_cell_is_given_a_block_and_why_a_block_runs_it_are_each_a_change_with_bo
             "judge",
             CellChange::GivenKind {
                 block: "plan".into(),
-                before: None,
-                after: Some(InputKind::Latest),
+                before: InputKind::LastAndLatest,
+                after: InputKind::Latest,
             },
         )]
     );
     assert_eq!(flow::compare(&compiled(&after), &compiled(&after)), []);
+}
+
+#[test]
+fn the_blocks_a_cell_is_given_in_another_order_are_a_change_with_both_lists() {
+    // The planning cell runs on the request and is given these blocks, each the latest of it.
+    let given = |blocks: &[&str]| {
+        let list: Vec<String> = blocks.iter().map(|b| format!("\"{b}\"")).collect();
+        let tables: Vec<String> = blocks
+            .iter()
+            .map(|b| format!("[give.{b}]\nkind = \"latest\""))
+            .collect();
+        plan_takes(&format!(
+            "runs_on = [\"request\"]\ngiven = [{}]\n\n{}",
+            list.join(", "),
+            tables.join("\n\n")
+        ))
+    };
+    let before = given(&["request", "opinions"]);
+    let blocks = |names: &[&str]| names.iter().map(|&n| n.into()).collect::<Vec<_>>();
+    assert_eq!(
+        flow::compare(&compiled(&before), &compiled(&given(&["opinions", "request"]))),
+        [of(
+            "plan",
+            CellChange::GivenOrder {
+                before: blocks(&["request", "opinions"]),
+                after: blocks(&["opinions", "request"]),
+            },
+        )]
+    );
+    // A block put in where the others keep their order is only that.
+    assert_eq!(
+        flow::compare(&compiled(&before), &compiled(&given(&["plan", "request", "opinions"]))),
+        [of("plan", CellChange::GivenAdded("plan".into()))]
+    );
+}
+
+/// The small flow whose planning cell names what it takes in the new form: the lists this says in place of its
+/// `inputs`, and the tables it says, from the first, at the end of the file.
+fn plan_takes(said: &str) -> flow::Source {
+    let (lists, tables) = said.split_once("\n\n[").unwrap_or((said, ""));
+    let mut source = edit(valid(), "plan.toml", "inputs = [\"request\", \"opinions\"]", lists);
+    if !tables.is_empty() {
+        let text = source.cells.get_mut("plan").expect("the planning cell's file");
+        text.push_str(&format!("\n[{tables}\n"));
+    }
+    source
 }
 
 #[test]
@@ -480,26 +538,62 @@ fn the_tools_a_cell_may_ask_for_and_whether_it_takes_main_in_are_each_a_change()
 }
 
 #[test]
-fn the_parts_of_a_line_s_system_prompt_are_a_change_of_each_cell_of_the_line() {
-    let after = edit(
-        valid(),
-        FLOW_FILE,
-        "[lines.review]",
-        "[lines.review]\nsystem = [\"guide\"]",
-    );
+fn the_sets_of_rules_a_line_names_are_a_change_of_each_cell_of_the_line_and_their_texts_of_the_flow() {
+    let rules = |source: flow::Source, texts: &[(&str, &str)]| {
+        let mut source = source;
+        source.rules = texts.iter().map(|(n, t)| (n.to_string(), t.to_string())).collect();
+        source
+    };
+    let review = |list: &str| {
+        edit(
+            valid(),
+            FLOW_FILE,
+            "[lines.review]",
+            &format!("[lines.review]\nsystem = {list}"),
+        )
+    };
+    let after = rules(review(r#"["general"]"#), &[("general", "Say one thing.")]);
     let system = |before: &[&str], after: &[&str]| CellChange::System {
         before: before.iter().map(|p| p.to_string()).collect(),
         after: after.iter().map(|p| p.to_string()).collect(),
     };
-    assert_eq!(from_valid(&after), [of("judge", system(&[], &["guide"]))]);
-    let reordered = edit(
-        after.clone(),
-        FLOW_FILE,
-        "system = [\"guide\"]",
-        "system = [\"tree_rules\", \"guide\"]",
+    assert_eq!(
+        from_valid(&after),
+        [
+            Change::RulesAdded {
+                name: "general".to_string(),
+                text: "Say one thing.".to_string(),
+            },
+            of("judge", system(&[], &["general"])),
+        ]
+    );
+    let reordered = rules(
+        review(r#"["review", "general"]"#),
+        &[("general", "Say one thing per sentence."), ("review", "Judge.")],
     );
     assert_eq!(
         flow::compare(&compiled(&after), &compiled(&reordered)),
-        [of("judge", system(&["guide"], &["tree_rules", "guide"]))]
+        [
+            Change::RulesChanged {
+                name: "general".to_string(),
+                before: "Say one thing.".to_string(),
+                after: "Say one thing per sentence.".to_string(),
+            },
+            Change::RulesAdded {
+                name: "review".to_string(),
+                text: "Judge.".to_string(),
+            },
+            of("judge", system(&["general"], &["review", "general"])),
+        ]
+    );
+    assert_eq!(
+        flow::compare(&compiled(&after), &compiled(&valid())),
+        [
+            Change::RulesRemoved {
+                name: "general".to_string(),
+                text: "Say one thing.".to_string(),
+            },
+            of("judge", system(&["general"], &[])),
+        ]
     );
 }

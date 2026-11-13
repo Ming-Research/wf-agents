@@ -1,4 +1,4 @@
-//! The blocks a cell says what the work is by, where the host shows it: each is one of its inputs, named once, and the
+//! The blocks a cell says what the work is by, where the host shows it: each is one that runs it, named once, and the
 //! list is compiled into what the engine needs of the cell, in the order written.
 
 use decide::BlockId;
@@ -33,7 +33,7 @@ fn the_blocks_a_cell_describes_the_work_by_are_compiled_into_its_spec_in_the_ord
 }
 
 #[test]
-fn a_block_a_cell_describes_the_work_by_is_among_its_inputs_and_named_once() {
+fn a_block_a_cell_describes_the_work_by_runs_it_and_is_named_once() {
     // The check writes ci and does not read it: a change of it would not run the check again.
     let source = check_describes(r#"["design", "ci", "design"]"#);
     assert_eq!(
@@ -42,7 +42,7 @@ fn a_block_a_cell_describes_the_work_by_is_among_its_inputs_and_named_once() {
             at(
                 "check.toml",
                 "describes[1]",
-                NotAnInput {
+                DescribedNotRunOn {
                     block: "ci".to_string()
                 }
             ),
@@ -58,21 +58,27 @@ fn a_block_a_cell_describes_the_work_by_is_among_its_inputs_and_named_once() {
 }
 
 #[test]
-fn in_the_new_form_a_cell_describes_the_work_by_a_block_that_runs_it_or_that_it_is_given() {
+fn in_the_new_form_a_cell_describes_the_work_by_a_block_that_runs_it_and_not_by_one_it_is_only_given() {
     let source = edit(
         valid(),
         "answer.toml",
         "inputs = [\"comments\", \"plan\"]",
         "runs_on = [\"comments\"]\ngiven = [\"plan\"]\ndescribes = [\"plan\", \"comments\", \"reply\"]",
     );
+    let source = edit(
+        source,
+        "answer.toml",
+        "limit = 5",
+        "limit = 5\n\n[give.plan]\nkind = \"latest\"",
+    );
+    let not_run_on = |block: &str| DescribedNotRunOn {
+        block: block.to_string(),
+    };
     assert_eq!(
         faults(&source),
-        [at(
-            "answer.toml",
-            "describes[2]",
-            NotAnInput {
-                block: "reply".to_string()
-            }
-        )]
+        [
+            at("answer.toml", "describes[0]", not_run_on("plan")),
+            at("answer.toml", "describes[2]", not_run_on("reply")),
+        ]
     );
 }

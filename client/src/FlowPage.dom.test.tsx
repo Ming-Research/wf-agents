@@ -347,7 +347,7 @@ describe('a comparison', () => {
       },
     );
     expect(texts(page, '.change-group h3')).toEqual(['a First', 'b B', 'Block y']);
-    expect(texts(page, '.changes .change')).toEqual(['TitleA → First', 'Runs ony', 'Declared']);
+    expect(texts(page, '.changes .change')).toEqual(['TitleA → First', 'Runs ity', 'Declared']);
     expect(page.querySelector('thead .cell-head')?.className).toContain('status-changed');
     expect(rowOf(page, 'y').className).toContain('status-added');
     expect(page.querySelectorAll('.part.added')).toHaveLength(1);

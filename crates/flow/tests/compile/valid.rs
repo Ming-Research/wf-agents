@@ -4,7 +4,8 @@ use std::collections::BTreeMap;
 
 use decide::{BlockId, Cell, Condition, TestName};
 use flow::{
-    Block, CellSpec, Effort, FLOW_FILE, FaultKind::*, Given, Kind, Limits, Readers, RunsOn, Test, TestKind, Writers,
+    Block, CellSpec, Effort, FLOW_FILE, FaultKind::*, Given, InputKind, Kind, Limits, Readers, RunsOn, Test, TestKind,
+    Writers,
 };
 
 use crate::support::{at, compiled, edit, faults, valid};
@@ -94,7 +95,8 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
             })
             .collect()
     };
-    // Each cell is written in the old form: each block of its `inputs` runs it, and an agent cell is given it.
+    // Each cell is written in the old form: each block of its `inputs` runs it, and an agent cell is given it, the
+    // version it last worked from and the latest where it names no kind.
     let agent = |id: &str, title: &str, line: &str, task: &str, inputs: &[&str]| CellSpec {
         task: Some(task.to_string()),
         effort: Some(Effort::High),
@@ -102,7 +104,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
         given: (inputs.iter())
             .map(|&b| Given {
                 block: b.into(),
-                kind: None,
+                kind: InputKind::LastAndLatest,
                 why: None,
             })
             .collect(),

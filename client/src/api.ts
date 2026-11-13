@@ -121,21 +121,33 @@ export type What =
   | { kind: 'engineHasTools' }
   | { kind: 'unknownAct'; act: string }
   | { kind: 'unknownTool'; tool: string }
-  /// A line's system prompt names a part the engine does not fill in, and the flow has no set of rules of that name.
-  | { kind: 'unknownPart'; part: string }
+  /// A line names a set of rules the flow has no file for.
+  | { kind: 'noSuchRules'; name: string }
+  /// A line names among its sets of rules a part the engine places in every system prompt itself.
+  | { kind: 'enginePart'; name: string }
+  /// A set of the flow's rules has the name of a part the engine places in every system prompt itself.
+  | { kind: 'rulesNamedAsEnginePart'; name: string }
+  /// A set of the flow's rules that no line names.
+  | { kind: 'unusedRules'; name: string }
   | { kind: 'valuesEmpty' }
   | { kind: 'noteNotByPeople'; block: string }
   | { kind: 'noteIsAChoice'; block: string }
   | { kind: 'noSuchBlock'; block: string }
   /// The cell must write the block each time, and it is not among its outputs.
   | { kind: 'notAnOutput'; block: string }
-  /// The cell says what the work is by the block, and the block neither runs it nor is given to it.
-  | { kind: 'notAnInput'; block: string }
+  /// The cell says what the work is by the block, and the block does not run it.
+  | { kind: 'describedNotRunOn'; block: string }
   /// In the old form, the cell says how or why it takes the block, and it is not among its inputs.
   | { kind: 'takenNotRead'; block: string }
   /// The cell names what it takes both in the old form and in the new.
   | { kind: 'twoForms' }
-  | { kind: 'engineIsGiven' }
+  | { kind: 'engineIsGiven'; block: string }
+  /// In the new form, an agent's cell that nothing runs.
+  | { kind: 'runByNothing' }
+  /// In the new form, the cell does not say the kind of a block it is given.
+  | { kind: 'noKind'; block: string }
+  /// A table that says nothing of the block it is named for.
+  | { kind: 'saysNothing'; block: string }
   /// The cell says why the block runs it, and it is not among those that run it.
   | { kind: 'notRunOn'; block: string }
   /// The cell says how or why it is given the block, and it is not given it.
@@ -181,6 +193,9 @@ export type Change =
   | { kind: 'testRemoved'; test: Test }
   | { kind: 'testReworded'; test: string; before: string; after: string }
   | { kind: 'testChanged'; test: string; before: Test; after: Test }
+  | { kind: 'rulesAdded'; name: string; text: string }
+  | { kind: 'rulesRemoved'; name: string; text: string }
+  | { kind: 'rulesChanged'; name: string; before: string; after: string }
   | { kind: 'cellAdded'; cell: string; place: number }
   | { kind: 'cellRemoved'; cell: string; place: number }
   | { kind: 'cellMoved'; cell: string; before: number; after: number }
@@ -209,7 +224,9 @@ export type Change =
   | { kind: 'toolAdded'; cell: string; tool: string }
   | { kind: 'toolRemoved'; cell: string; tool: string }
   | { kind: 'runsWhy'; cell: string; block: string; before: string | null; after: string | null }
-  | { kind: 'givenKind'; cell: string; block: string; before: InputKind | null; after: InputKind | null }
+  | { kind: 'givenKind'; cell: string; block: string; before: InputKind; after: InputKind }
+  /// The blocks the cell is given in both stand in another order; both lists whole.
+  | { kind: 'givenOrder'; cell: string; before: string[]; after: string[] }
   | { kind: 'givenWhy'; cell: string; block: string; before: string | null; after: string | null }
   | { kind: 'cellLimit'; cell: string; limit: LimitName; before: number; after: number }
   | { kind: 'effort'; cell: string; before: string | null; after: string | null }

@@ -46,17 +46,27 @@ describe('the words of the page', () => {
     expect(
       changeWords({ kind: 'condition', cell: 'a', before: null, after: { on: 'block', block: 'x', value: 'no' } }),
     ).toEqual({ what: 'Runs when', before: 'always', after: 'x is no' });
-    expect(changeWords({ kind: 'runsOnRemoved', cell: 'a', block: 'x' })).toEqual({ what: 'Runs on', before: 'x', after: '' });
+    expect(changeWords({ kind: 'runsOnRemoved', cell: 'a', block: 'x' })).toEqual({ what: 'Runs it', before: 'x', after: '' });
     expect(changeWords({ kind: 'givenAdded', cell: 'a', block: 'x' })).toEqual({ what: 'Is given', before: '', after: 'x' });
     expect(changeWords({ kind: 'toolAdded', cell: 'a', tool: 'query' })).toEqual({
-      what: 'May ask for',
+      what: 'May ask the engine for',
       before: '',
       after: 'query',
     });
-    expect(changeWords({ kind: 'system', cell: 'a', before: [], after: ['guide', 'general'] })).toEqual({
-      what: 'The system prompt of its line',
+    expect(changeWords({ kind: 'system', cell: 'a', before: [], after: ['general', 'engineering'] })).toEqual({
+      what: 'Rules of its line',
       before: 'none',
-      after: 'guide, general',
+      after: 'general, engineering',
+    });
+    expect(changeWords({ kind: 'givenOrder', cell: 'a', before: ['x', 'y'], after: ['y', 'x'] })).toEqual({
+      what: 'Is given, in the order',
+      before: 'x, y',
+      after: 'y, x',
+    });
+    expect(changeWords({ kind: 'rulesChanged', name: 'general', before: 'One.', after: 'Two.' })).toEqual({
+      what: 'Rules general',
+      before: 'One.',
+      after: 'Two.',
     });
     expect(changeWords({ kind: 'readsOnly', cell: 'a', before: false, after: true })).toEqual({
       what: 'Only reads',
@@ -168,14 +178,20 @@ describe('the words of the page', () => {
     expect(faultWords({ file: 'judge.toml', field: 'must_write[1]', what: { kind: 'notAnOutput', block: 'plan' } })).toBe(
       'The cell must write plan every time, but plan is not among the blocks it may write.',
     );
-    expect(faultWords({ file: 'check.toml', field: 'describes[0]', what: { kind: 'notAnInput', block: 'ci' } })).toBe(
-      'The cell says what the work is by ci, but ci neither runs it nor is given to it.',
+    expect(faultWords({ file: 'check.toml', field: 'describes[0]', what: { kind: 'describedNotRunOn', block: 'ci' } })).toBe(
+      'The cell says what the work is by ci, but ci does not run it.',
     );
     expect(faultWords({ file: 'plan.toml', field: 'give.request', what: { kind: 'notGiven', block: 'request' } })).toBe(
       'The cell says how it is given request, but it is not given request.',
     );
-    expect(faultWords({ file: 'flow.toml', field: 'lines.engineer.system[1]', what: { kind: 'unknownPart', part: 'general' } })).toBe(
-      'The engine fills in no part of a system prompt named "general", and the flow has no rules/general.md.',
+    expect(faultWords({ file: 'flow.toml', field: 'lines.engineer.system[1]', what: { kind: 'noSuchRules', name: 'general' } })).toBe(
+      'The line names the rules general, but the flow has no rules/general.md.',
+    );
+    expect(faultWords({ file: 'check.toml', field: 'input.main.kind', what: { kind: 'engineIsGiven', block: 'main' } })).toBe(
+      "An engine's cell says how it is given main, but it has no session.",
+    );
+    expect(faultWords({ file: 'plan.toml', field: 'inputs', what: { kind: 'twoForms' } })).toBe(
+      'Name them one way: either inputs, or runs_on and given.',
     );
     expect(faultWords({ file: 'judge.toml', field: 'input.opinions', what: { kind: 'takenNotRead', block: 'opinions' } })).toBe(
       'The cell says how it takes opinions, but opinions is not among the blocks it reads.',

@@ -73,13 +73,13 @@ async fn how_a_cell_takes_a_block_why_and_what_a_block_is_are_each_given_as_a_ch
         after,
         Some("review"),
         "must_write = [\"content\"]",
-        "must_write = [\"content\"]\n\n[input.plan]\nkind = \"last_and_latest\"\nwhy = \"It is what to review.\"",
+        "must_write = [\"content\"]\n\n[input.plan]\nkind = \"all\"\nwhy = \"It is what to review.\"",
     );
     let router = serve(&Shared::new(Ok(after)), Some(&Shared::new(Ok(tiny()))));
     assert_eq!(
         get_json(&router, "/api/v1/flow/changes").await["changes"],
         json!([
-            { "kind": "givenKind", "cell": "review", "block": "plan", "before": null, "after": "lastAndLatest" },
+            { "kind": "givenKind", "cell": "review", "block": "plan", "before": "lastAndLatest", "after": "all" },
             {
                 "kind": "givenWhy",
                 "cell": "review",

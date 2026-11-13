@@ -2,8 +2,8 @@
 //!
 //! The owner approves every change to the flow, and reads it as a list of what changed, each with where it is and what
 //! it was and is. The list is a function of the two definitions alone (principle `decide-purely`), in an order that
-//! does not depend on how either was written: the flow's own things first (its name, its limits, its named tests),
-//! then the cells in the order of the new definition, each cell taken out standing after the cell it followed (of those
+//! does not depend on how either was written: the flow's own things first (its name, its limits, its named tests, its
+//! sets of rules for the agents, each by name), then the cells in the order of the new definition, each cell taken out standing after the cell it followed (of those
 //! that stay where they were), then the blocks by name.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -33,6 +33,16 @@ pub enum Change {
     /// What a named test holds on: its kind, the blocks it reads or the value it tests for, as each definition has it;
     /// a change of its words is said apart, as a rewording.
     TestChanged { test: TestName, before: Test, after: Test },
+    /// A set of the flow's rules for the agents was added, with its text.
+    RulesAdded { name: String, text: String },
+    /// A set of the flow's rules for the agents is no longer there; its text was this.
+    RulesRemoved { name: String, text: String },
+    /// The text of a set of the flow's rules for the agents.
+    RulesChanged {
+        name: String,
+        before: String,
+        after: String,
+    },
     /// A cell was put into the order, at this place (counted from 0).
     CellAdded { cell: CellId, place: usize },
     /// A cell was taken out of the order, from this place (counted from 0).
@@ -138,12 +148,17 @@ pub enum CellChange {
         before: Option<String>,
         after: Option<String>,
     },
-    /// What the context must hold of a block the cell is given when the cell runs; none where the definition does not
-    /// say.
+    /// What the context must hold of a block the cell is given when the cell runs.
     GivenKind {
         block: BlockId,
-        before: Option<InputKind>,
-        after: Option<InputKind>,
+        before: InputKind,
+        after: InputKind,
+    },
+    /// The order of the blocks the cell is given, which it is given them in: the blocks given in both stand in another
+    /// order. Both lists whole.
+    GivenOrder {
+        before: Vec<BlockId>,
+        after: Vec<BlockId>,
     },
     /// Why the cell is given a block; none where the definition does not say.
     GivenWhy {
@@ -215,6 +230,7 @@ pub fn compare(before: &Compiled, after: &Compiled) -> Vec<Change> {
         }
     }
     tests(before, after, &mut changes);
+    rules(&before.rules, &after.rules, &mut changes);
     cells(before, after, &mut changes);
     blocks(&before.blocks, &after.blocks, &mut changes);
     changes
@@ -261,6 +277,30 @@ fn tests(before: &Compiled, after: &Compiled, changes: &mut Vec<Change>) {
                 }
             }
             (None, None) => {}
+        }
+    }
+}
+
+/// Each set of rules added, removed or with another text, in the order of their names.
+fn rules(before: &BTreeMap<String, String>, after: &BTreeMap<String, String>, changes: &mut Vec<Change>) {
+    let names: BTreeSet<&String> = before.keys().chain(after.keys()).collect();
+    for name in names {
+        let name_ = name.clone();
+        match (before.get(name), after.get(name)) {
+            (None, Some(text)) => changes.push(Change::RulesAdded {
+                name: name_,
+                text: text.clone(),
+            }),
+            (Some(text), None) => changes.push(Change::RulesRemoved {
+                name: name_,
+                text: text.clone(),
+            }),
+            (Some(b), Some(a)) if b != a => changes.push(Change::RulesChanged {
+                name: name_,
+                before: b.clone(),
+                after: a.clone(),
+            }),
+            _ => {}
         }
     }
 }
@@ -458,13 +498,24 @@ fn cell_changes(before: &Placed, after: &Placed, flow_limits: &[(Limit, u32, u32
         CellChange::RunsOnAdded,
         &mut changes,
     );
+    let (given_before, given_after) = (given(b), given(a));
     list(
-        &given(b),
-        &given(a),
+        &given_before,
+        &given_after,
         CellChange::GivenRemoved,
         CellChange::GivenAdded,
         &mut changes,
     );
+    // The cell is given its blocks in the order it names them, so of those given in both, another order is a change.
+    let kept = |list: &[BlockId], other: &[BlockId]| -> Vec<BlockId> {
+        list.iter().filter(|b| other.contains(b)).cloned().collect()
+    };
+    if kept(&given_before, &given_after) != kept(&given_after, &given_before) {
+        changes.push(CellChange::GivenOrder {
+            before: given_before,
+            after: given_after,
+        });
+    }
     list(
         &b_cell.outputs,
         &a_cell.outputs,

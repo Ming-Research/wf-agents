@@ -38,7 +38,10 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "condition": null,
                         "preconditions": [],
                         "inputs": ["request", "opinions"],
-                        "input": {},
+                        "input": {
+                            "request": { "kind": "lastAndLatest", "why": null },
+                            "opinions": { "kind": "lastAndLatest", "why": null },
+                        },
                         "outputs": ["plan"],
                         "mustWrite": [],
                         "limits": limits(3),
@@ -54,7 +57,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "condition": null,
                         "preconditions": [],
                         "inputs": ["plan"],
-                        "input": {},
+                        "input": { "plan": { "kind": "lastAndLatest", "why": null } },
                         "outputs": ["opinions", "content"],
                         "mustWrite": ["content"],
                         "limits": limits(5),
@@ -186,10 +189,14 @@ async fn how_a_cell_takes_a_block_and_what_a_block_is_are_given_as_written() {
         answer["flow"]["cells"][1]["input"],
         json!({ "plan": { "kind": "lastAndLatest", "why": "It is what to review." } })
     );
-    // Of a block the cell says nothing of, nothing is given; what it leaves unsaid of one is none.
+    // Of a block an agent's cell names no kind of, it is given the version it last worked from and the latest; a why
+    // it leaves unsaid is none; an engine's cell is given nothing.
     assert_eq!(
         answer["flow"]["cells"][0]["input"],
-        json!({ "request": { "kind": "all", "why": null } })
+        json!({
+            "request": { "kind": "all", "why": null },
+            "opinions": { "kind": "lastAndLatest", "why": null },
+        })
     );
     assert_eq!(answer["flow"]["cells"][2]["input"], json!({}));
     let plan = &answer["flow"]["blocks"][3];

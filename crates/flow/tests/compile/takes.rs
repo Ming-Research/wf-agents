@@ -1,7 +1,8 @@
 //! What runs a cell and what it is given, and what a block is: each is carried into what the flow compiles to as it was
-//! written; a cell says why a block runs it only of one that does, and how it is given one only of one it is given. A
-//! file in the old form, with one list `inputs`, is read as both lists, and compiles to what the same cell in the new
-//! form does.
+//! written. In the new form an agent cell is run by something, says the kind of each block it is given, says why a
+//! block runs it only of one that does and how it is given one only of one it is given, and no table of it says
+//! nothing. A file in the old form, with one list `inputs`, is read as both lists, and compiles to what the same cell in
+//! the new form does.
 
 use decide::BlockId;
 use flow::FaultKind::*;
@@ -45,7 +46,7 @@ fn runs_on(block: &str, why: Option<&str>) -> RunsOn {
     }
 }
 
-fn given(block: &str, kind: Option<InputKind>, why: Option<&str>) -> Given {
+fn given(block: &str, kind: InputKind, why: Option<&str>) -> Given {
     Given {
         block: block.into(),
         kind,
@@ -55,7 +56,7 @@ fn given(block: &str, kind: Option<InputKind>, why: Option<&str>) -> Given {
 
 #[test]
 fn how_an_agent_cell_takes_a_block_in_the_old_form_and_what_a_block_is_are_compiled_as_written() {
-    let source = judge_takes("[input.plan]\nkind = \"last_and_latest\"\nwhy = \"It is what to judge.\"");
+    let source = judge_takes("[input.plan]\nkind = \"all\"\nwhy = \"It is what to judge.\"");
     let source = edit(
         source,
         FLOW_FILE,
@@ -68,18 +69,18 @@ fn how_an_agent_cell_takes_a_block_in_the_old_form_and_what_a_block_is_are_compi
     assert_eq!(judge.runs_on, [runs_on("plan", None)]);
     assert_eq!(
         judge.given,
-        [given(
-            "plan",
-            Some(InputKind::LastAndLatest),
-            Some("It is what to judge.")
-        )]
+        [given("plan", InputKind::All, Some("It is what to judge."))]
     );
-    // A cell that says nothing of how it takes its inputs has nothing said of them.
+    // Of a block it names no kind of, an agent cell in the old form is given the version it last worked from and the
+    // latest, as the engine gives a round its inputs before it fills a session by kind.
     let plan = cell(&compiled, "plan");
     assert_eq!(plan.runs_on, [runs_on("request", None), runs_on("opinions", None)]);
     assert_eq!(
         plan.given,
-        [given("request", None, None), given("opinions", None, None)]
+        [
+            given("request", InputKind::LastAndLatest, None),
+            given("opinions", InputKind::LastAndLatest, None),
+        ]
     );
     let what = |block: &str| compiled.blocks[&BlockId::from(block)].what.clone();
     assert_eq!(what("plan"), Some("What will be done, and in what order.".to_string()));
@@ -87,19 +88,77 @@ fn how_an_agent_cell_takes_a_block_in_the_old_form_and_what_a_block_is_are_compi
 }
 
 #[test]
-fn each_of_the_kinds_is_written_by_its_name_and_either_field_may_be_left_out() {
+fn each_of_the_kinds_is_written_by_its_name_and_the_why_may_be_left_out() {
     let source = plan_names(
         "runs_on = [\"request\", \"opinions\"]\ngiven = [\"request\", \"opinions\", \"plan\"]\n\n\
-         [give.request]\nkind = \"latest\"\n\n[give.opinions]\nwhy = \"They say what to change.\"\n\n\
-         [give.plan]\nkind = \"all\"",
+         [give.request]\nkind = \"latest\"\n\n[give.opinions]\nkind = \"last_and_latest\"\n\
+         why = \"They say what to change.\"\n\n[give.plan]\nkind = \"all\"",
     );
     let compiled = compiled(&source);
     assert_eq!(
         cell(&compiled, "plan").given,
         [
-            given("request", Some(InputKind::Latest), None),
-            given("opinions", None, Some("They say what to change.")),
-            given("plan", Some(InputKind::All), None),
+            given("request", InputKind::Latest, None),
+            given("opinions", InputKind::LastAndLatest, Some("They say what to change.")),
+            given("plan", InputKind::All, None),
+        ]
+    );
+}
+
+#[test]
+fn in_the_new_form_a_block_given_names_its_kind() {
+    // The opinions have a why and no kind; the request has nothing said of it.
+    let source = plan_names(
+        "runs_on = [\"request\"]\ngiven = [\"request\", \"opinions\"]\n\n\
+         [give.opinions]\nwhy = \"They say what to change.\"",
+    );
+    let no_kind = |block: &str| NoKind {
+        block: block.to_string(),
+    };
+    assert_eq!(
+        faults(&source),
+        [
+            at("plan.toml", "given[0]", no_kind("request")),
+            at("plan.toml", "given[1]", no_kind("opinions")),
+        ]
+    );
+}
+
+#[test]
+fn in_the_new_form_an_agent_cell_that_nothing_runs_is_refused() {
+    let source = plan_names(
+        "given = [\"request\", \"opinions\"]\n\n[give.request]\nkind = \"latest\"\n\n[give.opinions]\nkind = \"all\"",
+    );
+    assert_eq!(faults(&source), [at("plan.toml", "runs_on", RunByNothing)]);
+}
+
+#[test]
+fn a_table_that_says_nothing_is_refused() {
+    let source = plan_names(
+        "runs_on = [\"request\"]\ngiven = [\"request\"]\n\n[run.request]\n\n[give.request]\nkind = \"latest\"",
+    );
+    let says_nothing = |block: &str| SaysNothing {
+        block: block.to_string(),
+    };
+    assert_eq!(
+        faults(&source),
+        [at("plan.toml", "run.request", says_nothing("request"))]
+    );
+    let source = plan_names(
+        "runs_on = [\"request\"]\ngiven = [\"request\", \"opinions\"]\n\n[give.request]\n\n\
+         [give.opinions]\nkind = \"all\"",
+    );
+    assert_eq!(
+        faults(&source),
+        [
+            at(
+                "plan.toml",
+                "given[0]",
+                NoKind {
+                    block: "request".to_string(),
+                },
+            ),
+            at("plan.toml", "give.request", says_nothing("request")),
         ]
     );
 }
@@ -145,14 +204,17 @@ fn an_engine_cell_in_the_old_form_is_given_nothing_and_what_it_says_of_an_input_
         "[input.main]",
         "[input.design]\nkind = \"latest\"\n\n[input.main]",
     );
-    assert_eq!(faults(&source), [at("check.toml", "input.design.kind", EngineIsGiven)]);
+    let given_design = EngineIsGiven {
+        block: "design".to_string(),
+    };
+    assert_eq!(faults(&source), [at("check.toml", "input.design.kind", given_design)]);
 }
 
 #[test]
 fn what_runs_a_cell_and_what_it_is_given_are_compiled_apart_each_in_its_own_order() {
     let source = plan_names(
         "runs_on = [\"request\"]\ngiven = [\"opinions\", \"request\"]\n\n[run.request]\nwhy = \"It is what to plan.\"\n\n\
-         [give.opinions]\nkind = \"all\"\nwhy = \"They say what to change.\"",
+         [give.opinions]\nkind = \"all\"\nwhy = \"They say what to change.\"\n\n[give.request]\nkind = \"latest\"",
     );
     let compiled = compiled(&source);
     let plan = cell(&compiled, "plan");
@@ -160,8 +222,8 @@ fn what_runs_a_cell_and_what_it_is_given_are_compiled_apart_each_in_its_own_orde
     assert_eq!(
         plan.given,
         [
-            given("opinions", Some(InputKind::All), Some("They say what to change.")),
-            given("request", None, None),
+            given("opinions", InputKind::All, Some("They say what to change.")),
+            given("request", InputKind::Latest, None),
         ]
     );
     // The walk's inputs are the two lists joined, each block once, those that run the cell first; so are the cells
@@ -181,10 +243,16 @@ fn a_block_that_only_runs_a_cell_or_that_it_is_only_given_is_read_by_it() {
         "inputs = [\"comments\", \"plan\"]",
         "runs_on = [\"comments\"]\ngiven = [\"plan\"]",
     );
+    let source = edit(
+        source,
+        "answer.toml",
+        "limit = 5",
+        "limit = 5\n\n[give.plan]\nkind = \"latest\"",
+    );
     let compiled = compiled(&source);
     let answer = cell(&compiled, "answer");
     assert_eq!(answer.runs_on, [runs_on("comments", None)]);
-    assert_eq!(answer.given, [given("plan", None, None)]);
+    assert_eq!(answer.given, [given("plan", InputKind::Latest, None)]);
     let readers = |block: &str| compiled.blocks[&BlockId::from(block)].readers.cells.clone();
     assert_eq!(readers("comments"), ["answer".into()]);
     assert_eq!(readers("plan"), ["judge".into(), "design".into(), "answer".into()]);
@@ -198,12 +266,18 @@ fn an_engine_cell_is_given_nothing() {
         "inputs = [\"main\", \"design\"]",
         "runs_on = [\"main\", \"design\"]\ngiven = [\"design\"]",
     );
-    assert_eq!(faults(&source), [at("check.toml", "given", EngineIsGiven)]);
+    let given_design = EngineIsGiven {
+        block: "design".to_string(),
+    };
+    assert_eq!(faults(&source), [at("check.toml", "given[0]", given_design)]);
 }
 
 #[test]
 fn a_block_named_twice_in_one_list_is_refused_and_in_both_lists_is_not() {
-    let source = plan_names("runs_on = [\"request\", \"request\"]\ngiven = [\"opinions\", \"request\", \"opinions\"]");
+    let source = plan_names(
+        "runs_on = [\"request\", \"request\"]\ngiven = [\"opinions\", \"request\", \"opinions\"]\n\n\
+         [give.opinions]\nkind = \"all\"\n\n[give.request]\nkind = \"latest\"",
+    );
     let twice = |name: &str| Twice { name: name.to_string() };
     assert_eq!(
         faults(&source),
@@ -216,7 +290,10 @@ fn a_block_named_twice_in_one_list_is_refused_and_in_both_lists_is_not() {
 
 #[test]
 fn a_block_not_declared_is_refused_once_where_it_is_first_named() {
-    let source = plan_names("runs_on = [\"request\", \"agenda\"]\ngiven = [\"agenda\", \"opinions\", \"minutes\"]");
+    let source = plan_names(
+        "runs_on = [\"request\", \"agenda\"]\ngiven = [\"agenda\", \"opinions\", \"minutes\"]\n\n\
+         [give.agenda]\nkind = \"all\"\n\n[give.opinions]\nkind = \"all\"\n\n[give.minutes]\nkind = \"all\"",
+    );
     let missing = |block: &str| NoSuchBlock {
         block: block.to_string(),
     };
@@ -234,7 +311,7 @@ fn a_cell_says_why_a_block_runs_it_only_of_one_that_does_and_how_it_is_given_one
     // The request only runs the cell, so it has no kind; the opinions are only given, so they have no why of running.
     let source = plan_names(
         "runs_on = [\"request\"]\ngiven = [\"opinions\"]\n\n[run.opinions]\nwhy = \"None.\"\n\n\
-         [give.request]\nkind = \"latest\"",
+         [give.opinions]\nkind = \"all\"\n\n[give.request]\nkind = \"latest\"",
     );
     assert_eq!(
         faults(&source),
@@ -270,7 +347,27 @@ fn a_cell_names_what_it_takes_in_one_form_only() {
     assert_eq!(faults(&source), [at("plan.toml", "input", TwoForms)]);
 }
 
-/// The small flow with every cell written in the new form, saying what the old form says.
+/// The kind each agent cell of the small flow is given each of its inputs as, in the forms below.
+const KINDS: [(&str, &str, &str); 6] = [
+    ("plan", "request", "latest"),
+    ("plan", "opinions", "all"),
+    ("judge", "plan", "last_and_latest"),
+    ("design", "plan", "latest"),
+    ("answer", "comments", "all"),
+    ("answer", "plan", "latest"),
+];
+
+/// The small flow with every agent cell saying in the old form, in `[input.<block>]`, the kind of each of its inputs.
+fn valid_with_kinds() -> flow::Source {
+    let mut source = valid();
+    for (cell, block, kind) in KINDS {
+        let text = source.cells.get_mut(cell).expect("the cell's file");
+        text.push_str(&format!("\n[input.{block}]\nkind = \"{kind}\"\n"));
+    }
+    source
+}
+
+/// The small flow with every cell written in the new form, saying what [`valid_with_kinds`] says in the old.
 fn valid_in_the_new_form() -> flow::Source {
     let both = |list: &str| format!("runs_on = {list}\ngiven = {list}");
     let mut source = valid();
@@ -285,12 +382,16 @@ fn valid_in_the_new_form() -> flow::Source {
     for (file, list) in [("check.toml", r#"["main", "design"]"#), ("merge.toml", r#"["ci"]"#)] {
         source = edit(source, file, &format!("inputs = {list}"), &format!("runs_on = {list}"));
     }
+    for (cell, block, kind) in KINDS {
+        let text = source.cells.get_mut(cell).expect("the cell's file");
+        text.push_str(&format!("\n[give.{block}]\nkind = \"{kind}\"\n"));
+    }
     source
 }
 
 #[test]
 fn a_definition_in_the_old_form_and_the_same_in_the_new_compile_to_the_same_walk_and_the_same_cells() {
-    let old = compiled(&valid());
+    let old = compiled(&valid_with_kinds());
     let new = compiled(&valid_in_the_new_form());
     assert_eq!(new.flow, old.flow);
     assert_eq!(new.cells, old.cells);

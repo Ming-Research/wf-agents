@@ -147,9 +147,10 @@ pub struct LineFile {
     /// where it is left out.
     #[serde(default)]
     pub levels_above: u32,
-    /// The parts of the system prompt of the line's session, by name, in the order they stand in it: each a part the
-    /// engine fills in itself, such as the project's guide for its agents, or a set of the flow's rules for the agents,
-    /// `rules/<name>.md`. None where it is left out.
+    /// The flow's sets of rules for the agents that the system prompt of the line's session holds, each `rules/<name>.md`
+    /// by its name, in the order they stand in it; none where it is left out. The engine places its own parts around
+    /// them, the same for every line: the project's guide for its agents, the constitution and the rules of the design
+    /// tree before them, its own words on working in the engine after them.
     #[serde(default)]
     pub system: Vec<String>,
 }
@@ -220,7 +221,8 @@ pub struct CellFile {
     /// it names them. Only an agent cell has a session to supply.
     #[serde(default)]
     pub given: Vec<String>,
-    /// How the cell is given a block and why, by the block's name: each a block among `given`.
+    /// How the cell is given a block and why, by the block's name: each a block among `given`, and each block of
+    /// `given` has one that names its kind.
     #[serde(default)]
     pub give: BTreeMap<String, GiveFile>,
     /// The old form of `runs_on` and `given`, one list for both: each block of it runs the cell, and an agent cell is
@@ -237,8 +239,8 @@ pub struct CellFile {
     /// The blocks among its outputs that every hand-in of the cell includes.
     #[serde(default)]
     pub must_write: Vec<String>,
-    /// The blocks among those it names, that run it or that it is given, that say what the work is where the host of
-    /// the project's repository shows the work, as the body of its pull request; an engine cell's act reads them.
+    /// The blocks among those that run it that say what the work is where the host of the project's repository shows
+    /// the work, as the body of its pull request; an engine cell's act reads them.
     #[serde(default)]
     pub describes: Vec<String>,
     /// How many runs of the cell in a row may be ways round, if not the flow's limit.

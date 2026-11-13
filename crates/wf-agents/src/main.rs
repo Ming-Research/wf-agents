@@ -342,9 +342,11 @@ const ACTS: [&str; 4] = ["start", "check", "merge", "deliver"];
 /// is built yet: a cell may name them, and its agent is not told of them until they are.
 const TOOLS: [&str; 2] = ["query", "run_tests"];
 
-/// The names of the parts of a line's system prompt that the engine fills in itself: `guide`, the project's guide for
-/// its agents; `constitution`, the constitution of the project's design tree; `tree_rules`, the rules of that tree;
-/// and `how_you_work_here`, the engine's own words on working in it. None is filled in yet.
+/// The names of the parts the engine places in the system prompt of every line's session itself, in their order around
+/// the line's own sets of rules: `guide`, the project's guide for its agents; `constitution`, the constitution of the
+/// project's design tree; `tree_rules`, the rules of that tree; the line's sets of rules; and `how_you_work_here`, the
+/// engine's own words on working in it. A line names none of them, and no set of a flow's rules takes one's name. No
+/// system prompt is built of them yet.
 const SYSTEM: [&str; 4] = ["guide", "constitution", "tree_rules", "how_you_work_here"];
 
 /// What the engine has, by name, for any definition.
@@ -423,9 +425,14 @@ fn words(what: &FaultKind) -> String {
         F::EngineHasTools => "an engine's cell names tools, which no agent asks for".to_string(),
         F::UnknownAct { act } => format!("the engine has no act named \"{act}\""),
         F::UnknownTool { tool } => format!("the engine has no tool named \"{tool}\""),
-        F::UnknownPart { part } => format!(
-            "the engine fills in no part of a system prompt named \"{part}\", and the flow has no rules/{part}.md"
-        ),
+        F::NoSuchRules { name } => format!("the line names the rules {name}, but the flow has no rules/{name}.md"),
+        F::EnginePart { name } => {
+            format!("the engine places {name} in every system prompt itself: a line names only its own sets of rules")
+        }
+        F::RulesNamedAsEnginePart { name } => {
+            format!("a set of rules is named {name}, which is a part the engine places in every system prompt itself")
+        }
+        F::UnusedRules { name } => format!("no line names the rules {name}, so no agent would be given them"),
         F::ValuesEmpty => "a choice has no values to choose from".to_string(),
         F::NoteNotByPeople { block } => format!("{block} is a note, but people do not write it"),
         F::NoteIsAChoice { block } => format!("{block} is a note, but it is a choice, and a note is words to a cell"),
@@ -433,17 +440,19 @@ fn words(what: &FaultKind) -> String {
         F::NotAnOutput { block } => {
             format!("the cell must write {block} every time, but {block} is not among the blocks it may write")
         }
-        F::NotAnInput { block } => {
-            format!("the cell says what the work is by {block}, but {block} neither runs it nor is given to it")
+        F::DescribedNotRunOn { block } => {
+            format!("the cell says what the work is by {block}, but {block} does not run it")
         }
         F::TakenNotRead { block } => {
             format!("the cell says how it takes {block}, but {block} is not among the blocks it reads")
         }
-        F::TwoForms => {
-            "the cell names what it takes both as inputs and as runs_on and given: it is to name it in one way"
-                .to_string()
+        F::TwoForms => "name them one way: either inputs, or runs_on and given".to_string(),
+        F::EngineIsGiven { block } => {
+            format!("an engine's cell says how it is given {block}, but it has no session")
         }
-        F::EngineIsGiven => "an engine's cell is given blocks, but it has no session to keep supplied".to_string(),
+        F::RunByNothing => "nothing runs this agent's cell, so it would never be entered".to_string(),
+        F::NoKind { block } => format!("the cell is given {block}, but does not say its kind"),
+        F::SaysNothing { block } => format!("the table for {block} says nothing"),
         F::NotRunOn { block } => format!("the cell says why {block} runs it, but {block} is not among what runs it"),
         F::NotGiven { block } => format!("the cell says how it is given {block}, but it is not given {block}"),
         F::NoWriter { block } => format!("nothing writes {block}: no cell of the order, no person and nothing outside"),

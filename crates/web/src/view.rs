@@ -134,8 +134,8 @@ pub struct Cell {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Input {
-    /// What the context of the cell's session must hold of the block when the cell runs; none where the definition
-    /// does not say or the cell is not given the block.
+    /// What the context of the cell's session must hold of the block when the cell runs; none where the cell is not
+    /// given the block.
     pub kind: Option<InputKind>,
     /// Why the cell is given the block, or of one it is not given, why the block runs it; none where the definition
     /// does not say.
@@ -147,7 +147,7 @@ impl Input {
     fn of(spec: &flow::CellSpec) -> BTreeMap<String, Input> {
         let given = (spec.given.iter()).map(|g| {
             let input = Input {
-                kind: g.kind.map(InputKind::of),
+                kind: Some(InputKind::of(g.kind)),
                 why: g.why.clone(),
             };
             (g.block.to_string(), input)
@@ -303,9 +303,21 @@ pub enum What {
     UnknownTool {
         tool: String,
     },
-    /// A line's system prompt names a part the engine does not fill in, and the flow has no set of rules of that name.
-    UnknownPart {
-        part: String,
+    /// A line names a set of rules the flow has no file for.
+    NoSuchRules {
+        name: String,
+    },
+    /// A line names among its sets of rules a part the engine places in every system prompt itself.
+    EnginePart {
+        name: String,
+    },
+    /// A set of the flow's rules has the name of a part the engine places in every system prompt itself.
+    RulesNamedAsEnginePart {
+        name: String,
+    },
+    /// A set of the flow's rules that no line names.
+    UnusedRules {
+        name: String,
     },
     ValuesEmpty,
     /// The block is a note, and people do not write it.
@@ -323,8 +335,8 @@ pub enum What {
     NotAnOutput {
         block: String,
     },
-    /// The cell says what the work is by the block, and the block neither runs it nor is given to it.
-    NotAnInput {
+    /// The cell says what the work is by the block, and the block does not run it.
+    DescribedNotRunOn {
         block: String,
     },
     /// In the old form, the cell says how or why it takes the block, and it is not among its inputs.
@@ -333,8 +345,20 @@ pub enum What {
     },
     /// The cell names what it takes both in the old form and in the new.
     TwoForms,
-    /// An engine cell is given blocks, and has no session to keep supplied with them.
-    EngineIsGiven,
+    /// An engine cell says how it is given the block, and it has no session.
+    EngineIsGiven {
+        block: String,
+    },
+    /// In the new form, an agent cell that nothing runs.
+    RunByNothing,
+    /// In the new form, the cell does not say the kind of a block it is given.
+    NoKind {
+        block: String,
+    },
+    /// A table that says nothing of the block it is named for.
+    SaysNothing {
+        block: String,
+    },
     /// The cell says why the block runs it, and it is not among those that run it.
     NotRunOn {
         block: String,
@@ -445,6 +469,22 @@ pub enum Change {
         test: String,
         before: Test,
         after: Test,
+    },
+    /// A set of the flow's rules for the agents was added, with its text.
+    RulesAdded {
+        name: String,
+        text: String,
+    },
+    /// A set of the flow's rules for the agents is no longer there; its text was this.
+    RulesRemoved {
+        name: String,
+        text: String,
+    },
+    /// The text of a set of the flow's rules for the agents.
+    RulesChanged {
+        name: String,
+        before: String,
+        after: String,
     },
     /// At this place of the order, counted from 0.
     CellAdded {
@@ -582,12 +622,18 @@ pub enum Change {
         before: Option<String>,
         after: Option<String>,
     },
-    /// What the context must hold of a block the cell is given; none where the definition does not say.
+    /// What the context must hold of a block the cell is given.
     GivenKind {
         cell: String,
         block: String,
-        before: Option<InputKind>,
-        after: Option<InputKind>,
+        before: InputKind,
+        after: InputKind,
+    },
+    /// The blocks the cell is given in both stand in another order; both lists whole.
+    GivenOrder {
+        cell: String,
+        before: Vec<String>,
+        after: Vec<String>,
     },
     /// Why the cell is given a block; none where the definition does not say.
     GivenWhy {
@@ -835,16 +881,22 @@ impl What {
             F::EngineHasTools => What::EngineHasTools,
             F::UnknownAct { act } => What::UnknownAct { act },
             F::UnknownTool { tool } => What::UnknownTool { tool },
-            F::UnknownPart { part } => What::UnknownPart { part },
+            F::NoSuchRules { name } => What::NoSuchRules { name },
+            F::EnginePart { name } => What::EnginePart { name },
+            F::RulesNamedAsEnginePart { name } => What::RulesNamedAsEnginePart { name },
+            F::UnusedRules { name } => What::UnusedRules { name },
             F::ValuesEmpty => What::ValuesEmpty,
             F::NoteNotByPeople { block } => What::NoteNotByPeople { block },
             F::NoteIsAChoice { block } => What::NoteIsAChoice { block },
             F::NoSuchBlock { block } => What::NoSuchBlock { block },
             F::NotAnOutput { block } => What::NotAnOutput { block },
-            F::NotAnInput { block } => What::NotAnInput { block },
+            F::DescribedNotRunOn { block } => What::DescribedNotRunOn { block },
             F::TakenNotRead { block } => What::TakenNotRead { block },
             F::TwoForms => What::TwoForms,
-            F::EngineIsGiven => What::EngineIsGiven,
+            F::EngineIsGiven { block } => What::EngineIsGiven { block },
+            F::RunByNothing => What::RunByNothing,
+            F::NoKind { block } => What::NoKind { block },
+            F::SaysNothing { block } => What::SaysNothing { block },
             F::NotRunOn { block } => What::NotRunOn { block },
             F::NotGiven { block } => What::NotGiven { block },
             F::NoWriter { block } => What::NoWriter { block },
@@ -915,6 +967,23 @@ impl Change {
                 test: test.to_string(),
                 before: Test::declared(test, &before.tests[test], from),
                 after: Test::declared(test, &after.tests[test], to),
+            },
+            C::RulesAdded { name, text } => Change::RulesAdded {
+                name: name.clone(),
+                text: text.clone(),
+            },
+            C::RulesRemoved { name, text } => Change::RulesRemoved {
+                name: name.clone(),
+                text: text.clone(),
+            },
+            C::RulesChanged {
+                name,
+                before: from,
+                after: to,
+            } => Change::RulesChanged {
+                name: name.clone(),
+                before: from.clone(),
+                after: to.clone(),
             },
             C::CellAdded { cell, place } => Change::CellAdded {
                 cell: cell.to_string(),
@@ -1046,8 +1115,13 @@ impl Change {
             } => Change::GivenKind {
                 cell,
                 block: block(b),
-                before: before.map(InputKind::of),
-                after: after.map(InputKind::of),
+                before: InputKind::of(*before),
+                after: InputKind::of(*after),
+            },
+            CellChange::GivenOrder { before, after } => Change::GivenOrder {
+                cell,
+                before: names(before),
+                after: names(after),
             },
             CellChange::GivenWhy {
                 block: b,
