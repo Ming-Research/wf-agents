@@ -86,8 +86,14 @@ impl Default for Fake {
     }
 }
 
+/// What the command line says of a return it gave up on, as it says it, the last refusal at its end.
+pub const GAVE_UP: &str = "Failed to provide valid structured output after 3 attempts — last StructuredOutput error: \
+                           Output does not match required schema: /hands_in: must be array";
+
 /// The stream of a call that refused every attempt at the return and gave up on it, the plan's hand-ins written as a
-/// string in the last, each attempt written in two pieces as the stream's partial messages carry them.
+/// string in the last, in the order the command line writes it: each attempt as its message's first block, in two
+/// pieces, the whole message, the block's end, the refusal as a plain string, the message's end; the result, and the
+/// command line's `task_summary` after it.
 fn refused_stream() -> String {
     use serde_json::json;
     let event = |event: serde_json::Value| {
@@ -100,29 +106,33 @@ fn refused_stream() -> String {
             let delta = json!({ "type": "input_json_delta", "partial_json": piece });
             event(json!({ "type": "content_block_delta", "index": 0, "delta": delta }))
         };
+        let whole = serde_json::from_str::<serde_json::Value>(input).unwrap_or(json!({}));
+        let used = json!({ "type": "tool_use", "id": id, "name": "StructuredOutput", "input": whole });
+        let message = json!({ "role": "assistant", "content": [used] });
+        let result = json!({ "type": "tool_result", "is_error": true, "tool_use_id": id,
+            "content": "Output does not match required schema: /hands_in: must be array" });
         vec![
             event(json!({ "type": "message_start", "message": {} })),
             event(json!({ "type": "content_block_start", "index": 0, "content_block": block })),
             piece(one),
             piece(two),
+            json!({ "type": "assistant", "message": message, "parent_tool_use_id": null }).to_string(),
             event(json!({ "type": "content_block_stop", "index": 0 })),
+            json!({ "type": "user", "parent_tool_use_id": null, "message": { "role": "user", "content": [result] } })
+                .to_string(),
+            event(json!({ "type": "message_delta", "delta": {}, "usage": {} })),
+            event(json!({ "type": "message_stop" })),
         ]
-    };
-    let refused = |id: &str| {
-        let result = json!({ "type": "tool_result", "tool_use_id": id, "is_error": true,
-            "content": "Output does not match required schema: /hands_in: must be array" });
-        json!({ "type": "user", "parent_tool_use_id": null, "message": { "content": [result] } }).to_string()
     };
     let plan = json!([{ "block": "plan", "content": "Greet by name.", "matters": true }]).to_string();
     let mut lines = vec![json!({ "type": "system", "subtype": "init", "session_id": "s" }).to_string()];
     lines.extend(attempt("so-1", r#"{"hands_in": "[]", "#));
-    lines.push(refused("so-1"));
     lines.extend(attempt("so-2", &json!({ "hands_in": plan, "asks": [] }).to_string()));
-    lines.push(refused("so-2"));
     let gave_up = json!({ "type": "result", "subtype": "error_max_structured_output_retries", "is_error": true,
-        "errors": ["Failed to provide valid structured output after 3 attempts"], "total_cost_usd": 0.4,
+        "result": null, "errors": [GAVE_UP], "total_cost_usd": 0.4,
         "usage": { "input_tokens": 1000, "output_tokens": 300 } });
     lines.push(gave_up.to_string());
+    lines.push(json!({ "type": "system", "subtype": "task_summary", "detail": null }).to_string());
     lines.join("\n") + "\n"
 }
 
@@ -227,7 +237,7 @@ if [ '{refuses}' = yes ] && [ "$n" = 1 ]; then
     exit 1
 fi
 if [ '{error}' = yes ] && [ "$n" = 1 ]; then
-    printf '%s\n' '{{"type":"result","subtype":"error_max_structured_output_retries","is_error":true,"result":"Out of structured output retries.","total_cost_usd":0.8,"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":300}}}}'
+    printf '%s\n' '{{"type":"result","subtype":"error_max_structured_output_retries","is_error":true,"result":null,"errors":["{gave_up}"],"total_cost_usd":0.8,"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":300}}}}'
     exit 1
 fi
 if [ '{flag}' = yes ] && [ "$n" = 1 ]; then
@@ -283,6 +293,7 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         compacts = yes(fake.compacts),
         unchanged = yes(fake.plan_again_unchanged),
         refuses = yes(fake.refuses_first),
+        gave_up = GAVE_UP,
         refused = refused.display(),
         iterations = fake.context.map_or_else(String::new, |context| {
             format!(r#","iterations":[{{"input_tokens":{context},"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}]"#)

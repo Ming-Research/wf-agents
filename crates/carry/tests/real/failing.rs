@@ -204,7 +204,7 @@ async fn a_failed_round_whose_result_says_what_it_cost_is_charged_it_and_the_nex
     let Some(Back::Failed { why, failure, .. }) = kept.back.get(&(plan_run, 1)) else {
         panic!("the plan's round did not fail: {:?}", kept.back);
     };
-    assert!(why.contains("Out of structured output retries."), "{why}");
+    assert!(why.contains(crate::GAVE_UP), "{why}");
     assert_eq!(*failure, Failure::Unread);
     assert!(decide::pause(&kept.records).is_none(), "the work is paused");
     let failed = kept.spent[&(plan_run, 1)];
@@ -270,6 +270,6 @@ async fn a_failed_round_that_takes_the_work_over_its_budget_says_both() {
     let why = decide::pause(&kept.records)
         .and_then(|p| p.why.clone())
         .expect("a reason");
-    assert!(why.contains("Out of structured output retries."), "{why}");
+    assert!(why.contains(crate::GAVE_UP), "{why}");
     assert!(why.contains("over its budget of $0.50"), "{why}");
 }

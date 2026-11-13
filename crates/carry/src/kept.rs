@@ -2,15 +2,15 @@
 //!
 //! Each try of a round keeps the message it was told and what the command line printed, in `rounds/<work>` in the
 //! data directory: `<run>-<round>.message.md` and `.stream.jsonl` for its first try, `.message.2.md` and
-//! `.stream.2.jsonl` for the next, and so on; the stream's last line is the result, once the command line printed
-//! one. A try kept before the command line was run with a stream kept its result alone, in `.result.json`
-//! (`.result.2.json` for the next try, and so on), which is read for it. Other files there are not read here. What a
-//! try ran on is in the work's records, not here; a try kept before tries were recorded kept it here, in `.ran.json`
-//! (`.ran.2.json` for the next try, and so on), which is read for it. Read back, a try is what it was told, and of what
-//! it printed only what the page shows: the agent's closing words where they are not the structured return itself,
-//! the structured return, how many turns it took, how long, and by which models; or, where the program said the try
-//! failed, why. The rest, ids of sessions and of credentials among it, is never read out of the file. A result that is
-//! empty is no result: the program printed none.
+//! `.stream.2.jsonl` for the next, and so on; the result is the stream's last line but for the command line's own
+//! `system` lines, such as a `task_summary`, once it printed one. A try kept before the command line was run with a
+//! stream kept its result alone, in `.result.json` (`.result.2.json` for the next try, and so on), which is read for
+//! it. Other files there are not read here. What a try ran on is in the work's records, not here; a try kept before
+//! tries were recorded kept it here, in `.ran.json` (`.ran.2.json` for the next try, and so on), which is read for it.
+//! Read back, a try is what it was told, and of what it printed only what the page shows: the agent's closing words
+//! where they are not the structured return itself, the structured return, how many turns it took, how long, and by
+//! which models; or, where the program said the try failed, why. The rest, ids of sessions and of credentials among
+//! it, is never read out of the file. A result that is empty is no result: the program printed none.
 //!
 //! What is read is bounded, so that a round kept large neither holds the page up nor fills it: a file's length is
 //! looked at before it is read, a message is read up to [`BOUNDS`]' `message` and said to be cut, a result longer than
@@ -163,33 +163,34 @@ fn told_within(data: &Path, base: &Path, bounds: &Bounds) -> Result<Told, String
     Ok(told)
 }
 
-/// What came back, read from the last line of a stream this long, which is its result once the command line printed
-/// one: no more than `bound` bytes are read, from its end. A stream whose last line is no result, as one under way or
-/// stopped, gave nothing back yet.
+/// What came back, read from a stream this long: its result, the last line of it but for the command line's own
+/// `system` lines, which may follow the result. No more than `bound` bytes are read, from its end. A stream whose last
+/// line but for those is no result, as one under way or stopped, gave nothing back yet.
 fn result_of_stream(path: &Path, long: u64, bound: u64) -> std::io::Result<Back> {
     let mut file = std::fs::File::open(path)?;
-    // One byte more than the bound, so that the newline before a last line of the bound's length is read.
+    // One byte more than the bound, so that the newline before a line of the bound's length is read.
     let from = long.saturating_sub(bound + 1);
     file.seek(SeekFrom::Start(from))?;
     let mut end = Vec::new();
     file.take(bound + 1).read_to_end(&mut end)?;
-    let end = end.trim_ascii_end();
-    let last = match end.iter().rposition(|b| *b == b'\n') {
-        Some(at) => &end[at + 1..],
-        None if from == 0 => end,
-        None => {
+    let mut lines = end.trim_ascii_end().rsplit(|b| *b == b'\n').peekable();
+    while let Some(line) = lines.next() {
+        // The first line read may have begun before what was read: none is whole that has none before it.
+        if lines.peek().is_none() && from > 0 {
             return Ok(Back::Unreadable(format!(
-                "its last line is longer than the {bound} bytes that are read of a result"
+                "its last lines are longer than the {bound} bytes that are read of a result"
             )));
         }
-    };
-    let Ok(line) = serde_json::from_slice::<serde_json::Value>(last) else {
-        return Ok(Back::Nothing);
-    };
-    Ok(match line["type"] == "result" {
-        true => back(last),
-        false => Back::Nothing,
-    })
+        let Ok(value) = serde_json::from_slice::<serde_json::Value>(line) else {
+            return Ok(Back::Nothing);
+        };
+        match value["type"].as_str() {
+            Some("result") => return Ok(back(line)),
+            Some("system") => continue,
+            _ => return Ok(Back::Nothing),
+        }
+    }
+    Ok(Back::Nothing)
 }
 
 /// The file's length; none where there is no such file.
@@ -282,7 +283,8 @@ mod tests {
     /// structured return.
     const RESULT: &str = include_str!("../tests/fixtures/result.json");
 
-    /// A stream whose last line is that result.
+    /// A stream the command line printed, with what named the machine and the account replaced: a tool used, then
+    /// the return, the result, and a `task_summary` after it.
     const STREAM: &str = include_str!("../tests/fixtures/stream.jsonl");
 
     /// A data directory, and where the round kept in it is.
@@ -342,20 +344,36 @@ mod tests {
     }
 
     #[test]
-    fn a_try_kept_as_a_stream_gives_what_its_last_line_the_result_says() {
+    fn a_try_kept_as_a_stream_gives_what_its_result_says_though_system_lines_follow_it() {
         let (dir, base) = kept();
+        // The command line's `task_summary` follows the result.
+        assert!(STREAM.lines().last().is_some_and(|line| line.contains("task_summary")));
         std::fs::write(at(&base, 1).0, "Greet the user.").unwrap();
         std::fs::write(stream_at(&base, 1), STREAM).unwrap();
-        // A stream under way, or stopped: its last line is no result.
+        // A stream under way, or stopped: before its result, a `task_summary` after a tool's use is its last line.
         std::fs::write(at(&base, 2).0, "Again.").unwrap();
-        let under_way: String = STREAM.lines().take(5).map(|line| format!("{line}\n")).collect();
+        let under_way: String = STREAM.lines().take(18).map(|line| format!("{line}\n")).collect();
+        assert!(
+            under_way
+                .lines()
+                .last()
+                .is_some_and(|line| line.contains("task_summary"))
+        );
         std::fs::write(stream_at(&base, 2), under_way).unwrap();
         // A try kept before the stream was kept is read from its result.
         keep(&base, 3, "Once more.", Some(RESULT));
+        let structured = serde_json::json!({ "hands_in": [{ "block": "greeting", "content": "BANANA" }], "asks": [] });
+        let streamed = Back::Returned(Returned {
+            text: None,
+            structured: Some(serde_json::to_string_pretty(&structured).unwrap()),
+            turns: Some(3),
+            duration_ms: Some(2658),
+            models: vec!["claude-haiku-5-5".to_string()],
+        });
         assert_eq!(
             told_at(&dir).tries,
             [
-                tried("Greet the user.", greeted()),
+                tried("Greet the user.", streamed),
                 tried("Again.", Back::Nothing),
                 tried("Once more.", greeted())
             ]
@@ -381,7 +399,7 @@ mod tests {
         let short = format!("{}\n{{\"type\":\"result\",\"result\":\"ok\"}}\n", "x".repeat(100));
         std::fs::write(stream_at(&base, 2), short).unwrap();
         let told = told_within(dir.path(), &base, &bounds).unwrap();
-        let unread = "its last line is longer than the 40 bytes that are read of a result".to_string();
+        let unread = "its last lines are longer than the 40 bytes that are read of a result".to_string();
         let ok = Back::Returned(Returned {
             text: Some("ok".to_string()),
             ..Returned::default()

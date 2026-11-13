@@ -12,7 +12,7 @@ Why: Models write the form with a closing bracket too many, which makes the stri
 
 ### decision a-return-given-up-on-is-read-from-the-stream
 Where the command line gives up on a return, having refused every attempt at it, its last attempt, rebuilt from the pieces of it that the program's stream carries, is read as any return is.
-Why: The command line checks a return against the form more strictly than the engine reads one (decision normalise-shape-only), so it gives up on returns the engine takes, such as the form written as a string, with the agent's work done. Its result holds no text of an attempt it refused, and only the stream's pieces do: that is why each message comes in pieces and those of the attempts are kept with the round.
+Why: The command line checks a return against the form more strictly than the engine reads one (decision normalise-shape-only), so it gives up on returns the engine takes, such as a list written as a string, with the agent's work done. Its result holds no text of an attempt it refused, and an attempt cut off, which is no JSON, is in the stream only in pieces: that is why each message comes in pieces and those of the attempts are kept with the round.
 
 ### decision one-form-for-every-return
 Every round of every cell hands in in one form, which is given to the agents' program with what all rounds share.

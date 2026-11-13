@@ -20,20 +20,6 @@ ended left running is stopped before its round is run again.
 Why: Left to run, it would meet the next engine running its round again: two agents in one worktree, as with two
 engines on one data directory (decision one-engine-on-a-data-directory).
 
-### decision each-tool-input-comes-whole
-The agents' program is run with each tool's input streamed whole, not in pieces as the model writes it.
-Why: Streamed in pieces, an input's JSON is not checked by the service, and returns came cut off; streamed whole, they
-stopped coming so, as the old engine found (not measured here).
-
-### decision no-toolchain-is-installed-for-an-agent
-The agents' program is run with rustup's installing of a missing toolchain turned off: a command an agent runs that
-asks for a toolchain the machine lacks fails.
-Why: Installing it downloads and writes beyond the worktree, which every agent is refused (principle
-refuse-as-little-as-must-be).
-
-### decision the-owners-words-wait-beside-the-round
-What the owner says to a round under way reaches its session through a hook of the agents' program after a use of a
-tool, which moves aside a file the runner put among the round's files and prints it; after the tool that makes the
-return, it gives nothing.
-Why: A hook that asked the engine would work only where the program runs on the engine's machine. Given after the
-return is made, the words would be taken as delivered and never read.
+### decision tool-inputs-are-checked-before-they-stream
+The agents' program is run with the service checking each tool's input as JSON before it streams the input.
+Why: An input the service did not check could come cut off, and a return cut off is no return.
