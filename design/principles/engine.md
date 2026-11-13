@@ -38,6 +38,10 @@ Why: The agents are to run wherever there is room for them, and an agent that re
 What an agent needs from the engine, such as its records or a check, it asks for in its return, and the engine gives the result to the round that follows; no tool or command of the agent's own program reaches the engine.
 Why: To the model a tool call is the same whether its own program answers it or the engine does after the return, since a return that asks for a tool only ends the round with that intent and the engine goes on from there; asked in the return, a tool works wherever the agent runs, is recorded with what the round handed in, and is declared on the cell where the chart shows it.
 
+### principle the-records-are-found-in-one-query
+Whatever an agent is told by name, each version of a work's data above all, it finds in the engine's records with one read-only query made from what it was told: the work, the name and the version. The store is described for agents in a short text made from the schema's own comments, so that a change of the schema changes the text with it.
+Why: Agents read the records by queries they write themselves (principle what-the-engine-holds-is-asked-in-the-return), and one written from a wrong guess about the store reads the wrong thing or nothing, and the agent judges by that (Article 2); a description kept apart from the schema drifts from it (principle one-thing-one-place). This rests on judgment, not on a measurement.
+
 ### principle refuse-as-little-as-must-be
 Every agent is refused two kinds of command: the heavy work that takes the host's processor, such as building and testing, and writing beyond its worktree, such as pushing. Everything else is let through, running, writing and the network included, but for what a line that only reads is refused besides.
 Why: The worktree is the agent's own, and what it does there changes nobody else's work, while what it could reach beyond it the engine's own guards hold. Each command refused has to go round by the engine, a round more each time.
