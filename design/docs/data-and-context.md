@@ -69,8 +69,9 @@ here: the conditions a cell runs under, the limits, the owner's pauses, when a w
 14. The context manager chooses no cell. Each time the engine runs a cell for a round, the manager compares the data
     the cell is given with what the session has and fills in what is missing, each by its kind (17), in the order the
     cell names them. It fills what the cell is given whether or not that is what ran the cell. A cell's task is
-    among what it is given, the latest of it, first: so it is filled once in a session, and again only when the
-    session is reopened or the flow changes the task.
+    among what it is given, the latest of it, last, after what it works from: so it is filled once in a session, and
+    again only when the session is reopened or the flow changes the task. So is which work and which item the session
+    is for, filled where the session lacks it.
 
 15. A session that is reopened has nothing, and its record is emptied. The next round in it is filled with all that
     its cell is given, from the top. What every cell of the line is given alike is not filled: the session begins
