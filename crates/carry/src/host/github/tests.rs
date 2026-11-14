@@ -178,11 +178,15 @@ fn branch(place: &Place) -> Branch<'_> {
     }
 }
 
+/// A check, at its own link; one that ran to a conclusion took a minute, as GitHub's job would say, and any other has
+/// no time.
 fn check(name: &str, outcome: Outcome) -> Check {
+    let took = matches!(outcome, Outcome::Passed | Outcome::Failed(_)).then_some(60);
     Check {
         name: name.to_string(),
         outcome,
         url: Some(format!("https://github.example/checks/{name}")),
+        took,
     }
 }
 
@@ -269,7 +273,12 @@ async fn the_check_pushes_the_head_opens_a_pull_request_into_main_and_passes_onc
         Verdict {
             failed: None,
             by: Some("the full workflows of the commit (https://github.example/actions/runs/1000)".to_string()),
-            notes: Vec::new(),
+            notes: vec![
+                "The jobs of the full workflows, each with how it ended and its wall time:\n  \
+                 - lint: passed in 60 s https://github.example/checks/lint\n  \
+                 - test: passed in 60 s https://github.example/checks/test"
+                    .to_string()
+            ],
         }
     );
     assert_eq!(hub.pushed(), head);
@@ -420,7 +429,17 @@ async fn a_red_test_and_a_red_job_hold_the_work_and_are_said_with_what_the_test_
     let head = hub.committed().await;
     let jobs = vec![passed("lint"), check("test", Outcome::Failed("failure".into()))];
     hub.github().fast(&head, jobs, Some(("test-results", fast::junit())));
-    let failed = hub.verdict(&head).await.unwrap().unwrap().failed.expect("it failed");
+    let verdict = hub.verdict(&head).await.unwrap().unwrap();
+    let failed = verdict.failed.expect("it failed");
+    // The job that did not pass is said where it failed, and the job that passed in the note: no job is told twice.
+    assert_eq!(
+        verdict.notes,
+        [
+            "The jobs of the full workflows, each with how it ended and its wall time:\n  \
+             - lint: passed in 60 s https://github.example/checks/lint"
+        ]
+    );
+    assert!(!failed.contains("- lint:"), "{failed}");
     assert!(
         failed.starts_with(&format!(
             "The full workflows ran on the commit {head} (https://github.example/actions/runs/1000): 1 of the 2 tests \
@@ -434,8 +453,38 @@ async fn a_red_test_and_a_red_job_hold_the_work_and_are_said_with_what_the_test_
     );
     assert!(!failed.contains("tools::tests::a"), "what passed is left out: {failed}");
     assert!(
-        failed.ends_with("The checks:\n- test: failed (failure) https://github.example/checks/test"),
+        failed.ends_with("The jobs:\n- test: failed (failure) in 60 s https://github.example/checks/test"),
         "{failed}"
+    );
+}
+
+#[tokio::test]
+async fn a_skipped_job_fails_nothing_and_every_job_of_a_passing_check_is_given_with_its_time() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    let jobs = vec![
+        Check {
+            took: Some(192),
+            ..passed("page")
+        },
+        check("docs", Outcome::Skipped),
+        Check {
+            took: None,
+            ..passed("lint")
+        },
+    ];
+    hub.github()
+        .fast(&head, jobs, Some(("test-results", fast::junit_green())));
+    let verdict = hub.verdict(&head).await.unwrap().unwrap();
+    assert_eq!(verdict.failed, None);
+    assert_eq!(
+        verdict.notes,
+        [
+            "The jobs of the full workflows, each with how it ended and its wall time:\n  \
+             - page: passed in 192 s https://github.example/checks/page\n  \
+             - docs: did not run https://github.example/checks/docs\n  \
+             - lint: passed (GitHub gives no time for it) https://github.example/checks/lint"
+        ]
     );
 }
 
@@ -456,8 +505,8 @@ async fn a_run_that_uploads_no_junit_holds_the_work_and_a_job_that_ended_without
         .fast(&head, jobs, Some(("test-results", fast::junit_green())));
     let failed = hub.verdict(&head).await.unwrap().unwrap().failed.expect("it failed");
     assert!(
-        failed.contains("- test: ended without judging the code (cancelled)"),
-        "{failed}"
+        failed.contains("- test: ended without judging the code (cancelled) https://github.example/checks/test"),
+        "a job that did not finish says so in place of a time: {failed}"
     );
 }
 

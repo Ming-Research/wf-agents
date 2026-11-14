@@ -8,9 +8,9 @@
 //! - full: the workflows that hold every job required to merge; a `run_tests` that names none is run by them, once, on
 //!   the work's last commit.
 //!
-//! What is said of a run: each test, with what became of it, how long it took and what a failed one said; each check
-//! named, a job of the workflow; and, for a job that failed with nothing named to say why, that it failed. A run that
-//! uploaded no JUnit the engine can read is said so: no result is guessed from a log.
+//! What is said of a run: each test, with what became of it, how long it took and what a failed one said; and each
+//! job of the workflow, with how it ended and, where it ran to a conclusion, the wall time GitHub records for it. A
+//! run that uploaded no JUnit the engine can read is said so: no result is guessed from a log.
 
 use std::time::Duration;
 
@@ -211,10 +211,21 @@ impl<A: Api> GitHub<A> {
             Err(_) => true,
         });
         let urls: Vec<&str> = ran.iter().map(|r| r.run.url.as_str()).collect();
+        // What failed is said above with its jobs that did not pass; the note gives each other job, so that no job is
+        // told twice and, where the check passed, every job is.
+        let others: Vec<String> = (ran.iter().flat_map(|r| &r.jobs))
+            .filter(|j| !red_job(j))
+            .map(|j| job_line(words, j))
+            .collect();
+        let notes = if others.is_empty() {
+            Vec::new()
+        } else {
+            vec![fill(&words.verdict_jobs, &[("jobs", &others.join("\n  "))])]
+        };
         Ok(Some(Verdict {
             failed: red.then(|| said(words, &role, commit, &ran, &named, true)),
             by: Some(fill(&words.verdict_by, &[("urls", &urls.join(", "))])),
-            notes: Vec::new(),
+            notes,
         }))
     }
 
@@ -272,8 +283,8 @@ impl<A: Api> GitHub<A> {
     }
 }
 
-/// What became of the runs, in words for the agent: a line of what they came to, each test, each check named, and each
-/// job that failed where nothing named says why. A run whose results could not be read says no test's result is known.
+/// What became of the runs, in words for the agent: a line of what they came to, each test, and each job. A run whose
+/// results could not be read says no test's result is known.
 fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: &Named, red_only: bool) -> String {
     let which = match role {
         Role::Fast(_) => &words.which_fast,
@@ -283,7 +294,6 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
     let mut lines = Vec::new();
     let mut tests: Vec<String> = Vec::new();
     let (mut total, mut passed) = (0, 0);
-    let mut any_failed = false;
     let mut unread: Vec<String> = Vec::new();
     for one in ran {
         let run = match &one.results {
@@ -298,7 +308,6 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
                 for row in results::rows(&named.tests, run) {
                     total += 1;
                     passed += usize::from(row.became == Became::Passed);
-                    any_failed |= row.became == Became::Failed;
                     tests.extend(test_lines(words, &row, run));
                 }
             }
@@ -309,7 +318,6 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
                 for case in cases {
                     total += 1;
                     passed += usize::from(case.outcome == results::Outcome::Passed);
-                    any_failed |= case.outcome == results::Outcome::Failed;
                     if !(red_only && case.outcome == results::Outcome::Passed) {
                         tests.extend(case_lines(words, case));
                     }
@@ -328,12 +336,13 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
             }
         }
     }
-    let checks: Vec<&Check> = match role {
-        Role::Fast(_) => (ran.iter().flat_map(|r| &r.jobs))
-            .filter(|j| named.checks.contains(&j.name))
-            .collect(),
-        Role::Full(_) => ran.iter().flat_map(|r| &r.jobs).collect(),
-    };
+    let jobs: Vec<&Check> = ran.iter().flat_map(|r| &r.jobs).collect();
+    // The checks that came to something: the jobs named in the fast workflow, every job in the full ones, but for a
+    // job that did not run.
+    let checks: Vec<&Check> = (jobs.iter().copied())
+        .filter(|j| j.outcome != Outcome::Skipped)
+        .filter(|j| matches!(role, Role::Full(_)) || named.checks.contains(&j.name))
+        .collect();
     let mut came = Vec::new();
     if total > 0 || matches!(role, Role::Full(_)) && unread.is_empty() {
         let (passed, total) = (passed.to_string(), total.to_string());
@@ -364,31 +373,24 @@ fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: 
             .collect(),
         Role::Full(_) => Vec::new(),
     };
-    // A job that failed and is no check named, where no test named failed, as the job of the tests when a unit did not
-    // compile.
-    let unexplained: Vec<&Check> = match role {
-        Role::Fast(_) if !any_failed => (ran.iter().flat_map(|r| &r.jobs))
-            .filter(|j| red_job(j) && !named.checks.contains(&j.name))
-            .collect(),
-        _ => Vec::new(),
-    };
-    if !checks.is_empty() || !missing.is_empty() || !unexplained.is_empty() {
-        // Of the full workflows' jobs, only those that did not pass where only what did not pass is said.
-        let shown = checks.iter().filter(|j| !red_only || red_job(j));
-        let mut jobs: Vec<String> = shown.chain(&unexplained).map(|j| job_line(words, j)).collect();
-        jobs.extend(
-            missing
-                .iter()
-                .map(|c| fill(&words.job, &[("name", c), ("how", &words.job_missing), ("link", "")])),
-        );
-        if !jobs.is_empty() {
-            lines.push(format!("{}\n{}", words.checks_title, jobs.join("\n")));
-        }
+    // Every job of the runs, with how it ended and how long it took; only those that did not pass where only what did
+    // not pass is said, the others being the note of the check.
+    let shown = jobs.iter().filter(|j| !red_only || red_job(j));
+    let mut said_jobs: Vec<String> = shown.map(|j| job_line(words, j)).collect();
+    said_jobs.extend(missing.iter().map(|c| {
+        fill(
+            &words.job,
+            &[("name", c), ("how", &words.job_missing), ("time", ""), ("link", "")],
+        )
+    }));
+    if !said_jobs.is_empty() {
+        lines.push(format!("{}\n{}", words.jobs_title, said_jobs.join("\n")));
     }
     lines.join("\n\n")
 }
 
-/// A job's name and what came of it, with its link.
+/// A job's name and what came of it, with how long it took where it ran to a conclusion, and its link. A job that
+/// ran to a conclusion and has no time says GitHub gave none.
 fn job_line(words: &ResultWords, job: &Check) -> String {
     let link = job
         .url
@@ -399,13 +401,22 @@ fn job_line(words: &ResultWords, job: &Check) -> String {
         Outcome::Failed(how) => fill(&words.job_failed, &[("how", how)]),
         Outcome::Broken(how) => fill(&words.job_broken, &[("how", how)]),
         Outcome::Pending => words.job_pending.clone(),
+        Outcome::Skipped => words.job_skipped.clone(),
     };
-    fill(&words.job, &[("name", &job.name), ("how", &how), ("link", &link)])
+    let time = match (job.took, &job.outcome) {
+        (Some(took), _) => fill(&words.time, &[("time", &took.to_string())]),
+        (None, Outcome::Passed | Outcome::Failed(_)) => words.job_untimed.clone(),
+        (None, _) => String::new(),
+    };
+    fill(
+        &words.job,
+        &[("name", &job.name), ("how", &how), ("time", &time), ("link", &link)],
+    )
 }
 
-/// Whether a job did not pass.
+/// Whether a job did not pass: one that did not run, its condition false, passed nothing and failed nothing.
 fn red_job(job: &Check) -> bool {
-    !matches!(job.outcome, Outcome::Passed)
+    !matches!(job.outcome, Outcome::Passed | Outcome::Skipped)
 }
 
 /// How long a test took, as the results give it, in the words of the file; nothing where they give none.

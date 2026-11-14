@@ -712,10 +712,11 @@ pub struct ResultWords {
     pub came_tests: String,
     pub came_checks: String,
     pub came_join: String,
-    /// The title of the tests, and of the checks.
+    /// The title of the tests, and of the jobs.
     pub tests_title: String,
-    pub checks_title: String,
-    /// A test: `{name}`, `{became}` one of the following, `{time}` as `time` says it where the results give one.
+    pub jobs_title: String,
+    /// A test: `{name}`, `{became}` one of the following, `{time}` as `time` says it where the results give one; the
+    /// time of a job is said the same way.
     pub test: String,
     pub time: String,
     pub passed: String,
@@ -727,19 +728,27 @@ pub struct ResultWords {
     pub not_built: String,
     /// What a test that failed said, as the results hold it: `{said}`.
     pub output: String,
-    /// A check, a job of the workflow: `{name}`, `{how}` one of the following, `{link}` as `link` says it.
+    /// A job of the workflow: `{name}`, `{how}` one of the following, `{time}` as `time` says it for a job that ran to a
+    /// conclusion, or as `job_untimed` says where GitHub gives no time for it, and `{link}` as `link` says it.
     pub job: String,
     pub link: String,
     pub job_passed: String,
     pub job_failed: String,
     pub job_broken: String,
     pub job_pending: String,
+    /// A job that did not run.
+    pub job_skipped: String,
+    /// A job that ran to a conclusion and has no time to give.
+    pub job_untimed: String,
     /// A check named that the run has no job of.
     pub job_missing: String,
     /// The run uploaded no JUnit it can read, so no test's result is known: `{why}`.
     pub no_junit: String,
     /// What the check before a merge was judged by: `{urls}` the runs.
     pub verdict_by: String,
+    /// What the check before a merge says of the jobs of its runs that are not said as what failed: `{jobs}` each as
+    /// a line of `job`, joined by a line break and the indent that sets them under it.
+    pub verdict_jobs: String,
     /// A unit not built: `{unit}`, `{why}`.
     pub unit_not_built: String,
     /// A name asked for that no test of the run has; and the same where a unit was not built, so that the test may be
