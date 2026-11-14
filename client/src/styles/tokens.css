@@ -64,8 +64,8 @@
   --accent: #8b5cf6;
   --accent-text: #7c4ddb;
   --accent-tint: #f1ecfe;
-  /* The head of a section, its name and the line after it, in the panel and the console's window: a deeper step of the
-     accent than its text step, so that the heads stand over the text. */
+  /* The head of a section of a panel, its name and the line after it: a deeper step of the accent than its text step,
+     so that the heads stand over the text. */
   --head: #6a3fd0;
   /* The marks of a work's cells, in the accent's hue: a cell done a light step of it, the cell running a deep one. */
   --mark-done: #c4b5fd;

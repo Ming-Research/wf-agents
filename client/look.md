@@ -37,6 +37,7 @@ of text are under the tokens.
 | `--accent` | `#8b5cf6` | `#a78bfa` | what is chosen, focus, the panel's handle, an edge under the pointer, the signs | `PALETTE.chosen`, `--console-chosen` |
 | `--accent-text` | `#7c4ddb` | `#a78bfa` | links and the lines' names: the accent where it reads on white | ours |
 | `--accent-tint` | `#f1ecfe` | `#241d38` | the row or column chosen | `--console-chosen-wash` |
+| `--head` | `#6a3fd0` | `#a78bfa` | the name of a section of a panel and the line after it | `--console-head` in light; the dark is the accent |
 | `--green` | `#2f9e6e` | `#45c08a` | done | `PALETTE.green` |
 | `--orange` | `#f5840c` | `#ff9a3c` | waits for the owner | `PALETTE.asked` |
 | `--blue` | `#1a9fff` | `#4fb4ff` | running, at rest between rounds | `PALETTE.running` |
@@ -88,8 +89,9 @@ drawn line with an arrow.
   bottom (`foot`) for a box that answers. Escape lets go of what it shows.
 - **Status line** (`StatusLine`): a small dot in the colour of what it says, a word in semibold, the facts after it in
   muted text. The dot is green, red, orange, blue for running, or the way back's purple for a way round.
-- **Section** (`PanelPart`): a 12px semibold label with its count, over what it holds, 16px apart; `last` ends a group
-  of sections with a hairline.
+- **Section** (`PanelPart`): its name, 13px semibold in `--head`, with its count muted and a line in `--head` after it
+  to the panel's edge, over what it holds, 16px apart; `last` ends a group of sections with a hairline. The console's
+  item window keeps its own heads (`--console-head`).
 - **Sign** (`Sign`): a 12px line drawing in the accent, for what a word would crowd: people write, the outside writes,
   shown. Muted, they were too faint to find.
 - **Edge** (`Edge`): the dragged edge of a part, as the rule on widths says.
