@@ -585,6 +585,11 @@ impl Explorer<'_> {
                             self.out.stats.told += 1;
                             let told = told(self.flow(), &s.world.records, *run).unwrap_or_default();
                             for (v, may_always) in m.deviations(i, &told) {
+                                // A return sent back takes nothing in and is the same wherever it comes: a path
+                                // that spent nothing tries it.
+                                if v == Variant::SentBack && s.spent > 0 {
+                                    continue;
+                                }
                                 out.push(self.returns(s, cell, *run, v.clone(), true, false));
                                 if may_always {
                                     out.push(self.returns(s, cell, *run, v, true, true));
@@ -593,16 +598,20 @@ impl Explorer<'_> {
                         }
                     }
                 }
-                // While a round is under way, the outside writes what runs its cell, or the background.
-                if s.spent == 0 && s.outside.is_none() {
+                // While a round is under way, the owner speaks to its cell; on a path that spent nothing, the outside
+                // also writes the background or what runs the cell.
+                if s.outside.is_none() && s.spent <= self.bounds.outside_after && s.spent < self.bounds.spend {
                     let cells = m.cells();
-                    let mut events = vec![Event::Background];
+                    let mut events = Vec::new();
                     if m.spoken[i].is_some() {
                         events.push(Event::Speaks(cell.clone()));
                     }
-                    for (source, block) in &m.sources {
-                        if [MAIN, SESSION].contains(source) && cells[i].runs_on.contains(block) {
-                            events.push(Event::Source(source));
+                    if s.spent == 0 {
+                        events.push(Event::Background);
+                        for (source, block) in &m.sources {
+                            if [MAIN, SESSION].contains(source) && cells[i].runs_on.contains(block) {
+                                events.push(Event::Source(source));
+                            }
                         }
                     }
                     for e in events {
@@ -1212,7 +1221,8 @@ fn streaks(records: &Records, cell: &CellId) -> (usize, usize) {
 
 fn show_waited(w: &Waited) -> String {
     match w {
-        Waited::Call { call, on } => format!("the call {} on {on:?}", call.0),
+        Waited::Call { on: Some(who), .. } => format!("an answer from the {}", format!("{who:?}").to_lowercase()),
+        Waited::Call { on: None, .. } => "the result of a tool".to_string(),
         Waited::Precondition { on, by } => {
             let by: Vec<String> = (by.iter())
                 .map(|maker| match maker {

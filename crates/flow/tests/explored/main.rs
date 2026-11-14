@@ -237,4 +237,25 @@ fn the_exploration_reaches_every_rarely_taken_path_and_the_engine_takes_every_st
 
 /// What of the flow the exploration never reaches, each with why: what the flow's definition holds and no path can
 /// reach, or what lies past the bound.
-const NEVER: &[(&str, &str)] = &[];
+const NEVER: &[(&str, &str)] = &[
+    (
+        "D3 ran back on on_plan, written by a cell after it",
+        "I1's opinion in acceptance reaches D2 first, and D2's plan reaches D3 with it, so D3 runs for D2's version \
+         too. That it runs for I1's alone takes D2 handing in no plan: a third return besides the content, past the \
+         bound.",
+    ),
+    (
+        "D4 ran back on on_plan, written by a cell after it",
+        "As for D3: D2's plan reaches D4 with I1's opinion in acceptance, unless D2 hands in no plan, past the bound.",
+    ),
+    (
+        "R1 ran back on on_plan_review, written by a cell after it",
+        "As R1 ran on on_plan_review: never.",
+    ),
+    (
+        "R1 ran on on_plan_review",
+        "No path can: plan_review is written only by D3, which runs only while deep_needed is yes, and R1 only while \
+         it is no. Only R1 writes deep_needed, and once it writes yes it is skipped and nothing writes it again. R1's \
+         trigger on_plan_review never fires.",
+    ),
+];

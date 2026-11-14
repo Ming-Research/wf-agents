@@ -529,8 +529,10 @@ impl Model {
                     if !reader.runs_on.contains(o) {
                         continue;
                     }
+                    // A reply runs the writer by a trigger of its own, not as one of a group, and is no choice.
+                    let own = |r: &BlockId| self.groups[a].values().all(|members| !members.contains(r));
                     let replies = (reader.outputs.iter())
-                        .filter(|r| writer.runs_on.contains(*r) && *r != o && !self.choices.contains_key(*r));
+                        .filter(|r| writer.runs_on.contains(*r) && *r != o && !self.choices.contains_key(*r) && own(r));
                     for r in replies {
                         if self.backward[b].contains(r) {
                             continue;

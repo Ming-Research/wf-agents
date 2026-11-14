@@ -2,7 +2,8 @@
 //! versions of each block, the meaning of each, what each cell consumed, what is new to it, what calls it is owed and
 //! why a run would start (design document `data-and-context`). The properties are judged by this reading, so that a
 //! fault in the walk's own reading is not repeated in the judging. It reads only the records and the flow, with its
-//! named tests, never what the deciding code works out of them.
+//! named tests, never what the deciding code works out of them. The exploration of the repository's own flow (crate
+//! `flow`, `tests/explored`) judges its properties by it too.
 
 use std::collections::BTreeMap;
 
