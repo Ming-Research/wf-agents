@@ -203,6 +203,7 @@ pub fn came(structured: &Value, flow: &Compiled, cell: &CellSpec, words: &Agents
                 });
             }
         }
+        answered(&outcome, flow, cell, &mut found);
         came.said = said(outcome);
         questions(&came.said.questions, flow, cell, words, &mut found);
     }
@@ -214,6 +215,36 @@ pub fn came(structured: &Value, flow: &Compiled, cell: &CellSpec, words: &Agents
     }
     came.found = found;
     Ok(came)
+}
+
+/// Of each trigger of the owner's words the return names as dealt with, in the order it names them, each field of
+/// the return that a datum its agent reads for the trigger is written through, such as `reply`, that the return gives
+/// nothing in: the owner's words are answered there (design document `data-and-context`, 44).
+fn answered(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec<Unmet>) {
+    for (i, name) in outcome.dealt_with.iter().enumerate() {
+        // A name given twice is found wanting once.
+        if outcome.dealt_with[..i].contains(name) {
+            continue;
+        }
+        let Some(trigger) = cell.triggers.iter().find(|t| &t.name == name) else {
+            continue;
+        };
+        if trigger.of_source(flow, flow::WORDS).is_none() {
+            continue;
+        }
+        for field in (trigger.read.iter()).filter_map(|b| flow.blocks.get(b).and_then(|d| d.field.as_deref())) {
+            let gives = match field {
+                "reply" => outcome.reply.as_deref().is_some_and(|r| !r.trim().is_empty()),
+                _ => true,
+            };
+            if !gives {
+                found.push(Unmet::NotAnswered {
+                    name: name.clone(),
+                    field: field.to_string(),
+                });
+            }
+        }
+    }
 }
 
 /// What is wrong with the questions the return asks that its reading sees, in the order it wrote them: one that

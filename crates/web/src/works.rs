@@ -891,6 +891,8 @@ pub enum Unmet {
     NotAnOption { name: String },
     /// It asks a question from a cell that no answer runs.
     NotAnswerable { name: String },
+    /// It deals with the owner's words, by this trigger, and gives no answer in this field.
+    NotAnswered { name: String, field: String },
 }
 
 /// What came back at the end of a round.
@@ -1281,6 +1283,8 @@ pub enum Act {
     },
     /// Gives a call that waits for a person its result, such as that a run at its limit goes on.
     Result { call: u64, result: String },
+    /// Says something to a line of the work: to the cell of it the work has reached, of those the owner's words run.
+    Say { line: String, words: String },
     /// Answers a version of a question, the one the page shows, taking an option, counted from one, and saying why
     /// where the owner does.
     Answer {
@@ -2068,6 +2072,7 @@ impl Act {
                 call: CallId(call),
                 result,
             },
+            Act::Say { line, words } => service::Act::Say { line, words },
             Act::Answer {
                 question,
                 version,
@@ -2262,6 +2267,10 @@ impl Unmet {
             UnmetOf::QuestionTwice { name } => Unmet::QuestionTwice { name: name.clone() },
             UnmetOf::NotAnOption { name } => Unmet::NotAnOption { name: name.clone() },
             UnmetOf::NotAnswerable { name } => Unmet::NotAnswerable { name: name.clone() },
+            UnmetOf::NotAnswered { name, field } => Unmet::NotAnswered {
+                name: name.clone(),
+                field: field.clone(),
+            },
         }
     }
 }

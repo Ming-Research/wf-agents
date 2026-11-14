@@ -143,6 +143,7 @@ fn a_store_holding_works_gives_exactly_what_was_to_be_done_and_is_not_known_as_d
                 Effect::Withdraw { .. } => "withdraw",
                 Effect::Release { .. } => "release",
                 Effect::Ping { .. } => "ping",
+                Effect::Tell { .. } => "tell",
             };
             (t.work, kind)
         })

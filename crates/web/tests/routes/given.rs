@@ -60,7 +60,16 @@ async fn each_agent_s_cell_is_given_its_parts_in_the_order_sent_and_each_act_wha
 fn the_engine_s(_: &flow::Source) -> flow::Has {
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
     flow::Has {
-        sources: names(&["answer", "asked", "dependencies", "main", "session", "start", "tree"]),
+        sources: names(&[
+            "answer",
+            "asked",
+            "words",
+            "dependencies",
+            "main",
+            "session",
+            "start",
+            "tree",
+        ]),
         acts: names(&["start", "check", "merge", "deliver"]),
         tools: names(&["query", "run_tests"]),
         system: names(&["guide", "constitution", "tree_rules", "how_you_work_here"]),

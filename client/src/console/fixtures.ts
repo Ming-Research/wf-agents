@@ -31,6 +31,8 @@ type CellIn = {
   task?: string;
   /// The engine's act that carries out an engine's cell.
   act?: string;
+  /// The owner speaks to it: it is run by `on_spoken`.
+  spoken?: boolean;
   inputs: string[];
   outputs: string[];
   /// The blocks among its outputs that every hand-in of it includes; none where it is left out.
@@ -55,7 +57,9 @@ function flowOf(
     act: c.act ?? null,
     effort: c.line === null ? null : 'high',
     takesMain: false,
-    triggers: [],
+    triggers: c.spoken
+      ? [{ name: 'on_spoken', what: null, block: `${c.id}_spoken_to`, group: [], read: ['discussion'], do: null }]
+      : [],
     tools: [],
     when: c.condition ? [c.condition] : [],
     requires: (c.preconditions ?? []).map((test) => ({ on: 'test', test })),
@@ -135,6 +139,7 @@ export const FLOW: Flow = flowOf(
     {
       id: 'research',
       title: 'Initial research',
+      spoken: true,
       task: 'Research what the item asks for, and write the plan.\nSay whether it needs deep research.',
       preconditions: [REQUEST_READ],
       inputs: ['request', 'plan_opinions'],
@@ -144,6 +149,7 @@ export const FLOW: Flow = flowOf(
       id: 'deep_research',
       title: 'Deep research',
       line: 'deep_research',
+      spoken: true,
       task: 'Research what the plan leaves open, and write the solution.',
       condition: { on: 'block', block: 'needs_deep_research', value: 'yes' },
       inputs: ['plan', 'plan_review_on_deep_research'],
@@ -161,6 +167,7 @@ export const FLOW: Flow = flowOf(
     {
       id: 'implement',
       title: 'Implement',
+      spoken: true,
       task: 'Implement the plan and the solution.',
       preconditions: [PLAN_CONFIRMED],
       inputs: ['plan', 'solution', 'code_opinions'],
@@ -176,6 +183,7 @@ export const FLOW: Flow = flowOf(
     {
       id: 'review',
       title: 'Review the code',
+      spoken: true,
       task: 'Review the code and its tests, and say whether you are content.',
       line: 'review',
       inputs: ['code', 'tests'],
@@ -580,6 +588,10 @@ export function fixtureSource(start = Date.now()): Source {
       case 'write':
         if (!FLOW.blocks.some((b) => b.name === what.block && b.writtenBy.people))
           throw new Error(`People do not write ${what.block}`);
+        return;
+      case 'say':
+        if (!FLOW.cells.some((c) => c.line === what.line && c.triggers.some((t) => t.name === 'on_spoken')))
+          throw new Error(`The owner speaks to no cell of ${what.line}`);
         return;
       default:
         throw new Error(`The made-up items do not take ${what.kind}`);

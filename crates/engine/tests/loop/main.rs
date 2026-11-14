@@ -22,6 +22,7 @@ mod rebuilt;
 mod refused;
 mod room;
 mod sessions;
+mod spoken;
 mod stalling;
 mod times;
 

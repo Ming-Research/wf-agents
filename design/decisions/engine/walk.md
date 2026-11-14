@@ -42,14 +42,15 @@ told of the change could keep (principle keep-what-was-paid-for).
 
 ### decision a-question-that-waits-holds-its-cell
 A question a cell waits for holds the work at that cell while it stands with no answer to its latest version: the
-cell is entered for nothing meanwhile, and no later cell runs; a run of it that is at rest still goes on to hand its
-return in. The answer runs the cell again by its trigger of an answer. The wait is read from the questions and the
-answers, and is no call.
+cell is entered meanwhile only for the owner turning to it, its round held to nothing its cell must write, and no later
+cell runs; a run of it that is at rest still goes on to hand its return in. The answer runs the cell again by its
+trigger of an answer. The wait is read from the questions and the answers, and is no call.
 Why: Put to the owner as a call, the question was its run's and not the work's: it could not be asked anew or withdrawn
 under its name, an answer to an older version could not be told from one to the latest, and an answer came back twice,
 as the call's result and as the trigger of an answer (design document `data-and-context`, 35, 36). Entering the cell
 meanwhile for something else new to it was turned down: that round could settle nothing the answer may not undo, and
-what is new stays new for the round the answer begins (a judgment, with no case behind it).
+what is new stays new for the round the answer begins (a judgment, with no case behind it). The owner's words are let
+in, since the cell answers them at once and goes on waiting (design document `data-and-context`, 40, 42).
 
 ### decision the-owner-turning-to-a-waiting-cell-enters-it-once
 While a cell waits for the results of its calls, the owner turning to it, by words or by an answer, enters it only for

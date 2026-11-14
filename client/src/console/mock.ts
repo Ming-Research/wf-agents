@@ -328,12 +328,12 @@ const messages262 = (now: number): Message[] => [
   {
     who: 'owner',
     at: now - 5 * HOUR,
-    to: ['D1'],
+    to: ['deep_research'],
     quote: quoteOf(ITEM_262_OPEN),
     text: 'Explain why the first is recommended. I do not see what the second one changes.',
   },
   {
-    who: 'D1',
+    who: 'deep_research',
     at: now - 4.6 * HOUR,
     to: ['owner'],
     quote: null,
@@ -347,12 +347,12 @@ const messages262 = (now: number): Message[] => [
   {
     who: 'owner',
     at: now - 4.2 * HOUR,
-    to: ['D1'],
+    to: ['deep_research'],
     quote: null,
     text: 'Once the definition changes, will anything written against `work.cost` raise a false alarm?',
   },
   {
-    who: 'D1',
+    who: 'deep_research',
     at: now - 3.9 * HOUR,
     to: ['owner'],
     quote: null,
@@ -363,12 +363,12 @@ const messages262 = (now: number): Message[] => [
   {
     who: 'owner',
     at: now - 2 * HOUR,
-    to: ['I1'],
+    to: ['implement'],
     quote: 'a try still open counts what it has used so far.',
     text: 'What of the tries left open when the engine restarts? Do they keep growing?',
   },
   {
-    who: 'I1',
+    who: 'implement',
     at: now - 1.6 * HOUR,
     to: ['owner'],
     quote: null,

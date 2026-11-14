@@ -536,6 +536,7 @@ impl History {
                 spent: self.spent(RunId(0)),
                 failed: self.rng.chance(20).then(|| "no network".to_string()),
             },
+            Effect::Tell { .. } => unreachable!("words told to a round are not held"),
         };
         self.act(Act::On(todo.work, event));
         true

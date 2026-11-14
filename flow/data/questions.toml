@@ -2,3 +2,17 @@
 what = "The questions the cells ask the owner, each under its name."
 shown = true
 field = "questions"
+
+# What the engine writes into `questions` as a return asks, asks anew or withdraws a question, as the version that
+# return hands in: every question of the work that stands, each as `question` says, with `between` between two, or
+# `none` where none stands. In `question`, `{name}` is its name, `{cell}` the cell it is of, `{version}` its latest
+# version, `{waits}` `waits` where its cell waits for the answer, `{ask}` what it asks, and `{options}` its options one to
+# a line, each as `option` says, with `{number}` counting them from 1 and `{recommended}` `recommended` for the one it
+# recommends.
+[writes]
+question = "`{name}`, of `{cell}`, version {version}{waits}: {ask}\n{options}"
+waits = ", waited for"
+option = "{number}. {does}: {follows}{recommended}"
+recommended = " (recommended)"
+between = "\n\n"
+none = "No question stands."

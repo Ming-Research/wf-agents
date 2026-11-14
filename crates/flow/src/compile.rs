@@ -196,6 +196,14 @@ impl Trigger {
     pub fn ran(&self, ran_by: &[BlockId]) -> bool {
         decide::flow::ran(self.blocks(), ran_by).next().is_some()
     }
+
+    /// The block it stands on that this source outside the work writes, where one is: of the trigger of an answer, the
+    /// block the engine writes as the owner answers ([`ANSWER`]); of the owner's words, the one it writes as the owner
+    /// speaks ([`WORDS`]).
+    pub fn of_source<'f>(&'f self, flow: &Compiled, source: &str) -> Option<&'f BlockId> {
+        let writes = |b: &&BlockId| flow.blocks.get(*b).and_then(|d| d.writers.outside.as_deref()) == Some(source);
+        self.blocks().iter().find(writes)
+    }
 }
 
 impl CellSpec {

@@ -117,14 +117,9 @@ fn answering(flow: &Compiled, asked: &Questioned) -> CellId {
         return asked.cell.clone();
     }
     (flow.cells.iter().rev())
-        .find(|spec| (spec.triggers.iter()).any(|t| answer_block(flow, &t.block)))
+        .find(|spec| (spec.triggers.iter()).any(|t| t.of_source(flow, flow::ANSWER).is_some()))
         .map_or(&asked.cell, |spec| &spec.id)
         .clone()
-}
-
-/// Whether the block is one the engine writes as the owner answers, a trigger's of an answer.
-fn answer_block(flow: &Compiled, block: &decide::BlockId) -> bool {
-    flow.blocks.get(block).and_then(|b| b.writers.outside.as_deref()) == Some(flow::ANSWER)
 }
 
 /// An answer, as the words that say it are filled.
@@ -165,11 +160,11 @@ fn said(flow: &Compiled, work: &mut Work, cell: &CellId, answered: &Said, turns:
     let Some(spec) = flow.cells.iter().find(|spec| spec.id == *cell) else {
         return;
     };
-    let trigger = spec.triggers.iter().find(|t| answer_block(flow, &t.block));
-    let Some(trigger) = trigger else {
+    let trigger = (spec.triggers.iter()).find_map(|t| t.of_source(flow, flow::ANSWER).map(|block| (t, block)));
+    let Some((trigger, own)) = trigger else {
         return;
     };
-    for block in trigger.read.iter().filter(|b| **b != trigger.block) {
+    for block in trigger.read.iter().filter(|b| *b != own) {
         let Some(declared) = flow.blocks.get(block).filter(|b| b.writers.people) else {
             continue;
         };
@@ -185,7 +180,7 @@ fn said(flow: &Compiled, work: &mut Work, cell: &CellId, answered: &Said, turns:
         });
     }
     if turns {
-        let block = &trigger.block;
+        let block = own;
         let at = work.tick();
         work.contents
             .insert((block.clone(), at), answered.words(&flow.blocks[block].writes));
@@ -197,6 +192,62 @@ fn said(flow: &Compiled, work: &mut Work, cell: &CellId, answered: &Said, turns:
             at,
         });
     }
+}
+
+/// The questions of the work that stand, in the words of the block written through the field of a return that holds
+/// its questions, as its `writes` give them ([`Question`]); `none` there where none stands.
+pub(crate) fn standing(flow: &Compiled, work: &Work, block: &decide::BlockId) -> String {
+    let Some(declared) = flow.blocks.get(block) else {
+        return String::new();
+    };
+    let writes = &declared.writes;
+    let text = |name: &str| writes.get(name).unwrap_or_default();
+    let each: Vec<String> = (questions(&work.records).into_iter())
+        .filter(|(_, q)| q.stands())
+        .filter_map(|(name, q)| {
+            let Some(Question::Asked {
+                waits,
+                recommends,
+                ask,
+                options,
+                ..
+            }) = work.question(q.latest)
+            else {
+                return None;
+            };
+            let options: Vec<String> = (options.iter().enumerate())
+                .map(|(i, way)| {
+                    let number = (i + 1).to_string();
+                    let recommended = if *recommends == Some(i as u64 + 1) {
+                        text("recommended")
+                    } else {
+                        ""
+                    };
+                    let places = [
+                        ("number", number.as_str()),
+                        ("does", way.does.as_str()),
+                        ("follows", way.follows.as_str()),
+                        ("recommended", recommended),
+                    ];
+                    fill(text("option"), &places)
+                })
+                .collect();
+            let version = q.latest.at.0.to_string();
+            let places = [
+                ("name", name),
+                ("cell", q.latest.cell.as_str()),
+                ("version", version.as_str()),
+                ("waits", if *waits { text("waits") } else { "" }),
+                ("ask", ask.as_str()),
+                ("options", &options.join("\n")),
+            ];
+            Some(fill(text("question"), &places))
+        })
+        .collect();
+    if each.is_empty() {
+        return text("none").to_string();
+    }
+    each.join(text("between"))
 }
 
 /// Writes the work's block of [`ASKED`], where its flow has one and the block does not say already how the questions

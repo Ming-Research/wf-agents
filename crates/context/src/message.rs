@@ -130,6 +130,20 @@ pub struct Version {
     /// Its value, where the datum is a choice.
     pub value: Option<String>,
     pub content: String,
+    /// Who wrote it.
+    pub by: By,
+}
+
+/// Who wrote a version of a datum, as `{by}` in a text names it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum By {
+    /// A person: the owner.
+    #[default]
+    Person,
+    /// The engine, or a source outside the work it reads.
+    Outside,
+    /// A run of this cell.
+    Cell(String),
 }
 
 /// What came of taking main in as a run started, where the work's branch did not hold it already: `name` is the main
@@ -762,6 +776,9 @@ impl Build<'_> {
             Unmet::QuestionTwice { name } => (&f.question_twice, vec![("name", name.clone())]),
             Unmet::NotAnOption { name } => (&f.not_an_option, vec![("name", name.clone())]),
             Unmet::NotAnswerable { name } => (&f.not_answerable, vec![("name", name.clone())]),
+            Unmet::NotAnswered { name, field } => {
+                (&f.not_answered, vec![("name", name.clone()), ("field", field.clone())])
+            }
         };
         let places: Vec<(&str, &str)> = places.iter().map(|(name, value)| (*name, value.as_str())).collect();
         text::as_written(&fill(text.trim_end(), &places))
@@ -842,6 +859,12 @@ impl Build<'_> {
     fn filled_by(&self, pieces: Vec<Piece>, datum: &Datum, version: &Version) -> Vec<Piece> {
         let number = version.number.0.to_string();
         let last = datum.last.map(|l| l.0.to_string()).unwrap_or_default();
+        let by = &self.words.given.by;
+        let by = match &version.by {
+            By::Person => by.person.clone(),
+            By::Outside => by.outside.clone(),
+            By::Cell(cell) => flow::agents::fill(&by.cell, &[("cell", cell)]),
+        };
         let places = [
             ("number", number.as_str()),
             ("last_number", last.as_str()),
@@ -849,6 +872,7 @@ impl Build<'_> {
             ("value", version.value.as_deref().unwrap_or_default()),
             ("diff", datum.diff.as_deref().unwrap_or_default()),
             ("content", version.content.as_str()),
+            ("by", by.as_str()),
         ];
         filled(pieces, &places)
     }

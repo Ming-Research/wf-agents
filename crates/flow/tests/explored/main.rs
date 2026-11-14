@@ -12,13 +12,15 @@
 //! choices that skip the cell itself), of the check's act a red check or a merge conflict, and on a path that spent
 //! nothing a return that is sent back. A return that sends work round (opinions, a refusal, a send-back, a red check)
 //! may be given at every round of its cell from then on, for the same one spent: the flow's limits must stop it. What
-//! the outside writes, spending one: the owner speaks to a cell, changes the background, answers a question or takes
-//! another option for one, lets a cell go on at its limit; main moves, a line begins a new session, the tree changes.
-//! It writes while the work waits or is stalled, on a path that spent at most one before; while a round is under way,
-//! the owner speaks to its cell on such a path, and on a path that spent nothing the background or what runs the cell
-//! from outside is written too. The owner answers a question the work waits on whatever the path spent. Past a write
-//! from outside the cells give their content alone. The items the work depends on merging costs nothing. A stalled
-//! work, which the engine pauses for the owner, saying why, is a stop for the owner as a wait for the owner is.
+//! the outside writes, spending one: the owner speaks to a line, to the cell of it the work reached, changes the
+//! background, answers a question or answers one again with another option, lets a cell go on at its limit; main moves,
+//! a line begins a new session, the tree changes. It writes while the work waits or is stalled, on a path that spent at
+//! most one before; while a round is under way, the owner speaks to its cell where its line reached it, on such a path,
+//! and on a path that spent nothing the background or what runs the cell from outside is written too. The owner answers
+//! a question the work waits on whatever the path spent. Questions and answers are data of their own, as the engine
+//! keeps them, and only a cell an answer runs asks. Past a write from outside the cells give their content alone. The
+//! items the work depends on merging costs nothing. A stalled work, which the engine pauses for the owner, saying why,
+//! is a stop for the owner as a wait for the owner is.
 //!
 //! Two states that would go on alike are one (`explore::Explorer::key`), and one reached having spent no more is kept.
 //! A path of more than 200 decisions with nothing written from outside, or that comes back to a state it was in, breaks
@@ -59,14 +61,23 @@ const BOUNDS: Bounds = Bounds {
 
 /// The breaches the flow's own definition makes, each by its property and its name, with why it is the flow's and not
 /// the engine's. Each is reported; none is mended here, since the flow changes only with the owner.
-const KNOWN: &[(Property, &str, &str)] = &[(
-    Property::Gates,
-    "M1 ran while a question of R1 waited for the owner, R1 being skipped",
-    "R1 asks a question that waits and, in the same return, says deep_needed = yes. The work waits for an \
-         answer only at a cell that applies, and R1 no longer does: the deep research, the implementation, the \
-         check and the merge go on, the question unanswered. The flow's check has no gate on the questions put to \
-         the owner.",
-)];
+const KNOWN: &[(Property, &str, &str)] = &[
+    (
+        Property::Gates,
+        "a cell after R1 ran while a question of R1 waited for the owner, R1 being skipped",
+        "R1 asks a question that waits and, in the same return, says deep_needed = yes. The work waits for an \
+         answer only at a cell that applies, and R1 no longer does: its question holds the work there no more, and \
+         D1 through T1 run with it unanswered, until M1 waits on asked. The merge does not go on unanswered; the \
+         question no longer holds the cells after the one that asked it.",
+    ),
+    (
+        Property::Answered,
+        "the answer to a question of R1 is taken by no cell, R1 being skipped",
+        "R1 asks a question that waits and is skipped once it says deep_needed = yes. The owner's answer is \
+         written in answers and in r1_answered, and R1 never runs again: asked says answered, the work merges, and \
+         the answer is taken by no cell. Which cell takes it, the deep research or none, is the flow's to say.",
+    ),
+];
 
 /// The engineer's flow as the repository defines it, compiled against what the engine has.
 fn engineer() -> Compiled {
@@ -74,7 +85,16 @@ fn engineer() -> Compiled {
     let source = read(&dir).expect("the engineer's flow is read");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
     let has = Has {
-        sources: names(&["answer", "asked", "dependencies", "main", "session", "start", "tree"]),
+        sources: names(&[
+            "answer",
+            "asked",
+            "words",
+            "dependencies",
+            "main",
+            "session",
+            "start",
+            "tree",
+        ]),
         acts: names(&["start", "check", "merge"]),
         tools: names(&["query", "run_tests"]),
         fields: names(&["questions", "reply"]),
@@ -126,6 +146,10 @@ const PROPERTIES: &[(Property, &str)] = &[
     (
         Property::Shown,
         "8. every stall is shown as waiting for the owner, with where it stands, what it waits for and why",
+    ),
+    (
+        Property::Answered,
+        "9. an answer to a question is taken by the cell that asked it",
     ),
     (
         Property::Engine,
@@ -239,6 +263,12 @@ fn the_engineers_flow_keeps_every_property_on_every_path_explored_and_reaches_ev
 /// reach, or what lies past the bound.
 const NEVER: &[(&str, &str)] = &[
     (
+        "D4 ran on on_spoken",
+        "The owner speaks to a line, and the words go to the cell of it the work reached last: to D4 only once D4 ran, \
+         which takes the deep research and an edit of the tree, two returns besides the content, so that the owner \
+         speaking is past the bound.",
+    ),
+    (
         "D3 ran back on on_plan, written by a cell after it",
         "I1's opinion in acceptance reaches D2 first, and D2's plan reaches D3 with it, so D3 runs for D2's version \
          too. That it runs for I1's alone takes D2 handing in no plan: a third return besides the content, past the \
@@ -257,17 +287,5 @@ const NEVER: &[(&str, &str)] = &[
         "No path can: plan_review is written only by D3, which runs only while deep_needed is yes, and R1 only while \
          it is no. Only R1 writes deep_needed, and once it writes yes it is skipped and nothing writes it again. R1's \
          trigger on_plan_review never fires.",
-    ),
-    (
-        "M1 ran on on_asked",
-        "The exploration keeps no question in the records and never writes asked. That the owner's answer to the \
-         check's own question runs the check again, and the work merges on it, is the engine's test of a work taken \
-         to the merge on the answer alone (crates/engine/tests/engineer/merging.rs).",
-    ),
-    (
-        "the work waited at M1 on asked = answered",
-        "The exploration asks the owner by a call on the owner, and keeps no question in the records, so asked keeps \
-         its default, answered. The histories of questions (crates/engine/tests/questions.rs) check that the merge \
-         never begins while asked is waiting.",
     ),
 ];

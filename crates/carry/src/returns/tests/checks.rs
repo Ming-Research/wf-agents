@@ -264,8 +264,16 @@ fn draw(rng: &mut Rng, spoken: bool, clean: bool) -> Drawn {
         if rng.chance(20) {
             outcome.insert("observations".into(), json!(["The greeting has no test."]));
         }
-        if rng.chance(20) {
+        // The owner's words, dealt with, are answered in `reply`, which the record of what is said is written through.
+        let answers = names.contains(&"on_spoken");
+        if rng.chance(20) || (clean && answers) {
             outcome.insert("reply".into(), json!("By first name."));
+            writes.push(("discussion".into(), "By first name.".to_string(), None, false));
+        } else if answers {
+            faults.push(Unmet::NotAnswered {
+                name: "on_spoken".to_string(),
+                field: "reply".to_string(),
+            });
         }
         r.insert("outcome".into(), Value::Object(outcome));
     }
@@ -311,7 +319,10 @@ fn entered(flow: &Compiled, spoken: bool) -> (Work, RunId) {
         written("request"),
     ];
     if spoken {
-        events.push(written("write_spoken_to"));
+        events.push(Event::Said {
+            line: "engineer".to_string(),
+            words: "Greet them by name.".to_string(),
+        });
     }
     events.push(Event::Resumed);
     let mut effects = Vec::new();

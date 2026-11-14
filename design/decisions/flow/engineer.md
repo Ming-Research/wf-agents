@@ -15,7 +15,8 @@ Why: Fixing them once the first design is made is too strict.
 
 ### decision opinions-are-inputs
 What someone has to say to a cell about what it did is written into a block that cell reads: the owner's words into
-the cell's own block of notes, a judging cell's findings into a block for that pair. The flow has no cell for fixing
+the record of what is said, with the cell's trigger of the owner's words, a judging cell's findings into a block for
+that pair. The flow has no cell for fixing
 and none for checking a fix: what was objected to is fixed by its cell running again, and the fix is looked at by the
 judging cell running again, because what it judged changed.
 Why: Going back is then the same thing as going on: an input changed. Cells of their own for the two needed rules of

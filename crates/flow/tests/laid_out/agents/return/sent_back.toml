@@ -28,6 +28,7 @@ no_such_question = "`{name}` does not stand."
 question_twice = "`{name}` is written twice."
 not_an_option = "`{name}` recommends no option."
 not_answerable = "`{name}` cannot be answered here."
+not_answered = "`{name}` is dealt with, and no `{field}` answers it."
 
 [unread]
 not_of_its_form = "Not of its form: {error}"

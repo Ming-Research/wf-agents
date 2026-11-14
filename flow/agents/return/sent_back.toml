@@ -40,6 +40,8 @@ question_taken = "`{name}` is the name of a question this cell did not ask: give
 no_such_question = "`{name}` is withdrawn, and no question of this cell of that name stands."
 question_twice = "`{name}` is written twice in `questions`."
 not_an_option = "The question `{name}` recommends none of its options: `recommends` counts them from 1."
+# A return that names the owner's words in `dealt_with` and gives no answer to them: `{field}` the field it answers in.
+not_answered = "`{name}` is named in `dealt_with`, and the return gives no `{field}`: answer there what the owner said."
 # The cell has no trigger an answer runs, so an answer could not reach it.
 not_answerable = "The question `{name}` cannot be asked from this cell: no answer runs it again, so none could reach you. Decide it yourself."
 # Of a return of the form before a return said what it dealt with, which asked for calls and named none.

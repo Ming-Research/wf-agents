@@ -244,7 +244,7 @@ fn what_changed_since_the_version_the_session_holds_is_sent_as_a_change_that_reb
     );
     assert!(text.contains(&change), "{text}");
     let notes = format!(
-        "## `notes`, version {}\n\nfirst\n\n## `notes`, version {}\n\nsecond\n\n",
+        "## `notes`, version {}, by the owner\n\nfirst\n\n## `notes`, version {}, by the owner\n\nsecond\n\n",
         notes[0].0, notes[1].0
     );
     assert!(text.contains(&notes), "{text}");

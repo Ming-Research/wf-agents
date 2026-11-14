@@ -1,7 +1,8 @@
 # A block with no content of each cell that names it, under the block's name below, `{cell}` being the cell's id in
-# small letters. What the owner said is in `discussion`.
+# small letters, which the engine writes as the owner speaks to the cell's line and the line has reached the cell. What
+# the owner said is in `discussion`.
 what = "Fires when the owner speaks to the cell."
 block = "{cell}_spoken_to"
-from = "owner"
+from = "words"
 read = ["discussion"]
 do = """The owner has said something to this cell in `discussion`: that comes first; deal with it before the rest of what is new, and answer it in `reply`."""

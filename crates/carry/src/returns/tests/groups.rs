@@ -59,21 +59,30 @@ impl W {
         handle(&self.flow, &mut self.work, Time(0), event).expect("the loop takes it")
     }
 
-    /// A person writes these blocks while the work is paused, and the cell `write` is entered for them as it is let
-    /// on: gives the run.
+    /// A person writes these blocks while the work is paused, the block of the owner's words by speaking to the
+    /// cell's line, and the cell `write` is entered for them as it is let on: gives the run.
     fn written(&mut self, blocks: &[&str]) -> RunId {
         let mut effects = self.on(Event::Paused {
             by: Pauser::Owner,
             why: None,
         });
+        let words = (cell(&self.flow).triggers.iter()).find_map(|t| t.of_source(&self.flow, flow::WORDS).cloned());
         for block in blocks {
-            effects.extend(self.on(Event::Wrote {
-                block: (*block).into(),
-                by: Outsider::Person,
-                content: format!("the {block}"),
-                matters: true,
-                value: None,
-            }));
+            let event = if words.as_ref().is_some_and(|w| w.as_str() == *block) {
+                Event::Said {
+                    line: "engineer".to_string(),
+                    words: format!("the {block}"),
+                }
+            } else {
+                Event::Wrote {
+                    block: (*block).into(),
+                    by: Outsider::Person,
+                    content: format!("the {block}"),
+                    matters: true,
+                    value: None,
+                }
+            };
+            effects.extend(self.on(event));
         }
         effects.extend(self.on(Event::Resumed));
         (effects.iter())
@@ -162,7 +171,12 @@ fn a_return_that_names_the_group_s_trigger_once_deals_with_each_of_its_blocks_th
 fn a_return_that_names_the_group_s_trigger_where_none_of_its_blocks_ran_its_round_is_sent_back() {
     let mut w = W::new();
     let run = w.written(&["write_spoken_to"]);
-    let unmet = vec![Unmet::NotRunBy { block: "brief".into() }];
+    // It names the owner's words as dealt with and gives no answer to them, too.
+    let unanswered = Unmet::NotAnswered {
+        name: "on_spoken".to_string(),
+        field: "reply".to_string(),
+    };
+    let unmet = vec![unanswered, Unmet::NotRunBy { block: "brief".into() }];
     assert_eq!(w.returns(run, &["on_spoken", "on_brief"]), Some(unmet));
 }
 
