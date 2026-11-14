@@ -202,7 +202,7 @@ describe('the chart', () => {
 
   it('says a trigger’s marks by the trigger and by the block it stands on, and chooses that block by its row', () => {
     // The trigger y stands on the block x; y is also a datum of its own.
-    const trigger = { name: 'y', what: 'Fires when x is new.', block: 'x', read: [], do: 'Read x again.' };
+    const trigger = { name: 'y', what: 'Fires when x is new.', block: 'x', group: [], read: [], do: 'Read x again.' };
     const flow = flowOf(
       [cell('a', { outputs: ['x', 'y'] }), cell('b', { runsOn: ['x'], given: ['y'], triggers: [trigger] })],
       { x: { what: 'The plan.' }, y: { what: 'The notes.' } },
@@ -614,6 +614,57 @@ describe('a task written in a file of its own', () => {
     );
     expect(task?.textContent).toContain('file tasks/better_way.md');
     expect(task?.querySelector('.content')?.textContent).toBe('Do the part of a.');
+  });
+});
+
+describe('a group’s trigger', () => {
+  // r is run by the group planned: a new version of a, which w writes, or of b, which v writes after it.
+  const planned = {
+    name: 'on_planned',
+    what: 'Fires when one of the blocks of planned has a new version.',
+    block: 'planned',
+    group: ['a', 'b'],
+    read: ['a', 'b'],
+    do: null,
+  };
+  const flow = () =>
+    flowOf(
+      [
+        cell('w', { outputs: ['a'] }),
+        cell('r', { title: 'Review', runsOn: ['a', 'b'], triggers: [planned] }),
+        cell('v', { outputs: ['b'] }),
+      ],
+      { a: {}, b: {} },
+    );
+
+  it('is one row, its group as flow.toml names it, opening the group’s panel', () => {
+    const page = draw({ state: 'compiled', flow: flow() });
+    const row = rowOf(page, 'on_planned', true);
+    expect(row.querySelector('.head-button')?.getAttribute('aria-label')).toBe('Trigger on_planned, group planned');
+    expect(row.querySelector('.words')?.textContent).toBe('planned [a, b]');
+    expect(texts(row, '.spot .visually-hidden')).toEqual(['w outputs a', 'r triggered_by on_planned', 'v outputs b']);
+    expect(row.querySelectorAll('.arrow')).toHaveLength(1);
+    click(row.querySelector('.head-button'));
+    const panel = page.querySelector('aside[aria-label="Group planned"]') as HTMLElement;
+    expect(panel.querySelector('.drawer-belongs')?.textContent).toBe('flow.toml');
+    expect(texts(panel, '.status-line')).toEqual([
+      'on_plannedFires when one of the blocks of planned has a new version.',
+    ]);
+    expect(items(panel)).toEqual(['a', 'b', 'r Review']);
+    expect(row.className).toContain('chosen');
+  });
+
+  it('is said in a cell’s panel by its group, and a way back through each of the group’s blocks', () => {
+    const page = draw({ state: 'compiled', flow: flow() });
+    click(page.querySelectorAll('thead .cell-head .head-button')[1]);
+    const panel = page.querySelector('aside[aria-label="Cell r"]') as HTMLElement;
+    const triggered = [...panel.querySelectorAll('.panel-part')].find((p) =>
+      p.querySelector('.panel-part-label')?.textContent?.startsWith('triggered_by'),
+    ) as HTMLElement;
+    expect(items(triggered)).toEqual(['1 on_planned group planned way_back [v] read [a, b]']);
+    click(rowOf(page, 'b').querySelector('.head-button'));
+    const block = page.querySelector('aside[aria-label="Block b"]') as HTMLElement;
+    expect(items(block)).toEqual(['v → r triggered_by [on_planned]']);
   });
 });
 

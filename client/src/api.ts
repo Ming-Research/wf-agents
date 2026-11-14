@@ -53,9 +53,19 @@ export interface TriggerView {
   name: string;
   /// What it is, as its file writes it.
   what: string | null;
+  /// The block it stands on; of a group's trigger, the group's name.
   block: string;
+  /// Of a group's trigger, the group's blocks, a new version of any of which fires it; empty otherwise.
+  group: string[];
   read: string[];
   do: string | null;
+}
+
+/// A group of the flow's blocks, as `flow.toml` names it under `[groups]`, whose trigger fires for a new version of
+/// any of them.
+export interface Group {
+  name: string;
+  blocks: string[];
 }
 
 /// What the context of a cell's session must hold of a block the cell is given when the cell runs: its latest
@@ -153,6 +163,8 @@ export interface Flow {
   tests: Test[];
   /// The engine's tools every agent's cell of the flow may ask for, in the order `flow.toml` writes them.
   tools: string[];
+  /// The groups of the flow's blocks, by name, each with its blocks as `flow.toml` names them.
+  groups: Group[];
   /// In the order of the walk.
   cells: Cell[];
   /// By name.
@@ -194,6 +206,10 @@ export type What =
   /// A set of the flow's rules that no line names.
   | { kind: 'unusedRules'; name: string }
   | { kind: 'valuesEmpty' }
+  /// A group of blocks has the name of a block or of a datum of the flow.
+  | { kind: 'groupNameTaken'; group: string }
+  /// A group names no block.
+  | { kind: 'groupEmpty'; group: string }
   /// The block says what it counts as before anyone writes it, and it is not a choice.
   | { kind: 'defaultNotAChoice'; block: string }
   /// The block counts before anyone writes it as a value that is not one of its values.

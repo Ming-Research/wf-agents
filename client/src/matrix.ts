@@ -96,9 +96,12 @@ export interface BlockRow {
   trigger?: string;
   /// Of a trigger's row, what the trigger is, as its file writes it.
   what?: string;
-  /// The block the row is about: the one the trigger stands on, or the datum.
+  /// What the row is about: the block the trigger stands on, or the group's name of a group's trigger; the datum.
   on: string;
-  block: Block;
+  /// Of a group's trigger, the group's blocks, a new version of any of which fires it.
+  group?: string[];
+  /// The block the row is about; none of a group's trigger, which stands on no one block.
+  block?: Block;
 }
 
 /// How a row's line runs through one crossing: from the crossing's middle to the right (towards later cells), to the
@@ -114,9 +117,9 @@ export interface Spot {
   /// starts at the first cell that writes the block, the way the block goes on from there; where no cell writes it, at
   /// the first mark.
   line: Segment;
-  /// The way back, on a trigger's row: from a later cell's write of the block the trigger stands on leftwards to the
-  /// cells before it that the trigger runs. A block a cell is only given, or whose value its condition reads, does not
-  /// run it, so no way back reaches it.
+  /// The way back, on a trigger's row: from a later cell's write of the block the trigger stands on, or of one of the
+  /// group's, leftwards to the cells before it that the trigger runs. A block a cell is only given, or whose value its
+  /// condition reads, does not run it, so no way back reaches it.
   back: Segment;
   /// A cell that a write right of it sends the work back to.
   backTo: boolean;
@@ -176,48 +179,52 @@ export interface Matrix {
   /// The rows of the conditions the cells name, under the lines', each where the first cell that names it stands.
   conditions: ConditionRow[];
   /// How many ways back the flow has: pairs of a cell a trigger runs and a later cell's write of the block the trigger
-  /// stands on.
+  /// stands on, or of one of its group's.
   waysBack: number;
 }
 
 /// Works out from a flow everything its chart draws.
 export function matrix(flow: Flow): Matrix {
   const cells = flow.cells;
-  const blockIn = (name: string) => flow.blocks.find((b) => b.name === name) as Block;
-  // The triggers' rows first, each a trigger a cell names, by the block it stands on, in the order of those blocks;
-  // then the data's rows. A trigger stands for one event: one each cell has its own of is a row for each cell.
+  const blockIn = (name: string) => flow.blocks.find((b) => b.name === name);
+  // The triggers' rows first, each a trigger a cell names, by the block it stands on, in the order of those blocks, a
+  // group's where the first of its blocks stands; then the data's rows. A trigger stands for one event: one each cell
+  // has its own of is a row for each cell.
   const order = blockOrder(flow);
-  const pairs: { name: string; block: string; what?: string }[] = [];
+  const pairs: { name: string; block: string; what?: string; group?: string[] }[] = [];
   for (const cell of cells) {
     for (const t of cell.triggers ?? []) {
       if (!pairs.some((p) => p.name === t.name && p.block === t.block)) {
-        pairs.push({ name: t.name, block: t.block, what: t.what ?? undefined });
+        const group = t.group.length > 0 ? t.group : undefined;
+        pairs.push({ name: t.name, block: t.block, what: t.what ?? undefined, group });
       }
     }
   }
-  pairs.sort((x, y) => order.indexOf(x.block) - order.indexOf(y.block));
+  const at = (p: (typeof pairs)[number]) => Math.min(...(p.group ?? [p.block]).map((b) => order.indexOf(b)));
+  pairs.sort((x, y) => at(x) - at(y));
   const blocksOf = (name: string) => new Set(pairs.filter((p) => p.name === name).map((p) => p.block)).size;
-  const row = (name: string, on: string, trigger?: string, what?: string): BlockRow => ({
+  const row = (name: string, on: string, trigger?: string, what?: string, group?: string[]): BlockRow => ({
     name,
     trigger,
     what,
     on,
-    block: blockIn(on),
+    group,
+    block: group ? undefined : blockIn(on),
   });
   const blocks: BlockRow[] = [
-    ...pairs.map((p) => row(blocksOf(p.name) > 1 ? p.block : p.name, p.block, p.name, p.what)),
-    ...order.filter((name) => !blockIn(name).trigger).map((name) => row(name, name)),
+    ...pairs.map((p) => row(blocksOf(p.name) > 1 ? p.block : p.name, p.block, p.name, p.what, p.group)),
+    ...order.filter((name) => !blockIn(name)?.trigger).map((name) => row(name, name)),
   ];
 
-  // Of a trigger's row: whether the cell runs on the trigger, and whether it writes the block the trigger stands on.
-  // Of a datum's row: whether the cell is given it and in which kind, or writes it. What a cell's `when` and
-  // `requires` read is drawn once, on the rows of their keys.
+  // Of a trigger's row: whether the cell runs on the trigger, and whether it writes the block the trigger stands on,
+  // or one of the group's. Of a datum's row: whether the cell is given it and in which kind, or writes it. What a
+  // cell's `when` and `requires` read is drawn once, on the rows of their keys.
   const markIn = (cell: Cell, r: BlockRow): Mark => {
     if (r.trigger !== undefined) {
       return {
         ...NO_MARK,
         runs: (cell.triggers ?? []).some((t) => t.name === r.trigger && t.block === r.on),
-        write: cell.outputs.includes(r.on),
+        write: (r.group ?? [r.on]).some((b) => cell.outputs.includes(b)),
       };
     }
     const mark = markOf(cell, r.on);

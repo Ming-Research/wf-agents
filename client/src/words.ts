@@ -120,6 +120,10 @@ export function faultWords(fault: Fault): string {
       return `No line names the rules ${w.name}, so no agent would be given them.`;
     case 'valuesEmpty':
       return 'A choice has no values to choose from.';
+    case 'groupNameTaken':
+      return `The group ${w.group} has the name of a block or a datum of the flow.`;
+    case 'groupEmpty':
+      return `The group ${w.group} names no block.`;
     case 'defaultNotAChoice':
       return `${w.block} says what it counts as before it is written, but it is not a choice.`;
     case 'defaultNotAValue':

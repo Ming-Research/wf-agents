@@ -12,11 +12,12 @@ import type {
   SentCarried,
   SentPart,
   SentPiece,
+  TriggerView,
   Unknown,
 } from './api';
 import type { Chosen } from './Chart';
 import { FormTree } from './FormTree';
-import { type BlockRow, type ConditionRow, type LineRow, type Matrix, where } from './matrix';
+import { type ConditionRow, type LineRow, type Matrix, where } from './matrix';
 import { Attr, ListRow, Panel, PanelPart, StatusLine } from './parts';
 import {
   charactersWords,
@@ -39,6 +40,27 @@ export type Fold = { folded: boolean; onFold: () => void; edge?: ReactNode };
 function testsSay(keys: Condition[]): string | undefined {
   const says = keys.flatMap((k) => (k.on === 'test' ? [k.test.words] : []));
   return says.length > 0 ? says.join('; ') : undefined;
+}
+
+/// The blocks a trigger fires for: the one it stands on, or each of its group's.
+const firesFor = (t: TriggerView) => (t.group.length > 0 ? t.group : [t.block]);
+
+/// Whether a write of the block fires the trigger: it stands on it, or the block is one of its group's.
+const fires = (t: TriggerView, block: string) => firesFor(t).includes(block);
+
+/// What a trigger stands on, by its key, chosen by its name: the block, or the group of a group's trigger.
+function StandsOn({ trigger, onChoose }: { trigger: TriggerView; onChoose: (c: Chosen) => void }) {
+  const group = trigger.group.length > 0;
+  return (
+    <Attr
+      name={group ? 'group' : 'block'}
+      value={
+        <Choose chosen={group ? { group: trigger.block } : { block: trigger.block }} onChoose={onChoose}>
+          {trigger.block}
+        </Choose>
+      }
+    />
+  );
 }
 
 /// A name the owner can choose to see it on the chart and in the panel.
@@ -324,14 +346,7 @@ export function CellPanel(props: {
               {cell.triggers.map((t) => (
                 <ListRow key={t.name}>
                   <span className="mono">{t.name}</span>
-                  <Attr
-                    name="block"
-                    value={
-                      <Choose chosen={{ block: t.block }} onChoose={onChoose}>
-                        {t.block}
-                      </Choose>
-                    }
-                  />
+                  <StandsOn trigger={t} onChoose={onChoose} />
                   {t.read.length > 0 && <Attr name="read" value={listed(t.read)} />}
                   {t.do && (
                     <div className="row-note">
@@ -358,9 +373,12 @@ export function CellPanel(props: {
           <PanelPart label="triggered_by" count={cell.triggers.length}>
             <ul className="uses">
               {cell.triggers.map((t, place) => {
-                const block = blocks.get(t.block);
-                // The later cells that write the block the trigger stands on send the work back to this one.
-                const back = later((block?.writtenBy.cells ?? []).filter((id) => id !== cell.id));
+                // Of a group's trigger, there is no one block: its group is chosen by its name.
+                const block = t.group.length > 0 ? undefined : blocks.get(t.block);
+                // The later cells that write the block the trigger stands on, or one of its group's, send the work
+                // back to this one.
+                const writers = firesFor(t).flatMap((b) => blocks.get(b)?.writtenBy.cells ?? []);
+                const back = later([...new Set(writers)].filter((id) => id !== cell.id));
                 const why = cell.input[t.block]?.runs?.why;
                 return (
                   <ListRow key={`${t.name} ${t.block}`}>
@@ -371,14 +389,7 @@ export function CellPanel(props: {
                       {place + 1}
                     </span>
                     <span className="mono">{t.name}</span>
-                    <Attr
-                      name="block"
-                      value={
-                        <Choose chosen={{ block: t.block }} onChoose={onChoose}>
-                          {t.block}
-                        </Choose>
-                      }
-                    />
+                    <StandsOn trigger={t} onChoose={onChoose} />
                     {block && <WrittenBy flow={flow} cell={cell} block={block} onChoose={onChoose} />}
                     {back.length > 0 && (
                       <span className="way-back">
@@ -454,9 +465,10 @@ export function CellPanel(props: {
             <ul className="uses">
               {cell.outputs.map((name) => {
                 const block = blocks.get(name) as Block;
-                // A write of it sends the work back to each cell before this one that a trigger on it runs.
+                // A write of it sends the work back to each cell before this one that a trigger on it, or on a group
+                // of it, runs.
                 const sendsBack = flow.cells
-                  .filter((c) => where(flow, cell.id, c.id) === 'above' && c.triggers.some((t) => t.block === name))
+                  .filter((c) => where(flow, cell.id, c.id) === 'above' && c.triggers.some((t) => fires(t, name)))
                   .map((c) => c.id);
                 return (
                   <ListRow key={name}>
@@ -615,20 +627,20 @@ function Readers(props: { flow: Flow; from?: string; block: Block; alone?: boole
 }
 
 /// Everything about a block: its values, who writes it, who reads it, and the ways back through it, as the chart draws
-/// them on its triggers' rows: each cell a trigger on it runs, with the later cells whose write of it runs that cell
-/// again. A cell given it, or whose condition reads it, is not run by it, and no way back reaches it.
+/// them on its triggers' rows: each cell a trigger on it, or on a group of it, runs, with the later cells whose write
+/// of it runs that cell again. A cell given it, or whose condition reads it, is not run by it, and no way back reaches
+/// it.
 export function BlockPanel(props: {
-  row: BlockRow;
+  block: Block;
   matrix: Matrix;
   flow: Flow;
   onChoose: (c: Chosen) => void;
   fold: Fold;
 }) {
-  const { row, flow, onChoose, fold } = props;
-  const block = row.block;
+  const { block, flow, onChoose, fold } = props;
   const besides = writersBesideCells(block);
   const backs = flow.cells.flatMap((reader, r) => {
-    const triggers = reader.triggers.filter((t) => t.block === block.name).map((t) => t.name);
+    const triggers = reader.triggers.filter((t) => fires(t, block.name)).map((t) => t.name);
     if (triggers.length === 0) return [];
     const writers = flow.cells.filter((w, i) => i > r && w.outputs.includes(block.name)).map((w) => w.id);
     return writers.length > 0 ? [{ reader: reader.id, writers, triggers }] : [];
@@ -831,6 +843,43 @@ export function ToolPanel(props: {
       ) : (
         <p className="muted">The page was not given the tool's file</p>
       )}
+    </Panel>
+  );
+}
+
+/// Everything about a group of the flow's blocks: the file that names it, its trigger, its blocks as that file names
+/// them, each chosen by its name, and the cells its trigger runs.
+export function GroupPanel(props: { name: string; flow: Flow; onChoose: (c: Chosen) => void; fold: Fold }) {
+  const { name, flow, onChoose, fold } = props;
+  const blocks = flow.groups.find((g) => g.name === name)?.blocks ?? [];
+  const runs = flow.cells.filter((c) => c.triggers.some((t) => t.block === name && t.group.length > 0));
+  const trigger = runs[0]?.triggers.find((t) => t.block === name);
+  return (
+    <Panel
+      label={`Group ${name}`}
+      title={<span className="mono">{name}</span>}
+      belongs={<span className="mono">flow.toml</span>}
+      lines={
+        trigger && (
+          <StatusLine word={<span className="mono">{trigger.name}</span>}>{trigger.what ?? undefined}</StatusLine>
+        )
+      }
+      {...fold}
+    >
+      <PanelPart label="blocks" count={blocks.length}>
+        <ul className="uses">
+          {blocks.map((block) => (
+            <ListRow key={block}>
+              <Choose chosen={{ block }} onChoose={onChoose}>
+                <span className="mono">{block}</span>
+              </Choose>
+            </ListRow>
+          ))}
+        </ul>
+      </PanelPart>
+      <PanelPart label="triggered_by" count={runs.length}>
+        <CellRows flow={flow} ids={runs.map((c) => c.id)} onChoose={onChoose} />
+      </PanelPart>
     </Panel>
   );
 }

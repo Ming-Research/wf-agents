@@ -195,6 +195,12 @@ describe('the words of the page', () => {
     expect(faultWords({ file: 'cells/R1.toml', field: 'task', what: { kind: 'taskFileOutside', file: '../x.md' } })).toBe(
       "The cell's task is written in ../x.md, a path that leaves the flow's directory or is not plain.",
     );
+    expect(faultWords({ file: 'flow.toml', field: 'groups.plan', what: { kind: 'groupNameTaken', group: 'plan' } })).toBe(
+      'The group plan has the name of a block or a datum of the flow.',
+    );
+    expect(faultWords({ file: 'flow.toml', field: 'groups.plan', what: { kind: 'groupEmpty', group: 'plan' } })).toBe(
+      'The group plan names no block.',
+    );
     expect(faultWords({ file: 'plan.toml', field: 'task', what: { kind: 'noTask' } })).toBe(
       "An agent's cell has no task, or one of no words: its agent would be told nothing to do.",
     );

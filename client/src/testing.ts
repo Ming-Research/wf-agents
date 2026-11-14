@@ -1,7 +1,7 @@
 // What the page's tests and the works page's fixtures build definitions from: cells written in short, and the flow they make as the interface would
 // give it, with who writes and reads each block worked out as the compiler does.
 
-import type { Block, Cell, Condition, Flow, Input, Limits, Line, Test, TestKind } from './api';
+import type { Block, Cell, Condition, Flow, Group, Input, Limits, Line, Test, TestKind } from './api';
 
 const LIMITS: Limits = { runs: 3, returns: 2, calls: 40 };
 
@@ -36,7 +36,7 @@ export function cell(id: string, fields: Partial<Cell> = {}): Cell {
     effort: 'high',
     takesMain: false,
     tools: [],
-    triggers: runsOn.map((b) => ({ name: `on_${b}`, what: null, block: b, read: [], do: null })),
+    triggers: runsOn.map((b) => ({ name: `on_${b}`, what: null, block: b, group: [], read: [], do: null })),
     when: [],
     requires: [],
     outputs: [],
@@ -73,7 +73,8 @@ export type Declared = Partial<{
 }>;
 
 /// The flow of these cells in this order, with these blocks, and the named tests the cells use; each line in a file of
-/// its own, with what `lines` writes of it; the flow's tools those its cells may ask for.
+/// its own, with what `lines` writes of it; the flow's tools those its cells may ask for, and its groups those its
+/// cells' triggers stand on.
 export function flowOf(
   cells: Cell[],
   blocks: Record<string, Declared>,
@@ -116,7 +117,11 @@ export function flowOf(
     }),
   );
   const tools = [...new Set(cells.flatMap((c) => c.tools))];
-  return { name, limits: LIMITS, lines: declared, tests, tools, cells, blocks: all };
+  const groups: Group[] = [];
+  for (const t of cells.flatMap((c) => c.triggers)) {
+    if (t.group.length > 0 && !groups.some((g) => g.name === t.block)) groups.push({ name: t.block, blocks: t.group });
+  }
+  return { name, limits: LIMITS, lines: declared, tests, tools, groups, cells, blocks: all };
 }
 
 /// The small flow of `crates/web/tests/flows/small`: a plan a review can send back, a design when the review asks for

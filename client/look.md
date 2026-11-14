@@ -217,8 +217,11 @@ another; a square under a cell with a key of its `requires` on it, the value it 
 (`requires dependencies = merged`); in the column of words what the test `says`, or the block's `default`. Each row's
 name opens its panel: a line's, with its file, its keys and its cells; a test's, with its file and its keys; a
 block's. Under the bands, the rows of the triggers stand over the data's, with the same firmer line under their last.
-The marks on a trigger's row: a ring where the trigger runs the cell, a dot where the cell may write the block it
-stands on, both where both; on a datum's row, side by side, a dot where the cell
+A group's trigger is one row, for every block of the group, where the first of them stands, with the group in the
+column of words as `flow.toml` names it (`plan [acceptance, found]`); its name opens the group's panel: the file that
+names it, its trigger, its blocks and the cells it runs. The marks on a trigger's row: a ring where the trigger runs
+the cell, a dot where the cell may write the block it stands on, or one of the group's, both where both; on a datum's
+row, side by side, a dot where the cell
 may write it and a ring where the cell is given it, with its kind inside (`1` latest, `2` last and latest, `+` all);
 what a condition reads is on the condition's row alone. A trigger's marks are joined by a line along its row; a datum
 runs no cell, and its row has none. The line starts at the first mark that no way back reaches, which is the first

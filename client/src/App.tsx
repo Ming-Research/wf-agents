@@ -22,7 +22,7 @@ import { Bar, Edge, Panel, Switch } from './parts';
 import { type Route, hashOf, tabOf, useRoute } from './route';
 import { type Serves, opensOnFlow, useServes } from './serves';
 import { PANEL, WIDTH_KEYS, useKeptWidth } from './sizes';
-import { BlockPanel, CellPanel, Faults, type Fold, LinePanel, TestPanel, ToolPanel } from './Side';
+import { BlockPanel, CellPanel, Faults, type Fold, GroupPanel, LinePanel, TestPanel, ToolPanel } from './Side';
 import { type Theme, useTheme } from './theme';
 import { WorkView } from './works/WorkView';
 import { WorksList } from './works/WorksList';
@@ -230,16 +230,18 @@ export function FlowPage({ definition, given, active = true }: {
 
   const cell = chosen && 'cell' in chosen ? drawn.cells.find((c) => c.id === chosen.cell) : undefined;
   // A block chosen by its name: its datum's row, or else the row of a trigger that stands on it, which a block standing
-  // only for a trigger has alone. A trigger's row is named for the trigger, which may be another block's name.
-  const row =
+  // only for a trigger has alone. A trigger's row is named for the trigger, which may be another block's name; a
+  // group's trigger stands on no one block.
+  const block =
     chosen && 'block' in chosen
       ? (drawn.blocks.find((b) => b.trigger === undefined && b.on === chosen.block) ??
-        drawn.blocks.find((b) => b.on === chosen.block))
+          drawn.blocks.find((b) => b.block !== undefined && b.on === chosen.block))?.block
       : undefined;
   const lineRow = chosen && 'line' in chosen ? drawn.lines.find((l) => l.name === chosen.line) : undefined;
   const testRow =
     chosen && 'test' in chosen ? drawn.conditions.find((c) => c.test && c.name === chosen.test) : undefined;
   const tool = chosen && 'tool' in chosen ? chosen.tool : undefined;
+  const group = chosen && 'group' in chosen ? chosen.group : undefined;
   const edge = (
     <Edge
       side="left"
@@ -270,10 +272,10 @@ export function FlowPage({ definition, given, active = true }: {
         fold={fold}
       />
     );
-  } else if (row) {
+  } else if (block) {
     panel = (
       <BlockPanel
-        row={row}
+        block={block}
         matrix={drawn}
         flow={flow}
         onChoose={choose}
@@ -293,6 +295,8 @@ export function FlowPage({ definition, given, active = true }: {
         fold={fold}
       />
     );
+  } else if (group !== undefined) {
+    panel = <GroupPanel name={group} flow={flow} onChoose={choose} fold={fold} />;
   }
 
   return (

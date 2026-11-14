@@ -290,3 +290,45 @@ describe('the ways back', () => {
     expect(markAt(m, 'b', 'x')).toEqual(datum({}));
   });
 });
+
+describe('a group’s trigger', () => {
+  it('is one row, written where a cell writes any of the group’s blocks, run where it runs a cell', () => {
+    const planned = { name: 'on_planned', what: null, block: 'planned', group: ['a', 'b'], read: ['a', 'b'], do: null };
+    const flow = flowOf(
+      [
+        cell('w', { outputs: ['a'] }),
+        cell('v', { outputs: ['b'] }),
+        cell('r', { runsOn: ['a', 'b'], triggers: [planned] }),
+      ],
+      { a: {}, b: {} },
+    );
+    const m = matrix(flow);
+    const rows = m.blocks.filter((b) => b.trigger !== undefined);
+    expect(rows.map((b) => [b.name, b.on, b.group, b.block])).toEqual([
+      ['on_planned', 'planned', ['a', 'b'], undefined],
+    ]);
+    const spots = m.spots[m.blocks.indexOf(rows[0])];
+    expect(spots.map((s) => [s.mark.write, s.mark.runs])).toEqual([
+      [true, false],
+      [true, false],
+      [false, true],
+    ]);
+    expect(flow.groups).toEqual([{ name: 'planned', blocks: ['a', 'b'] }]);
+  });
+
+  it('is a way back where a cell after one it runs writes any of the group’s blocks', () => {
+    const planned = { name: 'on_planned', what: null, block: 'planned', group: ['a', 'b'], read: [], do: null };
+    const flow = flowOf(
+      [
+        cell('w', { outputs: ['a'] }),
+        cell('r', { runsOn: ['a', 'b'], triggers: [planned] }),
+        cell('v', { outputs: ['b'] }),
+      ],
+      { a: {}, b: {} },
+    );
+    const m = matrix(flow);
+    const spots = m.spots[m.blocks.findIndex((b) => b.trigger === 'on_planned')];
+    expect(spots.map((s) => s.backTo)).toEqual([false, true, false]);
+    expect(m.waysBack).toBe(1);
+  });
+});

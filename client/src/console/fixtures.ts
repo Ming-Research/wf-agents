@@ -105,7 +105,7 @@ function flowOf(
     system: [],
     rules: [],
   }));
-  return { name, limits: LIMITS, lines, tests, tools: [], cells: all, blocks: named };
+  return { name, limits: LIMITS, lines, tests, tools: [], groups: [], cells: all, blocks: named };
 }
 
 /// A named test that holds when each of these blocks, which the owner sets, says yes.

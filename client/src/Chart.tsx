@@ -1,10 +1,11 @@
 // The chart: the matrix of the blocks, one to a row, against the cells, one to a column in the order of the walk. It is
 // how the owner checks the flow (Article 7), so every cell and every block is on it, and what a cell does with a block
-// is a mark where they cross. What runs a cell is a trigger, one to a row over the data's rows: a write of the block a
-// trigger stands on, by a cell right of one the trigger runs, is the work going back, and its line is drawn leftwards
-// along the trigger's row to each cell it sends the work back to, in the way back's purple, so that every way back
-// shows at a glance. The blocks' names stay in place as the chart scrolls sideways, and the cells' heads as it scrolls
-// down, in the chart's own frame.
+// is a mark where they cross. What runs a cell is a trigger, one to a row over the data's rows, a group's trigger
+// standing for all the group's blocks: a write of the block a trigger stands on, or of one of its group's, by a cell
+// right of one the trigger runs, is the work going back, and its line is drawn leftwards along the trigger's row to
+// each cell it sends the work back to, in the way back's purple, so that every way back shows at a glance. The blocks'
+// names stay in place as the chart scrolls sideways, and the cells' heads as it scrolls down, in the chart's own
+// frame.
 //
 // A cell's column holds only marks, so it is only as wide as they are, and its head holds the cell's id alone. The
 // width this leaves, right of the marks, is a column of words, one line to a row: what the row's thing is, or, on the
@@ -38,11 +39,18 @@ import {
 } from './matrix';
 import { Edge, Sign } from './parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from './sizes';
-import { cellSays, headFacts, inputKindWords, keysWords, lineKeys } from './words';
+import { cellSays, headFacts, inputKindWords, keysWords, lineKeys, listed } from './words';
 
-/// What the owner chose: a cell, a block, a line, a named test, one of the engine's tools, or nothing.
+/// What the owner chose: a cell, a block, a line, a named test, one of the engine's tools, a group of blocks, or
+/// nothing.
 export type Chosen =
-  { cell: string } | { block: string } | { line: string } | { test: string } | { tool: string } | null;
+  | { cell: string }
+  | { block: string }
+  | { line: string }
+  | { test: string }
+  | { tool: string }
+  | { group: string }
+  | null;
 
 /// The key a chosen thing's head is found by on the chart; none for a tool, which has no row.
 function keyOf(chosen: NonNullable<Chosen>): string | null {
@@ -50,6 +58,7 @@ function keyOf(chosen: NonNullable<Chosen>): string | null {
   if ('block' in chosen) return `block:${chosen.block}`;
   if ('line' in chosen) return `line:${chosen.line}`;
   if ('test' in chosen) return `test:${chosen.test}`;
+  if ('group' in chosen) return `group:${chosen.group}`;
   return null;
 }
 
@@ -350,6 +359,7 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
   const chosenBlock = chosen && 'block' in chosen ? chosen.block : null;
   const chosenLine = chosen && 'line' in chosen ? chosen.line : null;
   const chosenTest = chosen && 'test' in chosen ? chosen.test : null;
+  const chosenGroup = chosen && 'group' in chosen ? chosen.group : null;
   // The cell whose words the rows show, and the cell the head of the words is about: the one under the pointer, or
   // else the one chosen.
   const saying = cells.find((c) => c.id === chosenCell) ?? null;
@@ -444,8 +454,13 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
           <tbody key={trigger ? 'triggers' : 'blocks'} className={trigger ? 'band triggers' : undefined}>
             {blocks.map((row, r) => {
               if (isTrigger(row) !== trigger) return null;
-              const isChosen = chosenBlock === row.on;
-              const what = trigger ? (row.what ?? '') : (row.block.what ?? '');
+              const isChosen = row.group ? chosenGroup === row.on : chosenBlock === row.on;
+              // Of a group's trigger, the group as `flow.toml` names it.
+              const what = row.group
+                ? `${row.on} ${listed(row.group)}`
+                : trigger
+                  ? (row.what ?? '')
+                  : (row.block?.what ?? '');
               // What the chosen cell says of the row's thing: of a trigger, what it does when the trigger fires; of a
               // datum, its keys, and of one it may write, with what the datum is, which is what the cell is to hand in.
               const says = !saying
@@ -460,7 +475,7 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
                     row={row}
                     label={trigger ? row.name : null}
                     chosen={isChosen}
-                    onChoose={() => onChoose(isChosen ? null : { block: row.on })}
+                    onChoose={() => onChoose(isChosen ? null : row.group ? { group: row.on } : { block: row.on })}
                     onPoint={unpoint}
                   />
                   {cells.map((cell, c) => (
@@ -469,7 +484,7 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
                       spot={spots[r][c]}
                       trigger={row.trigger}
                       cell={cell.id}
-                      block={row.on}
+                      block={row.group ? row.group.filter((b) => cell.outputs.includes(b)).join(', ') : row.on}
                       chosen={chosenCell === cell.id}
                       pointed={pointed === c}
                       onPoint={() => setPointed(c)}
@@ -580,7 +595,8 @@ function WordsHead(props: { about: Cell | null; saying: Cell | null; onPoint: ()
 }
 
 /// The name of a block at the left of its row, with its signs, the source outside the work that writes it and the
-/// values of a choice after it; or of a trigger, which is found by the block it stands on, and chooses that block.
+/// values of a choice after it; or of a trigger, which is found by the block it stands on, and chooses that block; or
+/// of a group's trigger, which stands on no one block, and chooses the group.
 function BlockHead(props: {
   row: BlockRow;
   /// Of a row that stands only for a trigger, the trigger's name.
@@ -591,6 +607,24 @@ function BlockHead(props: {
 }) {
   const { row, label, chosen, onChoose, onPoint } = props;
   const block = row.block;
+  if (!block) {
+    return (
+      <th scope="row" className="lead block-head" data-key={`group:${row.on}`} onMouseEnter={onPoint}>
+        <button
+          type="button"
+          className="head-button"
+          aria-pressed={chosen}
+          aria-label={`Trigger ${row.trigger}, group ${row.on}`}
+          onClick={onChoose}
+        >
+          <span className="block-name" title={row.name}>
+            {label ?? row.name}
+          </span>
+          <span className="row-label">trigger</span>
+        </button>
+      </th>
+    );
+  }
   return (
     <th
       scope="row"
