@@ -1,8 +1,6 @@
 // The page: the bar with its tabs, and under it the view the address's hash names (route.ts): the console, the works
-// (works/), the flow, the observations, the system or the settings. The flow view is the view's line (the flow's name, its limits, the legend, and when comparing
-// the switch between the flow as it is and as it was), the chart under it, and the panel docked at its right with what
-// the owner chose or what changed. The owner reviews every change to the flow here, so when there is a definition to
-// compare against, what changed is marked on the chart and listed in the panel.
+// (works/), the flow, the observations, the system or the settings. The flow view is the view's line (the flow's name, its limits, the legend), the chart under it,
+// and the panel docked at its right with what the owner chose.
 
 import { type CSSProperties, type ReactNode, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 

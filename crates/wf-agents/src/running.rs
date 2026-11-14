@@ -163,10 +163,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 handle.outside(carry::MAIN, &says);
             }));
         }
-        // The page compares the flow's files with the flow as it was committed, so that an edit of them shows there
-        // as what changed.
-        let mut flows_shown = web::Flows::dirs(shown.clone(), None, Box::new(has));
-        flows_shown.against = crate::committed::reader(shown.clone());
+        let mut flows_shown = web::Flows::dirs(shown.clone(), Box::new(has));
         // A draft: the page lays out what an agent is to be sent as a cell is entered, with these texts as they are.
         // The rules for the agents are files beside the flow's definition, which names for each line those it takes.
         flows_shown.alike = web::given::Alike {

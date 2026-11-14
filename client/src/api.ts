@@ -318,15 +318,6 @@ export type Change =
       after: string | null;
     };
 
-export type Comparison =
-  | { state: 'nothingToCompare' }
-  | {
-      state: 'compared';
-      against: Definition;
-      /// None when either definition does not compile.
-      changes: Change[] | null;
-    };
-
 /// What a part of what an agent is sent is, for the page to know what it may do with it: the program's own part; a
 /// part of the system prompt; the form of the return; a part of a message that is no content of a block, nor the task,
 /// nor the blocks the cell writes; the content of a block the cell is given; the blocks the cell writes; and its task.
@@ -400,8 +391,7 @@ export async function read<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
-/// The definition shown, what changed from the one compared against, and what an agent is sent as each of its cells
-/// is entered, read together.
+/// The definition shown, and what an agent is sent as each of its cells is entered, read together.
 export async function load(): Promise<{
   definition: Definition;
   given: Given;

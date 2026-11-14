@@ -3,7 +3,6 @@
 //! - `running`: `wf-agents run`, the engine as a process.
 //! - `talk`: the commands that talk to a running engine.
 
-mod committed;
 mod running;
 mod talk;
 
@@ -227,14 +226,11 @@ enum FlowCommand {
         dir: PathBuf,
     },
     /// Serves the owner's flow page for the definition in a directory, on the loopback address: the flow as a chart,
-    /// or its faults when it does not compile, and what changed from another definition when one is given. Both
-    /// directories are read again for every request, so an edit shows when the page is loaded again.
+    /// or its faults when it does not compile. The directory is read again for every request, so an edit shows when
+    /// the page is loaded again.
     Page {
         /// The definition's directory.
         dir: PathBuf,
-        /// The directory of a definition to compare against: the page shows what changed from it to the one shown.
-        #[arg(long)]
-        against: Option<PathBuf>,
         /// The port of the page on the loopback address.
         #[arg(long, default_value_t = 7490)]
         port: u16,
@@ -244,7 +240,7 @@ enum FlowCommand {
 fn main() -> ExitCode {
     match Cli::parse().command {
         Command::Flow(FlowCommand::Check { dir }) => check(&dir),
-        Command::Flow(FlowCommand::Page { dir, against, port }) => page(dir, against, port),
+        Command::Flow(FlowCommand::Page { dir, port }) => page(dir, port),
         Command::Run {
             data,
             flows,
@@ -554,10 +550,9 @@ fn the_flow_page_is_printed_at_the_flow_view() {
     assert_eq!(flow_page(address), "http://127.0.0.1:7490/#/flow");
 }
 
-fn page(dir: PathBuf, against: Option<PathBuf>, port: u16) -> ExitCode {
+fn page(dir: PathBuf, port: u16) -> ExitCode {
     let shown = dir.display().to_string();
-    let compared = against.as_ref().map(|a| a.display().to_string());
-    let flows = web::Flows::dirs(dir, against, Box::new(has));
+    let flows = web::Flows::dirs(dir, Box::new(has));
     let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(runtime) => runtime,
         Err(e) => {
@@ -574,8 +569,7 @@ fn page(dir: PathBuf, against: Option<PathBuf>, port: u16) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
-        let against = compared.map(|c| format!(", compared against {c}")).unwrap_or_default();
-        println!("The flow page of {shown}{against} is at {}", flow_page(address));
+        println!("The flow page of {shown} is at {}", flow_page(address));
         match web::serve(listener, web::router(flows)).await {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {

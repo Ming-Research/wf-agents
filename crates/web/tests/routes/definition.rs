@@ -8,7 +8,7 @@ use crate::{Shared, edit, get_json, has, serve, tiny};
 
 #[tokio::test]
 async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
-    let router = serve(&Shared::new(Ok(tiny())), None);
+    let router = serve(&Shared::new(Ok(tiny())));
     let limits = |runs| json!({ "runs": runs, "returns": 2, "calls": 40 });
     let may_merge = json!({
         "name": "may_merge",
@@ -169,7 +169,7 @@ async fn a_condition_is_given_with_its_block_and_value_or_with_its_test_as_decla
     );
     let redo = "title = \"Redo\"\nkind = \"engine\"\nact = \"check\"\nwhen = { block = \"content\", is = \"no\" }\n";
     source.cells.insert("redo".to_string(), redo.to_string());
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     let answer = get_json(&router, "/api/v1/flow").await;
     assert_eq!(
         answer["flow"]["cells"][1]["condition"],
@@ -214,7 +214,7 @@ async fn how_a_cell_takes_a_block_and_what_a_block_is_are_given_as_written() {
         "outputs = [\"plan\"]",
         "outputs = [\"plan\"]\n\n[input.request]\nkind = \"all\"",
     );
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     let answer = get_json(&router, "/api/v1/flow").await;
     let runs = json!({ "why": null });
     assert_eq!(
@@ -250,7 +250,7 @@ async fn a_block_the_outside_writes_is_given_with_the_name_of_its_source_and_a_b
         "[blocks.request]\noutside = \"main\"",
     );
     let source = edit(source, None, "reads = [\"go\"]", "reads = [\"go\", \"content\"]");
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     let answer = get_json(&router, "/api/v1/flow").await;
     let blocks = &answer["flow"]["blocks"];
     assert_eq!(
@@ -282,7 +282,7 @@ async fn the_faults_of_named_tests_and_of_sources_are_given_with_their_blocks() 
         "kind = \"agent\"",
         "kind = \"agent\"\nrequires = [\"may_merge\"]",
     );
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     let read = |block: &str| json!({ "test": "may_merge", "block": block });
     let mut not_before = read("content");
     not_before["kind"] = json!("testNotWrittenBefore");
@@ -317,7 +317,7 @@ async fn the_faults_of_named_tests_and_of_sources_are_given_with_their_blocks() 
         "outputs = [\"plan\"]",
         "outputs = [\"plan\", \"content\"]",
     );
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     let faults = &get_json(&router, "/api/v1/flow").await["faults"];
     assert_eq!(
         faults[1],
@@ -329,7 +329,7 @@ async fn the_faults_of_named_tests_and_of_sources_are_given_with_their_blocks() 
     );
 
     let source = edit(tiny(), None, "reads = [\"go\"]", "reads = []");
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     let faults = &get_json(&router, "/api/v1/flow").await["faults"];
     assert_eq!(
         faults[1],
@@ -345,7 +345,7 @@ async fn a_block_a_cell_must_write_that_is_not_among_its_outputs_is_a_fault_give
         "must_write = [\"content\"]",
         "must_write = [\"content\", \"plan\"]",
     );
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     assert_eq!(
         get_json(&router, "/api/v1/flow").await,
         json!({
@@ -377,7 +377,7 @@ async fn the_faults_of_a_cell_s_task_and_act_are_given_with_the_act_it_names() {
         "act = \"merge\"",
         "act = \"deploy\"\ntask = \"Merge it.\"",
     );
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     assert_eq!(
         get_json(&router, "/api/v1/flow").await,
         json!({
@@ -392,7 +392,7 @@ async fn the_faults_of_a_cell_s_task_and_act_are_given_with_the_act_it_names() {
     );
 
     let source = edit(tiny(), Some("merge"), "act = \"merge\"\n", "");
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     assert_eq!(
         get_json(&router, "/api/v1/flow").await["faults"],
         json!([{ "file": "merge.toml", "field": "act", "what": { "kind": "noAct" } }])
@@ -408,7 +408,7 @@ async fn a_test_of_what_stands_is_given_with_its_kind() {
         "kind = \"none_standing\"\nreads = [\"go\", \"content\"]",
     );
     let source = edit(source, None, "is = \"yes\"", "is = \"no\"");
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     let answer = get_json(&router, "/api/v1/flow").await;
     assert_eq!(
         answer["flow"]["tests"][0],
@@ -431,7 +431,7 @@ async fn a_definition_that_does_not_compile_is_given_as_its_faults_each_with_its
         "[\"request\", \"opinions\", \"ghost\"]",
     );
     let source = edit(source, None, "calls = 40", "calls = 0");
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     assert_eq!(
         get_json(&router, "/api/v1/flow").await,
         json!({
@@ -456,7 +456,7 @@ async fn a_definition_that_does_not_compile_is_given_as_its_faults_each_with_its
 async fn a_file_that_cannot_be_read_is_a_fault_of_the_whole_file_with_the_parser_s_words() {
     let mut source = tiny();
     source.cells.insert("review".to_string(), "title = ".to_string());
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     let answer = get_json(&router, "/api/v1/flow").await;
     let fault = &answer["faults"][0];
     assert_eq!((&fault["file"], &fault["field"]), (&json!("review.toml"), &json!("")));
@@ -470,7 +470,7 @@ async fn a_file_that_cannot_be_read_is_a_fault_of_the_whole_file_with_the_parser
 #[tokio::test]
 async fn a_directory_that_cannot_be_read_is_said_so_with_its_path() {
     let missing = std::env::temp_dir().join(format!("web-no-flow-{}", std::process::id()));
-    let router = web::router(web::Flows::dirs(missing.clone(), None, Box::new(has)));
+    let router = web::router(web::Flows::dirs(missing.clone(), Box::new(has)));
     let answer = get_json(&router, "/api/v1/flow").await;
     assert_eq!(answer["state"], "unreadable");
     let reason = answer["reason"].as_str().unwrap();
@@ -488,7 +488,7 @@ async fn a_directory_is_read_again_for_each_request_so_that_an_edit_shows() {
         }
     };
     write(&tiny());
-    let router = web::router(web::Flows::dirs(PathBuf::from(&dir), None, Box::new(has)));
+    let router = web::router(web::Flows::dirs(PathBuf::from(&dir), Box::new(has)));
     assert_eq!(get_json(&router, "/api/v1/flow").await["flow"]["name"], "tiny");
     write(&edit(tiny(), None, "name = \"tiny\"", "name = \"small\""));
     let answer = get_json(&router, "/api/v1/flow").await;
@@ -499,7 +499,7 @@ async fn a_directory_is_read_again_for_each_request_so_that_an_edit_shows() {
 #[tokio::test]
 async fn what_the_reader_gives_is_read_again_for_each_request() {
     let shown = Shared::new(Ok(tiny()));
-    let router = serve(&shown, None);
+    let router = serve(&shown);
     assert_eq!(get_json(&router, "/api/v1/flow").await["state"], "compiled");
     shown.set(Err("gone".to_string()));
     assert_eq!(

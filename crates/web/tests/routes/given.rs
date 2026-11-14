@@ -15,7 +15,6 @@ fn beside_the_repository_s_flows() -> axum::Router {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
     web::router(Flows {
         shown: Shared::new(Ok(tiny())).read(),
-        against: None,
         has: Box::new(has),
         alike: Alike {
             root: Some(root),
@@ -27,7 +26,7 @@ fn beside_the_repository_s_flows() -> axum::Router {
 
 #[tokio::test]
 async fn where_the_page_was_not_told_where_the_flows_are_nothing_is_read() {
-    let router = serve(&Shared::new(Ok(tiny())), None);
+    let router = serve(&Shared::new(Ok(tiny())));
     assert_eq!(get_json(&router, "/api/v1/flow/given").await["state"], json!("unread"));
 }
 

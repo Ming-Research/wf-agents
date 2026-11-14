@@ -38,7 +38,7 @@ pub(crate) fn serving_with_handle(
     .unwrap();
     let handle = service.handle();
     tokio::spawn(service.run(inbox));
-    let flows = Flows::dirs(trial_dir().join("flow"), None, Box::new(trial_has));
+    let flows = Flows::dirs(trial_dir().join("flow"), Box::new(trial_has));
     let copies = Copies {
         store: path.clone(),
         keep,

@@ -2,12 +2,10 @@
 //!
 //! The owner reviews every change to the flow on this page and has no other way to see it (Article 7), so the
 //! interface gives the definition as the page shows it: compiled, with every cell and block and who writes and reads
-//! each, or the faults that keep it from compiling; and, when there is a definition to compare against, what changed
-//! from that one. Both definitions are read anew for every request, so that an edit of their files shows when the page
-//! is loaded again.
+//! each, or the faults that keep it from compiling. The definition is read anew for every request, so that an edit of
+//! its files shows when the page is loaded again.
 //!
 //! - `GET /api/v1/flow`: the definition shown ([`view::Definition`]).
-//! - `GET /api/v1/flow/changes`: what changed from the definition compared against ([`view::Comparison`]).
 //! - `GET /api/v1/flow/given`: what an agent is sent as the engine enters each agent's cell of the definition shown,
 //!   part by part in the order sent ([`given::Given`]); a draft of what is designed and not built.
 //! - With the engine running, the items and the works ([`interface`], whose types are in [`works`]), and what needs
@@ -38,7 +36,7 @@ use axum::routing::{any, get};
 use flow::{Compiled, Source};
 use serde_json::json;
 
-use crate::view::{Change, Comparison, Definition, Fault, Flow};
+use crate::view::{Definition, Fault, Flow};
 
 pub use crate::copies::Copies;
 
@@ -56,8 +54,6 @@ pub type Has = Box<dyn Fn(&Source) -> flow::Has + Send + Sync>;
 pub struct Flows {
     /// The definition shown.
     pub shown: Read,
-    /// The definition compared against, if any.
-    pub against: Option<Read>,
     /// What each definition is compiled against.
     pub has: Has,
     /// What every agent is sent alike, as the program that carries the rounds out has it.
@@ -66,13 +62,12 @@ pub struct Flows {
 
 impl Flows {
     /// The definitions in these directories, read with [`flow::read`].
-    pub fn dirs(shown: PathBuf, against: Option<PathBuf>, has: Has) -> Self {
+    pub fn dirs(shown: PathBuf, has: Has) -> Self {
         let reader = |dir: PathBuf| -> Read {
             Box::new(move || flow::read(&dir).map_err(|e| format!("{}: {e}", dir.display())))
         };
         Flows {
             shown: reader(shown),
-            against: against.map(reader),
             has,
             alike: given::Alike::default(),
         }
@@ -110,24 +105,6 @@ impl Flows {
             None => given::Given::NotCompiled,
         }
     }
-
-    fn comparison(&self) -> Comparison {
-        let Some(against) = &self.against else {
-            return Comparison::NothingToCompare;
-        };
-        let (view, before) = self.compile(against);
-        let (_, after) = self.compile(&self.shown);
-        let changes = match (&before, &after) {
-            (Some(before), Some(after)) => Some(
-                flow::compare(before, after)
-                    .iter()
-                    .map(|c| Change::of(c, before, after))
-                    .collect(),
-            ),
-            _ => None,
-        };
-        Comparison::Compared { against: view, changes }
-    }
 }
 
 /// The interface and the page, over these definitions, with the items and the works of the engine's loop, whose items
@@ -145,7 +122,6 @@ pub fn with_works_and_copies(flows: Flows, handle: service::Handle, levels: serv
 pub fn router(flows: Flows) -> Router {
     Router::new()
         .route("/api/v1/flow", get(definition))
-        .route("/api/v1/flow/changes", get(changes))
         .route("/api/v1/flow/given", get(given))
         .route("/api/{*rest}", any(no_such))
         .fallback(page)
@@ -165,10 +141,6 @@ pub async fn serve(listener: tokio::net::TcpListener, router: Router) -> std::io
 
 async fn definition(State(flows): State<Arc<Flows>>) -> Response {
     off_the_server(move || flows.definition()).await
-}
-
-async fn changes(State(flows): State<Arc<Flows>>) -> Response {
-    off_the_server(move || flows.comparison()).await
 }
 
 async fn given(State(flows): State<Arc<Flows>>) -> Response {

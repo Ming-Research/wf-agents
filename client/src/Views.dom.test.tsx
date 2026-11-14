@@ -5,7 +5,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { Comparison, Definition } from './api';
+import type { Definition } from './api';
 import { Views } from './App';
 import type { Route } from './route';
 import type { Serves } from './serves';
@@ -50,9 +50,9 @@ async function settle() {
 /// Draws the views and gives the way to go to another route, and how often the flow was read.
 function drawViews(first: Route, serves: Serves | null = 'all') {
   let reads = 0;
-  const loadFlow = async (): Promise<{ definition: Definition; comparison: Comparison }> => {
+  const loadFlow = async (): Promise<{ definition: Definition }> => {
     reads += 1;
-    return { definition: { state: 'compiled', flow: small() }, comparison: { state: 'nothingToCompare' } };
+    return { definition: { state: 'compiled', flow: small() } };
   };
   const container = document.createElement('div');
   document.body.append(container);

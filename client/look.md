@@ -37,10 +37,10 @@ of text are under the tokens.
 | `--accent` | `#8b5cf6` | `#a78bfa` | what is chosen, focus, the panel's handle, an edge under the pointer, the signs | `PALETTE.chosen`, `--console-chosen` |
 | `--accent-text` | `#7c4ddb` | `#a78bfa` | links and the lines' names: the accent where it reads on white | ours |
 | `--accent-tint` | `#f1ecfe` | `#241d38` | the row or column chosen | `--console-chosen-wash` |
-| `--green` | `#2f9e6e` | `#45c08a` | put in, done | `PALETTE.green` |
-| `--orange` | `#f5840c` | `#ff9a3c` | changed, waits for the owner | `PALETTE.asked` |
+| `--green` | `#2f9e6e` | `#45c08a` | done | `PALETTE.green` |
+| `--orange` | `#f5840c` | `#ff9a3c` | waits for the owner | `PALETTE.asked` |
 | `--blue` | `#1a9fff` | `#4fb4ff` | running, at rest between rounds | `PALETTE.running` |
-| `--red` | `#e5484d` | `#ff6b70` | taken out, failed | `PALETTE.red`, `PALETTE.halted` |
+| `--red` | `#e5484d` | `#ff6b70` | failed | `PALETTE.red`, `PALETTE.halted` |
 | `--violet` | `#8250df` | `#ab7df8` | the way back | the flow chart's purple (Primer's done) |
 | `--*-text` | darker steps | the colours | the colours as small text on white (4.5:1): green, orange, blue, red | ours |
 | `--*-tint` | 10% over the card | 10% over the card | a fill that says the colour's meaning | `TINT` = 0.09 |
@@ -207,8 +207,7 @@ reached by the way back alone. A way back is the same line in the way back's pur
 the work back to. Where a way back runs along a stretch of the row's line, each keeps to a lane of its own, the line
 3px above the middle and the way back with its arrow 3px below it, the marks staying in the middle: drawn on the one
 middle line, the way back covered the line and the row read as if nothing went forward there. The row
-or column chosen is tinted with the accent. When comparing, what a change put in is green, what it took out red and
-dashed, what it changed orange: on a cell's head and a block's edge, and on the marks.
+or column chosen is tinted with the accent.
 
 ## The console
 

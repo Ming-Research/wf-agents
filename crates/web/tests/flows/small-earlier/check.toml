@@ -1,5 +1,0 @@
-title = "Check with the latest main"
-kind = "engine"
-act = "check"
-inputs = ["main"]
-outputs = ["ci"]

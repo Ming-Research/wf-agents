@@ -395,5 +395,4 @@ fn a_definition_in_the_old_form_and_the_same_in_the_new_compile_to_the_same_walk
     assert_eq!(new.flow, old.flow);
     assert_eq!(new.cells, old.cells);
     assert_eq!(new.blocks, old.blocks);
-    assert_eq!(flow::compare(&old, &new), []);
 }
