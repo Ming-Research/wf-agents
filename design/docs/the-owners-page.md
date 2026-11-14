@@ -21,118 +21,112 @@ and those of its look.
    was sent, as it was sent, with nothing left out. One list of a round's inputs, the sent ones bold and the held ones
    grey, was turned down: it did not show what the agent got this round.
 
-4. A work has a view of what it used, drawn only from the rounds it recorded: its cost, its time, its rounds, its
-   tokens and the share read from the cache; where the time went, as a bar and a line of time; each model by the level
-   its round recorded, never by what the configuration says when it is looked at; the cost by kind of token and by
-   cell; each session, why it began and its context round by round; and how long each tool ran. A stretch with no
-   round counts as one block. The owner wants to see what a work spent, on which models, and where.
-
-5. Each gap on a line of time says its own length on pointing at it: two gaps of plainly different lengths sharing one
-   number say nothing of either.
+4. A work's view of what it used shows its cost by kind of token, read from the cache, written to it, sent anew and
+   given back: the owner wants to see where a work's money went, and a round's records keep its cost whole.
 
 ## The item's window
 
-6. What an item depends on can be changed on the page, while its work has started no run (decision
+5. What an item depends on can be changed on the page, while its work has started no run (decision
    dependencies-until-the-work-starts): the owner needs no command line for it (principle
    owner-never-needs-the-command-line).
 
-7. The owner's words can carry pictures, picked or pasted, sent with the words as one message and shown with them,
+6. The owner's words can carry pictures, picked or pasted, sent with the words as one message and shown with them,
    and shown in the rounds that were given them: what the owner sees of a problem can be shown to the agent as it is.
 
-8. Pictures waiting to be sent stand as small pictures above the text, each removable, with how many there are and how
+7. Pictures waiting to be sent stand as small pictures above the text, each removable, with how many there are and how
    many there may be; what the box refuses is said file by file. A place for files of the page's own beside the box,
    and sending pictures apart from the words, were turned down: small pictures with a cross are how the chat programs
    the owner uses show what waits.
 
-9. A picture the owner sent is shown small and opens in a new tab, the simplest way to see a picture whole and at its
+8. A picture the owner sent is shown small and opens in a new tab, the simplest way to see a picture whole and at its
    own size, which the browser can also scale and save; opening it in a dialog was turned down.
 
 ## What agents wrote
 
-10. A diagram is drawn wherever text is shown, and is never cut at the right: a diagram is how the owner comes to
-    understand a design.
+9. A diagram is drawn wherever text is shown, and is never cut at the right: a diagram is how the owner comes to
+   understand a design.
 
-11. A diagram wider than its place is made as narrow as the place and never scrolls sideways; it opens larger in a
+10. A diagram wider than its place is made as narrow as the place and never scrolls sideways; it opens larger in a
     dialog, in the viewer that moves and scales a chart, where its words can be read. The owner read a diagram cut at
     the edge as incomplete, and a scroll bar that shows only once used tells nobody there is more. Turned down: only
     making it smaller, which leaves a wide diagram's words too small to read; a new tab, which takes the owner away
     from the text around it; opening it in place, which is as narrow as that text; and drawing it again narrower or
     turned, which changes what its author drew and works for some kinds only.
 
-12. What draws diagrams is loaded only when a diagram first comes near the screen, so that a page that shows none does
+11. What draws diagrams is loaded only when a diagram first comes near the screen, so that a page that shows none does
     not pay for it.
 
-13. A diagram is drawn from what an agent wrote, so it is drawn at the strictest setting and what is drawn is cleaned:
+12. A diagram is drawn from what an agent wrote, so it is drawn at the strictest setting and what is drawn is cleaned:
     no scripts and no markup of its own (principle agent-writing-is-data).
 
-14. A diagram that cannot be drawn shows its source with a note under it, never an empty place; one that is drawn can
+13. A diagram that cannot be drawn shows its source with a note under it, never an empty place; one that is drawn can
     show its source where it stands.
 
-15. Every list in what the owner reads is drawn alike: numbered, the start of each item bold, each further part a
+14. Every list in what the owner reads is drawn alike: numbered, the start of each item bold, each further part a
     paragraph that begins with its name, and no box inside a list. Two lists of one shape drawn in two ways were read
     by the owner as meant to differ.
 
-16. In text an agent or the owner wrote, the number of an item links to the item and shows its title on pointing at
+15. In text an agent or the owner wrote, the number of an item links to the item and shows its title on pointing at
     it, since items are spoken of by their numbers. A number inside code, an address or a path, one joined to a word,
     one after a word that names another kind of numbered thing, and one that points to no item, stay as they are.
 
 ## The lists
 
-17. The buttons that filter a list by state are signs without words: the words for the states are too long for one
+16. The buttons that filter a list by state are signs without words: the words for the states are too long for one
     row.
 
-18. A list remembers in the browser which states the owner hid, not which are shown, so that a state the page comes to
+17. A list remembers in the browser which states the owner hid, not which are shown, so that a state the page comes to
     have later is shown until the owner hides it.
 
-19. The buttons of states are one part for every list, and one list has one choice for all that is in it, kept in the
+18. The buttons of states are one part for every list, and one list has one choice for all that is in it, kept in the
     browser. Where the owner narrows a list by picking, a button picked is drawn even when nothing matches it, so
     that the choice can be taken back.
 
 ## The observations
 
-20. The observations are narrowed by picking tags and by picking those still to handle or those handled: with nothing
+19. The observations are narrowed by picking tags and by picking those still to handle or those handled: with nothing
     picked all are shown; a row is shown when it matches any of what is picked within a group, and does so in each
     group; clearing takes every choice back. There will be many, each with the project's tags, and the owner starts
     from all of them and picks a few. Listing every tag at first with the handled ones hidden, and picking one tag
     only beside a search, were turned down.
 
-21. A row of an observation begins with its title, with its content under it cut to a few lines, and a line between
+20. A row of an observation begins with its title, with its content under it cut to a few lines, and a line between
     rows. One recorded with no title keeps the start of its words and is given no title it was not recorded with. With
     a row cut to one line of its first words the owner had to open each to know what it was.
 
 ## The system
 
-22. The view of the system shows how the whole system stands, in parts: what goes on now, what was produced, what was
+21. The view of the system shows how the whole system stands, in parts: what goes on now, what was produced, what was
     spent, what was wasted, and how well it runs. The owner wants every side of it, not the spending alone.
 
-23. The rounds under way are listed, each with how large its context is, what it added and what it cost, beside the
+22. The rounds under way are listed, each with how large its context is, what it added and what it cost, beside the
     bounds the engine judges it by as it runs, and the list is kept up to date while they run: whether a round needs a
     look shows only against its own bounds (principle judged-by-own-history), which a card of sums cannot show.
 
-24. The view is all of the measures, each line of one watched by a monitor of its own, the simplest the mean and the
+23. The view is all of the measures, each line of one watched by a monitor of its own, the simplest the mean and the
     spread of seven days, and a spike raises a warning. There is no part for what is out of the ordinary: the watching
     is on the line itself, and a page where everything takes long to find is of no use.
 
-25. What each merged item cost is shown together with what the merged work itself cost: the two costs of one merge in
+24. What each merged item cost is shown together with what the merged work itself cost: the two costs of one merge in
     two parts read as one number that goes against itself.
 
-26. The lines of every chart of numbers take their colours in one order of hues (Article 8).
+25. The lines of every chart of numbers take their colours in one order of hues (Article 8).
 
-27. The span of time the numbers of a view are for is chosen by one switch, the same in every view: the spans stand
+26. The span of time the numbers of a view are for is chosen by one switch, the same in every view: the spans stand
     side by side as links, the one in use marked, and it is kept in the address. A span is read against the ones
     beside it.
 
 ## The settings
 
-28. Each part of the settings shows first what the page can change and then what only the file can; of the project's
+27. Each part of the settings shows first what the page can change and then what only the file can; of the project's
     constitution only its path is written, since its words are the project's own. The owner governs the whole
     configuration in one place and must see at a glance which is which. A page of its own for the levels alone was
     turned down.
 
-29. In a form written as a whole by one saving, nothing takes effect before it is saved, so what can be on or off
+28. In a form written as a whole by one saving, nothing takes effect before it is saved, so what can be on or off
     there is a box to tick and not a switch that acts when pressed; and a list the owner edits row by row is a table.
 
 ## The bar
 
-30. Beside the pause of everything stands a switch, with a short name and on unless turned off, that keeps the waiting
+29. Beside the pause of everything stands a switch, with a short name and on unless turned off, that keeps the waiting
     sessions warm: without it, going on in a session an hour later is dear.

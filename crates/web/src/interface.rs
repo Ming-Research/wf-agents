@@ -22,8 +22,9 @@ use store::{ItemChange, ItemNumber, WorkNumber};
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::works::{
-    Act, Added, Broken, CallPage, Changed, DependencyChange, Engine, EngineAct, ItemChanged, Items, LevelsPage,
-    NewItem, NewLevel, NewTitle, ProjectsPage, Refusal, RoundPage, ToldPage, VersionPage, WorkPage,
+    Act, Added, Broken, CallPage, Changed, DependencyChange, DoingPage, Engine, EngineAct, ItemChanged, Items,
+    LevelsPage, NewItem, NewLevel, NewTitle, ProjectsPage, Refusal, RoundPage, SystemPage, ToldPage, VersionPage,
+    WorkPage,
 };
 
 /// The routes of the items and the works, over the engine's loop; an item is added at one of these levels, to one of
@@ -48,6 +49,11 @@ pub fn router(handle: Handle, levels: Levels, projects: Projects) -> Router {
         .route("/api/v1/works/{work}/versions/{block}/{at}", get(version))
         .route("/api/v1/works/{work}/runs/{run}/rounds/{number}", get(round))
         .route("/api/v1/works/{work}/runs/{run}/rounds/{number}/told", get(told))
+        .route("/api/v1/works/{work}/runs/{run}/rounds/{number}/doing", get(doing))
+        .route(
+            "/api/v1/works/{work}/lines/{line}/sessions/{session}/system",
+            get(system),
+        )
         .route("/api/v1/works/{work}/calls/{call}", get(call))
         .route("/api/v1/works/{work}/acts", post(act))
         .route("/api/v1/attention", get(crate::attention::attention))
@@ -211,6 +217,45 @@ async fn told(State(handle): State<Handle>, path: Result<Path<(u64, u64, usize)>
     let missing = format!("Work {} has no round {round} of run {run}.", number.0);
     let told = handle.told(number, RunId(run), round).await;
     let page = told.map(|work| work.map(|told| told.map(|round| round.map(ToldPage::of)).map_err(Broken)));
+    found(page, number, missing)
+}
+
+/// What the agent of a round was last seen doing, read off the loop from its carrier as [`told`] is: the page asks
+/// again every few seconds while the round is under way, since the stream it is read from grows with nothing that
+/// happens to the work.
+async fn doing(State(handle): State<Handle>, path: Result<Path<(u64, u64, usize)>, PathRejection>) -> Response {
+    let (number, run, round) = match path {
+        Ok(Path((number, run, round))) => (WorkNumber(number), run, round),
+        Err(rejection) => return unreadable(&rejection),
+    };
+    let missing = format!("Work {} has no round {round} of run {run}.", number.0);
+    let doing = handle.doing(number, RunId(run), round).await;
+    let page = doing.map(|work| work.map(|doing| doing.map(|round| round.map(DoingPage::of)).map_err(Broken)));
+    found(page, number, missing)
+}
+
+/// The system prompt the line's session of this number, the first being one, began with, as its carrier kept it.
+async fn system(State(handle): State<Handle>, path: Result<Path<(u64, String, u32)>, PathRejection>) -> Response {
+    let (number, line, session) = match path {
+        Ok(Path((number, line, session))) => (WorkNumber(number), line, session),
+        Err(rejection) => return unreadable(&rejection),
+    };
+    let missing = format!(
+        "Work {} kept no system prompt of session {session} of {line}.",
+        number.0
+    );
+    // The records count a line's sessions from none.
+    let Some(counted) = session.checked_sub(1) else {
+        return fail(StatusCode::NOT_FOUND, missing);
+    };
+    let system = handle.system(number, line.clone(), counted).await;
+    let page = system.map(|work| {
+        work.map(|system| {
+            system
+                .map(|text| text.map(|text| SystemPage { line, session, text }))
+                .map_err(Broken)
+        })
+    });
     found(page, number, missing)
 }
 

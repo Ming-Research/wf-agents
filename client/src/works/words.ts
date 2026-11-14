@@ -75,6 +75,16 @@ export function tokens(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
+/// A count in full, its thousands apart: `12,345`.
+export function count(n: number): string {
+  return n.toLocaleString('en');
+}
+
+/// What share of a whole a part is, in whole percent: `89%`; a dash where the whole is nothing.
+export function share(part: number, whole: number): string {
+  return whole > 0 ? `${Math.round((100 * part) / whole)}%` : '–';
+}
+
 /// Every token a round took: what it was given, what it read from the cache, and what it gave back.
 export function allTokens(spent: Spent): number {
   return spent.inputTokens + spent.cachedTokens + spent.outputTokens;

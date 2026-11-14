@@ -57,8 +57,8 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use work::{Ask, Call, RanOn, Time, Why};
 
 pub use carriers::{
-    Back, CallReply, Carriers, Network, Release, ReleaseReply, Returned, Round, RoundReply, Rounds, Teller, Told,
-    ToolCall, Tools, Try, WITHDRAWN,
+    Back, CallReply, Carriers, Doing, Network, Release, ReleaseReply, Returned, Round, RoundReply, Rounds, Teller,
+    Told, ToolCall, Tools, Try, WITHDRAWN,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use levels::{Level, Levels, LevelsFault};
@@ -813,6 +813,60 @@ impl Handle {
                 }
                 Some(told)
             }),
+            Err(e) => Err(format!("what was kept of it could not be read: {e}")),
+        }))
+    }
+
+    /// The system prompt the line's session of this number, the line's first being none, began with, as the agents'
+    /// carrier kept it for the work: none where there is no such work, and inside, none where nothing was kept of it,
+    /// or why it could not be read. It is read off the loop, as [`Handle::told`] reads.
+    pub async fn system(
+        &self,
+        work: WorkNumber,
+        line: String,
+        session: u32,
+    ) -> Result<Option<Result<Option<String>, String>>, Refusal> {
+        if !self.read(move |driver| driver.work(work).is_some()).await? {
+            return Ok(None);
+        }
+        let carriers = self.carriers.clone();
+        let system = tokio::task::spawn_blocking(move || carriers.system(work, &line, session)).await;
+        Ok(Some(match system {
+            Ok(system) => system,
+            Err(e) => Err(format!("what was kept of it could not be read: {e}")),
+        }))
+    }
+
+    /// What the agent of the round of this number of the run was last seen doing, as the carrier of its cell's kind
+    /// keeps it as it comes: none where there is no such work, and inside, none where the work has no such round, or
+    /// why it could not be read. It is read off the loop, as [`Handle::told`] reads.
+    pub async fn doing(
+        &self,
+        work: WorkNumber,
+        run: RunId,
+        round: usize,
+    ) -> Result<Option<Result<Option<Vec<Doing>>, String>>, Refusal> {
+        let kind = self
+            .read(move |driver| {
+                let kept = driver.work(work)?;
+                if !kept.work.given.contains_key(&(run, round)) {
+                    return Some(None);
+                }
+                let started = kept.work.records.started.iter().find(|s| s.run == run);
+                Some(Some(
+                    (started.and_then(|s| cell_spec(kept.flow, &s.cell))).map(|spec| spec.kind),
+                ))
+            })
+            .await?;
+        let kind = match kind {
+            None => return Ok(None),
+            Some(None) => return Ok(Some(Ok(None))),
+            Some(Some(kind)) => kind,
+        };
+        let carriers = self.carriers.clone();
+        let doing = tokio::task::spawn_blocking(move || carriers.doing(kind, work, run, round)).await;
+        Ok(Some(match doing {
+            Ok(doing) => doing.map(Some),
             Err(e) => Err(format!("what was kept of it could not be read: {e}")),
         }))
     }

@@ -56,6 +56,22 @@ pub trait Rounds: Send + Sync {
         Ok(Told::default())
     }
 
+    /// The system prompt the line's session of this number, the line's first being none, began with, as this carrier
+    /// kept it for the work; none where it kept none, as by default and for rounds carried out in no session. It is
+    /// called off the loop, as [`Rounds::told`] is.
+    fn system(&self, work: WorkNumber, line: &str, session: u32) -> Result<Option<String>, String> {
+        let _ = (work, line, session);
+        Ok(None)
+    }
+
+    /// What the agent of the round of this number of the run was last seen doing, as this carrier keeps it as it
+    /// comes: the last few things its latest try did, the latest last; nothing where it keeps none, as by default. It
+    /// is called off the loop, as [`Rounds::told`] is.
+    fn doing(&self, work: WorkNumber, run: RunId, round: usize) -> Result<Vec<Doing>, String> {
+        let _ = (work, run, round);
+        Ok(Vec::new())
+    }
+
     /// When a line begins a new session, for rounds carried out in sessions: what they run on, and how far a session
     /// may grow. None, as by default, for rounds carried out in no session, whose lines the loop begins no session
     /// for itself.
@@ -169,6 +185,19 @@ pub struct Returned {
     pub duration_ms: Option<u64>,
     /// The models it was answered by, by name.
     pub models: Vec<String>,
+    /// The tokens it wrote to the prompt cache, which the records count among those not read from it.
+    pub cache_creation_input_tokens: Option<u64>,
+}
+
+/// A thing an agent was seen doing during its round, as its program said it as it went.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Doing {
+    /// It used a tool by this name, on this where the tool's input names what: a command, a path, a pattern.
+    Tool { name: String, on: Option<String> },
+    /// It said this; the start of it where it is long.
+    Said(String),
+    /// Its session was being compacted.
+    Compacting,
 }
 
 /// What runs the tools that agents ask for.
@@ -233,6 +262,29 @@ impl Carriers {
             }
         }
         Ok(told)
+    }
+
+    /// The system prompt the line's session of this number, the line's first being none, began with, as the agents'
+    /// carrier kept it. It waits on the disk.
+    pub fn system(&self, work: WorkNumber, line: &str, session: u32) -> Result<Option<String>, String> {
+        self.agents.system(work, line, session)
+    }
+
+    /// What the agent of the round was last seen doing, as the carrier of its cell's kind keeps it, or, for a cell of
+    /// no kind known, as the first carrier that keeps anything of it. It waits on the disk.
+    pub fn doing(&self, kind: Option<Kind>, work: WorkNumber, run: RunId, round: usize) -> Result<Vec<Doing>, String> {
+        let carriers = match kind {
+            Some(kind) => vec![self.rounds(kind)],
+            None => vec![&self.agents, &self.acts],
+        };
+        let mut doing = Vec::new();
+        for rounds in carriers {
+            doing = rounds.doing(work, run, round)?;
+            if !doing.is_empty() {
+                break;
+            }
+        }
+        Ok(doing)
     }
 }
 

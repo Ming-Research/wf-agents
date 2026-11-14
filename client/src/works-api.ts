@@ -20,6 +20,10 @@
 // - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}`: one round in full (`RoundPage`).
 // - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}/told`: what the round was told and what came back of it, as
 //   its carrier kept them (`ToldPage`); no try where it kept nothing.
+// - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}/doing`: what the round's agent was last seen doing, as its
+//   carrier keeps it as it comes (`DoingPage`); read again every few seconds while the round is under way.
+// - `GET  /api/v1/works/{work}/lines/{line}/sessions/{session}/system`: the system prompt the line's session of this
+//   number, the first being one, began with (`SystemPage`).
 // - `GET  /api/v1/works/{work}/calls/{call}`: a call with its result (`CallPage`).
 // - `POST /api/v1/works/{work}/acts`: what the owner does to a work (`Act`); answers with no content, or with why it
 //   was refused (`Refusal`) and a status of 4xx.
@@ -316,7 +320,37 @@ export interface Round {
   context: number | null;
   /// How often its session was compacted during it.
   compactions: number;
+  /// The session of its line it runs in; none for a round of a cell on no line, as an engine's act is.
+  session: RoundSession | null;
+  /// Each try of it the records hold, in order; none for a try that began before tries were recorded.
+  tries: RoundTry[];
 }
+
+/// The session of its line a round runs in: which of the line's sessions, the first being one, and whether the round
+/// begins it, so that the session is given the line's system prompt with it.
+export interface RoundSession {
+  line: string;
+  number: number;
+  begins: boolean;
+}
+
+/// A try of a round, as the records hold it: what it ran on, and each time something was filled into its session,
+/// what was.
+export interface RoundTry {
+  attempt: number;
+  ran: RanOn;
+  filled: Fill[][];
+}
+
+/// One thing filled into a session, as the flow's files name it: a part of the message the session keeps, by its
+/// `part`; a version of a datum of the cell's context, whole, or as what changed since an earlier one; the results of
+/// calls; why what a round of the run returned was sent back.
+export type Fill =
+  | { kind: 'part'; part: string }
+  | { kind: 'whole'; block: string; version: number }
+  | { kind: 'change'; block: string; version: number; since: number }
+  | { kind: 'results'; calls: number[] }
+  | { kind: 'sentBack'; round: number };
 
 export interface CallRow {
   call: number;
@@ -439,6 +473,9 @@ export type TryBack =
       durationMs: number | null;
       /// The models it was answered by, by name.
       models: string[];
+      /// The tokens it wrote to the prompt cache, as the program printed them; the records count them among those
+      /// not read from the cache. Absent from an engine that does not give it yet.
+      cacheCreationInputTokens?: number | null;
     }
   | { kind: 'failed'; why: string }
   | { kind: 'unreadable'; why: string };
@@ -488,6 +525,24 @@ export type DependencyChange = { kind: 'add'; item: number } | { kind: 'remove';
 export interface ToldPage {
   tries: Try[];
   leftOut: number;
+}
+
+/// The system prompt a line's session began with, as it was kept with the session.
+export interface SystemPage {
+  line: string;
+  session: number;
+  text: string;
+}
+
+/// A thing an agent was seen doing: a tool it used, on what its input names; what it said; a compaction of its session.
+export type Doing =
+  | { kind: 'tool'; name: string; on: string | null }
+  | { kind: 'said'; text: string }
+  | { kind: 'compacting' };
+
+/// What the agent of a round was last seen doing: the last few things its latest try did, the latest last.
+export interface DoingPage {
+  doing: Doing[];
 }
 
 /// What the owner does to a work.
@@ -604,6 +659,10 @@ export const loadRound = (work: number, run: number, round: number) =>
   read<RoundPage>(`/api/v1/works/${work}/runs/${run}/rounds/${round}`);
 export const loadTold = (work: number, run: number, round: number) =>
   read<ToldPage>(`/api/v1/works/${work}/runs/${run}/rounds/${round}/told`);
+export const loadDoing = (work: number, run: number, round: number) =>
+  read<DoingPage>(`/api/v1/works/${work}/runs/${run}/rounds/${round}/doing`);
+export const loadSystem = (work: number, line: string, session: number) =>
+  read<SystemPage>(`/api/v1/works/${work}/lines/${encodeURIComponent(line)}/sessions/${session}/system`);
 export const loadCall = (work: number, call: number) => read<CallPage>(`/api/v1/works/${work}/calls/${call}`);
 export const loadLevels = () => read<Levels>('/api/v1/levels');
 export const loadProjects = () => read<Projects>('/api/v1/projects');

@@ -150,6 +150,9 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                         "spent": spent(1),
                         "context": null,
                         "compactions": 0,
+                        // The engineer's first round begins its first session; the script records no try.
+                        "session": { "line": "engineer", "number": 1, "begins": true },
+                        "tries": [],
                     }],
                     "calls": [{ "call": 2, "what": question(), "made": asked, "done": null, "chars": null }],
                     // A return that asks ends its run, having dealt with nothing.

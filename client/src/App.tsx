@@ -14,6 +14,7 @@ import { LazyFlowChart } from './graph/lazy';
 import { GraphLegend } from './graph/legend';
 import { chartOf } from './graph/model';
 import { matrix } from './matrix';
+import { useNotifications } from './notify';
 import { ObservationsView } from './observations/ObservationsView';
 import { Bar, Drawer, Panel, Switch } from './parts';
 import { type Route, hashOf, periodOf, tabOf, useRoute } from './route';
@@ -137,6 +138,8 @@ export function Shell({ route, serves = 'all', children }: {
 }) {
   const [theme, setTheme] = useTheme();
   const [bar, setBar] = useState<BarItems>({ items: null, failed: null });
+  // What the bar counts is what the browser's notifications tell of, as it comes.
+  useNotifications(bar.items);
   const waiting = bar.items?.items.filter((i) => waitsForOwner(i.work.now)).length ?? 0;
   const views = TABS.map((t) =>
     t.href === '#/console' ? { ...t, count: waiting, countTitle: `${waiting} waiting for you` } : t,

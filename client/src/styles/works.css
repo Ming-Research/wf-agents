@@ -475,3 +475,123 @@
   flex: 1;
   min-width: 0;
 }
+
+/* Keys and their values in a row, as the files write them, wrapping where the row is narrow. */
+.keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-12);
+}
+
+/* What was filled into a try's session, each filling under the one before. */
+.filling + .filling {
+  margin-top: var(--space-4);
+}
+
+/* What a work used, in the panel: its totals as numbers with no frame, then its parts. */
+.usage-tiles {
+  display: grid;
+  /* Four to a row of the panel at the width it opens at. */
+  grid-template-columns: repeat(auto-fill, minmax(calc(var(--panel) / 4), 1fr));
+  gap: var(--space-12);
+  margin-bottom: var(--space-16);
+}
+
+.usage-tile {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.usage-value {
+  font-size: var(--size-title);
+  font-weight: var(--weight-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The bar of where the time went: its parts side by side, each as wide as its share. */
+.usage-stack {
+  display: flex;
+  overflow: hidden;
+}
+
+.usage-stack .us-block {
+  position: static;
+  border-radius: 0;
+}
+
+.usage-swatch {
+  display: inline-block;
+  width: var(--space-8);
+  height: var(--space-8);
+  border-radius: var(--corner);
+}
+
+.usage-timeline {
+  margin-top: var(--space-12);
+}
+
+.usage-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--space-2);
+}
+
+/* A bar of a share: its name cut at its edge, the bar, its value. */
+.usage-bar-name {
+  flex: 0 1 40%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-bar {
+  display: flex;
+  flex: 1;
+  align-self: center;
+  min-width: var(--space-16);
+  height: var(--space-8);
+  border-radius: var(--corner);
+  background: var(--track-ground);
+}
+
+.usage-bar > span {
+  border-radius: var(--corner);
+  background: var(--track-model);
+}
+
+.usage-sub {
+  margin-top: var(--space-12);
+  color: var(--muted);
+  font-size: var(--size-small);
+}
+
+/* The context after each round: a line for each session, in the model's colour, on hairlines. */
+.usage-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: var(--space-4);
+}
+
+.usage-grid {
+  stroke: var(--line);
+  stroke-width: var(--hairline);
+}
+
+.usage-line {
+  fill: none;
+  stroke: var(--track-model);
+  stroke-width: var(--chart-back);
+}
+
+.usage-point {
+  fill: var(--track-model);
+}
+
+.usage-chart-text {
+  fill: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--size-label);
+}
