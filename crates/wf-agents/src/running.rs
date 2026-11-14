@@ -113,7 +113,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 }
             },
         };
-        // The project's checkout, for the page's draft of what an agent is sent; a script has no project.
+        // The project's checkout, for what the page shows an agent is sent; a script has no project.
         let project = match &with {
             Read::Script(_) => None,
             Read::Settings(settings, _) => Some(settings.project.repo.clone()),

@@ -262,7 +262,7 @@ pub struct Block {
     /// The field of a return a cell writes it through, where it is not written as a block; none where it is.
     #[serde(default)]
     pub field: Option<String>,
-    /// It has no content and stands only for a trigger.
+    /// It stands only for a trigger: no cell is given it, writes it or describes the work by it.
     #[serde(default)]
     pub trigger: bool,
     /// Of a block a source of the engine's writes, what it writes, each text by its name as its file writes them.

@@ -1,11 +1,10 @@
 //! What an agent is sent as the engine enters a cell, as the owner's page shows it for the flow as it is written:
 //! every part, in the order it is sent, with the text of each part that is written already, and where it comes from.
 //!
-//! A draft, for going through the cells with the owner, and not how the rounds are told today. It lays the parts out
-//! as the design of data and context has them (`design/docs/data-and-context.md`), out of the definition and of what
-//! the engine says to every agent (`flow::agents`), and stands in for what the engine is to send once that design is
-//! built. Nothing here reads what a session holds, which is known only in a run: a session is sent what it lacks, so
-//! the page shows one list for a cell.
+//! It lays the parts out as the design of data and context has them (`design/docs/data-and-context.md`), out of the
+//! definition and of what the engine says to every agent (`flow::agents`); the engine's rounds are not told so yet.
+//! Nothing here reads what a session holds, which is known only in a run: a session is sent what it lacks, so the page
+//! shows one list for a cell.
 //!
 //! Every word sent is read from the files of the flow and from those beside it, and what the page is given of each part
 //! is its key and attributes there, as written; this code holds no word, only how they are put together: which part

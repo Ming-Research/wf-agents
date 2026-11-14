@@ -37,7 +37,7 @@ pub const TESTS_DIR: &str = "tests";
 pub const DATA_DIR: &str = "../data";
 
 /// The directory beside the flows, from a flow's directory, that holds what runs a cell: in it, as deep as is useful,
-/// each a trigger standing on a block with no content, which it declares; in `of_a_cell/`, each a trigger that every
+/// each a trigger standing on a block that stands only for it, which it declares; in `of_a_cell/`, each a trigger that every
 /// cell naming it has its own of; in `of_a_datum/`, each a rule that makes a trigger of each datum of a flow.
 pub const TRIGGERS_DIR: &str = "../triggers";
 pub const OF_A_CELL: &str = "of_a_cell";
@@ -407,8 +407,8 @@ impl From<LaidOutBlockFile> for BlockFile {
     }
 }
 
-/// A trigger as written in a file of `../triggers/`, by the name of its file: one standing on a block with no content,
-/// which it declares, which the owner or a source outside the work writes; or, in `of_a_cell/`, one that every cell
+/// A trigger as written in a file of `../triggers/`, by the name of its file: one standing on a block that stands only for
+/// it, which it declares, which the owner or a source outside the work writes; or, in `of_a_cell/`, one that every cell
 /// naming it has its own of, `{cell}` standing for the id of the cell in small letters in `block`, which must hold it,
 /// and in `read`, `detail` and `do`.
 #[derive(Clone, Debug, Deserialize)]

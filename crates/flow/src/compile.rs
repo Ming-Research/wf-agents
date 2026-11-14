@@ -183,7 +183,7 @@ pub struct Given {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Block {
     /// The file it is declared in, from the flow's directory: its own in `blocks/` or `../data/`, the trigger's that
-    /// declares a block with no content, or `flow.toml` of a flow written before it was laid out one thing to a file.
+    /// declares a block that stands only for it, or `flow.toml` of a flow written before it was laid out one thing to a file.
     pub file: String,
     /// The values of a block that is a choice; a block with none is not one.
     pub values: Option<Vec<String>>,
@@ -191,7 +191,8 @@ pub struct Block {
     pub what: Option<String>,
     /// The field of a return that a cell writes the block through, where it writes it through one.
     pub field: Option<String>,
-    /// The block has no content and stands only for a trigger, which declares it.
+    /// The block stands only for a trigger, which declares it: no cell is given it, writes it or describes the work by
+    /// it. A source of the engine's that fires the trigger may write words into it, as its `writes` give them.
     pub trigger: bool,
     /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, as the
     /// block's file or the trigger that declares it says; none where neither does.
@@ -321,8 +322,7 @@ pub enum FaultKind {
     ReadNotInContext { trigger: String, block: String },
     /// The cell says what it does for a trigger, and the trigger is not among its triggers.
     NotATrigger { trigger: String },
-    /// The block stands only for a trigger and has no content: no cell is given it, writes it or describes the work
-    /// by it.
+    /// The block stands only for a trigger: no cell is given it, writes it or describes the work by it.
     TriggerOnly { block: String },
     /// The cell names what it takes by `triggered_by` and `context`, which only a flow laid out one thing to a file has: the
     /// triggers are beside the flows.
@@ -503,7 +503,7 @@ struct Parsed {
     cells: BTreeMap<String, CellFile>,
     places: Places,
     triggers: Resolved,
-    /// The blocks with no content that a trigger declares.
+    /// The blocks that stand only for the trigger that declares each.
     trigger_blocks: BTreeSet<String>,
     /// Of a flow laid out one thing to a file, the names of the sets of rules a line may take, as
     /// [`crate::agents::RULES_FILE`] names them.
@@ -830,8 +830,8 @@ impl LaidOut {
             .collect()
     }
 
-    /// Works out each trigger each cell names: a trigger of `../triggers/` by its name, which declares the block with
-    /// no content it stands on; one of `of_a_cell/`, whose block each cell naming it has its own of; or one a rule of
+    /// Works out each trigger each cell names: a trigger of `../triggers/` by its name, which declares the block that
+    /// stands only for it; one of `of_a_cell/`, whose block each cell naming it has its own of; or one a rule of
     /// `of_a_datum/` makes of a datum of the flow, standing on the datum. Gives what each is worked out to, by its
     /// place in the cell's `triggered_by`, and the blocks the triggers declare. The agent of an engine cell reads nothing.
     ///
@@ -1425,7 +1425,7 @@ impl<'a> Definition<'a> {
             };
             (!self.flow.blocks.contains_key(block)).then_some(what)
         };
-        // A block that stands only for a trigger has no content to give, write or describe the work by.
+        // A block that stands only for a trigger is not given, written or the work described by it.
         let with_content = |block: &str| declared(block).or_else(|| self.trigger_only(block));
         let takes = self.takes(id, file);
         // A cell that names what it takes by triggers in a flow written before them has one fault of it, and what

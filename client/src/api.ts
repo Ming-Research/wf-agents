@@ -310,7 +310,8 @@ export interface Unknown {
   source: string;
 }
 
-/// For each agent's cell of a definition that compiles, by its id, the parts it is sent in the order sent. A draft of what is designed and not built: the engine does not send it so yet.
+/// For each agent's cell of a definition that compiles, by its id, the parts it is sent in the order sent, as the design
+/// lays them out: the engine does not send them so yet.
 export type Given =
   | {
       state: 'compiled';
