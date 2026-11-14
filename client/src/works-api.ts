@@ -60,6 +60,7 @@ export type Failure =
   | 'cannotRun'
   | 'offline'
   | 'promptTooLong'
+  | 'noModel'
   | 'other';
 
 /// When the rounds a wait holds may begin again: at a time, every work's; or one round tries at a time, where `look`

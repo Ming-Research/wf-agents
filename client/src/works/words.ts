@@ -205,6 +205,8 @@ export function failureWords(failure: Failure): string {
       return 'the network cannot be reached';
     case 'promptTooLong':
       return 'the prompt is too long for the model';
+    case 'noModel':
+      return "the service has no model of the name the round's level gives";
     case 'other':
       return 'a cause no kind tells apart';
   }

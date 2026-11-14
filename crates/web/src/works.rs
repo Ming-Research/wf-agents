@@ -110,6 +110,8 @@ pub enum Failure {
     Offline,
     /// The prompt is too long for the model.
     PromptTooLong,
+    /// The service has no model of the name the round's level gives.
+    NoModel,
     /// A cause no kind tells apart.
     Other,
 }
@@ -2295,6 +2297,7 @@ impl Failure {
             FailureOf::CannotRun => Failure::CannotRun,
             FailureOf::Offline => Failure::Offline,
             FailureOf::PromptTooLong => Failure::PromptTooLong,
+            FailureOf::NoModel => Failure::NoModel,
             FailureOf::Other => Failure::Other,
         }
     }

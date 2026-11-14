@@ -88,6 +88,9 @@ pub enum Failure {
     Offline,
     /// The prompt is too long for the model: running it again cannot help, and the work is paused.
     PromptTooLong,
+    /// The service has no model of the name the round's level gives: no round on it can run until the installation
+    /// names another, so the work is paused, and so is every other work that runs a round on that model.
+    NoModel,
     /// A cause no kind tells apart that is no report of the agents' command line: the engine's own act failed, or
     /// the round could not be carried out at all. The work is paused. Rounds that failed before kinds were told apart
     /// read so, since each paused its work.
@@ -448,7 +451,7 @@ fn passing_in_a_row(log: &Log) -> u32 {
 pub fn pausing(log: &Log) -> Option<Pausing> {
     let mut row = failures_in_a_row(log);
     match row.next()? {
-        failure @ (Failure::PromptTooLong | Failure::Other) => Some(Pausing::Failed(failure)),
+        failure @ (Failure::PromptTooLong | Failure::NoModel | Failure::Other) => Some(Pausing::Failed(failure)),
         Failure::Passing => {
             let failed = passing_in_a_row(log);
             (failed > PASSING).then_some(Pausing::Passing { failed })

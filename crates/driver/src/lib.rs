@@ -71,6 +71,7 @@ use std::sync::Arc;
 
 pub mod outage;
 
+use decide::run::Failure;
 use decide::{BlockId, Decision, End, Holder, Outsider, Pauser, Room, View, begun, decide, taking_slot};
 use engine::{Effect, Event, Gate, Refused, handle_held, handle_then, held};
 use flow::Compiled;
@@ -577,6 +578,19 @@ impl Driver {
             }
             _ => None,
         };
+        // A round that fails for a model the service does not have stops every round on that model: what its try ran
+        // on, as the try recorded it, with why.
+        let no_model = match &event {
+            Event::Failed {
+                run,
+                why,
+                failure: Failure::NoModel,
+                ..
+            } => (self.works[&work].work.ran.iter().rev())
+                .find(|ran| ran.run == *run)
+                .map(|ran| (ran.on.clone(), why.clone())),
+            _ => None,
+        };
         let outages = self.outages();
         let gate = match begins_a_wait {
             Some(held) => self.gate(now).and(held),
@@ -605,6 +619,26 @@ impl Driver {
             // things stand, so that nothing of it is left held for nothing.
             if let Err(fault) = self.step_one(now, work, Event::Look, true, &mut todos) {
                 return Err(self.stop(fault, true));
+            }
+        }
+        // The round's own work is paused by its failure; every other that runs a round on the model is paused with it.
+        if let Some((on, why)) = no_model {
+            let why = format!(
+                "the service has no model {}, which the level {} runs on, as a round of work {} found: {why}",
+                on.model, on.level, work.0
+            );
+            let numbers: Vec<WorkNumber> = (self.works.iter())
+                .filter(|(number, held)| **number != work && runs_on(held, self.policy.as_ref(), &on.model))
+                .map(|(number, _)| *number)
+                .collect();
+            for number in numbers {
+                let paused = Event::Paused {
+                    by: Pauser::Engine,
+                    why: Some(why.clone()),
+                };
+                if let Err(fault) = self.step_one(now, number, paused, false, &mut todos) {
+                    return Err(self.stop(fault, true));
+                }
             }
         }
         let held = &self.works[&work];
@@ -1173,6 +1207,18 @@ fn step(
         held.standing = standing_of(&held.flow, &held.work);
     }
     Ok(effects)
+}
+
+/// Whether the work, going and not paused, has an agent's cell whose round runs on the model, as the policy says.
+fn runs_on(held: &Held, policy: Option<&Policy>, model: &str) -> bool {
+    let Some(policy) = policy else {
+        return false;
+    };
+    held.standing == Standing::Going
+        && !decide::paused(&held.work.records)
+        && (held.flow.cells.iter())
+            .filter(|cell| cell.kind != flow::Kind::Engine)
+            .any(|cell| (policy.on)(&held.item, cell).is_some_and(|on| on.model == model))
 }
 
 /// The write of the work's block of [`START`], where its flow has one and the owner has just started the work: the work

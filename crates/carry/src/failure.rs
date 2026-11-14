@@ -119,8 +119,7 @@ const ERRORS: &[(&str, Failure)] = &[
     ("verification_required", Failure::CannotRun),
     ("billing_error", Failure::CannotRun),
     ("cloud_credential_error", Failure::CannotRun),
-    // The level names a model the service has not: the works at that level pause, with why, each as it meets it.
-    ("model_not_found", Failure::Other),
+    ("model_not_found", Failure::NoModel),
     ("overloaded", Failure::Passing),
     ("server_error", Failure::Passing),
     ("max_output_tokens", Failure::Passing),
@@ -711,9 +710,9 @@ mod tests {
         let missing = said(&[refusal("model_not_found", None, Value::Null)]);
         assert_eq!(
             of("There's an issue with the selected model", &missing, none),
-            Failure::Other
+            Failure::NoModel
         );
-        for kind in [Failure::PromptTooLong, Failure::Other] {
+        for kind in [Failure::PromptTooLong, Failure::NoModel, Failure::Other] {
             assert!(!kind.shared());
         }
     }
