@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { type Block, type Definition, type Given, type SentPart, type SentPiece, load } from './api';
 import { FlowPage, Shell } from './App';
-import { cell, flowOf, small, test } from './testing';
+import { cell, flowOf, small, test, tested } from './testing';
 
 let unmount: (() => void) | undefined;
 afterEach(() => {
@@ -115,7 +115,9 @@ describe('the chart', () => {
       'merge',
     ]);
     expect(headNames(page)[2]).toBe('design Design, engineer, when needs_design = yes');
-    expect(headNames(page)[3]).toBe('answer Answer comments, engineer, when has_comment, requires [plan_confirmed]');
+    expect(headNames(page)[3]).toBe(
+      'answer Answer comments, engineer, when test = has_comment, requires test = plan_confirmed',
+    );
     // The one way back: judge writes the opinions whose trigger runs plan, and the arrow is at plan's mark.
     expect(page.querySelector('.legend')?.textContent).toContain('way back (1)');
     const arrows = [...page.querySelectorAll('.arrow')];
@@ -135,10 +137,10 @@ describe('the chart', () => {
       'design when needs_design = yes',
     ]);
     expect(texts(bandRow(page, 'condition-row', 'has_comment'), '.spot .visually-hidden')).toEqual([
-      'answer when has_comment',
+      'answer when test = has_comment',
     ]);
     expect(texts(bandRow(page, 'condition-row', 'may_merge'), '.spot .visually-hidden')).toEqual([
-      'merge requires may_merge',
+      'merge requires test = may_merge',
     ]);
     // What a test says is in the column of words, whether a cell's when names it or its requires.
     expect(bandRow(page, 'condition-row', 'has_comment').querySelector('.words')?.textContent).toBe(
@@ -165,9 +167,9 @@ describe('the chart', () => {
     const flow = flowOf(
       [
         cell('a', { outputs: ['x'] }),
-        cell('b', { condition: { on: 'block', block: 'x', value: 'yes' } }),
-        cell('c', { condition: { on: 'block', block: 'x', value: 'no' } }),
-        cell('d', { condition: { on: 'block', block: 'x', value: 'maybe' } }),
+        cell('b', { when: [{ on: 'block', block: 'x', value: 'yes' }] }),
+        cell('c', { when: [{ on: 'block', block: 'x', value: 'no' }] }),
+        cell('d', { when: [{ on: 'block', block: 'x', value: 'maybe' }] }),
         cell('e', { kind: 'engine', line: null, act: 'merge', task: null }),
       ],
       { x: { values: ['yes', 'no', 'maybe'], default: 'no' } },
@@ -300,7 +302,7 @@ describe('the column of words', () => {
         cell('a', { title: 'First', outputs: ['x', 'y'], mustWrite: ['x'] }),
         cell('b', {
           title: 'Second',
-          condition: { on: 'block', block: 'y', value: 'yes' },
+          when: [{ on: 'block', block: 'y', value: 'yes' }],
           inputs: ['x', 'said'],
           input: { x: { runs: { why: null }, given: { kind: 'latest', why: 'It is what to judge.' } } },
           outputs: ['said'],
@@ -362,22 +364,57 @@ describe('the column of words', () => {
 });
 
 describe('a test of what stands', () => {
-  it('is named by its name in the head of the cell that waits on it and in its panel', () => {
+  it('is named by its key in the head of the cell that waits on it, and in its panel with what it says', () => {
     const approved = test('approved', 'No judge refuses', 'noneStanding', ['verdict', 'deep_verdict'], 'no');
     const flow = flowOf(
       [
         cell('judge', { outputs: ['verdict', 'deeper'] }),
-        cell('deep', { condition: { on: 'block', block: 'deeper', value: 'yes' }, outputs: ['deep_verdict'] }),
-        cell('merge', { kind: 'engine', line: null, effort: null, preconditions: [approved] }),
+        cell('deep', { when: [{ on: 'block', block: 'deeper', value: 'yes' }], outputs: ['deep_verdict'] }),
+        cell('merge', { kind: 'engine', line: null, effort: null, requires: tested(approved) }),
       ],
       { verdict: { values: ['yes', 'no'] }, deeper: { values: ['yes', 'no'] }, deep_verdict: { values: ['yes', 'no'] } },
     );
     const page = draw({ state: 'compiled', flow });
-    expect(headNames(page)[2]).toBe('merge merge, engine, requires [approved]');
+    expect(headNames(page)[2]).toBe('merge merge, engine, requires test = approved');
     click(page.querySelectorAll('thead .cell-head .head-button')[2]);
     expect(texts(page.querySelector('aside[aria-label="Cell merge"]') as HTMLElement, '.status-line')).toContain(
-      'requires [approved]',
+      'requires test = approvedNo judge refuses',
     );
+  });
+});
+
+describe('a when or a requires of several keys', () => {
+  it('draws each key in its own row and says them all, a requires on a block by its value', () => {
+    const flow = flowOf(
+      [
+        cell('a', { outputs: ['x', 'y'] }),
+        cell('b', {
+          when: [
+            { on: 'block', block: 'x', value: 'yes' },
+            { on: 'block', block: 'y', value: 'no' },
+          ],
+          requires: [{ on: 'block', block: 'deps', value: 'merged' }],
+        }),
+      ],
+      {
+        x: { values: ['yes', 'no'] },
+        y: { values: ['yes', 'no'] },
+        deps: { values: ['merged', 'open'], outside: 'items' },
+      },
+    );
+    const page = draw({ state: 'compiled', flow });
+    expect(texts(page, 'tbody.band .condition-row .block-name')).toEqual(['x', 'y', 'deps']);
+    expect(texts(bandRow(page, 'condition-row', 'x'), '.spot .visually-hidden')).toEqual(['b when x = yes']);
+    expect(texts(bandRow(page, 'condition-row', 'y'), '.spot .visually-hidden')).toEqual(['b when y = no']);
+    expect(texts(bandRow(page, 'condition-row', 'deps'), '.spot .visually-hidden')).toEqual([
+      'b requires deps = merged',
+    ]);
+    expect(bandRow(page, 'condition-row', 'deps').querySelectorAll('.part.precondition')).toHaveLength(1);
+    expect(headNames(page)[1]).toBe('b b, engineer, when x = yes, y = no, requires deps = merged');
+    click(page.querySelectorAll('thead .cell-head .head-button')[1]);
+    expect(bandRow(page, 'condition-row', 'deps').querySelector('.words')?.textContent).toBe('requires deps = merged');
+    const panel = page.querySelector('aside[aria-label="Cell b"]') as HTMLElement;
+    expect(texts(panel, '.status-line')).toEqual(['when x = yes, y = no', 'requires deps = merged']);
   });
 });
 

@@ -11,7 +11,7 @@
 // write by the outside.
 
 import type { Flow } from '../api';
-import { cell, flowOf, test } from '../testing';
+import { cell, flowOf, test, tested } from '../testing';
 import type {
   Ask,
   Block,
@@ -55,7 +55,7 @@ export const FLOW: Flow = flowOf(
       title: 'Deep research',
       line: 'deep_research',
       task: 'Research what the plan leaves open, and write the solution.',
-      condition: { on: 'block', block: 'needs_deep_research', value: 'yes' },
+      when: [{ on: 'block', block: 'needs_deep_research', value: 'yes' }],
       inputs: ['plan', 'opinions_deep_research'],
       outputs: ['solution'],
     }),
@@ -89,7 +89,7 @@ export const FLOW: Flow = flowOf(
       task: null,
       act: 'merge',
       effort: null,
-      preconditions: [test('approved', 'The owner approved the merge', 'all', ['approval'])],
+      requires: tested(test('approved', 'The owner approved the merge', 'all', ['approval'])),
       inputs: ['ci', 'content', 'approval'],
     }),
   ],
@@ -427,8 +427,7 @@ class History {
       const finished = mine.filter((r) => r.end?.kind === 'finished');
       const record = finished[finished.length - 1];
       const open = mine.find((r) => r.end === null);
-      const condition = c.condition;
-      const skipped = condition?.on === 'block' && this.current(condition.block)?.value !== condition.value;
+      const skipped = c.when.some((k) => k.on === 'block' && this.current(k.block)?.value !== k.value);
       const lastRound = open?.rounds[open.rounds.length - 1];
       let state: CellState = record ? (details[i].needs.length > 0 ? 'again' : 'done') : 'notYet';
       if (open) {

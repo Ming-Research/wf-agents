@@ -210,13 +210,15 @@ name, so that each thing is drawn once. The lines: a row for each line the agent
 it stands, its name in full in the accent, a dot in the accent under each cell on it, the dots joined by the row's
 line, so that a joined row reads as one session going on; in the column of words its keys as its file writes them
 (`levels_above 1, reads_only true, rules [general, engineering]`). The conditions: a row for each named test and each
-block a cell's `when` reads, where the first cell that names it stands; under a cell whose `when` it is, a tick where it
-runs when the test holds or the block is yes, a cross where it runs when the block is no, and the value itself, in
-monospace, where it runs on another; a square under a cell that `requires` the test; in the column of words what the
-test `says`, or the block's `default`. Each row's name opens its panel: a line's, with its file, its keys and its
-cells; a test's, with its file and its keys; a block's. Under the bands, the rows of the triggers stand over the data's,
-with the same firmer line under their last. The marks on a trigger's row: a ring where the trigger runs the cell, a dot
-where the cell may write the block it stands on, both where both; on a datum's row, side by side, a dot where the cell
+block or datum a key of a cell's `when` or `requires` names, where the first cell that names it stands, each key of a
+cell in its own row; under a cell with a key of its `when` on the row, a tick where it runs when the test holds or the
+block is yes, a cross where it runs when the block is no, and the value itself, in monospace, where it runs on
+another; a square under a cell with a key of its `requires` on it, the value it waits for in its words
+(`requires dependencies = merged`); in the column of words what the test `says`, or the block's `default`. Each row's
+name opens its panel: a line's, with its file, its keys and its cells; a test's, with its file and its keys; a
+block's. Under the bands, the rows of the triggers stand over the data's, with the same firmer line under their last.
+The marks on a trigger's row: a ring where the trigger runs the cell, a dot where the cell may write the block it
+stands on, both where both; on a datum's row, side by side, a dot where the cell
 may write it and a ring where the cell is given it, with its kind inside (`1` latest, `2` last and latest, `+` all);
 what a condition reads is on the condition's row alone. A trigger's marks are joined by a line along its row; a datum
 runs no cell, and its row has none. The line starts at the first mark that no way back reaches, which is the first

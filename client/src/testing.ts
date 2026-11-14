@@ -1,7 +1,7 @@
 // What the page's tests and the works page's fixtures build definitions from: cells written in short, and the flow they make as the interface would
 // give it, with who writes and reads each block worked out as the compiler does.
 
-import type { Block, Cell, Flow, Input, Limits, Line, Test, TestKind } from './api';
+import type { Block, Cell, Condition, Flow, Input, Limits, Line, Test, TestKind } from './api';
 
 const LIMITS: Limits = { runs: 3, returns: 2, calls: 40 };
 
@@ -36,8 +36,8 @@ export function cell(id: string, fields: Partial<Cell> = {}): Cell {
     takesMain: false,
     tools: [],
     triggers: runsOn.map((b) => ({ name: `on_${b}`, what: null, block: b, read: [], do: null })),
-    condition: null,
-    preconditions: [],
+    when: [],
+    requires: [],
     outputs: [],
     mustWrite: [],
     limits: LIMITS,
@@ -47,6 +47,11 @@ export function cell(id: string, fields: Partial<Cell> = {}): Cell {
     given,
     input: { ...input, ...fields.input },
   };
+}
+
+/// Keys of a cell's `when` or `requires`, each one of these named tests.
+export function tested(...tests: Test[]): Condition[] {
+  return tests.map((test) => ({ on: 'test', test }));
 }
 
 /// A named test of these blocks, in a file of its own.
@@ -74,7 +79,8 @@ export function flowOf(
   name = 'small',
   lines: Record<string, Partial<Line>> = {},
 ): Flow {
-  const used = cells.flatMap((c) => [...(c.condition?.on === 'test' ? [c.condition.test] : []), ...c.preconditions]);
+  const keys = (c: Cell) => [...c.when, ...c.requires];
+  const used = cells.flatMap((c) => keys(c).flatMap((k) => (k.on === 'test' ? [k.test] : [])));
   const tests = [...new Map(used.map((t) => [t.name, t])).values()].sort((a, b) => (a.name < b.name ? -1 : 1));
   const all: Block[] = Object.keys(blocks)
     .sort()
@@ -91,7 +97,7 @@ export function flowOf(
       },
       readBy: {
         cells: cells.filter((c) => c.inputs.includes(b)).map((c) => c.id),
-        conditions: cells.filter((c) => c.condition?.on === 'block' && c.condition.block === b).map((c) => c.id),
+        conditions: cells.filter((c) => keys(c).some((k) => k.on === 'block' && k.block === b)).map((c) => c.id),
         tests: tests.filter((t) => t.reads.includes(b)).map((t) => t.name),
         shown: blocks[b].shown ?? false,
       },
@@ -133,15 +139,15 @@ export function small(): Flow {
       cell('design', {
         title: 'Design',
         task: 'Design what the plan asks for.',
-        condition: { on: 'block', block: 'needs_design', value: 'yes' },
+        when: [{ on: 'block', block: 'needs_design', value: 'yes' }],
         inputs: ['plan'],
         outputs: ['design'],
       }),
       cell('answer', {
         title: 'Answer comments',
         task: 'Answer the comments on the plan.',
-        condition: { on: 'test', test: test('has_comment', 'The item has a comment', 'any', ['commented']) },
-        preconditions: [test('plan_confirmed', 'The owner confirmed the plan', 'all', ['confirmed'])],
+        when: tested(test('has_comment', 'The item has a comment', 'any', ['commented'])),
+        requires: tested(test('plan_confirmed', 'The owner confirmed the plan', 'all', ['confirmed'])),
         inputs: ['comments', 'plan'],
         outputs: ['reply'],
         limits: { ...LIMITS, runs: 5 },
@@ -161,7 +167,7 @@ export function small(): Flow {
         line: null,
         task: null,
         act: 'merge',
-        preconditions: [test('may_merge', 'The work may merge', 'none', ['ci'], 'red')],
+        requires: tested(test('may_merge', 'The work may merge', 'none', ['ci'], 'red')),
         inputs: ['ci'],
       }),
     ],

@@ -5,12 +5,13 @@ import { test } from './testing';
 import { conditionWords, faultWords, readsWords, writersBesideCells } from './words';
 
 describe('the words of the page', () => {
-  it('say a condition by its block and value, or by its test’s name, as the cell’s file writes it', () => {
-    expect(conditionWords({ on: 'block', block: 'needs_design', value: 'yes' })).toBe('needs_design = yes');
-    expect(
-      conditionWords({ on: 'test', test: test('has_comment', 'The item has a comment', 'any', ['commented']) }),
-    ).toBe('has_comment');
-    expect(conditionWords(null)).toBe('');
+  it('say a when or a requires as the cell’s file writes it, every key: a block with its value, a test by its name', () => {
+    expect(conditionWords([{ on: 'block', block: 'needs_design', value: 'yes' }])).toBe('needs_design = yes');
+    const comment = test('has_comment', 'The item has a comment', 'any', ['commented']);
+    expect(conditionWords([{ on: 'block', block: 'deep_needed', value: 'no' }, { on: 'test', test: comment }])).toBe(
+      'deep_needed = no, test = has_comment',
+    );
+    expect(conditionWords([])).toBe('');
   });
 
   it('say a test by its keys as its file writes them, for one block and for several', () => {
@@ -182,8 +183,8 @@ describe('the words of the page', () => {
     expect(faultWords({ file: 'blocks/test.toml', field: '', what: { kind: 'blockNamedTest' } })).toBe(
       "A block is named test, which a cell's when takes for a named test.",
     );
-    expect(faultWords({ file: 'cells/D1.toml', field: 'when', what: { kind: 'whenNotOneKey' } })).toBe(
-      "A cell's when names one thing: test, or one block with the value it must have.",
+    expect(faultWords({ file: 'cells/D1.toml', field: 'when', what: { kind: 'emptyCondition' } })).toBe(
+      "A cell's when or requires has no keys: it says nothing that must hold.",
     );
     expect(faultWords({ file: 'plan.toml', field: 'task', what: { kind: 'noTask' } })).toBe(
       "An agent's cell has no task, or one of no words: its agent would be told nothing to do.",

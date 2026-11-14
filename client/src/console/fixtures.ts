@@ -34,7 +34,7 @@ type CellIn = {
   outputs: string[];
   /// The blocks among its outputs that every hand-in of it includes; none where it is left out.
   mustWrite?: string[];
-  condition?: Cell['condition'];
+  condition?: Cell['when'][number];
   preconditions?: Test[];
 };
 
@@ -55,8 +55,8 @@ function flowOf(
     takesMain: false,
     triggers: [],
     tools: [],
-    condition: c.condition ?? null,
-    preconditions: c.preconditions ?? [],
+    when: c.condition ? [c.condition] : [],
+    requires: (c.preconditions ?? []).map((test) => ({ on: 'test', test })),
     inputs: c.inputs,
     runsOn: c.inputs,
     given: c.line === null ? [] : c.inputs,
@@ -70,7 +70,11 @@ function flowOf(
     mustWrite: c.mustWrite ?? [],
     limits: LIMITS,
   }));
-  const tests = [...new Map(all.flatMap((c) => c.preconditions).map((t) => [t.name, t])).values()];
+  const tests = [
+    ...new Map(
+      all.flatMap((c) => c.requires.flatMap((k) => (k.on === 'test' ? [k.test] : []))).map((t) => [t.name, t]),
+    ).values(),
+  ];
   const named: Block[] = Object.keys(blocks)
     .sort()
     .map((b) => ({
@@ -86,7 +90,7 @@ function flowOf(
       },
       readBy: {
         cells: all.filter((c) => c.inputs.includes(b)).map((c) => c.id),
-        conditions: all.filter((c) => c.condition?.on === 'block' && c.condition.block === b).map((c) => c.id),
+        conditions: all.filter((c) => c.when.some((k) => k.on === 'block' && k.block === b)).map((c) => c.id),
         tests: tests.filter((t) => t.reads.includes(b)).map((t) => t.name),
         shown: blocks[b].shown ?? false,
       },

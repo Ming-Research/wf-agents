@@ -13,11 +13,11 @@
 //
 // Over the blocks stand bands of rows, each thing drawn once: the lines, one to a line the agents' cells name, with a
 // dot under each cell on it, the dots joined along the row, so that a joined row reads as one session going on; and
-// the conditions, one to a named test or a block a cell's condition names: under a cell whose `when` it is, a tick
-// where the cell runs when the test holds or the block is yes, a cross where it runs when the block is no, and the
-// value itself where it waits for another; and a square under each cell that `requires` the test, which the work waits
-// before until it holds. The engine's tools are the flow's, alike for every agent's cell, and are named once, in the
-// view's line.
+// the conditions, one to a named test or a block or datum a key of a cell's `when` or `requires` names, each key of a
+// cell marked in its own row: for `when`, a tick where the cell runs when the test holds or the block is yes, a cross
+// where it runs when the block is no, and the value itself where it waits for another; for `requires`, a square, which
+// the work waits before until it holds, its value in its words. The engine's tools are the flow's, alike for every
+// agent's cell, and are named once, in the view's line.
 
 import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, useState } from 'react';
 
@@ -158,9 +158,9 @@ export function LineGlyph({ on }: { on: boolean }) {
   );
 }
 
-/// The marks of a cell on a condition: where it is the cell's `when`, a tick where the cell runs when the test holds or
-/// the block is yes, a cross where it runs when the block is no, and the value itself where it runs on another; a
-/// square where the work waits before the cell until the test holds.
+/// The marks of a cell on a condition: where a key of its `when` is on the row, a tick where the cell runs when the
+/// test holds or the block is yes, a cross where it runs when the block is no, and the value itself where it runs on
+/// another; a square where a key of its `requires` is, which the work waits before the cell until it holds.
 export function ConditionGlyph({ spot }: { spot: ConditionSpot }) {
   const { when, value, requires } = spot;
   if (!when && !requires) return null;
@@ -702,10 +702,11 @@ function LineSegments({ spot }: { spot: LineSpot }) {
   );
 }
 
-/// The row of a condition, under the lines: a named test, or a block a cell's `when` reads, by its name; under each
-/// cell whose `when` it is, a tick, a cross or the value (`ConditionGlyph`), and a square under each that `requires`
-/// it; and what the test `says`, or the block's `default`. On the row of a condition the chosen cell names, by which
-/// key it names it. Chosen by its name, it opens the test's panel, or the block's.
+/// The row of a condition, under the lines: a named test, or a block or datum a key of a cell's `when` or `requires`
+/// names, by its name; under each cell with a key of its `when` on the row, a tick, a cross or the value
+/// (`ConditionGlyph`), and a square under each with a key of its `requires` on it, the value said in its words; and
+/// what the test `says`, or the block's `default`. On the row of a condition the chosen cell names, by which key it
+/// names it. Chosen by its name, it opens the test's panel, or the block's.
 function ConditionLine(props: {
   row: ConditionRow;
   /// Of a block's row, the block as the flow declares it.
@@ -719,12 +720,15 @@ function ConditionLine(props: {
   onPoint: (c: number | null) => void;
 }) {
   const { row, declared, cells, chosen, onChoose, chosenCell, saying, pointed, onPoint } = props;
-  // How a cell's `when` names the row's condition: by the test, or by the block with its value.
-  const whenWords = (value?: string) => (row.test ? 'when' : `when ${row.name} = ${value}`);
+  // A key on the row as the cell's file writes it: the test, or the block with the value it waits for.
+  const keyText = (value?: string) => (row.test ? `test = ${row.name}` : `${row.name} = ${value}`);
   const at = saying ? cells.findIndex((cell) => cell.id === saying.id) : -1;
   const own = at === -1 ? undefined : row.spots[at];
   const says = own
-    ? [...(own.when ? [whenWords(own.value)] : []), ...(own.requires ? ['requires'] : [])].join('; ')
+    ? [
+        ...(own.when ? [`when ${keyText(own.value)}`] : []),
+        ...(own.requires ? [`requires ${keyText(own.requiresValue)}`] : []),
+      ].join('; ')
     : '';
   const what = row.test ? row.test.words : declared?.default ? `default ${declared.default}` : '';
   return (
@@ -751,8 +755,8 @@ function ConditionLine(props: {
       {cells.map((cell, c) => {
         const spot = row.spots[c];
         const words = [
-          spot.when ? `${cell.id} ${whenWords(spot.value)}${row.test ? ` ${row.name}` : ''}` : '',
-          spot.requires ? `${cell.id} requires ${row.name}` : '',
+          spot.when ? `${cell.id} when ${keyText(spot.value)}` : '',
+          spot.requires ? `${cell.id} requires ${keyText(spot.requiresValue)}` : '',
         ]
           .filter((w) => w !== '')
           .join(', ');

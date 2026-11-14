@@ -3,11 +3,11 @@
 // name. Everything the chart draws is worked out here, from the interface's JSON alone, so that it can be tested
 // without drawing: the order of the rows, the marks and the ways back.
 
-import type { Block, Cell, Flow, InputKind, Line, Test } from './api';
+import type { Block, Cell, Condition, Flow, InputKind, Line, Test } from './api';
 
 /// What a cell does with a block: a new version of it runs the cell, the cell is given it, may write it as an output,
-/// reads its value in its condition (directly, or by the named test that is its condition), or reads its value in a
-/// named test that is one of its preconditions.
+/// reads its value in a key of its `when` (the block's own key, or a named test that reads it), or in a key of its
+/// `requires`.
 export interface Mark {
   runs: boolean;
   given: boolean;
@@ -29,18 +29,20 @@ export const NO_MARK: Mark = {
 export const MARK_PARTS = ['runs', 'given', 'write', 'condition', 'precondition'] as const;
 export type MarkPart = (typeof MARK_PARTS)[number];
 
+/// Whether a key of a `when` or a `requires` reads the block: names it, or is a named test that reads it.
+export function keyReads(key: Condition, block: string): boolean {
+  return key.on === 'block' ? key.block === block : key.test.reads.includes(block);
+}
+
 /// The mark of a cell on a block.
 export function markOf(cell: Cell | undefined, block: string): Mark {
   if (!cell) return NO_MARK;
-  const condition = cell.condition;
   return {
     runs: cell.runsOn.includes(block),
     given: cell.given.includes(block),
     write: cell.outputs.includes(block),
-    condition:
-      condition !== null &&
-      (condition.on === 'block' ? condition.block === block : condition.test.reads.includes(block)),
-    precondition: cell.preconditions.some((test) => test.reads.includes(block)),
+    condition: cell.when.some((key) => keyReads(key, block)),
+    precondition: cell.requires.some((key) => keyReads(key, block)),
   };
 }
 
@@ -50,7 +52,7 @@ export function hasMark(mark: Mark): boolean {
 
 /// The order of the blocks' rows. A block stands where it is first written in the walk, a cell's outputs together
 /// in the order the cell lists them; a block no cell writes (what people or the outside write) stands just before the
-/// first cell that reads it: the blocks its condition reads first, then those its preconditions read, then those it
+/// first cell that reads it: the blocks its `when` reads first, then those its `requires` reads, then those it
 /// names, that run it or that it is given, in their order; a block no cell writes or reads stands last. Ties go by
 /// name. The marks then step down to the right like a staircase, each cell's writes one under another and next to the
 /// reads that follow from them, and a write right of a read stands out as a way back.
@@ -136,17 +138,20 @@ export interface LineRow {
   spots: LineSpot[];
 }
 
-/// Where a condition's row crosses a cell's column: whether the condition is the cell's `when`, so that the cell runs
-/// only when it holds and is skipped otherwise, and whether it is among the cell's `requires`, so that the work waits
+/// Where a condition's row crosses a cell's column: whether a key of the cell's `when` is on the row, so that the cell
+/// runs only when it holds and is skipped otherwise, and whether a key of its `requires` is, so that the work waits
 /// before the cell until it holds.
 export interface ConditionSpot {
   when: boolean;
   /// Of a block's row, the value the cell's `when` waits for.
   value?: string;
   requires: boolean;
+  /// Of a block's row, the value the cell's `requires` waits for.
+  requiresValue?: string;
 }
 
-/// A row of a condition the cells name: a named test, or a block whose value a cell's `when` reads.
+/// A row of a condition the cells name: a named test, or a block or datum a key of a cell's `when` or `requires`
+/// names.
 export interface ConditionRow {
   /// The test's name, or the block's.
   name: string;
@@ -205,8 +210,8 @@ export function matrix(flow: Flow): Matrix {
   ];
 
   // Of a trigger's row: whether the cell runs on the trigger, and whether it writes the block the trigger stands on.
-  // Of a datum's row: whether the cell is given it and in which kind, or writes it. What a cell's condition reads is
-  // drawn once, on the condition's own row.
+  // Of a datum's row: whether the cell is given it and in which kind, or writes it. What a cell's `when` and
+  // `requires` read is drawn once, on the rows of their keys.
   const markIn = (cell: Cell, r: BlockRow): Mark => {
     if (r.trigger !== undefined) {
       return {
@@ -270,42 +275,37 @@ export function matrix(flow: Flow): Matrix {
     };
   });
 
-  // The conditions, each where the first cell that names it stands: a cell's `when` first, then its `requires` in
-  // their order. A block is one row, whatever value each cell waits for; a test and a block of one name are two.
+  // The conditions, each where the first cell that names it stands, every key of a cell's `when` first, then of its
+  // `requires`, in their order. A block is one row, whatever value each cell waits for; a test and a block of one name
+  // are two.
   const named: { name: string; test?: Test; block?: string }[] = [];
   for (const c of cells) {
-    const of = [
-      ...(c.condition === null
-        ? []
-        : [
-            c.condition.on === 'block'
-              ? { name: c.condition.block, block: c.condition.block }
-              : { name: c.condition.test.name, test: c.condition.test },
-          ]),
-      ...c.preconditions.map((t) => ({ name: t.name, test: t })),
-    ];
-    for (const row of of) {
+    for (const key of [...c.when, ...c.requires]) {
+      const row = key.on === 'block' ? { name: key.block, block: key.block } : { name: key.test.name, test: key.test };
       if (!named.some((r) => r.name === row.name && (r.test === undefined) === (row.test === undefined))) {
         named.push(row);
       }
     }
   }
-  // Whether the cell's `when` is the row's condition: of a block's row the value it waits for, of a test's nothing.
-  const whenOn = (row: { name: string; block?: string }, c: Cell): string | undefined => {
-    const when = c.condition;
-    if (!when) return undefined;
-    if (row.block !== undefined) return when.on === 'block' && when.block === row.block ? when.value : undefined;
-    return when.on === 'test' && when.test.name === row.name ? '' : undefined;
+  // The key of these that is on the row: of a block's row, by the value it waits for; of a test's row, as ''.
+  const keyOn = (row: { name: string; block?: string }, keys: Condition[]): string | undefined => {
+    for (const key of keys) {
+      if (row.block !== undefined && key.on === 'block' && key.block === row.block) return key.value;
+      if (row.block === undefined && key.on === 'test' && key.test.name === row.name) return '';
+    }
+    return undefined;
   };
   const conditions: ConditionRow[] = named.map((row) => ({
     ...row,
     test: row.test && (flow.tests.find((t) => t.name === row.name) ?? row.test),
     spots: cells.map((c) => {
-      const value = whenOn(row, c);
+      const value = keyOn(row, c.when);
+      const requiresValue = keyOn(row, c.requires);
       return {
         when: value !== undefined,
         value: row.block !== undefined ? value : undefined,
-        requires: row.test !== undefined && c.preconditions.some((t) => t.name === row.name),
+        requires: requiresValue !== undefined,
+        requiresValue: row.block !== undefined ? requiresValue : undefined,
       };
     }),
   }));

@@ -70,8 +70,8 @@ export interface Input {
   given: { kind: InputKind | null; why: string | null } | null;
 }
 
-/// When a cell runs: when a block has a value (`when = { deep_needed = "no" }`), or when a named test holds
-/// (`when = { test = "settled" }`).
+/// One key of a cell's `when` or `requires`: a block or a datum with the value it must have (`deep_needed = "yes"`),
+/// or a named test that holds (`test = "settled"`).
 export type Condition = { on: 'block'; block: string; value: string } | { on: 'test'; test: Test };
 
 export interface Cell {
@@ -88,9 +88,10 @@ export interface Cell {
   effort: string | null;
   /// The work's branch takes the latest main in as each run of the cell starts.
   takesMain: boolean;
-  /// None is always.
-  condition: Condition | null;
-  preconditions: Test[];
+  /// When it runs: every key of its `when` holds, in the order written; none is always.
+  when: Condition[];
+  /// What the work waits for before it: every key of its `requires`, in the order written.
+  requires: Condition[];
   /// The blocks it names: those that run it, in the order it names them, then those it is only given.
   inputs: string[];
   /// The blocks whose new version runs it, in the order it names them.
@@ -191,8 +192,8 @@ export type What =
   | { kind: 'defaultNotAValue'; block: string; default: string }
   /// A block is named `test`, which a cell's `when` reads as the name of a named test.
   | { kind: 'blockNamedTest' }
-  /// A cell's `when` names more than one thing, or nothing: it is `{ test = "..." }` or one block with its value.
-  | { kind: 'whenNotOneKey' }
+  /// A cell's `when` or `requires` has no keys.
+  | { kind: 'emptyCondition' }
   | { kind: 'noteNotByPeople'; block: string }
   | { kind: 'noteIsAChoice'; block: string }
   | { kind: 'noSuchBlock'; block: string }

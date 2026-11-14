@@ -34,16 +34,21 @@ export function keysWords(keys: [string, string][]): string {
   return keys.map(([key, value]) => `${key} ${value}`).join(', ');
 }
 
-/// A named test, wherever a cell's condition or precondition names it: by its name.
+/// A named test, wherever a key of a cell's `when` or `requires` names it: by its name.
 export function testWords(test: Test): string {
   return test.name;
 }
 
-/// A condition as the cell's file writes it: the block and the value it waits for (`deep_needed = no`), or the named
-/// test; nothing where the cell has none.
-export function conditionWords(condition: Condition | null): string {
-  if (!condition) return '';
-  return condition.on === 'block' ? `${condition.block} = ${condition.value}` : testWords(condition.test);
+/// One key of a cell's `when` or `requires` as its file writes it: a block with the value it waits for
+/// (`deep_needed = no`), or the named test (`test = settled`).
+export function keyWords(key: Condition): string {
+  return key.on === 'block' ? `${key.block} = ${key.value}` : `test = ${testWords(key.test)}`;
+}
+
+/// A cell's `when` or `requires` as its file writes it, every key of it: `deep_needed = yes, edits_tree = yes`;
+/// nothing where it has none.
+export function conditionWords(keys: Condition[]): string {
+  return keys.map(keyWords).join(', ');
 }
 
 /// Who writes a block besides cells, by the block's own keys: `people`, `note`, `outside` with its source.
@@ -115,8 +120,8 @@ export function faultWords(fault: Fault): string {
       return `${w.block} counts as ${w.default} before it is written, which is not one of its values.`;
     case 'blockNamedTest':
       return "A block is named test, which a cell's when takes for a named test.";
-    case 'whenNotOneKey':
-      return "A cell's when names one thing: test, or one block with the value it must have.";
+    case 'emptyCondition':
+      return "A cell's when or requires has no keys: it says nothing that must hold.";
     case 'noteNotByPeople':
       return `${w.block} is a note, but people do not write it.`;
     case 'noteIsAChoice':
@@ -230,7 +235,7 @@ export function thereWhen(flow: Flow, reader: string, block: Block): string {
     const i = flow.cells.findIndex((c) => c.id === id);
     if (i < 0 || i >= at) continue;
     const writer = flow.cells[i];
-    if (writer.condition !== null) parts.push(`${id} when ${conditionWords(writer.condition)}`);
+    if (writer.when.length > 0) parts.push(`${id} when ${conditionWords(writer.when)}`);
     else if (!writer.mustWrite.includes(block.name)) parts.push(`${id} must_write false`);
   }
   return parts.join('; ');
@@ -270,8 +275,8 @@ export function headFacts(cell: Cell): {
 } {
   return {
     by: runBy(cell),
-    when: cell.condition ? `when ${conditionWords(cell.condition)}` : null,
-    waits: cell.preconditions.length > 0 ? `requires ${listed(cell.preconditions.map(testWords))}` : null,
+    when: cell.when.length > 0 ? `when ${conditionWords(cell.when)}` : null,
+    waits: cell.requires.length > 0 ? `requires ${conditionWords(cell.requires)}` : null,
   };
 }
 

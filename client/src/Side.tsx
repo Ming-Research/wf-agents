@@ -2,7 +2,18 @@
 
 import { Fragment, type ReactNode, useState } from 'react';
 
-import type { ActWords, Block, Cell, Fault, Flow, SentCarried, SentPart, SentPiece, Unknown } from './api';
+import type {
+  ActWords,
+  Block,
+  Cell,
+  Condition,
+  Fault,
+  Flow,
+  SentCarried,
+  SentPart,
+  SentPiece,
+  Unknown,
+} from './api';
 import type { Chosen } from './Chart';
 import { FormTree } from './FormTree';
 import { type BlockRow, type ConditionRow, type LineRow, type Matrix, where } from './matrix';
@@ -17,13 +28,18 @@ import {
   readsWords,
   runBy,
   snake,
-  testWords,
   thereWhen,
   writersBesideCells,
 } from './words';
 
 /// Whether the panel is folded away, and the way to fold it or bring it back.
 export type Fold = { folded: boolean; onFold: () => void; edge?: ReactNode };
+
+/// What the named tests among these keys say, each as its file writes it; none where no key is a test.
+function testsSay(keys: Condition[]): string | undefined {
+  const says = keys.flatMap((k) => (k.on === 'test' ? [k.test.words] : []));
+  return says.length > 0 ? says.join('; ') : undefined;
+}
 
 /// A name the owner can choose to see it on the chart and in the panel.
 function Choose({
@@ -283,13 +299,13 @@ export function CellPanel(props: {
       }
       lines={
         <>
-          {cell.condition && (
-            <StatusLine word={<Attr name="when" value={conditionWords(cell.condition)} />}>
-              {cell.condition.on === 'test' ? cell.condition.test.words : undefined}
-            </StatusLine>
-          )}
-          {cell.preconditions.length > 0 && (
-            <StatusLine word={<Attr name="requires" value={listed(cell.preconditions.map(testWords))} />} />
+          {(['when', 'requires'] as const).map(
+            (key) =>
+              cell[key].length > 0 && (
+                <StatusLine key={key} word={<Attr name={key} value={conditionWords(cell[key])} />}>
+                  {testsSay(cell[key])}
+                </StatusLine>
+              ),
           )}
           {cell.takesMain && <StatusLine word={<Attr name="takes_main" value="true" />} />}
           <OwnLimits cell={cell} flow={flow} />
@@ -717,10 +733,9 @@ export function TestPanel(props: { row: ConditionRow; flow: Flow; onChoose: (c: 
   const { row, flow, onChoose, fold } = props;
   const test = row.test;
   if (!test) return null;
-  const when = flow.cells
-    .filter((c) => c.condition?.on === 'test' && c.condition.test.name === test.name)
-    .map((c) => c.id);
-  const requires = flow.cells.filter((c) => c.preconditions.some((t) => t.name === test.name)).map((c) => c.id);
+  const names = (keys: Condition[]) => keys.some((k) => k.on === 'test' && k.test.name === test.name);
+  const when = flow.cells.filter((c) => names(c.when)).map((c) => c.id);
+  const requires = flow.cells.filter((c) => names(c.requires)).map((c) => c.id);
   return (
     <Panel
       label={`Test ${test.name}`}

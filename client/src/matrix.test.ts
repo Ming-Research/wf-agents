@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { NO_MARK, blockOrder, matrix } from './matrix';
-import { cell, flowOf, small, test } from './testing';
+import { cell, flowOf, small, test, tested } from './testing';
 
 describe('the order of the blocks', () => {
   it('puts each block where it is first written, a cell’s outputs together, and what no cell writes before its first reader', () => {
@@ -24,7 +24,7 @@ describe('the order of the blocks', () => {
     const flow = flowOf(
       [
         cell('a', { outputs: ['x'] }),
-        cell('b', { condition: { on: 'block', block: 'choice', value: 'yes' }, inputs: ['given', 'x'] }),
+        cell('b', { when: [{ on: 'block', block: 'choice', value: 'yes' }], inputs: ['given', 'x'] }),
       ],
       { x: {}, given: { people: true }, choice: { people: true, values: ['yes', 'no'] }, zz: { shown: true, people: true }, shown: { shown: true, people: true } },
     );
@@ -49,10 +49,15 @@ describe('the bands over the blocks', () => {
     flowOf(
       [
         cell('a', { line: 'first', outputs: ['x'] }),
-        cell('b', { line: 'second', condition: { on: 'block', block: 'x', value: 'no' } }),
-        cell('c', { line: 'first', condition: { on: 'block', block: 'x', value: 'yes' }, preconditions: [ready] }),
-        cell('d', { kind: 'engine', line: null, condition: { on: 'block', block: 'x', value: 'maybe' } }),
-        cell('e', { kind: 'engine', line: null, condition: { on: 'test', test: ready }, preconditions: [ready] }),
+        cell('b', { line: 'second', when: [{ on: 'block', block: 'x', value: 'no' }] }),
+        cell('c', { line: 'first', when: [{ on: 'block', block: 'x', value: 'yes' }], requires: tested(ready) }),
+        cell('d', { kind: 'engine', line: null, when: [{ on: 'block', block: 'x', value: 'maybe' }] }),
+        cell('e', {
+          kind: 'engine',
+          line: null,
+          when: tested(ready),
+          requires: [...tested(ready), { on: 'block', block: 'x', value: 'no' }],
+        }),
       ],
       { x: { values: ['yes', 'no', 'maybe'] }, go: { people: true, values: ['yes', 'no'] } },
     );
@@ -81,6 +86,14 @@ describe('the bands over the blocks', () => {
       [true, 'maybe'],
       [false, undefined],
     ]);
+    // A key of a requires on a block is on the block's row, with its value.
+    expect(x.spots.map((s) => [s.requires, s.requiresValue])).toEqual([
+      [false, undefined],
+      [false, undefined],
+      [false, undefined],
+      [false, undefined],
+      [true, 'no'],
+    ]);
     expect(named.spots.map((s) => [s.when, s.requires])).toEqual([
       [false, false],
       [false, false],
@@ -102,8 +115,8 @@ describe('the marks of named tests', () => {
     [
       cell('ask', { outputs: ['x', 'y'] }),
       cell('more', {
-        condition: { on: 'test', test: test('either', 'Either is yes', 'any', ['x', 'y']) },
-        preconditions: [test('given', 'Given', 'all', ['go'])],
+        when: tested(test('either', 'Either is yes', 'any', ['x', 'y'])),
+        requires: tested(test('given', 'Given', 'all', ['go'])),
         inputs: ['x', 'request'],
       }),
     ],
@@ -128,7 +141,13 @@ describe('the marks of named tests', () => {
   it('put a block no cell writes before its first reader: what the condition reads, then the preconditions, then the inputs', () => {
     const order = blockOrder(
       flowOf(
-        [cell('a', { condition: { on: 'block', block: 'c', value: 'yes' }, preconditions: [test('t', 'T', 'all', ['p'])], inputs: ['i'] })],
+        [
+          cell('a', {
+            when: [{ on: 'block', block: 'c', value: 'yes' }],
+            requires: tested(test('t', 'T', 'all', ['p'])),
+            inputs: ['i'],
+          }),
+        ],
         { i: { people: true }, p: { people: true, values: ['yes', 'no'] }, c: { people: true, values: ['yes', 'no'] } },
       ),
     );
@@ -241,9 +260,10 @@ describe('the ways back', () => {
   it('draw no line and no way back on a datum’s row: a datum a cell is given, or whose value it reads, runs no cell', () => {
     // A precondition of the first cell reads what people and a later cell write.
     const waits = test('ready', 'x is yes', 'all', ['x']);
-    const flow = flowOf([cell('a', { preconditions: [waits] }), cell('b', { outputs: ['x'] }), cell('c', { inputs: ['x'] })], {
-      x: { people: true, values: ['yes', 'no'] },
-    });
+    const flow = flowOf(
+      [cell('a', { requires: tested(waits) }), cell('b', { outputs: ['x'] }), cell('c', { inputs: ['x'] })],
+      { x: { people: true, values: ['yes', 'no'] } },
+    );
     const m = matrix(flow);
     expect(m.spots[rowAt(m, 'x')].every((spot) => spot.line === 'none' && spot.back === 'none')).toBe(true);
     expect(markAt(m, 'a', 'x')).toEqual(datum({}));
@@ -255,7 +275,7 @@ describe('the ways back', () => {
     const flow = flowOf(
       [
         cell('a', { inputs: ['x'] }),
-        cell('b', { condition: { on: 'block', block: 'x', value: 'yes' } }),
+        cell('b', { when: [{ on: 'block', block: 'x', value: 'yes' }] }),
         cell('c', { outputs: ['x'] }),
         cell('d', { inputs: ['x'] }),
         cell('e', { outputs: ['x'] }),
