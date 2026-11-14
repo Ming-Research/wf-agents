@@ -154,6 +154,18 @@ fn a_text_is_filled_by_the_names_it_is_given_and_keeps_those_it_is_not() {
 }
 
 #[test]
+fn what_fills_a_place_is_not_filled_again_and_what_opens_no_place_is_kept() {
+    assert_eq!(
+        agents::fill("by {by} at {head}", &[("by", "{head}"), ("head", "c0ffee")]),
+        "by {head} at c0ffee"
+    );
+    assert_eq!(
+        agents::fill("ask {{q}} of {x} {\"a\": 1} {Y} {", &[("q", "no"), ("x", "it")]),
+        "ask {{q}} of it {\"a\": 1} {Y} {"
+    );
+}
+
+#[test]
 fn a_field_a_file_does_not_know_is_refused_with_the_path_of_its_file() {
     let dir = copy("unknown");
     let query = dir.join("agents/tools/query.toml");

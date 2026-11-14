@@ -15,6 +15,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use decide::BlockId;
+use flow::agents::Piece as Words;
 use flow::agents::{
     Agents, Group, InForm, MessagePart, OUTPUTS, Only, Part as PartIs, ProjectPart, ReturnKind, ReturnsPart,
     SessionPart, ToldAs, WordsPart,
@@ -375,7 +376,7 @@ impl<'a> Build<'a> {
                 }
                 SessionPart::Returns(ReturnsPart { returns }) => {
                     let source = self.source("agents/return/return.toml");
-                    out.push(self.part(What::System, Carried::System, returns.name(), source, self.told()));
+                    out.push(self.part(What::System, Carried::System, returns.name(), source, self.told(cell)));
                 }
             }
         }
@@ -580,9 +581,10 @@ impl<'a> Build<'a> {
                 let what = (self.flow.blocks.get(*b))
                     .and_then(|d| d.what.clone())
                     .unwrap_or_default();
-                let line = told.block.replace("{block}", b.as_str());
-                let line = line.replace("{choice}{shown}{must_write}", &self.marks(cell, b.as_str()));
-                line.replace("{what}", &what)
+                let marks = self.marks(cell, b.as_str());
+                let mut known: Vec<(&str, &str)> = vec![("block", b.as_str()), ("what", &what)];
+                known.extend(marks.iter().map(|(name, words)| (*name, words.as_str())));
+                flow::agents::fill(&told.block, &known)
             })
             .collect();
         let list = if lines.is_empty() {
@@ -743,17 +745,18 @@ fn written(text: &str) -> Vec<Piece> {
 }
 
 /// A text with the places the flow fills in filled, each by its name; a place filled in a run stays one. What fills a
-/// place is sent as it is: a place in it is not filled again.
+/// place is sent as it is: a place in it is not filled again. The places are found as the engine finds them
+/// ([`flow::agents::pieces`]).
 fn fill(text: &str, known: &[(&str, &str)]) -> Vec<Piece> {
-    let pieces = (with_slots(text).into_iter())
-        .map(|piece| match &piece {
-            Piece::Slot { name } => match known.iter().find(|(k, _)| k == name) {
+    let pieces = (flow::agents::pieces(text).into_iter())
+        .map(|piece| match piece {
+            Words::Place(name) => match known.iter().find(|(k, _)| *k == name) {
                 Some((_, value)) => Piece::Text {
                     text: value.to_string(),
                 },
-                None => piece,
+                None => Piece::Slot { name: name.to_string() },
             },
-            Piece::Text { .. } => piece,
+            Words::Text(text) => Piece::Text { text: text.to_string() },
         })
         .collect();
     join(pieces)
@@ -772,44 +775,9 @@ fn join(pieces: Vec<Piece>) -> Vec<Piece> {
     out
 }
 
-/// A text with its places to fill in apart from what is sent as written: a place is `{name}`, its name in small
-/// letters and underscores.
+/// A text with its places to fill in apart from what is sent as written, found as the engine finds them.
 pub(crate) fn with_slots(text: &str) -> Vec<Piece> {
-    // Adds to the text sent as written, which stays one piece until a place follows it.
-    fn add(pieces: &mut Vec<Piece>, more: &str) {
-        match pieces.last_mut() {
-            Some(Piece::Text { text }) => text.push_str(more),
-            _ => pieces.extend(written(more)),
-        }
-    }
-    let mut pieces = Vec::new();
-    let mut rest = text;
-    while let Some(open) = rest.find('{') {
-        // `{{` is sent as written, with what it holds: it is how a text points to a question by its name.
-        if rest[open..].starts_with("{{") {
-            let end = rest[open..].find("}}").map_or(rest.len(), |close| open + close + 2);
-            add(&mut pieces, &rest[..end]);
-            rest = &rest[end..];
-            continue;
-        }
-        let after = &rest[open + 1..];
-        let name = after.find('}').map(|close| &after[..close]);
-        match name {
-            Some(name) if !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c == '_') => {
-                add(&mut pieces, &rest[..open]);
-                pieces.push(Piece::Slot { name: name.to_string() });
-                rest = &after[name.len() + 1..];
-            }
-            _ => {
-                // A brace that opens no place: it is sent as written, with what stands before it.
-                let (before, from) = rest.split_at(open + 1);
-                add(&mut pieces, before);
-                rest = from;
-            }
-        }
-    }
-    add(&mut pieces, rest);
-    pieces
+    fill(text, &[])
 }
 
 #[cfg(test)]

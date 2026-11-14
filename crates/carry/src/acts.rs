@@ -513,7 +513,7 @@ fn checked_in(
         ("head", checked.main.as_str()),
     ];
     let by = (checked.by.as_ref()).map_or(String::new(), |by| fill(&words.by, &[("by", by)]));
-    let said = fill(&fill(&words.checked, &[("by", &by)]), &slots);
+    let said = fill(&words.checked, &[slots.as_slice(), &[("by", by.as_str())]].concat());
     let first = fill(&words.first, &slots);
     let mut after = Vec::new();
     if checked.took_in {

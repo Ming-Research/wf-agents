@@ -514,13 +514,57 @@ pub struct Found {
     pub conflict: String,
 }
 
-/// A text with each `{name}` of these put in by its value; a name it does not give stays as it is.
-pub fn fill(text: &str, slots: &[(&str, &str)]) -> String {
-    let mut out = text.to_string();
-    for (name, value) in slots {
-        out = out.replace(&format!("{{{name}}}"), value);
+/// A piece of a text of the engine's words: what is sent as written, or a place filled in a run, by its name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Piece<'a> {
+    Text(&'a str),
+    Place(&'a str),
+}
+
+/// A text cut into what is sent as written and its places. A place is `{name}`, its name small letters and
+/// underscores. `{{`, to what closes it with `}}`, is sent as written: it is how a text points to a question by its
+/// name. A brace that opens no place is sent as written. Every reader of the engine's words finds the places so.
+pub fn pieces(text: &str) -> Vec<Piece<'_>> {
+    let mut pieces = Vec::new();
+    // Where the text sent as written that is not yet a piece begins.
+    let mut from = 0;
+    let mut at = 0;
+    while let Some(open) = text[at..].find('{').map(|o| at + o) {
+        if text[open..].starts_with("{{") {
+            at = text[open..].find("}}").map_or(text.len(), |close| open + close + 2);
+            continue;
+        }
+        let after = &text[open + 1..];
+        match after.find('}').map(|close| &after[..close]) {
+            Some(name) if !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c == '_') => {
+                if open > from {
+                    pieces.push(Piece::Text(&text[from..open]));
+                }
+                pieces.push(Piece::Place(name));
+                from = open + name.len() + 2;
+                at = from;
+            }
+            _ => at = open + 1,
+        }
     }
-    out
+    if text.len() > from {
+        pieces.push(Piece::Text(&text[from..]));
+    }
+    pieces
+}
+
+/// A text with each place these give filled by its value; a place they do not give stays as it is written. What fills
+/// a place is sent as it is: a place in it is not filled again.
+pub fn fill(text: &str, slots: &[(&str, &str)]) -> String {
+    (pieces(text).into_iter())
+        .map(|piece| match piece {
+            Piece::Text(text) => text.to_string(),
+            Piece::Place(name) => match slots.iter().find(|(n, _)| *n == name) {
+                Some((_, value)) => value.to_string(),
+                None => format!("{{{name}}}"),
+            },
+        })
+        .collect()
 }
 
 /// Reads it all from the directory that holds the flows, anew each time, so that an edit of a file shows; or says which
