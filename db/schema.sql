@@ -179,6 +179,35 @@ CREATE TABLE written (
     PRIMARY KEY (work, at)
 );
 
+-- A version of a question put to the owner, named by its place: its name, the cell it belongs to, the run whose return
+-- brought it, whether the engine itself asked it rather than the run's agent, whether its cell waits for the answer, and
+-- whether it withdraws the question. What it asks is kept with what came back from the run's round.
+CREATE TABLE questions (
+    work INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    cell TEXT NOT NULL,
+    run INTEGER NOT NULL,
+    engine INTEGER NOT NULL CHECK (engine IN (0, 1)),
+    waits INTEGER NOT NULL CHECK (waits IN (0, 1)),
+    withdrawn INTEGER NOT NULL CHECK (withdrawn IN (0, 1)),
+    PRIMARY KEY (work, at),
+    FOREIGN KEY (work, run) REFERENCES started (work, run)
+);
+
+-- The owner answered a version of a question, taking an option counted from one, and said why where `why` is not
+-- null.
+CREATE TABLE answers (
+    work INTEGER NOT NULL REFERENCES works (number),
+    at INTEGER NOT NULL,
+    question TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    option INTEGER NOT NULL,
+    why TEXT,
+    PRIMARY KEY (work, at),
+    FOREIGN KEY (work, version) REFERENCES questions (work, at)
+);
+
 -- The owner let a cell go on after it reached its limit.
 CREATE TABLE let_go (
     work INTEGER NOT NULL REFERENCES works (number),

@@ -59,6 +59,7 @@ fn spec() -> Spec {
                 ("verdict".into(), standing(5, Some("yes"))),
             ]),
             waits_for_calls: false,
+            questions: BTreeMap::new(),
         },
     }
 }
@@ -191,6 +192,7 @@ fn came(dealt_with: &[&str], writes: Vec<Write>, found: Vec<Unmet>, waits: bool)
             calls: 0,
             found,
             waits,
+            questions: Vec::new(),
         }),
     }
 }
@@ -222,6 +224,7 @@ fn asks(calls: usize) -> Round {
             calls,
             found: vec![],
             waits: false,
+            questions: Vec::new(),
         }),
     }
 }

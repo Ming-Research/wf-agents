@@ -36,6 +36,10 @@
 //! holds nothing is sent it. After each use of a tool another hook gives the session what the owner said to the
 //! round while it runs, where the runner put it in the round's files (`cli::Words`).
 //!
+//! As a round of a line that may change the work ends with a return, the engine looks at what the work's branch changes
+//! under the paths the project protects, and asks the owner by itself where it is a change not asked of yet, beside
+//! the return ([`protected`](crate::protected)).
+//!
 //! Before the first round of each run of a cell that takes main in, the work's branch takes in main's head as the host
 //! last gave it ([`catch_up`](crate::catch_up)), and what came of it is kept beside the run's rounds before the round
 //! is told it; a round of the run given again, or another of its rounds given its task, is told what was kept, and
@@ -75,7 +79,7 @@ use crate::held::{Failing, Held, Stop};
 use crate::permissions::Permissions;
 use crate::process::{self, Ran};
 use crate::settings::{Project, Settings};
-use crate::{acts, failure, git, kept, returns, session, system, tools, tree};
+use crate::{acts, failure, git, kept, protected, returns, session, system, tools, tree};
 
 /// What is written beside the flows, which every flow shares: the words the agents are sent, and the definitions the
 /// form of a return is made of.
@@ -433,8 +437,31 @@ impl Inner {
             }
         };
         match returns::came(&read.structured, flow, &round.cell, &of.beside) {
-            Ok(came) => Ok(Carried::Came(came, read.spent)),
+            Ok(mut came) => {
+                came.engine.extend(self.protected(round, &place, of).await);
+                Ok(Carried::Came(came, read.spent))
+            }
             Err(why) => Ok(Carried::Failed(why, Failure::Unread, read.spent)),
+        }
+    }
+
+    /// What the engine asks the owner of the work's change under the paths the project protects, as the round ends,
+    /// where its line may change the work ([`protected`]). A look that fails is said on the standard error and asks
+    /// nothing: the next round's look finds what it missed.
+    async fn protected(&self, round: &Round, place: &git::Place, of: &Of) -> Option<work::Question> {
+        if round.cell.reads_only {
+            return None;
+        }
+        let (paths, words) = (&of.beside.project.protected.paths, &of.beside.asks.protected);
+        match protected::look(place, &of.main, paths, words, &round.kept).await {
+            Ok(question) => question,
+            Err(why) => {
+                eprintln!(
+                    "work {}: the change under the protected paths could not be looked at: {why}",
+                    round.work.0
+                );
+                None
+            }
         }
     }
 

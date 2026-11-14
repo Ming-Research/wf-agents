@@ -267,7 +267,7 @@ fn compiled(on: On) -> Compiled {
     }
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = Has {
-        sources: names(&[driver::DEPENDENCIES, driver::SESSION, carry::tree::TREE]),
+        sources: names(&[driver::DEPENDENCIES, driver::SESSION, carry::tree::TREE, flow::ANSWER]),
         acts: names(&["start", "check", "merge", "deliver"]),
         // The triggers beside the repository's flows are every flow's, and one says what happened by the files of
         // the tree.
@@ -348,7 +348,9 @@ case "$first" in
         grep -q 'The results of what you asked for' "$log/$n.stdin" && results=yes
         checked=no
         grep -q 'select the check' "$log/$n.stdin" && checked=yes
-        if [ "$results" = no ] && [ '{question}' = yes ]; then
+        answered=no
+        awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | grep -q '^- `answered`' && answered=yes
+        if [ "$results" = no ] && [ "$answered" = no ] && [ '{question}' = yes ]; then
             # It leaves all that ran it for after the answer.
             dealt=''
             asked='{{"name":"which_name","waits":true,"recommends":1,"ask":"Which name?","options":[{{"does":"the first name","follows":"a warmer greeting"}},{{"does":"the full name","follows":"a formal one"}}]}}'
@@ -601,6 +603,27 @@ impl Real {
         answer.try_recv().expect("answered").expect("the pause is lifted");
     }
 
+    /// The question the work waits for the owner's answer to, by its name, with the version to answer, where there is
+    /// one, as its records keep it.
+    pub fn waited_question(&self, work: WorkNumber) -> Option<(String, decide::Seq)> {
+        let records = self.work(work).records;
+        (decide::questions::questions(&records).into_iter())
+            .find(|(_, q)| q.holds())
+            .map(|(name, q)| (name.to_string(), q.latest.at))
+    }
+
+    /// The owner answers the question the work waits for with its first option, saying why.
+    pub fn answer(&mut self, work: WorkNumber, why: &str) {
+        let (question, version) = self.waited_question(work).expect("the work waits for an answer");
+        let act = Act::Answer {
+            question,
+            version,
+            option: 1,
+            why: Some(why.to_string()),
+        };
+        self.act(work, act);
+    }
+
     /// The owner's call the work waits for, where there is one, as its records keep it.
     pub fn owners_call(&self, work: WorkNumber) -> Option<CallId> {
         let records = self.work(work).records;
@@ -672,13 +695,22 @@ impl Real {
         answer.try_recv().expect("answered").expect("the act is taken");
     }
 
-    /// Takes what comes until `wanted` holds of the loop; fails where nothing comes for a minute before.
+    /// Takes what comes until `wanted` holds of the loop; fails where nothing comes for half a minute, or it does not
+    /// hold within 40 seconds, saying how each work stands, before the harness gives the test up.
     pub async fn until(&mut self, wanted: impl Fn(&Real) -> bool) {
+        let began = Instant::now();
+        let mut taken = 0;
         while !wanted(self) {
-            let message = tokio::time::timeout(Duration::from_secs(60), self.inbox.recv())
-                .await
-                .expect("something comes within a minute")
-                .expect("the loop's channel is open");
+            let message = match tokio::time::timeout(Duration::from_secs(30), self.inbox.recv()).await {
+                Ok(message) => message.expect("the loop's channel is open"),
+                Err(_) => panic!("nothing came within half a minute:\n{}", self.standing()),
+            };
+            taken += 1;
+            assert!(
+                began.elapsed() < Duration::from_secs(40),
+                "it does not come within 40 seconds, {taken} things taken:\n{}",
+                self.standing()
+            );
             match &message {
                 Message::Happened {
                     event: Event::Failed { .. },
@@ -706,6 +738,22 @@ impl Real {
     /// What the work does next.
     pub fn decision(&self, work: WorkNumber) -> Decision {
         self.service.driver().view(work).expect("the work").decision
+    }
+
+    /// How each work stands, for a test that fails: what it does next, and what came back of each of its rounds.
+    fn standing(&self) -> String {
+        let driver = self.service.driver();
+        (driver.works())
+            .map(|kept| {
+                let number = kept.head.number;
+                let decision = driver.view(number).map(|view| view.decision);
+                let back: Vec<String> = (kept.work.back.iter())
+                    .map(|(round, back)| format!("{round:?}: {back:?}"))
+                    .collect();
+                format!("work {}: {decision:?}\n{}", number.0, back.join("\n"))
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     /// Everything kept of the work.

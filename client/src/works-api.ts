@@ -101,7 +101,9 @@ export type Waited =
   /// in its order.
   | { kind: 'slot' }
   /// The wait every work shares: the cell's agent's round does not begin until it is over.
-  | { kind: 'agents'; outage: Outage };
+  | { kind: 'agents'; outage: Outage }
+  /// The owner's answer to the latest version of this question, which the cell asked and waits for.
+  | { kind: 'answer'; question: string };
 
 /// What a work does now.
 export type Now =
@@ -271,7 +273,12 @@ export type Unmet =
   | { kind: 'asksAndWorks' }
   | { kind: 'notATrigger'; name: string }
   | { kind: 'notATool'; name: string }
-  | { kind: 'unchangedNotWritten'; block: string };
+  | { kind: 'unchangedNotWritten'; block: string }
+  | { kind: 'questionTaken'; name: string }
+  | { kind: 'noSuchQuestion'; name: string }
+  | { kind: 'questionTwice'; name: string }
+  | { kind: 'notAnOption'; name: string }
+  | { kind: 'notAnswerable'; name: string };
 
 /// What a round is given: the cell's task, the results of the calls the round before asked for, or why what the
 /// round before handed in was sent back.
@@ -493,7 +500,9 @@ export type Act =
   /// Cancels the work's item, saying why where a reason is given, such as the item it was joined into.
   | { kind: 'cancel'; why?: string | null }
   /// Gives a call that waits for a person its result.
-  | { kind: 'answer'; call: number; result: string }
+  | { kind: 'result'; call: number; result: string }
+  /// Answers a version of a question, taking an option counted from one, saying why where the owner does.
+  | { kind: 'answer'; question: string; version: number; option: number; why?: string | null }
   /// Has the line begin a new session at its next round.
   | { kind: 'newSession'; line: string };
 

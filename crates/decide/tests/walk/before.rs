@@ -3,14 +3,15 @@
 
 use std::collections::BTreeSet;
 
-use decide::{Called, Finished, LetGo, Outsider, Pause, Records, Started};
+use decide::{Answered, Called, Finished, LetGo, Outsider, Pause, Questioned, Records, Started};
 
 use super::*;
 
 /// Records with an entry of every kind, each at a place of its own, from 1 to [`LAST`], as a work can have them: a run
 /// that made a call, had its result, and in its next round was told of the owner's words, written while it was under
 /// way, then finished naming what it dealt with; the outside's write; one run abandoned; a cell let go; a pause and a
-/// letting on; a cancel; and the release of what the work held.
+/// letting on; a cancel; a question the finished run asked and the owner's answer to it; and the release of what the
+/// work held.
 fn every_kind() -> Records {
     let (a, b) = (RunId(1), RunId(2));
     Records {
@@ -101,12 +102,28 @@ fn every_kind() -> Records {
             },
         ],
         cancelled: Some(Seq(18)),
+        questions: vec![Questioned {
+            name: "way".to_string(),
+            cell: "a".into(),
+            run: a,
+            engine: false,
+            waits: false,
+            withdrawn: false,
+            at: Seq(19),
+        }],
+        answers: vec![Answered {
+            question: "way".to_string(),
+            version: Seq(19),
+            option: 2,
+            why: Some("The other way.".to_string()),
+            at: Seq(20),
+        }],
         released: Some(Seq(LAST)),
     }
 }
 
 /// The place of the last entry of [`every_kind`].
-const LAST: u64 = 19;
+const LAST: u64 = 21;
 
 /// The place of every entry of the records, with the list that holds it.
 fn places(r: &Records) -> BTreeSet<(&'static str, Seq)> {
@@ -122,6 +139,8 @@ fn places(r: &Records) -> BTreeSet<(&'static str, Seq)> {
         .chain(of("abandoned", &r.abandoned, |e| e.at))
         .chain(of("put_in", &r.put_in, |e| e.at))
         .chain(of("written", &r.written, |e| e.at))
+        .chain(of("questions", &r.questions, |e| e.at))
+        .chain(of("answers", &r.answers, |e| e.at))
         .chain(of("let_go", &r.let_go, |e| e.at))
         .chain(of("pauses", &r.pauses, |e| e.at))
         .chain(r.cancelled.map(|at| ("cancelled", at)))

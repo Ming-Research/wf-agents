@@ -198,10 +198,11 @@ pub fn trial_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../service/tests/trial")
 }
 
-/// What the trial flow is compiled against: the driver's source outside a work, and the act `merge`.
+/// What the trial flow is compiled against: the driver's source outside a work, the engine's as the owner answers,
+/// and the act `merge`.
 pub(crate) fn trial_has(_: &Source) -> flow::Has {
     flow::Has {
-        sources: BTreeSet::from([driver::DEPENDENCIES.to_string()]),
+        sources: BTreeSet::from([driver::DEPENDENCIES.to_string(), flow::ANSWER.to_string()]),
         acts: BTreeSet::from(["merge".to_string()]),
         ..Default::default()
     }

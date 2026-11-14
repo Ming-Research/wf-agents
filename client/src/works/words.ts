@@ -208,6 +208,8 @@ export function waitsForOwner(waited: Waited): boolean {
       return false;
     case 'agents':
       return waited.outage.failure === 'cannotRun';
+    case 'answer':
+      return true;
   }
 }
 
@@ -237,6 +239,8 @@ export function waitedWords(waited: Waited): string {
       return 'a free slot, which the engine gives in its order';
     case 'agents':
       return `the agents' rounds to begin again: ${outageWords(waited.outage)}`;
+    case 'answer':
+      return `the owner's answer to the question ${waited.question}`;
   }
 }
 
@@ -348,6 +352,16 @@ export function unmetWords(unmet: Unmet): string {
       return `it asked for ${unmet.name}, which is not a tool the cell may ask for`;
     case 'unchangedNotWritten':
       return `it named ${unmet.block} as unchanged in meaning, and did not write it`;
+    case 'questionTaken':
+      return `it wrote the question ${unmet.name}, which is not its cell's own`;
+    case 'noSuchQuestion':
+      return `it withdrew the question ${unmet.name}, of which none of its cell's stands`;
+    case 'questionTwice':
+      return `it wrote the question ${unmet.name} twice`;
+    case 'notAnOption':
+      return `its question ${unmet.name} recommends none of its options`;
+    case 'notAnswerable':
+      return `it asked the question ${unmet.name}, and no answer runs its cell`;
   }
 }
 

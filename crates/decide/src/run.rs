@@ -137,6 +137,8 @@ pub enum Return {
         /// A question the return asks the owner waits for the answer: the work stops at the cell, and the return is
         /// held to no block its cell must write.
         waits: bool,
+        /// The questions it asks, asks anew or withdraws, in the order it wrote them.
+        questions: Vec<Asking>,
     },
     /// The round failed: nothing came back, for this kind of cause, said so.
     Failed {
@@ -145,6 +147,21 @@ pub enum Return {
         /// The waits the engine made as calls after it, before it is tried again: none until the engine makes one.
         waits: Vec<Call>,
     },
+}
+
+/// A question a return writes, by its name: asked or asked anew, or withdrawn.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Asking {
+    pub name: String,
+    pub withdrawn: bool,
+}
+
+/// A question of the work as a round of a cell is told of it: whether it is the cell's own, which the cell's agent
+/// asked, and so may write anew or withdraw, and whether it stands.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Asked {
+    pub own: bool,
+    pub stands: bool,
 }
 
 /// A call made for a round.
@@ -168,6 +185,8 @@ pub struct Told {
     /// owner turning to the cell meanwhile, answers and goes on waiting, and so is held to no block its cell must write
     /// (design document `data-and-context`, 40, 42).
     pub waits_for_calls: bool,
+    /// Each question of the work, by its name, as the round's cell stands to it.
+    pub questions: BTreeMap<String, Asked>,
 }
 
 /// A block a cell may write: the version its run's round was told of, and the latest, with its value.
@@ -281,6 +300,16 @@ pub enum Unmet {
     NotATool { name: String },
     /// The return names the block as written with its meaning unchanged, and does not write it.
     UnchangedNotWritten { block: BlockId },
+    /// The return writes a question of this name that is not its cell's own: another cell's, or one the engine asked.
+    QuestionTaken { name: String },
+    /// The return withdraws a question of this name that is none of its cell's that stands.
+    NoSuchQuestion { name: String },
+    /// The return writes a question of this name twice.
+    QuestionTwice { name: String },
+    /// The question of this name recommends none of its options, or has none.
+    NotAnOption { name: String },
+    /// The return asks a question, of this name, of a cell that no answer runs: the answer could not reach it.
+    NotAnswerable { name: String },
 }
 
 /// What a pause of the run's work holds back of its rounds.
@@ -350,8 +379,9 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
             calls,
             found,
             waits,
+            questions,
         } => {
-            let unmet = unmet(dealt_with, writes, *calls, found, *waits, requires);
+            let unmet = unmet(dealt_with, writes, *calls, found, *waits, questions, requires);
             if unmet.is_empty() {
                 return Step::Finish {
                     dealt_with: dealt_with.clone(),
@@ -434,13 +464,14 @@ pub fn pausing(log: &Log) -> Option<Pausing> {
 /// whether it deals with nothing while something ran its round, asks for no call and has no question that waits for
 /// the owner's answer; then each block the cell must hand in and did not, in the order the cell lists them, where the
 /// return asks for no call, has no question that waits and its cell waits for no result, but one found written in a
-/// shape it does not take.
+/// shape it does not take; then each question it writes that it may not, in the order it wrote them.
 fn unmet(
     dealt_with: &[BlockId],
     writes: &[Write],
     calls: usize,
     found: &[Unmet],
     waits: bool,
+    questions: &[Asking],
     requires: Requires,
 ) -> Vec<Unmet> {
     let told = requires.told;
@@ -507,6 +538,23 @@ fn unmet(
             if !writes.iter().any(|w| w.block == *block) && !misshapen(block) {
                 unmet.push(Unmet::NotHandedIn { block: block.clone() });
             }
+        }
+    }
+    // A question is one cell's: its agent alone writes it anew or withdraws it, under a name no other question has.
+    for (i, q) in questions.iter().enumerate() {
+        let name = || q.name.clone();
+        let taken = Unmet::QuestionTaken { name: name() };
+        // A name the reading found taken is said so once, and nothing more of it.
+        if found.contains(&taken) {
+            continue;
+        }
+        let asked = told.questions.get(&q.name);
+        if questions[..i].iter().any(|before| before.name == q.name) {
+            unmet.push(Unmet::QuestionTwice { name: name() });
+        } else if asked.is_some_and(|a| !a.own) {
+            unmet.push(taken);
+        } else if q.withdrawn && !asked.is_some_and(|a| a.stands) {
+            unmet.push(Unmet::NoSuchQuestion { name: name() });
         }
     }
     unmet

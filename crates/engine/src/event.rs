@@ -1,9 +1,9 @@
 //! What happens to a work, and what is to be done for it.
 
 use decide::run::{Failure, Unmet};
-use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId};
+use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId, Seq};
 
-use work::{Ask, Call, Fill, Given, Handed, RanOn, Said, Spent, Time, Why};
+use work::{Ask, Call, Fill, Given, Handed, Question, RanOn, Said, Spent, Time, Why};
 
 /// One thing that happened to a work.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -52,6 +52,14 @@ pub enum Event {
     },
     /// The call has its result.
     Done { call: CallId, result: String },
+    /// The owner answers this version of the question, taking this option, counted from one, for this reason where
+    /// one is given (design document `data-and-context`, 34).
+    Answer {
+        question: String,
+        version: Seq,
+        option: u64,
+        why: Option<String>,
+    },
     /// A new session of the line began, or is to begin with the line's next round, for this reason.
     Anew { line: String, why: Why },
     /// A try of the round of the run that is under way began, on this: the try of this number in the round, the first
@@ -88,6 +96,10 @@ pub struct Came {
     pub found: Vec<Unmet>,
     /// What it says beside its work.
     pub said: Said,
+    /// What the engine itself asks the owner as the round ends, from what it found of the work then, such as a change
+    /// of a path the project protects: no word of the agent's, and so no question the return is held to or let off for.
+    /// It is recorded as the round's end is taken, whether or not the return is.
+    pub engine: Vec<Question>,
 }
 
 impl Came {
@@ -185,4 +197,10 @@ pub enum Refused {
     NoSuchLine(String),
     /// The work has not ended, or something of it is still under way: it has nothing to let go yet.
     NotToRelease,
+    /// The work has no question of this name.
+    NoSuchQuestion(String),
+    /// The question has no such version that asks it: none was written at that place, or it withdrew the question.
+    NoSuchVersion { question: String, version: Seq },
+    /// The version of the question has no option of this number.
+    NotAnOption { question: String, option: u64 },
 }

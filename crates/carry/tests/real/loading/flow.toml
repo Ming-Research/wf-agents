@@ -43,6 +43,15 @@ compacted = "The session of the line `{line}` was compacted: it holds only a sum
 [blocks.opinions]
 people = true
 
+# What the engine writes as the owner answers a question of the build's: `{question}` its name, `{option}` the option's
+# number, `{does}` the option's, `{why}` the owner's reason as `why` says it.
+[blocks.answered]
+outside = "answer"
+
+[blocks.answered.writes]
+text = "The owner answered {question} with option {option}, {does}.{why}"
+why = " {why}"
+
 [blocks.code]
 
 [blocks.verdict]

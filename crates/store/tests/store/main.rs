@@ -358,15 +358,40 @@ fn question(who: Who) -> Ask {
 }
 
 /// A history that leaves an entry of every kind: writes by a person and the outside with values and without, runs
-/// finished, sent back and abandoned, calls for a tool and a person, done and withdrawn, a run's limit of returns let
-/// go by the owner, a pause and a resume, a round that failed and the engine's pause for it, a cell let go, and a
-/// cancel with a run at rest at the owner's call.
+/// finished, sent back and abandoned, calls for a tool and a person, done and withdrawn, a question asked and the
+/// owner's answer to it, a run's limit of returns let go by the owner, a pause and a resume, a round that failed and
+/// the engine's pause for it, a cell let go, and a cancel with a run at rest at the owner's call.
 fn history(d: &mut Driver) {
     d.wrote("request", Outsider::Person, None);
     // The outside writes while the writer's first round is under way: its return deals with the request it was told
-    // of, and the writer runs again for what the outside wrote.
+    // of, and the writer runs again for what the outside wrote. The return asks the owner a question beside, which the
+    // owner answers.
     d.wrote("main", Outsider::Outside, None);
-    d.end(hands_in(&[("text", None)]));
+    let mut came = hands_in(&[("text", None)]);
+    came.said.questions = vec![engine::Question::Asked {
+        name: "which".to_string(),
+        waits: false,
+        recommends: Some(1),
+        ask: "Which way?".to_string(),
+        options: vec![
+            engine::Way {
+                does: "the short way".to_string(),
+                follows: "less to read".to_string(),
+            },
+            engine::Way {
+                does: "the long way".to_string(),
+                follows: "more to read".to_string(),
+            },
+        ],
+    }];
+    d.end(came);
+    let version = d.work.records.questions.last().expect("the question is kept").at;
+    d.on(Event::Answer {
+        question: "which".to_string(),
+        version,
+        option: 2,
+        why: Some("The long way reads better.".to_string()),
+    });
     // Sent back twice, then the owner is called at the limit of returns and lets the run go on.
     for _ in 0..3 {
         d.end(wanting());

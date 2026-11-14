@@ -5,9 +5,9 @@
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoned, Abandoning, BlockId, CallId, Called, Cause, Cell, CellId, Decision, Done, Finished, Flow, LetGo, Maker,
-    Outsider, Outsiders, Pause, Pauser, Records, Returned, Round, RunId, Seq, Started, Test, TestKind, TestName,
-    Waited, Who, Write, Written, decide,
+    Abandoned, Abandoning, Answered, BlockId, CallId, Called, Cause, Cell, CellId, Decision, Done, Finished, Flow,
+    LetGo, Maker, Outsider, Outsiders, Pause, Pauser, Questioned, Records, Returned, Round, RunId, Seq, Started, Test,
+    TestKind, TestName, Waited, Who, Write, Written, decide,
 };
 
 /// The owner's word of this name: a named test of the choice of the same name, which people write, that holds unless
@@ -527,5 +527,48 @@ impl World {
     pub fn cancel(&mut self) {
         let at = self.tick();
         self.records.cancelled = Some(at);
+    }
+
+    /// The cell's latest run asks the owner the question of this name, which its cell waits for or not: a version of
+    /// it, named by the place given.
+    pub fn questions(&mut self, cell: &str, name: &str, waits: bool) -> Seq {
+        self.question(cell, name, waits, false)
+    }
+
+    /// The cell's latest run withdraws the question of this name: a version of it, named by the place given.
+    pub fn withdraws(&mut self, cell: &str, name: &str) -> Seq {
+        self.question(cell, name, false, true)
+    }
+
+    fn question(&mut self, cell: &str, name: &str, waits: bool, withdrawn: bool) -> Seq {
+        let id: CellId = cell.into();
+        let run = (self.records.started.iter().rev())
+            .find(|s| s.cell == id)
+            .expect("the cell has run")
+            .run;
+        let at = self.tick();
+        self.records.questions.push(Questioned {
+            name: name.to_string(),
+            cell: id,
+            run,
+            engine: false,
+            waits,
+            withdrawn,
+            at,
+        });
+        at
+    }
+
+    /// The owner answers this version of the question, taking this option.
+    pub fn answers(&mut self, name: &str, version: Seq, option: u64) -> Seq {
+        let at = self.tick();
+        self.records.answers.push(Answered {
+            question: name.to_string(),
+            version,
+            option,
+            why: None,
+            at,
+        });
+        at
     }
 }

@@ -75,10 +75,19 @@ pub struct Limits {
     pub calls: u32,
 }
 
+/// The source of the block a new version of which is the owner speaking to the cell it runs (design document
+/// `data-and-context`, 39).
+pub const WORDS: &str = "words";
+
+/// The source of the block a new version of which is the owner answering a question of the cell it runs with another
+/// option than the one the work goes by, or one the cell waits for (design document `data-and-context`, 35, 36). The
+/// engine writes it as the owner answers.
+pub const ANSWER: &str = "answer";
+
 /// The sources outside a work a new version of whose block is the owner turning to the cells it runs: the owner's words
-/// to a cell, and an answer that takes another option than the one the work goes by (design document
-/// `data-and-context`, 35, 39). Such a block stops a round under way of a later cell ([`decide::Outsiders`]).
-pub const TURNING: [&str; 2] = ["words", "answer"];
+/// to a cell, and an answer ([`WORDS`], [`ANSWER`]). Such a block stops a round under way of a later cell
+/// ([`decide::Outsiders`]).
+pub const TURNING: [&str; 2] = [WORDS, ANSWER];
 
 /// What the engine that runs a flow has, by name. A definition that names another source, act or tool is refused.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

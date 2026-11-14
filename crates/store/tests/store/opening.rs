@@ -22,7 +22,7 @@ fn a_new_file_is_made_with_the_schema_its_version_and_a_write_ahead_log() {
     assert_eq!(store.works(), Ok(vec![]));
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, schema_tables());
-    assert_eq!(tables.len(), 37);
+    assert_eq!(tables.len(), 39);
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
     assert_eq!(version, SCHEMA_VERSION);
@@ -224,7 +224,7 @@ fn a_file_made_with_the_first_version_of_the_schema_is_migrated_and_its_pauses_r
 }
 
 /// The migrations, in order, each bringing a file one version further, as the store's own list holds them.
-pub(crate) const MIGRATIONS: [&str; 11] = [
+pub(crate) const MIGRATIONS: [&str; 12] = [
     include_str!("../../../../db/migrations/202611101530-say-who-paused-a-work-and-why.sql"),
     include_str!("../../../../db/migrations/202611102304-give-items-a-level.sql"),
     include_str!("../../../../db/migrations/202611111400-say-when-a-work-let-go-of-what-it-held.sql"),
@@ -238,6 +238,7 @@ pub(crate) const MIGRATIONS: [&str; 11] = [
     ),
     include_str!("../../../../db/migrations/202611141600-keep-the-observations-the-returns-taken-carry.sql"),
     include_str!("../../../../db/migrations/202611141700-give-items-a-project.sql"),
+    include_str!("../../../../db/migrations/202611141900-keep-the-questions-put-to-the-owner-and-the-answers.sql"),
 ];
 
 #[test]
@@ -251,6 +252,9 @@ fn a_file_of_version_9_is_migrated_and_its_runs_read_as_dealing_with_everything_
         finished.dealt_with = None;
     }
     work.records.finished[0].writes[0].meaning_unchanged = true;
+    // Nor were its questions and answers entries of their own.
+    work.records.questions.clear();
+    work.records.answers.clear();
     let (old, new) = kept_in(9, &work);
     let mut store = old.open();
     assert_eq!(versions(&old.path), [SCHEMA_VERSION]);

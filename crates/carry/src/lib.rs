@@ -40,6 +40,7 @@ mod kept;
 pub mod permissions;
 mod process;
 pub mod projects;
+mod protected;
 pub mod returns;
 pub mod session;
 pub mod settings;

@@ -242,12 +242,21 @@ impl<'a> Reading<'a> {
     }
 
     /// Why the cell would be entered at this place: what is new to it, and the results it is owed once all are in.
-    /// While one has no result, only the owner turning to it (a block that interrupts) enters it.
+    /// While one has no result, only the owner turning to it (a block that interrupts) since its last run began enters
+    /// it (decision the-owner-turning-to-a-waiting-cell-enters-it-once).
     pub fn entering(&self, flow: &Flow, cell: &Cell, place: Seq) -> Vec<Reason> {
         let mut reasons = self.reasons(cell, place);
         let owed = self.owed(&cell.id, place);
         if owed.iter().any(|c| !self.done(*c, place)) {
-            reasons.retain(|r| matches!(r, Reason::Changed { block, .. } if flow.interrupts(block)));
+            let last = (self.started.values())
+                .filter(|s| s.cell == cell.id && s.at < place)
+                .map(|s| s.at)
+                .max();
+            reasons.retain(|r| {
+                matches!(r, Reason::Changed { block, .. }
+                    if flow.interrupts(block)
+                        && self.current_before(block, place).is_some_and(|v| Some(v.at) > last))
+            });
         } else if !owed.is_empty() {
             reasons.push(Reason::Results { calls: owed });
         }

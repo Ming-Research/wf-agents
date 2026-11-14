@@ -1,7 +1,6 @@
 # What a round is told of the return before it that was sent back: each thing wrong with it, on a line of its own, and
 # nothing else (design statement 31). The engine finds them all in one pass, so one return sent back names everything
-# wrong with it. A draft of the assistant's (2026-11-14), made from the words the engine said before where they still
-# fit, which the owner has not gone through.
+# wrong with it.
 
 heading = "## What you returned was sent back"
 # The same, of an earlier round of the run, told to a session that never saw it: `{round}` its number.
@@ -36,6 +35,13 @@ asks_and_works = "The return asks for calls and also deals with something or wri
 not_a_trigger = "`{name}` is named in `dealt_with`, and is not one of what runs this cell."
 not_a_tool = "`{name}` is not a tool this cell may ask for."
 unchanged_not_written = "`{block}` is named in `meaning_unchanged`, and this return does not write it."
+# A question the return writes that is not its cell's own: another cell's, or one the engine asked.
+question_taken = "`{name}` is the name of a question this cell did not ask: give a question of yours a name of its own."
+no_such_question = "`{name}` is withdrawn, and no question of this cell of that name stands."
+question_twice = "`{name}` is written twice in `questions`."
+not_an_option = "The question `{name}` recommends none of its options: `recommends` counts them from 1."
+# The cell has no trigger an answer runs, so an answer could not reach it.
+not_answerable = "The question `{name}` cannot be asked from this cell: no answer runs it again, so none could reach you. Decide it yourself."
 # Of a return of the form before a return said what it dealt with, which asked for calls and named none.
 asks_nothing = "The return asks for calls, and for none."
 

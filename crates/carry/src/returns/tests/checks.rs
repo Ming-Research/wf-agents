@@ -1,13 +1,14 @@
 //! The checks of a return, as properties over returns drawn at random from all the form allows, with faults put in now
 //! and then: a return the form and its cell allow is never sent back, and its run finishes with what it said, a choice
-//! with its line of why as its content, its calls made and a question it waits for put to the owner; and one with
-//! faults in it is sent back at once, naming each of them once and nothing else (principle `report-all-at-once`). Each return is read as the agents' rounds read it and handed to the
-//! engine's loop, which checks it against the records, so that what the reading finds and what the run's check finds
-//! are seen together, as an agent is told them.
+//! with its line of why as its content, its calls made, its questions kept as versions of their own and the work held
+//! at the cell for the owner's answer to one it waits for; and one with faults in it is sent back at once, naming each
+//! of them once and nothing else (principle `report-all-at-once`). Each return is read as the agents' rounds read it
+//! and handed to the engine's loop, which checks it against the records, so that what the reading finds and what the
+//! run's check finds are seen together, as an agent is told them.
 
 use decide::{Outsider, Pauser, RunId, Write};
 use engine::{Effect, Event, handle};
-use work::{Call, Given, Spent, Time, Work};
+use work::{Given, Spent, Time, Work};
 
 use super::*;
 
@@ -44,9 +45,11 @@ struct Drawn {
     /// outputs, with its content, its value and whether it is written with its meaning unchanged.
     dealt_with: Vec<BlockId>,
     writes: Vec<(BlockId, String, Option<String>, bool)>,
-    /// How many calls it asks for, and how many of them are its questions put to the owner.
+    /// How many calls it asks for.
     asks: usize,
-    owners: usize,
+    /// The names of the questions it asks, and whether one of them waits for the owner's answer.
+    questions: Vec<&'static str>,
+    waits: bool,
 }
 
 /// The triggers of `write` that run its round: what people asked for, and the owner's words where the owner spoke.
@@ -94,6 +97,7 @@ fn draw(rng: &mut Rng, spoken: bool, clean: bool) -> Drawn {
     let mut handed: Vec<&str> = Vec::new();
     let mut waits = false;
     let mut misshapen = false;
+    let mut asked: Vec<&'static str> = Vec::new();
     if with_outcome {
         let mut outcome = Map::new();
         let mut names: Vec<&str> = Vec::new();
@@ -111,8 +115,35 @@ fn draw(rng: &mut Rng, spoken: bool, clean: bool) -> Drawn {
                 "options": [{"does": "the first name", "follows": "a warmer greeting"}]}),
             );
         }
-        if rng.chance(5) {
-            questions.push(json!({"name": "old", "withdrawn": "The request settles it."}));
+        if !questions.is_empty() {
+            asked.push("which");
+        }
+        if !clean {
+            let option = json!([{"does": "blue", "follows": "a calm page"}]);
+            if rng.chance(5) {
+                // A question is withdrawn only where one of the cell's of its name stands.
+                questions.push(json!({"name": "old", "withdrawn": "The request settles it."}));
+                faults.push(Unmet::NoSuchQuestion {
+                    name: "old".to_string(),
+                });
+            }
+            if rng.chance(5) {
+                let twice = json!({"name": "twice", "waits": false, "recommends": 1, "ask": "Which colour?",
+                    "options": option});
+                questions.extend([twice.clone(), twice]);
+                faults.push(Unmet::QuestionTwice {
+                    name: "twice".to_string(),
+                });
+            }
+            if rng.chance(5) {
+                questions.push(
+                    json!({"name": "none", "waits": false, "recommends": 0, "ask": "Which colour?",
+                    "options": option}),
+                );
+                faults.push(Unmet::NotAnOption {
+                    name: "none".to_string(),
+                });
+            }
         }
         if clean && dealt_with.is_empty() && !waits {
             names.push("on_request");
@@ -254,8 +285,9 @@ fn draw(rng: &mut Rng, spoken: bool, clean: bool) -> Drawn {
         faults,
         dealt_with,
         writes,
-        asks: asks + usize::from(waits),
-        owners: usize::from(waits),
+        asks,
+        questions: asked,
+        waits,
     }
 }
 
@@ -357,18 +389,17 @@ fn a_return_the_form_and_its_cell_allow_is_never_sent_back_and_its_run_finishes_
             .filter(|e| matches!(e, Effect::Call { run: r, .. } if *r == run))
             .count();
         assert_eq!(calls, drawn.asks, "draw {i}: {}", drawn.r);
-        // A question it waits for is put to the owner, whom the work waits for at the cell.
-        let owners = (effects.iter())
-            .filter(|e| matches!(e, Effect::Call { run: r, what: Call::Asked(Ask::Person { .. }), .. } if *r == run))
-            .count();
-        assert_eq!(owners, drawn.owners, "draw {i}: {}", drawn.r);
-        if drawn.owners > 0 {
-            let decision = decide::decide(&flow.flow, &work.records);
-            assert!(
-                matches!(decision, decide::Decision::Wait { .. }),
-                "draw {i}: {decision:?}"
-            );
-        }
+        // Its questions are versions of their own, of its cell, and no call: the work waits at the cell for the
+        // owner's answer to one it waits for.
+        let asked: Vec<&str> = (work.records.questions.iter())
+            .filter(|q| q.run == run && q.cell.as_str() == "write" && !q.engine)
+            .map(|q| q.name.as_str())
+            .collect();
+        assert_eq!(asked, drawn.questions, "draw {i}: {}", drawn.r);
+        let decision = decide::decide(&flow.flow, &work.records);
+        let held = matches!(&decision, decide::Decision::Wait { at, on }
+            if at.as_str() == "write" && on.contains(&decide::Waited::Answer { question: "which".to_string() }));
+        assert_eq!(held, drawn.waits, "draw {i}: {decision:?}");
     }
 }
 

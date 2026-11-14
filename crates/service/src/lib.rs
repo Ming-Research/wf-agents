@@ -155,9 +155,16 @@ pub enum Act {
         why: Option<String>,
     },
     /// Gives a call that waits for a person its result.
-    Answer {
+    Result {
         call: CallId,
         result: String,
+    },
+    /// Answers this version of a question, taking this option, counted from one, for this reason where one is given.
+    Answer {
+        question: String,
+        version: decide::Seq,
+        option: u64,
+        why: Option<String>,
     },
     /// Has the line begin a new session at its next round.
     NewSession {
@@ -478,7 +485,18 @@ impl Service {
             Act::Resume => Event::Resumed,
             Act::Cancel { why } => Event::Cancelled { why },
             Act::NewSession { line } => Event::Anew { line, why: Why::Owner },
-            Act::Answer { call, result } => {
+            Act::Answer {
+                question,
+                version,
+                option,
+                why,
+            } => Event::Answer {
+                question,
+                version,
+                option,
+                why,
+            },
+            Act::Result { call, result } => {
                 // A call the engine makes has its result from what makes it: a person's answer to it would be a
                 // second one.
                 let by_engine = (self.driver.work(work)).is_some_and(|kept| {

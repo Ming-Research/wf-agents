@@ -248,6 +248,8 @@ pub enum Waited {
     Slot {},
     /// The wait every work shares: the cell's agent's round does not begin until it is over.
     Agents { outage: Outage },
+    /// The owner's answer to the latest version of this question, which the cell asked and waits for.
+    Answer { question: String },
 }
 
 /// A person who can give what a work waits for.
@@ -377,6 +379,93 @@ pub struct WorkPage {
     pub blocks: Vec<Block>,
     /// Everything that happened to the work, in the order it happened; a run stands where it started.
     pub steps: Vec<Step>,
+    /// Each question put to the owner, as it stands, in the order of their names.
+    #[serde(default)]
+    pub questions: Vec<QuestionPage>,
+}
+
+/// A question put to the owner, as it stands: its latest version, with the keys a return writes it with, and the
+/// owner's answer to that version, where there is one.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuestionPage {
+    pub name: String,
+    /// The cell it belongs to.
+    pub cell: String,
+    /// The version an answer names: the place of the latest.
+    pub version: u64,
+    /// The engine itself asked it, and not the cell's agent.
+    pub engine: bool,
+    pub waits: bool,
+    /// The latest version withdraws it, for this reason; none while it stands.
+    pub withdrawn: Option<String>,
+    /// What it asks, its options and the one it recommends, counted from one; of a question withdrawn, none.
+    pub ask: Option<String>,
+    pub options: Vec<WayPage>,
+    pub recommends: Option<u64>,
+    /// The owner's answer to the latest version.
+    pub answer: Option<AnswerPage>,
+}
+
+/// An option of a question.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WayPage {
+    pub does: String,
+    pub follows: String,
+}
+
+/// The owner's answer to a version of a question: the option taken, counted from one, when, and why where said.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnswerPage {
+    pub option: u64,
+    pub at: u64,
+    pub why: Option<String>,
+}
+
+impl QuestionPage {
+    /// Each question of the work as it stands.
+    fn all(work: &Work) -> Vec<QuestionPage> {
+        (decide::questions::questions(&work.records).into_iter())
+            .map(|(name, q)| {
+                let (ask, options, recommends, withdrawn) = match work.question(q.latest) {
+                    Some(work::Question::Asked {
+                        ask,
+                        options,
+                        recommends,
+                        ..
+                    }) => {
+                        let options = (options.iter())
+                            .map(|o| WayPage {
+                                does: o.does.clone(),
+                                follows: o.follows.clone(),
+                            })
+                            .collect();
+                        (Some(ask.clone()), options, *recommends, None)
+                    }
+                    Some(work::Question::Withdrawn { why, .. }) => (None, Vec::new(), None, Some(why.clone())),
+                    None => (None, Vec::new(), None, None),
+                };
+                QuestionPage {
+                    name: name.to_string(),
+                    cell: q.latest.cell.to_string(),
+                    version: q.latest.at.0,
+                    engine: q.latest.engine,
+                    waits: q.latest.waits,
+                    withdrawn: withdrawn.or_else(|| q.latest.withdrawn.then(String::new)),
+                    ask,
+                    options,
+                    recommends,
+                    answer: q.answer.map(|a| AnswerPage {
+                        option: a.option,
+                        at: a.at.0,
+                        why: a.why.clone(),
+                    }),
+                }
+            })
+            .collect()
+    }
 }
 
 /// A cell now: why it would run, and the blocks it reads.
@@ -637,6 +726,16 @@ pub enum Unmet {
     NotATool { name: String },
     /// The return names the block as written with its meaning unchanged, and does not write it.
     UnchangedNotWritten { block: String },
+    /// A question it writes is not its cell's own: another cell's, or one the engine asked.
+    QuestionTaken { name: String },
+    /// It withdraws a question of which none of its cell's stands.
+    NoSuchQuestion { name: String },
+    /// It writes a question twice.
+    QuestionTwice { name: String },
+    /// A question it asks recommends none of its options.
+    NotAnOption { name: String },
+    /// It asks a question from a cell that no answer runs.
+    NotAnswerable { name: String },
 }
 
 /// What came back at the end of a round.
@@ -920,8 +1019,17 @@ pub enum Act {
         #[serde(default)]
         why: Option<String>,
     },
-    /// Gives a call that waits for a person its result: the answer to a question, or that a run at its limit goes on.
-    Answer { call: u64, result: String },
+    /// Gives a call that waits for a person its result, such as that a run at its limit goes on.
+    Result { call: u64, result: String },
+    /// Answers a version of a question, the one the page shows, taking an option, counted from one, and saying why
+    /// where the owner does.
+    Answer {
+        question: String,
+        version: u64,
+        option: u64,
+        #[serde(default)]
+        why: Option<String>,
+    },
     /// Has the line begin a new session at its next round.
     NewSession { line: String },
 }
@@ -1278,6 +1386,9 @@ impl Now {
                             WaitedOf::Limit { runs } => Waited::Limit { runs: *runs },
                             WaitedOf::Calls { runs } => Waited::Calls { runs: *runs },
                             WaitedOf::Slot => Waited::Slot {},
+                            WaitedOf::Answer { question } => Waited::Answer {
+                                question: question.clone(),
+                            },
                         })
                     })
                     .collect::<Result<_, Broken>>()?,
@@ -1467,6 +1578,7 @@ impl WorkPage {
             cells,
             blocks,
             steps,
+            questions: QuestionPage::all(work),
         }))
     }
 }
@@ -1616,9 +1728,20 @@ impl Act {
             Act::Pause {} => service::Act::Pause,
             Act::Resume {} => service::Act::Resume,
             Act::Cancel { why } => service::Act::Cancel { why },
-            Act::Answer { call, result } => service::Act::Answer {
+            Act::Result { call, result } => service::Act::Result {
                 call: CallId(call),
                 result,
+            },
+            Act::Answer {
+                question,
+                version,
+                option,
+                why,
+            } => service::Act::Answer {
+                question,
+                version: Seq(version),
+                option,
+                why,
             },
             Act::NewSession { line } => service::Act::NewSession { line },
         }
@@ -1797,6 +1920,11 @@ impl Unmet {
             UnmetOf::UnchangedNotWritten { block } => Unmet::UnchangedNotWritten {
                 block: block.to_string(),
             },
+            UnmetOf::QuestionTaken { name } => Unmet::QuestionTaken { name: name.clone() },
+            UnmetOf::NoSuchQuestion { name } => Unmet::NoSuchQuestion { name: name.clone() },
+            UnmetOf::QuestionTwice { name } => Unmet::QuestionTwice { name: name.clone() },
+            UnmetOf::NotAnOption { name } => Unmet::NotAnOption { name: name.clone() },
+            UnmetOf::NotAnswerable { name } => Unmet::NotAnswerable { name: name.clone() },
         }
     }
 }

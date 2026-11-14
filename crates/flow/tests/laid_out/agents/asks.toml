@@ -1,0 +1,16 @@
+[protected]
+name = "protected_files"
+ask = "May this merge?\n{files}\n{diff}"
+file = "- {path}: {change}"
+added = "added"
+changed = "changed"
+deleted = "deleted"
+withdrawn = "No longer touched."
+
+[[protected.options]]
+does = "Yes"
+follows = "it merges."
+
+[[protected.options]]
+does = "No"
+follows = "it is taken back."

@@ -149,3 +149,38 @@ fn the_owner_turning_to_a_cell_that_waits_for_the_results_of_its_calls_enters_it
     let told = decide::told(&w.flow, &w.records, given).expect("the run started");
     assert!(!told.waits_for_calls);
 }
+
+#[test]
+fn a_run_for_the_owner_that_asks_for_calls_in_turn_leaves_the_owners_words_for_the_run_their_results_begin() {
+    let mut w = World::with_gate(vec![cell("research", &["brief", "spoken to research"], &["plan"])]);
+    w.turning("spoken to research");
+    w.person_writes("brief");
+    w.start("research");
+    let first = w.asks("research", None);
+    w.outside_writes("spoken to research");
+    w.start("research");
+    // The run entered for the words asks for a call of its own, dealing with nothing: it is not entered again for
+    // the same words while its calls have no results.
+    let second = w.asks("research", None);
+    assert_eq!(
+        w.decide(),
+        wait(
+            "research",
+            vec![
+                Waited::Call { call: first, on: None },
+                Waited::Call { call: second, on: None }
+            ]
+        )
+    );
+    // Once they have, the run their results begin deals with the words as well.
+    w.done(first);
+    w.done(second);
+    let Decision::Run { because, .. } = w.decide() else {
+        panic!("nothing runs: {:?}", w.decide())
+    };
+    assert!(
+        because.contains(&changed("spoken to research", None, false)),
+        "{because:?}"
+    );
+    assert!(because.contains(&results(&[first, second])), "{because:?}");
+}

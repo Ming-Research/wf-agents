@@ -77,8 +77,8 @@ pub struct Seen {
 /// The first finished run of the records that lacks a write of a block its cell must write, read from the records of
 /// the finishes and the cells' definitions (property a-run-is-one-mechanism), said in words; none where there is none.
 /// A run is held to what its cell must write where its return asked for no call, however much of what ran its round it
-/// dealt with (decision a-return-hands-in-what-its-cell-must-every-time); a return with a question that waits asks the
-/// owner for its answer as a call, and is not held.
+/// dealt with (decision a-return-hands-in-what-its-cell-must-every-time). A return with a question that waits is not
+/// held either; the histories that check this give no cell that must write a question to ask.
 pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String> {
     for finished in &records.finished {
         let started = (records.started.iter())
@@ -108,12 +108,12 @@ pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String
     None
 }
 
-/// Whether the run started for a note a person wrote: one of its reasons is a note that a person wrote since its cell
-/// last ran (since the start of the run of its record, or with no record of its first run), after the version its
-/// cell's record knew, and before the run started; for a cell with no record, a note the run started from. A cell no
-/// run of which started before has not run. Read from the records and the flow's notes; it does not ask whether the
-/// write changed the note's meaning, nor, with no record, whether the cell reads it, so it is a little wider than the
-/// rule.
+/// Whether the run started for a note a person wrote, or for the owner turning to its cell: one of its reasons is a
+/// note that a person wrote, or a block the owner turns to the cell by that the outside wrote, since its cell last ran
+/// (since the start of the run of its record, or with no record of its first run), after the version its cell's record
+/// knew, and before the run started; for a cell with no record, one the run started from. A cell no run of which
+/// started before has not run. Read from the records and the flow's notes; it does not ask whether the write changed
+/// the block's meaning, nor, with no record, whether the cell reads it, so it is a little wider than the rule.
 pub fn for_a_note(flow: &decide::Flow, records: &Records, run: RunId) -> bool {
     let r = records;
     let Some(started) = r.started.iter().find(|s| s.run == run) else {
@@ -130,10 +130,15 @@ pub fn for_a_note(flow: &decide::Flow, records: &Records, run: RunId) -> bool {
         return false;
     };
     let by_person = |block: &decide::BlockId, was: Option<decide::Seq>| {
-        flow.is_note(block)
-            && (r.written.iter()).any(|w| {
-                w.by == Outsider::Person && w.block == *block && w.at > since && Some(w.at) > was && w.at < started.at
-            })
+        let by = if flow.is_note(block) {
+            Outsider::Person
+        } else if flow.interrupts(block) {
+            Outsider::Outside
+        } else {
+            return false;
+        };
+        (r.written.iter())
+            .any(|w| w.by == by && w.block == *block && w.at > since && Some(w.at) > was && w.at < started.at)
     };
     started.because.iter().any(|c| match c {
         Cause::NoRecord => started.basis.keys().any(|block| by_person(block, None)),

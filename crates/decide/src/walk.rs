@@ -7,9 +7,11 @@
 //! keeps no place where a work is. Each time a round ends or something else happens to the work, it walks the cells
 //! from the first, in their order: a cell whose condition is not met is skipped, what it wrote before still counting;
 //! at the first that has a run at rest the run goes on, unless it waits for something; a cell whose last runs asked for
-//! calls waits there until every result is in, and is then entered again, given them; at the first whose preconditions
-//! do not hold, or that something new runs and that has reached a limit, the work waits; the first that something new
-//! runs is otherwise entered; the rest are passed. A work in which nothing new runs a cell, and nothing is under way or
+//! calls waits there until every result is in, and is then entered again, given them; at the first with a question it
+//! waits for standing unanswered, the work waits for the owner's answer, the cell being entered for nothing else
+//! meanwhile and no later cell run (design document `data-and-context`, 36); at the first whose preconditions do not
+//! hold, or that something new runs and that has reached a limit, the work waits; the first that something new runs is
+//! otherwise entered; the rest are passed. A work in which nothing new runs a cell, and nothing is under way or
 //! waited for, rests until someone writes what runs one. One round of a work is under way at a time: a round of a cell
 //! after one the owner turned to, by words or by an answer, is stopped, nothing else beginning until it has ended, and
 //! its cell runs again later. A work has ended when its last cell has a record or its item is cancelled.
@@ -27,11 +29,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::flow::{BlockId, Cell, CellId, Condition, Flow, TestKind, TestName};
+use crate::questions::{self, Standing as Question};
 use crate::records::{
     CallId, Called, Cause, Finished, Outsider, Pause, Pauser, PutIn, RecordFault, Records, RunId, Seq, Started, Who,
 };
 use crate::room::Room;
-use crate::run::{Hold, Standing, Told};
+use crate::run::{Asked, Hold, Standing, Told};
 
 /// What a work does next, with the reason as data (principle decide-purely).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -111,6 +114,8 @@ pub enum Waited {
     /// A free slot: the cell takes one, and as many rounds that take one are under way as the engine has slots. The
     /// engine gives it the first that comes free, in its order.
     Slot,
+    /// The owner's answer to the latest version of this question, which the cell asked and waits for.
+    Answer { question: String },
 }
 
 /// Who can make a precondition hold, by writing a block its test reads: the flow says who writes each block.
@@ -202,9 +207,15 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
                 run: run.started.run,
             };
         }
+        // A question the cell waits for holds the work at the cell until it is answered: the cell is entered for
+        // nothing meanwhile, and no later cell runs.
+        let (because, mut on) = walk.entering(i);
+        let held = walk.held(i);
+        if !held.is_empty() {
+            return wait(held.into_iter().chain(on).chain(walk.unmet(i)).collect());
+        }
         // A precondition that does not hold holds the work at its cell whether or not something new runs the cell: a
         // gate guards what comes after it as much as its own cell.
-        let (because, mut on) = walk.entering(i);
         on.extend(walk.unmet(i));
         if because.is_empty() {
             if on.is_empty() {
@@ -283,10 +294,20 @@ pub fn told(flow: &Flow, records: &Records, run: RunId) -> Option<Told> {
             (block.clone(), standing)
         })
         .collect();
+    let questions = (walk.questions.iter())
+        .map(|(name, q)| {
+            let asked = Asked {
+                own: q.latest.cell == r.started.cell && !q.latest.engine,
+                stands: q.stands(),
+            };
+            (name.to_string(), asked)
+        })
+        .collect();
     Some(Told {
         ran_by,
         outputs,
         waits_for_calls,
+        questions,
     })
 }
 
@@ -377,7 +398,8 @@ fn check(records: &Records) -> Result<(), RecordFault> {
         .chain(records.called.iter().map(|c| c.run))
         .chain(records.finished.iter().map(|f| f.run))
         .chain(records.abandoned.iter().map(|a| a.run))
-        .chain(records.put_in.iter().map(|d| d.run));
+        .chain(records.put_in.iter().map(|d| d.run))
+        .chain(records.questions.iter().map(|q| q.run));
     for run in named {
         if !runs.contains(&run) {
             return Err(RecordFault::UnknownRun(run));
@@ -421,6 +443,8 @@ fn check(records: &Records) -> Result<(), RecordFault> {
         .chain(records.abandoned.iter().map(|e| e.at))
         .chain(records.put_in.iter().map(|e| e.at))
         .chain(records.written.iter().map(|e| e.at))
+        .chain(records.questions.iter().map(|e| e.at))
+        .chain(records.answers.iter().map(|e| e.at))
         .chain(records.let_go.iter().map(|e| e.at))
         .chain(records.pauses.iter().map(|e| e.at))
         .chain(records.cancelled)
@@ -433,6 +457,13 @@ fn check(records: &Records) -> Result<(), RecordFault> {
     }
     for p in &records.put_in {
         put_in_fault(records, p)?;
+    }
+    for a in &records.answers {
+        let asked = (records.questions.iter())
+            .any(|q| q.name == a.question && q.at == a.version && !q.withdrawn && q.at < a.at);
+        if !asked {
+            return Err(RecordFault::AnswerNoVersion(a.at));
+        }
     }
     for c in &records.called {
         let ended = (records.finished.iter().filter(|f| f.run == c.run).map(|f| f.at))
@@ -550,6 +581,8 @@ pub(crate) struct Walk<'a> {
     pub(crate) runs: BTreeMap<RunId, RunView<'a>>,
     /// The versions of each block, in the order they were written.
     pub(crate) versions: BTreeMap<&'a BlockId, Vec<Version<'a>>>,
+    /// Each question of the work as it stands, by its name.
+    questions: BTreeMap<&'a str, Question<'a>>,
 }
 
 impl<'a> Walk<'a> {
@@ -561,7 +594,20 @@ impl<'a> Walk<'a> {
             records,
             runs,
             versions,
+            questions: questions::questions(records),
         }
+    }
+
+    /// The questions of the cell at this place that hold the work there, each the owner's answer to it waited for, in
+    /// the order of their names.
+    fn held(&self, i: usize) -> Vec<Waited> {
+        let cell = &self.flow.cells()[i].id;
+        (self.questions.iter())
+            .filter(|(_, q)| &q.latest.cell == cell && q.holds())
+            .map(|(name, _)| Waited::Answer {
+                question: name.to_string(),
+            })
+            .collect()
     }
 
     /// Whether the condition of the cell at this place is met: every key of it holds; with none it always is.
@@ -760,12 +806,22 @@ impl<'a> Walk<'a> {
 
     /// Why the cell at this place is entered, and what it waits for instead: what is new to it, and the results of the
     /// calls its runs asked for once all are in. While one of them has no result, the cell waits for it, and only the
-    /// owner turning to it enters it meanwhile, its calls still waited for (design document `data-and-context`, 42).
+    /// owner turning to it since its last run began enters it meanwhile, its calls still waited for (design document
+    /// `data-and-context`, 42): a run so entered that asks for calls in turn leaves what the owner wrote for the run
+    /// their results begin.
     fn entering(&self, i: usize) -> (Vec<Cause>, Vec<Waited>) {
         let mut because = self.needs(i);
         let (calls, open) = self.owed(i);
         if !open.is_empty() {
-            because.retain(|cause| matches!(cause, Cause::Changed { block, .. } if self.flow.interrupts(block)));
+            let cell = &self.flow.cells()[i].id;
+            let last = (self.runs.values())
+                .filter(|r| &r.started.cell == cell)
+                .map(|r| r.started.at)
+                .max();
+            because.retain(|cause| {
+                matches!(cause, Cause::Changed { block, .. }
+                    if self.flow.interrupts(block) && self.current(block).is_some_and(|v| Some(v.at) > last))
+            });
             let on = if because.is_empty() { open } else { Vec::new() };
             return (because, on);
         }
@@ -839,6 +895,7 @@ impl<'a> Walk<'a> {
                 _ => None,
             })?;
             let held = !self.unmet(j).is_empty()
+                || !self.held(j).is_empty()
                 || self.at_limit(cell, &because).is_some()
                 || (paused && !self.for_a_note(j, &because, None));
             (!held).then(|| (cell.id.clone(), block))

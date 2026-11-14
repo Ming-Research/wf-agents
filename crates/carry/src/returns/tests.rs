@@ -1,7 +1,9 @@
 //! The reading of a return, on a small flow laid out one thing to a file: an agent cell, `write`, run by what people
-//! ask for (`on_request`) and by the owner speaking to it (`on_spoken`), which writes the plan, a choice `ok` it hands
-//! in every time, and what the owner and the cells say (`discussion`) through the field `reply`, and may ask for one
-//! tool, `query`; and the merge after it, which `ok` runs, so that the work does not end with a run of `write`. What is written beside the flows is in the words of the flow crate's tests.
+//! ask for (`on_request`), by the owner speaking to it (`on_spoken`) and by the owner's answer to a question of its
+//! own (`on_answer`), which writes the plan, a choice `ok` it hands in every time, and what the owner and the cells say
+//! (`discussion`) through the field `reply`, and may ask for one tool, `query`; and the merge after it, which `ok`
+//! runs, so that the work does not end with a run of `write`. What is written beside the flows is in the words of the
+//! flow crate's tests.
 
 mod adversarial;
 mod checks;
@@ -15,7 +17,7 @@ use super::*;
 const FLOW: &str = r#"
 name = "returning"
 order = ["write", "merge"]
-data = ["request", "discussion"]
+data = ["request", "discussion", "answers"]
 tools = ["query"]
 
 [limits]
@@ -30,14 +32,15 @@ kind = "agent"
 effort = "high"
 line = "engineer"
 task = "Write the plan from the request."
-triggered_by = ["on_request", "on_spoken"]
-context = ["request", "discussion"]
+triggered_by = ["on_request", "on_spoken", "on_answer"]
+context = ["request", "discussion", "answers"]
 outputs = ["plan", "ok", "discussion"]
 must_write = ["ok"]
 
 [kinds]
 request = "latest"
 discussion = "all"
+answers = "all"
 "#;
 
 const MERGE: &str = r#"
@@ -66,6 +69,11 @@ pub(crate) fn flow() -> Compiled {
             "../triggers/of_a_cell/on_spoken.toml",
             "block = \"{cell}_spoken_to\"\nfrom = \"owner\"\nread = [\"discussion\"]\n",
         ),
+        ("../data/answers.toml", "from = \"owner\"\nshown = true\n"),
+        (
+            "../triggers/of_a_cell/on_answer.toml",
+            "block = \"{cell}_answered\"\nfrom = \"answer\"\nread = [\"answers\"]\n",
+        ),
     ];
     let source = flow::Source {
         laid_out: true,
@@ -81,6 +89,7 @@ pub(crate) fn flow() -> Compiled {
     };
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = flow::Has {
+        sources: names(&["answer"]),
         acts: names(&["merge"]),
         tools: names(&["query"]),
         fields: names(&["reply"]),
@@ -97,7 +106,7 @@ pub(crate) fn cell(flow: &Compiled) -> &CellSpec {
 }
 
 /// What is written beside the flows, as the flow crate's tests have it.
-fn words() -> flow::agents::Agents {
+pub(crate) fn words() -> flow::agents::Agents {
     let beside = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/laid_out");
     flow::agents::read(&beside).expect("the words beside the flows of the tests are read")
 }
@@ -144,7 +153,14 @@ fn the_cell_s_triggers_and_tools_are_those_of_the_flow() {
     let triggers: Vec<(&str, &str)> = (write.triggers.iter())
         .map(|t| (t.name.as_str(), t.block.as_str()))
         .collect();
-    assert_eq!(triggers, [("on_request", "request"), ("on_spoken", "write_spoken_to")]);
+    assert_eq!(
+        triggers,
+        [
+            ("on_request", "request"),
+            ("on_spoken", "write_spoken_to"),
+            ("on_answer", "write_answered")
+        ]
+    );
     assert_eq!(write.tools, ["query"]);
     assert_eq!(write.must_write, [BlockId::from("ok")]);
 }
@@ -181,7 +197,7 @@ fn what_a_return_says_beside_its_work_is_kept() {
                 Question::Asked {
                     name: "which_name".to_string(),
                     waits: true,
-                    recommends: 1,
+                    recommends: Some(1),
                     ask: "Which name?".to_string(),
                     options: vec![Way {
                         does: "first name".to_string(),
@@ -201,7 +217,7 @@ fn what_a_return_says_beside_its_work_is_kept() {
 }
 
 #[test]
-fn a_question_that_waits_is_put_to_the_owner_in_the_words_of_the_files_and_one_that_does_not_is_only_kept() {
+fn a_question_is_kept_as_the_agent_wrote_it_and_asks_for_no_call_whether_or_not_it_waits() {
     let mut r = work();
     r["outcome"]["questions"] = json!([
         {"name": "which_name", "waits": true, "recommends": 2, "ask": "Which name? {options}",
@@ -210,18 +226,63 @@ fn a_question_that_waits_is_put_to_the_owner_in_the_words_of_the_files_and_one_t
             "options": [{"does": "blue", "follows": "calm"}]},
     ]);
     let came = read(&r).expect("it is read");
-    // What the agent wrote is put in as it is, nothing in it filled.
-    let question = "Which name? {options}\n1. the first, warmer {ask}\n2. the full, formal (yes)".to_string();
-    assert_eq!(
-        came.asks,
-        [Ask::Person {
-            who: Who::Owner,
-            question
-        }]
-    );
+    assert_eq!(came.asks, [], "a question is no call");
     assert_eq!(came.writes, worked().writes, "it does the cell's work beside");
+    let Question::Asked { ask, recommends, .. } = &came.said.questions[0] else {
+        panic!("the question is asked: {:?}", came.said.questions);
+    };
+    assert_eq!((ask.as_str(), *recommends), ("Which name? {options}", Some(2)));
     assert_eq!(came.said.questions.len(), 2);
     assert!(came.found.is_empty(), "{:?}", came.found);
+}
+
+#[test]
+fn a_question_that_recommends_none_of_its_options_or_has_the_name_of_the_engine_s_own_is_found() {
+    let mut r = work();
+    let option = json!([{"does": "blue", "follows": "calm"}]);
+    r["outcome"]["questions"] = json!([
+        {"name": "none", "waits": false, "recommends": 0, "ask": "Which?", "options": option},
+        {"name": "past", "waits": false, "recommends": 2, "ask": "Which?", "options": option},
+        {"name": "empty", "waits": true, "recommends": 1, "ask": "Which?", "options": []},
+        {"name": "protected_files", "waits": false, "recommends": 1, "ask": "Which?", "options": option},
+        {"name": "protected_files", "withdrawn": "Settled."},
+    ]);
+    let found = read(&r).expect("it is read").found;
+    let named = |name: &str| name.to_string();
+    assert_eq!(
+        found,
+        [
+            Unmet::NotAnOption { name: named("none") },
+            Unmet::NotAnOption { name: named("past") },
+            Unmet::NotAnOption { name: named("empty") },
+            Unmet::QuestionTaken {
+                name: named("protected_files")
+            },
+            Unmet::QuestionTaken {
+                name: named("protected_files")
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_question_of_a_cell_no_answer_runs_is_found_as_one_no_answer_could_reach() {
+    let flow = flow();
+    let merge = (flow.cells.iter())
+        .find(|c| c.id.as_str() == "merge")
+        .expect("the merge");
+    let r = json!({"outcome": {"questions": [
+        {"name": "which", "waits": true, "recommends": 1, "ask": "Which?",
+            "options": [{"does": "blue", "follows": "calm"}]},
+        {"name": "old", "withdrawn": "Settled."},
+    ]}});
+    let found = came(&r, &flow, merge, &words()).expect("it is read").found;
+    assert_eq!(
+        found,
+        [Unmet::NotAnswerable {
+            name: "which".to_string()
+        }]
+    );
 }
 
 #[test]

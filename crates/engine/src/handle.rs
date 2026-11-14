@@ -10,6 +10,7 @@ use decide::{
 };
 use flow::{Compiled, Kind};
 
+use crate::asked;
 use crate::event::{Effect, Event, Gate, Refused};
 use work::{Ask, Back, Call, Filled, Given, Moment, Ran, Session, Time, Work};
 
@@ -219,9 +220,11 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
             let Some(declared) = flow.blocks.get(&block) else {
                 return Err(Refused::NoSuchBlock(block));
             };
+            // What stands for the questions and their answers the engine writes itself, as they are taken.
+            let engines = [asked::ASKED, flow::ANSWER];
             let theirs = match by {
                 Outsider::Person => declared.writers.people,
-                Outsider::Outside => declared.writers.outside.is_some(),
+                Outsider::Outside => (declared.writers.outside.as_deref()).is_some_and(|s| !engines.contains(&s)),
             };
             if !theirs {
                 return Err(Refused::NotTheirs { block, by });
@@ -324,14 +327,24 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
                     Some(named) => named,
                     None => told(&flow.flow, &work.records, run).map_or_else(Vec::new, |t| t.ran_by),
                 };
+                // What the engine asks with the round is the work's from the round's end, whatever becomes of the
+                // return.
+                let cell = (work.records.started.iter())
+                    .find(|s| s.run == run)
+                    .map(|s| s.cell.clone());
+                if let Some(cell) = cell {
+                    asked::record(work, run, &cell, true, &came.engine);
+                }
                 let back = Back::Returned {
                     dealt_with,
                     handed: came.writes,
                     asks: came.asks,
                     found: came.found,
                     said: came.said,
+                    engine: came.engine,
                 };
                 work.back.insert((run, number), back);
+                asked::tell(flow, work);
             }
         }
         Event::Failed {
@@ -386,6 +399,15 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
             let at = work.tick();
             work.records.done.push(Done { call, at });
             work.results.insert(call, result);
+        }
+        Event::Answer {
+            question,
+            version,
+            option,
+            why,
+        } => {
+            asked::answer(flow, work, question, version, option, why)?;
+            asked::tell(flow, work);
         }
         Event::Anew { line, why } => {
             if !flow
@@ -623,11 +645,12 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At, effects: &mut Vec<
 }
 
 /// Takes the run's return, which met everything the flow requires: the calls it asks for are made, and the run
-/// finishes, recording what it dealt with, the blocks it wrote and their content under the place of the finish. A
-/// return of the form before a return that asks ended its run made all its calls at once as it was taken, and its run
-/// rested at them, unless the owner's word at the limit of calls was asked for first: such a run finishes making none
-/// again, or all it asked for where it made none, and its cell is owed those it made. The run keeps, as it finishes,
-/// the observations its returns said that it keeps (crate `work`, module `observations`).
+/// finishes, recording what it dealt with, the blocks it wrote and their content under the place of the finish, and
+/// then the questions it asks, asks anew or withdraws, each a version of its own of its cell. A return of the form
+/// before a return that asks ended its run made all its calls at once as it was taken, and its run rested at them,
+/// unless the owner's word at the limit of calls was asked for first: such a run finishes making none again, or all it
+/// asked for where it made none, and its cell is owed those it made. The run keeps, as it finishes, the observations
+/// its returns said that it keeps (crate `work`, module `observations`).
 fn finish(
     flow: &Compiled,
     work: &mut Work,
@@ -636,8 +659,12 @@ fn finish(
     writes: Vec<Write>,
     effects: &mut Vec<Effect>,
 ) {
+    let mut questions = Vec::new();
     let (handed, asks) = match work.back.get(&(run, ended(work, run))) {
-        Some(Back::Returned { handed, asks, .. }) => (handed.clone(), asks.clone()),
+        Some(Back::Returned { handed, asks, said, .. }) => {
+            questions = said.questions.clone();
+            (handed.clone(), asks.clone())
+        }
         Some(Back::HandedIn(handed)) => (handed.clone(), Vec::new()),
         Some(Back::Asked(asks)) => {
             let r = &work.records;
@@ -673,6 +700,14 @@ fn finish(
         .and_then(|c| c.line.as_deref());
     let observed = work::observations::kept(work, run, line);
     work.observed.extend(observed);
+    if !questions.is_empty()
+        && let Some(cell) = (work.records.started.iter())
+            .find(|s| s.run == run)
+            .map(|s| s.cell.clone())
+    {
+        asked::record(work, run, &cell, false, &questions);
+        asked::tell(flow, work);
+    }
 }
 
 /// Records a call of the run, and gives it to be made.
@@ -731,14 +766,19 @@ pub(crate) fn log(work: &Work, run: RunId, told: &Told) -> run::Log {
             asks,
             found,
             said,
+            ..
         } => run::Return::Came {
             dealt_with: dealt_with.clone(),
             writes: writes(handed),
-            // Each question that waits is put to the owner as a call beside the cell's work: only the other calls,
-            // as a return that asks the owner for nothing else, make a return one that asks for calls.
-            calls: asks.len().saturating_sub(said.waiting()),
+            calls: asks.len(),
             found: found.clone(),
             waits: said.waits(),
+            questions: (said.questions.iter())
+                .map(|q| run::Asking {
+                    name: q.name().to_string(),
+                    withdrawn: matches!(q, work::Question::Withdrawn { .. }),
+                })
+                .collect(),
         },
         Back::Asked(asks) => run::Return::Came {
             dealt_with: Vec::new(),
@@ -746,6 +786,7 @@ pub(crate) fn log(work: &Work, run: RunId, told: &Told) -> run::Log {
             calls: asks.len(),
             found: Vec::new(),
             waits: false,
+            questions: Vec::new(),
         },
         Back::HandedIn(handed) => run::Return::Came {
             dealt_with: told.ran_by.clone(),
@@ -753,6 +794,7 @@ pub(crate) fn log(work: &Work, run: RunId, told: &Told) -> run::Log {
             calls: 0,
             found: Vec::new(),
             waits: false,
+            questions: Vec::new(),
         },
         Back::Failed { why, failure, .. } => run::Return::Failed {
             failure: *failure,

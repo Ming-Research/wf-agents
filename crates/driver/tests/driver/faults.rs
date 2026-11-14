@@ -32,7 +32,7 @@ fn engineer(root: &Path) -> Compiled {
     let source = flow::read(&root.join("engineer")).expect("the engineer's flow is read");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
     let has = Has {
-        sources: names(&[DEPENDENCIES, "main", "session", "start", "tree"]),
+        sources: names(&["answer", "asked", DEPENDENCIES, "main", "session", "start", "tree"]),
         acts: names(&["start", "check", "merge", "deliver"]),
         tools: names(&["query", "run_tests"]),
         fields: names(&["questions", "reply"]),

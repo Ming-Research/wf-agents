@@ -598,6 +598,7 @@ impl History {
                         calls: calls.len(),
                         found: Vec::new(),
                         waits: false,
+                        questions: Vec::new(),
                     },
                     Back::Failed(failure) => Return::Failed {
                         failure: *failure,

@@ -46,7 +46,7 @@ fn wait_gives_the_question_once_it_is_asked_then_nothing_from_its_mark_then_the_
         engine.says(&["wait", "--since", mark, "--for", "0"]),
         format!("Nothing for you since the mark.\nNext: wf-agents wait --since {mark}\n")
     );
-    engine.says(&["answer", "1", "2", "Yes, by name."]);
+    engine.says(&["result", "1", "2", "Yes, by name."]);
     let said = engine.says(&["wait", "--since", mark]);
     let (lines, _) = split(&said);
     assert!(

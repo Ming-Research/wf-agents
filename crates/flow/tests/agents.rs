@@ -91,7 +91,13 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
     assert_eq!(read.sent_back.item, "- {text}");
     assert_eq!(read.sent_back.faults.not_a_trigger, "`{name}` does not run this cell.");
     assert_eq!(read.sent_back.unread.requests_not_a_list, "`{name}` has no list");
-    assert_eq!(read.returns.asked.recommended, "{number}. {does}, {follows} (yes)");
+    assert_eq!(
+        read.sent_back.faults.not_answerable,
+        "`{name}` cannot be answered here."
+    );
+    assert_eq!(read.project.protected.paths, ["AGENTS.md", "flow/"]);
+    assert_eq!(read.asks.protected.name, "protected_files");
+    assert_eq!(read.asks.protected.options.len(), 2);
     assert_eq!(
         read.fields.keys().map(String::as_str).collect::<Vec<_>>(),
         ["dealt_with", "meaning_unchanged", "outputs", "reply", "summary"]

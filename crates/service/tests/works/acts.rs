@@ -22,7 +22,7 @@ async fn an_answer_to_a_tools_call_is_refused() {
             |d| matches!(d, Decision::Wait { at, .. } if at.as_str() == "build"),
         )
         .await;
-    let answer = Act::Answer {
+    let answer = Act::Result {
         call: CallId(5),
         result: "It passed.".to_string(),
     };

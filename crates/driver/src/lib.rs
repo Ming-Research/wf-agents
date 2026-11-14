@@ -94,15 +94,17 @@ pub const MERGED: &str = "merged";
 /// of it started. The block has no content to speak of; its version is what runs the cell that starts the work.
 pub const START: &str = "start";
 
-/// What is wrong with the flow for what the driver writes, each in words with the file that says what the driver writes
-/// into the block: a block of [`DEPENDENCIES`], of [`SESSION`] or of [`START`] gives in its `writes` each text the
-/// driver fills, so that none is written empty. A flow with any of these is not run.
+/// What is wrong with the flow for what the engine writes, each in words with the file that says what it writes into
+/// the block: a block of [`DEPENDENCIES`], of [`SESSION`], of [`START`] or of [`engine::asked::ASKED`] gives in its
+/// `writes` each text the engine fills, so that none is written empty. A flow with any of these is not run.
 pub fn faults(flow: &Compiled) -> Vec<String> {
+    use engine::asked::{ANSWERED, ASKED, WAITING as UNANSWERED};
     let session: Vec<&str> = ["text"].into_iter().chain(work::Why::KINDS).collect();
-    let needs: [(&str, &[&str]); 3] = [
+    let needs: [(&str, &[&str]); 4] = [
         (DEPENDENCIES, &[MERGED, WAITING, "cancelled", "between"]),
         (SESSION, &session),
         (START, &["text"]),
+        (ASKED, &[ANSWERED, UNANSWERED, "between"]),
     ];
     let mut faults = Vec::new();
     for (name, block) in &flow.blocks {

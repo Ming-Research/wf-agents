@@ -332,8 +332,13 @@ impl Standing {
 fn for_a_person(waited: &Waited) -> bool {
     match waited {
         Waited::Call { on, .. } => on.is_some(),
-        Waited::Precondition { by, .. } => by.contains(&Maker::Owner),
-        Waited::Limit { .. } | Waited::Calls { .. } => true,
+        // What the engine writes of the questions changes only as the owner answers them.
+        Waited::Precondition { by, .. } => (by.iter()).any(|maker| match maker {
+            Maker::Owner => true,
+            Maker::Outside { source } => source == engine::asked::ASKED,
+            Maker::Cell { .. } => false,
+        }),
+        Waited::Limit { .. } | Waited::Calls { .. } | Waited::Answer { .. } => true,
         // The engine gives it as soon as a round of another work ends.
         Waited::Slot => false,
     }
@@ -346,7 +351,9 @@ fn on_items(waited: &Waited) -> bool {
             !by.is_empty()
                 && (by.iter()).all(|maker| matches!(maker, Maker::Outside { source } if source == DEPENDENCIES))
         }
-        Waited::Call { .. } | Waited::Limit { .. } | Waited::Calls { .. } | Waited::Slot => false,
+        Waited::Call { .. } | Waited::Limit { .. } | Waited::Calls { .. } | Waited::Slot | Waited::Answer { .. } => {
+            false
+        }
     }
 }
 
