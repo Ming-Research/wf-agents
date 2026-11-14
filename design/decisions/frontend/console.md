@@ -24,7 +24,8 @@ place (Article 8).
 ### decision a-card-that-waits-for-the-owner-is-tinted
 A card whose work waits for the owner is tinted in the owner's orange with an edge a deeper shade of it, and has no
 glow; it is told by that tint, by its third row, which says where it waits, and by its count of questions, white on red.
-A card the owner paused is tinted the same way in grey.
+A card the owner paused is tinted the same way in grey, and one the engine stopped or at fault in red; only a card
+whose work runs glows.
 Why: A red fill with rings that breathed round it was turned down by the owner as ugly; the tint is how the console on
 `old-main` marked a card in work.
 

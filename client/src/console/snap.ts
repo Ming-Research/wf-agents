@@ -401,10 +401,11 @@ export type DrawnWhere = Where & { words: string[] };
 /// and its third row, where its work waits for the owner.
 export type DrawnCard = { fill: string | null; edge: string | null; glows: boolean; where: DrawnWhere | null };
 
-/// How much of its state's colour fills a card whose work is running or that the engine stopped.
+/// How much of its state's colour fills a card whose work is running.
 const FILL = 0.18;
-/// How much of its state's colour tints a card that waits for the owner or is paused, the rest the card's: the tokens'
-/// tint (`--*-tint`), as the console on `old-main` tinted a card in work; and its edge, a deeper shade of it.
+/// How much of its state's colour tints a card that waits for the owner, is paused or that the engine stopped, the rest
+/// the card's: the tokens' tint (`--*-tint`), as the console on `old-main` tinted a card in work; and its edge, a deeper
+/// shade of it.
 const TINT = 0.1;
 const EDGE_TINT = 0.45;
 /// How much of the running colour the edge of a card whose work runs takes: nearly all of it, so that it is bright.
@@ -413,7 +414,7 @@ const EDGE_RUNNING = 0.9;
 const NOT_BEGUN = 0.7;
 /// How far a card's number and strip stand in from its left edge.
 const CARD_INSET = 10;
-/// The glow of a card that the engine stopped or that runs: how far out each ring stands and how strong it is.
+/// The glow of a card that runs: how far out each ring stands and how strong it is.
 const CARD_GLOW: [number, number][] = [
   [1, 0.34],
   [2.5, 0.2],
@@ -563,8 +564,7 @@ export class SnapScene {
   /// The item the pointer was over at the last frame, and since when it has been over it (or over none).
   private hoverWas = -1;
   private hoverAt = 0;
-  /// The glow of each card that runs or that the engine stopped, to move it each frame: the rings that breathe, and for a
-  /// card whose work runs the light that goes round its edge.
+  /// The glow of each card that runs, to move it each frame: its rings, and the light that goes round its edge.
   private glows = new Map<number, { rings: Graphics; trail: Graphics | null; top: number; high: number; colour: string }>();
   /// The same for the glow around the item under the pointer itself, which those lit with it do not have.
   private haloed = new Map<number, number>();
@@ -796,13 +796,14 @@ export class SnapScene {
     if (item.shadow) return this.shadow(item, view, top, h, row1);
     const mood = item.work !== null ? moodOf(item.work) : null;
     const card = new Graphics().roundRect(0, top, NODE_W, h, CARD_CORNER);
-    // A card whose work is running, or that the engine stopped, is filled with its state's colour and glows. One that
-    // waits for the owner, or that is paused, is tinted with its state's colour, as the console on `old-main` tinted a
-    // card in work, with no glow: it reads at a glance by its tint, its edge and its third row. In each, the edge is a
-    // deeper shade of the colour. A card stopped for anything else has an edge of its grey and no fill.
+    // A card whose work is running is filled with its state's colour and glows. One that waits for the owner, that is
+    // paused, or that the engine stopped, is tinted with its state's colour, as the console on `old-main` tinted a card
+    // in work, with no glow: it reads at a glance by its tint, its edge and, waiting for the owner, its third row. In
+    // each, the edge is a deeper shade of the colour. A card stopped for anything else has an edge of its grey and no
+    // fill.
     const state = mood !== null ? WORK()[mood] : null;
-    const glows = state !== null && (mood === 'halted' || mood === 'running');
-    const fill = glows ? FILL : mood === 'owner' || mood === 'paused' ? TINT : 0;
+    const glows = state !== null && mood === 'running';
+    const fill = glows ? FILL : mood === 'owner' || mood === 'paused' || mood === 'halted' ? TINT : 0;
     const edge =
       state !== null
         ? between(PALETTE.card, state, mood === 'running' ? EDGE_RUNNING : EDGE_TINT)
@@ -814,8 +815,8 @@ export class SnapScene {
     // of the items under it, so that the cards of the items that are worked on stand out from it.
     if (item.deliver) view.addChild(new Graphics().rect(0, top + h - DELIVER_LINE, NODE_W, DELIVER_LINE).fill(PALETTE.faint));
     else {
-      // A card the engine stopped or whose work is running glows in its colour: a few rings fading outward, which on
-      // the dark ground make it the first thing seen.
+      // A card whose work is running glows in its colour: the light going round its edge, and the rings fading outward
+      // while the trial of them is on.
       if (glows && state !== null) {
         const glow = new Graphics();
         for (const [out, alpha] of CARD_GLOW)
@@ -1093,21 +1094,11 @@ export class SnapScene {
     return view;
   }
 
-  /// Moves a card's glow on by a frame. A card the engine stopped has rings that breathe, slowly. A card whose work
-  /// runs has a short light going round its edge, bright at its head and fading behind it, in step on every such
-  /// card, so that what is being worked on is seen moving.
-  private moveGlow(
-    glow: { rings: Graphics; trail: Graphics | null; top: number; high: number; colour: string },
-    now: number,
-    k: number,
-  ) {
+  /// Moves a card's glow on by a frame: a card whose work runs has a short light going round its edge, bright at its
+  /// head and fading behind it, in step on every such card, so that what is being worked on is seen moving.
+  private moveGlow(glow: { rings: Graphics; trail: Graphics | null; top: number; high: number; colour: string }, now: number) {
     const trail = glow.trail;
-    if (trail === null) {
-      // A card the engine stopped: its rings breathe, each card a little out of step with the others.
-      const phase = (now / BREATH_MS + k * 0.37) % 1;
-      glow.rings.alpha = BREATH_LOW + (1 - BREATH_LOW) * Math.sin(Math.PI * phase) ** 2;
-      return;
-    }
+    if (trail === null) return;
     // A card whose work runs: its rings are off for now (TRIAL: the owner is trying it without them), and the light
     // on its edge goes round in step with every other running card's.
     glow.rings.visible = RUNNING_RINGS;
@@ -1551,7 +1542,7 @@ export class SnapScene {
         const p = this.pulses.get(item);
         if (p !== undefined) p.alpha = pulse;
         const glow = this.glows.get(item);
-        if (glow !== undefined) this.moveGlow(glow, now, item);
+        if (glow !== undefined) this.moveGlow(glow, now);
         this.age(item);
         nowShown.add(view);
         drawn.push(item);

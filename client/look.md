@@ -351,10 +351,10 @@ smoothly, and the panel at its right with the item selected. It is the console o
   begun, a lock framed in muted with how many items it depends on are not merged. A card whose work goes on, once it
   has begun or while it is paused, at fault or waits, is drawn in the colour of what the work does (`--blue` running,
   `--orange` waiting for the owner, the console's pale yellow `#e8cc6a` waiting for anything else, muted paused,
-  `--red` halted, by a fault or by the engine's pause): one running or halted is filled with it and glows; one that
-  waits for the owner, a question, a precondition the owner makes hold, a limit, stalled, or that is paused, is tinted
-  with it as the tokens' tints are (10% over the card), its edge a deeper shade, with no glow, as the console on
-  `old-main` marked a card in work; the rest have an edge of it alone. A card that waits for the owner, or that the
+  `--red` halted, by a fault or by the engine's pause): one running is filled with it and glows; one that waits for
+  the owner, a question, a precondition the owner makes hold, a limit, stalled, one that is paused, and one halted, is
+  tinted with it as the tokens' tints are (10% over the card), its edge a deeper shade (45%), with no glow, as the
+  console on `old-main` marked a card in work; the rest have an edge of it alone. A card that waits for the owner, or that the
   owner paused, has a third row that says where: the cell, its id in monospace, muted, and its title semibold, as the
   page shows a cell, then what it waits for there as keys and values as the records and the cells' files write them
   (`answer group-trigger-cannot-be-dealt-with`, `requires asked = answered`, `paused`), cut at the card's edge. Its

@@ -1,7 +1,8 @@
 // A console's card that waits for the owner, in a real browser (Chromium): it is tinted in the orange that asks for the
 // owner, as the console on `old-main` tinted it, with no glow, and says on a third row where its work waits: the cell
 // by its id and its title, and what it waits for as keys and values. A card the owner paused is tinted grey, apart from
-// a question, and says it is paused; one the engine stopped keeps its fill and its glow.
+// a question, and says it is paused; one the engine stopped, or at fault, is tinted in red the same way, with no glow;
+// only a card whose work runs glows.
 
 import '../styles/tokens.css';
 import '../styles/parts.css';
@@ -78,8 +79,10 @@ describe("a card that waits for the owner", () => {
         card(1, { kind: 'waits', at: 'R2', on: [{ kind: 'answer', question: 'scope' }] }, asked, 1),
         card(2, { kind: 'paused', by: 'owner', why: null }, paused),
         card(3, { kind: 'paused', by: 'engine', why: 'A round failed.' }, null),
+        card(4, { kind: 'fault', words: 'Two entries at 3' }, null),
+        card(5, { kind: 'round', cell: 'R2', run: 1, round: 1, since: Date.now() }, null),
       ]);
-      const [owner, held, halted] = [1, 2, 3].map((id) => scene.drawnCard(id) as DrawnCard);
+      const [owner, held, halted, fault, running] = [1, 2, 3, 4, 5].map((id) => scene.drawnCard(id) as DrawnCard);
       const ground = token('--card');
       expect(owner.glows).toBe(false);
       expect(owner.fill).toBe(mixed(ground, token('--orange'), 0.1));
@@ -92,9 +95,16 @@ describe("a card that waits for the owner", () => {
       expect(held.fill).not.toBe(owner.fill);
       expect(held.where?.words).toEqual(['M1', 'Check before the merge', 'paused']);
 
-      // Stopped by the engine: filled and glowing, with no third row.
-      expect(halted.glows).toBe(true);
-      expect(halted.where).toBeNull();
+      // Stopped by the engine, or at fault: tinted in red with an edge a deeper shade of it, no glow, no third row.
+      for (const c of [halted, fault]) {
+        expect(c.glows).toBe(false);
+        expect(c.fill).toBe(mixed(ground, token('--red'), 0.1));
+        expect(c.edge).toBe(mixed(ground, token('--red'), 0.45));
+        expect(c.where).toBeNull();
+      }
+
+      // Only a card whose work runs glows.
+      expect(running.glows).toBe(true);
     });
   }
 
