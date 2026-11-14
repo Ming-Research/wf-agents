@@ -54,6 +54,7 @@ impl Scripted {
             tools: Arc::new(self.clone()),
             slots: self.inner.script.slots.unwrap_or(crate::script::SLOTS),
             network: Arc::new(self.clone()),
+            host: Some(Arc::new(self.clone())),
         }
     }
 

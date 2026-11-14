@@ -5,7 +5,7 @@
 use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use super::{Branch, Host, Named, Verdict};
+use super::{Branch, Host, Named, NotMerged, Verdict};
 use crate::held::Stop;
 
 /// The host's answers, and what it was asked.
@@ -85,7 +85,7 @@ impl Host for Fake {
         next.unwrap_or_else(|| Err("the fake host has no verdict to give".to_string()))
     }
 
-    async fn merge(&self, _: &Branch<'_>, checked: Option<&str>) -> Result<String, String> {
+    async fn merge(&self, _: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {
         lock(&self.asked).push(Asked::Merge(checked.map(str::to_string)));
         Ok(lock(&self.main).clone())
     }

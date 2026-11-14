@@ -42,14 +42,20 @@ pub struct Branch<'a> {
     pub place: &'a Place,
 }
 
-/// Why the commit the check passed is not merged onto main's head: it does not hold it, so it was checked against a
-/// main that has since moved, and merged, it would land what nothing checked. Said with what the owner does next.
-pub(crate) fn moved(name: &str, main: &str, checked: &str) -> String {
-    format!(
-        "{name} has moved to {main} since the check passed {checked}, which does not hold it. The engine writes \
-         {name}'s new head into the work within a minute; let the work on then, and the check runs again before the \
-         merge"
-    )
+/// Why a work's branch was not merged.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NotMerged {
+    /// Main has moved to this head since the check passed the commit, which does not hold it: merged, it would land
+    /// what nothing checked. The check is to be taken again on main's new head.
+    Moved { main: String, checked: String },
+    /// Anything else, as git or the host said it.
+    Failed(String),
+}
+
+impl From<String> for NotMerged {
+    fn from(why: String) -> Self {
+        NotMerged::Failed(why)
+    }
 }
 
 /// What a host found of a commit.
@@ -83,10 +89,14 @@ pub trait Host: Send + Sync + 'static {
     ) -> impl Future<Output = Result<Option<Verdict>, String>> + Send;
 
     /// Merges the work's branch into main and gives the commit the merge made main's head with. Where `checked` names
-    /// the commit the check passed, only that commit is merged, and only onto a main it holds ([`moved`]); a merge
-    /// made already, before the engine stopped, is found first and gives its commit. With none, the flow has no check,
-    /// and what the branch holds is merged.
-    fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> impl Future<Output = Result<String, String>> + Send;
+    /// the commit the check passed, only that commit is merged, and only onto a main it holds ([`NotMerged::Moved`]);
+    /// a merge made already, before the engine stopped, is found first and gives its commit. With none, the flow has
+    /// no check, and what the branch holds is merged.
+    fn merge(
+        &self,
+        branch: &Branch<'_>,
+        checked: Option<&str>,
+    ) -> impl Future<Output = Result<String, NotMerged>> + Send;
 
     /// The reference of the local repository that holds the head of main as the host last gave it, read without asking
     /// the host again: where a work's change begins is worked out from it.
@@ -146,7 +156,7 @@ impl<H: Host> Host for Arc<H> {
         (**self).verdict(branch, commit, stop).await
     }
 
-    async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, String> {
+    async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {
         (**self).merge(branch, checked).await
     }
 

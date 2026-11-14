@@ -22,10 +22,25 @@ pub struct Look;
 
 impl service::Network for Look {
     fn reached(&self) -> bool {
-        let at = host(std::env::var("ANTHROPIC_BASE_URL").ok().as_deref());
-        (at.to_socket_addrs().ok().and_then(|mut a| a.next()))
-            .is_some_and(|a| TcpStream::connect_timeout(&a, LOOK_WAIT).is_ok())
+        reaches(&host(std::env::var("ANTHROPIC_BASE_URL").ok().as_deref()))
     }
+}
+
+/// The look at the network to a host of the engine's acts, by its `host:port`: whether it resolves and takes a
+/// connection within a few seconds.
+#[derive(Clone, Debug)]
+pub struct LookAt(pub String);
+
+impl service::Network for LookAt {
+    fn reached(&self) -> bool {
+        reaches(&self.0)
+    }
+}
+
+/// Whether the `host:port` resolves and takes a connection within a few seconds.
+fn reaches(at: &str) -> bool {
+    (at.to_socket_addrs().ok().and_then(|mut a| a.next()))
+        .is_some_and(|a| TcpStream::connect_timeout(&a, LOOK_WAIT).is_ok())
 }
 
 /// The host and port a look at the network connects to, from the service's address where one is given.

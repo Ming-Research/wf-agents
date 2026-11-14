@@ -1,7 +1,9 @@
 //! The work's branch taking main in as a run of the build, which takes main in, starts.
 
 use carry::ROUNDS;
+use decide::run::Failure;
 use service::Act;
+use work::Back;
 
 use crate::{Fake, On, Real, ended, git_in};
 
@@ -62,4 +64,34 @@ async fn a_run_of_the_build_after_main_moved_takes_it_in_and_is_told_so_once() {
             .any(|l| l.starts_with("Merge main at ") && l.contains(" as run ") && l.ends_with(" wf-agents@localhost")),
         "{log}"
     );
+}
+
+/// A check that passes, moving main by a commit the first time, as another work's merge would: what it passed does not
+/// hold main's new head.
+const PASSES_MOVING_MAIN_ONCE: &str = "test -f ../moved || { touch ../moved; \
+    r=$(dirname \"$(git rev-parse --path-format=absolute --git-common-dir)\"); \
+    git -C \"$r\" -c user.name=Tester -c user.email=tester@example.com commit -q --allow-empty -m 'Main moved'; }";
+
+// A merge refused because main moved since the check passed fails in passing, and the work is not paused: once the
+// watch of main writes main's new head, the check runs again on it, and the merge, tried again, merges.
+#[tokio::test]
+async fn a_merge_refused_for_a_main_that_moved_is_checked_again_on_its_new_head_and_merges_unpaused() {
+    let mut real = Real::open(On::Acts, Fake::default(), None, PASSES_MOVING_MAIN_ONCE);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| real.failures == 1).await;
+    assert!(!real.paused(work), "the work is paused");
+    let merge = real.run_of(work, "merge");
+    let kept = real.work(work);
+    let Some(Back::Failed { failure, why, .. }) = kept.back.get(&(merge, 1)) else {
+        panic!("the merge did not fail: {:?}", kept.back);
+    };
+    assert_eq!(*failure, Failure::Passing);
+    assert!(why.contains("has moved to"), "{why}");
+    let main = git_in(&real.repo, &["rev-parse", "main"]);
+    real.outside("main", &format!("Main is at {main}."));
+    real.until(|real| ended(&real.decision(work))).await;
+    assert_eq!(real.finished(work), ["start", "build", "check", "check", "merge"]);
+    assert!(!real.paused(work));
+    assert_eq!(real.failures, 1, "the merge failed once");
 }

@@ -130,9 +130,13 @@ pub enum Message {
     Read(Reader),
     /// The time of the engine's wait, this call of this work, has come.
     Due { work: WorkNumber, call: CallId },
-    /// The time the driver asked to be told has come; where it asked for a look at the network, the look found it
-    /// reached or not.
-    Tick { wake: Wake, reached: Option<bool> },
+    /// The time the driver asked to be told has come; where it asked for a look at the network to the agents' service
+    /// or to the acts' host, the look found it reached or not.
+    Tick {
+        wake: Wake,
+        reached: Option<bool>,
+        host_reached: Option<bool>,
+    },
     /// The service of the agents answered the round under way of this run, with a message that is no error.
     Answered { work: WorkNumber, run: RunId },
 }
@@ -337,12 +341,16 @@ impl Service {
                     self.hand(now, todos)?;
                 }
             }
-            Message::Tick { wake, reached } => {
+            Message::Tick {
+                wake,
+                reached,
+                host_reached,
+            } => {
                 if self.wake.as_ref().is_some_and(|(set, _)| *set == wake) {
                     self.wake = None;
                 }
                 let now = self.now()?;
-                let todos = self.driver.tick(now, reached).map_err(Fault::Driver)?;
+                let todos = (self.driver.tick(now, reached, host_reached)).map_err(Fault::Driver)?;
                 self.hand(now, todos)?;
             }
             Message::Answered { work, run } => {
@@ -451,14 +459,28 @@ impl Service {
             return;
         };
         let after = self.until(wake.at);
-        let (to, network) = (self.to.clone(), self.carriers.network.clone());
+        let (to, network, host) = (
+            self.to.clone(),
+            self.carriers.network.clone(),
+            self.carriers.host.clone(),
+        );
         let timer = tokio::spawn(async move {
             tokio::time::sleep(after).await;
             let reached = match wake.look {
                 true => tokio::task::spawn_blocking(move || network.reached()).await.ok(),
                 false => None,
             };
-            let _ = to.send(Message::Tick { wake, reached });
+            // A host no network reaches is reached.
+            let host_reached = match (wake.look_at_host, host) {
+                (true, Some(host)) => tokio::task::spawn_blocking(move || host.reached()).await.ok(),
+                (true, None) => Some(true),
+                (false, _) => None,
+            };
+            let _ = to.send(Message::Tick {
+                wake,
+                reached,
+                host_reached,
+            });
         });
         self.wake = Some((wake, timer.abort_handle()));
     }

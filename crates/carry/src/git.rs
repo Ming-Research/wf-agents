@@ -9,6 +9,7 @@ use store::WorkNumber;
 use tokio::process::Command;
 use uuid::Uuid;
 
+use crate::host::NotMerged;
 use crate::settings::Project;
 use flow::agents::{Commits, fill};
 
@@ -280,6 +281,31 @@ pub(crate) async fn merged_as(
     })
 }
 
+/// The first parent of the commit, the branch's side, where the commit is a merge of main the engine made into a
+/// work's branch, known as [`merged_as`] knows one: by its address, its words, and the head of main it merged, its
+/// second parent; the check's words, or a run's as it started, of any run.
+pub(crate) async fn engine_merge(project: &Project, commit: &str) -> Result<Option<String>, String> {
+    let line = git(&project.repo, &["log", "-1", "--format=%ae%x00%P%x00%s", commit]).await?;
+    let fields: Vec<&str> = line.split('\0').collect();
+    let [email, parents, subject] = fields.as_slice() else {
+        return Ok(None);
+    };
+    let parents: Vec<&str> = parents.split(' ').collect();
+    let [first, merged] = parents.as_slice() else {
+        return Ok(None);
+    };
+    if *email != project.commits.email {
+        return Ok(None);
+    }
+    let by_check = *subject == taking_in(project, merged);
+    let run = fill(&project.commits.run, &[("main", &project.main), ("head", merged)]);
+    let by_run = run.split_once("{run}").is_some_and(|(before, after)| {
+        let number = subject.strip_prefix(before).and_then(|rest| rest.strip_suffix(after));
+        number.is_some_and(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+    });
+    Ok((by_check || by_run).then(|| first.to_string()))
+}
+
 /// Merges main's head at `main` into the branch checked out in the worktree, which merges it without a conflict, as a
 /// commit of the engine's made with these words, by whom `commits` says, and gives the branch's head after it; a merge
 /// that fails is taken back.
@@ -357,22 +383,22 @@ pub(crate) async fn conflicts(project: &Project, main: &str, commit: &str) -> Re
 /// commit the check passed, the branch's head must be that commit, and it is what is merged. A merge is refused while
 /// the repository's own configuration names a program git could run ([`configuration`]), as every act is. Where the
 /// merge fails, the merge it began is taken back.
-pub async fn merge(project: &Project, place: &Place, checked: Option<&str>) -> Result<String, String> {
+pub async fn merge(project: &Project, place: &Place, checked: Option<&str>) -> Result<String, NotMerged> {
     let repo = &project.repo;
     let on = git(repo, &["symbolic-ref", "--quiet", "--short", "HEAD"]).await?;
     if on != project.main {
-        return Err(format!(
+        return Err(NotMerged::Failed(format!(
             "the repository's checkout {} is on {on}, not on the main branch {}",
             repo.display(),
             project.main
-        ));
+        )));
     }
     let changes = git(repo, &["status", "--porcelain", "--untracked-files=no"]).await?;
     if !changes.is_empty() {
-        return Err(format!(
+        return Err(NotMerged::Failed(format!(
             "the repository's checkout {} has changes that are not committed:\n{changes}",
             repo.display()
-        ));
+        )));
     }
     configuration(project, place).await?;
     let merging = || async {
@@ -381,20 +407,20 @@ pub async fn merge(project: &Project, place: &Place, checked: Option<&str>) -> R
             .map(|s| s.ok)
     };
     if merging().await? {
-        return Err(format!(
+        return Err(NotMerged::Failed(format!(
             "a merge is under way in the repository's checkout {}",
             repo.display()
-        ));
+        )));
     }
     let head = git(repo, &["rev-parse", &place.reference()]).await?;
     if let Some(checked) = checked
         && head != checked
     {
-        return Err(format!(
+        return Err(NotMerged::Failed(format!(
             "the branch {} is at {head}, not at {checked}, the commit the check passed: the work is checked again \
              before it merges",
             place.reference()
-        ));
+        )));
     }
     if said(repo, &["merge-base", "--is-ancestor", &head, "HEAD"]).await?.ok {
         // Merged already, before the process stopped, or nothing to merge: the merge commit is the newest commit of
@@ -406,12 +432,12 @@ pub async fn merge(project: &Project, place: &Place, checked: Option<&str>) -> R
             .map(|commits| commits[0].to_string());
         return match merge {
             Some(merge) => Ok(merge),
-            None => git(repo, &["rev-parse", "HEAD"]).await,
+            None => Ok(git(repo, &["rev-parse", "HEAD"]).await?),
         };
     }
     if checked.is_some() && !said(repo, &["merge-base", "--is-ancestor", "HEAD", &head]).await?.ok {
         let main = git(repo, &["rev-parse", "HEAD"]).await?;
-        return Err(crate::host::moved(&project.main, &main, &head));
+        return Err(NotMerged::Moved { main, checked: head });
     }
     let message = fill(&project.commits.merge, &[("branch", &place.branch)]);
     let args = ["merge", "--no-ff", "-m", &message, &head];
@@ -419,9 +445,9 @@ pub async fn merge(project: &Project, place: &Place, checked: Option<&str>) -> R
         if merging().await? {
             let _ = git(repo, &["merge", "--abort"]).await;
         }
-        return Err(why);
+        return Err(why.into());
     }
-    git(repo, &["rev-parse", "HEAD"]).await
+    Ok(git(repo, &["rev-parse", "HEAD"]).await?)
 }
 
 /// Refuses, saying each key, a repository whose own configuration could make git run a program during the engine's

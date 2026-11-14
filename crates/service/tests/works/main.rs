@@ -418,6 +418,7 @@ fn open(
         acts: recording.clone(),
         tools: recording.clone(),
         network: Arc::new(recording.scripted.clone()),
+        host: Some(Arc::new(recording.scripted.clone())),
         slots: SLOTS,
     };
     let clock: Arc<dyn service::Clock> = clock.clone();

@@ -502,6 +502,7 @@ impl At {
             Gate::Open => false,
             Gate::Every => true,
             Gate::Agents => (flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == Kind::Agent),
+            Gate::Acts => (flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == Kind::Engine),
         }
     }
 }

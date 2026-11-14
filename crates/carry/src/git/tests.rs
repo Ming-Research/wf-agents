@@ -6,6 +6,14 @@ use store::WorkNumber;
 
 use super::*;
 
+/// Why a merge was refused, where it was refused for another cause than a moved main.
+fn failed(refused: NotMerged) -> String {
+    match refused {
+        NotMerged::Failed(why) => why,
+        moved => panic!("refused for a moved main: {moved:?}"),
+    }
+}
+
 /// A repository with one commit on `main`, a data directory beside it, and the project they make.
 pub(crate) struct Repo {
     _dir: tempfile::TempDir,
@@ -135,6 +143,7 @@ async fn the_merge_refuses_a_branch_moved_on_from_what_was_checked() {
     let refused = merge(&repo.project, &repo.place(WORK), Some(&checked))
         .await
         .expect_err("refused");
+    let refused = failed(refused);
     assert!(refused.contains("the commit the check passed"), "{refused}");
     assert!(!repo.project.repo.join("farewell.txt").exists(), "nothing was merged");
 }
@@ -163,6 +172,7 @@ async fn the_merge_needs_the_checkout_on_main() {
     let refused = merge(&repo.project, &repo.place(WORK), None)
         .await
         .expect_err("the merge is refused");
+    let refused = failed(refused);
     assert!(refused.contains("not on the main branch"), "{refused}");
 }
 
@@ -201,6 +211,7 @@ async fn the_merge_refuses_a_repository_whose_configuration_names_a_program() {
         let refused = merge(&repo.project, &repo.place(WORK), Some(&head))
             .await
             .expect_err(key);
+        let refused = failed(refused);
         assert!(refused.contains(&key.to_ascii_lowercase()), "{key}: {refused}");
         assert!(
             !repo.project.repo.join("farewell.txt").exists(),

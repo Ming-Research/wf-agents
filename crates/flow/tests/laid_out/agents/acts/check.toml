@@ -33,3 +33,9 @@ uncommitted = "The worktree has changes that are not committed:\n{changes}"
 conflict = "The branch does not merge into {main} at {head} without a conflict:\n{files}\n{kinds}"
 protected = "Protected, asked in {question}:\n{files}"
 protected_unread = "Protected, not looked at: {why}"
+
+# Where what the work's cells write names no commit of the repository, or none that is the head of the work's branch
+# or under it with only the engine's own merges of main on top: what is checked and merged is what the work says it
+# handed in. Filled in a run: `{head}` the branch's head; `{named}` the commits named, as written, joined by ", ".
+unnamed = "What the work hands in names no commit of its branch, whose head is {head}: hand in again naming the commit that holds the work."
+not_head = "The work's branch is at {head}, and what the work hands in names {named}, none of which it is: commit everything, and hand in again naming the branch's head."

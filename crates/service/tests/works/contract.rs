@@ -40,6 +40,7 @@ async fn a_carrier_that_answers_a_round_twice_stops_the_loop() {
         acts: twice,
         tools: Arc::new(Scripted::new(Default::default())),
         network: Arc::new(Scripted::new(Default::default())),
+        host: None,
         slots: crate::SLOTS,
     };
     let clock = Arc::new(TokioClock::new(START));

@@ -267,8 +267,12 @@ mod tests {
         };
         let lock = tokio::sync::Mutex::new(());
         let mut stop = crate::held::Stop::never();
+        // The work names its own commit, under the run's merge.
+        let built = run(&place.dir, &["rev-parse", &format!("{merge}^1")]);
+        let named = format!("Greets the user, in {built}.");
         let (protecting, work) = (crate::acts::Protecting::default(), work::Work::default());
         let gate = crate::acts::Gate {
+            named: &named,
             protecting: &protecting,
             work: &work,
         };
@@ -285,6 +289,10 @@ mod tests {
         .expect("the work is checked")
         .expect("nothing stopped it");
         assert_eq!(checked.commit, merge, "the run's merge is what is judged");
+        assert_eq!(
+            checked.failed, None,
+            "the run's merge is the engine's, over the commit the work names"
+        );
         assert!(!checked.took_in, "the check merged nothing of its own");
     }
 

@@ -1,3 +1,9 @@
 # What the engine's act `merge` writes into the block its cell writes, once the work's branch is merged. Filled in a
 # run: `{branch}` the work's branch, `{main}` the main branch's name, `{head}` the head of main the merge made.
 text = "The branch {branch} is merged into {main}, whose head is now {head}."
+
+# Why the merge is not made where main has moved since the check passed the commit, which does not hold it: merged, it
+# would land what nothing checked. The round fails in passing and is tried again after a wait, while the watch of main
+# writes its new head into the work, which runs the check again. Filled in a run: `{main}` the main branch's name,
+# `{head}` its head now, `{checked}` the commit the check passed.
+moved = "{main} has moved to {head} since the check passed {checked}, which does not hold it: the check runs again on {main}'s new head, and the merge is tried again after it."

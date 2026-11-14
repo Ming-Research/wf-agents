@@ -1176,15 +1176,16 @@ impl H {
                 _ => None,
             })
             .collect();
-        // The wait every work shares, where it holds rounds now, leaves the run of a cell whose rounds it holds to
-        // start or go on: an agent's, and without the network the engine's own acts too.
+        // A wait every work shares, where it holds rounds now, leaves the run of a cell whose rounds it holds to start
+        // or go on: the agents' wait an agent's, and the acts' wait an act's.
         let agents = |cell: &decide::CellId| {
             let kind = (flow.cells.iter()).find(|spec| spec.id == *cell).map(|spec| spec.kind);
-            let offline = self
-                .d()
-                .outage()
-                .is_some_and(|o| o.failure == decide::run::Failure::Offline);
-            self.d().holds(Time(self.clock)) && (kind == Some(flow::Kind::Agent) || offline)
+            match self.d().gate(Time(self.clock)) {
+                engine::Gate::Open => false,
+                engine::Gate::Agents => kind == Some(flow::Kind::Agent),
+                engine::Gate::Acts => kind == Some(flow::Kind::Engine),
+                engine::Gate::Every => true,
+            }
         };
         match shown {
             Decision::Run { cell, .. } | Decision::GoOn { cell, .. } if agents(cell) => {}
@@ -1301,8 +1302,18 @@ impl H {
     /// The driver is told the time, which the harness's clock takes on to, and what a look at the network found,
     /// where one was taken; gives what is to be done.
     pub fn tick(&mut self, at: Time, reached: Option<bool>) -> Vec<Todo> {
+        self.ticked(at, reached, None)
+    }
+
+    /// The driver is told the time it asked for, a look at the acts' host having found it reached or not.
+    pub fn tick_host(&mut self, at: Time, reached: bool) -> Vec<Todo> {
+        self.ticked(at, None, Some(reached))
+    }
+
+    /// The driver is told the time, with what each look found.
+    fn ticked(&mut self, at: Time, reached: Option<bool>, host_reached: Option<bool>) -> Vec<Todo> {
         self.clock = self.clock.max(at.0);
-        let todos = (self.dm().tick(at, reached)).expect("the driver takes the time");
+        let todos = (self.dm().tick(at, reached, host_reached)).expect("the driver takes the time");
         self.given(&todos);
         if self.checking {
             self.check();
