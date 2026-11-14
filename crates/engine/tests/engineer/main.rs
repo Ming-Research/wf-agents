@@ -91,8 +91,8 @@ use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 
 use decide::{
-    BlockId, Cause, CellId, Decision, End, Outsider, Pauser, Records, RunId, Seq, TestKind, TestName, Waited, Who,
-    decide,
+    BlockId, Cause, CellId, Condition, Decision, End, Outsider, Pauser, Records, RunId, Seq, TestKind, TestName,
+    Waited, Who, decide,
 };
 use engine::{Ask, Came, Effect, Event, Handed};
 use flow::{Compiled, Has, Kind, compile, read};
@@ -197,7 +197,7 @@ impl Roles {
 fn required(flow: &Compiled, roles: &Roles) -> Vec<String> {
     let cells = flow.flow.cells();
     let mut reached: Vec<String> = cells.iter().map(|c| ran(&c.id)).collect();
-    reached.extend(cells.iter().filter(|c| c.applies.is_some()).map(|c| skipped(&c.id)));
+    reached.extend(cells.iter().filter(|c| can_turn(flow, c)).map(|c| skipped(&c.id)));
     reached.extend((roles.judges.iter()).map(|(j, b)| refused(&cells[*j].id, b, &roles.refusals[b])));
     reached.extend(roles.refusals.keys().map(person_wrote));
     reached.extend(roles.check_passes(flow).map(|(b, pass)| check_failed(b, pass)));
@@ -218,6 +218,35 @@ fn required(flow: &Compiled, roles: &Roles) -> Vec<String> {
         .map(String::from),
     );
     reached
+}
+
+/// The blocks a condition reads: its block, or those of its named test.
+fn condition_reads<'a>(flow: &'a Compiled, applies: &'a Condition) -> Vec<&'a BlockId> {
+    match applies {
+        Condition::Is { block, .. } => vec![block],
+        Condition::Test(name) => flow.flow.tests()[name].reads.iter().collect(),
+    }
+}
+
+/// Whether the condition of the cell, which has one, can come to fail after the cell ran, so that a history can skip
+/// it then: a person or the outside writes a block it reads, or a cell does that is the cell itself or that does not
+/// decide by that block whether it runs. Where only cells that decide by the block write it, the one that applies
+/// this cell is skipped from then on, and nothing writes the block again: the research hands the work to the deep
+/// research for good.
+fn can_turn(flow: &Compiled, cell: &decide::Cell) -> bool {
+    let Some(applies) = &cell.applies else {
+        return false;
+    };
+    condition_reads(flow, applies).into_iter().any(|block| {
+        let writers = &flow.blocks[block].writers;
+        let decides_by = |writer: &CellId| {
+            let place = flow.flow.place(writer).expect("a writer is a cell of the flow");
+            (flow.flow.cells()[place].applies.as_ref()).is_some_and(|a| condition_reads(flow, a).contains(&block))
+        };
+        writers.people
+            || writers.outside.is_some()
+            || (writers.cells.iter()).any(|writer| *writer == cell.id || !decides_by(writer))
+    })
 }
 
 fn ran(cell: &CellId) -> String {
