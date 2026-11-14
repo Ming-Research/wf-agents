@@ -5,20 +5,19 @@
 //! as the old engine read one, and then read: what it dealt with, by the names of the cell's triggers, each worked out
 //! to the block it stands on (9); each block it writes in `outputs`, a choice with its value and its line of why kept
 //! as its content (50); the calls it asks for, each request of a tool one call; and what it says beside its work, its
-//! questions, observations and reply, which are kept with it. A question it waits for is put to the owner as a call
-//! as well, in the words `agents/return/return.toml` gives (`[asked]`), so that the work waits at the cell until the
-//! owner answers and the cell is entered again given the answer, as for the result of any call (36). What only its
-//! reading can see wrong with it against the cell is found as it is read and kept with it: a return of both kinds, a
-//! name in `dealt_with` that is none of the cell's triggers, a tool the cell may not ask for, a name in
-//! `meaning_unchanged` it does not write, and a block it writes in `outputs` that the cell does not write there or in a
-//! shape it does not take. The run's check names these with everything else wrong with the return, in one send-back
-//! (crate `decide`, module `run`). Why what came back cannot be read at all is said in the words of
-//! `agents/return/sent_back.toml`.
+//! questions, observations and reply, which are kept with it, its questions becoming data of their own once its run
+//! finishes (32 to 36). What only its reading can see wrong with it against the cell is found as it is read and kept
+//! with it: a return of both kinds, a name in `dealt_with` that is none of the cell's triggers, a tool the cell may not
+//! ask for, a name in `meaning_unchanged` it does not write, a block it writes in `outputs` that the cell does not
+//! write there or in a shape it does not take, and a question that recommends none of its options, that has the name
+//! of a question the engine itself asks, or that the cell asks where no answer runs it. The run's check names these
+//! with everything else wrong with the return, in one send-back (crate `decide`, module `run`). Why what came back
+//! cannot be read at all is said in the words of `agents/return/sent_back.toml`.
 
+use decide::BlockId;
 use decide::run::Unmet;
-use decide::{BlockId, Who};
 use engine::Came;
-use flow::agents::{Agents, Asked, ReturnKind, fill};
+use flow::agents::{Agents, ReturnKind, fill};
 use flow::{CellSpec, Compiled};
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -203,6 +202,7 @@ pub fn came(structured: &Value, flow: &Compiled, cell: &CellSpec, words: &Agents
             }
         }
         came.said = said(outcome);
+        questions(&came.said.questions, flow, cell, words, &mut found);
     }
     if let Some(calls) = r.calls {
         came.asks = asks(calls, cell, &mut found, words)?;
@@ -210,74 +210,35 @@ pub fn came(structured: &Value, flow: &Compiled, cell: &CellSpec, words: &Agents
     if both {
         found.push(Unmet::AsksAndWorks);
     }
-    // Each question it waits for is put to the owner, and the work waits at the cell for the answer.
-    for question in &came.said.questions {
-        if let Question::Asked { waits: true, .. } = question {
-            came.asks.push(Ask::Person {
-                who: Who::Owner,
-                question: asked(question, &words.returns.asked),
-            });
-        }
-    }
     came.found = found;
     Ok(came)
 }
 
-/// A question as it is put to the owner: what it asks, and its options, the one it recommends marked.
-fn asked(question: &Question, words: &Asked) -> String {
-    let Question::Asked {
-        ask,
-        recommends,
-        options,
-        ..
-    } = question
-    else {
-        return String::new();
-    };
-    let options: Vec<String> = (options.iter().enumerate())
-        .map(|(i, way)| {
-            let number = (i + 1).to_string();
-            let line = if (i + 1) as u64 == *recommends {
-                &words.recommended
-            } else {
-                &words.option
-            };
-            filled(
-                line,
-                &[("number", &number), ("does", &way.does), ("follows", &way.follows)],
-            )
-        })
-        .collect();
-    filled(&words.text, &[("ask", ask), ("options", &options.join("\n"))])
-}
-
-/// A text with each `{name}` of these put in by its value, in one pass, so that nothing a value holds is filled: what
-/// the agent wrote is put in as it is.
-fn filled(text: &str, slots: &[(&str, &str)]) -> String {
-    let mut out = String::new();
-    let mut rest = text;
-    while let Some(open) = rest.find('{') {
-        out.push_str(&rest[..open]);
-        let after = &rest[open..];
-        let slot = (slots.iter()).find(|(name, _)| {
-            after
-                .strip_prefix('{')
-                .and_then(|a| a.strip_prefix(name))
-                .is_some_and(|a| a.starts_with('}'))
-        });
-        match slot {
-            Some((name, value)) => {
-                out.push_str(value);
-                rest = &after[name.len() + 2..];
-            }
-            None => {
-                out.push('{');
-                rest = &after[1..];
-            }
+/// What is wrong with the questions the return asks that its reading sees, in the order it wrote them: one that
+/// recommends none of its options, or has none; one with the name of the question the engine itself asks; and, of a
+/// cell that no answer runs, every question, which no answer could bring back to it.
+fn questions(asked: &[Question], flow: &Compiled, cell: &CellSpec, words: &Agents, found: &mut Vec<Unmet>) {
+    let answered = (cell.triggers.iter())
+        .any(|t| flow.blocks.get(&t.block).and_then(|b| b.writers.outside.as_deref()) == Some(flow::ANSWER));
+    for question in asked {
+        let name = || question.name().to_string();
+        if question.name() == words.asks.protected.name {
+            found.push(Unmet::QuestionTaken { name: name() });
+            continue;
+        }
+        let Question::Asked {
+            recommends, options, ..
+        } = question
+        else {
+            continue;
+        };
+        if !recommends.is_some_and(|r| r >= 1 && r <= options.len() as u64) {
+            found.push(Unmet::NotAnOption { name: name() });
+        }
+        if !answered {
+            found.push(Unmet::NotAnswerable { name: name() });
         }
     }
-    out.push_str(rest);
-    out
 }
 
 /// The blocks what the return dealt with stand on, each name a trigger of the cell, in the order it names them; a name
@@ -393,7 +354,7 @@ fn said(outcome: Outcome) -> Said {
             QuestionIn::Asked(q) => Question::Asked {
                 name: q.name,
                 waits: q.waits,
-                recommends: q.recommends,
+                recommends: Some(q.recommends),
                 ask: q.ask,
                 options: (q.options.into_iter())
                     .map(|o| Way {
@@ -401,6 +362,7 @@ fn said(outcome: Outcome) -> Said {
                         follows: o.follows,
                     })
                     .collect(),
+                about: None,
             },
             QuestionIn::Withdrawn(q) => Question::Withdrawn {
                 name: q.name,

@@ -39,3 +39,24 @@ every rerun. A second agent to check the answer, at a round for every change, wa
 goes up at each change of meaning, which would leave which version a write is compared with to whoever counts
 (Article 3). A run abandoned for what changed under it, as the walk once did, threw away a round's work that a round
 told of the change could keep (principle keep-what-was-paid-for).
+
+### decision a-question-that-waits-holds-its-cell
+A question a cell waits for holds the work at that cell while it stands with no answer to its latest version: the
+cell is entered for nothing meanwhile, and no later cell runs; a run of it that is at rest still goes on to hand its
+return in. The answer runs the cell again by its trigger of an answer. The wait is read from the questions and the
+answers, and is no call.
+Why: Put to the owner as a call, the question was its run's and not the work's: it could not be asked anew or withdrawn
+under its name, an answer to an older version could not be told from one to the latest, and an answer came back twice,
+as the call's result and as the trigger of an answer (design document `data-and-context`, 35, 36). Entering the cell
+meanwhile for something else new to it was turned down: that round could settle nothing the answer may not undo, and
+what is new stays new for the round the answer begins (a judgment, with no case behind it).
+
+### decision the-owner-turning-to-a-waiting-cell-enters-it-once
+While a cell waits for the results of its calls, the owner turning to it, by words or by an answer, enters it only for
+a version no run of the cell has seen: none that finished was told it, and none still open holds it. A run so entered
+that asks for calls in turn leaves what the owner wrote new, for the run their results begin, which deals with both; a
+run abandoned, its round stopped or its return unread, saw nothing, and the cell is entered for the version again.
+Why: Entered again for the same version each time such a run asked, the cell went round without end, a call asked at
+each turn, and no limit counted it, since the limit of calls counts only the runs entered for their results: a build
+entered for an answer that asked for a tool first did so in the real carriers' tests. Counted from the cell's last run
+begun instead, a version told to a run that was then abandoned waited for every result before any run answered it.

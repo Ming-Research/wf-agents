@@ -4,8 +4,8 @@
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoned, BlockId, CallId, Called, CellId, Done, Finished, LetGo, Pause, PutIn, Returned, Round, RunId, Seq,
-    Started, Write, Written,
+    Abandoned, Answered, BlockId, CallId, Called, CellId, Done, Finished, LetGo, Pause, PutIn, Questioned, Returned,
+    Round, RunId, Seq, Started, Write, Written,
 };
 use rusqlite::{Connection, Row, params};
 use serde::Serialize;
@@ -178,6 +178,37 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             at,
         });
     }
+
+    r.questions = rows(
+        db,
+        "SELECT at, name, cell, run, engine, waits, withdrawn FROM questions WHERE work = ?1 ORDER BY at",
+        w,
+        |row| {
+            Ok(Questioned {
+                at: Seq(row.get(0)?),
+                name: row.get(1)?,
+                cell: CellId(row.get(2)?),
+                run: RunId(row.get(3)?),
+                engine: row.get(4)?,
+                waits: row.get(5)?,
+                withdrawn: row.get(6)?,
+            })
+        },
+    )?;
+    r.answers = rows(
+        db,
+        "SELECT at, question, version, option, why FROM answers WHERE work = ?1 ORDER BY at",
+        w,
+        |row| {
+            Ok(Answered {
+                at: Seq(row.get(0)?),
+                question: row.get(1)?,
+                version: Seq(row.get(2)?),
+                option: row.get(3)?,
+                why: row.get(4)?,
+            })
+        },
+    )?;
 
     r.let_go = rows(
         db,
@@ -376,6 +407,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     let abandoned = grown("abandoned", &h.abandoned, &g.abandoned, |e| Entry::At(e.at))?;
     let put_in = grown("put_in", &h.put_in, &g.put_in, |e| Entry::At(e.at))?;
     let written = grown("written", &h.written, &g.written, |e| Entry::At(e.at))?;
+    let questions = grown("questions", &h.questions, &g.questions, |e| Entry::At(e.at))?;
+    let answers = grown("answers", &h.answers, &g.answers, |e| Entry::At(e.at))?;
     let let_go = grown("let_go", &h.let_go, &g.let_go, |e| Entry::At(e.at))?;
     let pauses = grown("pauses", &h.pauses, &g.pauses, |e| Entry::At(e.at))?;
     let cancelled = match (h.cancelled, g.cancelled) {
@@ -479,6 +512,19 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
         db.execute(
             "INSERT INTO written (work, at, block, writer, matters, value) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![w, e.at.0, e.block.0, writer, e.matters, e.value],
+        )?;
+    }
+    for q in questions {
+        db.execute(
+            "INSERT INTO questions (work, at, name, cell, run, engine, waits, withdrawn) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![w, q.at.0, q.name, q.cell.0, q.run.0, q.engine, q.waits, q.withdrawn],
+        )?;
+    }
+    for a in answers {
+        db.execute(
+            "INSERT INTO answers (work, at, question, version, option, why) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![w, a.at.0, a.question, a.version.0, a.option, a.why],
         )?;
     }
     for e in let_go {

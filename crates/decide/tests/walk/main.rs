@@ -22,6 +22,7 @@ mod opinions;
 mod order;
 mod paused_answers;
 mod preconditions;
+mod questions;
 mod room;
 mod rounds;
 mod skipping;

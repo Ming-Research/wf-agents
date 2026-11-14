@@ -63,7 +63,7 @@ async fn a_work_the_engine_paused_as_its_round_failed_is_given_with_the_reason_s
         .as_str()
         .unwrap()
         .to_string();
-    let answer = json!({ "kind": "answer", "call": 2, "result": "Yes, by name." });
+    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &answer).await.0,
         StatusCode::NO_CONTENT

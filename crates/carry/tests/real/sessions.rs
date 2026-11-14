@@ -94,7 +94,7 @@ async fn a_run_waiting_as_its_line_begins_a_new_session_is_told_its_task_and_its
     let mut real = Real::open(On::Loading, fake, None, "true");
     let work = real.add().await;
     real.act(work, Act::Resume);
-    real.until(|real| real.owners_call(work).is_some()).await;
+    real.until(|real| real.waited_question(work).is_some()).await;
     // The settings give level 1 another model while the build waits for the owner's answer: the engineer's line
     // begins a new session, and the plan, which loads it, runs again in it first.
     let level = real.settings.agents.levels.get_mut("1").expect("level 1");
@@ -104,24 +104,12 @@ async fn a_run_waiting_as_its_line_begins_a_new_session_is_told_its_task_and_its
     real.until(|real| planned(real) == 2).await;
     let waits = |real: &Real| {
         let decision = real.decision(work);
-        let on_the_owner = |on: &[decide::Waited]| {
-            on.iter().any(|w| {
-                matches!(
-                    w,
-                    decide::Waited::Call {
-                        on: Some(decide::Who::Owner),
-                        ..
-                    }
-                )
-            })
-        };
+        let on_the_owner = |on: &[decide::Waited]| on.iter().any(|w| matches!(w, decide::Waited::Answer { .. }));
         matches!(&decision, decide::Decision::Wait { at, on } if at.as_str() == "build" && on_the_owner(on))
     };
     // The plan ran again in the new session, and the work is held at the build for the owner still.
     assert!(waits(&real), "{:?}", real.decision(work));
-    let call = real.owners_call(work).expect("the build still waits");
-    let result = "By their first name.".to_string();
-    real.act(work, Act::Answer { call, result });
+    real.answer(work, "By their first name.");
     real.until(|real| ended(&real.decision(work))).await;
     let calls = real.calls();
     let builds: Vec<&Call> = (calls.iter()).filter(|c| c.of("Build")).collect();
@@ -134,7 +122,8 @@ async fn a_run_waiting_as_its_line_begins_a_new_session_is_told_its_task_and_its
     assert_eq!(again.session().0, "--session-id", "the plan begins the new session");
     assert_ne!(again.session().1, first.session().1);
     // The build, entered again for the answer, goes on in the session the plan began, which never saw the build: it
-    // is told its task and what it is answered, as a round that begins a session is.
+    // is told its task and what it reads, as a round that begins a session is, and that the answer runs it. The answer
+    // is in what it reads, in the words of the block the answer writes.
     assert_eq!(second.session(), ("--resume", again.session().1));
     for part in [
         "## Your task\n\nBuild",

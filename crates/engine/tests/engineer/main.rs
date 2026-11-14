@@ -123,7 +123,7 @@ fn engineer() -> Compiled {
     let source = read(&dir).expect("the engineer's flow is read");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
     let has = Has {
-        sources: names(&["dependencies", "main", "session", "start", "tree"]),
+        sources: names(&["answer", "asked", "dependencies", "main", "session", "start", "tree"]),
         acts: names(&["start", "check", "merge"]),
         // The tools the flow names for its agent cells, the fields of a return its data are written through, and the
         // place the engine fills with what changed of the tree.
@@ -1110,7 +1110,7 @@ impl History {
             Waited::Precondition { on, .. } => {
                 (make_hold(&self.d, on).map(|e| (e, false))).or_else(|| ask_a_cell(&self.d, on).map(|e| (e, true)))
             }
-            Waited::Call { .. } | Waited::Slot => None,
+            Waited::Call { .. } | Waited::Slot | Waited::Answer { .. } => None,
         })
     }
 

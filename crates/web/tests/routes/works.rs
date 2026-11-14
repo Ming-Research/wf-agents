@@ -77,7 +77,11 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                 {
                     "cell": "build",
                     "needs": [],
-                    "inputs": [input("plan", Value::Null), input("opinions", Value::Null)],
+                    "inputs": [
+                        input("plan", Value::Null),
+                        input("opinions", Value::Null),
+                        input("answered", Value::Null),
+                    ],
                 },
                 { "cell": "review", "needs": [], "inputs": [input("code", Value::Null)] },
                 { "cell": "merge", "needs": [], "inputs": [input("code", Value::Null)] },
@@ -153,6 +157,8 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
                     "spent": spent(1),
                 },
             ],
+            // The plan's question is a call of the earlier form: no question of the work's own is asked.
+            "questions": [],
         })
     );
 }
@@ -175,7 +181,7 @@ async fn a_version_a_round_and_a_call_are_given_with_their_content() {
         json!({ "call": 2, "what": question(), "result": null })
     );
 
-    let answer = json!({ "kind": "answer", "call": 2, "result": "Yes, by name." });
+    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &answer).await.0,
         StatusCode::NO_CONTENT

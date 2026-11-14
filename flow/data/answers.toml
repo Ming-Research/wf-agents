@@ -2,3 +2,10 @@
 what = "The owner's answers to the work's questions, each entry the question, the version answered, the option taken and why."
 from = "owner"
 shown = true
+
+# What the engine writes as the owner answers the latest version of a question, as the owner's entry: `{question}` its
+# name, `{version}` the version answered, `{option}` the option's number, `{does}` and `{follows}` the option's, and
+# `{why}` the owner's reason as `why` says it, where one is given.
+[writes]
+text = "`{question}`, version {version}: option {option}, {does}: {follows}.{why}"
+why = " Why: {why}"

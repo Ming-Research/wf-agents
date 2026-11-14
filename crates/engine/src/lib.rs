@@ -22,10 +22,12 @@
 //! The owner's pause of everything and the slots hold back every work at once, and are the scheduler's: the loop is
 //! given them as they stand ([`decide::Room`]), and begins no round that they hold back.
 //!
+//! - [`asked`]: the questions put to the owner, the owner's answers, and the block of how they stand.
 //! - [`event`]: what happens to a work, and what is to be done for it.
 //! - [`handle`](mod@handle): the loop.
 //! - [`held`](mod@held): what holds a work back, as the loop leaves it.
 
+pub mod asked;
 pub mod event;
 pub mod handle;
 pub mod held;
@@ -33,4 +35,6 @@ pub mod held;
 pub use event::{Came, Effect, Event, Gate, Refused};
 pub use handle::{handle, handle_held, handle_in, handle_then, handle_with, pending};
 pub use held::held;
-pub use work::{Ask, Back, Call, Fill, Filled, Given, Handed, Moment, Ran, RanOn, Session, Spent, Time, Why, Work};
+pub use work::{
+    Ask, Back, Call, Fill, Filled, Given, Handed, Moment, Question, Ran, RanOn, Session, Spent, Time, Way, Why, Work,
+};

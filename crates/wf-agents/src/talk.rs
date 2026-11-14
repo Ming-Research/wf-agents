@@ -16,8 +16,8 @@ use serde::de::DeserializeOwned;
 use web::attention::{Attention, Line, Stuck};
 use web::works::{
     Act, Added, Back, Call, CellState, DependencyChange, Engine, EngineAct, Failure, ItemChange, ItemChanged,
-    ItemHistory, Items, Limit, Maker, NewItem, NewLevel, NewTitle, NewWrite, Now, Outage, Pauser, Person, Refusal, Run,
-    SessionWhy, Spent, Step, Until, Waited, WorkPage, Writer,
+    ItemHistory, Items, Limit, Maker, NewItem, NewLevel, NewTitle, NewWrite, Now, Outage, Pauser, Person, QuestionPage,
+    Refusal, Run, SessionWhy, Spent, Step, Until, Waited, WorkPage, Writer,
 };
 
 /// What a command asks of the engine.
@@ -290,6 +290,38 @@ async fn send<T: DeserializeOwned, B: Serialize>(
     serde_json::from_slice(body).map_err(|e| format!("The engine's answer cannot be read: {e}."))
 }
 
+/// A question as it stands, in lines: its name, cell and version, the first line of what it asks, its options and the
+/// owner's answer; of one withdrawn, why.
+fn question(q: &QuestionPage) -> Vec<String> {
+    let by = if q.engine { ", asked by the engine" } else { "" };
+    let waits = if q.waits { ", waits" } else { "" };
+    let head = format!("  {} (of {}, version {}{by}{waits})", q.name, q.cell, q.version);
+    if let Some(why) = &q.withdrawn {
+        return vec![format!("{head}: withdrawn: {why}")];
+    }
+    let first = q
+        .ask
+        .as_deref()
+        .and_then(|ask| ask.lines().find(|l| !l.trim().is_empty()));
+    let mut lines = vec![format!("{head}: {}", first.unwrap_or_default())];
+    for (i, way) in q.options.iter().enumerate() {
+        let n = i as u64 + 1;
+        let recommended = if q.recommends == Some(n) { " (recommended)" } else { "" };
+        lines.push(format!("    {n}. {}: {}{recommended}", way.does, way.follows));
+    }
+    lines.push(match &q.answer {
+        Some(a) => {
+            let why = a.why.as_deref().map_or_else(String::new, |why| format!(": \"{why}\""));
+            format!("    answered {}{why}", a.option)
+        }
+        None => format!(
+            "    unanswered: wf-agents answer <work> {} {} <option>",
+            q.name, q.version
+        ),
+    });
+    lines
+}
+
 /// What a command that acts says once it is done.
 fn done(work: u64, act: &Act) -> String {
     match act {
@@ -298,7 +330,13 @@ fn done(work: u64, act: &Act) -> String {
         Act::Pause {} => format!("Work {work} is paused."),
         Act::Resume {} => format!("Work {work} goes on."),
         Act::Cancel { .. } => format!("Work {work} is cancelled."),
-        Act::Answer { call, .. } => format!("Call {call} of work {work} has its result."),
+        Act::Result { call, .. } => format!("Call {call} of work {work} has its result."),
+        Act::Answer {
+            question,
+            version,
+            option,
+            ..
+        } => format!("Version {version} of the question {question} of work {work} is answered with option {option}."),
         Act::NewSession { line } => format!("The line {line} of work {work} begins a new session at its next round."),
     }
 }
@@ -415,6 +453,12 @@ fn show(page: &WorkPage) -> String {
             block.name,
             writer(&latest.by)
         ));
+    }
+    if !page.questions.is_empty() {
+        lines.push("Questions:".to_string());
+    }
+    for q in &page.questions {
+        lines.extend(question(q));
     }
     for step in &page.steps {
         if let Step::Cancelled { time, why, .. } = step {
@@ -712,6 +756,7 @@ fn waited(waited: &Waited) -> String {
             "the owner to let it go on, its last {runs} runs having each asked for calls and dealt with nothing"
         ),
         Waited::Slot {} => "a free slot".to_string(),
+        Waited::Answer { question } => format!("the owner to answer the question {question}"),
         Waited::Agents { outage: o } => format!("the agents' rounds to begin again: {}", outage(o)),
     }
 }

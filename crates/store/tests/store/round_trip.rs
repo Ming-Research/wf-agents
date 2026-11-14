@@ -96,6 +96,11 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
         [true, false, true, false]
     );
     assert!(r.cancelled.is_some());
+    assert_eq!(
+        (r.questions.len(), r.answers.len()),
+        (1, 1),
+        "the question and its answer"
+    );
     assert_eq!(w.spent.len(), d.ended as usize, "a round's cost was not kept");
     assert_eq!(r.returned.len(), d.ended as usize);
     // Each round that began was given something, and each that ended came back with something: no round is under way

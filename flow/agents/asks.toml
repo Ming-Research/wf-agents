@@ -1,0 +1,36 @@
+# What the engine itself asks the owner, from what it finds of a work. None of it is an agent's word, and it recommends
+# none of its options (principle a-question-is-a-choice).
+
+# Asked where the work's own change touches a path `../project.toml` protects (`[protected]`): by the check before the
+# merge, which does not pass while that change is not one the owner let merge by the option `merges` names, and as a
+# round of a cell that may change the work ends, so that the owner is asked early. A question of the cell it is asked
+# with, which waits, so that the work stops at the cell until the owner answers, and the merge waits while it stands
+# unanswered; the answer is said to the last cell of the walk that has a trigger of an answer. Asked again under its
+# name where that change is another, or was answered with another option than `merges`; withdrawn, with `withdrawn`,
+# where the work no longer touches such a path. In `ask`, `{files}` is the files the change touches, one to a line,
+# each as `file` says, `{path}` its path and `{change}` one of `added`, `changed` and `deleted`; `{diff}` is the change
+# itself, against where the work's branch left main.
+[protected]
+name = "protected_files"
+ask = '''
+Whether this work's change to files that govern the agents may merge: the project protects them, and only the owner changes them.
+
+{files}
+
+```diff
+{diff}
+```'''
+file = "- `{path}`: {change}"
+added = "added"
+changed = "changed"
+deleted = "deleted"
+withdrawn = "The work no longer changes a file the project protects."
+merges = 1
+
+[[protected.options]]
+does = "Let it merge"
+follows = "the change merges with the work as it stands."
+
+[[protected.options]]
+does = "Take it back"
+follows = "the work takes the change back, as the reason given with the answer says; it does not merge while it changes these files, unless you let a change of them merge."

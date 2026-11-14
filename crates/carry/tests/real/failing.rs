@@ -152,20 +152,13 @@ async fn a_session_lost_on_a_later_run_is_begun_again_with_the_task_and_the_runs
     let work = real.add().await;
     real.act(work, Act::Resume);
     // The build's question waits for the owner: the work waits at the build until the owner answers.
-    real.until(|real| real.owners_call(work).is_some()).await;
-    let call = real.owners_call(work).unwrap();
+    real.until(|real| real.waited_question(work).is_some()).await;
     let answer = "Greet them by their first name.";
-    real.act(
-        work,
-        Act::Answer {
-            call,
-            result: answer.to_string(),
-        },
-    );
+    real.answer(work, answer);
     real.until(|real| ended(&real.decision(work))).await;
     let calls = real.calls();
-    // The plan, the build's first query, the query of the check, the run entered for the check's result refused and
-    // begun again, the review.
+    // The plan, the build's question, its query of the check once the owner answered, the run entered for the check's
+    // result refused and begun again, the review.
     assert_eq!(calls.len(), 6);
     let again = &calls[4];
     assert_eq!(again.session().0, "--session-id");
@@ -174,9 +167,11 @@ async fn a_session_lost_on_a_later_run_is_begun_again_with_the_task_and_the_runs
     for part in ["## Your task", "## The results of what you asked for", &checked] {
         assert!(again.stdin.contains(part), "{part} is missing from:\n{}", again.stdin);
     }
+    // The session begun again is filled with what the build reads, the owner's answer among it, in the words of the
+    // block the answer wrote.
     assert!(
-        !again.stdin.contains(answer),
-        "an earlier run's results are not given: {}",
+        again.stdin.contains(answer),
+        "the answer is missing from: {}",
         again.stdin
     );
 }

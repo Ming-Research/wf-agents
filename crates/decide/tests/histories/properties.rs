@@ -203,6 +203,8 @@ pub fn as_of(r: &Records, upto: Seq) -> Records {
         abandoned: kept(&r.abandoned, |e| e.at, upto),
         put_in: kept(&r.put_in, |e| e.at, upto),
         written: kept(&r.written, |e| e.at, upto),
+        questions: kept(&r.questions, |e| e.at, upto),
+        answers: kept(&r.answers, |e| e.at, upto),
         let_go: kept(&r.let_go, |e| e.at, upto),
         pauses: kept(&r.pauses, |e| e.at, upto),
         cancelled: r.cancelled.filter(|at| *at <= upto),
@@ -512,7 +514,7 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
                             v.fail(HELD, format!("the work waits at {at} on {on:?}, which holds"));
                         }
                     }
-                    Waited::Call { .. } | Waited::Slot => {}
+                    Waited::Call { .. } | Waited::Slot | Waited::Answer { .. } => {}
                 }
             }
             first_entered(v, flow, reading, i);

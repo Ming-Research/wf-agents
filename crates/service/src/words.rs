@@ -132,6 +132,13 @@ pub fn refused_words(refused: &Refused) -> String {
         Refused::NotToRelease => {
             "the work has not ended, or something of it is under way: it has nothing to let go".to_string()
         }
+        Refused::NoSuchQuestion(question) => format!("the work has no question {question}"),
+        Refused::NoSuchVersion { question, version } => {
+            format!("the question {question} has no version {} that asks it", version.0)
+        }
+        Refused::NotAnOption { question, option } => {
+            format!("the version of the question {question} answered has no option {option}")
+        }
     }
 }
 
@@ -166,6 +173,10 @@ pub fn record_fault_words(fault: &RecordFault) -> String {
         }
         RecordFault::DealtWithTwice(run) => format!("run {} names one block twice as dealt with", run.0),
         RecordFault::CalledAfterEnd(call) => format!("call {} was made after its run had ended", call.0),
+        RecordFault::AnswerNoVersion(at) => format!(
+            "the answer at place {} names no version of its question that asks it, written before it",
+            at.0
+        ),
     }
 }
 

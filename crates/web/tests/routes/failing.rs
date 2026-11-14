@@ -25,7 +25,7 @@ async fn a_failed_round_and_the_engines_pause_are_given_with_the_reason() {
     let running = running_scripted(Box::new(store), dir, script);
     let router = &running.router;
     greeted(router).await;
-    let answer = json!({ "kind": "answer", "call": 2, "result": "Yes, by name." });
+    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &answer).await,
         (StatusCode::NO_CONTENT, Value::Null)
@@ -98,7 +98,7 @@ async fn a_wait_every_work_shares_is_given_once_for_all_and_as_what_each_work_it
     let running = running_scripted(Box::new(store), dir, script);
     let router = &running.router;
     greeted(router).await;
-    let answer = json!({ "kind": "answer", "call": 2, "result": "Yes, by name." });
+    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
     post(router, "/api/v1/works/1/acts", &answer).await;
     pass(2000).await;
     let outage = json!({

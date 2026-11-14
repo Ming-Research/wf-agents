@@ -67,6 +67,8 @@ impl Work {
             .chain(r.abandoned.iter().map(|e| e.at))
             .chain(r.put_in.iter().map(|e| e.at))
             .chain(r.written.iter().map(|e| e.at))
+            .chain(r.questions.iter().map(|e| e.at))
+            .chain(r.answers.iter().map(|e| e.at))
             .chain(r.let_go.iter().map(|e| e.at))
             .chain(r.pauses.iter().map(|e| e.at))
             .chain(r.cancelled)
@@ -152,7 +154,9 @@ pub enum Back {
     /// calls it asks for (design document `data-and-context`, 9, 27, 30). Taken, the calls are made as its run
     /// finishes, before the finish. What was found wrong with it as it was read, which only its reading could see, is
     /// kept with it, so that the run is decided again from the records alone; and so is what it says beside its work.
-    /// Returns kept before a return was read so have neither, and read as having none.
+    /// Returns kept before a return was read so have neither, and read as having none. Beside it is what the engine
+    /// itself asks the owner from what it found of the work as the round ended, which no word of the agent's is;
+    /// returns kept before the engine asked anything have none.
     Returned {
         dealt_with: Vec<BlockId>,
         handed: Vec<Handed>,
@@ -161,6 +165,8 @@ pub enum Back {
         found: Vec<Unmet>,
         #[serde(default)]
         said: Said,
+        #[serde(default)]
+        engine: Vec<Question>,
     },
     /// Nothing came back: the round failed, for this reason, as whatever carried it out says, with the kind of cause
     /// it told apart. The run's next round is given what this one was given, as the kind's handling lets it (crate
@@ -177,8 +183,8 @@ pub enum Back {
     },
 }
 
-/// What a return says beside its work: no data of the work, and nothing the engine acts on yet but whether a question
-/// waits (design document `data-and-context`, 32 to 40, 49).
+/// What a return says beside its work: its questions, which are data of their own once its run finishes (design
+/// document `data-and-context`, 32 to 36), its observations and its reply (38 to 40, 49).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Said {
     /// What it asks the owner, each question by its name, in the order it wrote them.
@@ -198,7 +204,7 @@ impl Said {
         self.waiting() > 0
     }
 
-    /// How many of the questions it asks wait for the owner's answer: each is put to the owner as a call of the run.
+    /// How many of the questions it asks wait for the owner's answer.
     pub fn waiting(&self) -> usize {
         (self.questions.iter())
             .filter(|q| matches!(q, Question::Asked { waits: true, .. }))
@@ -206,17 +212,49 @@ impl Said {
     }
 }
 
+impl Question {
+    /// Its name.
+    pub fn name(&self) -> &str {
+        match self {
+            Question::Asked { name, .. } | Question::Withdrawn { name, .. } => name,
+        }
+    }
+}
+
+impl Work {
+    /// What the version of a question asks and its options, or why it was withdrawn: as the round that brought it
+    /// returned it, the last of its run to end before the version was written, among what the agent said or what the
+    /// engine asked beside it. None where that round's return holds no question of the name.
+    pub fn question(&self, version: &decide::Questioned) -> Option<&Question> {
+        let r = &self.records;
+        let round = (r.returned.iter())
+            .filter(|e| e.run == version.run && e.at < version.at)
+            .count();
+        match self.back.get(&(version.run, round))? {
+            Back::Returned { said, engine, .. } => {
+                let of = if version.engine { engine } else { &said.questions };
+                of.iter().rev().find(|q| q.name() == version.name)
+            }
+            _ => None,
+        }
+    }
+}
+
 /// A question a return asks the owner, or withdraws, under its name.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Question {
     /// The question asked, or asked anew: whether its cell waits for the answer, the option it recommends, counted
-    /// from one, what it asks, and its options.
+    /// from one, where it recommends one (the engine's own questions recommend none), what it asks, and its options;
+    /// and, of a question of the engine's, what it found that the question is of, told apart from what any other
+    /// version is of.
     Asked {
         name: String,
         waits: bool,
-        recommends: u64,
+        recommends: Option<u64>,
         ask: String,
         options: Vec<Way>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        about: Option<String>,
     },
     /// The question withdrawn, for this reason.
     Withdrawn { name: String, why: String },

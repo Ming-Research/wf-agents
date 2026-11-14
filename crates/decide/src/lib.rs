@@ -10,12 +10,14 @@
 //!
 //! - [`flow`]: the cells in their order, the blocks that run each and those it writes, and the named tests.
 //! - [`records`]: what ran and what was written, each list only added to.
+//! - [`questions`]: the questions put to the owner and the answers, as they stand.
 //! - [`walk`]: the decision: which cell runs, which run goes on.
 //! - [`run`]: what a run that goes on does next.
 //! - [`room`]: what the engine as a whole leaves a work room for: the owner's pause of everything, and the slots.
 //! - [`view`](mod@view): a work as it is now, for whoever shows it.
 
 pub mod flow;
+pub mod questions;
 pub mod records;
 pub mod room;
 pub mod run;
@@ -24,8 +26,8 @@ pub mod walk;
 
 pub use flow::{BlockId, Cell, CellId, Condition, Flow, FlowFault, Outsiders, Test, TestKind, TestName};
 pub use records::{
-    Abandoned, CallId, Called, Cause, Done, Finished, LetGo, Outsider, Pause, Pauser, PutIn, RecordFault, Records,
-    Returned, Round, RunId, Seq, Started, Who, Write, Written,
+    Abandoned, Answered, CallId, Called, Cause, Done, Finished, LetGo, Outsider, Pause, Pauser, PutIn, Questioned,
+    RecordFault, Records, Returned, Round, RunId, Seq, Started, Who, Write, Written,
 };
 pub use room::{Holder, Room, begun, taking_slot};
 pub use view::{CellView, InputView, OpenRun, VersionView, View, Writer, versions, view, view_in};

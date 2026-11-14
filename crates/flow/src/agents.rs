@@ -63,6 +63,9 @@ pub const TOOL_TEXTS: &[(&str, &[&str])] = &[(
     ],
 )];
 
+/// The file, in `agents/`, of the questions the engine itself asks the owner.
+pub const ASKS_FILE: &str = "asks.toml";
+
 /// The field of a return that holds the blocks a cell writes, each under its name. The form does not list them: the
 /// cell is told its own with its task, and the engine checks what it writes against them.
 pub const OUTPUTS: &str = "outputs";
@@ -94,6 +97,8 @@ pub struct Agents {
     pub results: Results,
     pub acts: Acts,
     pub commits: Commits,
+    /// What the engine itself asks the owner: `agents/asks.toml`.
+    pub asks: Asks,
 }
 
 impl Agents {
@@ -139,6 +144,19 @@ pub struct Project {
     pub tests: Option<Tests>,
     /// The project's two workflows, which the engine runs tests and checks through.
     pub ci: Option<Ci>,
+    /// The paths the project protects; none where it protects none.
+    #[serde(default)]
+    pub protected: Protected,
+}
+
+/// The paths of the project's checkout that govern its agents, which the owner changes (principles
+/// `protected-files-are-the-owners`, `named-paths-wait-for-the-owner`): where a work's own change touches one, the
+/// check before the merge holds it until the owner lets it merge, asking in the words of [`Asks`].
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Protected {
+    /// Each path from the root of the checkout: a file, or a directory, ending in `/`, and everything in it.
+    pub paths: Vec<String>,
 }
 
 /// `[tests]` of `project.toml`.
@@ -373,18 +391,43 @@ pub struct Return {
     pub form: Form,
     pub how_you_return: Told,
     pub outputs: Outputs,
-    pub asked: Asked,
 }
 
-/// How a question a return asks and waits for is put to the owner, as the call the work waits at its cell for: `{ask}`
-/// what it asks and `{options}` its options, each as `option` says, or `recommended` for the one it recommends, one to
-/// a line; in those, `{number}` counts the options from one, `{does}` and `{follows}` are the option's.
+/// `agents/asks.toml`: the questions the engine itself asks the owner, by what it found of a work.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Asked {
-    pub text: String,
-    pub option: String,
-    pub recommended: String,
+pub struct Asks {
+    pub protected: AskProtected,
+}
+
+/// The question the engine asks where a work's own change touches a path the project protects ([`Protected`]): asked
+/// again under its name where that change is another, or was answered with another option than `merges`, withdrawn
+/// once the work touches none. It waits, and recommends none of its options. `ask` is what it asks, `{files}` the files
+/// the change touches, each as `file` says with `{path}` its path and `{change}` how it changes (`added`, `changed` or
+/// `deleted`), one to a line, and `{diff}` the change itself.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AskProtected {
+    pub name: String,
+    pub ask: String,
+    pub file: String,
+    pub added: String,
+    pub changed: String,
+    pub deleted: String,
+    pub options: Vec<AskOption>,
+    /// The number of the option, counted from 1, by which the owner lets the change merge: the check before the merge
+    /// passes a change under the protected paths only where its question was answered so.
+    pub merges: u64,
+    /// Why it is withdrawn, once the work's change touches no path the project protects.
+    pub withdrawn: String,
+}
+
+/// An option of a question the engine asks: what the work does by it, and what follows from it.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AskOption {
+    pub does: String,
+    pub follows: String,
 }
 
 /// The form: the order of the fields of each kind of return, the same for every cell of a flow. The blocks a cell
@@ -546,6 +589,11 @@ pub struct SentBackFaults {
     pub not_a_trigger: String,
     pub not_a_tool: String,
     pub unchanged_not_written: String,
+    pub question_taken: String,
+    pub no_such_question: String,
+    pub question_twice: String,
+    pub not_an_option: String,
+    pub not_answerable: String,
 }
 
 /// Where a field's words go in the part on returning.
@@ -924,6 +972,10 @@ pub struct Found {
     pub merging: String,
     pub uncommitted: String,
     pub conflict: String,
+    /// The work's own change touches paths the project protects, and the owner has not let it merge.
+    pub protected: String,
+    /// The change under the paths the project protects could not be looked at.
+    pub protected_unread: String,
 }
 
 /// A piece of a text of the engine's words: what is sent as written, or a place filled in a run, by its name.
@@ -1056,7 +1108,24 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         results: file(&at.join("message").join("results.toml"))?,
         acts: writes.acts,
         commits: writes.commits,
+        asks: asks(&at.join(ASKS_FILE))?,
     })
+}
+
+/// The questions the engine asks, read from their file, whose option that lets a change merge must be one of the
+/// question's options.
+fn asks(path: &Path) -> Result<Asks, String> {
+    let asks: Asks = file(path)?;
+    let protected = &asks.protected;
+    let count = protected.options.len() as u64;
+    if !(1..=count).contains(&protected.merges) {
+        let what = format!(
+            "[protected] merges is {}, which is not the number of one of its {count} options",
+            protected.merges
+        );
+        return Err(format!("{}: {what}", path.display()));
+    }
+    Ok(asks)
 }
 
 /// What the engine writes as it works, read from the directory that holds the flows, as [`read`] reads it.

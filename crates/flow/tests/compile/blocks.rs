@@ -200,3 +200,24 @@ fn a_choice_has_values_each_given_once() {
     };
     assert_eq!(faults(&source), [at(FLOW_FILE, "blocks.ci.values[2]", what)]);
 }
+
+#[test]
+fn a_cell_that_writes_the_work_s_questions_is_run_by_the_owner_s_answer() {
+    let asks = "[blocks.plan]\n\n[blocks.asks]\nfield = \"questions\"\nshown = true\n";
+    let source = edit(valid(), FLOW_FILE, "[blocks.plan]\n", asks);
+    let outputs = r#"outputs = ["plan", "asks"]"#;
+    let source = edit(source, "plan.toml", r#"outputs = ["plan"]"#, outputs);
+    let mut has = has();
+    has.sources.insert("answer".to_string());
+    let what = AsksWithNoAnswer {
+        block: "asks".to_string(),
+    };
+    assert_eq!(faults_with(&source, &has), [at("plan.toml", "outputs[1]", what)]);
+
+    let answered = format!("{asks}\n[blocks.answered]\noutside = \"answer\"\n");
+    let source = edit(source, FLOW_FILE, asks, &answered);
+    let inputs = r#"inputs = ["request", "opinions", "answered"]"#;
+    let source = edit(source, "plan.toml", PLAN_INPUTS, inputs);
+    let compiled = flow::compile(&source, &has);
+    assert!(compiled.is_ok(), "{:?}", compiled.err());
+}

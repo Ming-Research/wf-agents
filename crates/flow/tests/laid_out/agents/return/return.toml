@@ -18,11 +18,6 @@ and = " and "
 calls = "A tool is asked for under its name."
 tools = "## What you may ask the engine for"
 
-[asked]
-text = "{ask}\n{options}"
-option = "{number}. {does}, {follows}"
-recommended = "{number}. {does}, {follows} (yes)"
-
 [outputs]
 heading = "## What this cell returns"
 block = "- `{block}`{choice}{shown}{must_write}: {what}"

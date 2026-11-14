@@ -420,6 +420,7 @@ impl Model {
                 calls: 0,
                 found: Vec::new(),
                 waits: false,
+                questions: Vec::new(),
             };
             return (ret, false);
         }
@@ -487,6 +488,7 @@ impl Model {
             calls: 0,
             found: Vec::new(),
             waits: asks,
+            questions: Vec::new(),
         };
         (ret, asks)
     }

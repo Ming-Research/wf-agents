@@ -17,6 +17,7 @@ mod named_tests;
 mod paused_answers;
 mod pausing;
 mod pending;
+mod questions;
 mod rebuilt;
 mod refused;
 mod room;

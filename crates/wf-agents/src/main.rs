@@ -174,11 +174,23 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Gives a call that waits for a person its result.
-    Answer {
+    /// Gives a call that waits for a person its result, such as that a run at its limit goes on.
+    Result {
         work: u64,
         call: u64,
         result: String,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Answers a version of a question of a work, taking an option, counted from one.
+    Answer {
+        work: u64,
+        question: String,
+        version: u64,
+        option: u64,
+        /// Why, in a sentence, where there is something to say: kept with the answer, which the asking cell is given.
+        #[arg(long)]
+        why: Option<String>,
         #[command(flatten)]
         at: At,
     },
@@ -360,8 +372,24 @@ fn main() -> ExitCode {
             };
             talk::ask(at.port, Asked::Act(work, Act::Write { block, content, value }))
         }
-        Command::Answer { work, call, result, at } => {
-            talk::ask(at.port, Asked::Act(work, Act::Answer { call, result }))
+        Command::Result { work, call, result, at } => {
+            talk::ask(at.port, Asked::Act(work, Act::Result { call, result }))
+        }
+        Command::Answer {
+            work,
+            question,
+            version,
+            option,
+            why,
+            at,
+        } => {
+            let act = Act::Answer {
+                question,
+                version,
+                option,
+                why,
+            };
+            talk::ask(at.port, Asked::Act(work, act))
         }
         Command::Wait { since, longest, at } => talk::ask(at.port, Asked::Wait { since, longest }),
         Command::LetGo { work, cell, at } => talk::ask(at.port, Asked::Act(work, Act::LetGo { cell })),
@@ -371,9 +399,10 @@ fn main() -> ExitCode {
 
 /// The names of the sources outside a work that write its blocks, which every definition is compiled against:
 /// `dependencies`, `session` and `start`, written by the engine's driver, the last as the owner starts the work;
-/// `main`, written by the acts' watch of main on the host; and `tree`, written by the carriers as they look at the
-/// design tree on a work's branch.
-const SOURCES: [&str; 5] = ["dependencies", "main", "session", "start", "tree"];
+/// `answer`, written by the engine's loop as the owner answers a question of the cell, and `asked`, as the questions
+/// and their answers come to stand otherwise; `main`, written by the acts' watch of main on the host; and `tree`,
+/// written by the carriers as they look at the design tree on a work's branch.
+const SOURCES: [&str; 7] = ["answer", "asked", "dependencies", "main", "session", "start", "tree"];
 
 /// The names of the acts of the engine's own that carry out an engine cell: `start` makes the place a work is done
 /// in, `check` checks the work before its merge, `merge` merges it, and `deliver` says that a deliverable item, made
@@ -533,6 +562,11 @@ fn words(what: &FaultKind, field: &str) -> String {
         }
         F::MissingPlaceholder { placeholder } => format!("this must hold {placeholder}"),
         F::UnknownReturnField { field } => format!("the engine's return has no field named \"{field}\""),
+        F::AsksWithNoAnswer { block } => {
+            format!(
+                "the cell writes {block}, the work's questions, but no answer runs it: the owner's answer would run no cell"
+            )
+        }
         F::UnknownDetail { detail } => format!("the engine fills no place named \"{detail}\""),
         F::EngineIsGiven { block } => {
             format!("an engine's cell says how it is given {block}, but it has no session")

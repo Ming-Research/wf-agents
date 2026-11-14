@@ -24,8 +24,12 @@ passed = "yes"
 failed = "no"
 
 # What was found before the host was asked. Filled in a run: `{changes}` what git says the worktree holds uncommitted;
-# `{files}` the files in conflict, `{kinds}` the kinds of their conflicts.
+# `{files}` the files in conflict, `{kinds}` the kinds of their conflicts; in `protected`, the files the work's own
+# change touches under the paths the project protects, one to a line, and `{question}` the name of the question the
+# engine asks the owner of them; `{why}` why that change could not be looked at.
 [found]
 merging = "A merge is under way in the worktree and is not committed: finish it and commit it, or take it back.\n{changes}"
 uncommitted = "The worktree has changes that are not committed:\n{changes}"
 conflict = "The branch does not merge into {main} at {head} without a conflict:\n{files}\n{kinds}"
+protected = "The work changes files the project protects, and the owner has not let this change merge: it merges only once the owner does, or once the work no longer changes them. The engine asks the owner in the question `{question}`, and the answer comes to the work as the owner's.\n{files}"
+protected_unread = "The change of the files the project protects could not be looked at, and the work does not merge before it is: {why}"

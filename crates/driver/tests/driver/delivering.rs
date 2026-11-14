@@ -17,7 +17,7 @@ fn engineer() -> Compiled {
     let source = flow::read(&dir).expect("the engineer's flow is read");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
     let has = Has {
-        sources: names(&[DEPENDENCIES, "main", "session", "start", "tree"]),
+        sources: names(&["answer", "asked", DEPENDENCIES, "main", "session", "start", "tree"]),
         acts: names(&["start", "check", "merge"]),
         // The tools the flow names for its agent cells, the fields of a return its data are written through, and the
         // place the engine fills with what changed of the tree.

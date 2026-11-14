@@ -45,6 +45,14 @@ pub struct Records {
     pub put_in: Vec<PutIn>,
     /// Every write of a block by a person or from outside the work.
     pub written: Vec<Written>,
+    /// Each version of a question put to the owner: asked, asked anew or withdrawn under its name (design document
+    /// `data-and-context`, 32, 33). Records kept before questions were data of their own have none, and read so.
+    #[serde(default)]
+    pub questions: Vec<Questioned>,
+    /// Each answer the owner gave to a version of a question (34). Records kept before answers were data of their own
+    /// have none, and read so.
+    #[serde(default)]
+    pub answers: Vec<Answered>,
     /// Each time the owner let a cell go on after it reached its limit.
     pub let_go: Vec<LetGo>,
     /// Each time the work was paused or let on again; the latest says which it is.
@@ -82,6 +90,8 @@ impl Records {
             abandoned: kept(&self.abandoned, |e| e.at, place),
             put_in: kept(&self.put_in, |e| e.at, place),
             written: kept(&self.written, |e| e.at, place),
+            questions: kept(&self.questions, |e| e.at, place),
+            answers: kept(&self.answers, |e| e.at, place),
             let_go: kept(&self.let_go, |e| e.at, place),
             pauses: kept(&self.pauses, |e| e.at, place),
             cancelled: self.cancelled.filter(|at| *at < place),
@@ -202,6 +212,39 @@ pub struct Written {
     pub at: Seq,
 }
 
+/// A version of a question put to the owner, named by the place of this entry: what the walk reads of it. What it asks
+/// and its options are kept with what came back from the round that brought it. A question has a name no other
+/// question of the work has, and belongs to the cell of its latest version: one cell's alone where an agent asks it,
+/// the cell of the round at whose end the engine found what it asks where the engine does. A version that withdraws it
+/// leaves it standing no more.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Questioned {
+    pub name: String,
+    /// The cell it belongs to: the cell of the run whose return asked it, or whose round's end the engine asked it at.
+    pub cell: CellId,
+    /// The run whose return brought it.
+    pub run: RunId,
+    /// The engine itself asked it, from what it found of the work as the run's round ended, and not the run's agent.
+    pub engine: bool,
+    /// The cell waits for the answer: the work goes past the cell to no later one until this version is answered.
+    pub waits: bool,
+    /// This version withdraws the question.
+    pub withdrawn: bool,
+    pub at: Seq,
+}
+
+/// The owner's answer to a version of a question: the option taken, counted from one, and why, where the owner said.
+/// The last answer to a question's latest version is its answer; one to an earlier version answers it no more.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Answered {
+    pub question: String,
+    /// The version answered, named by the place of the entry that wrote it.
+    pub version: Seq,
+    pub option: u64,
+    pub why: Option<String>,
+    pub at: Seq,
+}
+
 /// Who writes a block without running a cell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Outsider {
@@ -312,4 +355,6 @@ pub enum RecordFault {
     DealtWithTwice(RunId),
     /// The call was made after its run had finished or was abandoned: a run makes its calls before it ends.
     CalledAfterEnd(CallId),
+    /// The answer at this place names no version of its question, asking it, written before it.
+    AnswerNoVersion(Seq),
 }

@@ -128,7 +128,7 @@ async fn a_round_that_failed_is_given_with_its_cause() {
     let running = running_scripted(Box::new(store), dir, script);
     let router = &running.router;
     greeted(router).await;
-    let answer = json!({ "kind": "answer", "call": 2, "result": "Yes, by name." });
+    let answer = json!({ "kind": "result", "call": 2, "result": "Yes, by name." });
     assert_eq!(
         post(router, "/api/v1/works/1/acts", &answer).await.0,
         StatusCode::NO_CONTENT

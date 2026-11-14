@@ -51,14 +51,14 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
     );
 
     assert_eq!(
-        engine.says(&["answer", "1", "2", "Yes, by name."]),
+        engine.says(&["result", "1", "2", "Yes, by name."]),
         "Call 2 of work 1 has its result.\n"
     );
     engine.until(&["list"], |line| {
         line == "Item 1 \"Greet the user\" at level 1, work 1 on trial: merged"
     });
     assert_eq!(
-        engine.refuses(&["answer", "1", "2", "No."]),
+        engine.refuses(&["result", "1", "2", "No."]),
         "Call 2 has its result already.\n"
     );
     // A work that merged is not cancelled, and is not said to be.

@@ -100,6 +100,8 @@ function whom(w: Waited, page: WorkPage | null): string | null {
     case 'slot':
     case 'agents':
       return 'the engine';
+    case 'answer':
+      return WHO.owner;
   }
 }
 
@@ -163,6 +165,8 @@ function lineWords(w: Waited, cell: string): string {
       return `at ${cell}, for a free slot, which the engine gives in its order`;
     case 'agents':
       return `at ${cell}, for the wait every work shares: ${outageWords(w.outage)}`;
+    case 'answer':
+      return `at ${cell}, for your answer to ${w.question}`;
   }
 }
 
@@ -171,7 +175,7 @@ function lineWords(w: Waited, cell: string): string {
 function goOnOf(now: Summary['now']): Act | null {
   if (now.kind !== 'waits') return null;
   for (const w of now.on) {
-    if (w.kind === 'call' && w.what.kind === 'atLimit') return { kind: 'answer', call: w.call, result: 'go on' };
+    if (w.kind === 'call' && w.what.kind === 'atLimit') return { kind: 'result', call: w.call, result: 'go on' };
     if (w.kind === 'limit' || w.kind === 'calls') return { kind: 'letGo', cell: now.at };
   }
   return null;
@@ -464,7 +468,7 @@ function ItemView({
     for (const q of questions) {
       if (q.asks === undefined || !answered(q)) continue;
       const result = q.chosen === null ? (q.answer ?? '').trim() : q.options[q.chosen].label;
-      const taken = await answering.send({ kind: 'answer', call: q.asks.call, result });
+      const taken = await answering.send({ kind: 'result', call: q.asks.call, result });
       if (!taken) return;
     }
     if (body.planWaits) setBody((was) => ({ ...was, planWaits: false }));

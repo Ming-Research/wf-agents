@@ -7,19 +7,21 @@ line = "engineer"
 effort = "xhigh"
 task = { file = "tasks/better_way.md" }
 when = { deep_needed = "no" }
-triggered_by = ["on_plan"]
-context = ["background", "plan_owner", "plan_agent", "acceptance", "questions", "tree_edits", "tree"]
+triggered_by = ["on_plan", "on_answer"]
+context = ["background", "answers", "plan_owner", "plan_agent", "acceptance", "questions", "tree_edits", "tree"]
 outputs = ["better_found", "plan_owner", "plan_agent", "questions", "acceptance", "tree_edits", "edits_tree"]
 must_write = ["better_found"]
 
 # Each version of the plan is thought through once; one it wrote itself runs it not again.
 [do]
 on_plan = """See what changed in the plan since you last thought it through, the whole of it where you never did, and think that through again."""
+on_answer = """The owner has answered one of your questions in `answers` with another option than yours, or one you wait for: bring the plan to it."""
 
 [kinds]
 # Given as the files that changed since the tree this session read.
 tree = "last_and_latest"
 background = "latest"
+answers = "all"
 plan_owner = "last_and_latest"
 plan_agent = "last_and_latest"
 acceptance = "last_and_latest"

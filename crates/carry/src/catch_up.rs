@@ -267,6 +267,11 @@ mod tests {
         };
         let lock = tokio::sync::Mutex::new(());
         let mut stop = crate::held::Stop::never();
+        let (protecting, work) = (crate::acts::Protecting::default(), work::Work::default());
+        let gate = crate::acts::Gate {
+            protecting: &protecting,
+            work: &work,
+        };
         let checked = crate::acts::check(
             &repo.project,
             &host,
@@ -274,6 +279,7 @@ mod tests {
             &lock,
             &mut stop,
             &crate::acts::words().check,
+            &gate,
         )
         .await
         .expect("the work is checked")

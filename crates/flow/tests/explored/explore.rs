@@ -1126,7 +1126,7 @@ impl Explorer<'_> {
                 let shown: Vec<String> = on.iter().map(show_waited).collect();
                 let on_purpose = on.iter().any(|w| match w {
                     Waited::Call { on, .. } => on.is_some(),
-                    Waited::Limit { .. } | Waited::Calls { .. } => true,
+                    Waited::Limit { .. } | Waited::Calls { .. } | Waited::Answer { .. } => true,
                     Waited::Precondition { by, .. } => by
                         .iter()
                         .any(|maker| matches!(maker, Maker::Owner | Maker::Outside { .. })),
@@ -1235,6 +1235,7 @@ fn show_waited(w: &Waited) -> String {
         }
         Waited::Limit { runs } => format!("the owner, at its limit of {runs} runs"),
         Waited::Calls { runs } => format!("the owner, at its limit of {runs} runs that asked"),
+        Waited::Answer { question } => format!("the owner's answer to {question}"),
         Waited::Slot => "a slot".to_string(),
     }
 }

@@ -11,3 +11,6 @@ path = "design/constitution.md"
 
 [project]
 research = "research/"
+
+[protected]
+paths = ["AGENTS.md", "flow/"]
