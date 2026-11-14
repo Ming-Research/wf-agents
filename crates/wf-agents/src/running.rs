@@ -163,14 +163,10 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 handle.outside(carry::MAIN, &says);
             }));
         }
+        // The page lays out what an agent is sent as a cell is entered, read from beside the flow shown, with the
+        // project's own files as its checkout holds them.
         let mut flows_shown = web::Flows::dirs(shown.clone(), Box::new(has));
-        // A draft: the page lays out what an agent is to be sent as a cell is entered, with these texts as they are.
-        // The rules for the agents are files beside the flow's definition, which names for each line those it takes.
-        flows_shown.alike = web::given::Alike {
-            root: shown.parent().map(Path::to_path_buf),
-            flow: Some(shown.clone()),
-            project,
-        };
+        flows_shown.alike.project = project;
         let router = match copies {
             Some(keeping) => {
                 // One task keeps the copies, a step at a time, with the time the loop reads from its clock.

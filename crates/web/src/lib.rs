@@ -1,9 +1,9 @@
 //! The owner's pages: a JSON interface made for them, and the pages themselves, built into the binary.
 //!
-//! The owner reviews every change to the flow on this page and has no other way to see it (Article 7), so the
-//! interface gives the definition as the page shows it: compiled, with every cell and block and who writes and reads
-//! each, or the faults that keep it from compiling. The definition is read anew for every request, so that an edit of
-//! its files shows when the page is loaded again.
+//! The owner reads the flow on this page and has no other way to see it (Article 7), so the interface gives the
+//! definition as the page shows it: compiled, with every cell and block and who writes and reads each, or the faults
+//! that keep it from compiling. The definition is read anew for every request, so that an edit of its files shows when
+//! the page is loaded again.
 //!
 //! - `GET /api/v1/flow`: the definition shown ([`view::Definition`]).
 //! - `GET /api/v1/flow/given`: what an agent is sent as the engine enters each agent's cell of the definition shown,
@@ -61,15 +61,18 @@ pub struct Flows {
 }
 
 impl Flows {
-    /// The definitions in these directories, read with [`flow::read`].
+    /// The definition in this directory, read with [`flow::read`], with what every agent is sent alike read from
+    /// beside it: the directory that holds the flows is the one that holds this one. No project's checkout is known.
     pub fn dirs(shown: PathBuf, has: Has) -> Self {
-        let reader = |dir: PathBuf| -> Read {
-            Box::new(move || flow::read(&dir).map_err(|e| format!("{}: {e}", dir.display())))
+        let alike = given::Alike {
+            root: shown.parent().map(PathBuf::from),
+            flow: Some(shown.clone()),
+            project: None,
         };
         Flows {
-            shown: reader(shown),
+            shown: Box::new(move || flow::read(&shown).map_err(|e| format!("{}: {e}", shown.display()))),
             has,
-            alike: given::Alike::default(),
+            alike,
         }
     }
 
