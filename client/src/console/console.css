@@ -155,9 +155,15 @@
   background: var(--ground);
 }
 
+/* What a question asks, as it was written: its paragraphs semibold, a block of code in it, such as the change a
+   question of the engine's is about, as code is shown anywhere in the window. */
 .cw-choice-q {
   margin: 0 0 var(--space-8);
   font-weight: var(--weight-strong);
+}
+
+.cw-choice-q .content {
+  font-weight: var(--weight);
 }
 
 /* Under a question a cell asked, that it stops the work or the merge: one line in red, as the count of the questions

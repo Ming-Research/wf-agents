@@ -938,7 +938,9 @@ function ChoiceBox({ p, pick, write, discuss, messages, jump }: {
 }) {
   return (
     <div className={pick === undefined ? 'cw-choice cw-choice-done' : 'cw-choice'}>
-      <p className="cw-choice-q">{p.question}</p>
+      <div className="cw-choice-q">
+        <Markdown text={p.question} />
+      </div>
       {p.stops === 'work' && <p className="cw-choice-stops">The work waits for this answer</p>}
       {p.stops === 'merge' && <p className="cw-choice-stops">The merge waits for this answer</p>}
       {p.stops === 'later' && <p className="cw-choice-later">Still to confirm</p>}

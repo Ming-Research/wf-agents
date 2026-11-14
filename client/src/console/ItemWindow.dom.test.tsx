@@ -411,6 +411,15 @@ describe('the questions put to the owner, in the panel of the item selected', ()
     expect(text(el, '.cw-to .switch-choice')).toContain('Review the plan');
   });
 
+  it('shows what a question asks as it was written, a change it is about as code', () => {
+    const ask = 'Whether the change may merge.\n\n- `flow/agents/tools/run_tests.toml`: changed\n\n```diff\n-a = 1\n+a = 2\n```';
+    const el = drawAsking({ kind: 'waits', at: 'implement', on: [{ kind: 'answer', question: 'protected_files' }] }, [
+      'protected_files',
+    ], [question('protected_files', { cell: 'implement', engine: true, waits: true, ask })]);
+    expect(text(el, '.cw-choice-q p')).toEqual(['Whether the change may merge.', '- flow/agents/tools/run_tests.toml: changed']);
+    expect([...el.querySelectorAll('.cw-choice-q pre.content')].map((p) => p.textContent)).toEqual(['-a = 1\n+a = 2']);
+  });
+
   it('shows a question the work has gone on past as still to confirm, which stops nothing yet', () => {
     const el = drawAsking({ kind: 'next', cell: 'implement' }, [], [question('later')]);
     expect(text(el, '.cw-choice-q')).toEqual(['What of later?']);
