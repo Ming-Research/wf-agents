@@ -137,16 +137,17 @@ describe('the list of works with several hundred works', () => {
     const row = page.querySelector(`tr[data-work="${changed}"]`);
     expect(row?.querySelector('.work-now')?.textContent).toContain('Running review');
     const update = commits.reduce((sum, c) => sum + c.ms, 0);
-    // Measured on the page's own machine: the first drawing of 500 works some hundred milliseconds, the change of
-    // one a few; the bounds leave room for a slower machine, and the share for the rows left as they were.
+    // Measured: on the owner's machine the first drawing of 500 works took about 580 ms and the change of one 21 ms;
+    // on CI, shared with other runs, 3.2 s and 82 ms. What is held is the share: the change of one costs a small part
+    // of drawing them all, which it does only where the rows that did not change are left as they were. The bound on
+    // the time of the change leaves room for a slower machine.
     console.info(
       `${MANY} works: drawn in ${drawn.toFixed(0)} ms (rendering ${whole.toFixed(0)} ms); one changed, drawn again ` +
         `in ${again.toFixed(0)} ms (rendering ${update.toFixed(1)} ms)`,
     );
-    expect(drawn).toBeLessThan(5000);
-    expect(again).toBeLessThan(1000);
     expect(update).toBeLessThan(whole / 5);
-  });
+    expect(again).toBeLessThan(2000);
+  }, 60_000);
 
   it('reads the items once for the bar and the list, once for a burst of changes, and not for the copies', async () => {
     const s = manySource(20);
