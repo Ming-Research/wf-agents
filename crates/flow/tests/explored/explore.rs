@@ -94,6 +94,7 @@ pub struct Stats {
 pub struct Breach {
     pub path: Vec<String>,
     pub what: String,
+    rank: (u8, u32),
 }
 
 impl Breach {
@@ -114,14 +115,26 @@ struct Trace(Option<Rc<Link>>);
 struct Link {
     step: String,
     before: Trace,
+    /// What the path had spent at this step, and its steps up to it.
+    spent: u8,
+    len: u32,
 }
 
 impl Trace {
-    fn then(&self, step: String) -> Trace {
+    fn then(&self, spent: u8, step: String) -> Trace {
+        let len = self.0.as_ref().map_or(0, |l| l.len) + 1;
         Trace(Some(Rc::new(Link {
             step,
             before: self.clone(),
+            spent,
+            len,
         })))
+    }
+
+    /// How far the path is from the start: what it spent, then its steps. Of two paths to one breach, the nearer is
+    /// kept.
+    fn rank(&self) -> (u8, u32) {
+        self.0.as_ref().map_or((0, 0), |l| (l.spent, l.len))
     }
 
     fn steps(&self) -> Vec<String> {
@@ -206,14 +219,11 @@ pub fn explore(model: &Model, bounds: Bounds) -> Explored {
             );
             continue;
         }
-        // A path past a write from outside goes one way, for what that write reaches: it is followed whole.
-        if state.outside.is_none() {
-            match seen.entry(key) {
-                Entry::Occupied(spent) if *spent.get() <= state.spent => continue,
-                Entry::Occupied(mut spent) => *spent.get_mut() = state.spent,
-                Entry::Vacant(v) => {
-                    v.insert(state.spent);
-                }
+        match seen.entry(key) {
+            Entry::Occupied(spent) if *spent.get() <= state.spent => continue,
+            Entry::Occupied(mut spent) => *spent.get_mut() = state.spent,
+            Entry::Vacant(v) => {
+                v.insert(state.spent);
             }
         }
         state.ancestors.push(key);
@@ -236,10 +246,16 @@ impl Explorer<'_> {
     }
 
     fn breach(&mut self, property: Property, name: String, trace: &Trace, what: String) {
-        self.out.breaches.entry((property, name)).or_insert_with(|| Breach {
-            path: trace.steps(),
-            what,
-        });
+        let rank = trace.rank();
+        let found = (self.out.breaches.get(&(property, name.clone()))).is_some_and(|b| b.rank <= rank);
+        if !found {
+            let breach = Breach {
+                path: trace.steps(),
+                what,
+                rank,
+            };
+            self.out.breaches.insert((property, name), breach);
+        }
     }
 
     /// What holds of the definition whatever a work does: each cell a group runs is given each of its members.
@@ -280,7 +296,7 @@ impl Explorer<'_> {
             outside: None,
             since: 0,
             ancestors: Vec::new(),
-            trace: Trace::default().then("the owner starts the work: the background is written".to_string()),
+            trace: Trace::default().then(0, "the owner starts the work: the background is written".to_string()),
         }
     }
 
@@ -314,7 +330,7 @@ impl Explorer<'_> {
                 Decision::Abandon { cell, run, because } => {
                     s.trace = s
                         .trace
-                        .then(format!("the engine abandons the run of {cell}: {because:?}"));
+                        .then(s.spent, format!("the engine abandons the run of {cell}: {because:?}"));
                     let r = &s.world.records;
                     let began = r.rounds.iter().filter(|e| e.run == run).count();
                     let ended = r.returned.iter().filter(|e| e.run == run).count();
@@ -359,7 +375,9 @@ impl Explorer<'_> {
             .collect();
         let mut names: Vec<String> = names.into_iter().collect::<BTreeSet<_>>().into_iter().collect();
         names.sort();
-        s.trace = s.trace.then(format!("{cell} starts, for {}", names.join(", ")));
+        s.trace = s
+            .trace
+            .then(s.spent, format!("{cell} starts, for {}", names.join(", ")));
         let run = RunId(s.world.id());
         let tainted = s.outside.as_ref().is_some_and(|t| self.tainted(s, i, &because, t));
         let at = s.world.tick();
@@ -474,7 +492,7 @@ impl Explorer<'_> {
                     s.questions.insert(call, cell.clone());
                     said.push_str(&format!(", and the owner is asked, the call {}", call.0));
                 }
-                s.trace = s.trace.then(said);
+                s.trace = s.trace.then(s.spent, said);
                 let at = s.world.tick();
                 s.world.records.finished.push(Finished {
                     run,
@@ -501,7 +519,7 @@ impl Explorer<'_> {
                 }
                 s.trace = s
                     .trace
-                    .then(format!("the engine sends {cell}'s return back: {unmet:?}"));
+                    .then(s.spent, format!("the engine sends {cell}'s return back: {unmet:?}"));
                 let at = s.world.tick();
                 s.world.records.rounds.push(Round { run, at });
                 for u in &unmet {
@@ -519,9 +537,10 @@ impl Explorer<'_> {
             }
             Step::AtLimit(limit) => {
                 self.reach("a run reached its limit of returns sent back".to_string());
-                s.trace = s
-                    .trace
-                    .then(format!("{cell}'s run is at its limit {limit:?}: the owner is asked"));
+                s.trace = s.trace.then(
+                    s.spent,
+                    format!("{cell}'s run is at its limit {limit:?}: the owner is asked"),
+                );
                 let call = CallId(s.world.id());
                 let at = s.world.tick();
                 s.world.records.called.push(Called {
@@ -635,7 +654,7 @@ impl Explorer<'_> {
         if cost {
             c.spent += 1;
         }
-        c.trace = c.trace.then(said);
+        c.trace = c.trace.then(c.spent, said);
         let at = c.world.tick();
         c.world.records.returned.push(Returned { run, at });
         c.returning.insert(run, v);
@@ -646,13 +665,19 @@ impl Explorer<'_> {
     fn events(&self, s: &State, d: &Decision) -> Vec<Event> {
         let m = self.model;
         let r = &s.world.records;
+        let reading = Reading::new(r);
+        let applies = |i: usize| reading.applies(&m.compiled.flow, i);
         let mut events = vec![Event::Background];
         for (i, cell) in m.cells().iter().enumerate() {
-            if m.spoken[i].is_some() {
+            if m.spoken[i].is_some() && applies(i) {
                 events.push(Event::Speaks(cell.id.clone()));
             }
         }
-        events.extend([MAIN, SESSION, TREE].map(Event::Source));
+        events.extend([MAIN, SESSION].map(Event::Source));
+        // The tree runs no cell: once is enough to show it.
+        if s.spent == 0 {
+            events.push(Event::Source(TREE));
+        }
         for c in r.called.iter().filter(|c| c.on == Some(Who::Owner)) {
             if !r.done.iter().any(|d| d.call == c.call) {
                 events.push(Event::Answers(c.call));
@@ -661,7 +686,7 @@ impl Explorer<'_> {
         for (i, cell) in m.cells().iter().enumerate() {
             let finished =
                 (r.started.iter()).any(|st| st.cell == cell.id && r.finished.iter().any(|f| f.run == st.run));
-            if m.answered[i].is_some() && finished {
+            if m.answered[i].is_some() && finished && applies(i) {
                 events.push(Event::OtherOption(cell.id.clone()));
             }
         }
@@ -744,8 +769,8 @@ impl Explorer<'_> {
                 written.push((block, at));
             }
         }
-        c.trace = c.trace.then(label.clone());
         c.spent += 1;
+        c.trace = c.trace.then(c.spent, label.clone());
         c.since = 0;
         c.ancestors.clear();
         let blocks: Vec<BlockId> = written.iter().map(|(b, _)| b.clone()).collect();
@@ -838,6 +863,20 @@ impl Explorer<'_> {
             .any(|st| &st.cell == last && r.finished.contains_key(&st.run))
             .hash(&mut h);
         s.always.hash(&mut h);
+        // Past a write from outside, what it reached: what it was, how far it can reach, which of what is new to each
+        // cell it wrote, and which open runs run for it.
+        if let Some(t) = &s.outside {
+            (&t.what, &t.reach).hash(&mut h);
+            for cell in flow.cells() {
+                for block in &cell.runs_on {
+                    let new = r.new_to(&cell.id, block, NOW);
+                    new.iter().any(|v| t.versions.contains(&v.at)).hash(&mut h);
+                }
+            }
+            for st in records.started.iter().filter(|st| !r.finished.contains_key(&st.run)) {
+                t.runs.contains(&st.run).hash(&mut h);
+            }
+        }
         h.finish()
     }
 

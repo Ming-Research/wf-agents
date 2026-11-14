@@ -377,7 +377,9 @@ impl Model {
             }
             sets = more;
         }
-        for set in &sets {
+        // A question with its content's choices, or with choices that skip the cell itself: one it leaves behind.
+        let own: Vec<BlockId> = cell.applies.iter().flat_map(|k| self.key_reads(k)).collect();
+        for set in sets.iter().filter(|set| set.keys().all(|b| own.contains(b))) {
             out.push((Variant::Asks(set.clone()), false));
         }
         for set in sets.into_iter().filter(|set| !set.is_empty()) {

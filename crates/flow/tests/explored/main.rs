@@ -55,7 +55,23 @@ const BOUNDS: Bounds = Bounds {
 
 /// The breaches the flow's own definition makes, each by its property and its name, with why it is the flow's and not
 /// the engine's. Each is reported; none is mended here, since the flow changes only with the owner.
-const KNOWN: &[(Property, &str, &str)] = &[];
+const KNOWN: &[(Property, &str, &str)] = &[
+    (
+        Property::NextStep,
+        "the work waits at M2 for checked = yes, which M1 can make hold",
+        "A cell may hand in no block that runs a cell after it: R1 its choices alone, without the plan, or I1 \
+         nothing. Nothing then runs M1, and the merge waits on a precondition only M1 makes hold, naming no one who \
+         can act. The merge's gate names only the check, and no cell must write what runs the next.",
+    ),
+    (
+        Property::Gates,
+        "M1 ran while a question of R1 waited for the owner, R1 being skipped",
+        "R1 asks a question that waits and, in the same return, says deep_needed = yes. The work waits for an \
+         answer only at a cell that applies, and R1 no longer does: the deep research, the implementation, the \
+         check and the merge go on, the question unanswered. The flow's check has no gate on the questions put to \
+         the owner.",
+    ),
+];
 
 /// The engineer's flow as the repository defines it, compiled against what the engine has.
 fn engineer() -> Compiled {
