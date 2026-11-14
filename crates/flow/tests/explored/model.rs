@@ -39,18 +39,21 @@ pub enum Variant {
     /// it run, and its reply where the owner spoke to it; an act of the engine's writes each block it writes, the
     /// check only its choice where the work passed.
     Content,
-    /// The content, with this choice written with this value.
-    Choice(BlockId, String),
+    /// The content, with these choices written with these values, each another than the content's.
+    Choices(BTreeMap<BlockId, String>),
     /// The content's choices, and no other block.
     Bare,
     /// The content, and each block of its that a cell before it runs: its opinions for those cells.
     Opinions,
+    /// The content, and this one of its opinions.
+    Opinion(BlockId),
     /// A judge's refusal with its reasons: each verdict it writes as the refusal, and its opinions.
     Refuses,
     /// A return that does not meet what the flow requires, which is sent back.
     SentBack,
-    /// The content, and a question that waits for the owner's answer.
-    Asks,
+    /// The content with these choices, each another than the content's, and a question that waits for the owner's
+    /// answer.
+    Asks(BTreeMap<BlockId, String>),
     /// The check's act, the work not passing: each choice a precondition waits on with another value, and every
     /// other block it writes.
     Fails(&'static str),
@@ -64,12 +67,19 @@ impl fmt::Display for Variant {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Variant::Content => write!(f, "its content"),
-            Variant::Choice(block, value) => write!(f, "its content with {block} = {value}"),
+            Variant::Choices(values) => {
+                let values: Vec<String> = values.iter().map(|(b, v)| format!("{b} = {v}")).collect();
+                write!(f, "its content with {}", values.join(", "))
+            }
             Variant::Bare => write!(f, "its choices alone"),
             Variant::Opinions => write!(f, "its content and its opinions for the cells before it"),
+            Variant::Opinion(block) => write!(f, "its content and its opinion in {block}"),
             Variant::Refuses => write!(f, "a refusal with its reasons"),
             Variant::SentBack => write!(f, "what does not meet the flow"),
-            Variant::Asks => write!(f, "its content and a question it waits on"),
+            Variant::Asks(values) => {
+                let values: Vec<String> = values.iter().map(|(b, v)| format!(" with {b} = {v}")).collect();
+                write!(f, "its content{}, and a question it waits on", values.concat())
+            }
             Variant::Fails(why) => write!(f, "{why}"),
         }
     }
@@ -339,7 +349,7 @@ impl Model {
 
     /// The returns of the cell at this place other than its content, with whether a cell may give the same at every
     /// run from then on: a return that sends work round, which only the flow's limits can stop. Of its choices, each
-    /// value other than the content's, whose values these are now.
+    /// set of values but the content's, whose values these are now.
     pub fn deviations(&self, i: usize, told: &Told) -> Vec<(Variant, bool)> {
         let spec = &self.compiled.cells[i];
         if spec.kind == Kind::Engine {
@@ -350,12 +360,28 @@ impl Model {
         }
         let cell = &self.cells()[i];
         let mut out = Vec::new();
+        // Every set of values of its choices, each set given by what differs from the content's.
+        let mut sets: Vec<BTreeMap<BlockId, String>> = vec![BTreeMap::new()];
         for block in cell.outputs.iter().filter(|b| self.choices.contains_key(*b)) {
             let now = told.outputs.get(block).and_then(|s| s.value.as_ref());
             let content = self.content_value(block, now);
-            for value in self.choices[block].iter().filter(|v| **v != content) {
-                out.push((Variant::Choice(block.clone(), value.clone()), false));
+            let mut more = Vec::new();
+            for set in &sets {
+                for value in &self.choices[block] {
+                    let mut set = set.clone();
+                    if *value != content {
+                        set.insert(block.clone(), value.clone());
+                    }
+                    more.push(set);
+                }
             }
+            sets = more;
+        }
+        for set in &sets {
+            out.push((Variant::Asks(set.clone()), false));
+        }
+        for set in sets.into_iter().filter(|set| !set.is_empty()) {
+            out.push((Variant::Choices(set), false));
         }
         if !self.forward[i].is_empty() {
             out.push((Variant::Bare, false));
@@ -363,11 +389,15 @@ impl Model {
         if !self.backward[i].is_empty() {
             out.push((Variant::Opinions, true));
         }
+        if self.backward[i].len() > 1 {
+            for block in &self.backward[i] {
+                out.push((Variant::Opinion(block.clone()), false));
+            }
+        }
         if cell.outputs.iter().any(|b| self.refusals.contains_key(b)) {
             out.push((Variant::Refuses, true));
         }
         out.push((Variant::SentBack, true));
-        out.push((Variant::Asks, false));
         out
     }
 
@@ -406,11 +436,12 @@ impl Model {
                 prose.extend(self.silent[i].iter().cloned());
             }
             match variant {
-                Variant::Choice(block, value) => {
-                    values.insert(block.clone(), value.clone());
+                Variant::Choices(set) | Variant::Asks(set) => {
+                    values.extend(set.iter().map(|(b, v)| (b.clone(), v.clone())))
                 }
                 Variant::Bare => prose.clear(),
                 Variant::Opinions => prose.extend(self.backward[i].iter().cloned()),
+                Variant::Opinion(block) => prose.push(block.clone()),
                 Variant::Refuses => {
                     for (block, value) in values.iter_mut() {
                         if let Some(refusal) = self.refusals.get(block) {
@@ -419,7 +450,7 @@ impl Model {
                     }
                     prose.extend(self.backward[i].iter().cloned());
                 }
-                Variant::Content | Variant::Asks | Variant::SentBack | Variant::Fails(_) => {}
+                Variant::Content | Variant::SentBack | Variant::Fails(_) => {}
             }
         } else {
             let fails = matches!(variant, Variant::Fails(_));
@@ -447,7 +478,7 @@ impl Model {
                 })
             })
             .collect();
-        let asks = *variant == Variant::Asks;
+        let asks = matches!(variant, Variant::Asks(_));
         let ret = Return::Came {
             dealt_with: ran_by,
             writes,
@@ -496,7 +527,9 @@ impl Model {
                     if !reader.runs_on.contains(o) {
                         continue;
                     }
-                    for r in reader.outputs.iter().filter(|r| writer.runs_on.contains(*r) && *r != o) {
+                    let replies = (reader.outputs.iter())
+                        .filter(|r| writer.runs_on.contains(*r) && *r != o && !self.choices.contains_key(*r));
+                    for r in replies {
                         if self.backward[b].contains(r) {
                             continue;
                         }

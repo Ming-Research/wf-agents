@@ -488,8 +488,17 @@ impl Explorer<'_> {
                     t.versions.insert(at);
                 }
             }
-            Step::SendBack { unmet } if variant.is_none() || sent_back => {
+            // A return is sent back where it would write over a version its round was not told of: a cell before it
+            // ran while the return waited to be taken, and wrote what this one writes.
+            Step::SendBack { unmet }
+                if variant.is_none()
+                    || sent_back
+                    || unmet.iter().all(|u| matches!(u, run::Unmet::WrittenOver { .. })) =>
+            {
                 self.reach("a return was sent back".to_string());
+                if !sent_back && variant.is_some() {
+                    self.reach(WRITTEN_OVER.to_string());
+                }
                 s.trace = s
                     .trace
                     .then(format!("the engine sends {cell}'s return back: {unmet:?}"));
@@ -591,6 +600,20 @@ impl Explorer<'_> {
                 if s.outside.is_none() && s.spent <= self.bounds.outside_after && s.spent < self.bounds.spend {
                     for e in self.events(s, d) {
                         out.push(self.event(s, d, e));
+                    }
+                } else if s.outside.is_none()
+                    && let Decision::Wait { on, .. } = d
+                {
+                    // The owner answers a question the work waits on, whatever the path spent.
+                    for w in on {
+                        if let Waited::Call {
+                            call,
+                            on: Some(Who::Owner),
+                        } = w
+                            && s.questions.contains_key(call)
+                        {
+                            out.push(self.event(s, d, Event::Answers(*call)));
+                        }
                     }
                 }
             }
@@ -1172,3 +1195,4 @@ fn kind_of(e: &Event) -> String {
 pub const MAIN_WHILE_THE_CHECK_WAITS: &str = "main moved while the check waited at its gate";
 pub const WAITED_FOR_THE_OWNER: &str = "the work waited for the owner or the outside";
 pub const A_QUESTION_WAITED: &str = "a question waited for the owner";
+pub const WRITTEN_OVER: &str = "a return was sent back as it would write over what its round was not told of";
