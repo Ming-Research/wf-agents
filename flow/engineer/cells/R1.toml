@@ -26,6 +26,7 @@ triggered_by = [
   "on_spoken",
   "on_answer",
   "on_plan_review",
+  "on_tree_review",
   "on_plan_doubts",
 ]
 context = [
@@ -33,6 +34,7 @@ context = [
   "discussion",
   "answers",
   "plan_review",
+  "tree_review",
   "plan_doubts",
   "plan_owner",
   "plan_agent",
@@ -50,6 +52,7 @@ outputs = [
   "tree_edits",
   "edits_tree",
   "reply_plan_review",
+  "reply_tree_review",
   "reply_plan_doubts",
   "discussion",
 ]
@@ -59,6 +62,7 @@ must_write = ["deep_needed"]
 [do]
 on_background = """See what changed from the version you last worked from, the whole of it where you worked from none, and bring the research and the plan up to date for it."""
 on_plan_review = """Take each point of `plan_review`: change the plan where it touches, only there, or say why not, and answer it in `reply_plan_review`."""
+on_tree_review = """Take each point of `tree_review`: change the plan where it touches, only there, or say why not, and answer it in `reply_tree_review`."""
 on_plan_doubts = """Take each point of `plan_doubts`: change the plan where it touches, only there, or say why not, and answer it in `reply_plan_doubts`."""
 on_answer = """The owner has answered one of your questions in `answers` with another option than yours, or one you wait for: bring the plan to it."""
 # Back from the old cell, where the task said it (the review of 2026-11-14).
@@ -71,6 +75,7 @@ background = "last_and_latest"
 discussion = "all"
 answers = "all"
 plan_review = "latest"
+tree_review = "latest"
 plan_doubts = "latest"
 plan_owner = "latest"
 plan_agent = "latest"

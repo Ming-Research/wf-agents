@@ -1,76 +1,36 @@
-# Why this cell exists: so that a plan is judged, before it is built, by a session that did not write it: a better way,
-# a decision it breaks, and above all what it would write into the design tree. Gone through with the owner on
-# 2026-11-14.
-title = "Review the plan"
+# Why this cell exists: a plan, once written, is thought through again by its writer, in the same session: asked so, a
+# writer most often finds a better way (the old flow's cell that asked it, on the line that wrote the design, found one
+# 40 times in 52). From the owner's words (2026-10-23, 2026-11-14).
+title = "Is there a better way"
 kind = "agent"
-line = "plan_review"
+line = "deep_research"
 effort = "xhigh"
 task = '''
-You review the plan in a session of your own: you did not write it, so look for what its writer cannot see. Read the
-principles, and whole each file of decisions whose topic the plan touches. The plan is `plan_owner`, `plan_agent`,
-`questions` and `tree_edits`. Write what you say to its writer in `plan_review`.
+Think it through again from first principles: what does what `background` asks need at bottom, and does the plan make
+sense for it? Is there a better way: the same end by another way, more simply, at less running cost or with less to
+keep up, with a better structure in the code, more complete in what it should cover, truer to the project's intent; a
+way a decision of the tree rules out included. Think again in earnest; do not answer for the sake of answering.
 
-Judge only by what that cell was asked to do (what `background` asks) and the repository's rules:
-- Each entry of `tree_edits`, by the tree's rules, as one that must earn its place: whether the tree holds such a
-  thing at all, or a principle already says it; whether its reason is the real one; a decision it contradicts or
-  repeats; a file or a document it belongs in instead; its form; and what the code says by itself, its reason too, or
-  only this work does, which stays out of the tree.
-- A decision the plan goes against, or a rule later works must follow, that no entry covers.
-- A better solution: the same end by another way, more simply, at less running cost or with less to keep up, a way the
-  tree rules out included; only where it is better, saying how.
-- A question a fact could settle or that is cheap to change later; a choice only the owner can make that no question
-  asks; a question not marked in `plan_owner`.
-
-List every point at once. Leave out what you are not sure is better.
-
-With `plan_ok` yes write no opinion.
+If there is, write the plan again for it, changed only where the better way changes it; where it needs a decision
+changed, propose that in `tree_edits`. If not, change nothing.
 '''
-when = { test = "plan_needs_review" }
-triggered_by = [
-  "on_background",
-  "on_plan_owner",
-  "on_plan_agent",
-  "on_acceptance",
-  "on_questions",
-  "on_tree_edits",
-  "on_reply_plan_review",
-  "on_session",
-]
-context = [
-  "background",
-  "plan_owner",
-  "plan_agent",
-  "acceptance",
-  "questions",
-  "answers",
-  "tree_edits",
-  "plan_review",
-  "reply_plan_review",
-]
-outputs = ["plan_review", "plan_ok"]
-must_write = ["plan_ok"]
+when = { block = "deep_needed", is = "yes" }
+triggered_by = ["on_plan_owner", "on_plan_agent", "on_acceptance", "on_tree_edits"]
+context = ["background", "plan_owner", "plan_agent", "acceptance", "questions", "tree_edits"]
+outputs = ["better_found", "plan_owner", "plan_agent", "questions", "acceptance", "tree_edits", "edits_tree"]
+must_write = ["better_found"]
 
-# What the cell does when each trigger fires; a trigger with none is the task's alone.
+# Each version of the plan is thought through once; one it wrote itself runs it not again (the owner, 2026-11-14).
 [do]
-# The plan changed, or what it answers (the owner, 2026-11-14).
-on_background = """See what changed in `background` since the version you last reviewed against, the whole of it where you reviewed none, and whether the plan still answers it."""
-on_plan_owner = """See what changed since the version you last reviewed, the whole of it where you reviewed none, and review it."""
-on_plan_agent = """See what changed since the version you last reviewed, the whole of it where you reviewed none, and review it."""
-on_acceptance = """See what changed since the version you last reviewed, the whole of it where you reviewed none, and review it."""
-on_questions = """See what changed since the version you last reviewed, the whole of it where you reviewed none, and review it."""
-on_tree_edits = """See what changed since the version you last reviewed, the whole of it where you reviewed none, and review it."""
-# Moved from the task (the review of 2026-11-14).
-on_reply_plan_review = """Where the writer answered an earlier point in `reply_plan_review`, accept the answer or say why not; never raise a point again without saying so, and raise nothing new the answers did not bring."""
+on_plan_owner = """See what changed in the plan since you last thought it through, the whole of it where you never did, and think that through again."""
+on_plan_agent = """See what changed in the plan since you last thought it through, the whole of it where you never did, and think that through again."""
+on_acceptance = """See what changed in the plan since you last thought it through, the whole of it where you never did, and think that through again."""
+on_tree_edits = """See what changed in the plan since you last thought it through, the whole of it where you never did, and think that through again."""
 
-# `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest (the owner,
-# 2026-11-14).
 [kinds]
-acceptance = "last_and_latest"
-plan_review = "latest"
-background = "last_and_latest"
+background = "latest"
 plan_owner = "last_and_latest"
 plan_agent = "last_and_latest"
-questions = "last_and_latest"
+acceptance = "last_and_latest"
+questions = "latest"
 tree_edits = "last_and_latest"
-reply_plan_review = "latest"
-answers = "all"

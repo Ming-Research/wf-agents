@@ -1,7 +1,7 @@
 # What the agents, the engine's acts and the tools do when the engineer's flow is tried with no agent behind it
 # (`wf-agents run --script`). One work goes through every cell: the research asks the owner a question, answers it and
-# sends the work to deep research; the plan's review objects to the plan once; the implementation records a decision
-# of its own; the review objects once and then asks for adversarial testing, which finds a fault; after the fix the
+# sends the work to deep research; a better way is looked for and none found, the plan's review objects to the plan
+# once, and the review against the tree is content; the implementation records a decision of its own; the review objects once and then asks for adversarial testing, which finds a fault; after the fix the
 # review keeps asking for it and the testing is content; the check before the merge fails once, and after the fix the
 # review, the testing and the check look again and pass.
 
@@ -56,18 +56,33 @@ hands_in = [
     { block = "reply_plan_review", content = "Agreed: a withdrawn call takes nothing, and the plan now says so." },
 ]
 
-# The plan's review: one objection to the plan, then content.
+# Is there a better way: finds none, on the plan and on its revision.
 [[flows.engineer.rounds]]
 cell = "D2"
+hands_in = [{ block = "better_found", value = "no" }]
+
+[[flows.engineer.rounds]]
+cell = "D2"
+run = 2
+hands_in = [{ block = "better_found", value = "no" }]
+
+# The plan's review: one objection to the plan, then content.
+[[flows.engineer.rounds]]
+cell = "D3"
 hands_in = [
     { block = "plan_review", content = "The plan does not say what a call that was withdrawn took." },
     { block = "plan_ok", value = "no" },
 ]
 
 [[flows.engineer.rounds]]
-cell = "D2"
+cell = "D3"
 run = 2
 hands_in = [{ block = "plan_ok", value = "yes" }]
+
+# The review against the tree: content.
+[[flows.engineer.rounds]]
+cell = "D4"
+hands_in = [{ block = "tree_ok", value = "yes" }]
 
 # Implementation: asks for the check, which ends its run, and, entered again for its result, hands in the code with a
 # decision of its own; then a fix for the review, one for the testing and one for the check before the merge.

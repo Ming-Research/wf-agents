@@ -1,7 +1,7 @@
 name = "engineer"
 
 # The order of the walk, from the first cell to the merge.
-order = ["S1", "R0", "R1", "D1", "D2", "I1", "T1", "T2", "M1", "M2"]
+order = ["S1", "R0", "R1", "R2", "D1", "D2", "D3", "D4", "I1", "T1", "T2", "M1", "M2"]
 
 # The engine's own data this flow uses, each defined once in `../data/`. The flow's own data are in `blocks/`, its
 # lines in `lines/`, its named tests in `tests/` and its cells in `cells/`, one file each. What runs a cell is named on
