@@ -182,6 +182,51 @@ pub struct Trigger {
     pub does: Option<String>,
 }
 
+impl Trigger {
+    /// The blocks it stands on, a new version of any of which runs the cell: of a group's trigger, the group's; of
+    /// another, its block.
+    pub fn blocks(&self) -> &[BlockId] {
+        match self.group.is_empty() {
+            true => std::slice::from_ref(&self.block),
+            false => &self.group,
+        }
+    }
+
+    /// Whether it ran a round these blocks ran: any block it stands on did (`decide::flow::ran`).
+    pub fn ran(&self, ran_by: &[BlockId]) -> bool {
+        decide::flow::ran(self.blocks(), ran_by).next().is_some()
+    }
+}
+
+impl CellSpec {
+    /// The cell's triggers that ran a round these blocks ran, in the order the cell names them: what its agent is told
+    /// ran it, and may name as dealt with.
+    pub fn ran<'a>(&'a self, ran_by: &'a [BlockId]) -> impl Iterator<Item = &'a Trigger> + 'a {
+        self.triggers.iter().filter(move |t| t.ran(ran_by))
+    }
+
+    /// What a return that names these as dealt with dealt with, in the records' terms, in the order it names them:
+    /// each a trigger of the cell, as the block it stands on, a group's trigger by the group's name, which the run's
+    /// check reads as the group's blocks (`decide::flow::stands_on`). A name written twice stands twice, which the
+    /// run's check finds; two triggers that stand on one block, each named once, stand on it once. Beside them, each
+    /// name that is none of the cell's triggers, in the order written.
+    pub fn dealt_with(&self, names: &[String]) -> (Vec<BlockId>, Vec<String>) {
+        let mut blocks: Vec<BlockId> = Vec::new();
+        let mut none = Vec::new();
+        for (i, name) in names.iter().enumerate() {
+            let Some(trigger) = self.triggers.iter().find(|t| &t.name == name) else {
+                none.push(name.clone());
+                continue;
+            };
+            let again = names[..i].contains(name);
+            if again || !blocks.contains(&trigger.block) {
+                blocks.push(trigger.block.clone());
+            }
+        }
+        (blocks, none)
+    }
+}
+
 /// A block whose new version runs a cell.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunsOn {
@@ -1696,6 +1741,10 @@ impl<'a> Definition<'a> {
             applies,
             requires,
             runs_on: takes.runs_on.iter().map(|r| r.block.clone()).collect(),
+            groups: (takes.triggers.iter())
+                .filter(|t| !t.group.is_empty())
+                .map(|t| (t.block.clone(), t.group.clone()))
+                .collect(),
             outputs: file.outputs.iter().map(|b| BlockId(b.clone())).collect(),
             limit: runs,
             calls: limits.calls,
@@ -2111,12 +2160,7 @@ fn takes(file: &CellFile, triggers: Vec<Trigger>) -> Takes {
         let mut runs_on: Vec<RunsOn> = Vec::new();
         for trigger in &triggers {
             // A group's trigger runs the cell on each of the group's blocks.
-            let blocks = if trigger.group.is_empty() {
-                std::slice::from_ref(&trigger.block)
-            } else {
-                trigger.group.as_slice()
-            };
-            for block in blocks {
+            for block in trigger.blocks() {
                 if !runs_on.iter().any(|r| &r.block == block) {
                     runs_on.push(RunsOn {
                         block: block.clone(),

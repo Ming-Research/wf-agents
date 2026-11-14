@@ -787,6 +787,7 @@ pub(crate) fn requires<'a>(
     let spec = flow.cells.get(place)?;
     Some(Requires {
         outputs: &flow.flow.cells()[place].outputs,
+        groups: &flow.flow.cells()[place].groups,
         must_write: &spec.must_write,
         choices,
         returns: spec.returns,

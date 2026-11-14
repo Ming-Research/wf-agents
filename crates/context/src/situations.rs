@@ -281,21 +281,13 @@ fn besides(flow: &Compiled, words: &Agents, cell: &CellSpec, reopened: &str) -> 
     out
 }
 
-/// The blocks a trigger stands on: a group's trigger, the group's; another, its block.
-fn blocks(trigger: &Trigger) -> Vec<&BlockId> {
-    match trigger.group.is_empty() {
-        true => vec![&trigger.block],
-        false => trigger.group.iter().collect(),
-    }
-}
-
 /// The sets of the cell's triggers that can run an entry, as the module says, each once, in the order the cell names
 /// its triggers.
 fn ran<'a>(flow: &Compiled, cell: &'a CellSpec, entry: Entry, reopened: &str) -> Vec<Ran<'a>> {
     let reopens = |t: &Trigger| {
-        (blocks(t).iter()).any(|b| {
+        t.blocks().iter().any(|b| {
             flow.blocks
-                .get(*b)
+                .get(b)
                 .is_some_and(|d| d.writers.outside.as_deref() == Some(reopened))
         })
     };
@@ -307,11 +299,9 @@ fn ran<'a>(flow: &Compiled, cell: &'a CellSpec, entry: Entry, reopened: &str) ->
         .collect();
     for writer in &flow.cells {
         let writes = |t: &&Trigger| {
-            (blocks(t).iter()).any(|b| {
-                flow.blocks
-                    .get(*b)
-                    .is_some_and(|d| d.writers.cells.contains(&writer.id))
-            })
+            t.blocks()
+                .iter()
+                .any(|b| flow.blocks.get(b).is_some_and(|d| d.writers.cells.contains(&writer.id)))
         };
         let together: Vec<&Trigger> = cell.triggers.iter().filter(writes).collect();
         if together.len() > 1 {
@@ -368,7 +358,7 @@ fn classes(flow: &Compiled, cell: &CellSpec, ran: &[&Trigger]) -> Classes {
     let of_others = |b: &BlockId| {
         (cell.triggers.iter())
             .filter(|t| !ran.iter().any(|r| r.name == t.name))
-            .any(|t| blocks(t).contains(&b))
+            .any(|t| t.blocks().contains(b))
     };
     let alone = |b: &BlockId| {
         flow.blocks.get(b).is_some_and(|d| {

@@ -7,6 +7,7 @@
 
 mod adversarial;
 mod checks;
+mod groups;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -52,6 +53,12 @@ triggered_by = ["on_ok"]
 
 /// The small flow, compiled against what it names.
 pub(crate) fn flow() -> Compiled {
+    compiled(FLOW, WRITE, &[])
+}
+
+/// A small flow of these definitions of the flow and of `write`, with the merge after it, the files of the small flow
+/// and these beside them, compiled against what the small flow names.
+pub(crate) fn compiled(flow: &str, write: &str, more: &[(&str, &str)]) -> Compiled {
     let files = [
         ("lines/engineer.toml", ""),
         ("blocks/plan.toml", "shown = true\n"),
@@ -77,13 +84,13 @@ pub(crate) fn flow() -> Compiled {
     ];
     let source = flow::Source {
         laid_out: true,
-        flow: FLOW.to_string(),
+        flow: flow.to_string(),
         cells: BTreeMap::from([
-            ("write".to_string(), WRITE.to_string()),
+            ("write".to_string(), write.to_string()),
             ("merge".to_string(), MERGE.to_string()),
         ]),
         rules: BTreeMap::new(),
-        files: (files.iter())
+        files: (files.iter().chain(more))
             .map(|(path, text)| (path.to_string(), text.to_string()))
             .collect(),
     };

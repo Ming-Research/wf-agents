@@ -30,9 +30,10 @@
 //!   owner or the architect otherwise), asking for nothing in one in twenty-five, handing in a block its cell may not
 //!   write beside the rest in one in twenty-five, and otherwise handing in what its cell may write: each choice in nine
 //!   of ten, its first value (yes) in a little over half of those; each other block in four of five, mattering in seven
-//!   of ten; but a block a cell before it reads, an opinion for that cell, in about a third, mattering. In one history
-//!   of five the agents are sloppy: half their returns ask for nothing and are sent back, so that runs reach their
-//!   limit of returns;
+//!   of ten; but a block a cell before it reads, an opinion for that cell, in about a third, mattering. A return that
+//!   hands in names as dealt with each trigger its round was told ran it, by its name, as an agent writes it. In one
+//!   history of five the agents are sloppy: half their returns ask for nothing and are sent back, so that runs reach
+//!   their limit of returns;
 //! - an act of the engine's own hands in every block its cell may write: each choice with the value a precondition of
 //!   kind `all` looks for in three of five (the check passing), another otherwise; an opinion for a cell before it only
 //!   when a choice did not have that value (the check failing says why);
@@ -82,8 +83,10 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+mod groups;
 mod merging;
 mod reading;
+mod single;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
@@ -350,6 +353,22 @@ fn handed(block: &BlockId, cell: &str, matters: bool, value: Option<String>) -> 
     }
 }
 
+/// What the round of the run of the cell at this place returns that hands in these blocks. An agent's return names as
+/// dealt with each trigger its round was told ran it, as its agent is told them (crate `context`), and is read as the
+/// agents' rounds read a return (`CellSpec::dealt_with`), a group's trigger by its own name; an act of the engine's
+/// names none, and deals with everything that ran its round.
+fn hands_in(d: &Driver, run: RunId, i: usize, writes: Vec<Handed>) -> Came {
+    let spec = &d.flow.cells[i];
+    if spec.kind == Kind::Engine {
+        return Came::hands_in(writes);
+    }
+    let told = decide::told(&d.flow.flow, &d.work.records, run).expect("the run started");
+    let names: Vec<String> = spec.ran(&told.ran_by).map(|t| t.name.clone()).collect();
+    let (dealt_with, none) = spec.dealt_with(&names);
+    assert!(none.is_empty(), "{} names no trigger {none:?}", spec.id);
+    Came::works(dealt_with, writes)
+}
+
 /// A write by whoever may write the block outside a cell, a person first, that makes the key hold, or moves its named
 /// test towards holding; none where nobody outside a cell can.
 fn make_hold(d: &Driver, key: &Condition) -> Option<Event> {
@@ -588,14 +607,15 @@ impl Part for Random {
         if self.refuse_next && self.roles.judges.iter().any(|(j, _)| *j == i) {
             self.refuse_next = false;
             let handed_in = self.as_it_stands(d, i, cell, true);
-            return Came::hands_in(handed_in);
+            return hands_in(d, run, i, handed_in);
         }
         if self.steer == Steer::FailCheckAnswered && self.check_failed && self.answered.is_none() {
             let check = &d.flow.flow.cells()[self.roles.check].outputs;
             let told = d.flow.flow.cells()[i].runs_on.iter().any(|b| check.contains(b));
             if told {
                 self.answered = Some(run);
-                return Came::hands_in(self.as_it_stands(d, i, cell, false));
+                let handed_in = self.as_it_stands(d, i, cell, false);
+                return hands_in(d, run, i, handed_in);
             }
         }
         if self.sloppy && d.rng.chance(50) {
@@ -633,9 +653,12 @@ impl Part for Random {
                 let block = others[d.rng.below(others.len())].clone();
                 let value = d.flow.blocks[&block].values.as_ref().map(|v| v[0].clone());
                 handed_in.push(handed(&block, cell, true, value));
-                Came::hands_in(handed_in)
+                hands_in(d, run, i, handed_in)
             }
-            _ => Came::hands_in(self.valid(d, i, cell)),
+            _ => {
+                let handed_in = self.valid(d, i, cell);
+                hands_in(d, run, i, handed_in)
+            }
         }
     }
 
@@ -797,7 +820,7 @@ impl Part for Content {
                 }
             })
             .collect();
-        Came::hands_in(handed_in)
+        hands_in(d, run, i, handed_in)
     }
 
     fn acts(&mut self, _: &mut Driver) -> Event {

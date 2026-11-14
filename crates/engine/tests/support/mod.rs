@@ -511,8 +511,12 @@ impl Driver {
                 let came = part.returns(self, run, cell.as_str());
                 let place = self.flow.flow.place(&cell).expect("the cell is in the flow");
                 let must = &self.flow.cells[place].must_write;
+                // A hand-in deals with what ran its round, by naming it or by naming nothing, or writes something;
+                // a return that asks for calls, or for nothing, is none.
+                let hand_in = came.dealt_with.as_ref().is_none_or(|d| !d.is_empty()) || !came.writes.is_empty();
                 let lacks = came.asks.is_empty()
-                    && came.dealt_with.is_none()
+                    && hand_in
+                    && !came.said.waits()
                     && must.iter().any(|b| !came.writes.iter().any(|h| h.block == *b));
                 self.returned(run, came);
                 let r = &self.work.records;
