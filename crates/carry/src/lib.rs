@@ -16,8 +16,9 @@
 //! - [`returns`]: what came back, read in the form of return of its flow against the cell it was entered for.
 //! - [`cli`]: the command line of a round, and what it printed read into what came back and what it took.
 //! - [`permissions`]: what the agents of a line may run, and what they are told of it.
-//! - [`failure`]: the kind of cause of a round that failed, told apart by what the command line reported, and the look
-//!   at the network while the agents' rounds wait for it.
+//! - [`failure`]: the kind of cause of a round that failed, told apart by the fields the command line names the
+//!   service's errors in and by the words of what it reported, and the look at the network while the agents' rounds
+//!   wait for it.
 //! - `agents`: the agents' rounds, run with the command line, a few at a time.
 //! - [`catch_up`]: the work's branch taking main in as a run of a cell that changes the code starts.
 //! - `kept`: what each round of an agent was told and returned, where it is kept and how it is read back.
@@ -32,6 +33,7 @@ mod acts;
 mod agents;
 pub mod catch_up;
 pub mod cli;
+mod cost;
 pub mod failure;
 pub mod git;
 mod held;

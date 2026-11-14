@@ -480,6 +480,15 @@ impl Teller {
         });
     }
 
+    /// The service of the agents answered the round with a message that is no error: it serves the round, which a wait
+    /// every work shares for it may be over by.
+    pub fn answered(&self) {
+        let _ = self.to.send(Message::Answered {
+            work: self.work,
+            run: self.run,
+        });
+    }
+
     fn tell(&self, event: Event) {
         // Where the loop has ended, the process is stopping: the round is handed out again when it starts again.
         let _ = self.to.send(Message::Happened { work: self.work, event });

@@ -82,12 +82,48 @@ fn at_the_usage_limit_no_agents_round_of_any_work_begins_until_it_resets_and_no_
     assert_eq!(h.d().wake(), None);
 }
 
+// A reset not said is guessed: one round tries at the guess, and only once it comes back does every work go on, so that
+// a guess too early does not have every work meet the limit again.
 #[test]
-fn a_usage_limit_whose_reset_was_not_said_is_waited_out_half_an_hour() {
-    let (mut h, a, _) = two();
+fn at_a_usage_limit_whose_reset_was_not_said_one_round_tries_half_an_hour_on_and_its_coming_back_lets_all_on() {
+    let (mut h, a, b) = two();
     fails(&mut h, a, Failure::UsageLimit, None);
-    let outage = h.d().outage().expect("the wait stands");
-    assert_eq!(outage.until(), Until::At(Time(outage.since.0 + UNKNOWN_RESET)));
+    fails(&mut h, b, Failure::UsageLimit, None);
+    let since = h.d().outage().expect("the wait stands").since;
+    let at = Time(since.0 + UNKNOWN_RESET);
+    assert_eq!(
+        h.d().outage().unwrap().until(),
+        Until::Trial {
+            at,
+            look: false,
+            latest: at
+        }
+    );
+    assert_eq!(h.d().wake(), Some(Wake { at, look: false }));
+    assert_eq!(h.tick(Time(at.0 - 1), None), vec![]);
+    // At the time, one round tries, of the first work to come to one; the other waits for it.
+    let todos = h.tick(at, None);
+    assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 2)]);
+    assert_eq!(h.d().outage().unwrap().until(), Until::Tried);
+    // It meets the limit again: the next tries half an hour after it.
+    fails(&mut h, a, Failure::UsageLimit, None);
+    let since = h.d().outage().expect("the wait stands").since;
+    assert_eq!(
+        h.d().wake(),
+        Some(Wake {
+            at: Time(since.0 + UNKNOWN_RESET),
+            look: false
+        })
+    );
+    let todos = h.tick(Time(since.0 + UNKNOWN_RESET), None);
+    assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 3)]);
+    // It comes back: every work goes on.
+    let todos = h.hands_in(a, &[("text", None)]);
+    assert_eq!(h.d().outage(), None);
+    assert!(
+        agents_rounds(&todos).contains(&(b, "write".to_string(), 2)),
+        "{todos:?}"
+    );
 }
 
 #[test]
@@ -222,4 +258,28 @@ fn a_shared_failure_of_a_round_whose_work_was_cancelled_begins_no_wait() {
     h.on(a, failed);
     assert_eq!(h.d().outage(), None);
     assert!(!h.hands_in(b, &[("text", None)]).is_empty(), "the other work was held");
+}
+
+// What the round that tries is to find is whether the service serves again: its first answer shows it, and every
+// other work goes on then, not once the round, which may go on for long, has ended.
+#[test]
+fn a_wait_whose_trying_round_the_service_answers_is_over_then() {
+    for failure in [Failure::CannotRun, Failure::UsageLimit, Failure::Offline] {
+        let (mut h, a, b) = two();
+        fails(&mut h, a, failure, None);
+        fails(&mut h, b, failure, None);
+        let since = h.d().outage().expect("the wait stands").since;
+        let wait = if failure == Failure::UsageLimit {
+            UNKNOWN_RESET
+        } else {
+            PROBE
+        };
+        let todos = h.tick(Time(since.0 + wait), Some(true));
+        assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 2)], "{failure:?}");
+        let todos = h.service_answers(a);
+        assert_eq!(h.d().outage(), None, "{failure:?}");
+        assert_eq!(agents_rounds(&todos), vec![(b, "write".to_string(), 2)], "{failure:?}");
+        // Answered again, it changes nothing.
+        assert_eq!(h.service_answers(a), vec![]);
+    }
 }

@@ -60,8 +60,15 @@ async fn at_the_usage_limit_a_restart_before_or_after_the_reset_goes_on_at_the_r
 }
 
 #[tokio::test(start_paused = true)]
+async fn at_a_usage_limit_whose_reset_was_not_said_a_restart_at_any_time_of_the_wait_lets_a_round_try() {
+    for seconds in [60, 1799, 1801, 7200] {
+        restarted_after("usage_limit", None, Duration::from_secs(seconds)).await;
+    }
+}
+
+#[tokio::test(start_paused = true)]
 async fn two_works_held_by_the_wait_both_go_on_by_the_loops_timer_whatever_comes_between() {
-    for failure in ["offline", "cannot_run"] {
+    for failure in ["offline", "cannot_run", "usage_limit"] {
         let (mut trial, held) = waiting(failure, None).await;
         let (_, busy) = trial.add("Greet the owner", &[]);
         trial.act(busy, Act::Resume).unwrap();

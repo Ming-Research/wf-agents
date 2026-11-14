@@ -133,6 +133,8 @@ pub enum Message {
     /// The time the driver asked to be told has come; where it asked for a look at the network, the look found it
     /// reached or not.
     Tick { wake: Wake, reached: Option<bool> },
+    /// The service of the agents answered the round under way of this run, with a message that is no error.
+    Answered { work: WorkNumber, run: RunId },
 }
 
 /// What the owner does to a work.
@@ -341,6 +343,11 @@ impl Service {
                 }
                 let now = self.now()?;
                 let todos = self.driver.tick(now, reached).map_err(Fault::Driver)?;
+                self.hand(now, todos)?;
+            }
+            Message::Answered { work, run } => {
+                let now = self.now()?;
+                let todos = self.driver.answered(now, work, run).map_err(Fault::Driver)?;
                 self.hand(now, todos)?;
             }
             Message::Act { work, act, reply } => {
