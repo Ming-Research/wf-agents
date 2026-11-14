@@ -891,6 +891,8 @@ pub enum Unmet {
     NotAnOption { name: String },
     /// It asks a question from a cell that no answer runs.
     NotAnswerable { name: String },
+    /// The work's branch changes this file the project protects, and nothing says why.
+    Unexplained { path: String },
 }
 
 /// What came back at the end of a round.
@@ -2274,6 +2276,7 @@ impl Unmet {
             UnmetOf::QuestionTwice { name } => Unmet::QuestionTwice { name: name.clone() },
             UnmetOf::NotAnOption { name } => Unmet::NotAnOption { name: name.clone() },
             UnmetOf::NotAnswerable { name } => Unmet::NotAnswerable { name: name.clone() },
+            UnmetOf::Unexplained { path } => Unmet::Unexplained { path: path.clone() },
         }
     }
 }

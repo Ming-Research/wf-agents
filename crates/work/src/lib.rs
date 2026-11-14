@@ -263,7 +263,9 @@ pub enum Question {
     /// The question asked, or asked anew: whether its cell waits for the answer, the option it recommends, counted
     /// from one, where it recommends one (the engine's own questions recommend none), what it asks, and its options;
     /// and, of a question of the engine's, what it found that the question is of, told apart from what any other
-    /// version is of.
+    /// version is of, and why the work's agents said each part of it is needed, by the part's name: of a change of the
+    /// paths the project protects, each file's reason by its path, which a later version asks with again where the
+    /// file is as it was.
     Asked {
         name: String,
         waits: bool,
@@ -272,6 +274,8 @@ pub enum Question {
         options: Vec<Way>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         about: Option<String>,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        reasons: BTreeMap<String, String>,
     },
     /// The question withdrawn, for this reason.
     Withdrawn { name: String, why: String },

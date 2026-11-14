@@ -173,22 +173,29 @@ impl Permissions {
 
     /// What the agent is told its line may do in the worktree, in one line of the system prompt, which no rule says by
     /// itself, in the words beside the flows (`agents/your_line.toml`): that it changes no file there, or that it
-    /// commits there and the commands it may update a lock file with.
-    pub fn told(&self, words: &YourLine) -> String {
+    /// commits there, the commands it may update a lock file with, and the paths the project protects, these.
+    pub fn told(&self, words: &YourLine, protected: &[String]) -> String {
         if self.reads_only {
             return words.reads_only.clone();
         }
         let mut out = words.writes.clone();
         if !self.locks.is_empty() {
-            let named: Vec<String> = self.locks.iter().map(|c| format!("`{c}`")).collect();
-            let named = match named.split_last() {
-                Some((last, [])) => last.clone(),
-                Some((last, rest)) => format!("{}{}{last}", rest.join(", "), words.or),
-                None => String::new(),
-            };
-            out.push_str(&words.locks.replace("{commands}", &named));
+            out.push_str(&words.locks.replace("{commands}", &listed(&self.locks, &words.or)));
+        }
+        if !protected.is_empty() {
+            out.push_str(&words.protected.replace("{paths}", &listed(protected, &words.and)));
         }
         out
+    }
+}
+
+/// The names, each between backticks, joined by commas, and the last by `last`.
+fn listed(names: &[String], last: &str) -> String {
+    let named: Vec<String> = names.iter().map(|c| format!("`{c}`")).collect();
+    match named.split_last() {
+        Some((only, [])) => only.clone(),
+        Some((only, rest)) => format!("{}{last}{only}", rest.join(", ")),
+        None => String::new(),
     }
 }
 

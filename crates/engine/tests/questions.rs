@@ -129,6 +129,7 @@ fn asked(name: &str, waits: bool, recommends: Option<u64>, n: usize) -> Question
         ask: format!("Which way for {name}, the {n}th time?"),
         options: vec![way("the short way"), way("the long way")],
         about: None,
+        reasons: Default::default(),
     }
 }
 

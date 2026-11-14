@@ -78,7 +78,8 @@ fn cell<'a>(flow: &'a Compiled, line: &str) -> &'a CellSpec {
 fn of(line: &str) -> String {
     let (settings, beside, flow) = (settings(), beside(), engineer());
     let cell = cell(&flow, line);
-    let your_line = Permissions::of(cell.reads_only, &[], &Default::default()).told(&beside.your_line);
+    let protected = &beside.project.protected.paths;
+    let your_line = Permissions::of(cell.reads_only, &[], &Default::default()).told(&beside.your_line, protected);
     of_line(&beside, &filling(&settings, &beside), &flow, cell, &your_line, project).expect("it is made")
 }
 
@@ -102,7 +103,15 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
     assert!(places.windows(2).all(|w| w[0] < w[1]), "{engineer}");
     assert!(engineer.starts_with(order[0]), "{engineer}");
     assert!(
-        engineer.contains("worktree of the work's own branch. Make your changes there and commit them there. Never"),
+        engineer.contains(
+            "worktree of the work's own branch. Make your changes there and commit them there. The project protects \
+             `AGENTS.md`, "
+        ),
+        "{engineer}"
+    );
+    assert!(engineer.contains("`.github/workflows/`: change what is there only where the work needs it. Never"));
+    assert!(
+        engineer.contains("\n- `protected_changes`: of each file the project protects"),
         "{engineer}"
     );
     for named in [

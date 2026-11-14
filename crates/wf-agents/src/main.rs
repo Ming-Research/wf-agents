@@ -584,9 +584,17 @@ const ACTS: [&str; 4] = ["start", "check", "merge", "deliver"];
 const TOOLS: [&str; 2] = ["query", "run_tests"];
 
 /// The names of the fields of a return that are the engine's, as the design of data and context settles them: what a
-/// round has dealt with, the blocks it hands in with their meaning unchanged, its observations, its questions and its
-/// answer to the owner. A datum may be written through `questions` or `reply`.
-const FIELDS: [&str; 5] = ["dealt_with", "meaning_unchanged", "observations", "questions", "reply"];
+/// round has dealt with, the blocks it hands in with their meaning unchanged, its observations, its questions, why the
+/// work changes each file the project protects, and its answer to the owner. A datum may be written through
+/// `questions` or `reply`.
+const FIELDS: [&str; 6] = [
+    "dealt_with",
+    "meaning_unchanged",
+    "observations",
+    "questions",
+    "protected_changes",
+    "reply",
+];
 
 /// The names of the places the engine fills in a run with what happened, which a trigger may say it happened by:
 /// `files`, the files of the design tree that changed. No trigger of the flows says it now: a cell is given the tree

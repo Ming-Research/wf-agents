@@ -657,9 +657,10 @@ pub(crate) async fn check(
                 return Ok(Some(checked));
             }
         };
-        checked.asks = protected::asking(gate.work, ask, &change);
+        // The check has no return to say why: it asks with what the question that stands says of each file as it is.
+        checked.asks = protected::asking(gate.work, ask, &change, &Default::default());
         if !change.files.is_empty() && !protected::let_merge(gate.work, ask, &change) {
-            let files: Vec<String> = change.files.iter().map(|(_, path)| path.clone()).collect();
+            let files: Vec<String> = change.files.iter().map(|file| file.path.clone()).collect();
             let failed = fill(
                 &words.found.protected,
                 &[("question", &ask.name), ("files", &files.join("\n"))],
@@ -1401,7 +1402,8 @@ mod tests {
         let repo = Repo::new("true");
         let (_, main) = changing_a_protected_file(&repo).await;
         let host = Fake::new(&main).judges(Ok(Some(passes())));
-        let checked = check_held(&repo, &host, &protecting(&["AGENTS.md", "flow/"]), &Work::default()).await;
+        let protecting = protecting(&["AGENTS.md", "flow/"]);
+        let checked = check_held(&repo, &host, &protecting, &Work::default()).await;
         let failed = checked.failed.as_deref().unwrap_or_default();
         assert!(
             failed.contains("protects") && failed.contains("AGENTS.md"),
@@ -1410,6 +1412,17 @@ mod tests {
         assert!(!failed.contains("farewell.txt"), "{failed}");
         assert!(
             matches!(&checked.asks, Some(Question::Asked { name, waits: true, .. }) if name == "protected_files"),
+            "{checked:?}"
+        );
+        // No round said why: the question says so of the file, above its change.
+        let no_reason = protecting
+            .words
+            .as_ref()
+            .map(|w| w.no_reason.clone())
+            .unwrap_or_default();
+        assert!(
+            matches!(&checked.asks, Some(Question::Asked { ask, .. })
+                if ask.contains(&format!("`AGENTS.md`, added. Why, in the work's words: {no_reason}\n\n```diff\n"))),
             "{checked:?}"
         );
         assert_eq!(host.asked(), [Asked::Main], "the host is not asked for a verdict");

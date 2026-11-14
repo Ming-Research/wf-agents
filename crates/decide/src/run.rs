@@ -325,6 +325,10 @@ pub enum Unmet {
     NotAnOption { name: String },
     /// The return asks a question, of this name, of a cell that no answer runs: the answer could not reach it.
     NotAnswerable { name: String },
+    /// The work's branch, as the round left it, changes the file of this path, which the project protects, and neither
+    /// the return nor the engine's question that stands of the file as it is says why: as the engine found it, looking
+    /// at the branch as the round ended.
+    Unexplained { path: String },
 }
 
 /// What a pause of the run's work holds back of its rounds.
