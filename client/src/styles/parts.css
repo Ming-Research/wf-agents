@@ -567,6 +567,23 @@ textarea:disabled {
   font-weight: var(--weight);
 }
 
+/* The console is settled: its window keeps its sections as they were drawn before the panel's heads were made to stand
+   out, a small semibold label over what it holds, in the colour of the text round it. */
+.console .panel-part-label {
+  display: block;
+  margin: 0 0 var(--space-4);
+  color: inherit;
+  font-size: var(--size-small);
+}
+
+.console .panel-part-label::after {
+  content: none;
+}
+
+.console .panel-part-label .muted {
+  font-weight: inherit;
+}
+
 /* Label and value pairs. */
 .pairs {
   display: grid;
