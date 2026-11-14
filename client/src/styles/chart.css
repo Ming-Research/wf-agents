@@ -14,9 +14,18 @@
   grid-template-columns: minmax(0, 1fr) var(--panel-width, var(--panel));
 }
 
-/* Room at the chart's right for the panel's handle, which stands over it. */
+/* Room at the chart's right for the panel's handle, which stands over it; and past it, what a window over the frame
+   covers (`--window-covers`, set while it is out), which the frame scrolls on into and keeps clear as it brings what is
+   chosen into view. */
 .view-body > .frame {
-  padding-right: var(--space-16);
+  padding-right: calc(var(--space-16) + var(--window-covers, 0px));
+  scroll-padding-right: calc(var(--space-16) + var(--window-covers, 0px));
+}
+
+/* The view under a window that floats over its right (`.cw`, styles/parts.css), which keeps its whole width under it. */
+.view-body.with-window {
+  position: relative;
+  overflow: hidden;
 }
 
 .view-body.with-panel.panel-folded {

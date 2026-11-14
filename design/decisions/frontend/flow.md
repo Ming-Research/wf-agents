@@ -9,3 +9,9 @@ Why: A column holds only marks, so a head wide enough for the cell's title leave
 the words of each row nowhere to stand; the title is shown for the cell under the pointer and in the cell's panel.
 Drawing the cells in lanes, one for each session, was turned down, by judgment: with few lines most of the screen
 would be blank.
+
+### decision data-arrows-over-the-layout
+The flowchart is laid out with the main path and the ways back alone; the arrows a write runs are routed over that
+layout afterwards, those into and out of the cell chosen, or every one while the owner asks for them all.
+Why: Laid out with the rest, each arrow shown or hidden would move the cells, and arrows not drawn would still bend
+the main path, which is what the chart is for; by judgment.

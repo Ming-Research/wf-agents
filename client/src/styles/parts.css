@@ -529,6 +529,90 @@ textarea:disabled {
   border-top: var(--hairline) solid var(--line);
 }
 
+/* The window that floats over a view (`Drawer`), the console's: white like paper over the right of the view, kept out
+   at the right of the screen like a binder's page: a narrow tab stuck to its left edge stays on the screen, and slides
+   the window in and out with it; its left edge is dragged to change its width. The view under it is positioned and
+   keeps its whole width. */
+.cw {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  display: flex;
+  max-width: 85%;
+  background: var(--card);
+  box-shadow: var(--window-shadow);
+  transform: translateX(100%);
+  transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* The window's left edge: a narrow line in the tab's colour from top to bottom, which the tab grows out of. */
+.cw::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(-1 * var(--window-edge));
+  width: var(--window-edge);
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.cw:has(.cw-tab:hover)::before {
+  background: var(--accent-text);
+}
+
+/* The tab: the handle every panel of the page has (`.drawer-tab`), a narrow tab in the accent on the window's left
+   edge, which stays at the screen's edge while the window is put away. */
+.cw .cw-tab {
+  position: absolute;
+  top: var(--space-16);
+  left: calc(-1 * var(--space-16));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-16);
+  height: var(--chart-tab);
+  padding: 0;
+  border: 0;
+  border-radius: var(--corner) 0 0 var(--corner);
+  background: var(--accent);
+  color: var(--on-colour);
+  cursor: pointer;
+  transition: background-color var(--hover-time);
+}
+
+.cw .cw-tab:hover {
+  background-image: linear-gradient(var(--step), var(--step));
+}
+
+.cw-open {
+  transform: none;
+}
+
+.cw-edge {
+  flex: none;
+  width: 6px;
+  margin-left: -3px;
+  cursor: col-resize;
+}
+
+.cw-edge:hover {
+  background: var(--accent-tint);
+}
+
+.cw-inner {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+}
+
+/* A panel in a window takes its height, so that its head and the box that answers stay while its body scrolls. */
+.cw-inner > .drawer-inner {
+  height: 100%;
+}
+
 /* A section: its name over what it holds, as the head of a section of the console's window: strong, in the head's
    colour, with a line after it to the panel's edge, so that the sections stand apart; a hairline where a group of
    sections ends. */

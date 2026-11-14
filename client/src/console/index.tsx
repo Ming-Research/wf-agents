@@ -10,14 +10,14 @@
 // everything is. An answer older than the one shown is dropped. The page's shell mounts it lazily (`lazy.tsx`).
 //
 // Brought over from the console of the engine on `old-main` (`client/src/pages/Console.tsx`): the window slides over
-// the tree, which keeps its whole width under it (`Drawer.tsx`).
+// the tree, which keeps its whole width under it (`Drawer`, in the page's parts, which the flow view's panel is too).
 
 import './console.css';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { Drawer } from '../parts';
 import type { Items, WorkPage } from '../works-api';
-import { Drawer } from './Drawer';
 import { goalMock } from './mock';
 import { fakeShown } from './fake';
 import { type Shown, shownTree, standingOf } from './items';
@@ -170,7 +170,15 @@ export function ConsolePage({ source: given }: { source?: Source } = {}) {
         {failed !== null && <p className="console-message">The page could not read the items: {failed}</p>}
         {undrawn !== null && <p className="console-message">The browser could not draw the tree: {undrawn}</p>}
       </div>
-      <Drawer open={open} onToggle={fold} panel={panel}>
+      <Drawer
+        open={open}
+        onToggle={fold}
+        panel={panel}
+        label="The item selected"
+        hide="Put the item away"
+        show="Show the item selected"
+        widthKey="console-window-width"
+      >
         {item === undefined ? (
           <p className="cw-empty">Click an item on the left to see it here.</p>
         ) : (

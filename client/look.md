@@ -82,11 +82,24 @@ drawn line with an arrow.
   console's count tags on a card.
 - **Label** (`Label`, `.label`): 11px, upper case, letter-spaced, muted: what a column or a value is.
 - **List row** (`ListRow`): one thing per row, at least 26px, a hairline under it.
-- **Panel** (`Panel`): docked at the right of a view, 360px until dragged (280 to 720px), a hairline at its left that
-  drags its width, laid out as the console's drawer: a handle on its edge, there from the start, that folds it away and
-  brings it back, the view taking the whole width while it is folded; with nothing chosen it says what to choose; a head with the thing's id (monospace, muted) and title
-  (15px semibold) on one line and what it belongs to at the right; one or more status lines; its sections; room at its
-  bottom (`foot`) for a box that answers. Escape lets go of what it shows.
+- **Panel** (`Panel`): with nothing chosen it says what to choose; a head with the thing's id (monospace, muted) and
+  title (15px semibold) on one line and what it belongs to at the right; one or more status lines; its sections; room
+  at its bottom (`foot`) for a box that answers, its head and its foot staying while its body scrolls. On the flow view
+  it is what the window shows. On a work's page it is docked at the right of the view, 360px until dragged (280 to
+  720px), a hairline at its left that drags its width, laid out as the console's drawer: a handle on its edge, there
+  from the start, that folds it away and brings it back, the view taking the whole width while it is folded. Escape lets
+  go of what it shows.
+- **Window** (`Drawer`): the console's window, the same part on the console and the flow view: it floats over the
+  right of the view, which keeps its whole width under it, on the card with the console's shadow (`--window-shadow`),
+  a line in the accent along its left edge (`--window-edge`); it slides in and out in 240ms, and while it is out of the
+  screen a narrow tab in the accent stays at the screen's edge, the panel's handle, which brings it out and puts it
+  away by hand. Its left edge drags its width, 560px at first, at least 360px and at most 85% of the view, which the
+  browser keeps for each view under its own key. It comes out when something is chosen and goes back when that is let
+  go, unless its tab brought it out, in which case it stays until the tab takes it back; the tab takes it back without
+  letting go. Escape takes it back while it has the keys, and else lets go of what is chosen. Coming out, and with each
+  thing chosen while it is out, what is chosen is brought into the part of the view it leaves, moved no further than
+  that: the console moves its tree; the matrix scrolls, the frame going on past the table by as much as the window
+  covers; the flowchart moves, a cell with what it is given beside it.
 - **Status line** (`StatusLine`): a small dot in the colour of what it says, a word in semibold, the facts after it in
   muted text. The dot is green, red, orange, blue for running, or the way back's purple for a way round.
 - **Section** (`PanelPart`): its name, 13px semibold in `--head`, with its count muted and a line in `--head` after it
@@ -163,7 +176,7 @@ what is chosen and under the pointer, and marks where they mean the same.
   writes it ran for, with a dot at each of them, to an arrow at the run; none where no such cell can be found. A run
   is a way round only when every one of its causes was written by a cell after it.
 
-The panel of a step, docked at the right as the flow page's:
+The panel of a step, docked at the right of the view:
 
 - A run: its number, its cell's title and id; status lines for how it stands and how long it took, what it took, and
   whether it is a way round; then why it ran, each cause with its block (a way round's in purple); what it started
@@ -231,6 +244,61 @@ an arrow at the read it sends the work back to. Where a way back runs along a st
 a lane of its own, the line 3px above the middle and the way back with its arrow 3px below it, the marks staying in
 the middle: drawn on the one middle line, the way back covered the line and the row read as if nothing went forward
 there. The row or column chosen is tinted with the accent.
+
+## The flowchart
+
+The same flow as the flow chart, drawn as how a work moves through it; a switch in the view's line ("Matrix |
+Flowchart", the matrix first) shows one or the other, the other kept as the owner left it, and the legend is the one
+of the view shown. Laid out by elkjs as the chart of `old-main` was (`src/graph/`): top to bottom in the order of the
+walk, arrows at right angles round the nodes, a small arch where an arrow crosses another, each arrow's label near where
+it leaves its node. It moves as `old-main`'s did: two fingers or the wheel move it, a pinch or Shift zooms, a drag moves
+it, Space shows it whole and Space again the zoom it had; a map of the whole chart over its top left corner, while some
+of it is out of view, with the zoom under it.
+
+- A cell: a box on the card, 3px corners, its id in monospace, muted, its line as a tag at its right (the accent, or
+  `engine` muted), its title in semibold under them, wrapped at 200px.
+- Three kinds of line, so that the path a work takes is seen first and the rest stands behind it:
+  - The main path, thick (`--chart-main`) in the text colour with its heads, over every other line: the walk as a work
+    goes through the flow, from each cell to the next cell in the walk that can run after it in the same work, worked
+    out from the definition alone (the order, each `when` and `requires`, what each cell writes, the choices' values and
+    defaults, the matrix's `exclusive`). The walk starts again from the first cell each time, so a block may hold any
+    value a cell writes anywhere, or people or the outside, or else its default, or none. Where the next cell's `when`
+    surely holds the path goes into it, and nothing is drawn for it (D2 after D1); where it may or may not, the path
+    parts at a fork. It runs straight down the chart where the layout can keep it so, and meets a cell in the middle of
+    its edge.
+  - The arrows a write runs, from a cell that writes a block to each cell the block's trigger runs, into the cell
+    itself, thin in `--chart-data`, the muted colour a step towards the ground; their labels the names of the triggers,
+    block or group, in monospace, muted, on the ground. They are not laid out with the chart, which is the main path's
+    and the ways back's, but drawn over it a few at a time: those into and out of the cell chosen, as what it is given
+    is; every one while the box "Data arrows" in the view's line is ticked, which it is not at first. The arrows from a
+    cell that carry one name are one trunk, its name said once beside it, down a corridor beside the cells and a branch
+    off it into each cell it runs, what else runs that cell said near the branch's end; a trunk keeps the side of the
+    main path that crosses it least, as near the cells as nodes and lines let it, straight down where nothing stands
+    between, its turns clear of the nodes, and is drawn as two, one each side with the name beside each, where its
+    cells lie on both. One that runs along the main path, from the cell that writes to the cell it runs with only forks
+    between, is folded into the main path's step into that cell, its names on the step, in the text colour. None
+    between two cells whose conditions exclude each other, as the matrix leaves out their ways back.
+  - Up the walk an arrow is a way back, thin in the way back's purple, its label too, into the cell it runs; one from a
+    cell to every cell a fork's branches lead to is one arrow into the fork, with the names it carries.
+- A fork, where the main path parts on a choice: one box, edged dashed in `--muted`, named by the block in monospace
+  (`deep_needed`), which opens the block's panel, and a branch out of it for each value, the value in semibold near the
+  box, before what is folded into the branch (`yes found`); a branch past a cell whose `when` is on the same block, to
+  a cell whose `when` it decides too, is a branch of the same fork. A fork on several keys or a named test lists its
+  keys, its branches ✓ and ✗. A cell entered by a branch has no box of its own. In the engineer flow: after R0,
+  `deep_needed`, no into R1 and yes into D1; after R1, `deep_needed`, no into R2 and yes into D1; before D4,
+  `edits_tree`, yes into D4 and no into I1; after T1, `needs_testing`, yes into T2 and no to M1's gate. A cell the path
+  never reaches has its `when` in a fork with no branch before it.
+- A gate, where a cell `requires`: a box above it the main path waits at and goes through into the cell, edged as a
+  fork, each key after the matrix's square (`test = settled`).
+- What people or a source outside write that runs a cell: a tag on its left with the matrix's sign and the block's
+  name, a dashed arrow into the cell; a block of a condition only people or the outside write, the same before the
+  fork or the gate it belongs to.
+- Chosen, a cell is on the accent's tint and edged in the accent, the cells that write what it is given are edged in
+  the accent, and beside it a box edged in the accent lists what it is given, each block with the kind the matrix
+  marks it with: at its right or its left, level with its top or its bottom, where it hides the fewest nodes, then the
+  fewest lines of the main path and of the cell's arrows, then the fewest others. A cell, a name on an arrow, a fork,
+  a key of a gate, a tag and a block of what is given open the panel they open on the matrix, in the window; the
+  chart's background lets go. The arrow under the pointer is in the accent.
 
 ## The console
 

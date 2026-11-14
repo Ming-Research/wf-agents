@@ -1,4 +1,5 @@
-// The panel docked at the chart's right: everything about the cell, block, line or named test the owner chose.
+// The panels of the flow view, shown in its window over the chart's right: everything about the cell, block, line,
+// named test, tool or group the owner chose.
 
 import { Fragment, type ReactNode, useState } from 'react';
 
@@ -316,9 +317,8 @@ export function CellPanel(props: {
   /// The names a text sent to an agent gives that nothing defines.
   unknown?: Unknown[];
   onChoose: (c: Chosen) => void;
-  fold: Fold;
 }) {
-  const { cell, flow, sent, tools, act, unknown, onChoose, fold } = props;
+  const { cell, flow, sent, tools, act, unknown, onChoose } = props;
   const blocks = new Map(flow.blocks.map((b) => [b.name, b]));
   const onLine = cell.line ? (flow.lines.find((l) => l.name === cell.line)?.cells ?? []) : [];
   const sharing = onLine.filter((c) => c !== cell.id);
@@ -354,7 +354,6 @@ export function CellPanel(props: {
           <OwnLimits cell={cell} flow={flow} />
         </>
       }
-      {...fold}
     >
       {sent && sent.length > 0 ? (
         <>
@@ -657,9 +656,8 @@ export function BlockPanel(props: {
   matrix: Matrix;
   flow: Flow;
   onChoose: (c: Chosen) => void;
-  fold: Fold;
 }) {
-  const { block, flow, onChoose, fold } = props;
+  const { block, flow, onChoose } = props;
   const besides = writersBesideCells(block);
   const backs = flow.cells.flatMap((reader, r) => {
     const triggers = reader.triggers.filter((t) => fires(t, block.name)).map((t) => t.name);
@@ -699,7 +697,6 @@ export function BlockPanel(props: {
           </StatusLine>
         </>
       }
-      {...fold}
     >
       {block.writes && block.writes.length > 0 && (
         <PanelPart label="writes" count={block.writes.length}>
@@ -752,8 +749,8 @@ function CellRows({ flow, ids, onChoose }: { flow: Flow; ids: string[]; onChoose
 
 /// Everything about a line: the file it is written in, its keys as that file writes them, and the cells on it, which
 /// share its session, in the order of the walk.
-export function LinePanel(props: { row: LineRow; flow: Flow; onChoose: (c: Chosen) => void; fold: Fold }) {
-  const { row, flow, onChoose, fold } = props;
+export function LinePanel(props: { row: LineRow; flow: Flow; onChoose: (c: Chosen) => void }) {
+  const { row, flow, onChoose } = props;
   const cells = flow.cells.filter((c) => c.kind === 'agent' && c.line === row.name).map((c) => c.id);
   return (
     <Panel
@@ -763,7 +760,6 @@ export function LinePanel(props: { row: LineRow; flow: Flow; onChoose: (c: Chose
       lines={(row.line ? lineKeys(row.line) : []).map(([key, value]) => (
         <StatusLine key={key} word={<Attr name={key} value={value} />} />
       ))}
-      {...fold}
     >
       <PanelPart label="cells" count={cells.length}>
         <CellRows flow={flow} ids={cells} onChoose={onChoose} />
@@ -775,8 +771,8 @@ export function LinePanel(props: { row: LineRow; flow: Flow; onChoose: (c: Chose
 /// Everything about a named test: the file it is written in, its keys as that file writes them, each block it reads
 /// chosen by its name, and the cells that name it, by the key that names it: those that run only when it holds, and
 /// those the work waits before until it holds.
-export function TestPanel(props: { row: ConditionRow; flow: Flow; onChoose: (c: Chosen) => void; fold: Fold }) {
-  const { row, flow, onChoose, fold } = props;
+export function TestPanel(props: { row: ConditionRow; flow: Flow; onChoose: (c: Chosen) => void }) {
+  const { row, flow, onChoose } = props;
   const test = row.test;
   if (!test) return null;
   const names = (keys: Condition[]) => keys.some((k) => k.on === 'test' && k.test.name === test.name);
@@ -815,7 +811,6 @@ export function TestPanel(props: { row: ConditionRow; flow: Flow; onChoose: (c: 
           <StatusLine word={<Attr name="is" value={test.is} />} />
         </>
       }
-      {...fold}
     >
       {when.length > 0 && (
         <PanelPart label="when" count={when.length}>
@@ -839,15 +834,13 @@ export function ToolPanel(props: {
   words?: ActWords;
   /// Why what an agent is sent, the tools' files with it, could not be read.
   unread?: string;
-  fold: Fold;
 }) {
-  const { name, words, unread, fold } = props;
+  const { name, words, unread } = props;
   return (
     <Panel
       label={`Tool ${name}`}
       title={<span className="mono">{name}</span>}
       belongs={words && <span className="mono">{words.source}</span>}
-      {...fold}
     >
       {words ? (
         <ul className="uses">
@@ -873,8 +866,8 @@ export function ToolPanel(props: {
 
 /// Everything about a group of the flow's blocks: the file that names it, its trigger, its blocks as that file names
 /// them, each chosen by its name, the cells its trigger runs, and the ways back through it.
-export function GroupPanel(props: { name: string; flow: Flow; onChoose: (c: Chosen) => void; fold: Fold }) {
-  const { name, flow, onChoose, fold } = props;
+export function GroupPanel(props: { name: string; flow: Flow; onChoose: (c: Chosen) => void }) {
+  const { name, flow, onChoose } = props;
   const blocks = flow.groups.find((g) => g.name === name)?.blocks ?? [];
   const runs = flow.cells.filter((c) => c.triggers.some((t) => t.block === name && t.group.length > 0));
   const trigger = runs[0]?.triggers.find((t) => t.block === name);
@@ -896,7 +889,6 @@ export function GroupPanel(props: { name: string; flow: Flow; onChoose: (c: Chos
           <StatusLine word={<span className="mono">{trigger.name}</span>}>{trigger.what ?? undefined}</StatusLine>
         )
       }
-      {...fold}
     >
       <PanelPart label="blocks" count={blocks.length}>
         <ul className="uses">
