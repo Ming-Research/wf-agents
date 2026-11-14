@@ -25,9 +25,9 @@
 //! - `tables`: a work's entries, table by table.
 //! - `backups`: the copies of the database that were taken and uploaded, and what failed in keeping them. They belong
 //!   to no work, and the backup's own task keeps them through a connection of its own ([`Backups`]).
-//! - `observations`: what agents came across beyond their works, each text of the `observations` of a return its run
-//!   was taken on, kept as the run's finish is saved; and the owner's reading of each. They belong to no work, and are
-//!   read and marked read through a connection of their own ([`Observations`]).
+//! - `observations`: what agents came across beyond their works, the observations each run kept as it finished, which
+//!   are kept with the rest of the work and numbered as the installation's; and the owner's reading of each. They are
+//!   read for the page, and marked read, through a connection of their own ([`Observations`]).
 
 mod backups;
 pub mod before_migration;
@@ -122,7 +122,8 @@ pub enum Entry {
     At(Seq),
     /// The content of a version of a block, the version named by the place of the entry that wrote it.
     Version { block: BlockId, at: Seq },
-    /// What a round of a run was given, came back from it or it took, the first round being one.
+    /// What a round of a run was given, came back from it or it took, or an observation kept of what came back, the
+    /// first round being one.
     Round { run: RunId, round: usize },
     /// What a call is, or its result.
     Call(CallId),
@@ -173,10 +174,10 @@ pub trait Storage {
     /// Everything kept of the work.
     fn load(&self, work: WorkNumber) -> Result<Work, Fault>;
 
-    /// Keeps what the work has that the store does not hold yet, in one transaction, and with it, as observations of
-    /// the installation, the observations of the return each run that finished since was taken on. What the store
-    /// holds of it must be where the given work begins: where it holds an entry the work lacks or holds otherwise,
-    /// nothing is kept and the fault says where. Saving a work the store holds whole keeps nothing.
+    /// Keeps what the work has that the store does not hold yet, in one transaction: each observation its runs kept is
+    /// numbered then, as the installation's. What the store holds of it must be where the given work begins: where it
+    /// holds an entry the work lacks or holds otherwise, nothing is kept and the fault says where. Saving a work the
+    /// store holds whole keeps nothing.
     fn save(&mut self, work: WorkNumber, given: &Work) -> Result<(), Fault>;
 
     /// The pause of everything, where it holds: when it began and who set it; none where it does not, as in a store

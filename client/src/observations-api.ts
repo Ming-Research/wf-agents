@@ -9,9 +9,9 @@
 import { read } from './api';
 import { send } from './works-api';
 
-/// What an agent came across beyond its work, as the return its run was taken on said it: its number, written On; what
-/// it says; the work, its item with its title as it stands, the cell, the run and the round whose return carried it;
-/// when it was kept, as its run finished; and when the owner read it, none while it is unread.
+/// What an agent came across beyond its work, as a return of its run said it and the run kept it as it finished: its
+/// number, written On; what it says; the work, its item with its title as it stands, the cell, the run and the round
+/// whose return carried it; when it was kept; and when the owner read it, none while it is unread.
 export interface Observation {
   number: number;
   text: string;

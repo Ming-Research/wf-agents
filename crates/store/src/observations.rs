@@ -1,8 +1,8 @@
 //! The observations of the installation: what an agent came across beyond its work and wrote in the `observations` of
-//! its return. Each text of the return a run was taken on is kept, and numbered, as the run's finish is saved, in the
-//! same transaction, so that it is kept once whatever stops between; a return sent back keeps none, since the agent
-//! says again in its next return what that one said (decision `observations-kept-with-the-finish`). What it says, its
-//! cell and when it was kept are read from the work's records, which hold them already.
+//! its returns. Those a run keeps as it finishes (crate `work`, module `observations`) are kept with the rest of the
+//! work, and numbered as they are, so that each is kept once whatever stops between (decision
+//! `observations-kept-with-the-finish`). What it says, its cell and when it was kept are read from the work's records,
+//! which hold them already.
 //!
 //! The owner reads them on the page and marks each read. Nothing the engine decides reads them and their tables are
 //! only added to, so they are read, and the owner's reading of one is kept, through connections of their own beside the
@@ -15,9 +15,9 @@ use std::collections::btree_map::Entry;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use decide::{Finished, RunId};
+use decide::RunId;
 use rusqlite::{Connection, OptionalExtension, params};
-use work::{Back, Time, Work};
+use work::{Back, Time};
 
 use crate::{Fault, ItemNumber, SCHEMA_VERSION, WorkNumber};
 
@@ -45,23 +45,6 @@ pub struct Observation {
     pub kept: Time,
     /// When the owner read it; none while it is unread.
     pub read: Option<Time>,
-}
-
-/// Keeps, after what came back, the observations of the return each of these runs, which finish in this save, was
-/// taken on: what came back at the end of its last round.
-pub(crate) fn keep(db: &Connection, work: WorkNumber, given: &Work, finished: &[Finished]) -> Result<(), Fault> {
-    for f in finished {
-        let Some((round, Back::Returned { said, .. })) = given.last_back(f.run) else {
-            continue;
-        };
-        for n in 1..=said.observations.len() {
-            db.execute(
-                "INSERT INTO observations (work, run, round, n) VALUES (?1, ?2, ?3, ?4)",
-                params![work.0, f.run.0, round, n],
-            )?;
-        }
-    }
-    Ok(())
 }
 
 /// The observations, on connections of their own.
@@ -188,8 +171,12 @@ impl Observations {
     }
 
     /// Keeps that the owner read the observation of this number at `at`, and gives when it was read: then, or when it
-    /// was read before, which stays as it was; none where there is no observation of this number.
+    /// was read before, which stays as it was; none where there is no observation of this number, as for one past the
+    /// numbers the store can give.
     pub fn read(&self, number: u64, at: Time) -> Result<Option<Time>, Fault> {
+        if i64::try_from(number).is_err() {
+            return Ok(None);
+        }
         let db = self.connect()?;
         db.execute(
             "INSERT OR IGNORE INTO observations_read (observation, at)

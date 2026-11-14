@@ -11,9 +11,11 @@ use decide::{BlockId, CallId, Records, RunId, Seq, Who};
 use serde::{Deserialize, Serialize};
 
 pub mod filled;
+pub mod observations;
 pub mod sessions;
 
 pub use filled::{Fill, FillFault, Filled};
+pub use observations::Observed;
 pub use sessions::{Ran, RanOn, Session, Why};
 
 /// Everything kept of one work.
@@ -44,6 +46,8 @@ pub struct Work {
     pub sessions: Vec<Session>,
     /// Each try of an agent's round that began, with what it ran on, in order.
     pub ran: Vec<Ran>,
+    /// The observations its runs kept as each finished, in the order they were kept (module [`observations`]).
+    pub observed: Vec<Observed>,
     /// Why the work's item was cancelled, as whoever cancelled it said, once the records say it was; none where nothing
     /// was said, as by a cancel kept before a cancel said why.
     pub why_cancelled: Option<String>,
@@ -85,12 +89,6 @@ impl Work {
         let r = &self.records;
         let names = (r.started.iter().map(|s| s.run.0)).chain(r.called.iter().map(|c| c.call.0));
         names.max().unwrap_or(0) + 1
-    }
-
-    /// What came back at the end of the run's last round that ended while the run was open, with the round's number:
-    /// of a run that finished, the return it was taken on, which met everything the flow requires.
-    pub fn last_back(&self, run: RunId) -> Option<(usize, &Back)> {
-        (self.back.range((run, 0)..=(run, usize::MAX)).next_back()).map(|(&(_, round), back)| (round, back))
     }
 }
 

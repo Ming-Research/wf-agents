@@ -1,5 +1,5 @@
-// The observations: what agents came across beyond their works, each a text of the return its run was taken on, the
-// newest first. A row is the text, cut to three lines and whole on pointing at it, with where it came from on the line
+// The observations: what agents came across beyond their works, each a text of a return its run kept as it finished,
+// the newest first. A row is the text, cut to three lines and whole on pointing at it, with where it came from on the line
 // under it: its number, the work's run and round, which opens the work with that run chosen, the cell, the item and
 // when it was kept. One the owner has not read is marked, and has the button that marks it read; one read is muted and
 // says when. The list is read again on each change of a work, since a run that finishes keeps the observations of its

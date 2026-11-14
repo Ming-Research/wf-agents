@@ -95,7 +95,7 @@ pub fn handle_then(
                 hold_in(&flow.flow, &work.records, run, room),
             )
         {
-            finish(work, run, dealt_with, writes, &mut effects);
+            finish(flow, work, run, dealt_with, writes, &mut effects);
         }
     }
     for event in then(flow, work) {
@@ -591,7 +591,7 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At, effects: &mut Vec<
             return true;
         }
         Step::Finish { dealt_with, writes } => {
-            finish(work, run, dealt_with, writes, effects);
+            finish(flow, work, run, dealt_with, writes, effects);
             return true;
         }
         Step::AtLimit(limit) => {
@@ -626,8 +626,16 @@ fn step(flow: &Compiled, work: &mut Work, run: RunId, at: At, effects: &mut Vec<
 /// finishes, recording what it dealt with, the blocks it wrote and their content under the place of the finish. A
 /// return of the form before a return that asks ended its run made all its calls at once as it was taken, and its run
 /// rested at them, unless the owner's word at the limit of calls was asked for first: such a run finishes making none
-/// again, or all it asked for where it made none, and its cell is owed those it made.
-fn finish(work: &mut Work, run: RunId, dealt_with: Vec<BlockId>, writes: Vec<Write>, effects: &mut Vec<Effect>) {
+/// again, or all it asked for where it made none, and its cell is owed those it made. The run keeps, as it finishes,
+/// the observations its returns said that it keeps (crate `work`, module `observations`).
+fn finish(
+    flow: &Compiled,
+    work: &mut Work,
+    run: RunId,
+    dealt_with: Vec<BlockId>,
+    writes: Vec<Write>,
+    effects: &mut Vec<Effect>,
+) {
     let (handed, asks) = match work.back.get(&(run, ended(work, run))) {
         Some(Back::Returned { handed, asks, .. }) => (handed.clone(), asks.clone()),
         Some(Back::HandedIn(handed)) => (handed.clone(), Vec::new()),
@@ -660,6 +668,11 @@ fn finish(work: &mut Work, run: RunId, dealt_with: Vec<BlockId>, writes: Vec<Wri
         writes,
         dealt_with: Some(dealt_with),
     });
+    let line = (work.records.started.iter().find(|s| s.run == run))
+        .and_then(|s| flow.cells.iter().find(|c| c.id == s.cell))
+        .and_then(|c| c.line.as_deref());
+    let observed = work::observations::kept(work, run, line);
+    work.observed.extend(observed);
 }
 
 /// Records a call of the run, and gives it to be made.

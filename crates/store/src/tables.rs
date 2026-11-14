@@ -10,7 +10,7 @@ use decide::{
 use rusqlite::{Connection, Row, params};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use work::{Filled, Moment, Ran, RanOn, Session, Spent, Time, Work};
+use work::{Filled, Moment, Observed, Ran, RanOn, Session, Spent, Time, Work};
 
 use crate::{Divergence, Entry, Fault, WorkNumber};
 
@@ -344,12 +344,24 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             })
         },
     )?;
+    // In the order they were kept, which their numbers keep.
+    out.observed = rows(
+        db,
+        "SELECT run, round, n FROM observations WHERE work = ?1 ORDER BY number",
+        w,
+        |row| {
+            Ok(Observed {
+                run: RunId(row.get(0)?),
+                round: row.get(1)?,
+                n: row.get(2)?,
+            })
+        },
+    )?;
     Ok(out)
 }
 
-/// Keeps what the given work has that the store does not hold yet, with the observations of the runs among it that
-/// finished; or, where what the store holds is not where the given work begins, keeps nothing and says where.
-/// Everything is checked before anything is written.
+/// Keeps what the given work has that the store does not hold yet; or, where what the store holds is not where the
+/// given work begins, keeps nothing and says where. Everything is checked before anything is written.
 pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<(), Fault> {
     let w = work.0;
     let held = load(db, work)?;
@@ -393,6 +405,10 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     let moments = grown("moments", &held.moments, &given.moments, |m| Entry::At(m.from))?;
     let sessions = grown("sessions", &held.sessions, &given.sessions, |s| Entry::At(s.at))?;
     let ran = grown("ran", &held.ran, &given.ran, |r| Entry::At(r.at))?;
+    let observed = grown("observations", &held.observed, &given.observed, |o| Entry::Round {
+        run: o.run,
+        round: o.round,
+    })?;
 
     // Each table after those its rows name.
     for s in started {
@@ -511,8 +527,13 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
             params![w, run.0, round, json("back", what)?],
         )?;
     }
-    // What came back is kept first, which an observation names.
-    crate::observations::keep(db, work, given, finished)?;
+    // Each observation after what came back, which it names, and numbered by the store as it is kept.
+    for o in observed {
+        db.execute(
+            "INSERT INTO observations (work, run, round, n) VALUES (?1, ?2, ?3, ?4)",
+            params![w, o.run.0, o.round, o.n],
+        )?;
+    }
     for (call, what) in calls {
         db.execute(
             "INSERT INTO calls (work, call, what) VALUES (?1, ?2, ?3)",

@@ -94,3 +94,30 @@ async fn an_observation_the_owner_reads_is_read_from_then_on_and_one_there_is_no
     let (status, _) = post(router, "/api/v1/observations/O1/read", &json!({})).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_number_past_what_the_store_can_number_names_no_observation() {
+    let running = planned().await;
+    // One past the largest the store gives, the largest a path's number reads as, and one past that.
+    for number in ["9223372036854775808", "18446744073709551615", "18446744073709551616"] {
+        assert_eq!(
+            post(
+                &running.router,
+                &format!("/api/v1/observations/{number}/read"),
+                &json!({})
+            )
+            .await,
+            (
+                StatusCode::NOT_FOUND,
+                json!({ "error": format!("There is no observation O{number}.") })
+            ),
+            "{number}"
+        );
+    }
+    // Nothing was read.
+    let listed = get_json(&running.router, "/api/v1/observations").await;
+    let read: Vec<&Value> = (listed["observations"].as_array().unwrap().iter())
+        .map(|o| &o["read"])
+        .collect();
+    assert_eq!(read, [&Value::Null, &Value::Null]);
+}

@@ -333,10 +333,10 @@ CREATE TABLE moments (
     PRIMARY KEY (work, place)
 );
 
--- An observation of the installation, numbered by the store as it is kept, counting from one: the `n`th text, counting
--- from one, of the `observations` of what came back at the end of a round of a run, the return the run was taken on.
--- It is kept as the run finishes; a return sent back keeps none. What it says, its cell and when it was kept are in the
--- work's records, and are not kept again here.
+-- An observation a run kept as it finished, numbered by the store as it is kept, counting from one, as the
+-- installation's: the `n`th text, counting from one, of the `observations` of what came back at the end of a round of
+-- the run, of the return the run was taken on or of one sent back that no later return was made in a session holding.
+-- What it says, its cell and when it was kept are in the work's records, and are not kept again here.
 CREATE TABLE observations (
     number INTEGER PRIMARY KEY,
     work INTEGER NOT NULL,

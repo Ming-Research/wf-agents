@@ -3,7 +3,8 @@
 //!
 //! - `GET /api/v1/observations`: every observation, the newest first ([`ObservationsPage`]).
 //! - `POST /api/v1/observations/{number}/read`: the owner read the observation: answers with when it was read
-//!   ([`Read`]), which a reading after the first leaves as it was; 404 where there is no observation of the number.
+//!   ([`Read`]), which a reading after the first leaves as it was; 404 where there is no observation of the number,
+//!   however large.
 //!
 //! They are read, and a reading kept, through connections of their own to the store's file, beside the engine's loop
 //! (decision `observations-read-beside-the-engines-turn`); the time of a reading is the one the loop's clock gives,
@@ -115,15 +116,26 @@ async fn all(State(inner): State<Inner>) -> Response {
     }
 }
 
-async fn read(State(inner): State<Inner>, path: Result<Path<u64>, PathRejection>) -> Response {
-    let number = match path {
-        Ok(Path(number)) => number,
+/// The owner read the observation the path names. A number past what the store can number names none, as any other
+/// number of none does; what is no number at all cannot be read.
+async fn read(State(inner): State<Inner>, path: Result<Path<String>, PathRejection>) -> Response {
+    let named = match path {
+        Ok(Path(named)) => named,
         Err(rejection) => {
             return fail(
                 StatusCode::BAD_REQUEST,
                 format!("The path cannot be read: {}.", rejection.body_text()),
             );
         }
+    };
+    if named.is_empty() || !named.bytes().all(|b| b.is_ascii_digit()) {
+        return fail(
+            StatusCode::BAD_REQUEST,
+            format!("The path cannot be read: {named} is no number of an observation."),
+        );
+    }
+    let Ok(number) = named.parse::<u64>() else {
+        return fail(StatusCode::NOT_FOUND, format!("There is no observation O{named}."));
     };
     let Ok(now) = inner.handle.now().await else {
         return fail(StatusCode::SERVICE_UNAVAILABLE, "The engine has stopped.".to_string());
