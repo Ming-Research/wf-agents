@@ -86,8 +86,11 @@ const DARK = 0.15;
 /// The part of the way to where they are going that the columns move sideways each frame, when the scene brings an
 /// item into view.
 const SNAP = 0.32;
-/// How much of the way to where the scroll has taken it the column scrolled goes each frame.
+/// How much of the way to where the scroll has taken it the column scrolled goes each frame; and how many pixels of the
+/// way, which no screen shows, may be left when it goes the rest at once, so that it comes to rest where the scroll took
+/// it within some thirty frames, and does not creep on unseen until what is left is too small for a number to hold.
 const GLIDE = 0.35;
+const REST = 0.01;
 /// How far from the middle of the screen, in rows, an item's want of the column beside it still weighs: its weight
 /// falls off as a bell of this width. A want is met within `SLACK` rows times the inverse of its weight less one, none
 /// for an item in the middle and the more the further out it is, so that items far out, weighing little, ask for little
@@ -1432,7 +1435,9 @@ export class SnapScene {
       // The blue lines at the column's edges fade in while the pointer is over it, and out once it leaves, in about
       // half a second.
       c.warm += ((d === this.hovered ? 1 : 0) - c.warm) * (1 - Math.exp(-step / TURN));
-      if (d === this.driver) c.at += (c.aim - c.at) * GLIDE;
+      if (d !== this.driver) return;
+      c.at += (c.aim - c.at) * GLIDE;
+      if (Math.abs(c.aim - c.at) * ROW < REST) c.at = c.aim;
     });
     const moved = (d: number) => PACE * Math.abs(this.columns[d].at - was[d]);
     for (let d = this.driver + 1; d < this.columns.length; d += 1) this.link(d, d - 1, moved(d - 1));
