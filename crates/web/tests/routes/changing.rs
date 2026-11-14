@@ -212,3 +212,48 @@ async fn a_cancel_says_why_is_refused_under_a_dependant_and_a_cancelled_item_is_
         refused("#2 is not cancelled: only a cancelled item is reopened.")
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_title_wider_than_the_installation_allows_is_refused_as_added_and_as_changed_and_nothing_is_made() {
+    let running = running();
+    let router = &running.router;
+    greeted(router).await;
+    let wide = "\u{4e2d}".repeat(21);
+    let why = "the title is 42 wide and a title is 40 wide at most (spaces are not counted, and a character of East \
+               Asian wide or full width counts 2): write it shorter";
+    // Twenty Chinese characters, or forty letters between spaces, fit.
+    let fits = format!("{} {}", "a".repeat(20), "b ".repeat(10));
+    assert_eq!(
+        post(router, "/api/v1/items", &item(&fits, json!([]))).await.0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        post(router, "/api/v1/items", &item(&wide, json!([]))).await,
+        refused(&format!("The item's title: {why}."))
+    );
+    let title = |title: &str| json!([{ "kind": "title", "item": 2, "title": title }]);
+    assert_eq!(
+        post(router, CHANGES, &changes("why", title(&wide))).await,
+        refused(&format!("The item's title: {why}."))
+    );
+    // Of several changes, the refused one is named by its place and none is made.
+    let several = json!([
+        { "kind": "tag", "item": 2, "tag": "x" },
+        { "kind": "title", "item": 2, "title": wide },
+    ]);
+    assert_eq!(
+        post(router, CHANGES, &changes("why", several)).await,
+        refused(&format!(
+            "Change 2: the item's title: {why}; so none of the changes was made."
+        ))
+    );
+    let items = get_json(router, "/api/v1/items").await;
+    assert_eq!(items["items"].as_array().unwrap().len(), 2);
+    assert_eq!(items["items"][1]["title"], fits);
+    assert_eq!(
+        post(router, CHANGES, &changes("why", title(&"\u{4e2d}".repeat(20))))
+            .await
+            .0,
+        StatusCode::OK
+    );
+}
