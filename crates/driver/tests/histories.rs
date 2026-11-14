@@ -260,6 +260,7 @@ impl History {
         let new = NewItem {
             title: title.to_string(),
             level: "1".to_string(),
+            project: "one".to_string(),
             depends_on,
             flow: flow.to_string(),
             writes,

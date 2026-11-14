@@ -141,6 +141,7 @@ mod tests {
         let first = First {
             title: format!("item {number}"),
             level: Some("2".to_string()),
+            project: Some("one".to_string()),
             depends_on: graph[&ItemNumber(number)].clone(),
         };
         Item::new(ItemNumber(number), Time(0), first, Vec::new())

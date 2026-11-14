@@ -261,7 +261,7 @@ pub fn running_carried(
     // The observations are read from the store's file, as the engine's program serves them.
     let observations = web::observations::router(handle.clone(), dir.path().join("store.sqlite"));
     Running {
-        router: web::with_works(flows, handle, levels()).merge(observations),
+        router: web::with_works(flows, handle, levels(), projects()).merge(observations),
         _dir: dir,
     }
 }
@@ -273,6 +273,11 @@ pub fn levels() -> service::Levels {
         desc: desc.to_string(),
     });
     service::Levels::new(levels, "2", Some("2")).expect("the levels are made")
+}
+
+/// The projects an item is added to: `trial`, and `other`.
+pub fn projects() -> service::Projects {
+    service::Projects::new(["trial".to_string(), "other".to_string()])
 }
 
 /// The answer to a POST of this JSON: its status, and its body as JSON, or null where it has none.
@@ -318,6 +323,7 @@ pub async fn greeted(router: &Router) {
     let item = json!({
         "title": "Greet the user",
         "dependsOn": [],
+        "project": "trial",
         "flow": "trial",
         "writes": [{ "block": "request", "content": "Greet the user, please.", "value": null }],
     });

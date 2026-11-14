@@ -18,6 +18,7 @@ async fn the_items_are_given_each_with_its_work_in_brief() {
                 "number": 1,
                 "title": "Greet the user",
                 "level": "2",
+                "project": "trial",
                 "added": START,
                 "dependsOn": [],
                 "history": {
@@ -39,6 +40,7 @@ async fn an_item_is_added_with_its_work_paused_and_what_it_depends_on() {
         json!({
             "title": title,
             "dependsOn": on,
+            "project": "trial",
             "flow": "trial",
             "writes": [{ "block": "request", "content": "Please.", "value": null }],
         })
@@ -79,8 +81,7 @@ async fn an_item_is_added_with_its_work_paused_and_what_it_depends_on() {
 async fn an_item_is_added_at_the_level_it_asks_for_or_at_the_default_and_never_above_the_highest() {
     let running = running();
     let router = &running.router;
-    let item =
-        |level: Value| json!({ "title": "Greet", "level": level, "dependsOn": [], "flow": "trial", "writes": [] });
+    let item = |level: Value| json!({ "title": "Greet", "level": level, "dependsOn": [], "project": "trial", "flow": "trial", "writes": [] });
     assert_eq!(post(router, "/api/v1/items", &item(json!("1"))).await.0, StatusCode::OK);
     assert_eq!(
         post(router, "/api/v1/items", &item(Value::Null)).await.0,
@@ -108,11 +109,55 @@ async fn an_item_is_added_at_the_level_it_asks_for_or_at_the_default_and_never_a
     assert_eq!(get_json(router, "/api/v1/works/2").await["level"], json!("2"));
 }
 
+// An item is added to one of the projects the installation names, which the page reads, and keeps it; it may depend on
+// an item of another project. One added to a project the installation does not name is refused, and one that names no
+// project cannot be read.
+#[tokio::test(start_paused = true)]
+async fn an_item_is_added_to_a_project_the_installation_names_and_may_depend_on_one_of_another() {
+    let running = running();
+    let router = &running.router;
+    assert_eq!(
+        get_json(router, "/api/v1/projects").await,
+        json!({ "names": ["other", "trial"] })
+    );
+    let item = |project: &str, on: Value| json!({ "title": "Greet", "dependsOn": on, "project": project, "flow": "trial", "writes": [] });
+    assert_eq!(
+        post(router, "/api/v1/items", &item("other", json!([]))).await.0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        post(router, "/api/v1/items", &item("trial", json!([1]))).await.0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        post(router, "/api/v1/items", &item("elsewhere", json!([]))).await,
+        (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            json!({
+                "error": "The item's project: projects: the installation names no project \"elsewhere\"; it names other, \
+                          trial."
+            })
+        )
+    );
+    let items = get_json(router, "/api/v1/items").await;
+    let projects: Vec<&Value> = items["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| &i["project"])
+        .collect();
+    assert_eq!(projects, [&json!("other"), &json!("trial")]);
+    assert_eq!(items["items"][1]["dependsOn"], json!([1]));
+    assert_eq!(get_json(router, "/api/v1/works/2").await["project"], json!("trial"));
+    let unnamed = json!({ "title": "Greet", "dependsOn": [], "flow": "trial", "writes": [] });
+    assert_eq!(post(router, "/api/v1/items", &unnamed).await.0, StatusCode::BAD_REQUEST);
+}
+
 #[tokio::test(start_paused = true)]
 async fn an_item_is_put_at_another_level_and_refused_as_an_added_one_is() {
     let running = running();
     let router = &running.router;
-    let item = json!({ "title": "Greet", "dependsOn": [], "flow": "trial", "writes": [] });
+    let item = json!({ "title": "Greet", "dependsOn": [], "project": "trial", "flow": "trial", "writes": [] });
     assert_eq!(post(router, "/api/v1/items", &item).await.0, StatusCode::OK);
     let set = |level: &str| json!({ "level": level });
     assert_eq!(
@@ -163,6 +208,7 @@ async fn an_item_that_cannot_be_added_is_refused_with_why() {
         json!({
             "title": "Greet the user",
             "dependsOn": on,
+            "project": "trial",
             "flow": flow,
             "writes": [{ "block": block, "content": "Please.", "value": null }],
         })

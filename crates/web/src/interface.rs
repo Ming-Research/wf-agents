@@ -17,21 +17,23 @@ use axum::routing::{get, post};
 use decide::RunId;
 use driver::Failed;
 use serde::Serialize;
-use service::{Handle, Levels};
+use service::{Handle, Levels, Projects};
 use store::{ItemChange, ItemNumber, WorkNumber};
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::works::{
     Act, Added, Broken, CallPage, Changed, DependencyChange, Engine, EngineAct, ItemChanged, Items, LevelsPage,
-    NewItem, NewLevel, NewTitle, Refusal, RoundPage, ToldPage, VersionPage, WorkPage,
+    NewItem, NewLevel, NewTitle, ProjectsPage, Refusal, RoundPage, ToldPage, VersionPage, WorkPage,
 };
 
-/// The routes of the items and the works, over the engine's loop; an item is added at one of these levels.
-pub fn router(handle: Handle, levels: Levels) -> Router {
+/// The routes of the items and the works, over the engine's loop; an item is added at one of these levels, to one of
+/// these projects.
+pub fn router(handle: Handle, levels: Levels, projects: Projects) -> Router {
     let levels = std::sync::Arc::new(levels);
     let shown = LevelsPage::of(&levels);
-    let to_add = levels.clone();
-    let add = move |handle: State<Handle>, body: Bytes| add(handle, to_add.clone(), body);
+    let named = ProjectsPage::of(&projects);
+    let (to_add, projects) = (levels.clone(), std::sync::Arc::new(projects));
+    let add = move |handle: State<Handle>, body: Bytes| add(handle, to_add.clone(), projects.clone(), body);
     let set = move |handle: State<Handle>, path: Result<Path<u64>, PathRejection>, body: Bytes| {
         set_level(handle, levels.clone(), path, body)
     };
@@ -41,6 +43,7 @@ pub fn router(handle: Handle, levels: Levels) -> Router {
         .route("/api/v1/items/{item}/title", post(retitle))
         .route("/api/v1/items/{item}/dependencies", post(depend))
         .route("/api/v1/levels", get(move || async move { Json(shown.clone()) }))
+        .route("/api/v1/projects", get(move || async move { Json(named.clone()) }))
         .route("/api/v1/works/{work}", get(work))
         .route("/api/v1/works/{work}/versions/{block}/{at}", get(version))
         .route("/api/v1/works/{work}/runs/{run}/rounds/{number}", get(round))
@@ -84,14 +87,19 @@ async fn items(State(handle): State<Handle>) -> Response {
     }
 }
 
-async fn add(State(handle): State<Handle>, levels: std::sync::Arc<Levels>, body: Bytes) -> Response {
+async fn add(
+    State(handle): State<Handle>,
+    levels: std::sync::Arc<Levels>,
+    projects: std::sync::Arc<Projects>,
+    body: Bytes,
+) -> Response {
     let item: NewItem = match serde_json::from_slice(&body) {
         Ok(item) => item,
         Err(e) => return fail(StatusCode::BAD_REQUEST, format!("The item cannot be read: {e}.")),
     };
-    let item = match item.taken(&levels) {
+    let item = match item.taken(&levels, &projects) {
         Ok(item) => item,
-        Err(why) => return fail(StatusCode::UNPROCESSABLE_ENTITY, format!("The item's level: {why}.")),
+        Err(why) => return fail(StatusCode::UNPROCESSABLE_ENTITY, format!("{why}.")),
     };
     match handle.add(item).await {
         Ok((item, work)) => Json(Added {

@@ -64,10 +64,13 @@ enum Command {
         /// The level of the item, among those the settings name; the settings' default level where none is given.
         #[arg(long)]
         level: Option<String>,
+        /// The project it belongs to, among those the settings name, whose repository its works run in.
+        #[arg(long)]
+        project: String,
         /// The name of the flow its work runs on.
         #[arg(long)]
         flow: String,
-        /// An item it depends on, by number; given once for each.
+        /// An item it depends on, by number, of its own project or another; given once for each.
         #[arg(long = "depends-on", value_name = "ITEM")]
         depends_on: Vec<u64>,
         /// A block written for it, with this text.
@@ -299,13 +302,14 @@ fn main() -> ExitCode {
         Command::Add {
             title,
             level,
+            project,
             flow,
             depends_on,
             texts,
             files,
             choices,
             at,
-        } => match talk::new_item(title, level, flow, depends_on, &texts, &files, &choices) {
+        } => match talk::new_item(title, level, project, flow, depends_on, &texts, &files, &choices) {
             Ok(item) => talk::ask(at.port, Asked::Add(item)),
             Err(why) => {
                 eprintln!("{why}");

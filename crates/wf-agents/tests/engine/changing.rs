@@ -7,7 +7,19 @@ use crate::{Engine, Place, SCRIPT};
 fn an_item_not_begun_is_retitled_made_to_wait_and_cancelled_saying_why_from_the_command_line() {
     let place = Place::new(SCRIPT);
     let engine = Engine::start(&place);
-    let add = |title: &'static str| ["add", "--title", title, "--flow", "trial", "--write", "request=Please."];
+    let add = |title: &'static str| {
+        [
+            "add",
+            "--title",
+            title,
+            "--flow",
+            "trial",
+            "--project",
+            "script",
+            "--write",
+            "request=Please.",
+        ]
+    };
     engine.says(&add("Greet the user"));
     engine.says(&add("Say goodbye"));
     assert_eq!(

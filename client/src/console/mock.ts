@@ -7,7 +7,7 @@
 //   engine says only what a work is stopped for).
 // - On a card and in the window: `unseen` (the item is new to the owner, and the passages changed since they read it),
 //   `unread` (messages from others the owner has not read), and marking the item read (kept in this page only).
-// - In the window's head and item line: the item's `project`, its `tier`, and whether it is a `goal`.
+// - In the window's item line: the item's `tier`, and whether it is a `goal`.
 // - In the window's work tab: the work's `tier`, and the `verdicts` of its judges (item 262 only).
 // - In the item tab: the body (Background, Problem, Plan), the plan's choices, which of them the owner
 //   already confirmed, and its Confirm (kept in this page only), and the messages written before (who wrote them, to whom,
@@ -499,7 +499,6 @@ export type ItemMock = {
   unread: number;
   /// Questions that wait for the owner's answer and do not stop its work yet: the work goes on.
   openQuestions: number;
-  project: string;
   /// Its tier, none where it has none.
   tier: string | null;
   /// The verdicts of its work's judges so far, each a row of the work's facts: the judge, and what it said.
@@ -514,7 +513,6 @@ export function itemMock(item: Item): ItemMock {
     // number always go together.
     unread: open && item.number % 4 === 1 && !read.has(item.number) ? 1 + (item.number % 3) : 0,
     openQuestions: (item.work.now.kind === 'round' || item.work.now.kind === 'next') && item.number % 3 !== 0 ? 1 : 0,
-    project: 'wf-agents',
     tier: '2',
     verdicts: is262(item) ? VERDICTS_262 : [],
   };

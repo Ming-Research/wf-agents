@@ -151,9 +151,12 @@ What the owner reviews every work by, so that it says plainly why a work is wher
   come first, edged in orange at their left; then a fault or a pause of the engine's, what goes on by itself, what the
   owner paused, and what has ended,
   each by what happened last. The whole row opens the work. Below 760px the strip and what was taken give way and the
-  now line wraps to two lines; below 480px the time gives way too.
-- **A work's line**: the view's line holds the way back to the works, the item's number and title, the now line, what
-  was taken in all, and the buttons Pause or Let on, and Cancel, which asks again in words before it sends.
+  now line wraps to two lines; below 480px the time gives way too. Where the installation names more than one project,
+  the view's line holds after its name the key `project` and a native select of the projects, `all` at first, which
+  shows only the works of that project's items and is kept in the browser; with one project it is not there.
+- **A work's line**: the view's line holds the way back to the works, the item's number and title, its project by key
+  and value (`project wf-agents`) where it has one, the now line, what was taken in all, and the buttons Pause or Let
+  on, and Cancel, which asks again in words before it sends.
 - **Acts**: every control that sends something (Pause, Let on, New session, Cancel) is disabled from its press until
   the answer comes; a refusal is said in red, as an alert, where the act was. What the work waits for, and what the
   owner writes to it, are in the console's item window, where they happen, and not repeated on the work's page.

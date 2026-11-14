@@ -170,6 +170,7 @@ impl S {
         let new = NewItem {
             title: "Greet".to_string(),
             level: "1".to_string(),
+            project: PROJECT.to_string(),
             depends_on: Vec::new(),
             flow: "sessions".to_string(),
             writes: vec![FirstWrite {

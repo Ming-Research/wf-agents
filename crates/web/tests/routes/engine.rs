@@ -12,6 +12,7 @@ fn item(title: &str) -> Value {
     json!({
         "title": title,
         "dependsOn": [],
+        "project": "trial",
         "flow": "trial",
         "writes": [{ "block": "request", "content": "Please.", "value": null }],
     })
@@ -125,6 +126,7 @@ async fn started_on_a_work_going_on_the_engine_says_it_holds_everything_until_th
         let new = driver::NewItem {
             title: "First".to_string(),
             level: "2".to_string(),
+            project: "trial".to_string(),
             depends_on: Vec::new(),
             flow: "trial".to_string(),
             writes: vec![driver::FirstWrite {

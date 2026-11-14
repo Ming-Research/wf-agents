@@ -9,6 +9,10 @@
 //! the cell the round was entered for ([`returns`](crate::returns)). How many run at once is the engine's to bound: it
 //! gives at most as many rounds at once as the settings give slots, and holds the others back in its own order.
 //!
+//! A round is run with the project of its work's item ([`crate::projects`]): its declaration in place of the one beside
+//! the flows, the settings its texts name filled from it, and main's head as its host last gave it. A round of a work
+//! whose item has no project the settings name fails, saying so.
+//!
 //! A round fails, handing in nothing, where the worktree is not there, the program cannot be started, or its stream
 //! holds no return of the form: neither one the command line took, nor, where it gave up on the return, its last
 //! attempt at one, rebuilt from the stream (`cli::Stream`); a return the stream holds is read however the program
@@ -51,6 +55,7 @@
 //! stopped before the round is run again, or before the round's stop ends it, so that a session has one program at a
 //! time and a stopped round's program does not run on.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -69,7 +74,7 @@ use crate::cli::{self, Begin, Compacted, InSession, Words};
 use crate::held::{Failing, Held, Stop};
 use crate::permissions::Permissions;
 use crate::process::{self, Ran};
-use crate::settings::Settings;
+use crate::settings::{Project, Settings};
 use crate::{acts, failure, git, kept, returns, session, system, tools, tree};
 
 /// What is written beside the flows, which every flow shares: the words the agents are sent, and the definitions the
@@ -89,16 +94,41 @@ struct Inner {
     settings: Settings,
     data: PathBuf,
     installation: Uuid,
-    /// What is written beside the flows, which the form and the system prompts are made from.
+    /// Each project's, by its name, for the rounds of the works of its items.
+    projects: BTreeMap<String, Of>,
+    held: Held<(WorkNumber, RunId, usize), RoundReply>,
+    /// The clock a usage limit's reset is read by, where the command line gives it as a time of day.
+    clock: Arc<dyn Clock>,
+}
+
+/// What the rounds of the works of a project's items are run with.
+pub struct Of {
+    /// The project's settings.
+    project: Project,
+    /// What is written beside the flows, with the project's declaration in place of the one beside them, which the
+    /// form and the system prompts are made from.
     beside: Beside,
     /// What the engine puts into the texts its agents are sent: the settings they name, with their values, and the
     /// places it fills alike for every line.
     filling: system::Filling,
-    held: Held<(WorkNumber, RunId, usize), RoundReply>,
-    /// The clock a usage limit's reset is read by, where the command line gives it as a time of day.
-    clock: Arc<dyn Clock>,
-    /// The reference that holds main's head as the host last gave it, which a run that takes main in takes in.
+    /// The reference that holds the head of the project's main as its host last gave it, which a run that takes main
+    /// in takes in.
     main: String,
+}
+
+impl Of {
+    /// What the rounds of a project's works are run with, of these settings: the project's own, what is written beside
+    /// the flows with its declaration, and the reference of its repository that holds main's head as its host last
+    /// gave it.
+    pub fn new(settings: &Settings, project: Project, beside: Beside, main: String) -> Of {
+        let filling = system::filling(settings, &beside);
+        Of {
+            project,
+            beside,
+            filling,
+            main,
+        }
+    }
 }
 
 /// What came of running a round's program.
@@ -111,11 +141,10 @@ enum Carried {
 }
 
 impl Agents {
-    /// The agents of these settings, with this data directory, which is an absolute path, the installation's id, the
-    /// reference of the project's repository that holds main's head as the host last gave it, and what is written
-    /// beside the flows, which their system prompts are made from.
-    pub fn new(settings: Settings, data: PathBuf, installation: Uuid, main: String, beside: Beside) -> Self {
-        Self::with_clock(settings, data, installation, main, beside, Arc::new(SystemClock))
+    /// The agents of these settings, with this data directory, which is an absolute path, the installation's id, and
+    /// what the rounds of each project's works are run with, by the project's name.
+    pub fn new(settings: Settings, data: PathBuf, installation: Uuid, projects: BTreeMap<String, Of>) -> Self {
+        Self::with_clock(settings, data, installation, projects, Arc::new(SystemClock))
     }
 
     /// The agents as [`Agents::new`] gives them, reading the time by this clock.
@@ -123,21 +152,17 @@ impl Agents {
         settings: Settings,
         data: PathBuf,
         installation: Uuid,
-        main: String,
-        beside: Beside,
+        projects: BTreeMap<String, Of>,
         clock: Arc<dyn Clock>,
     ) -> Self {
-        let filling = system::filling(&settings, &beside);
         Agents {
             inner: Arc::new(Inner {
                 settings,
                 data,
                 installation,
-                beside,
-                filling,
+                projects,
                 held: Held::new(),
                 clock,
-                main,
             }),
         }
     }
@@ -232,17 +257,19 @@ impl Inner {
         // program running unseen.
         process::stop_left(&group, &place.dir).await;
         let line = (round.cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", round.cell.id))?;
+        // The project of the work's item, whose repository and declaration the round is run with.
+        let of = crate::projects::of(&self.projects, &round.item)?;
         // The form of the flow, the same bytes for every round of every cell of it.
-        let form = flow::form::form(flow, &self.beside)?;
+        let form = flow::form::form(flow, &of.beside)?;
         let on = self.settings.ran_on(round.item.level.as_deref(), &round.cell)?;
         let dir = git::worktree(&place)?;
         let main = if round.cell.takes_main {
-            self.caught_up(round, &place).await?
+            self.caught_up(round, &place, of).await?
         } else {
             None
         };
         // The branch may have a new design tree where it took main in.
-        let tree_dir = &self.settings.project.tree;
+        let tree_dir = &of.project.tree;
         let mut looking = tree::Looking::of(flow, work, tree_dir);
         if let (Some(looking), Some(_)) = (&mut looking, &main) {
             looking.tell(&place, teller, true).await;
@@ -271,8 +298,8 @@ impl Inner {
         let changes = tree::changes(flow, work, round.run, round.number, &dir, tree_dir).await?;
         // The task as the message sends it, each setting it names with its value beside it; and a result of the tool
         // `query` longer than its file says a message gives, cut as the tool cuts it, the records holding it whole.
-        let task = system::task(&self.filling.named, &round.cell)?;
-        let results = tools::given(work, &self.beside);
+        let task = system::task(&of.filling.named, &round.cell)?;
+        let results = tools::given(work, &of.beside);
         let told = main.as_ref().and_then(CaughtUp::told);
         let carried = context::Carried {
             about,
@@ -281,7 +308,7 @@ impl Inner {
             task: task.as_deref(),
             results: &results,
         };
-        let enter = |anew| context::enter(flow, &self.beside, work, round.run, round.number, &carried, anew);
+        let enter = |anew| context::enter(flow, &of.beside, work, round.run, round.number, &carried, anew);
         let (going_on, anew) = (enter(false)?, enter(true)?);
         // A compaction within the round is marked, and the round's whole message, as a session that holds nothing is
         // sent it, is given again.
@@ -289,7 +316,7 @@ impl Inner {
             marks: base.with_extension("compacted"),
             again: base.with_extension("again.md"),
         };
-        let again = format!("{}\n\n{}", self.beside.message.compacted, anew.text);
+        let again = format!("{}\n\n{}", of.beside.message.compacted, anew.text);
         write(&compacted.again, again.as_bytes()).await?;
         // What the owner says to the round while it runs waits beside it, for the hook after the next use of a tool.
         let words = Words {
@@ -317,8 +344,8 @@ impl Inner {
             // The system prompt is the one the session began with: made from the worktree as it begins, and kept.
             let made = || {
                 let read = |path: &str| system::read_within(&dir, path);
-                let your_line = permissions.told(&self.beside.your_line);
-                system::of_line(&self.beside, &self.filling, flow, &round.cell, &your_line, read)
+                let your_line = permissions.told(&of.beside.your_line);
+                system::of_line(&of.beside, &of.filling, flow, &round.cell, &your_line, read)
             };
             let kept_at = system::kept_at(&self.data, session);
             let system = system::of_session(&kept_at, made)?;
@@ -405,7 +432,7 @@ impl Inner {
                 return failed(format!("{command} exited with {status}: {why}"), no.spent);
             }
         };
-        match returns::came(&read.structured, flow, &round.cell, &self.beside) {
+        match returns::came(&read.structured, flow, &round.cell, &of.beside) {
             Ok(came) => Ok(Carried::Came(came, read.spent)),
             Err(why) => Ok(Carried::Failed(why, Failure::Unread, read.spent)),
         }
@@ -439,7 +466,7 @@ impl Inner {
 
     /// What came of taking main in as the round's run started, as it was kept; taken in and kept first at the run's
     /// first round. None for a later round of a run that kept nothing, which started before its cell took main in.
-    async fn caught_up(&self, round: &Round, place: &git::Place) -> Result<Option<CaughtUp>, String> {
+    async fn caught_up(&self, round: &Round, place: &git::Place, of: &Of) -> Result<Option<CaughtUp>, String> {
         let at = catch_up::kept_at(&self.data, round.work, round.run);
         let named = || at.display().to_string();
         match tokio::fs::read(&at).await {
@@ -453,7 +480,7 @@ impl Inner {
         if round.number != 1 {
             return Ok(None);
         }
-        let caught = catch_up::take_in(&self.settings.project, place, &self.main, round.run).await;
+        let caught = catch_up::take_in(&of.project, place, &of.main, round.run).await;
         // The round is told only that main was not taken in; why is for whoever runs the engine.
         if let catch_up::Outcome::Failed { why } = &caught.outcome {
             eprintln!(

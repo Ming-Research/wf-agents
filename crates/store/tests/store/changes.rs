@@ -11,11 +11,15 @@ use super::*;
 fn each_change_of_an_item_is_kept_in_order_and_the_item_is_read_as_they_leave_it() {
     let mut store = Store::in_memory().expect("the store opens");
     let nothing = Work::default();
-    store.add("first", "2", &[], "judged", Time(10), &nothing).unwrap();
     store
-        .add("second", "2", &[ItemNumber(1)], "judged", Time(20), &nothing)
+        .add("first", "2", "one", &[], "judged", Time(10), &nothing)
         .unwrap();
-    store.add("third", "1", &[], "judged", Time(30), &nothing).unwrap();
+    store
+        .add("second", "2", "one", &[ItemNumber(1)], "judged", Time(20), &nothing)
+        .unwrap();
+    store
+        .add("third", "1", "one", &[], "judged", Time(30), &nothing)
+        .unwrap();
     let made = [
         (ItemNumber(2), ItemChange::Title("the second, narrowed".into()), 40),
         (ItemNumber(2), ItemChange::DependsOn(ItemNumber(3)), 50),
@@ -53,7 +57,7 @@ fn each_change_of_an_item_is_kept_in_order_and_the_item_is_read_as_they_leave_it
 fn a_change_of_an_item_or_onto_an_item_the_store_does_not_have_is_refused_and_nothing_is_kept() {
     let mut store = Store::in_memory().expect("the store opens");
     store
-        .add("first", "2", &[], "judged", Time(10), &Work::default())
+        .add("first", "2", "one", &[], "judged", Time(10), &Work::default())
         .unwrap();
     let before = store.items().unwrap();
     assert_eq!(

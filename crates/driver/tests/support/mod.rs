@@ -383,13 +383,14 @@ impl Storage for Failing {
         &mut self,
         title: &str,
         level: &str,
+        project: &str,
         depends_on: &[ItemNumber],
         flow: &str,
         at: Time,
         first: &Work,
     ) -> Result<(ItemNumber, WorkNumber), store::Fault> {
         self.call(Op::Add)?;
-        self.store.add(title, level, depends_on, flow, at, first)
+        self.store.add(title, level, project, depends_on, flow, at, first)
     }
 
     fn change(&mut self, item: ItemNumber, change: &ItemChange, at: Time) -> Result<(), store::Fault> {
@@ -485,11 +486,15 @@ pub fn sorted(todos: &[Todo]) -> Vec<Todo> {
     todos
 }
 
-/// An item to add with no first writes, paused: its work begins nothing until it is let on.
+/// The project the tests' items belong to where a test names none.
+pub const PROJECT: &str = "one";
+
+/// An item to add with no first writes, of [`PROJECT`], paused: its work begins nothing until it is let on.
 pub fn new_item(title: &str, depends_on: &[ItemNumber], flow: &str) -> NewItem {
     NewItem {
         title: title.to_string(),
         level: "1".to_string(),
+        project: PROJECT.to_string(),
         depends_on: depends_on.to_vec(),
         flow: flow.to_string(),
         writes: Vec::new(),
@@ -1259,10 +1264,16 @@ impl H {
         self.on(work, Event::Done { call, result })
     }
 
-    /// The outside source says this, which the driver must take, and gives what is to be done.
+    /// The outside source says this of [`PROJECT`], which the driver must take, and gives what is to be done.
     pub fn outside(&mut self, source: &str, content: &str) -> Vec<Todo> {
+        self.outside_of(PROJECT, source, content)
+    }
+
+    /// The outside source says this of the project of this name, which the driver must take, and gives what is to be
+    /// done.
+    pub fn outside_of(&mut self, project: &str, source: &str, content: &str) -> Vec<Todo> {
         let now = self.now();
-        let todos = (self.dm().outside(now, source, content)).expect("the driver takes what the outside says");
+        let todos = (self.dm().outside(now, project, source, content)).expect("the driver takes what the outside says");
         self.given(&todos);
         if self.checking {
             self.check();

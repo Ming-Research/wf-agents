@@ -2,7 +2,7 @@
 //! merged reaches the work as its dependencies block, which the driver writes as the item is added, in the very call in
 //! which the last of them merges, and, on opening, wherever the block and what it stands for have come apart.
 
-use driver::{MERGED, WAITING};
+use driver::{MERGED, NewItem, WAITING};
 use store::Storage;
 
 use super::*;
@@ -38,6 +38,38 @@ fn an_item_waits_before_its_first_cell_until_the_one_it_depends_on_merges_and_st
     assert_eq!(h.decision(wa), Decision::Ended(End::Merged));
     assert_eq!(rounds(&h.released(todos)), [(wb, "write".to_string(), 1)]);
     assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
+}
+
+// An item may depend on an item of another project: it uses that item's result, and waits for it to merge into its
+// own project's main as it would for one of its own project.
+#[test]
+fn an_item_waits_for_the_item_of_another_project_it_depends_on_as_for_one_of_its_own() {
+    let mut h = H::new();
+    let (a, wa) = h.add(NewItem {
+        project: "two".to_string(),
+        ..new_item("a", &[], "short")
+    });
+    let (_, wb) = h.add(new_item("b", &[a], "judged"));
+    let project = |h: &H, work| h.d().work(work).expect("the work is there").item.project.clone();
+    assert_eq!(project(&h, wa).as_deref(), Some("two"));
+    assert_eq!(project(&h, wb).as_deref(), Some(PROJECT));
+    assert_eq!(h.dependencies(wb).as_deref(), Some(WAITING));
+    assert_eq!(h.let_on(wb), vec![]);
+    assert_eq!(h.decision(wb), waits_for_dependencies("write"));
+    h.let_on(wa);
+    to_merge(&mut h, wa);
+    assert_eq!(
+        h.decision(wb),
+        waits_for_dependencies("write"),
+        "held back until the other merges"
+    );
+    let todos = h.hands_in(wa, &[("merged", None)]);
+    assert_eq!(h.decision(wa), Decision::Ended(End::Merged));
+    assert_eq!(rounds(&h.released(todos)), [(wb, "write".to_string(), 1)]);
+    assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
+    // Opened again, each item keeps its project.
+    h.reopen();
+    assert_eq!(project(&h, wa).as_deref(), Some("two"));
 }
 
 #[test]

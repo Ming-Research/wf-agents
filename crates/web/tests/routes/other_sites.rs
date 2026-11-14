@@ -155,6 +155,7 @@ async fn every_route_of_the_works_refuses_another_site_and_a_post_that_is_not_js
     let item = json!({
         "title": "Greet the user",
         "dependsOn": [],
+        "project": "trial",
         "flow": "trial",
         "writes": [{ "block": "request", "content": "Please.", "value": null }],
     })

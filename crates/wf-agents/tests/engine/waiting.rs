@@ -25,6 +25,8 @@ fn wait_gives_the_question_once_it_is_asked_then_nothing_from_its_mark_then_the_
         "Greet the user",
         "--flow",
         "trial",
+        "--project",
+        "script",
         "--write",
         "request=Greet the user, please.",
     ]);

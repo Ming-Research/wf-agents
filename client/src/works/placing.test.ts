@@ -131,6 +131,7 @@ describe('the list of works', () => {
       number: w.number,
       title: `${w.number}`,
       level: '2',
+      project: 'wf-agents',
       added: 0,
       dependsOn: [],
       history: { first: { title: `${w.number}`, level: '2', dependsOn: [] }, changes: [] },

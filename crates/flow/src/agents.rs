@@ -21,6 +21,11 @@ pub const AGENTS_DIR: &str = "agents";
 /// The file beside the flows that names the project's files and settings.
 pub const PROJECT_FILE: &str = "project.toml";
 
+/// A project's declaration, the same file as [`PROJECT_FILE`], by its path from the root of the project's repository:
+/// each project an installation names declares its files, its settings, its tests and its workflows there, and the
+/// works of its items are run with it in place of the one beside the flows.
+pub const DECLARATION: &str = "flow/project.toml";
+
 /// The file, from the directory that holds the flows, that names the sets of rules for the agents, each by its name
 /// with its file beside it. A line names those it takes.
 pub const RULES_FILE: &str = "agents/rules/rules.toml";
@@ -86,6 +91,28 @@ pub struct Agents {
 }
 
 impl Agents {
+    /// These, with the project's declaration read from the file at `path` in place of the one beside the flows; or why
+    /// it cannot be read, or lacks a file the session names, said with its path.
+    pub fn declared(&self, path: &Path) -> Result<Agents, String> {
+        let project: Project = file(path)?;
+        for part in &self.session.parts {
+            if let SessionPart::Project(ProjectPart { project: name }) = part
+                && !project.files.contains_key(name)
+            {
+                let session = self.root.join(AGENTS_DIR).join("session.toml");
+                return Err(format!(
+                    "{}: has no file {name}, which {} names",
+                    path.display(),
+                    session.display()
+                ));
+            }
+        }
+        Ok(Agents {
+            project,
+            ..self.clone()
+        })
+    }
+
     /// The path of a file of these, from the directory that holds the flows, with that directory's name before it, as
     /// a part names the file it comes from.
     pub fn source(&self, path: &str) -> String {

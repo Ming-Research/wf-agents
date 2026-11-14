@@ -35,7 +35,16 @@ const NOW: Record<'open' | 'done' | 'cancelled', Now> = {
 
 function item(number: number, standing: 'open' | 'done' | 'cancelled', dependsOn: number[] = []): Item {
   const history = { first: { title: `t${number}`, level: '2', dependsOn }, changes: [] };
-  return { number, title: `t${number}`, level: '2', added: 0, dependsOn, history, work: work(number, NOW[standing]) };
+  return {
+    number,
+    title: `t${number}`,
+    level: '2',
+    project: 'wf-agents',
+    added: 0,
+    dependsOn,
+    history,
+    work: work(number, NOW[standing]),
+  };
 }
 
 /// A tree as lines: each item's number, indented by its depth, a shadow's marked.

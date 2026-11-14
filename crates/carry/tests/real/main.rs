@@ -17,6 +17,7 @@ mod going;
 mod left;
 mod levels;
 mod permissions;
+mod projects;
 mod query;
 mod sessions;
 mod stopping;
@@ -225,6 +226,8 @@ pub struct Real {
     pub holds: usize,
     /// The level the items added from now on are given.
     pub level: String,
+    /// The project the items added from now on belong to.
+    pub project: String,
 }
 
 /// Runs git in the directory, which must pass, and gives its output.
@@ -433,6 +436,35 @@ fn open(settings: &Settings, data: &Path, flow: &Compiled, deaf: bool) -> (Servi
     Service::open(Box::new(store), vec![flow.clone()], carriers, Arc::new(SystemClock)).expect("the loop opens")
 }
 
+/// The project the tests' items belong to where a test names none.
+pub const PROJECT: &str = "test";
+
+/// Makes a project's repository at `repo`, on its main branch, with a greeting, the project's files and its declaration:
+/// the one beside this repository's flows.
+pub fn made_repository(repo: &Path) {
+    std::fs::create_dir_all(repo).unwrap();
+    git_in(repo, &["init", "-q", "-b", "main"]);
+    git_in(repo, &["config", "user.name", "Tester"]);
+    git_in(repo, &["config", "user.email", "tester@example.com"]);
+    git_in(repo, &["config", "commit.gpgsign", "false"]);
+    std::fs::write(repo.join("greeting.txt"), "Hello.\n").unwrap();
+    // The project's files every line's system prompt holds, where its declaration names them.
+    std::fs::create_dir_all(repo.join("design")).unwrap();
+    for (path, text) in PROJECT_FILES {
+        std::fs::write(repo.join(path), text).unwrap();
+    }
+    let declaration = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../")
+        .join(flow::agents::DECLARATION);
+    std::fs::create_dir_all(repo.join("flow")).unwrap();
+    std::fs::copy(declaration, repo.join(flow::agents::DECLARATION)).expect("the declaration is copied");
+    git_in(repo, &["add", "."]);
+    git_in(repo, &["commit", "-q", "-m", "Greet"]);
+    std::fs::write(repo.join("design/readme.md"), "The tree.\n").unwrap();
+    git_in(repo, &["add", "design/readme.md"]);
+    git_in(repo, &["commit", "-q", "-m", "Design"]);
+}
+
 /// The project's guide, constitution and tree rules, by their paths in the test repository, which `project.toml`
 /// beside the repository's flows names, with their texts.
 pub const PROJECT_FILES: [(&str, &str); 3] = [
@@ -441,6 +473,19 @@ pub const PROJECT_FILES: [(&str, &str); 3] = [
     ("design/README.md", "# The rules of its tree\n"),
 ];
 
+/// A project in the repository at `repo`, on its local repository, with this check.
+fn project(repo: &Path, check: &str) -> Project {
+    Project {
+        repo: repo.to_path_buf(),
+        main: "main".to_string(),
+        check: check.to_string(),
+        allowed_config: Vec::new(),
+        github: None,
+        commits: Default::default(),
+        tree: "design/".to_string(),
+    }
+}
+
 impl Real {
     /// The loop on an empty store of the flow, with the fake answering as given and the budget given, the project's
     /// check being `check`.
@@ -448,37 +493,16 @@ impl Real {
         let dir = tempfile::tempdir().expect("a directory");
         let root = std::fs::canonicalize(dir.path()).expect("the directory is there");
         let (repo, data, calls) = (root.join("repo"), root.join("data"), root.join("calls"));
-        for made in [&repo, &data, &calls] {
+        for made in [&data, &calls] {
             std::fs::create_dir_all(made).unwrap();
         }
-        git_in(&repo, &["init", "-q", "-b", "main"]);
-        git_in(&repo, &["config", "user.name", "Tester"]);
-        git_in(&repo, &["config", "user.email", "tester@example.com"]);
-        git_in(&repo, &["config", "commit.gpgsign", "false"]);
-        std::fs::write(repo.join("greeting.txt"), "Hello.\n").unwrap();
-        // The project's files every line's system prompt holds, where `project.toml` names them.
-        std::fs::create_dir_all(repo.join("design")).unwrap();
-        for (path, text) in PROJECT_FILES {
-            std::fs::write(repo.join(path), text).unwrap();
-        }
-        git_in(&repo, &["add", "."]);
-        git_in(&repo, &["commit", "-q", "-m", "Greet"]);
-        std::fs::write(repo.join("design/readme.md"), "The tree.\n").unwrap();
-        git_in(&repo, &["add", "design/readme.md"]);
-        git_in(&repo, &["commit", "-q", "-m", "Design"]);
+        made_repository(&repo);
         let command = fake(&root, &calls, &answers);
         let settings = Settings {
             owner: Owner {
                 language: "Chinese".to_string(),
             },
-            project: Project {
-                repo: repo.clone(),
-                main: "main".to_string(),
-                check: check.to_string(),
-                allowed_config: Vec::new(),
-                commits: Default::default(),
-                tree: "design/".to_string(),
-            },
+            projects: [(PROJECT.to_string(), project(&repo, check))].into(),
             agents: Agents {
                 command: command.display().to_string(),
                 levels: [("1", "claude-haiku-5-5"), ("2", "claude-sonnet-5-5")]
@@ -507,7 +531,6 @@ impl Real {
                 default_level: "1".to_string(),
                 highest_level: None,
             },
-            github: None,
             backup: None,
             sessions: Default::default(),
             query: Default::default(),
@@ -526,7 +549,19 @@ impl Real {
             failures: 0,
             holds: 0,
             level: "1".to_string(),
+            project: PROJECT.to_string(),
         }
+    }
+
+    /// Adds a project of this name to the installation, in a repository of its own beside the first, whose check is
+    /// the first's, and starts the loop again with it; gives the repository.
+    pub fn add_project(&mut self, name: &str) -> PathBuf {
+        let repo = self.repo.with_file_name(name);
+        made_repository(&repo);
+        let check = self.settings.projects[PROJECT].check.clone();
+        self.settings.projects.insert(name.to_string(), project(&repo, &check));
+        self.restart();
+        repo
     }
 
     /// The trial flow, with the fake answering as given, no budget and a check that passes.
@@ -607,6 +642,7 @@ impl Real {
         let item = NewItem {
             title: "Greet the user".to_string(),
             level: self.level.clone(),
+            project: self.project.clone(),
             depends_on: depends_on.to_vec(),
             flow: self.flow.name.clone(),
             writes: request.into_iter().collect(),
@@ -619,7 +655,7 @@ impl Real {
         let starts = (self.flow.cells.iter()).any(|cell| cell.act.as_deref() == Some("start"));
         let agents = (self.flow.cells.iter()).any(|cell| cell.kind == flow::Kind::Agent);
         if !starts && agents {
-            let project = self.settings.project.clone();
+            let project = self.settings.projects[&self.project].clone();
             git::start(&project, &self.place(work), &project.main)
                 .await
                 .expect("the work's place is made");

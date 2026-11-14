@@ -25,12 +25,13 @@ impl Storage for Failing {
         &mut self,
         title: &str,
         level: &str,
+        project: &str,
         depends_on: &[ItemNumber],
         flow: &str,
         at: Time,
         first: &Work,
     ) -> Result<(ItemNumber, WorkNumber), store::Fault> {
-        self.store.add(title, level, depends_on, flow, at, first)
+        self.store.add(title, level, project, depends_on, flow, at, first)
     }
 
     fn change(&mut self, item: ItemNumber, change: &ItemChange, at: Time) -> Result<(), store::Fault> {

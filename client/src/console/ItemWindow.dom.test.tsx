@@ -27,6 +27,7 @@ const pageOf = (i: Item): PageState => ({
     summary: i.work,
     title: i.title,
     level: i.level,
+    project: i.project,
     history: i.history,
     flow: FLOW,
     cells: [],
@@ -117,13 +118,22 @@ describe('the panel of the item selected', () => {
     const el = draw(12, answered([]));
     expect(text(el, '.drawer-id')).toEqual(['12']);
     expect(text(el, '.drawer-title')).toEqual(['Show the cost of a work']);
-    expect(text(el, '.drawer-belongs')).toEqual(['wf-agents']);
+    expect(text(el, '.drawer-belongs')).toEqual(['project wf-agents']);
     const [itemLine, workLine] = lines(el);
     expect(itemLine).toBe('Open Added 1.1d ago Waits for 11 to merge');
     expect(workLine).toContain(
       'Waiting for you Review the plan reached its limit: 3 runs in a row for what a cell after it wrote W12',
     );
     expect(el.querySelector('.cw-item > .status-line a.link.mono')?.getAttribute('href')).toBe('#/works/12');
+  });
+
+  it("names the item's project by its key and value, and nothing for an item added before items had projects", () => {
+    const el = draw(8, answered([]));
+    expect(text(el, '.drawer-belongs .muted.mono')).toEqual(['project']);
+    expect(text(el, '.drawer-belongs .mono:not(.muted)')).toEqual(['Whitefoot']);
+    draw(21, answered([]));
+    expect(text(el, '.drawer-title')).toEqual(['Store the versions of each block']);
+    expect(el.querySelector('.drawer-belongs')).toBeNull();
   });
 
   it('says a work the engine paused as halted, with the reason, and shows it paused on the switch that starts it', () => {

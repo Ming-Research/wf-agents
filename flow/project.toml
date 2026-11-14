@@ -1,6 +1,7 @@
-# The project the flows work on: its own files, which the engine gives every agent as they are in the project's
-# checkout, and its settings, which the words sent to the agents name as `project.<name>`. A path is from the root of
-# the project's checkout.
+# A project's declaration, `flow/project.toml` in its repository: each project an installation names has its own, and
+# the agents of its works are given its files, as they are in the work's checkout, and its settings, which the words
+# sent to the agents name as `project.<name>`. This one is the declaration of the project whose repository holds the
+# flows. A path is from the root of the project's checkout.
 
 # The directory that holds the project's design tree, which the engine looks at on each work's branch.
 tree = "design/"

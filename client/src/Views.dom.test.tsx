@@ -14,6 +14,7 @@ import {
   fixtureCall,
   fixtureCopies,
   fixtureItems,
+  fixtureProjects,
   fixtureRound,
   fixtureTold,
   fixtureVersion,
@@ -32,6 +33,7 @@ afterEach(() => {
 const source: Source = {
   loadCopies: async () => fixtureCopies(),
   loadItems: async () => fixtureItems(),
+  loadProjects: async () => fixtureProjects(),
   loadWork: async (n) => fixtureWork(n),
   loadVersion: async (n, block, at) => fixtureVersion(n, block, at),
   loadRound: async (n, run, round) => fixtureRound(n, run, round),

@@ -1,12 +1,12 @@
-// One work: the view's line with its item's title, what it does now, what it has taken and the owner's buttons; its
-// history as a chart; and the panel docked at the chart's right with what the owner chose. What the work waits for,
-// and what the owner writes to it, are in the console's item window. The work is read again each time the interface
-// says it changed and whenever the stream of changes opens again, keeping what the owner has chosen and opened; a read
-// that fails keeps what is shown and says so.
+// One work: the view's line with its item's title and project, what it does now, what it has taken and the owner's
+// buttons; its history as a chart; and the panel docked at the chart's right with what the owner chose. What the work
+// waits for, and what the owner writes to it, are in the console's item window. The work is read again each time the
+// interface says it changed and whenever the stream of changes opens again, keeping what the owner has chosen and
+// opened; a read that fails keeps what is shown and says so.
 
 import { type CSSProperties, useCallback, useEffect, useMemo, useState } from 'react';
 
-import { Edge } from '../parts';
+import { Attr, Edge } from '../parts';
 import type { Fold } from '../Side';
 import { PANEL, WIDTH_KEYS, useKeptWidth } from '../sizes';
 import type { Act, RoundPage, ToldPage, WorkPage } from '../works-api';
@@ -128,6 +128,7 @@ export function WorkScreen({ page, failed = null, onActed, run }: {
         </a>
         <span className="mono muted">#{summary.item}</span>
         <span className="view-name">{page.title}</span>
+        {page.project !== null && <Attr name="project" value={page.project} />}
         <span className="view-facts">
           <NowLine now={summary.now} paused={summary.paused} />
         </span>

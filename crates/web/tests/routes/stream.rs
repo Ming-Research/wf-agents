@@ -28,6 +28,7 @@ async fn the_stream_says_as_it_opens_that_everything_may_have_changed_and_then_e
         json!({
             "title": title,
             "dependsOn": [],
+            "project": "trial",
             "flow": "trial",
             "writes": [{ "block": "request", "content": "Please.", "value": null }],
         })

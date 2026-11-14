@@ -43,7 +43,7 @@ fn engineer() -> Compiled {
 fn settings() -> Settings {
     let mut settings = Settings::read(include_str!("../../install.sample.toml")).expect("the sample reads");
     let github = "repository = \"owner/name\"\n";
-    settings.github = Some(toml::from_str(github).unwrap());
+    settings.projects.get_mut("example").unwrap().github = Some(toml::from_str(github).unwrap());
     settings
 }
 
@@ -281,7 +281,7 @@ fn the_checks_an_agent_may_name_are_said_as_the_project_declares_its_fast_workfl
     );
     assert!(!whole.contains("{named_checks}"), "{whole}");
     let mut local = settings();
-    local.github = None;
+    local.projects.get_mut("example").unwrap().github = None;
     assert_eq!(faults(&local, &beside, &flow), Vec::<String>::new());
 }
 
@@ -321,36 +321,34 @@ fn every_place_rule_set_and_tool_that_cannot_be_made_is_said_at_once() {
 #[test]
 fn a_project_file_main_lacks_or_links_is_said() {
     let repo = crate::git::tests::Repo::new("true");
-    let mut settings = settings();
-    settings.github = None;
-    settings.project = repo.project.clone();
+    let project = repo.project.clone();
     let mut beside = beside();
-    let missing = project_files(&settings, &beside);
+    let missing = project_files(&project, &beside);
     assert_eq!(missing.len(), 3, "{missing:?}");
     assert_eq!(
         missing[0],
         "project.toml: the file guide, AGENTS.md, is not on main, refs/heads/main, where works branch from"
     );
-    let dir = &settings.project.repo;
+    let dir = &project.repo;
     std::fs::create_dir_all(dir.join("design")).unwrap();
     crate::git::tests::commit(dir, "AGENTS.md", "The guide.\n");
     crate::git::tests::commit(dir, "design/constitution.md", "The constitution.\n");
     assert_eq!(
-        project_files(&settings, &beside),
+        project_files(&project, &beside),
         [
             "project.toml: the file tree_rules, design/README.md, is not on main, refs/heads/main, where works branch from"
         ]
     );
     // A file in the checkout that main does not hold is missing all the same.
     std::fs::write(dir.join("design/README.md"), "Not committed.\n").unwrap();
-    assert_eq!(project_files(&settings, &beside).len(), 1);
+    assert_eq!(project_files(&project, &beside).len(), 1);
     // A link on main, the file itself or a directory above it, is refused.
     std::fs::remove_file(dir.join("design/README.md")).unwrap();
     std::os::unix::fs::symlink("constitution.md", dir.join("design/README.md")).unwrap();
     crate::git::tests::run(dir, &["add", "design/README.md"]);
     crate::git::tests::run(dir, &["commit", "-q", "-m", "Link the tree's rules"]);
     assert_eq!(
-        project_files(&settings, &beside),
+        project_files(&project, &beside),
         [
             "project.toml: the file tree_rules, design/README.md: design/README.md is a symbolic link on main, \
              refs/heads/main, which no file of the project is read through"
@@ -363,7 +361,7 @@ fn a_project_file_main_lacks_or_links_is_said() {
     crate::git::tests::run(dir, &["commit", "-q", "-m", "Link a directory"]);
     beside.project.files.get_mut("tree_rules").unwrap().path = "linked/rules.md".to_string();
     assert_eq!(
-        project_files(&settings, &beside),
+        project_files(&project, &beside),
         [
             "project.toml: the file tree_rules, linked/rules.md: linked is a symbolic link on main, refs/heads/main, \
              which no file of the project is read through"
@@ -372,7 +370,7 @@ fn a_project_file_main_lacks_or_links_is_said() {
     // A file not named within the repository is refused before main is looked at.
     beside.project.files.get_mut("tree_rules").unwrap().path = "../outside.md".to_string();
     assert_eq!(
-        project_files(&settings, &beside),
+        project_files(&project, &beside),
         ["project.toml: the file tree_rules is named by its path within the repository, not \"../outside.md\""]
     );
 }
@@ -382,17 +380,17 @@ fn a_project_file_main_lacks_or_links_is_said() {
 #[test]
 fn the_project_files_are_looked_for_where_works_branch_from() {
     let repo = crate::git::tests::Repo::new("true");
-    let mut settings = settings();
-    settings.project = repo.project.clone();
-    let dir = &settings.project.repo;
+    let mut project = repo.project.clone();
+    project.github = settings().projects["example"].github.clone();
+    let dir = &project.repo;
     std::fs::create_dir_all(dir.join("design")).unwrap();
     for path in ["AGENTS.md", "design/constitution.md", "design/README.md"] {
         crate::git::tests::commit(dir, path, "Some text.\n");
     }
-    let remote = settings.github.as_ref().unwrap().remote.clone();
+    let remote = project.github.as_ref().unwrap().remote.clone();
     let fetched = format!("refs/remotes/{remote}/main");
     assert_eq!(
-        project_files(&settings, &beside()),
+        project_files(&project, &beside()),
         [format!(
             "{fetched}, main's head where works branch from, is not in the project's repository: the files \
              project.toml names are not looked for there"
@@ -401,9 +399,9 @@ fn the_project_files_are_looked_for_where_works_branch_from() {
     // Main as GitHub last gave it, before the files were committed on the local branch.
     let first = crate::git::tests::run(dir, &["rev-list", "--max-parents=0", "HEAD"]);
     crate::git::tests::run(dir, &["update-ref", &fetched, &first]);
-    assert_eq!(project_files(&settings, &beside()).len(), 3);
+    assert_eq!(project_files(&project, &beside()).len(), 3);
     crate::git::tests::run(dir, &["update-ref", &fetched, "HEAD"]);
-    assert_eq!(project_files(&settings, &beside()), Vec::<String>::new());
+    assert_eq!(project_files(&project, &beside()), Vec::<String>::new());
 }
 
 // The place `{store}` in the words of `query` is filled by `crate::store`: the file's words that the store is not open

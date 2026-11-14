@@ -26,7 +26,7 @@ use flow::{Compiled, Kind};
 use uuid::Uuid;
 
 use crate::git;
-use crate::settings::Settings;
+use crate::settings::{Project, Settings};
 
 /// The directory in the data directory where the system prompt each session began with is kept.
 pub const SESSIONS: &str = "sessions";
@@ -214,9 +214,9 @@ pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<Stri
 /// in its order, on main where works branch from, as the host last gave it: one not named by a path within the
 /// repository, one main does not hold as a file, or one a symbolic link on main leads to, the file or a directory above
 /// it. A work's worktree is made from main, so its sessions would find none, or read through the link.
-pub fn project_files(settings: &Settings, beside: &Agents) -> Vec<String> {
-    let repo = &settings.project.repo;
-    let main = crate::host::kept_main(settings);
+pub fn project_files(project: &Project, beside: &Agents) -> Vec<String> {
+    let repo = &project.repo;
+    let main = crate::host::kept_main(project);
     let git = |args: &[&str]| {
         std::process::Command::new("git")
             .arg("-C")
