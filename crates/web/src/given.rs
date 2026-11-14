@@ -353,7 +353,7 @@ impl<'a> Build<'a> {
                 }
                 PartIs::Main => {
                     if part.only != Some(Only::TakesMain) || cell.takes_main {
-                        out.push(made(What::Message, message.clone(), Vec::new()));
+                        out.push(made(What::Message, message.clone(), self.main(part)));
                     }
                 }
                 PartIs::Context => {
@@ -379,6 +379,31 @@ impl<'a> Build<'a> {
     /// A part's own text, with the places the flow fills in filled.
     fn text(&self, part: &MessagePart, known: &[(&str, &str)]) -> Vec<Piece> {
         part.text.as_deref().map_or_else(Vec::new, |text| fill(text, known))
+    }
+
+    /// The part about taking main in: each text of its definition as the file writes it, by its key, with the places
+    /// the engine fills in a run left as places.
+    fn main(&self, part: &MessagePart) -> Vec<Piece> {
+        let texts = [
+            ("text", &part.text),
+            ("conflict", &part.conflict),
+            ("uncommitted", &part.uncommitted),
+            ("merging", &part.merging),
+            ("failed", &part.failed),
+            ("between", &part.between),
+        ];
+        let mut pieces = Vec::new();
+        for (key, text) in texts {
+            let Some(text) = text else { continue };
+            if !pieces.is_empty() {
+                pieces.push(Piece::Text { text: "\n".to_string() });
+            }
+            pieces.push(Piece::Text {
+                text: format!("{key} = "),
+            });
+            pieces.extend(with_slots(text));
+        }
+        join(pieces)
     }
 
     /// The triggers' part: its text, then its `each` for every trigger of the cell, with what happened where the

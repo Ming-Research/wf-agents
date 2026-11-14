@@ -66,6 +66,7 @@ impl Repo {
                 check: check.to_string(),
                 allowed_config: Vec::new(),
                 commits: crate::acts::writes().commits,
+                tree: "design/".to_string(),
             },
             data,
         }

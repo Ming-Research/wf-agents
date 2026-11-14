@@ -27,11 +27,20 @@ part = "work"
 kind = "latest"
 text = "Work {work}, on the item {item}."
 
-# The engine writes it: the commit of main merged in and the git command that shows what it changed, or why main
-# could not be taken in and the files in conflict.
+# The engine writes it in one line, in these words: `text` where main was merged into the work's branch, `{main}` its head
+# merged in and `{merge}` the commit of the merge; `conflict` where it does not merge, `{files}` the files in conflict;
+# `uncommitted` where the worktree holds changes not committed, and `merging` where a merge is under way in it,
+# `{changes}` the files it holds changes of; `failed` for any other cause, which it does not say. In each, `{name}` is the main branch's name. Nothing
+# is said where the work's branch held main already. `between` stands between the items of a list.
 [[parts]]
 part = "main"
 only = "takes_main"
+text = "{name} at {main} was merged into the work's branch as the commit {merge}; `git diff --name-only {merge}^1 {merge}` shows what it changed."
+conflict = "{name} at {main} was not merged into the work's branch: it conflicts in {files}."
+uncommitted = "{name} at {main} was not merged into the work's branch: the worktree holds changes not committed, {changes}."
+merging = "{name} at {main} was not merged into the work's branch: a merge is under way in the worktree, not committed, {changes}."
+failed = "{name} was not merged into the work's branch."
+between = ", "
 
 # Each datum of the cell's `context` that is new to it since it last worked from it, or that the session lacks: its
 # content as `given.toml` says for the cell's kind of it, or `held` there where the session holds it already. A datum

@@ -205,6 +205,10 @@ pub struct Project {
     /// beside the flows, put here as the carriers are made ([`crate::carry`]).
     #[serde(skip)]
     pub commits: flow::agents::Commits,
+    /// The directory of the repository that holds the project's design tree: not in the settings, but in
+    /// `project.toml` beside the flows, put here as the carriers are made.
+    #[serde(skip)]
+    pub tree: String,
 }
 
 /// The project's repository on GitHub: the works' branches are pushed there, checked by its CI through a pull request

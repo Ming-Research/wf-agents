@@ -1,4 +1,8 @@
 # The project of the tests: the files of it the engine gives every agent, and the settings the words may name.
+
+# The directory that holds the project's design tree, which the engine looks at on each work's branch.
+tree = "design/"
+
 [files.guide]
 path = "AGENTS.md"
 

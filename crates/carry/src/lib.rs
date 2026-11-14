@@ -22,6 +22,7 @@
 //! - [`catch_up`]: the work's branch taking main in as a run of a cell that changes the code starts.
 //! - `kept`: what each round of an agent was told and returned, where it is kept and how it is read back.
 //! - `tools`: the tools, `read` and `run_tests`.
+//! - [`tree`]: the design tree on a work's branch, as the data a source outside the work writes.
 //! - [`session`]: the sessions of each line of each work, worked out from the installation's id.
 //! - `held` and `process`: what a carrier holds while it carries something out, and the programs it runs to do so.
 
@@ -43,6 +44,7 @@ pub mod session;
 pub mod settings;
 pub mod system;
 mod tools;
+pub mod tree;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -79,6 +81,7 @@ pub fn carry(
     mut beside: flow::agents::Agents,
 ) -> Result<(Carriers, Watch), String> {
     settings.project.commits = beside.commits.clone();
+    settings.project.tree = beside.project.tree.clone();
     let words = beside.acts.clone();
     // Where the host is the local repository, the agents are told what `run_tests` does there.
     if settings.github.is_none() {

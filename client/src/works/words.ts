@@ -112,6 +112,8 @@ export function sessionWords(why: SessionWhy): string {
       return "a new one, the service's safety check having flagged its last round";
     case 'lost':
       return "begun again, the agents' program having lost it";
+    case 'compacted':
+      return 'it holds only a summary of what it read';
   }
 }
 

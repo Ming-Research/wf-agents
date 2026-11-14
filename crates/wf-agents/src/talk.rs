@@ -521,6 +521,7 @@ fn session_why(why: &SessionWhy) -> String {
         SessionWhy::Owner => "a new one, as the owner asked".to_string(),
         SessionWhy::Flagged => "a new one, the service's safety check having flagged its last round".to_string(),
         SessionWhy::Lost => "begun again, the agents' program having lost it".to_string(),
+        SessionWhy::Compacted => "compacted: it holds only a summary of what it read".to_string(),
     }
 }
 

@@ -19,7 +19,7 @@
 use std::sync::Arc;
 
 use decide::run::Failure;
-use decide::{CallId, End, Pauser, RunId};
+use decide::{BlockId, CallId, End, Outsider, Pauser, RunId};
 use driver::Policy;
 use engine::{Came, Event};
 use flow::{CellSpec, Compiled, Kind};
@@ -385,10 +385,33 @@ impl Teller {
         });
     }
 
-    /// The round began a new session of its line, for this reason: as when the agents' program had lost the one the
-    /// round was to go on in.
+    /// The line's session was reopened during the round, for this reason: the agents' program had lost the one the
+    /// round was to go on in, or compacted it.
     pub fn session_began(&self, line: String, why: Why) {
         self.tell(Event::Anew { line, why });
+    }
+
+    /// The source outside the work that writes the block says this of it now: the carrier read it of what the round
+    /// leaves, as the design tree on the work's branch after a round that committed to it. It is written as a new
+    /// version of the block, while the round is under way.
+    pub fn outside_wrote(&self, block: BlockId, content: String) {
+        self.tell(Event::Wrote {
+            block,
+            by: Outsider::Outside,
+            content,
+            matters: true,
+            value: None,
+        });
+    }
+
+    /// As [`Teller::outside_wrote`], for the round: the version is put into it, so that the round is told of it and its
+    /// run consumes it. The carrier does it for what it did before its program began, as taking main in.
+    pub fn outside_wrote_for_round(&self, block: BlockId, content: String) {
+        self.tell(Event::WroteForRound {
+            run: self.run,
+            block,
+            content,
+        });
     }
 
     fn tell(&self, event: Event) {

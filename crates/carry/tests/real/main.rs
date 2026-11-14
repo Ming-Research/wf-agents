@@ -20,6 +20,7 @@ mod permissions;
 mod query;
 mod sessions;
 mod stopping;
+mod tree;
 
 use std::collections::BTreeSet;
 use std::os::unix::fs::PermissionsExt;
@@ -73,6 +74,10 @@ pub struct Fake {
     pub refuses_first: bool,
     /// Whether the plan adds a line to the project's guide in the worktree, as a work's own change of it would.
     pub plan_edits_guide: bool,
+    /// Whether the build commits a file of the design tree.
+    pub design: bool,
+    /// Whether the build, once, commits a file of the design tree to main.
+    pub moves_main: bool,
 }
 
 impl Default for Fake {
@@ -90,6 +95,8 @@ impl Default for Fake {
             plan_again_unchanged: false,
             refuses_first: false,
             plan_edits_guide: false,
+            design: false,
+            moves_main: false,
         }
     }
 }
@@ -249,7 +256,7 @@ fn compiled(on: On) -> Compiled {
     }
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = Has {
-        sources: names(&[driver::DEPENDENCIES, driver::SESSION]),
+        sources: names(&[driver::DEPENDENCIES, driver::SESSION, carry::tree::TREE]),
         acts: names(&["start", "check", "merge", "deliver"]),
         // The triggers beside the repository's flows are every flow's, and one says what happened by the files of
         // the tree.
@@ -341,6 +348,19 @@ case "$first" in
                 echo 'No conversation found with session ID: 00000000-0000-5000-8000-000000000001' >&2
                 exit 1
             fi
+            if [ '{design}' = yes ]; then
+                mkdir -p design
+                echo built > design/built.md
+                git add design/built.md
+            fi
+            if [ '{moves}' = yes ] && [ ! -f "$log/moved" ]; then
+                touch "$log/moved"
+                r=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
+                mkdir -p "$r/design"
+                printf 'Good day.\n' > "$r/design/main.md"
+                git -C "$r" add design/main.md
+                git -C "$r" -c user.name=Tester -c user.email=tester@example.com commit -q -m 'Main moved'
+            fi
             git -c user.name=Fake -c user.email=fake@example.com commit -q --allow-empty -m 'Build the greeting'
             out='"code":"A greeting."'
         fi ;;
@@ -366,6 +386,8 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         refuses = yes(fake.refuses_first),
         edits_guide = yes(fake.plan_edits_guide),
         guide = PROJECT_FILES[0].0,
+        design = yes(fake.design),
+        moves = yes(fake.moves_main),
         gave_up = GAVE_UP,
         refused = refused.display(),
         iterations = fake.context.map_or_else(String::new, |context| {
@@ -432,6 +454,9 @@ impl Real {
         }
         git_in(&repo, &["add", "."]);
         git_in(&repo, &["commit", "-q", "-m", "Greet"]);
+        std::fs::write(repo.join("design/readme.md"), "The tree.\n").unwrap();
+        git_in(&repo, &["add", "design/readme.md"]);
+        git_in(&repo, &["commit", "-q", "-m", "Design"]);
         let command = fake(&root, &calls, &answers);
         let settings = Settings {
             owner: Owner {
@@ -443,6 +468,7 @@ impl Real {
                 check: check.to_string(),
                 allowed_config: Vec::new(),
                 commits: Default::default(),
+                tree: "design/".to_string(),
             },
             agents: Agents {
                 command: command.display().to_string(),

@@ -27,14 +27,15 @@
 //! the same, and is built again where the program is tried the other way. A session
 //! the program no longer has is begun again under its id, and that is said to the loop at once, so that it is
 //! recorded with why. Where the program compacts the session during the round, a hook it is given marks the
-//! compaction, which the round counts among what it took, and gives the session the round's whole message again, as a
-//! session that begins is told it. After each use of a tool another hook gives the session what the owner said to the
+//! compaction, which the round counts among what it took and says to the loop as the session reopened, and gives the
+//! session the round's whole message again, as a session that begins is told it. After each use of a tool another hook gives the session what the owner said to the
 //! round while it runs, where the runner put it in the round's files (`cli::Words`).
 //!
 //! Before the first round of each run of a cell that takes main in, the work's branch takes in main's head as the host
 //! last gave it ([`catch_up`](crate::catch_up)), and what came of it is kept beside the run's rounds before the round
 //! is told it; a round of the run given again, or another of its rounds given its task, is told what was kept, and
-//! nothing is taken in again for the run.
+//! nothing is taken in again for the run. The branch's design tree is looked at after that, and after the round's
+//! program ended ([`tree`]), where it may have changed.
 //!
 //! Each round runs on the model of its item's level, or of a level above it where its cell's line says so, and at the
 //! effort its cell sets (`Settings::ran_on`); a round whose item's level the settings no longer allow fails, saying so.
@@ -68,7 +69,7 @@ use crate::held::{Failing, Held, Stop};
 use crate::permissions::Permissions;
 use crate::process::{self, Ran};
 use crate::settings::Settings;
-use crate::{acts, failure, git, kept, message, returns, session, system};
+use crate::{acts, failure, git, kept, message, returns, session, system, tree};
 
 /// What is written beside the flows, which every flow shares: the words the agents are sent, and the definitions the
 /// form of a return is made of.
@@ -243,6 +244,12 @@ impl Inner {
         } else {
             None
         };
+        // The branch may have a new design tree where it took main in.
+        let tree_dir = &self.settings.project.tree;
+        let mut looking = tree::Looking::of(flow, work, tree_dir);
+        if let (Some(looking), Some(_)) = (&mut looking, &main) {
+            looking.tell(&place, teller, true).await;
+        }
         if let Some(parent) = base.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
@@ -275,7 +282,7 @@ impl Inner {
             (work::sessions::of_line(work, line)).any(|s| s.why == Why::Lost && at.is_some_and(|a| a < s.at));
         // The task as the message sends it, each setting it names with its value beside it.
         let task = system::task(&self.filling.named, &round.cell)?;
-        let (status, stream, stderr) = loop {
+        let (status, stream, stderr, compactions) = loop {
             // A round whose run ran in another session before is told what a session that begins is told: the
             // session it goes on in never saw the run.
             let opening = message::Opening {
@@ -331,7 +338,14 @@ impl Inner {
             let mut each = |line: &[u8]| kept.line(line);
             // A program that cannot be started printed no result: its words say whether it is missing, which holds
             // every work, and any other cause pauses the work.
-            let ran = match process::streamed(command, Some(cli::stdin(&told)), Some(&group), stop, &mut each).await {
+            let ran = process::streamed(command, Some(cli::stdin(&told)), Some(&group), stop, &mut each).await;
+            // Each compaction of the try is a reopening of the session, told while the round is still under way,
+            // however the try ended.
+            let compactions = marked(&compacted.marks).await;
+            for _ in 0..compactions {
+                teller.session_began(line.to_string(), Why::Compacted);
+            }
+            let ran = match ran {
                 Ok(ran) => ran,
                 Err(why) => {
                     let kind = failure::of(&why, None);
@@ -353,13 +367,13 @@ impl Inner {
                 tried = true;
                 continue;
             }
-            break (status, stream, stderr);
+            break (status, stream, stderr, compactions);
         };
         let _ = tokio::fs::remove_file(&compacted.again).await;
-        let compactions = match tokio::fs::metadata(&compacted.marks).await {
-            Ok(marks) => u32::try_from(marks.len()).unwrap_or(u32::MAX),
-            Err(_) => 0,
-        };
+        // What the round committed may have changed the design tree.
+        if let Some(looking) = &mut looking {
+            looking.tell(&place, teller, false).await;
+        }
         let had_result = stream.has_result();
         let read = stream.read(begin, before).map(|mut read| {
             read.spent.compactions = compactions;
@@ -440,6 +454,13 @@ impl Inner {
             return Ok(None);
         }
         let caught = catch_up::take_in(&self.settings.project, place, &self.main, round.run).await;
+        // The round is told only that main was not taken in; why is for whoever runs the engine.
+        if let catch_up::Outcome::Failed { why } = &caught.outcome {
+            eprintln!(
+                "main could not be taken into the branch of work {}: {why}",
+                round.work.0
+            );
+        }
         let kept = serde_json::to_vec_pretty(&caught).map_err(|e| format!("{}: {e}", named()))?;
         // Written whole or not at all, so that a stop in the middle leaves no file the run's rounds cannot read.
         let writing = at.with_extension("json.part");
@@ -481,6 +502,14 @@ fn resets(failure: Failure, why: &str, clock: &dyn Clock) -> Option<work::Time> 
     }
     let now = clock.now().ok()?;
     failure::resets_at(why, now.0, &failure::zone_offset).map(work::Time)
+}
+
+/// How many compactions of the session the file of marks holds, a byte for each.
+async fn marked(marks: &Path) -> u32 {
+    match tokio::fs::metadata(marks).await {
+        Ok(marks) => u32::try_from(marks.len()).unwrap_or(u32::MAX),
+        Err(_) => 0,
+    }
 }
 
 /// The number of the next try of the round, and where it keeps what it is told and its stream: the first that has

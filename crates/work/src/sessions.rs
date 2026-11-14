@@ -1,10 +1,10 @@
 //! The sessions of a work's lines, as its records say them.
 //!
 //! A line's rounds run in one session of the agents' program, its first, until something makes the line begin a new
-//! one; each such beginning is an entry of the work, [`Session`], with why it began. A session the program lost is
-//! begun again under the same id; every other new session has an id of its own, so that a round finds its session by
-//! counting the line's new sessions recorded before its first try began ([`start`], [`of_round`]), and needs nothing
-//! stored but the records.
+//! one, or something makes its session hold only a summary: each is an entry of the work, [`Session`], with why. A
+//! session the program lost is begun again under the same id, and a compacted one goes on under it; every other new
+//! session has an id of its own, so that a round finds its session by counting the line's new sessions recorded before
+//! its first try began ([`start`], [`of_round`]), and needs nothing stored but the records.
 //! What each try of a round ran on is recorded as the try begins ([`RanOn`]), so that what a session was begun on is
 //! the records' too ([`began_on`]).
 
@@ -13,7 +13,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Spent, Work};
 
-/// A new session of a line of the work, as it is recorded: the line's rounds that begin after it run in it.
+/// A line's session reopened, as it is recorded: a new session the line's rounds that begin after it run in, or the
+/// session compacted, which they go on in.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
     /// The place of the entry in the order of what happened to the work.
@@ -49,7 +50,7 @@ pub struct RanOn {
     pub account: Option<String>,
 }
 
-/// Why a line began a new session.
+/// Why a line's session was reopened.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Why {
     /// The context of the line's session, as its last round ended, was past the installation's limit, in tokens.
@@ -66,18 +67,21 @@ pub enum Why {
     Flagged,
     /// The agents' program had no session under the line's id: the round that found it begins one under that id.
     Lost,
+    /// The agents' program compacted the line's session during a round: the session goes on under its id, holding a
+    /// summary where it held what the line had read.
+    Compacted,
 }
 
 impl Why {
     /// Whether the session begins under an id of its own: every new session but one begun again under the id of the
-    /// one the program lost.
+    /// one the program lost, and a session compacted, which the program goes on in under its id.
     pub fn own_id(&self) -> bool {
-        !matches!(self, Why::Lost)
+        !matches!(self, Why::Lost | Why::Compacted)
     }
 
     /// The names of its kinds, each the name of the words of it where the flow says what the engine writes of a new
     /// session: [`Why::named`] gives a kind's name from here, by [`Why::kind`].
-    pub const KINDS: [&'static str; 6] = ["limit", "model", "account", "owner", "flagged", "lost"];
+    pub const KINDS: [&'static str; 7] = ["limit", "model", "account", "owner", "flagged", "lost", "compacted"];
 
     /// Its kind's place among [`Why::KINDS`]. The match names every kind, so that a kind added to `Why` is given a
     /// name there before the engine builds.
@@ -89,6 +93,7 @@ impl Why {
             Why::Owner => 3,
             Why::Flagged => 4,
             Why::Lost => 5,
+            Why::Compacted => 6,
         }
     }
 
@@ -97,7 +102,7 @@ impl Why {
         let places = match self {
             Why::Limit { context, limit } => vec![("context", context.to_string()), ("limit", limit.to_string())],
             Why::Model { was } => vec![("was", was.clone())],
-            Why::Account { .. } | Why::Owner | Why::Flagged | Why::Lost => Vec::new(),
+            Why::Account { .. } | Why::Owner | Why::Flagged | Why::Lost | Why::Compacted => Vec::new(),
         };
         (Self::KINDS[self.kind()], places)
     }
@@ -166,10 +171,13 @@ pub fn of_round(work: &Work, line: &str, on_line: impl Fn(RunId) -> bool, run: R
 pub fn moved(work: &Work, line: &str, run: RunId, number: usize) -> bool {
     let at = start(work, run, number);
     let session = number_at(work, line, at);
-    let lost = (of_line(work, line))
-        .filter(|s| s.why == Why::Lost && s.at < at && number_at(work, line, s.at) == session)
-        .map(|s| s.at)
-        .last();
+    let latest = |why: Why| {
+        (of_line(work, line))
+            .filter(|s| s.why == why && s.at < at && number_at(work, line, s.at) == session)
+            .map(|s| s.at)
+            .last()
+    };
+    let (lost, compacted) = (latest(Why::Lost), latest(Why::Compacted));
     let mut before: Vec<(RunId, usize)> = (1..number).map(|earlier| (run, earlier)).collect();
     if number == 1 {
         let results = (work.records.started.iter())
@@ -194,9 +202,21 @@ pub fn moved(work: &Work, line: &str, run: RunId, number: usize) -> bool {
     let held = before.iter().any(|&(r, earlier)| {
         let here = number_at(work, line, start(work, r, earlier)) == session;
         let since = lost.is_none_or(|lost| last_try(work, r, earlier) > lost);
-        here && since && work.spent.get(&(r, earlier)).is_some_and(spent)
+        // A compaction leaves the session the summary of what it held: only a round that was under way as it came, and
+        // so was given its message again whole, or began after it, is held by the session.
+        let after = compacted
+            .is_none_or(|c| began_at(work, r, earlier).is_none_or(|b| b > c) || ended_at(work, r, earlier) > c);
+        here && since && after && work.spent.get(&(r, earlier)).is_some_and(spent)
     });
     !before.is_empty() && !held
+}
+
+/// Where the round of this number of the run ended; the place after every entry where it has not.
+fn ended_at(work: &Work, run: RunId, number: usize) -> Seq {
+    let mut ended = work.records.returned.iter().filter(|r| r.run == run);
+    ended
+        .nth(number.saturating_sub(1))
+        .map_or_else(|| work.tick(), |r| r.at)
 }
 
 /// Where the round of this number of the run last reached its session: where its last try began, as its record says,
@@ -237,6 +257,7 @@ mod tests {
             Why::Owner,
             Why::Flagged,
             Why::Lost,
+            Why::Compacted,
         ];
         let names: Vec<&str> = every.iter().map(|w| w.named().0).collect();
         assert_eq!(names, Why::KINDS);
@@ -422,5 +443,32 @@ mod tests {
         assert_eq!(began(0), Some("a"));
         assert_eq!(began(1), Some("b"), "the first try of the session's first round");
         assert_eq!(began(2), None, "a session none of whose rounds began");
+    }
+
+    #[test]
+    fn a_session_compacted_holds_only_the_rounds_under_way_as_it_came_or_begun_after_it() {
+        // The compaction at 5 comes between the second round's end at 4 and the third's beginning at 6.
+        let w = work(&[(1, 10), (3, 10), (6, 10), (8, 10)], &[(5, Why::Compacted)]);
+        assert!(
+            !moved(&w, "engineer", RunId(1), 2),
+            "the first round was held by the session before"
+        );
+        assert!(
+            moved(&w, "engineer", RunId(1), 3),
+            "the summary holds nothing of the rounds before"
+        );
+        assert!(
+            !moved(&w, "engineer", RunId(1), 4),
+            "the round before it began after the compaction"
+        );
+        // The second round was under way as it came, and was given its message again whole.
+        let mut inside = work(&[(1, 10), (3, 10), (8, 10)], &[(5, Why::Compacted)]);
+        inside.records.returned[1].at = Seq(7);
+        assert!(
+            !moved(&inside, "engineer", RunId(1), 3),
+            "a round under way as it came holds the run"
+        );
+        // The session goes on under its id.
+        assert_eq!(of(&w, 3), (0, false));
     }
 }

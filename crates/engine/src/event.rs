@@ -19,6 +19,14 @@ pub enum Event {
         matters: bool,
         value: Option<String>,
     },
+    /// The outside wrote a block while the round of this run was under way, as its carrier's own doing for that round,
+    /// as taking main in is: the version is written and put into the round, so that the round is told of it and the
+    /// run consumes it.
+    WroteForRound {
+        run: RunId,
+        block: BlockId,
+        content: String,
+    },
     /// The owner let the cell go on at its limit.
     LetGo { cell: CellId },
     /// The work was paused: by the owner, who gives no reason, or by the engine itself, for this reason, as when it
