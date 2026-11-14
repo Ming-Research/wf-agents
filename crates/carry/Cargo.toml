@@ -16,6 +16,8 @@ engine = { path = "../engine" }
 flow = { path = "../flow" }
 # The JUnit XML a fast CI reports its tests' results in.
 roxmltree = "0.21.1"
+# The read-only connection of the tool `query`: its authorizer and its time limit are hooks, its value limit a limit.
+rusqlite = { workspace = true, features = ["hooks", "limits"] }
 serde.workspace = true
 serde_json.workspace = true
 service = { path = "../service" }

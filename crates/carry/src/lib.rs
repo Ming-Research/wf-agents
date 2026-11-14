@@ -58,7 +58,7 @@ pub use agents::{Agents, ROUNDS};
 pub use host::github::{GhOffsite, UPLOAD_RATE};
 pub use process::{STOP_WAIT, TAIL};
 pub use settings::Settings;
-pub use tools::{CHECK, CHECK_BEFORE};
+pub use tools::{CHECK, CHECK_BEFORE, QUERY, Querying};
 
 /// The carriers of these settings, keeping what they keep in the data directory: the installation's id, the works'
 /// worktrees, and what each round was told and returned. The agents' rounds are told, and given the form of return,
@@ -82,14 +82,15 @@ pub fn carry(mut settings: Settings, data: &Path, beside: flow::agents::Agents) 
     let installation = session::installation(&data)?;
     let project = settings.project.clone();
     let tag = git::tag(&installation);
+    let query = Querying::new(&settings.query, beside.tools.get(QUERY), &data, store::SCHEMA);
     let (acts, tools, watch, main) = match &settings.github {
         None => {
             let host = host::Local::new(project.clone()).giving(settings.agents.env.clone());
-            on(host, &project, &data, &tag, words)
+            on(host, &project, &data, &tag, words, query.clone())
         }
         Some(github) => {
             let host = host::GitHub::from_settings(github, &project, &data, |name| std::env::var(name).ok())?;
-            on(host, &project, &data, &tag, words)
+            on(host, &project, &data, &tag, words, query.clone())
         }
     };
     let slots = settings.agents.slots;
@@ -111,6 +112,7 @@ fn on<H: Host>(
     data: &Path,
     tag: &str,
     words: Words,
+    query: Querying,
 ) -> (Arc<dyn Rounds>, Arc<dyn ToolsTrait>, Watch, String) {
     let main = host.kept_main();
     let host = Arc::new(host);
@@ -122,6 +124,6 @@ fn on<H: Host>(
         words,
     );
     let watch = acts.watch(WATCH);
-    let tools = Tools::new(host, project.clone(), data.to_path_buf(), tag.to_string());
+    let tools = Tools::new(host, project.clone(), data.to_path_buf(), tag.to_string()).querying(query);
     (Arc::new(acts), Arc::new(tools), watch, main)
 }

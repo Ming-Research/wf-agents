@@ -173,6 +173,19 @@ context_limit = 500000
 # # failed test's output as well.
 # status_width = 12
 
+# The agents' tool `query`: one read-only SQL query on the engine's store, which the engine runs and answers in the next
+# message. Off until the owner has settled which tables the agents see: with it off, a request is answered that the
+# store is not open to agents yet, and the store is not touched. Left out, it is off.
+# [query]
+# open = false
+# # The most rows a query is kept with; a query finding more has the first of them kept, and the agent is given the
+# # query that reads the rest.
+# max_rows = 200
+# # The milliseconds a query may run before it is stopped.
+# timeout_ms = 5000
+# # The most bytes of rows a query is kept with.
+# max_bytes = 1048576
+
 # The copies of the engine's database. Every day while the engine runs, it copies the database whole into
 # `backups/` in the data directory and keeps the newest `keep` there. Without this table, that is all: the copies share
 # the disk they are kept against losing, so they do not guard against its loss, and the owner's page says so. With it,

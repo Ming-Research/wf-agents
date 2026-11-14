@@ -8,6 +8,7 @@
 //! into main's head is answered at once with the files in conflict (the module `conflict`).
 
 mod conflict;
+mod query;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -21,6 +22,8 @@ use crate::held::{Held, Stop};
 use crate::host::{Branch, Host, Named};
 use crate::read::{self, READ};
 use crate::settings::Project;
+
+pub use query::{QUERY, Querying};
 
 /// The name of the tool that checks the work.
 pub const CHECK: &str = "check";
@@ -40,6 +43,8 @@ struct Inner<H> {
     /// The installation's part of the names of the works' worktrees.
     tag: String,
     held: Held<(WorkNumber, CallId), CallReply>,
+    /// The tool `query`, closed until the settings open it.
+    query: Querying,
 }
 
 /// What came of a call.
@@ -59,8 +64,17 @@ impl<H: Host> Tools<H> {
                 data,
                 tag,
                 held: Held::new(),
+                query: Querying::closed(),
             }),
         }
+    }
+
+    /// The tools with the tool `query` as this says it is.
+    pub fn querying(mut self, query: Querying) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("the tools are not shared yet")
+            .query = query;
+        self
     }
 }
 
@@ -75,6 +89,12 @@ impl<H: Host> ToolsTrait for Tools<H> {
         tokio::spawn(async move {
             let answered = if call.name == READ {
                 Answer::Result(read::answer(&call.flow, &call.kept, &call.input))
+            } else if call.name == QUERY {
+                // The query runs in a thread of its own, within its time limit: it blocks the one that asked.
+                let asked = inner.clone();
+                let input = call.input.clone();
+                let said = tokio::task::spawn_blocking(move || asked.query.answer(&input)).await;
+                Answer::Result(said.unwrap_or_else(|e| format!("The query could not be run: {e}")))
             } else {
                 let place = git::place(&inner.data, &inner.tag, call.work);
                 // What the work says of itself, as the acts work it out, so that the pull request the tool brings up

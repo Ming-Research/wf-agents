@@ -411,6 +411,12 @@ pub enum ToldAs {
 #[serde(deny_unknown_fields)]
 pub struct Tool {
     pub words: String,
+    /// What the tool says of its own answers, by name, `{name}` places in each filled where it is said.
+    #[serde(default)]
+    pub texts: BTreeMap<String, String>,
+    /// How many bytes of a result are given in a message; a result longer is given cut by the tool's own rule, and
+    /// kept whole in the records. With none, a result is always given whole.
+    pub given_bytes: Option<usize>,
     /// The shape of a request of it.
     pub request: toml::Value,
     /// What fills each place of its words that the engine fills by how the installation runs the tool, by the place's

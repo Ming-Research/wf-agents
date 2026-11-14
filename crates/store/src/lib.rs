@@ -40,6 +40,9 @@ use work::{Time, Work};
 pub use backups::{Backups, Failure, Kept, Records};
 pub use items::{Change, First, Item, ItemChange, ItemNumber, WorkHead, WorkNumber};
 
+/// The name of the store's file in the data directory.
+pub const FILE: &str = "store.sqlite";
+
 /// The schema of the store, as SQL.
 pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 

@@ -1,8 +1,28 @@
 # One read-only SQL query on the engine's records, run by the engine (design statement 27). `{store}` is filled with
-# what the records hold.
+# what the records hold where the store is open to agents, and with `closed` below where it is not. The engine gives a
+# result as `{"rows": [...]}`, each row an object by the column names, with `cut` where rows are left out.
 words = '''
-`query`: one read-only SQL query on the engine's records, as `{"sql": "..."}`. {store} It gives the rows. A result too
-  large to give whole comes cut, with its size and the query that gets the rest.'''
+`query`: one read-only SQL query on the engine's records, as `{"sql": "..."}`. {store}
+  It gives `{"rows": [...]}`, each row an object by the column names. Rows past the bounds of a query are left out, and
+  `cut` says how many are given and has the query that reads the rest; a result too large to give whole comes cut in
+  the same way, with its size in `bytes`.'''
+# How many bytes of a result a message gives, past which it is given cut.
+given_bytes = 12000
+
+# What the engine says of its own answers: `{why}` the reason, `{ms}` the milliseconds a query may take. The store is
+# described table by table where it is open: `store_table` (`{table}`, `{comment}` and `{columns}`, which are
+# `store_column`, or `store_column_commented` where a column has a comment, with `{column}`, `{type}` and `{comment}`).
+[texts]
+closed = "The store is not open to agents yet: `query` answers nothing until the owner opens it."
+unreadable = "The request is not read: {why}. Ask as `{\"sql\": \"...\"}`."
+error = "The query failed: {why}"
+timeout = "The query ran longer than {ms} milliseconds and was stopped."
+store_table = '''
+### `{table}`
+{comment}
+{columns}'''
+store_column = "- `{column}` {type}"
+store_column_commented = "- `{column}` {type}: {comment}"
 
 [request]
 type = "object"

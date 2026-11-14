@@ -19,9 +19,6 @@ use flow::{Compiled, Has, Source};
 use service::{Carriers, Levels, Script, Scripted, Service, SystemClock};
 use store::Store;
 
-/// The store's file in the data directory.
-const STORE: &str = "store.sqlite";
-
 /// The file in the data directory whose lock says that an engine runs on it.
 const HELD: &str = "engine.lock";
 
@@ -96,11 +93,14 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
-        let store = match Store::open(data.join(STORE)) {
+        let store = match Store::open(data.join(store::FILE)) {
             Ok(store) => store,
             Err(fault) => {
                 let words = service::store_fault_words(&fault);
-                eprintln!("{}: the store cannot be opened: {words}", data.join(STORE).display());
+                eprintln!(
+                    "{}: the store cannot be opened: {words}",
+                    data.join(store::FILE).display()
+                );
                 return ExitCode::FAILURE;
             }
         };
@@ -214,7 +214,7 @@ enum Keeping {
 /// What keeps the copies, with the engine's token for the place off the machine from its environment, and its own
 /// directory for `gh`'s configuration, apart from the host's.
 fn keeping(data: &Path, settings: Option<&carry::settings::Backup>) -> Result<Keeping, String> {
-    let (store, dir) = (data.join(STORE), data.join(COPIES));
+    let (store, dir) = (data.join(store::FILE), data.join(COPIES));
     let ground = backup::Disk::open(&store, &dir)?;
     let Some(b) = settings else {
         let plan = backup::Plan {

@@ -474,6 +474,7 @@ impl Real {
             github: None,
             backup: None,
             sessions: Default::default(),
+            query: Default::default(),
         };
         let flow = compiled(on);
         let (service, inbox) = open(&settings, &data, &flow, false);
