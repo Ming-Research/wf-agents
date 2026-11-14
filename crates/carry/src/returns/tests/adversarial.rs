@@ -110,6 +110,7 @@ fn a_return_of_both_kinds_is_read_whole_for_the_run_s_check_to_send_back() {
     assert_eq!(came.dealt_with, Some(vec!["request".into()]));
     assert_eq!(came.asks.len(), 1);
     assert_eq!(came.writes.len(), 1);
+    assert_eq!(came.found, [Unmet::AsksAndWorks]);
 }
 
 #[test]

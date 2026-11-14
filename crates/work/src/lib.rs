@@ -191,7 +191,14 @@ pub struct Said {
 impl Said {
     /// Whether a question it asks waits for the owner's answer: the work stops at its cell until the answer comes.
     pub fn waits(&self) -> bool {
-        (self.questions.iter()).any(|q| matches!(q, Question::Asked { waits: true, .. }))
+        self.waiting() > 0
+    }
+
+    /// How many of the questions it asks wait for the owner's answer: each is put to the owner as a call of the run.
+    pub fn waiting(&self) -> usize {
+        (self.questions.iter())
+            .filter(|q| matches!(q, Question::Asked { waits: true, .. }))
+            .count()
     }
 }
 

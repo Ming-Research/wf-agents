@@ -1,7 +1,7 @@
-//! The reading of a return, on a small flow laid out one thing to a file: one agent cell, `write`, run by what people
+//! The reading of a return, on a small flow laid out one thing to a file: an agent cell, `write`, run by what people
 //! ask for (`on_request`) and by the owner speaking to it (`on_spoken`), which writes the plan, a choice `ok` it hands
 //! in every time, and what the owner and the cells say (`discussion`) through the field `reply`, and may ask for one
-//! tool, `query`.
+//! tool, `query`; and the merge after it, which `ok` runs, so that the work does not end with a run of `write`. What is written beside the flows is in the words of the flow crate's tests.
 
 mod adversarial;
 mod checks;
@@ -14,7 +14,7 @@ use super::*;
 
 const FLOW: &str = r#"
 name = "returning"
-order = ["write"]
+order = ["write", "merge"]
 data = ["request", "discussion"]
 tools = ["query"]
 
@@ -40,6 +40,13 @@ request = "latest"
 discussion = "all"
 "#;
 
+const MERGE: &str = r#"
+title = "Merge"
+kind = "engine"
+act = "merge"
+triggered_by = ["on_ok"]
+"#;
+
 /// The small flow, compiled against what it names.
 pub(crate) fn flow() -> Compiled {
     let files = [
@@ -63,7 +70,10 @@ pub(crate) fn flow() -> Compiled {
     let source = flow::Source {
         laid_out: true,
         flow: FLOW.to_string(),
-        cells: BTreeMap::from([("write".to_string(), WRITE.to_string())]),
+        cells: BTreeMap::from([
+            ("write".to_string(), WRITE.to_string()),
+            ("merge".to_string(), MERGE.to_string()),
+        ]),
         rules: BTreeMap::new(),
         files: (files.iter())
             .map(|(path, text)| (path.to_string(), text.to_string()))
@@ -71,6 +81,7 @@ pub(crate) fn flow() -> Compiled {
     };
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = flow::Has {
+        acts: names(&["merge"]),
         tools: names(&["query"]),
         fields: names(&["reply"]),
         ..Default::default()
@@ -88,7 +99,7 @@ pub(crate) fn cell(flow: &Compiled) -> &CellSpec {
 /// What came back, read against the cell `write`.
 fn read(r: &Value) -> Result<Came, String> {
     let flow = flow();
-    came(r, &flow, cell(&flow))
+    came(r, &flow, cell(&flow), &crate::message::tests::words())
 }
 
 fn handed(block: &str, content: &str, matters: bool, value: Option<&str>) -> Handed {
@@ -184,6 +195,44 @@ fn what_a_return_says_beside_its_work_is_kept() {
 }
 
 #[test]
+fn a_question_that_waits_is_put_to_the_owner_in_the_words_of_the_files_and_one_that_does_not_is_only_kept() {
+    let mut r = work();
+    r["outcome"]["questions"] = json!([
+        {"name": "which_name", "waits": true, "recommends": 2, "ask": "Which name? {options}",
+            "options": [{"does": "the first", "follows": "warmer {ask}"}, {"does": "the full", "follows": "formal"}]},
+        {"name": "later", "waits": false, "recommends": 1, "ask": "Which colour?",
+            "options": [{"does": "blue", "follows": "calm"}]},
+    ]);
+    let came = read(&r).expect("it is read");
+    // What the agent wrote is put in as it is, nothing in it filled.
+    let question = "Which name? {options}\n1. the first, warmer {ask}\n2. the full, formal (yes)".to_string();
+    assert_eq!(
+        came.asks,
+        [Ask::Person {
+            who: Who::Owner,
+            question
+        }]
+    );
+    assert_eq!(came.writes, worked().writes, "it does the cell's work beside");
+    assert_eq!(came.said.questions.len(), 2);
+    assert!(came.found.is_empty(), "{:?}", came.found);
+}
+
+#[test]
+fn a_return_of_both_kinds_is_found_so_whatever_each_holds() {
+    let r = json!({"outcome": {"observations": ["x"]}, "calls": {}});
+    assert_eq!(read(&r).expect("it is read").found, [Unmet::AsksAndWorks]);
+}
+
+#[test]
+fn why_what_came_back_cannot_be_read_is_said_in_the_words_of_the_files() {
+    let why = read(&json!("does the work")).unwrap_err();
+    assert!(why.starts_with("Not of its form: "), "{why}");
+    let why = read(&json!({"calls": {"query": {"sql": "select 1"}}})).unwrap_err();
+    assert_eq!(why, "`query` has no list");
+}
+
+#[test]
 fn a_return_that_asks_for_calls_asks_one_call_for_each_request_and_deals_with_nothing() {
     let r = json!({"calls": {"query": [{"sql": "select 1"}, {"sql": "select 2"}]}});
     let asks = vec![
@@ -232,6 +281,7 @@ fn what_only_the_reading_can_see_wrong_is_found_in_the_order_of_the_return() {
             Unmet::NotATool {
                 name: "browse".to_string()
             },
+            Unmet::AsksAndWorks,
         ]
     );
     // A block that is no choice written as one is handed in so, for the run's check to find.

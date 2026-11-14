@@ -584,13 +584,36 @@ Return again.
 }
 
 #[test]
-fn each_thing_wrong_is_told_with_its_places_filled_what_was_dealt_with_by_its_trigger() {
-    let mut small = objected();
+fn each_thing_wrong_is_told_with_its_places_filled_what_was_dealt_with_by_its_trigger_and_not_its_block() {
+    // A flow whose triggers are named apart from the blocks they stand on: `on_request` on `request`, `on_spoken` on
+    // `write_spoken_to`; its cell `write` hands its choice `ok` in every time.
+    let flow = crate::returns::tests::flow();
+    let spec = crate::returns::tests::cell(&flow);
+    let mut work = Work::default();
+    let round = |effects: &[Effect]| {
+        (effects.iter())
+            .find_map(|e| match e {
+                Effect::Round { run, number, given, .. } => Some((*run, *number, given.clone())),
+                _ => None,
+            })
+            .expect("a round is given")
+    };
+    let request = Event::Wrote {
+        block: "request".into(),
+        by: Outsider::Person,
+        content: "Greet the user.".to_string(),
+        matters: true,
+        value: None,
+    };
+    let effects = handle(&flow, &mut work, Time(0), request).expect("the loop takes it");
+    let (run, ..) = round(&effects);
+    // It names the owner's words, which did not run it, and what people asked for twice; it writes the plan as a
+    // choice and leaves its choice out; and its reading found a name that is no trigger, which holds a place's name.
     let came = Came {
-        dealt_with: Some(vec!["request".into()]),
+        dealt_with: Some(vec!["write_spoken_to".into(), "request".into(), "request".into()]),
         writes: vec![Handed {
-            block: "code".into(),
-            content: "A greeting.".to_string(),
+            block: "plan".into(),
+            content: "Greet.".to_string(),
             matters: true,
             value: Some("yes".to_string()),
         }],
@@ -599,15 +622,28 @@ fn each_thing_wrong_is_told_with_its_places_filled_what_was_dealt_with_by_its_tr
         }],
         ..Came::default()
     };
-    small.back(came);
-    let told = small.told();
+    let returned = Event::Returned {
+        run,
+        came,
+        spent: Spent::default(),
+    };
+    let effects = handle(&flow, &mut work, Time(0), returned).expect("the loop takes it");
+    let (run, number, given) = round(&effects);
+    assert!(matches!(given, Given::SentBack(_)), "{given:?}");
+    let told = message(&flow, &work, spec, run, number, &given, &Opening::default(), &words());
     for line in [
         "- `on_{block}` does not run this cell.",
-        "- `request` did not run this round.",
-        "- `code` is a string.",
+        "- `on_spoken` did not run this round.",
+        "- `on_request` is named twice.",
+        "- `plan` is a string.",
+        "- `ok` is missing.",
     ] {
         assert!(told.contains(&format!("{line}\n")), "{line} is not in:\n{told}");
     }
+    for named in ["`write_spoken_to`", "- `request`"] {
+        assert!(!told.contains(named), "{named} is named in:\n{told}");
+    }
+    assert!(told.ends_with(&format!("{}\n", ran_by(&["on_request"]))), "{told}");
 }
 
 #[test]

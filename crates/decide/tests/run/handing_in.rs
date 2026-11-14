@@ -288,3 +288,12 @@ fn a_block_written_three_times_is_said_to_be_written_twice_at_each_later_write()
     let writes = vec![prose("plan"), prose("plan"), prose("plan")];
     assert_eq!(step(vec![handed_in(writes)], &spec()), send_back(unmet));
 }
+
+#[test]
+fn a_block_the_cell_must_hand_in_found_written_in_a_shape_it_does_not_take_is_said_wrong_once_for_its_shape() {
+    let found = vec![Unmet::NoValue {
+        block: "verdict".into(),
+    }];
+    let round = came(&["request", "opinions"], vec![], found.clone(), false);
+    assert_eq!(step(vec![round], &must_write(&["verdict"])), send_back(found));
+}

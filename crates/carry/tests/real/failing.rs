@@ -144,15 +144,23 @@ async fn a_session_not_found_is_begun_again_with_the_task_and_the_list() {
 async fn a_session_lost_on_a_later_run_is_begun_again_with_the_task_and_the_runs_own_results() {
     let fake = Fake {
         lose_session: true,
-        holds_first: true,
+        question_first: true,
         ..Fake::default()
     };
     let mut real = Real::trial(fake);
     let work = real.add().await;
     real.act(work, Act::Resume);
-    real.until(|real| real.holds(work)).await;
+    // The build's question waits for the owner: the work waits at the build until the owner answers.
+    real.until(|real| real.owners_call(work).is_some()).await;
+    let call = real.owners_call(work).unwrap();
     let answer = "Greet them by their first name.";
-    real.answer(work, answer);
+    real.act(
+        work,
+        Act::Answer {
+            call,
+            result: answer.to_string(),
+        },
+    );
     real.until(|real| ended(&real.decision(work))).await;
     let calls = real.calls();
     // The plan, the build's first query, the query of the check, the run entered for the check's result refused and

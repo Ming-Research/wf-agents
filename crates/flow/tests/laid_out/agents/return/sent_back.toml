@@ -23,3 +23,7 @@ asks_and_works = "Calls and work at once."
 not_a_trigger = "`{name}` does not run this cell."
 not_a_tool = "`{name}` is no tool here."
 unchanged_not_written = "`{block}` is not written."
+
+[unread]
+not_of_its_form = "Not of its form: {error}"
+requests_not_a_list = "`{name}` has no list"

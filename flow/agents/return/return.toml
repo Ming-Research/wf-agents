@@ -49,6 +49,15 @@ tools = '''
 Each tool is a field of `calls` under the tool's name, holding a list of requests; those of one return are run
 together.'''
 
+# How a question a cell asks and waits for is put to the owner, as the call the work waits at the cell for, and given
+# back to the cell with the answer: `{ask}` what it asks, `{options}` its options one to a line, each as `option` says,
+# or `recommended` for the one it recommends; in those, `{number}` counts them from 1, `{does}` and `{follows}` are the
+# option's. A draft of the assistant's (2026-11-14), which the owner has not gone through.
+[asked]
+text = "{ask}\n\n{options}"
+option = "{number}. {does}: {follows}"
+recommended = "{number}. {does}: {follows} (recommended)"
+
 # What a cell is told it writes, with its task, where the session lacks it: its blocks, each on a line, after the
 # heading; `none` where it writes none. A line says after the block's name each mark that holds: that it is a choice,
 # `{values}` its values; that the owner reads it; that the cell hands it in every time.

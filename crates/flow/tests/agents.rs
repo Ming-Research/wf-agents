@@ -88,6 +88,8 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
     assert_eq!(read.sent_back.heading, "## Sent back");
     assert_eq!(read.sent_back.item, "- {text}");
     assert_eq!(read.sent_back.faults.not_a_trigger, "`{name}` does not run this cell.");
+    assert_eq!(read.sent_back.unread.requests_not_a_list, "`{name}` has no list");
+    assert_eq!(read.returns.asked.recommended, "{number}. {does}, {follows} (yes)");
     assert_eq!(
         read.fields.keys().map(String::as_str).collect::<Vec<_>>(),
         ["dealt_with", "meaning_unchanged", "outputs", "reply", "summary"]

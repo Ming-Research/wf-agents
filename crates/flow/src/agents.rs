@@ -199,6 +199,18 @@ pub struct Return {
     pub form: Form,
     pub how_you_return: Told,
     pub outputs: Outputs,
+    pub asked: Asked,
+}
+
+/// How a question a return asks and waits for is put to the owner, as the call the work waits at its cell for: `{ask}`
+/// what it asks and `{options}` its options, each as `option` says, or `recommended` for the one it recommends, one to
+/// a line; in those, `{number}` counts the options from one, `{does}` and `{follows}` are the option's.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Asked {
+    pub text: String,
+    pub option: String,
+    pub recommended: String,
 }
 
 /// The form: the order of the fields of each kind of return, the same for every cell of a flow. The blocks a cell
@@ -321,6 +333,19 @@ pub struct SentBack {
     pub again: String,
     /// The words of each thing that can be wrong with a return.
     pub faults: SentBackFaults,
+    /// Why what came back could not be read as a return, which [`SentBackFaults::unreadable`] says in its `{why}`.
+    pub unread: Unread,
+}
+
+/// Why what came back could not be read as a return: `{error}` what the reading of its JSON says, `{name}` a tool's
+/// name.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Unread {
+    /// It does not have the form's shape.
+    pub not_of_its_form: String,
+    /// A tool's requests are not a list.
+    pub requests_not_a_list: String,
 }
 
 /// The words of each thing that can be wrong with a return, by its kind. In a text, `{block}` is a block's name,

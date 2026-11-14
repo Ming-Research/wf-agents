@@ -38,3 +38,9 @@ not_a_tool = "`{name}` is not a tool this cell may ask for."
 unchanged_not_written = "`{block}` is named in `meaning_unchanged`, and this return does not write it."
 # Of a return of the form before a return said what it dealt with, which asked for calls and named none.
 asks_nothing = "The return asks for calls, and for none."
+
+# Why what came back could not be read as a return, said in `{why}` of `unreadable`: `{error}` what the reading of its
+# JSON says, `{name}` a tool's name.
+[unread]
+not_of_its_form = "the return is not of its form: {error}"
+requests_not_a_list = "the requests of `{name}` are no list"

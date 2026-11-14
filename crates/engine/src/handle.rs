@@ -681,7 +681,9 @@ pub(crate) fn log(work: &Work, run: RunId, told: &Told) -> run::Log {
         } => run::Return::Came {
             dealt_with: dealt_with.clone(),
             writes: writes(handed),
-            calls: asks.len(),
+            // Each question that waits is put to the owner as a call beside the cell's work: only the other calls,
+            // as a return that asks the owner for nothing else, make a return one that asks for calls.
+            calls: asks.len().saturating_sub(said.waiting()),
             found: found.clone(),
             waits: said.waits(),
         },

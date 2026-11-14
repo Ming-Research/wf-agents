@@ -86,23 +86,41 @@ async fn a_compaction_within_a_round_is_counted_and_given_the_rounds_whole_messa
 async fn a_run_waiting_as_its_line_begins_a_new_session_is_told_its_task_and_its_rounds_again_in_the_session_it_goes_on_in()
  {
     let fake = Fake {
-        holds_first: true,
+        question_first: true,
         plan_again_unchanged: true,
         ..Fake::default()
     };
     let mut real = Real::open(On::Loading, fake, None, "true");
     let work = real.add().await;
     real.act(work, Act::Resume);
-    real.until(|real| real.holds(work)).await;
-    // The settings give level 1 another model while the build waits for its query: the engineer's line begins a new
-    // session, and the plan, which loads it, runs again in it first.
+    real.until(|real| real.owners_call(work).is_some()).await;
+    // The settings give level 1 another model while the build waits for the owner's answer: the engineer's line
+    // begins a new session, and the plan, which loads it, runs again in it first.
     let level = real.settings.agents.levels.get_mut("1").expect("level 1");
     level.model = "claude-opus-5-5".to_string();
     real.restart();
     let planned = |real: &Real| real.finished(work).iter().filter(|cell| *cell == "plan").count();
     real.until(|real| planned(real) == 2).await;
-    assert!(real.holds(work), "the build still waits");
-    real.answer(work, "By their first name.");
+    let waits = |real: &Real| {
+        let decision = real.decision(work);
+        let on_the_owner = |on: &[decide::Waited]| {
+            on.iter().any(|w| {
+                matches!(
+                    w,
+                    decide::Waited::Call {
+                        on: Some(decide::Who::Owner),
+                        ..
+                    }
+                )
+            })
+        };
+        matches!(&decision, decide::Decision::Wait { at, on } if at.as_str() == "build" && on_the_owner(on))
+    };
+    // The plan ran again in the new session, and the work is held at the build for the owner still.
+    assert!(waits(&real), "{:?}", real.decision(work));
+    let call = real.owners_call(work).expect("the build still waits");
+    let result = "By their first name.".to_string();
+    real.act(work, Act::Answer { call, result });
     real.until(|real| ended(&real.decision(work))).await;
     let calls = real.calls();
     let builds: Vec<&Call> = (calls.iter())
@@ -116,8 +134,8 @@ async fn a_run_waiting_as_its_line_begins_a_new_session_is_told_its_task_and_its
     let second = builds[1];
     assert_eq!(again.session().0, "--session-id", "the plan begins the new session");
     assert_ne!(again.session().1, first.session().1);
-    // The build, entered again for the result, goes on in the session the plan began, which never saw the build: it
-    // is told its task and the result, as a round that begins a session is.
+    // The build, entered again for the answer, goes on in the session the plan began, which never saw the build: it
+    // is told its task and what it is answered, as a round that begins a session is.
     assert_eq!(second.session(), ("--resume", again.session().1));
     for part in ["## Your task", "## What it reads", "By their first name."] {
         assert!(second.stdin.contains(part), "{part} is missing from:\n{}", second.stdin);

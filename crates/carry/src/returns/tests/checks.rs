@@ -1,13 +1,13 @@
 //! The checks of a return, as properties over returns drawn at random from all the form allows, with faults put in now
 //! and then: a return the form and its cell allow is never sent back, and its run finishes with what it said, a choice
-//! with its line of why as its content; and one with faults in it is sent back at once, naming each of them and
-//! nothing else (principle `report-all-at-once`). Each return is read as the agents' rounds read it and handed to the
+//! with its line of why as its content, its calls made and a question it waits for put to the owner; and one with
+//! faults in it is sent back at once, naming each of them once and nothing else (principle `report-all-at-once`). Each return is read as the agents' rounds read it and handed to the
 //! engine's loop, which checks it against the records, so that what the reading finds and what the run's check finds
 //! are seen together, as an agent is told them.
 
 use decide::{Outsider, Pauser, RunId, Write};
 use engine::{Effect, Event, handle};
-use work::{Given, Spent, Time, Work};
+use work::{Call, Given, Spent, Time, Work};
 
 use super::*;
 
@@ -44,8 +44,9 @@ struct Drawn {
     /// outputs, with its content, its value and whether it is written with its meaning unchanged.
     dealt_with: Vec<BlockId>,
     writes: Vec<(BlockId, String, Option<String>, bool)>,
-    /// How many calls it asks for.
+    /// How many calls it asks for, and how many of them are its questions put to the owner.
     asks: usize,
+    owners: usize,
 }
 
 /// The triggers of `write` that run its round: what people asked for, and the owner's words where the owner spoke.
@@ -92,6 +93,7 @@ fn draw(rng: &mut Rng, spoken: bool, clean: bool) -> Drawn {
     let mut writes = Vec::new();
     let mut handed: Vec<&str> = Vec::new();
     let mut waits = false;
+    let mut misshapen = false;
     if with_outcome {
         let mut outcome = Map::new();
         let mut names: Vec<&str> = Vec::new();
@@ -192,7 +194,9 @@ fn draw(rng: &mut Rng, spoken: bool, clean: bool) -> Drawn {
                     });
                 }
                 80..85 => {
+                    // Written in a shape it does not take, it is said to be wrong once, for its shape.
                     outputs.insert("ok".into(), json!({"value": "yes"}));
+                    misshapen = true;
                     faults.push(Unmet::NoValue { block: "ok".into() });
                 }
                 _ => {}
@@ -234,14 +238,15 @@ fn draw(rng: &mut Rng, spoken: bool, clean: bool) -> Drawn {
         }
         r.insert("outcome".into(), Value::Object(outcome));
     }
-    // What the run's check finds beside, from the records.
-    if asks > 0 && !(dealt_with.is_empty() && handed.is_empty()) {
+    // A return is of one kind, never both, whatever each holds.
+    if with_calls && with_outcome {
         faults.push(Unmet::AsksAndWorks);
     }
+    // What the run's check finds beside, from the records.
     if asks == 0 && dealt_with.is_empty() && !waits {
         faults.push(Unmet::DealtWithNothing);
     }
-    if asks == 0 && !waits && !handed.contains(&"ok") {
+    if asks == 0 && !waits && !handed.contains(&"ok") && !misshapen {
         faults.push(Unmet::NotHandedIn { block: "ok".into() });
     }
     Drawn {
@@ -249,7 +254,8 @@ fn draw(rng: &mut Rng, spoken: bool, clean: bool) -> Drawn {
         faults,
         dealt_with,
         writes,
-        asks,
+        asks: asks + usize::from(waits),
+        owners: usize::from(waits),
     }
 }
 
@@ -291,7 +297,8 @@ fn entered(flow: &Compiled, spoken: bool) -> (Work, RunId) {
 
 /// What comes of a return drawn: it is read against the cell, and the loop takes it.
 fn returned(flow: &Compiled, work: &mut Work, run: RunId, drawn: &Drawn) -> Vec<Effect> {
-    let came = came(&drawn.r, flow, cell(flow)).unwrap_or_else(|why| panic!("{} is not read: {why}", drawn.r));
+    let words = crate::message::tests::words();
+    let came = came(&drawn.r, flow, cell(flow), &words).unwrap_or_else(|why| panic!("{} is not read: {why}", drawn.r));
     let event = Event::Returned {
         run,
         came,
@@ -350,6 +357,18 @@ fn a_return_the_form_and_its_cell_allow_is_never_sent_back_and_its_run_finishes_
             .filter(|e| matches!(e, Effect::Call { run: r, .. } if *r == run))
             .count();
         assert_eq!(calls, drawn.asks, "draw {i}: {}", drawn.r);
+        // A question it waits for is put to the owner, whom the work waits for at the cell.
+        let owners = (effects.iter())
+            .filter(|e| matches!(e, Effect::Call { run: r, what: Call::Asked(Ask::Person { .. }), .. } if *r == run))
+            .count();
+        assert_eq!(owners, drawn.owners, "draw {i}: {}", drawn.r);
+        if drawn.owners > 0 {
+            let decision = decide::decide(&flow.flow, &work.records);
+            assert!(
+                matches!(decision, decide::Decision::Wait { .. }),
+                "draw {i}: {decision:?}"
+            );
+        }
     }
 }
 

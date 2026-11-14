@@ -3,8 +3,8 @@
 //! message says ran it and writes the outputs of the cell its message names. The flows are the trial flow
 //! (`crates/service/tests/trial/flow`), whose agents ask and judge, `flow` here, which has the acts of an engineer's
 //! work, and the deliver flow as the repository defines it (`flow/deliver`), whose one cell is the act that delivers a
-//! deliverable item; the build of each may ask for the tool `query`, which the tests answer themselves. What is written
-//! beside the flows is this repository's (`flow/`).
+//! deliverable item; the build of each may ask for the tool `query`, which the tests answer themselves, and may ask the
+//! owner a question it waits for. What is written beside the flows is this repository's (`flow/`).
 //!
 //! The tests are kept in modules by subject, so that a new test goes into the module of what it tests.
 
@@ -12,6 +12,7 @@ mod budget;
 mod catching_up;
 mod delivering;
 mod failing;
+mod forms;
 mod going;
 mod left;
 mod levels;
@@ -22,13 +23,13 @@ mod stopping;
 use std::collections::BTreeSet;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use carry::git::{self, Place};
 use carry::settings::{Agents, Items, Level, Project};
 use carry::{Settings, session};
-use decide::{Decision, Pauser, RunId};
+use decide::{CallId, Decision, Pauser, RunId, Who};
 use driver::{FirstWrite, NewItem};
 use engine::Event;
 use flow::{Compiled, Has};
@@ -52,10 +53,10 @@ pub struct Fake {
     /// Whether the build asks for the query of the check in its first run, and its run entered for the result, going
     /// on in the session, is told the first time that the session is not found.
     pub lose_session: bool,
-    /// Whether the build asks in its first run for a query the test holds until it answers it ([`Real::answer`]), and
-    /// for the query of the check in the run entered for the answer, before it hands in; with `lose_session`, its last
-    /// run is the one told the session is not found.
-    pub holds_first: bool,
+    /// Whether the build asks the owner in its first run a question it waits for, and for the query of the check in
+    /// the run entered for the answer, before it hands in; with `lose_session`, its last run is the one told the
+    /// session is not found.
+    pub question_first: bool,
     /// How many seconds the plan's first call sleeps before it answers.
     pub plan_sleeps: u32,
     /// The context every call ends with, in tokens, as the prompt of its one call to the model; none where the result
@@ -79,7 +80,7 @@ impl Default for Fake {
             flag_first: false,
             error_first: false,
             lose_session: false,
-            holds_first: false,
+            question_first: false,
             plan_sleeps: 0,
             context: None,
             compacts: false,
@@ -162,15 +163,9 @@ pub struct Call {
     pub overlapped: bool,
 }
 
-/// The calls of the tool `query` the tests hold until they answer them, each with the way to answer it: the latest the
-/// loop gave of each.
-type Held = Arc<Mutex<Vec<(ToolCall, CallReply)>>>;
-
-/// The tools of the real carriers, but `query`, which the tests answer: at once, with the rows of what it was asked,
-/// or, where it was asked to hold, once the test answers it.
+/// The tools of the real carriers, but `query`, which the tests answer at once, with the rows of what it was asked.
 struct Queries {
     real: Arc<dyn Tools>,
-    held: Held,
 }
 
 /// What the tests' `query` answers at once.
@@ -183,28 +178,14 @@ impl Tools for Queries {
         if call.name != "query" {
             return self.real.call(call, reply);
         }
-        if call.input.contains("hold") {
-            let mut held = self.held.lock().expect("the held calls");
-            held.retain(|(c, _)| (c.work, c.call) != (call.work, call.call));
-            held.push((call, reply));
-            return;
-        }
         let result = rows(&call.input);
         reply.done(result);
     }
 
     fn withdraw(&self, call: ToolCall, reply: CallReply) {
+        // A query answered at once has its one result already.
         if call.name != "query" {
-            return self.real.withdraw(call, reply);
-        }
-        // A call answered already has its one result; a held one is withdrawn with the reply it was made with.
-        let mut held = self.held.lock().expect("the held calls");
-        if let Some(at) = held
-            .iter()
-            .position(|(c, _)| (c.work, c.call) == (call.work, call.call))
-        {
-            let (_, made) = held.remove(at);
-            made.done(service::WITHDRAWN.to_string());
+            self.real.withdraw(call, reply);
         }
     }
 }
@@ -220,8 +201,6 @@ pub struct Real {
     flow: Compiled,
     service: Service,
     inbox: Inbox,
-    /// The calls of `query` the tests hold.
-    held: Held,
     /// How many rounds the carriers said failed, and how often they said a work is to wait for the owner.
     pub failures: usize,
     pub holds: usize,
@@ -294,6 +273,11 @@ for pid in "$log"/*.pid; do
 done
 echo $$ > "$log/$n.pid"
 printf '%s\n' "$@" > "$log/$n.args"
+prev=''
+for arg in "$@"; do
+    [ "$prev" = --json-schema ] && printf '%s' "$arg" > "$log/$n.schema"
+    prev=$arg
+done
 cat > "$log/$n.stdin"
 pwd > "$log/$n.pwd"
 if [ '{compacts}' = yes ]; then
@@ -321,6 +305,7 @@ dealt=$(awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why yo
 calls=''
 out=''
 unchanged=''
+asked=''
 case "$first" in
     *'cell `plan`'*)
         if [ '{sleeps}' != 0 ] && [ ! -f "$log/slept" ]; then
@@ -337,9 +322,11 @@ case "$first" in
         grep -q 'The results of what you asked for' "$log/$n.stdin" && results=yes
         checked=no
         grep -q 'select the check' "$log/$n.stdin" && checked=yes
-        if [ "$results" = no ] && [ '{holds}' = yes ]; then
-            calls='"query":[{{"sql":"hold for the owner"}}]'
-        elif {{ [ "$results" = no ] && [ '{lose}' = yes ]; }} || {{ [ "$checked" = no ] && [ '{holds}' = yes ]; }}; then
+        if [ "$results" = no ] && [ '{question}' = yes ]; then
+            # It leaves all that ran it for after the answer.
+            dealt=''
+            asked='{{"name":"which_name","waits":true,"recommends":1,"ask":"Which name?","options":[{{"does":"the first name","follows":"a warmer greeting"}},{{"does":"the full name","follows":"a formal one"}}]}}'
+        elif {{ [ "$results" = no ] && [ '{lose}' = yes ]; }} || {{ [ "$checked" = no ] && [ '{question}' = yes ]; }}; then
             calls='"query":[{{"sql":"select the check"}}]'
         else
             if [ '{lose}' = yes ] && [ ! -f "$log/lost" ] && grep -qx -- --resume "$log/$n.args"; then
@@ -355,7 +342,7 @@ esac
 if [ -n "$calls" ]; then
     structured="{{\"calls\":{{$calls}}}}"
 else
-    structured="{{\"outcome\":{{\"dealt_with\":[$dealt],\"meaning_unchanged\":[$unchanged],\"outputs\":{{$out}}}}}}"
+    structured="{{\"outcome\":{{\"dealt_with\":[$dealt],\"meaning_unchanged\":[$unchanged],\"questions\":[$asked],\"outputs\":{{$out}}}}}}"
 fi
 printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":{cost},"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20{iterations}}},"structured_output":%s}}\n' "$structured"
 "#,
@@ -364,7 +351,7 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         flag = yes(fake.flag_first),
         error = yes(fake.error_first),
         lose = yes(fake.lose_session),
-        holds = yes(fake.holds_first),
+        question = yes(fake.question_first),
         sleeps = fake.plan_sleeps,
         cost = fake.cost,
         compacts = yes(fake.compacts),
@@ -395,16 +382,13 @@ impl Rounds for Deaf {
 }
 
 /// The loop with the real carriers of the settings, on an empty store or the one in the data directory, the calls of
-/// `query` answered by the tests, those that hold kept in `held`; with agents whose stops are dropped where `deaf`.
-fn open(settings: &Settings, data: &Path, flow: &Compiled, held: &Held, deaf: bool) -> (Service, Inbox) {
+/// `query` answered by the tests; with agents whose stops are dropped where `deaf`.
+fn open(settings: &Settings, data: &Path, flow: &Compiled, deaf: bool) -> (Service, Inbox) {
     let mut carriers = carry::carriers(settings.clone(), data, beside()).expect("the carriers are made");
     if deaf {
         carriers.agents = Arc::new(Deaf(carriers.agents));
     }
-    carriers.tools = Arc::new(Queries {
-        real: carriers.tools,
-        held: held.clone(),
-    });
+    carriers.tools = Arc::new(Queries { real: carriers.tools });
     let store = Store::open(data.join("store.sqlite")).expect("the store opens");
     Service::open(Box::new(store), vec![flow.clone()], carriers, Arc::new(SystemClock)).expect("the loop opens")
 }
@@ -464,8 +448,7 @@ impl Real {
             sessions: Default::default(),
         };
         let flow = compiled(on);
-        let held = Held::default();
-        let (service, inbox) = open(&settings, &data, &flow, &held, false);
+        let (service, inbox) = open(&settings, &data, &flow, false);
         Real {
             _dir: dir,
             data,
@@ -475,7 +458,6 @@ impl Real {
             flow,
             service,
             inbox,
-            held,
             failures: 0,
             holds: 0,
             level: "1".to_string(),
@@ -491,7 +473,7 @@ impl Real {
     /// would, the owner lifting at once the pause of everything it makes as it starts on works going on. What the old
     /// carriers run goes on running.
     pub fn restart(&mut self) {
-        let (service, inbox) = open(&self.settings, &self.data, &self.flow, &self.held, false);
+        let (service, inbox) = open(&self.settings, &self.data, &self.flow, false);
         self.service = service;
         self.inbox = inbox;
         self.lift_the_starts_pause();
@@ -500,7 +482,7 @@ impl Real {
     /// Starts the loop again on the same store with agents that drop every stop they are given, the owner lifting at
     /// once the pause of everything it makes as it starts on works going on.
     pub fn deafen(&mut self) {
-        let (service, inbox) = open(&self.settings, &self.data, &self.flow, &self.held, true);
+        let (service, inbox) = open(&self.settings, &self.data, &self.flow, true);
         self.service = service;
         self.inbox = inbox;
         self.lift_the_starts_pause();
@@ -519,17 +501,22 @@ impl Real {
         answer.try_recv().expect("answered").expect("the pause is lifted");
     }
 
-    /// Whether the tests hold a call of the work's.
-    pub fn holds(&self, work: WorkNumber) -> bool {
-        (self.held.lock().expect("the held calls").iter()).any(|(c, _)| c.work == work)
+    /// The owner's call the work waits for, where there is one, as its records keep it.
+    pub fn owners_call(&self, work: WorkNumber) -> Option<CallId> {
+        let records = self.work(work).records;
+        (records.called.iter())
+            .find(|c| c.on == Some(Who::Owner) && !records.done.iter().any(|d| d.call == c.call))
+            .map(|c| c.call)
     }
 
-    /// Answers the call of the work's the tests hold, as the loop last gave it, with this result.
-    pub fn answer(&self, work: WorkNumber, result: &str) {
-        let mut held = self.held.lock().expect("the held calls");
-        let at = (held.iter().rposition(|(c, _)| c.work == work)).expect("a call of the work is held");
-        let (_, reply) = held.remove(at);
-        reply.done(result.to_string());
+    /// The form of return the fake was given on its call of this number, as `--json-schema`.
+    pub fn form_given(&self, n: usize) -> String {
+        std::fs::read_to_string(self.calls.join(format!("{n}.schema"))).expect("the form given is kept")
+    }
+
+    /// The form of return of the flow, as what is beside the flows makes it.
+    pub fn form(&self) -> String {
+        flow::form::form(&self.flow, &beside()).expect("the form is made")
     }
 
     /// The work's place, as the installation names it.

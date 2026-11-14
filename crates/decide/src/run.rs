@@ -271,8 +271,9 @@ pub enum Unmet {
     /// The block is a choice, written as changing nothing in meaning with another value than the one it has: a choice
     /// changes its meaning when its value does (decision `meaning-told-by-the-writer`).
     ChoiceChanged { block: BlockId },
-    /// The return asks for calls and also does the cell's work, dealing with something or writing a block: a return
-    /// that asks for calls asks for nothing else, and deals with nothing (design document `data-and-context`, 30).
+    /// The return asks for calls and also does the cell's work, dealing with something or writing a block, or is of
+    /// both kinds whatever each holds: a return that asks for calls asks for nothing else, and deals with nothing
+    /// (design document `data-and-context`, 30).
     AsksAndWorks,
     /// The return names as dealt with a name that is none of its cell's triggers, as it wrote it.
     NotATrigger { name: String },
@@ -432,7 +433,8 @@ pub fn pausing(log: &Log) -> Option<Pausing> {
 /// for each write, in the order of the writes; then whether it asks for calls beside doing the cell's work; then
 /// whether it deals with nothing while something ran its round, asks for no call and has no question that waits for
 /// the owner's answer; then each block the cell must hand in and did not, in the order the cell lists them, where the
-/// return asks for no call, has no question that waits and its cell waits for no result.
+/// return asks for no call, has no question that waits and its cell waits for no result, but one found written in a
+/// shape it does not take.
 fn unmet(
     dealt_with: &[BlockId],
     writes: &[Write],
@@ -488,16 +490,21 @@ fn unmet(
             unmet.push(Unmet::ChoiceChanged { block: block() });
         }
     }
-    if calls > 0 && !(dealt_with.is_empty() && writes.is_empty()) {
+    // A return of both kinds was found so as it was read, and is said so once.
+    if calls > 0 && !(dealt_with.is_empty() && writes.is_empty()) && !found.contains(&Unmet::AsksAndWorks) {
         unmet.push(Unmet::AsksAndWorks);
     }
     // A question that waits stops the work at the cell, which may leave all that ran it for after the answer.
     if calls == 0 && dealt_with.is_empty() && !told.ran_by.is_empty() && !waits {
         unmet.push(Unmet::DealtWithNothing);
     }
+    // A block written in a shape it does not take was handed in, and is said to be wrong only for its shape.
+    let misshapen = |block: &BlockId| {
+        (found.iter()).any(|u| matches!(u, Unmet::NoValue { block: b } | Unmet::NotAChoice { block: b } if b == block))
+    };
     if calls == 0 && !waits && !told.waits_for_calls {
         for block in requires.must_write {
-            if !writes.iter().any(|w| w.block == *block) {
+            if !writes.iter().any(|w| w.block == *block) && !misshapen(block) {
                 unmet.push(Unmet::NotHandedIn { block: block.clone() });
             }
         }

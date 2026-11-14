@@ -370,7 +370,7 @@ impl Inner {
                 return failed(format!("{command} exited with {status}: {why}"), no.spent);
             }
         };
-        match returns::came(&read.structured, flow, &round.cell) {
+        match returns::came(&read.structured, flow, &round.cell, &self.beside) {
             Ok(came) => Ok(Carried::Came(came, read.spent)),
             Err(why) => Ok(Carried::Failed(why, Failure::Unread, read.spent)),
         }
