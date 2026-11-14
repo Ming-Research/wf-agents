@@ -3,9 +3,9 @@ import './dom-setup';
 
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { Definition } from './api';
+import { type Block, type Definition, type Given, type SentPart, type SentPiece, load } from './api';
 import { FlowPage, Shell } from './App';
 import { cell, flowOf, small, test } from './testing';
 
@@ -16,12 +16,12 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-/// Draws the page for this definition, and gives its root.
-function draw(definition: Definition): HTMLElement {
+/// Draws the page for this definition, with what an agent is sent where it is given, and gives its root.
+function draw(definition: Definition, given?: Given): HTMLElement {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
-  act(() => root.render(<FlowPage definition={definition} />));
+  act(() => root.render(<FlowPage definition={definition} given={given} />));
   unmount = () => act(() => root.unmount());
   return container;
 }
@@ -378,6 +378,180 @@ describe('a test of what stands', () => {
     expect(texts(page.querySelector('aside[aria-label="Cell merge"]') as HTMLElement, '.status-line')).toContain(
       'requires [approved]',
     );
+  });
+});
+
+describe('what an agent is sent', () => {
+  const text = (t: string): SentPiece => ({ piece: 'text', text: t });
+  const part = (fields: Partial<SentPart> & Pick<SentPart, 'what' | 'carried' | 'name' | 'source'>): SentPart => ({
+    only: null,
+    block: null,
+    kind: null,
+    pieces: [],
+    held: [],
+    whole: [],
+    ...fields,
+  });
+  /// The form of a return: a kind of it that asks for the engine's tool `query`, beside a field of its own.
+  const FORM = JSON.stringify({
+    type: 'object',
+    properties: {
+      ask: {
+        type: 'object',
+        properties: { query: { type: 'string' }, note: { type: 'string' } },
+        required: ['query'],
+      },
+    },
+  });
+  const given = (): Given => ({
+    state: 'compiled',
+    cells: {
+      plan: [
+        part({
+          what: 'program',
+          carried: 'program',
+          name: 'program',
+          source: 'agents/program.toml',
+          pieces: [text('You run in a program.')],
+        }),
+        part({ what: 'form', carried: 'call', name: 'form', source: 'agents/return.toml', pieces: [text(FORM)] }),
+        part({
+          what: 'system',
+          carried: 'system',
+          name: 'general',
+          source: 'rules/general.md',
+          pieces: [text('Be exact.')],
+        }),
+        part({
+          what: 'input',
+          carried: 'message',
+          name: 'request',
+          source: 'blocks/request.toml',
+          block: 'request',
+          kind: 'latest',
+          pieces: [text('The request:\n'), { piece: 'slot', name: 'request' }],
+          held: [text('The request is as before.')],
+        }),
+        part({
+          what: 'task',
+          carried: 'message',
+          name: 'task',
+          source: 'cells/plan.toml',
+          pieces: [text('Write the plan.')],
+        }),
+      ],
+    },
+    tools: ['query'],
+    acts: {
+      check: {
+        source: 'acts/check.toml',
+        words: [['passed', [text('The check passed on '), { piece: 'slot', name: 'head' }]]],
+      },
+    },
+    toolFiles: {
+      query: { source: 'agents/tools/query.toml', words: [['what', [text('Reads what the engine holds.')]]] },
+    },
+    unknown: [],
+  });
+  /// A part of a panel, by its label.
+  const partOf = (panel: HTMLElement, label: string) =>
+    [...panel.querySelectorAll('.panel-part')].find((p) =>
+      p.querySelector('.panel-part-label')?.textContent?.startsWith(label),
+    ) as HTMLElement;
+
+  it('shows an agent’s cell’s parts by the way each reaches it, each with its key, attributes and file', () => {
+    const page = draw({ state: 'compiled', flow: small() }, given());
+    click(page.querySelectorAll('thead .cell-head .head-button')[0]);
+    const panel = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
+    expect(texts(panel, '.panel-part-label')).toEqual(['triggered_by 2', 'program 2', 'System prompt 1', 'Message 2']);
+    // What runs it, by the triggers its file writes.
+    expect(items(partOf(panel, 'triggered_by'))).toEqual(['on_request block request', 'on_opinions block opinions']);
+    expect(items(partOf(panel, 'System prompt'))).toEqual([
+      'line engineer cells plan, design, answer',
+      '3 general rules/general.md 9 characters Show the text',
+    ]);
+    // The content of a block is shown as sent, with each place filled in a run by its name, and what is sent where the
+    // session holds it already; the task is folded.
+    expect(items(partOf(panel, 'Message'))).toEqual([
+      '4 request kind latest blocks/request.toml The request: {request} held The request is as before.',
+      '5 task cells/plan.toml 15 characters Show the text',
+    ]);
+  });
+
+  it('draws the form of a return as a tree, the engine’s tools apart from the fields', () => {
+    const page = draw({ state: 'compiled', flow: small() }, given());
+    click(page.querySelectorAll('thead .cell-head .head-button')[0]);
+    const panel = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
+    const form = [...partOf(panel, 'program').querySelectorAll('.uses li')].find(
+      (li) => li.children[1]?.textContent === 'form',
+    ) as HTMLElement;
+    expect(form.querySelector('.form-tree')).toBeNull();
+    click([...form.querySelectorAll('button')].find((b) => b.textContent === 'Show the text'));
+    expect(texts(form, '.form-tree .tree-kind')).toEqual(['ask']);
+    expect(texts(form, '.form-tree .tree-tool')).toEqual(['query']);
+    expect(texts(form, '.form-tree .tree-required')).toEqual(['*']);
+  });
+
+  it('shows what an engine’s cell’s act writes, each text by its key as its file writes it', () => {
+    const page = draw({ state: 'compiled', flow: small() }, given());
+    click(page.querySelectorAll('thead .cell-head .head-button')[4]);
+    const panel = page.querySelector('aside[aria-label="Cell check"]') as HTMLElement;
+    const act = partOf(panel, 'act');
+    expect(texts(act, 'p .mono')).toEqual(['check', 'acts/check.toml']);
+    expect(items(act)).toEqual(['passed The check passed on {head}']);
+  });
+
+  it('shows what the engine writes of a block it writes, each text by its key', () => {
+    const flow = small();
+    (flow.blocks.find((b) => b.name === 'main') as Block).writes = [
+      [
+        'text',
+        [text('The main branch '), { piece: 'slot', name: 'main' }, text(' is at '), { piece: 'slot', name: 'head' }],
+      ],
+    ];
+    const page = draw({ state: 'compiled', flow }, given());
+    click(rowOf(page, 'main').querySelector('.head-button'));
+    const panel = page.querySelector('aside[aria-label="Block main"]') as HTMLElement;
+    expect(texts(panel, '.panel-part-label')).toEqual(['writes 1']);
+    expect(items(partOf(panel, 'writes'))).toEqual(['text The main branch {main} is at {head}']);
+  });
+
+  it('opens a tool named in the view’s line with its file and its keys as written', () => {
+    const page = draw({ state: 'compiled', flow: flowOf([cell('a', { tools: ['query'] })], {}) }, given());
+    click([...page.querySelectorAll('.view-facts button')].find((b) => b.textContent === 'query'));
+    const panel = page.querySelector('aside[aria-label="Tool query"]') as HTMLElement;
+    expect(panel.querySelector('.drawer-belongs')?.textContent).toBe('agents/tools/query.toml');
+    expect(items(panel)).toEqual(['what Reads what the engine holds.']);
+  });
+
+  it('says why it could not be read, over the chart and in a tool’s panel, and shows the flow without it', () => {
+    const why = 'agents/return.toml cannot be read';
+    const flow = flowOf([cell('a', { tools: ['query'] })], {});
+    const page = draw({ state: 'compiled', flow }, { state: 'unread', why });
+    expect(page.querySelector('.read-failed')?.textContent).toContain(why);
+    expect(page.querySelector('.matrix')).not.toBeNull();
+    click([...page.querySelectorAll('.view-facts button')].find((b) => b.textContent === 'query'));
+    const panel = page.querySelector('aside[aria-label="Tool query"]') as HTMLElement;
+    expect(panel.querySelector('.read-failed')?.textContent).toContain(why);
+  });
+
+  it('is said to have failed with why where its read fails, and the flow is read all the same', async () => {
+    const flow = small();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (path: string) =>
+        path === '/api/v1/flow'
+          ? new Response(JSON.stringify({ state: 'compiled', flow }), { status: 200 })
+          : new Response('the flows are not known', { status: 500 }),
+      ),
+    );
+    try {
+      const { definition, given } = await load();
+      expect(definition.state).toBe('compiled');
+      expect(given).toEqual({ state: 'unread', why: '/api/v1/flow/given answered 500: the flows are not known' });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 
