@@ -350,7 +350,11 @@ fn a_file_of_every_earlier_version_is_brought_to_this_one_as_it_is_opened() {
             "from version {version}"
         );
         // And it has no observation, as a new one has none.
-        assert_eq!(super::observations::kept(&old.path), [], "from version {version}");
+        assert_eq!(
+            super::observations::kept(&old.path),
+            Vec::<store::Observation>::new(),
+            "from version {version}"
+        );
     }
 }
 

@@ -92,7 +92,7 @@ fn a_return_sent_back_keeps_no_observation() {
         "the return was taken"
     );
     let path = d.saving.as_ref().expect("saved").db.path.clone();
-    assert_eq!(kept(&path), []);
+    assert_eq!(kept(&path), Vec::<Observation>::new());
     // The run's next round says it again, and its return is taken: that one is kept, from the second round.
     d.end(handing_in(&[("text", None)], &["Said again in the return taken."]));
     let taken: Vec<(u64, String, RunId, usize)> = (kept(&path).into_iter())
