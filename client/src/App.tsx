@@ -1,29 +1,25 @@
 // The page: the bar with its tabs, and under it the view the address's hash names (route.ts): the console, the works
 // (works/), the flow, the observations, the system or the settings. The flow view is the view's line (the flow's name,
-// its limits, its tools, the legend), the chart under it, and the panel docked at its right with what the owner chose.
+// its limits, its tools, the switch between the matrix and the flowchart, the legend of the one shown), the matrix or
+// the flowchart under it (graph/), and over its right the console's window (`Drawer`) with what the owner chose, the
+// same from either, coming and going as the console's does.
 
-import {
-  type CSSProperties,
-  Fragment,
-  type ReactNode,
-  Suspense,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react';
+import { Fragment, type ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { type Definition, type Flow, type Given, load } from './api';
 import { Chart, type Chosen, Legend } from './Chart';
 import { LazyConsolePage } from './console/lazy';
 import { type BarItems, Engine, useBarItems, waitsForOwner } from './Engine';
+import { LazyFlowChart } from './graph/lazy';
+import { GraphLegend } from './graph/legend';
+import { chartOf } from './graph/model';
 import { matrix } from './matrix';
 import { ObservationsView } from './observations/ObservationsView';
-import { Bar, Edge, Panel, Switch } from './parts';
+import { Bar, Drawer, Panel, Switch } from './parts';
 import { type Route, hashOf, tabOf, useRoute } from './route';
 import { type Serves, opensOnFlow, useServes } from './serves';
-import { PANEL, WIDTH_KEYS, useKeptWidth } from './sizes';
-import { BlockPanel, CellPanel, Faults, type Fold, GroupPanel, LinePanel, TestPanel, ToolPanel } from './Side';
+import { WIDTH_KEYS } from './sizes';
+import { BlockPanel, CellPanel, Faults, GroupPanel, LinePanel, TestPanel, ToolPanel } from './Side';
 import { type Theme, useTheme } from './theme';
 import { WorkView } from './works/WorkView';
 import { WorksList } from './works/WorksList';
@@ -184,6 +180,10 @@ function limitsWords(flow: Flow): string {
   return `limits runs ${runs}, returns ${returns}, calls ${calls}`;
 }
 
+/// How the flow view draws the flow: the matrix of its blocks against its cells, or the flowchart of how a work moves
+/// through its cells.
+export type ChartView = 'matrix' | 'flowchart';
+
 export function FlowPage({ definition, given, active = true }: {
   definition: Definition;
   /// What an agent is sent as each cell of the definition shown is entered; none where the page was not given it.
@@ -192,26 +192,63 @@ export function FlowPage({ definition, given, active = true }: {
   active?: boolean;
 }) {
   const [chosen, setChosen] = useState<Chosen>(null);
-  // The panel is folded away at first: its room stays the chart's until something is chosen.
-  const [folded, setFolded] = useState(true);
-  const [panelWidth, setPanelWidth] = useKeptWidth(WIDTH_KEYS.panel, PANEL.min, PANEL.max);
+  // The matrix first; the flowchart, once shown, is kept as the owner left it while the matrix is shown.
+  const [chartView, setChartView] = useState<ChartView>('matrix');
+  const [graphShown, setGraphShown] = useState(false);
+  // Whether the flowchart draws every arrow a write runs; else only the chosen cell's, as what it is given.
+  const [dataArrows, setDataArrows] = useState(false);
+  if (chartView === 'flowchart' && !graphShown) setGraphShown(true);
+  // The window with what is chosen, the console's: whether it is out, and whether its tab brought it out, which keeps
+  // it out once what is chosen is let go.
+  const [win, setWin] = useState({ open: false, byHand: false });
+  const panel = useRef<HTMLElement>(null);
+  // How wide the window is, for the room the chart leaves under it.
+  const [windowWidth, setWindowWidth] = useState(0);
 
   const flow = definition.state === 'compiled' ? definition.flow : undefined;
   const drawn = useMemo(() => (flow ? matrix(flow) : undefined), [flow]);
+  const graphWaysBack = useMemo(() => (flow ? chartOf(flow).waysBack : 0), [flow]);
 
-  // Choosing brings the panel back if it was folded away; Escape lets go of what is chosen.
+  // Choosing slides the window out; letting go slides it back, unless its tab brought it out, in which case it stays
+  // until the tab takes it back. The tab takes it back without letting go, and the next choice brings it out again.
   const choose = useCallback((c: Chosen) => {
     setChosen(c);
-    if (c !== null) setFolded(false);
+    setWin((w) => {
+      if (c !== null) return w.open ? w : { open: true, byHand: false };
+      return w.byHand ? w : { open: false, byHand: false };
+    });
   }, []);
-  const close = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') setChosen(null);
-  }, []);
+  const fold = useCallback(
+    () => setWin((w) => (w.open ? { open: false, byHand: false } : { open: true, byHand: true })),
+    [],
+  );
+  // Escape slides the window in while it has the keys, and else lets go of what is chosen; a question the page asks
+  // answers it alone.
   useEffect(() => {
     if (!active) return;
-    window.addEventListener('keydown', close);
-    return () => window.removeEventListener('keydown', close);
-  }, [close, active]);
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || document.querySelector('dialog[open]') !== null) return;
+      const inside = panel.current?.contains(document.activeElement) === true;
+      if (win.open && inside) {
+        (document.activeElement as HTMLElement | null)?.blur();
+        setWin({ open: false, byHand: false });
+      } else choose(null);
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [active, win.open, choose]);
+  const compiled = flow !== undefined;
+  useEffect(() => {
+    const el = panel.current;
+    if (el === null) return;
+    setWindowWidth(el.offsetWidth);
+    if (typeof ResizeObserver === 'undefined') return;
+    const watch = new ResizeObserver(() => setWindowWidth(el.offsetWidth));
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [compiled]);
+  // What the window covers of the chart's right while it is out: what is chosen is brought into the rest.
+  const covered = win.open ? windowWidth : 0;
 
   if (!flow || !drawn) {
     return (
@@ -246,24 +283,14 @@ export function FlowPage({ definition, given, active = true }: {
     chosen && 'test' in chosen ? drawn.conditions.find((c) => c.test && c.name === chosen.test) : undefined;
   const tool = chosen && 'tool' in chosen ? chosen.tool : undefined;
   const group = chosen && 'group' in chosen ? chosen.group : undefined;
-  const edge = (
-    <Edge
-      side="left"
-      label="Drag the panel's width"
-      start={() => panelWidth ?? PANEL.first}
-      onDrag={setPanelWidth}
-      onReset={() => setPanelWidth(null)}
-    />
-  );
-  const fold: Fold = { folded, onFold: () => setFolded((f) => !f), edge };
 
-  let panel = (
-    <Panel label="Nothing chosen" {...fold}>
+  let shown = (
+    <Panel label="Nothing chosen">
       <p className="muted">Choose a cell's head or a row's name to see everything about it</p>
     </Panel>
   );
   if (cell) {
-    panel = (
+    shown = (
       <CellPanel
         cell={cell}
         matrix={drawn}
@@ -273,34 +300,24 @@ export function FlowPage({ definition, given, active = true }: {
         act={given?.state === 'compiled' ? given.acts[cell.id] : undefined}
         unknown={given?.state === 'compiled' ? given.unknown : undefined}
         onChoose={choose}
-        fold={fold}
       />
     );
   } else if (block) {
-    panel = (
-      <BlockPanel
-        block={block}
-        matrix={drawn}
-        flow={flow}
-        onChoose={choose}
-        fold={fold}
-      />
-    );
+    shown = <BlockPanel block={block} matrix={drawn} flow={flow} onChoose={choose} />;
   } else if (lineRow) {
-    panel = <LinePanel row={lineRow} flow={flow} onChoose={choose} fold={fold} />;
+    shown = <LinePanel row={lineRow} flow={flow} onChoose={choose} />;
   } else if (testRow) {
-    panel = <TestPanel row={testRow} flow={flow} onChoose={choose} fold={fold} />;
+    shown = <TestPanel row={testRow} flow={flow} onChoose={choose} />;
   } else if (tool !== undefined) {
-    panel = (
+    shown = (
       <ToolPanel
         name={tool}
         words={given?.state === 'compiled' ? given.toolFiles[tool] : undefined}
         unread={given?.state === 'unread' ? given.why : undefined}
-        fold={fold}
       />
     );
   } else if (group !== undefined) {
-    panel = <GroupPanel name={group} flow={flow} onChoose={choose} fold={fold} />;
+    shown = <GroupPanel name={group} flow={flow} onChoose={choose} />;
   }
 
   return (
@@ -329,7 +346,29 @@ export function FlowPage({ definition, given, active = true }: {
           )}
         </span>
         <span className="view-end">
-          <Legend waysBack={drawn.waysBack} />
+          <Switch<ChartView>
+            label="Matrix or flowchart"
+            value={chartView}
+            onChange={setChartView}
+            choices={[
+              { value: 'matrix', name: 'Matrix' },
+              { value: 'flowchart', name: 'Flowchart' },
+            ]}
+          />
+          {chartView === 'matrix' ? (
+            <Legend waysBack={drawn.waysBack} />
+          ) : (
+            <>
+              <label
+                className="view-toggle"
+                title="Every arrow a write runs; else only those into and out of the cell chosen"
+              >
+                <input type="checkbox" checked={dataArrows} onChange={(e) => setDataArrows(e.target.checked)} />
+                Data arrows
+              </label>
+              <GraphLegend waysBack={graphWaysBack} />
+            </>
+          )}
         </span>
       </div>
       {given?.state === 'unread' && (
@@ -337,12 +376,38 @@ export function FlowPage({ definition, given, active = true }: {
           What an agent is sent could not be read, and the flow is shown without it: {given.why}
         </p>
       )}
-      <main
-        className={`view-body with-panel ${folded ? 'panel-folded' : ''}`}
-        style={panelWidth !== null ? ({ '--panel-width': `${panelWidth}px` } as CSSProperties) : undefined}
-      >
-        <Chart matrix={drawn} chosen={chosen} onChoose={choose} />
-        {panel}
+      <main className="view-body with-window">
+        <Chart
+          matrix={drawn}
+          chosen={chosen}
+          onChoose={choose}
+          covered={chartView === 'matrix' ? covered : 0}
+          hidden={chartView !== 'matrix'}
+        />
+        {graphShown && (
+          <div className="graph-place" hidden={chartView !== 'flowchart'}>
+            <Suspense fallback={<p className="message muted">Reading the flowchart</p>}>
+              <LazyFlowChart
+                flow={flow}
+                dataArrows={dataArrows}
+                chosen={chosen}
+                onChoose={choose}
+                covered={chartView === 'flowchart' ? covered : 0}
+              />
+            </Suspense>
+          </div>
+        )}
+        <Drawer
+          open={win.open}
+          onToggle={fold}
+          panel={panel}
+          label="What is chosen"
+          hide="Put the panel away"
+          show="Show what is chosen"
+          widthKey={WIDTH_KEYS.flowWindow}
+        >
+          {shown}
+        </Drawer>
       </main>
     </>
   );

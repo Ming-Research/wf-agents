@@ -328,9 +328,13 @@ interface ChartProps {
   matrix: Matrix;
   chosen: Chosen;
   onChoose: (chosen: Chosen) => void;
+  /// Kept as it is, scrolled where the owner left it, while another view of the flow is shown.
+  hidden?: boolean;
+  /// How much of the frame's right a window that floats over it covers, in pixels; none while it is away.
+  covered?: number;
 }
 
-export function Chart({ matrix, chosen, onChoose }: ChartProps) {
+export function Chart({ matrix, chosen, onChoose, hidden = false, covered = 0 }: ChartProps) {
   const { blocks, cells, spots, lines, conditions } = matrix;
   const isTrigger = (row: BlockRow) => row.trigger !== undefined;
   const [pointed, setPointed] = useState<number | null>(null);
@@ -342,10 +346,14 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
   const widthOf = (id: string) => widths[id] ?? FLOW_WIDTHS.cell;
   // The table takes the frame's whole width: the names' column and the cells' at theirs, the words the rest.
   const taken = cells.reduce((sum, cell) => sum + widthOf(cell.id), namesWidth);
-  const size = { width: '100%', minWidth: taken + FLOW_WIDTHS.words };
+  // Under a window the table keeps its whole width, and the frame scrolls on past it by what the window covers
+  // (`--window-covers`, styles/chart.css), so that what stands under the window can be brought out from under it.
+  const size = { width: 'calc(100% + var(--window-covers, 0px))', minWidth: taken + FLOW_WIDTHS.words };
 
-  // What is chosen elsewhere (a panel) is brought into view in the frame. A block is found by its datum's row, or else
-  // by the row of a trigger that stands on it, which a block standing only for a trigger has alone.
+  // What is chosen, here or elsewhere (a panel), is brought into view in the frame, into what a window over it leaves
+  // where one is out: again as the window comes out. A block is found by its datum's row, or else by the row of a
+  // trigger that stands on it, which a block standing only for a trigger has alone.
+  const under = covered > 0;
   useEffect(() => {
     const key = chosen && keyOf(chosen);
     if (!key) return;
@@ -353,7 +361,7 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
       frame.current?.querySelector(`[data-key="${CSS.escape(key)}"]`) ??
       (chosen && 'block' in chosen ? frame.current?.querySelector(`[data-on="${CSS.escape(chosen.block)}"]`) : null);
     target?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  }, [chosen]);
+  }, [chosen, under]);
 
   const chosenCell = chosen && 'cell' in chosen ? chosen.cell : null;
   const chosenBlock = chosen && 'block' in chosen ? chosen.block : null;
@@ -367,7 +375,13 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
   const unpoint = () => setPointed(null);
 
   return (
-    <div className="frame" ref={frame} onMouseLeave={unpoint}>
+    <div
+      className="frame"
+      ref={frame}
+      onMouseLeave={unpoint}
+      hidden={hidden}
+      style={covered > 0 ? ({ '--window-covers': `${covered}px` } as CSSProperties) : undefined}
+    >
       <table className="matrix flow" style={size as CSSProperties}>
         <colgroup>
           <col style={{ width: namesWidth }} />

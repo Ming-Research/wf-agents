@@ -189,7 +189,7 @@ describe('the chart', () => {
   it('opens a named test’s panel, with its file and its keys as written, from its row', () => {
     const page = draw({ state: 'compiled', flow: small() });
     click(bandRow(page, 'condition-row', 'has_comment').querySelector('.head-button'));
-    const panel = page.querySelector('aside[aria-label="Test has_comment"]') as HTMLElement;
+    const panel = page.querySelector('section[aria-label="Test has_comment"]') as HTMLElement;
     expect(panel.querySelector('.drawer-belongs')?.textContent).toBe('tests/has_comment.toml');
     expect(texts(panel, '.status-line')).toEqual([
       'saysThe item has a comment',
@@ -215,11 +215,11 @@ describe('the chart', () => {
     click(page.querySelectorAll('thead .cell-head .head-button')[1]);
     expect(row.querySelector('.words')?.textContent).toBe('Read x again.');
     click(row.querySelector('.head-button'));
-    expect(page.querySelector('aside[aria-label="Block x"]')).not.toBeNull();
+    expect(page.querySelector('section[aria-label="Block x"]')).not.toBeNull();
     expect(rowOf(page, 'x').className).toContain('chosen');
     // The datum y is chosen by its own row, not by the trigger of its name.
     click(rowOf(page, 'y').querySelector('.head-button'));
-    expect(page.querySelector('aside[aria-label="Block y"]')).not.toBeNull();
+    expect(page.querySelector('section[aria-label="Block y"]')).not.toBeNull();
     expect(row.className).not.toContain('chosen');
   });
 
@@ -228,14 +228,14 @@ describe('the chart', () => {
     expect(rowOf(page, 'main').querySelector('[title="from main"]')).not.toBeNull();
     expect(rowOf(page, 'plan').querySelector('[title^="from "]')).toBeNull();
     click(rowOf(page, 'main').querySelector('.head-button'));
-    const panel = page.querySelector('aside[aria-label="Block main"]') as HTMLElement;
+    const panel = page.querySelector('section[aria-label="Block main"]') as HTMLElement;
     expect(texts(panel, '.status-line')).toContain('written_byoutside main');
   });
 
   it('shows everything about a cell chosen by its column’s head, and about a block chosen from it', () => {
     const page = draw({ state: 'compiled', flow: small() });
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
-    const panel = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
+    const panel = page.querySelector('section[aria-label="Cell plan"]') as HTMLElement;
     expect(panel.textContent).toContain('line engineer cells plan, design, answer');
     // What runs it, by the names of the triggers its file writes, each with the block it stands on.
     expect(items(panel).slice(0, 6)).toEqual([
@@ -247,7 +247,7 @@ describe('the chart', () => {
       'plan read_by cells judge, design, answer',
     ]);
     click([...panel.querySelectorAll('button.link')].find((b) => b.textContent === 'opinions'));
-    const block = page.querySelector('aside[aria-label="Block opinions"]') as HTMLElement;
+    const block = page.querySelector('section[aria-label="Block opinions"]') as HTMLElement;
     expect(items(block)).toEqual(['judge → plan triggered_by [on_opinions]']);
   });
 
@@ -255,11 +255,11 @@ describe('the chart', () => {
     const page = draw({ state: 'compiled', flow: small() });
     const heads = page.querySelectorAll('thead .cell-head .head-button');
     click(heads[0]);
-    const plan = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
+    const plan = page.querySelector('section[aria-label="Cell plan"]') as HTMLElement;
     expect(texts(plan, '.panel-part-label')).toEqual(['triggered_by 2', 'context 3', 'outputs 1', 'task', 'line']);
     expect(plan.querySelector('.content')?.textContent).toBe('Write the plan from the request.\nSay what it leaves out.');
     click(heads[4]);
-    const check = page.querySelector('aside[aria-label="Cell check"]') as HTMLElement;
+    const check = page.querySelector('section[aria-label="Cell check"]') as HTMLElement;
     expect(texts(check, '.panel-part-label')).toEqual(['triggered_by 2', 'outputs 1', 'act']);
     const act = [...check.querySelectorAll('.panel-part')].find((p) => p.querySelector('.panel-part-label')?.textContent === 'act');
     expect(act?.querySelector('.mono')?.textContent).toBe('check');
@@ -272,7 +272,7 @@ describe('the chart', () => {
     });
     const page = draw({ state: 'compiled', flow });
     click(page.querySelectorAll('thead .cell-head .head-button')[1]);
-    const panel = page.querySelector('aside[aria-label="Cell judge"]') as HTMLElement;
+    const panel = page.querySelector('section[aria-label="Cell judge"]') as HTMLElement;
     const outputs = [...panel.querySelectorAll('.panel-part')].find((p) =>
       p.querySelector('.panel-part-label')?.textContent?.startsWith('outputs'),
     ) as HTMLElement;
@@ -282,7 +282,7 @@ describe('the chart', () => {
   it('shows everything about a block chosen by its row’s name', () => {
     const page = draw({ state: 'compiled', flow: small() });
     click(rowOf(page, 'ci').querySelector('.head-button'));
-    const panel = page.querySelector('aside[aria-label="Block ci"]') as HTMLElement;
+    const panel = page.querySelector('section[aria-label="Block ci"]') as HTMLElement;
     expect(panel.textContent).toContain('values [green, red]');
     expect(texts(panel, '.status-line')).toContain('read_bycells merge tests may_merge');
     expect(panel.querySelector('[title="kind none, reads [ci], is red"]')?.textContent).toBe('may_merge');
@@ -341,11 +341,11 @@ describe('the column of words', () => {
   it('says what a block is in the block’s panel too, by its key', () => {
     const page = draw({ state: 'compiled', flow: flow() });
     click(rowOf(page, 'x').querySelector('.head-button'));
-    expect(texts(page.querySelector('aside[aria-label="Block x"]') as HTMLElement, '.status-line')).toContain(
+    expect(texts(page.querySelector('section[aria-label="Block x"]') as HTMLElement, '.status-line')).toContain(
       'whatThe plan.',
     );
     click(rowOf(page, 'y').querySelector('.head-button'));
-    const y = page.querySelector('aside[aria-label="Block y"]') as HTMLElement;
+    const y = page.querySelector('section[aria-label="Block y"]') as HTMLElement;
     expect(texts(y, '.status-line').some((line) => line.startsWith('what'))).toBe(false);
   });
 
@@ -377,7 +377,7 @@ describe('a test of what stands', () => {
     const page = draw({ state: 'compiled', flow });
     expect(headNames(page)[2]).toBe('merge merge, engine, requires test = approved');
     click(page.querySelectorAll('thead .cell-head .head-button')[2]);
-    expect(texts(page.querySelector('aside[aria-label="Cell merge"]') as HTMLElement, '.status-line')).toContain(
+    expect(texts(page.querySelector('section[aria-label="Cell merge"]') as HTMLElement, '.status-line')).toContain(
       'requires test = approvedNo judge refuses',
     );
   });
@@ -413,7 +413,7 @@ describe('a when or a requires of several keys', () => {
     expect(headNames(page)[1]).toBe('b b, engineer, when x = yes, y = no, requires deps = merged');
     click(page.querySelectorAll('thead .cell-head .head-button')[1]);
     expect(bandRow(page, 'condition-row', 'deps').querySelector('.words')?.textContent).toBe('requires deps = merged');
-    const panel = page.querySelector('aside[aria-label="Cell b"]') as HTMLElement;
+    const panel = page.querySelector('section[aria-label="Cell b"]') as HTMLElement;
     expect(texts(panel, '.status-line')).toEqual(['when x = yes, y = no', 'requires deps = merged']);
   });
 });
@@ -501,7 +501,7 @@ describe('what an agent is sent', () => {
   it('shows an agent’s cell’s parts by the way each reaches it, each with its key, attributes and file', () => {
     const page = draw({ state: 'compiled', flow: small() }, given());
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
-    const panel = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
+    const panel = page.querySelector('section[aria-label="Cell plan"]') as HTMLElement;
     expect(texts(panel, '.panel-part-label')).toEqual(['triggered_by 2', 'program 2', 'System prompt 1', 'Message 2']);
     // What runs it, by the triggers its file writes.
     expect(items(partOf(panel, 'triggered_by'))).toEqual(['on_request block request', 'on_opinions block opinions']);
@@ -536,7 +536,7 @@ describe('what an agent is sent', () => {
     );
     const page = draw({ state: 'compiled', flow: small() }, shown);
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
-    const panel = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
+    const panel = page.querySelector('section[aria-label="Cell plan"]') as HTMLElement;
     expect(items(partOf(panel, 'Message'))[2]).toBe(
       '6 triggers agents/message/message.toml Why: on_request on_request on_opinions on_opinions after Name them.',
     );
@@ -547,7 +547,7 @@ describe('what an agent is sent', () => {
     flow.cells[0].taskFile = 'tasks/plan.md';
     const page = draw({ state: 'compiled', flow }, given());
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
-    const panel = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
+    const panel = page.querySelector('section[aria-label="Cell plan"]') as HTMLElement;
     expect(items(partOf(panel, 'Message'))[1]).toBe(
       '5 task file tasks/plan.md cells/plan.toml 15 characters Show the text',
     );
@@ -556,7 +556,7 @@ describe('what an agent is sent', () => {
   it('draws the form of a return as a tree, the engine’s tools apart from the fields', () => {
     const page = draw({ state: 'compiled', flow: small() }, given());
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
-    const panel = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
+    const panel = page.querySelector('section[aria-label="Cell plan"]') as HTMLElement;
     const form = [...partOf(panel, 'program').querySelectorAll('.uses li')].find(
       (li) => li.children[1]?.textContent === 'form',
     ) as HTMLElement;
@@ -570,7 +570,7 @@ describe('what an agent is sent', () => {
   it('shows what an engine’s cell’s act writes, each text by its key as its file writes it', () => {
     const page = draw({ state: 'compiled', flow: small() }, given());
     click(page.querySelectorAll('thead .cell-head .head-button')[4]);
-    const panel = page.querySelector('aside[aria-label="Cell check"]') as HTMLElement;
+    const panel = page.querySelector('section[aria-label="Cell check"]') as HTMLElement;
     const act = partOf(panel, 'act');
     expect(texts(act, 'p .mono')).toEqual(['check', 'acts/check.toml']);
     expect(items(act)).toEqual(['passed The check passed on {head}']);
@@ -586,7 +586,7 @@ describe('what an agent is sent', () => {
     ];
     const page = draw({ state: 'compiled', flow }, given());
     click(rowOf(page, 'main').querySelector('.head-button'));
-    const panel = page.querySelector('aside[aria-label="Block main"]') as HTMLElement;
+    const panel = page.querySelector('section[aria-label="Block main"]') as HTMLElement;
     expect(texts(panel, '.panel-part-label')).toEqual(['writes 1']);
     expect(items(partOf(panel, 'writes'))).toEqual(['text The main branch {main} is at {head}']);
   });
@@ -594,7 +594,7 @@ describe('what an agent is sent', () => {
   it('opens a tool named in the view’s line with its file and its keys as written', () => {
     const page = draw({ state: 'compiled', flow: flowOf([cell('a', { tools: ['query'] })], {}) }, given());
     click([...page.querySelectorAll('.view-facts button')].find((b) => b.textContent === 'query'));
-    const panel = page.querySelector('aside[aria-label="Tool query"]') as HTMLElement;
+    const panel = page.querySelector('section[aria-label="Tool query"]') as HTMLElement;
     expect(panel.querySelector('.drawer-belongs')?.textContent).toBe('agents/tools/query.toml');
     expect(items(panel)).toEqual(['what Reads what the engine holds.']);
   });
@@ -606,7 +606,7 @@ describe('what an agent is sent', () => {
     expect(page.querySelector('.read-failed')?.textContent).toContain(why);
     expect(page.querySelector('.matrix')).not.toBeNull();
     click([...page.querySelectorAll('.view-facts button')].find((b) => b.textContent === 'query'));
-    const panel = page.querySelector('aside[aria-label="Tool query"]') as HTMLElement;
+    const panel = page.querySelector('section[aria-label="Tool query"]') as HTMLElement;
     expect(panel.querySelector('.read-failed')?.textContent).toContain(why);
   });
 
@@ -635,7 +635,7 @@ describe('a task written in a file of its own', () => {
     const flow = flowOf([cell('a', { taskFile: 'tasks/better_way.md', outputs: ['x'] })], { x: { shown: true } });
     const page = draw({ state: 'compiled', flow });
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
-    const panel = page.querySelector('aside[aria-label="Cell a"]') as HTMLElement;
+    const panel = page.querySelector('section[aria-label="Cell a"]') as HTMLElement;
     const task = [...panel.querySelectorAll('.panel-part')].find(
       (p) => p.querySelector('.panel-part-label')?.textContent === 'task',
     );
@@ -672,7 +672,7 @@ describe('a group’s trigger', () => {
     expect(texts(row, '.spot .visually-hidden')).toEqual(['w outputs a', 'r triggered_by on_planned', 'v outputs b']);
     expect(row.querySelectorAll('.arrow')).toHaveLength(1);
     click(row.querySelector('.head-button'));
-    const panel = page.querySelector('aside[aria-label="Group planned"]') as HTMLElement;
+    const panel = page.querySelector('section[aria-label="Group planned"]') as HTMLElement;
     expect(panel.querySelector('.drawer-belongs')?.textContent).toBe('flow.toml');
     expect(texts(panel, '.status-line')).toEqual([
       'on_plannedFires when one of the blocks of planned has a new version.',
@@ -685,13 +685,13 @@ describe('a group’s trigger', () => {
   it('is said in a cell’s panel by its group, and a way back through each of the group’s blocks', () => {
     const page = draw({ state: 'compiled', flow: flow() });
     click(page.querySelectorAll('thead .cell-head .head-button')[1]);
-    const panel = page.querySelector('aside[aria-label="Cell r"]') as HTMLElement;
+    const panel = page.querySelector('section[aria-label="Cell r"]') as HTMLElement;
     const triggered = [...panel.querySelectorAll('.panel-part')].find((p) =>
       p.querySelector('.panel-part-label')?.textContent?.startsWith('triggered_by'),
     ) as HTMLElement;
     expect(items(triggered)).toEqual(['1 on_planned group planned way_back [v] read [a, b]']);
     click(rowOf(page, 'b').querySelector('.head-button'));
-    const block = page.querySelector('aside[aria-label="Block b"]') as HTMLElement;
+    const block = page.querySelector('section[aria-label="Block b"]') as HTMLElement;
     expect(items(block)).toEqual(['v → r triggered_by [on_planned]']);
   });
 });
@@ -721,7 +721,7 @@ describe('a way back between two cells that never both run', () => {
     expect(page.querySelector('.legend')?.textContent).toContain('way back (1)');
     expect(page.querySelectorAll('.arrow')).toHaveLength(1);
     click(rowOf(page, 'x').querySelector('.head-button'));
-    const block = page.querySelector('aside[aria-label="Block x"]') as HTMLElement;
+    const block = page.querySelector('section[aria-label="Block x"]') as HTMLElement;
     expect(items(block)).toEqual(['both → reader triggered_by [on_x]']);
   });
 
@@ -729,15 +729,15 @@ describe('a way back between two cells that never both run', () => {
     const page = draw({ state: 'compiled', flow: flow() });
     const heads = page.querySelectorAll('thead .cell-head .head-button');
     click(heads[1]);
-    const reader = page.querySelector('aside[aria-label="Cell reader"]') as HTMLElement;
+    const reader = page.querySelector('section[aria-label="Cell reader"]') as HTMLElement;
     expect(items(partOf(reader, 'triggered_by'))).toEqual([
       '1 on_x block x written_by first, writer, both way_back [both]',
     ]);
     click(heads[2]);
-    const writer = page.querySelector('aside[aria-label="Cell writer"]') as HTMLElement;
+    const writer = page.querySelector('section[aria-label="Cell writer"]') as HTMLElement;
     expect(items(partOf(writer, 'outputs'))).toEqual(['x read_by cells reader']);
     click(heads[3]);
-    const both = page.querySelector('aside[aria-label="Cell both"]') as HTMLElement;
+    const both = page.querySelector('section[aria-label="Cell both"]') as HTMLElement;
     expect(items(partOf(both, 'outputs'))).toEqual(['x read_by cells reader way_back [reader]']);
   });
 
@@ -753,7 +753,7 @@ describe('a way back between two cells that never both run', () => {
     );
     const page = draw({ state: 'compiled', flow: grouped });
     click(rowOf(page, 'on_planned', true).querySelector('.head-button'));
-    const panel = page.querySelector('aside[aria-label="Group planned"]') as HTMLElement;
+    const panel = page.querySelector('section[aria-label="Group planned"]') as HTMLElement;
     expect(texts(panel, '.panel-part-label')).toEqual(['blocks 2', 'triggered_by 1']);
     expect(page.querySelector('.legend')?.textContent).toContain('way back (0)');
   });
@@ -791,35 +791,136 @@ describe('the page round the view', () => {
     click([...container.querySelectorAll('.switch-choice')].find((b) => b.textContent === 'Auto'));
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false);
   });
+});
 
-  it('folds the panel away by its handle, brings it back, and lets go of what is chosen with Escape', () => {
-    const page = draw({ state: 'compiled', flow: small() });
-    click(rowOf(page, 'plan').querySelector('.head-button'));
-    const drawer = () => page.querySelector('aside[aria-label="Block plan"]') as HTMLElement | null;
-    click(drawer()?.querySelector('.drawer-tab'));
-    expect(drawer()?.querySelector('.drawer-inner')?.hasAttribute('hidden')).toBe(true);
-    click(drawer()?.querySelector('.drawer-tab'));
-    expect(drawer()?.querySelector('.drawer-inner')?.hasAttribute('hidden')).toBe(false);
+describe('the window with what is chosen, the console\'s', () => {
+  afterEach(() => localStorage.clear());
+
+  /// The window, whether it is out, and the panel it shows.
+  const windowOf = (page: HTMLElement) => page.querySelector('aside.cw') as HTMLElement;
+  const out = (page: HTMLElement) => windowOf(page).classList.contains('cw-open');
+  const shown = (page: HTMLElement) => windowOf(page).querySelector('section')?.getAttribute('aria-label') ?? null;
+  const tab = (page: HTMLElement) => windowOf(page).querySelector('.cw-tab');
+  const escape = () =>
     act(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     });
-    expect(drawer()).toBeNull();
+
+  it('floats over the chart, away at first with its tab on the screen, and comes out with what is chosen', () => {
+    const page = draw({ state: 'compiled', flow: small() });
+    expect(page.querySelector('main.view-body.with-window > aside.cw')).not.toBeNull();
+    expect(page.querySelector('.drawer-tab')).toBeNull();
+    expect(page.querySelector('.view-body')?.className).not.toContain('with-panel');
+    expect(out(page)).toBe(false);
+    expect(tab(page)?.getAttribute('aria-label')).toBe('Show what is chosen');
+    expect(shown(page)).toBe('Nothing chosen');
+    click(rowOf(page, 'plan').querySelector('.head-button'));
+    expect(out(page)).toBe(true);
+    expect(shown(page)).toBe('Block plan');
+    expect(tab(page)?.getAttribute('aria-label')).toBe('Put the panel away');
+    // Another choice keeps it out and shows that.
+    click(page.querySelector('thead .cell-head[data-key="cell:judge"] .head-button'));
+    expect(out(page)).toBe(true);
+    expect(shown(page)).toBe('Cell judge');
+  });
+
+  it('goes back as what is chosen is let go, unless its tab brought it out', () => {
+    const page = draw({ state: 'compiled', flow: small() });
+    const plan = () => rowOf(page, 'plan').querySelector('.head-button');
+    click(plan());
+    // Chosen again, it is let go of, and the window goes back with it.
+    click(plan());
+    expect(shown(page)).toBe('Nothing chosen');
+    expect(out(page)).toBe(false);
+    // Brought out by its tab, it says what to choose, and stays out once what is chosen is let go.
+    click(tab(page));
+    expect(out(page)).toBe(true);
+    expect(windowOf(page).textContent).toContain("Choose a cell's head or a row's name");
+    click(plan());
+    expect(shown(page)).toBe('Block plan');
+    click(plan());
+    expect(shown(page)).toBe('Nothing chosen');
+    expect(out(page)).toBe(true);
+    // The tab takes it back without letting go, and the next choice brings it out again.
+    click(plan());
+    click(tab(page));
+    expect(out(page)).toBe(false);
+    expect(shown(page)).toBe('Block plan');
+    click(page.querySelector('thead .cell-head[data-key="cell:judge"] .head-button'));
+    expect(out(page)).toBe(true);
+  });
+
+  it('goes back on Escape while it has the keys, what is chosen kept; else Escape lets go, and it goes back', () => {
+    const page = draw({ state: 'compiled', flow: small() });
+    click(rowOf(page, 'plan').querySelector('.head-button'));
+    (windowOf(page).querySelector('section button') as HTMLElement).focus();
+    escape();
+    expect(out(page)).toBe(false);
+    expect(shown(page)).toBe('Block plan');
+    click(tab(page));
+    expect(out(page)).toBe(true);
+    (document.activeElement as HTMLElement | null)?.blur();
+    escape();
+    expect(shown(page)).toBe('Nothing chosen');
+    // Brought out by its tab, it stays.
+    expect(out(page)).toBe(true);
+    click(rowOf(page, 'plan').querySelector('.head-button'));
+    click(tab(page));
+    click(page.querySelector('thead .cell-head[data-key="cell:judge"] .head-button'));
+    escape();
+    expect(shown(page)).toBe('Nothing chosen');
+    expect(out(page)).toBe(false);
+  });
+
+  it('keeps its width under the flow view\'s own key, apart from the console\'s', () => {
+    const page = draw({ state: 'compiled', flow: small() });
+    expect(windowOf(page).style.width).toBe('560px');
+    const edge = windowOf(page).querySelector('.cw-edge') as HTMLElement;
+    act(() => {
+      edge.dispatchEvent(new PointerEvent('pointerdown', { clientX: 900, bubbles: true }));
+      window.dispatchEvent(new PointerEvent('pointermove', { clientX: 800 }));
+      window.dispatchEvent(new PointerEvent('pointerup', { clientX: 800 }));
+    });
+    expect(windowOf(page).style.width).toBe('660px');
+    expect(localStorage.getItem('wf-agents.flow-window-width')).toBe('660');
+    expect(localStorage.getItem('console-window-width')).toBeNull();
+  });
+
+  it('brings what is chosen out from under it, the matrix keeping its whole width', () => {
+    const width = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.classList.contains('cw') ? 560 : 0;
+      },
+    });
+    const brought: string[] = [];
+    const scroll = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) {
+      brought.push(this.getAttribute('data-key') ?? '');
+    };
+    try {
+      const page = draw({ state: 'compiled', flow: small() });
+      const frame = page.querySelector('.frame') as HTMLElement;
+      const covers = () => frame.style.getPropertyValue('--window-covers');
+      expect(covers()).toBe('');
+      click(page.querySelector('thead .cell-head[data-key="cell:merge"] .head-button'));
+      // The frame scrolls on past the table by what the window covers, and keeps that much clear as it brings the
+      // column chosen into view (styles/chart.css).
+      expect(covers()).toBe('560px');
+      expect(brought).toContain('cell:merge');
+      // Put away, the frame is as it was.
+      click(tab(page));
+      expect(covers()).toBe('');
+    } finally {
+      Element.prototype.scrollIntoView = scroll;
+      if (width) Object.defineProperty(HTMLElement.prototype, 'offsetWidth', width);
+    }
   });
 });
 
 describe('the panel and the widths', () => {
   afterEach(() => localStorage.clear());
-
-  it('has its handle from the start, folded, and opened with nothing chosen says what to choose', () => {
-    const page = draw({ state: 'compiled', flow: small() });
-    const drawer = page.querySelector('aside[aria-label="Nothing chosen"]') as HTMLElement;
-    expect(drawer.querySelector('.drawer-tab')).not.toBeNull();
-    expect(drawer.querySelector('.drawer-inner')?.hasAttribute('hidden')).toBe(true);
-    expect(page.querySelector('.view-body')?.className).toContain('panel-folded');
-    click(drawer.querySelector('.drawer-tab'));
-    expect(drawer.textContent).toContain("Choose a cell's head or a row's name");
-    expect(page.querySelector('.view-body')?.className).not.toContain('panel-folded');
-  });
 
   it('names the flow’s tools once, in the view’s line after the limits, each opening its panel', () => {
     const page = draw({ state: 'compiled', flow: flowOf([cell('a', { tools: ['query', 'run_tests'] })], {}) });
@@ -828,10 +929,10 @@ describe('the panel and the widths', () => {
     );
     expect(texts(page, 'tbody .row-label')).not.toContain('tool');
     click([...page.querySelectorAll('.view-facts button')].find((b) => b.textContent === 'query'));
-    expect(page.querySelector('aside[aria-label="Tool query"]')).not.toBeNull();
+    expect(page.querySelector('section[aria-label="Tool query"]')).not.toBeNull();
     // A cell of a flow that names the tools of every agent's cell names none of its own.
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
-    const panel = page.querySelector('aside[aria-label="Cell a"]') as HTMLElement;
+    const panel = page.querySelector('section[aria-label="Cell a"]') as HTMLElement;
     expect(texts(panel, '.panel-part-label').some((label) => label.startsWith('tools'))).toBe(false);
   });
 
@@ -839,10 +940,10 @@ describe('the panel and the widths', () => {
     const page = draw({ state: 'compiled', flow: small() });
     expect(page.querySelector('.view-facts')?.textContent).toBe('limits runs 3, returns 2, calls 40');
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
-    const plan = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
+    const plan = page.querySelector('section[aria-label="Cell plan"]') as HTMLElement;
     expect(texts(plan, '.status-line').some((line) => line.startsWith('limits'))).toBe(false);
     click(page.querySelectorAll('thead .cell-head .head-button')[3]);
-    const answer = page.querySelector('aside[aria-label="Cell answer"]') as HTMLElement;
+    const answer = page.querySelector('section[aria-label="Cell answer"]') as HTMLElement;
     expect(texts(answer, '.status-line')).toContain('limits runs 5');
   });
 
@@ -864,7 +965,7 @@ describe('the panel and the widths', () => {
     // Joined from plan to answer, across judge's column.
     expect(engineer.querySelectorAll('.seg.line')).toHaveLength(6);
     click(engineer.querySelector('.head-button'));
-    const panel = page.querySelector('aside[aria-label="Line engineer"]') as HTMLElement;
+    const panel = page.querySelector('section[aria-label="Line engineer"]') as HTMLElement;
     expect(panel.querySelector('.drawer-belongs')?.textContent).toBe('lines/engineer.toml');
     expect(texts(panel, '.uses li')).toEqual(['planPlan', 'designDesign', 'answerAnswer comments']);
   });
@@ -886,7 +987,7 @@ describe('the panel and the widths', () => {
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
     expect(reviewer.querySelector('.words')?.textContent).toBe('line');
     click(reviewer.querySelector('.head-button'));
-    const panel = page.querySelector('aside[aria-label="Line reviewer"]') as HTMLElement;
+    const panel = page.querySelector('section[aria-label="Line reviewer"]') as HTMLElement;
     expect(texts(panel, '.status-line')).toEqual([
       'levels_above 1',
       'reads_only true',

@@ -7,18 +7,11 @@
   /* A work waiting for something that is not the owner: the console's pale yellow, which asks nothing of them. It has
      no token: the page marks no other state so. It reads on the dark ground as it is. */
   --console-waiting: #e8cc6a;
-  /* The window's tab and edge, and what is new to the owner: the page's accent, the purple of the flow page, its text
-     step where it is words or under the pointer, and its tint as a wash behind a strip; the canvas draws them so too. */
-  --console-accent: var(--accent);
-  --console-accent-strong: var(--accent-text);
+  /* What is new to the owner: the page's accent's tint as a wash behind a strip; the canvas draws it so too. The window
+     (its tab, its edge, its shadow) is the page's part (`.cw`, styles/parts.css). */
   --console-accent-wash: var(--accent-tint);
-  /* The head of a section of the item's window, its name and the line after it: a deeper step of the accent than its
-     text step, so that the heads stand over the text. */
-  --console-head: #6a3fd0;
-  /* The window's edge and the mark of a changed passage: thick enough to be seen at the screen's side. */
-  --console-edge-width: 2px;
-  --console-shadow: 0 0 0 1px #d1d9e040, 0 6px 12px -3px #25292e0a, 0 6px 18px 0 #25292e1f;
-  --console-edge-hover: var(--accent-tint);
+  /* The head of a section of the item's window, its name and the line after it: the page's (styles/tokens.css). */
+  --console-head: var(--head);
 
   position: relative;
   display: flex;
@@ -30,102 +23,12 @@
   background: var(--ground);
 }
 
-:root[data-theme='dark'] .console {
-  --console-head: #8b5cf6;
-  --console-shadow: 0 0 0 1px #3d444d, 0 6px 12px -3px #01040966, 0 6px 18px 0 #01040966;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) .console {
-    --console-head: #8b5cf6;
-    --console-shadow: 0 0 0 1px #3d444d, 0 6px 12px -3px #01040966, 0 6px 18px 0 #01040966;
-  }
-}
-
 .console-canvas {
   position: relative;
   flex: 1;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-}
-
-/* The window beside the tree, white like paper on the console's light grey, over the right of the tree, kept out at
-   the right of the screen like a binder's page: a narrow tab stuck to its left edge stays on the screen, and slides the
-   window in and out with it; its left edge is dragged to change its width. */
-.cw {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 4;
-  display: flex;
-  max-width: 85%;
-  background: var(--card);
-  box-shadow: var(--console-shadow);
-  transform: translateX(100%);
-  transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-/* The window's left edge: a narrow line in the tab's blue from top to bottom, which the tab grows out of. */
-.cw::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: calc(-1 * var(--console-edge-width));
-  width: var(--console-edge-width);
-  background: var(--console-accent);
-  pointer-events: none;
-}
-
-.cw:has(.cw-tab:hover)::before {
-  background: var(--console-accent-strong);
-}
-
-/* The tab: the handle every panel of the page has (`.drawer-tab`, styles/parts.css), a narrow tab in the accent on the
-   window's left edge, which stays at the screen's edge while the window is put away. */
-.cw .cw-tab {
-  position: absolute;
-  top: var(--space-16);
-  left: calc(-1 * var(--space-16));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--space-16);
-  height: var(--chart-tab);
-  padding: 0;
-  border: 0;
-  border-radius: var(--corner) 0 0 var(--corner);
-  background: var(--accent);
-  color: var(--on-colour);
-  cursor: pointer;
-  transition: background-color var(--hover-time);
-}
-
-.cw .cw-tab:hover {
-  background-image: linear-gradient(var(--step), var(--step));
-}
-
-.cw-open {
-  transform: none;
-}
-
-.cw-edge {
-  flex: none;
-  width: 6px;
-  margin-left: -3px;
-  cursor: col-resize;
-}
-
-.cw-edge:hover {
-  background: var(--console-edge-hover);
-}
-
-.cw-inner {
-  flex: 1;
-  min-width: 0;
-  overflow: auto;
 }
 
 /* Pixi sizes the canvas to its holder; a canvas left inline would add the room under a line of text. */

@@ -38,6 +38,9 @@
   /* The docked panel's width until the owner drags it, and the height of the handle on its edge. */
   --panel: 360px;
   --chart-tab: 72px;
+  /* The window that floats over a view (the console's, the flow's): its left edge, thick enough to be seen at the
+     screen's side. */
+  --window-edge: 2px;
 
   /* The chart's own sizes: the mark and the room its row line stops short of, the way back's line and arrow. The
      columns' widths are worked out in Chart.tsx (WIDTHS), where the owner's drags are kept. */
@@ -50,6 +53,16 @@
   --chart-arrow-length: 6px;
   /* How far a block's row stays under the frame's top when it is brought into view: the cells' heads are over it. */
   --chart-head-room: 48px;
+  /* The flowchart's: a line of a node's text (a cell's title, a key of the way into a cell, an arrow's label), the
+     dashes of an arrow from what the outside writes, and how wide an arrow takes the pointer. The sizes the layout
+     gives the nodes are worked out in graph/draw.tsx, in step with these. */
+  --chart-node-line: 18px;
+  /* The edge of a cell in the flowchart, thicker than a hairline so that a cell stands out from the arrows; the main
+     path's line, thicker than the cell's edge, so that the path a work takes is seen first. */
+  --chart-cell-edge: 1.5px;
+  --chart-main: 2px;
+  --chart-dash: 4 3;
+  --chart-hit: 8px;
 
   /* The works page: how high an opened content grows in the panel before it scrolls. */
   --content-height: 320px;
@@ -64,14 +77,16 @@
   --accent: #8b5cf6;
   --accent-text: #7c4ddb;
   --accent-tint: #f1ecfe;
-  /* The head of a section of a panel, its name and the line after it: a deeper step of the accent than its text step,
-     so that the heads stand over the text. */
+  /* The head of a section, its name and the line after it, in the panel and the console's window: a deeper step of the
+     accent than its text step, so that the heads stand over the text. */
   --head: #6a3fd0;
   /* The marks of a work's cells, in the accent's hue: a cell done a light step of it, the cell running a deep one. */
   --mark-done: #c4b5fd;
   --mark-running: #6d28d9;
   /* What a hover adds to the background under it: one step. */
   --step: rgb(0 0 0 / 4%);
+  /* The shadow of the window that floats over a view: Primer's overlay shadow, as the console drew it. */
+  --window-shadow: 0 0 0 1px #d1d9e040, 0 6px 12px -3px #25292e0a, 0 6px 18px 0 #25292e1f;
 
   /* The meanings, and only these: done; waits for the owner, or a change of a block's meaning; running; failed; the way
      back. A mark or a tag takes the colour itself; small text takes its text step, a darker step where the colour does
@@ -109,6 +124,7 @@
     --mark-done: #5f4fa6;
     --mark-running: #b9a3ff;
     --step: rgb(255 255 255 / 5%);
+    --window-shadow: 0 0 0 1px #3d444d, 0 6px 12px -3px #01040966, 0 6px 18px 0 #01040966;
     --green: #45c08a;
     --orange: #ff9a3c;
     --running: #a78bfa;
@@ -136,6 +152,7 @@
   --mark-done: #5f4fa6;
   --mark-running: #b9a3ff;
   --step: rgb(255 255 255 / 5%);
+  --window-shadow: 0 0 0 1px #3d444d, 0 6px 12px -3px #01040966, 0 6px 18px 0 #01040966;
   --green: #45c08a;
   --orange: #ff9a3c;
   --running: #a78bfa;
@@ -156,4 +173,7 @@
   --orange-tint: color-mix(in srgb, var(--orange) 10%, var(--card));
   --red-tint: color-mix(in srgb, var(--red) 10%, var(--card));
   --running-tint: color-mix(in srgb, var(--running) 10%, var(--card));
+  /* The flowchart's arrows a write runs: the muted colour a step towards the ground, so that they stand behind the main
+     path, which is in the text's colour. */
+  --chart-data: color-mix(in srgb, var(--muted) 70%, var(--ground));
 }
