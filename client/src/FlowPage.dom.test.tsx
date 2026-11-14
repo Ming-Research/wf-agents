@@ -182,6 +182,29 @@ describe('the chart', () => {
     expect(texts(panel, '.panel-part-label')).toEqual(['when 1']);
   });
 
+  it('says a trigger’s marks by the trigger and by the block it stands on, and chooses that block by its row', () => {
+    // The trigger y stands on the block x; y is also a datum of its own.
+    const trigger = { name: 'y', what: 'Fires when x is new.', block: 'x', read: [], do: 'Read x again.' };
+    const flow = flowOf(
+      [cell('a', { outputs: ['x', 'y'] }), cell('b', { runsOn: ['x'], given: ['y'], triggers: [trigger] })],
+      { x: { what: 'The plan.' }, y: { what: 'The notes.' } },
+    );
+    const page = draw({ state: 'compiled', flow });
+    const row = rowOf(page, 'y', true);
+    expect(texts(row, '.spot .visually-hidden')).toEqual(['a outputs x', 'b triggered_by y']);
+    expect(row.querySelector('.head-button')?.getAttribute('aria-label')).toBe('Trigger y, block x');
+    expect(row.querySelector('.words')?.textContent).toBe('Fires when x is new.');
+    click(page.querySelectorAll('thead .cell-head .head-button')[1]);
+    expect(row.querySelector('.words')?.textContent).toBe('Read x again.');
+    click(row.querySelector('.head-button'));
+    expect(page.querySelector('aside[aria-label="Block x"]')).not.toBeNull();
+    expect(rowOf(page, 'x').className).toContain('chosen');
+    // The datum y is chosen by its own row, not by the trigger of its name.
+    click(rowOf(page, 'y').querySelector('.head-button'));
+    expect(page.querySelector('aside[aria-label="Block y"]')).not.toBeNull();
+    expect(row.className).not.toContain('chosen');
+  });
+
   it('signs the source outside that writes a block on its row, and says it in its panel by its key', () => {
     const page = draw({ state: 'compiled', flow: small() });
     expect(rowOf(page, 'main').querySelector('[title="from main"]')).not.toBeNull();

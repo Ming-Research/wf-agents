@@ -229,11 +229,12 @@ export function FlowPage({ definition, given, active = true }: {
   }
 
   const cell = chosen && 'cell' in chosen ? drawn.cells.find((c) => c.id === chosen.cell) : undefined;
-  // A block chosen by its name: a datum's row, or else the row of a trigger that stands on it, which a block standing
-  // only for a trigger has alone.
+  // A block chosen by its name: its datum's row, or else the row of a trigger that stands on it, which a block standing
+  // only for a trigger has alone. A trigger's row is named for the trigger, which may be another block's name.
   const row =
     chosen && 'block' in chosen
-      ? (drawn.blocks.find((b) => b.name === chosen.block) ?? drawn.blocks.find((b) => b.on === chosen.block))
+      ? (drawn.blocks.find((b) => b.trigger === undefined && b.on === chosen.block) ??
+        drawn.blocks.find((b) => b.on === chosen.block))
       : undefined;
   const lineRow = chosen && 'line' in chosen ? drawn.lines.find((l) => l.name === chosen.line) : undefined;
   const testRow =

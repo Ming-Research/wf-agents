@@ -61,8 +61,17 @@ const PART_WORDS: Record<MarkPart, string> = {
   precondition: 'requires',
 };
 
-/// The words a mark says, for the pointer's tip and for a reader of the screen: "plan is run by, is given opinions".
-export function markWords(cell: string, block: string, spot: Pick<Spot, 'mark'>): string {
+/// The words a mark says, for the pointer's tip and for a reader of the screen, by the cell's keys: on a datum's row
+/// the keys that name the datum, then the datum (`plan context latest, outputs plan`); on a trigger's row each key with
+/// what it names, the trigger or the block it stands on (`judge triggered_by on_plan`, `plan outputs plan`).
+export function markWords(cell: string, block: string, spot: Pick<Spot, 'mark'>, trigger?: string): string {
+  if (trigger !== undefined) {
+    const named = [
+      ...(spot.mark.runs ? [`${PART_WORDS.runs} ${trigger}`] : []),
+      ...(spot.mark.write ? [`${PART_WORDS.write} ${block}`] : []),
+    ];
+    return named.length > 0 ? `${cell} ${named.join(', ')}` : '';
+  }
   const parts = MARK_PARTS.flatMap((part) => {
     if (!spot.mark[part]) return [];
     return part === 'given' && spot.mark.kind
@@ -327,10 +336,14 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
   const size = { width: '100%', minWidth: taken + FLOW_WIDTHS.words };
 
   // What is chosen elsewhere (a panel) is brought into view in the frame.
+  // A block is found by its datum's row, or else by the row of a trigger that stands on it, which a block standing only
+  // for a trigger has alone.
   useEffect(() => {
     const key = chosen && keyOf(chosen);
     if (!key) return;
-    const target = frame.current?.querySelector(`[data-key="${CSS.escape(key)}"]`);
+    const target =
+      frame.current?.querySelector(`[data-key="${CSS.escape(key)}"]`) ??
+      (chosen && 'block' in chosen ? frame.current?.querySelector(`[data-on="${CSS.escape(chosen.block)}"]`) : null);
     target?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [chosen]);
 
@@ -434,16 +447,16 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
               if (isTrigger(row) !== trigger) return null;
               const isChosen = chosenBlock === row.on;
               const what = trigger ? (row.what ?? '') : (row.block.what ?? '');
-              // What the chosen cell says of the block; of one it may write, with what the block is, which is what the
-              // cell is to hand in.
+              // What the chosen cell says of the row's thing: of a trigger, what it does when the trigger fires; of a
+              // datum, its keys, and of one it may write, with what the datum is, which is what the cell is to hand in.
               const says = !saying
                 ? ''
                 : trigger
                   ? ((saying.triggers ?? []).find((t) => t.name === row.trigger && t.block === row.on)?.do ?? '')
-                  : cellSays(saying, row.name);
-              const said = says && what && saying?.outputs.includes(row.name) ? `${says}: ${what}` : says;
+                  : cellSays(saying, row.on);
+              const said = !trigger && says && what && saying?.outputs.includes(row.on) ? `${says}: ${what}` : says;
               return (
-                <tr key={row.name} className={`row ${isChosen ? 'chosen' : ''}`}>
+                <tr key={trigger ? `${row.trigger}:${row.on}` : row.on} className={`row ${isChosen ? 'chosen' : ''}`}>
                   <BlockHead
                     row={row}
                     label={trigger ? row.name : null}
@@ -455,9 +468,9 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
                     <SpotCell
                       key={cell.id}
                       spot={spots[r][c]}
-                      trigger={trigger}
+                      trigger={row.trigger}
                       cell={cell.id}
-                      block={row.name}
+                      block={row.on}
                       chosen={chosenCell === cell.id}
                       pointed={pointed === c}
                       onPoint={() => setPointed(c)}
@@ -568,7 +581,7 @@ function WordsHead(props: { about: Cell | null; saying: Cell | null; onPoint: ()
 }
 
 /// The name of a block at the left of its row, with its signs, the source outside the work that writes it and the
-/// values of a choice after it.
+/// values of a choice after it; or of a trigger, which is found by the block it stands on, and chooses that block.
 function BlockHead(props: {
   row: BlockRow;
   /// Of a row that stands only for a trigger, the trigger's name.
@@ -580,12 +593,18 @@ function BlockHead(props: {
   const { row, label, chosen, onChoose, onPoint } = props;
   const block = row.block;
   return (
-    <th scope="row" className="lead block-head" data-key={`block:${row.name}`} onMouseEnter={onPoint}>
+    <th
+      scope="row"
+      className="lead block-head"
+      data-key={row.trigger !== undefined ? `trigger:${row.trigger}:${row.on}` : `block:${row.on}`}
+      data-on={row.trigger !== undefined ? row.on : undefined}
+      onMouseEnter={onPoint}
+    >
       <button
         type="button"
         className="head-button"
         aria-pressed={chosen}
-        aria-label={`Block ${row.name}`}
+        aria-label={row.trigger !== undefined ? `Trigger ${row.trigger}, block ${row.on}` : `Block ${row.on}`}
         onClick={onChoose}
       >
         <span className="block-name" title={row.name}>
@@ -763,8 +782,8 @@ function ConditionLine(props: {
 
 function SpotCell(props: {
   spot: Spot;
-  /// The crossing is on a trigger's row.
-  trigger: boolean;
+  /// Of a crossing on a trigger's row, the trigger's name.
+  trigger?: string;
   cell: string;
   block: string;
   chosen: boolean;
@@ -787,7 +806,7 @@ function SpotCell(props: {
   };
   // The arrow of a way back is at the right of the read it points at, in the way back's lane.
   const arrowLane = runs('line', 'right') && runs('back', 'right') ? 'lane' : '';
-  const words = markWords(cell, block, spot);
+  const words = markWords(cell, block, spot, trigger);
   return (
     <td
       className={`spot ${hasMark(spot.mark) ? 'has-mark' : ''} ${chosen ? 'chosen' : ''} ${pointed ? 'pointed' : ''}`}
@@ -797,7 +816,7 @@ function SpotCell(props: {
       {half('left')}
       {half('right')}
       {spot.backTo && <span className={`arrow ${arrowLane}`} aria-hidden="true" />}
-      {trigger ? <TriggerGlyph spot={spot} /> : <DataGlyphs spot={spot} />}
+      {trigger !== undefined ? <TriggerGlyph spot={spot} /> : <DataGlyphs spot={spot} />}
       {words && <span className="visually-hidden">{words}</span>}
     </td>
   );
