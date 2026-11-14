@@ -16,9 +16,9 @@ use serde::de::DeserializeOwned;
 use web::attention::{Attention, Line, Stuck};
 use web::plan::{Candidates, Field, Graph, Hits, Node, PlanChange, PlanChanges, Row, Standing, Tags};
 use web::works::{
-    Act, Added, Back, Call, CellState, ChangeAsked, Engine, EngineAct, Failure, ItemChanged, ItemChanges, ItemHistory,
-    Items, ItemsChanged, Limit, Maker, NewItem, NewWrite, Now, Outage, Pauser, Person, QuestionPage, Refusal, Run,
-    SessionWhy, Spent, Step, Until, VersionPage, Waited, WorkPage, Writer,
+    Act, Added, Back, Call, CellKey, CellState, ChangeAsked, Engine, EngineAct, Failure, ItemChanged, ItemChanges,
+    ItemHistory, Items, ItemsChanged, Limit, Maker, NewItem, NewWrite, Now, Outage, Pauser, Person, QuestionPage,
+    Refusal, Run, SessionWhy, Spent, Stalling, Step, Unrun, Until, VersionPage, Waited, WorkPage, Writer,
 };
 
 /// What a command asks of the engine.
@@ -1336,8 +1336,34 @@ fn now(now: &Now) -> String {
             format!("waits at {at} for {}", on.join("; and for "))
         }
         Now::Next { cell } => format!("about to go on at {cell}"),
-        Now::Idle {} => "at rest: nothing new runs a cell, until someone writes what runs one".to_string(),
+        Now::Stalled { at, on, by } => stalled(at, on, by),
     }
+}
+
+/// What a stalled work waits for and why no cell that writes it runs, as a clause.
+fn stalled(at: &str, on: &[CellKey], by: &[Stalling]) -> String {
+    let keys = |keys: &[CellKey]| keys.iter().map(|k| k.words.as_str()).collect::<Vec<_>>().join(" and ");
+    let cells: Vec<String> = by.iter().map(|s| format!("cell {}", s.cell)).collect();
+    let writers = match cells.is_empty() {
+        true => "no cell".to_string(),
+        false => format!("only {}", cells.join(" or ")),
+    };
+    let mut said = match on.is_empty() {
+        false => format!(
+            "stalled at {at}, waiting for {}, which {writers} can make hold",
+            keys(on)
+        ),
+        true => format!("stalled at {at}, its last cell, which nothing new runs; what runs it {writers} can write"),
+    };
+    for s in by {
+        let why = match &s.why {
+            Unrun::Skipped { on } => format!("it is skipped, {} not holding", keys(on)),
+            Unrun::NothingNew {} => "nothing new runs it".to_string(),
+            Unrun::Held {} => format!("{at} holds it"),
+        };
+        said.push_str(&format!("; cell {} does not run: {why}", s.cell));
+    }
+    said
 }
 
 /// What a work waits for, as a clause.
@@ -1496,7 +1522,15 @@ mod tests {
                 flow: "trial".to_string(),
                 added: 0,
                 paused: false,
-                now: if merged { Now::Merged } else { Now::Idle {} },
+                now: if merged {
+                    Now::Merged
+                } else {
+                    Now::Stalled {
+                        at: "merge".to_string(),
+                        on: Vec::new(),
+                        by: Vec::new(),
+                    }
+                },
                 cells: Vec::new(),
                 spent: Spent::default(),
                 last: None,
@@ -1544,14 +1578,14 @@ mod tests {
         // What ended is left out, and counted, unless all are asked for.
         assert_eq!(
             list(&some, &page(false)),
-            "#2 \"item 2\" at level 1, W2 on trial, after #1, tagged page: at rest: nothing new runs a cell, until \
-             someone writes what runs one It waits for good on #1, cancelled.\nAnd 1 item that ended, merged or \
+            "#2 \"item 2\" at level 1, W2 on trial, after #1, tagged page: stalled at merge, its last cell, which nothing \
+             new runs; what runs it no cell can write It waits for good on #1, cancelled.\nAnd 1 item that ended, merged or \
              cancelled: wf-agents list --tag page --all"
         );
         assert_eq!(
             list(&some, &page(true)),
-            "#2 \"item 2\" at level 1, W2 on trial, after #1, tagged page: at rest: nothing new runs a cell, until \
-             someone writes what runs one It waits for good on #1, cancelled.\n#3 \"item 3\" at level 1, W3 on trial, \
+            "#2 \"item 2\" at level 1, W2 on trial, after #1, tagged page: stalled at merge, its last cell, which nothing \
+             new runs; what runs it no cell can write It waits for good on #1, cancelled.\n#3 \"item 3\" at level 1, W3 on trial, \
              tagged page: merged"
         );
         let none = Listing {

@@ -979,6 +979,8 @@ pub struct Found {
     pub protected_unread: String,
     pub unnamed: String,
     pub not_head: String,
+    /// The commit checked changes nothing against main: there is nothing to merge.
+    pub empty: String,
 }
 
 /// A piece of a text of the engine's words: what is sent as written, or a place filled in a run, by its name.

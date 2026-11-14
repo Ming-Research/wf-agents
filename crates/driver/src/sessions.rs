@@ -15,9 +15,11 @@
 //! which that round is tried again, so that the check is not given the same context.
 //!
 //! Nothing follows for a work that has ended. Without a policy, nothing more is worked out, and only what others record
-//! is followed: whatever records a new session, the driver then writes the work's [`SESSION`] block, where the line has
-//! a cell that reads it, so that the cell runs again and what it reads is in the new session. A line's first session,
-//! which begins with its first round, writes nothing: that cell runs then anyway.
+//! is followed: whatever records a new session, the driver then writes each of the work's [`SESSION`] blocks that a
+//! cell of the line reads, so that the cell runs again and what it reads is in the new session. A flow gives each line
+//! a block of its own, so that a new session of one line runs again only the cells of that line; a block that cells of
+//! several lines read is written for a new session of any of them. A line's first session, which begins with its first
+//! round, writes nothing: that cell runs then anyway.
 
 use decide::run::Failure;
 use decide::{Decision, Outsider, RunId, decide};
@@ -38,12 +40,12 @@ pub struct Policy {
     pub on: Box<dyn Fn(&Item, &CellSpec) -> Option<RanOn> + Send>,
 }
 
-/// The source of the block the driver writes as a line begins a new session: the block a cell reads that loads what
-/// the line's other cells work from into the session.
+/// The source of the blocks the driver writes as a line begins a new session: each a block a cell reads that loads
+/// what the line's other cells work from into the session, a line's own where the flow gives each line one.
 pub const SESSION: &str = "session";
 
 /// What follows, from outside the work, from the work as it now is: each new session the policy says a line begins,
-/// and the write of the [`SESSION`] block where a line that has a cell reading it began one since the block was last
+/// and the write of each [`SESSION`] block where a line that has a cell reading it began one since the block was last
 /// written.
 pub fn follow(flow: &Compiled, work: &Work, item: &Item, policy: Option<&Policy>) -> Vec<Event> {
     // Nothing more is written to a work that has ended, whose sessions will run no round.
@@ -59,36 +61,36 @@ pub fn follow(flow: &Compiled, work: &Work, item: &Item, policy: Option<&Policy>
             false => policy.and_then(|policy| due(flow, work, item, line, policy)),
         })
         .collect();
-    let Some((block, declared)) = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(SESSION))
-    else {
-        return events;
-    };
-    let read_on =
-        |line: &str| (declared.readers.cells.iter()).any(|cell| line_of_cell(flow, cell.as_str()) == Some(line));
-    // The latest new session of a line the block stands for: one about to be recorded, or else one recorded since the
-    // block was last written.
-    let coming = events.iter().rev().find_map(|event| match event {
-        Event::Anew { line, why } if read_on(line) => Some(said(why, line, &declared.writes)),
-        _ => None,
-    });
-    let written = (work.records.written.iter())
-        .filter(|w| w.block == *block && w.by == Outsider::Outside)
-        .map(|w| w.at)
-        .max();
-    let loads = |cell: &str| declared.readers.cells.iter().any(|c| c.as_str() == cell);
-    let recorded = (work.sessions.iter().rev())
-        .find(|s| read_on(&s.line) && !in_the_loader(work, s, &loads))
-        .filter(|s| written.is_none_or(|w| w < s.at))
-        .map(|s| said(&s.why, &s.line, &declared.writes));
-    if let Some(content) = coming.or(recorded) {
-        events.push(Event::Wrote {
-            block: block.clone(),
-            by: Outsider::Outside,
-            content,
-            matters: true,
-            value: None,
+    let mut writes = Vec::new();
+    for (block, declared) in (flow.blocks.iter()).filter(|(_, b)| b.writers.outside.as_deref() == Some(SESSION)) {
+        let read_on =
+            |line: &str| (declared.readers.cells.iter()).any(|cell| line_of_cell(flow, cell.as_str()) == Some(line));
+        // The latest new session of a line the block stands for: one about to be recorded, or else one recorded since
+        // the block was last written.
+        let coming = events.iter().rev().find_map(|event| match event {
+            Event::Anew { line, why } if read_on(line) => Some(said(why, line, &declared.writes)),
+            _ => None,
         });
+        let written = (work.records.written.iter())
+            .filter(|w| w.block == *block && w.by == Outsider::Outside)
+            .map(|w| w.at)
+            .max();
+        let loads = |cell: &str| declared.readers.cells.iter().any(|c| c.as_str() == cell);
+        let recorded = (work.sessions.iter().rev())
+            .find(|s| read_on(&s.line) && !in_the_loader(work, s, &loads))
+            .filter(|s| written.is_none_or(|w| w < s.at))
+            .map(|s| said(&s.why, &s.line, &declared.writes));
+        if let Some(content) = coming.or(recorded) {
+            writes.push(Event::Wrote {
+                block: block.clone(),
+                by: Outsider::Outside,
+                content,
+                matters: true,
+                value: None,
+            });
+        }
     }
+    events.extend(writes);
     events
 }
 

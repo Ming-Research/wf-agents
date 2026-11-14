@@ -60,3 +60,14 @@ Why: Entered again for the same version each time such a run asked, the cell wen
 each turn, and no limit counted it, since the limit of calls counts only the runs entered for their results: a build
 entered for an answer that asked for a tool first did so in the real carriers' tests. Counted from the cell's last run
 begun instead, a version told to a run that was then abandoned waited for every result before any run answered it.
+
+### decision a-work-no-cell-can-move-is-stalled
+A work that waits only for what cells write, at a cell whose preconditions only cells make hold or at its last cell
+that nothing new runs, is stalled: the walk says where it stands, what it waits for, and why each cell that writes it
+does not run, skipped, with nothing new, or held behind where the work stands. It is shown as waiting for the owner,
+worked out from the walk each time it is shown, and nothing is recorded for it: whatever then runs a cell moves it on.
+Why: A wait that names only cells that will not run names nobody who can act (principle decide-purely): an
+implementation that handed in nothing for a red check left the work at the merge's gate, waiting for the check, and
+nobody was told. A pause of the engine's was turned down: its reason went stale once the work could move again, it
+held what the owner wrote until they let the work on, and what it guarded against, the check run by main moving on a
+branch no one reviewed, the check's own gate on the review's yes holds (decision the-check-waits-for-the-review).

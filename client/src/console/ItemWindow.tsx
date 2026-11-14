@@ -46,7 +46,7 @@ import {
 } from '../works-api';
 import { StateLegend, Strip } from '../works/marks';
 import { LetGoAgain } from '../works/Boxes';
-import { CANCEL_DOES, CANCEL_WHY, callWords, letGoFailed, outageWords } from '../works/words';
+import { CANCEL_DOES, CANCEL_WHY, callWords, letGoFailed, outageWords, stalledWords } from '../works/words';
 import { type ItemStanding, standingOf, whoGives } from './items';
 import { Markdown } from './markdown';
 import { markRead } from './mock';
@@ -213,8 +213,8 @@ export function nowWords(s: Summary, page: WorkPage | null): { word: string; fac
       return { word: 'Merged', facts: null };
     case 'cancelled':
       return { word: 'Cancelled', facts: null };
-    case 'idle':
-      return { word: MOOD_WORDS.waiting, facts: 'nothing new runs a cell' };
+    case 'stalled':
+      return { word: MOOD_WORDS.owner, facts: `at ${titleOf(page, now.at)}: ${stalledWords(now)}` };
   }
 }
 

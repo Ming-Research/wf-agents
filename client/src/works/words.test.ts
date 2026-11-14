@@ -212,7 +212,7 @@ describe('a failed letting go of what an ended work held', () => {
   });
 
   it('is none for a work going on, one let on since, one the owner paused, or one not paused', () => {
-    expect(letGoFailed({ now: { kind: 'idle' }, paused: true }, [paused(1, 'engine')])).toBeNull();
+    expect(letGoFailed({ now: { kind: 'next', cell: 'plan' }, paused: true }, [paused(1, 'engine')])).toBeNull();
     expect(letGoFailed(merged, [paused(1, 'engine'), resumed(2)])).toBeNull();
     expect(letGoFailed(merged, [paused(1, 'owner')])).toBeNull();
     expect(letGoFailed({ ...merged, paused: false }, [paused(1, 'engine')])).toBeNull();

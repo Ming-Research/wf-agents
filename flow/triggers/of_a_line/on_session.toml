@@ -1,6 +1,8 @@
+# A block of each line whose cells name it, under the block's name below, `{line}` being the line's name: a new session
+# of the line writes its own block alone, so that it runs again only the cells of that line.
 what = "Fires when the session of the cell's line was reopened: the session holds nothing, and the cell is filled again from the top."
 do = """Read what you need from the start: the session holds nothing of what you read before."""
-block = "session"
+block = "{line}_session"
 from = "session"
 
 # What the engine writes into the block as a line begins a new session: `text`, with `{line}` the line and `{why}` the

@@ -25,11 +25,11 @@
 //! paused, is first let on with nothing of it started, or, reopened, is first let on since, so that the cell it runs,
 //! the work's start, is entered and makes the place the work is done in again.
 //!
-//! The driver writes one more block of a work: the block of a flow whose source is [`SESSION`], which a cell reads that
-//! loads into a line's session what the line's other cells work from. As a line of a work begins a new session, the
-//! driver records it and writes the block, so that the cell runs again before the line goes on; when a line begins one
-//! is the installation's [`Policy`], worked out of the work's records after each thing that happens and before the walk
-//! (module [`sessions`]).
+//! The driver writes one more kind of block of a work: a block of a flow whose source is [`SESSION`], which a cell reads
+//! that loads into a line's session what the line's other cells work from, each line its own. As a line of a work
+//! begins a new session, the driver records it and writes the block its cells read, so that the cell runs again before
+//! the line goes on; when a line begins one is the installation's [`Policy`], worked out of the work's records after
+//! each thing that happens and before the walk (module [`sessions`]).
 //!
 //! What another source outside the works says of a project, such as the head of the project's main branch, the driver
 //! is told ([`Driver::outside`]), and writes into the block of that source of each work of that project's items that

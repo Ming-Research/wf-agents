@@ -23,7 +23,7 @@
 use decide::run::{Failure as FailureOf, Limit as LimitOf, Unmet as UnmetOf};
 use decide::{
     BlockId, CallId, Cause as CauseOf, CellId, Condition as Applies, Decision, End, Holder, Maker as MakerOf,
-    Pauser as PauserOf, RunId, Seq, View, Waited as WaitedOf, Who, Writer as WriterOf,
+    Pauser as PauserOf, RunId, Seq, Unrun as UnrunOf, View, Waited as WaitedOf, Who, Writer as WriterOf,
 };
 use driver::{Driver, Kept, Until as UntilOf};
 use flow::Kind;
@@ -256,9 +256,44 @@ pub enum Now {
     Waits { at: String, on: Vec<Waited> },
     /// It is about to do something at this cell. A work is never left so between two things that happen to it.
     Next { cell: String },
-    /// Nothing new runs a cell, and nothing of it is under way or waited for: it goes on once someone writes what runs
-    /// a cell.
-    Idle {},
+    /// It can go on by itself no further at this cell, and nothing pauses it: each key of the cell's `requires` that
+    /// does not hold, none where it stands at its last cell for want of anything new to run it; and each cell that
+    /// writes what it waits for, none of which runs, with why. It goes on once the owner, or a source outside the work,
+    /// writes what runs a cell.
+    Stalled {
+        at: String,
+        on: Vec<CellKey>,
+        by: Vec<Stalling>,
+    },
+}
+
+/// A key of a cell's `when` or `requires`: the named test, or the block's key as the cell's file writes it
+/// (`checked = yes`); and the words shown for it, the test's or the same key.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CellKey {
+    pub test: String,
+    pub words: String,
+}
+
+/// A cell that writes what a stalled work waits for, and why it does not run.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Stalling {
+    pub cell: String,
+    pub why: Unrun,
+}
+
+/// Why a cell that writes what a stalled work waits for does not run.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Unrun {
+    /// Its condition does not hold: these keys of its `when`.
+    Skipped { on: Vec<CellKey> },
+    /// Nothing new runs it.
+    NothingNew {},
+    /// It stands at or after the cell the work stands at, whose `requires` hold it.
+    Held {},
 }
 
 /// What a work waits for.
@@ -1569,24 +1604,14 @@ impl Now {
                                 who: on.as_ref().map(Person::of),
                                 what: call_of(work, *call)?,
                             },
-                            WaitedOf::Precondition {
-                                on: Applies::Test(test),
-                                by,
-                            } => Waited::Precondition {
-                                test: test.to_string(),
-                                words: (kept.flow.tests.get(test).cloned())
-                                    .ok_or_else(|| Broken(format!("the flow has no test {test}")))?,
-                                by: by.iter().map(Maker::of).collect(),
-                            },
-                            // A key on a block's value is said as the cell's file writes it.
-                            WaitedOf::Precondition {
-                                on: Applies::Is { block, value },
-                                by,
-                            } => Waited::Precondition {
-                                test: format!("{block} = {value}"),
-                                words: format!("{block} = {value}"),
-                                by: by.iter().map(Maker::of).collect(),
-                            },
+                            WaitedOf::Precondition { on, by } => {
+                                let CellKey { test, words } = key_of(&kept, on)?;
+                                Waited::Precondition {
+                                    test,
+                                    words,
+                                    by: by.iter().map(Maker::of).collect(),
+                                }
+                            }
                             WaitedOf::Limit { runs } => Waited::Limit { runs: *runs },
                             WaitedOf::Calls { runs } => Waited::Calls { runs: *runs },
                             WaitedOf::Slot => Waited::Slot {},
@@ -1600,9 +1625,31 @@ impl Now {
             Decision::Run { cell, .. } | Decision::GoOn { cell, .. } | Decision::Abandon { cell, .. } => {
                 Now::Next { cell: cell.to_string() }
             }
-            // A work at rest that its own pause holds is shown paused: it is the owner's, or the engine's, to let on.
-            Decision::Idle if decide::paused(&work.records) => Now::paused(work)?,
-            Decision::Idle => Now::Idle {},
+            // A stalled work that its own pause holds is shown paused: it is the pauser's to let on.
+            Decision::Stalled { .. } if decide::paused(&work.records) => Now::paused(work)?,
+            Decision::Stalled { at, on, by } => Now::Stalled {
+                at: at.to_string(),
+                on: (on.iter())
+                    .map(|key| key_of(&kept, key))
+                    .collect::<Result<_, Broken>>()?,
+                by: (by.iter())
+                    .map(|stalling| {
+                        let why = match &stalling.why {
+                            UnrunOf::Skipped { on } => Unrun::Skipped {
+                                on: (on.iter())
+                                    .map(|key| key_of(&kept, key))
+                                    .collect::<Result<_, Broken>>()?,
+                            },
+                            UnrunOf::NothingNew => Unrun::NothingNew {},
+                            UnrunOf::Held => Unrun::Held {},
+                        };
+                        Ok(Stalling {
+                            cell: stalling.cell.to_string(),
+                            why,
+                        })
+                    })
+                    .collect::<Result<_, Broken>>()?,
+            },
         })
     }
 
@@ -1614,6 +1661,22 @@ impl Now {
             why: pause.why.clone(),
         })
     }
+}
+
+/// A key of a cell's `when` or `requires` as the page shows it: a named test with its words, or a key on a block's value
+/// as the cell's file writes it.
+fn key_of(kept: &Kept<'_>, key: &Applies) -> Result<CellKey, Broken> {
+    Ok(match key {
+        Applies::Test(test) => CellKey {
+            test: test.to_string(),
+            words: (kept.flow.tests.get(test).cloned())
+                .ok_or_else(|| Broken(format!("the flow has no test {test}")))?,
+        },
+        Applies::Is { block, value } => CellKey {
+            test: format!("{block} = {value}"),
+            words: format!("{block} = {value}"),
+        },
+    })
 }
 
 impl Pauser {

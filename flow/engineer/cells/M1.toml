@@ -1,12 +1,13 @@
 title = "Check before the merge"
 kind = "engine"
 act = "check"
-requires = { test = "settled", asked = "answered" }
+requires = { test = "settled", asked = "answered", review_ok = "yes" }
 triggered_by = [
   "on_code",
   "on_tests",
   "on_main",
   "on_reply_check",
+  "on_asked",
 ]
 outputs = ["checked", "check"]
 describes = ["code"]

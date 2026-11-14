@@ -15,7 +15,7 @@ use crate::agents::RuleSetFile;
 use crate::source::{
     BLOCKS_DIR, BlockFile, CELLS_DIR, CellFile, DATA_DIR, Effort, FLOW_FILE, FlowFile, InputKind, Keys, Kind,
     LINES_DIR, LaidOutBlockFile, LaidOutFlowFile, LaidOutLineFile, LineFile, OF_A_CELL, OF_A_DATUM, OF_A_GROUP,
-    OfADatumFile, RULES_DIR, Source, TESTS_DIR, TRIGGERS_DIR, Task, TestFile, Texts, TriggerFile, WHEN_TEST,
+    OF_A_LINE, OfADatumFile, RULES_DIR, Source, TESTS_DIR, TRIGGERS_DIR, Task, TestFile, Texts, TriggerFile, WHEN_TEST,
     rules_file, who_writes,
 };
 
@@ -281,7 +281,8 @@ pub enum FaultKind {
     Twice { name: String },
     /// A limit is not a whole number from one to the largest count the engine keeps.
     LimitOutOfRange { value: i64 },
-    /// An agent cell names no line to run in.
+    /// The cell names no line, and needs one: an agent cell runs in its line's session, and a trigger that every line
+    /// has its own of stands on the block of its cell's line.
     NoLine,
     /// An engine cell names a line: it runs in no session.
     EngineHasLine { line: String },
@@ -561,8 +562,8 @@ struct Parsed {
     /// Of a flow laid out one thing to a file, the names of the sets of rules a line may take, as
     /// [`crate::agents::RULES_FILE`] names them.
     rule_sets: BTreeSet<String>,
-    /// The triggers beside the flows, by their files, each with whether every cell naming it has its own of it.
-    trigger_files: Vec<(String, TriggerFile, bool)>,
+    /// The triggers beside the flows, by their files, each with whose own it is.
+    trigger_files: Vec<(String, TriggerFile, Whose)>,
     /// What is wrong with how the files make one definition, found as they are gathered: a thing defined twice, a
     /// datum of the engine's the flow names that is not there, and a file beside the flows that lacks the name that
     /// stands for each cell or each datum.
@@ -716,6 +717,32 @@ type Resolved = BTreeMap<String, Vec<(usize, Result<Trigger, FaultKind>)>>;
 /// What stands for the id of a cell, in small letters, in a trigger each cell has its own of.
 const CELL: &str = "{cell}";
 
+/// What stands for the name of a line in a trigger each line has its own of.
+const LINE: &str = "{line}";
+
+/// Whose own a trigger beside the flows is, by where its file is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Whose {
+    /// Its own: it stands on the one block it declares, whichever cell names it.
+    Its,
+    /// Each cell's that names it, in `of_a_cell/`: `{cell}` stands for the cell's id in small letters.
+    Cell,
+    /// Each line's, in `of_a_line/`: `{line}` stands for the line of the cell that names it, and the cells of one line
+    /// share it.
+    Line,
+}
+
+impl Whose {
+    /// What stands in its texts for whose own it is, where it is not its own.
+    fn placeholder(self) -> Option<&'static str> {
+        match self {
+            Whose::Its => None,
+            Whose::Cell => Some(CELL),
+            Whose::Line => Some(LINE),
+        }
+    }
+}
+
 /// What stands for the name of a datum in a rule that makes a trigger of each datum.
 const DATUM: &str = "{datum}";
 
@@ -758,8 +785,8 @@ struct LaidOut {
     blocks: Vec<(String, LaidOutBlockFile)>,
     tests: Vec<(String, TestFile)>,
     data: Vec<(String, LaidOutBlockFile)>,
-    /// The triggers by their files, each with whether every cell naming it has its own of it.
-    triggers: Vec<(String, TriggerFile, bool)>,
+    /// The triggers by their files, each with whose own it is.
+    triggers: Vec<(String, TriggerFile, Whose)>,
     of_a_datum: Vec<(String, OfADatumFile)>,
     /// The rules that make a trigger of each group of the flow's blocks, by their files.
     of_a_group: Vec<(String, OfADatumFile)>,
@@ -787,8 +814,15 @@ impl LaidOut {
             } else if under(&path, &format!("{TRIGGERS_DIR}/{OF_A_GROUP}")) {
                 laid.of_a_group.extend(shape(&path, text, faults).map(|f| (path, f)));
             } else if under(&path, TRIGGERS_DIR) {
-                let own = under(&path, &format!("{TRIGGERS_DIR}/{OF_A_CELL}"));
-                laid.triggers.extend(shape(&path, text, faults).map(|f| (path, f, own)));
+                let whose = if under(&path, &format!("{TRIGGERS_DIR}/{OF_A_CELL}")) {
+                    Whose::Cell
+                } else if under(&path, &format!("{TRIGGERS_DIR}/{OF_A_LINE}")) {
+                    Whose::Line
+                } else {
+                    Whose::Its
+                };
+                laid.triggers
+                    .extend(shape(&path, text, faults).map(|f| (path, f, whose)));
             } else if path == rules {
                 laid.rule_sets = shape(&path, text, faults);
             }
@@ -799,9 +833,9 @@ impl LaidOut {
     /// Gathers the lines, blocks and named tests into the flow, each by the name of its file, with the data of the
     /// engine's the flow names among `data`, where it is laid out one thing to a file; and gives the names of the sets
     /// of rules a line may take. A fault is each second file of one name, on it, naming the first; a datum the flow
-    /// names that `../data/` does not define, or that the flow defines as well; a trigger each cell has its own of
-    /// whose block does not hold `{cell}`; and a rule of a datum whose name does not hold `{datum}`, or that makes the
-    /// names another rule makes.
+    /// names that `../data/` does not define, or that the flow defines as well; a trigger each cell or each line has
+    /// its own of whose block does not hold `{cell}` or `{line}`; and a rule of a datum whose name does not hold
+    /// `{datum}`, or that makes the names another rule makes.
     fn gather(
         &self,
         flow: &mut FlowFile,
@@ -864,18 +898,20 @@ impl LaidOut {
                 }
             }
         }
-        // A trigger of its own and one each cell has its own of are named alike, by their files' names.
+        // A trigger of its own and one each cell or each line has its own of are named alike, by their files' names.
         let mut named: BTreeMap<&str, &str> = BTreeMap::new();
-        for (path, trigger, own) in &self.triggers {
+        for (path, trigger, whose) in &self.triggers {
             match named.entry(stem(path)) {
                 Entry::Occupied(first) => faults.push(twice(stem(path), path, first.get())),
                 Entry::Vacant(entry) => {
                     entry.insert(path);
                 }
             }
-            if *own && !trigger.block.contains(CELL) {
+            if let Some(placeholder) = whose.placeholder()
+                && !trigger.block.contains(placeholder)
+            {
                 let what = FaultKind::MissingPlaceholder {
-                    placeholder: CELL.to_string(),
+                    placeholder: placeholder.to_string(),
                 };
                 faults.push(fault(path, "block", what));
             }
@@ -948,7 +984,8 @@ impl LaidOut {
     }
 
     /// Works out each trigger each cell names: a trigger of `../triggers/` by its name, which declares the block that
-    /// stands only for it; one of `of_a_cell/`, whose block each cell naming it has its own of; one a rule of
+    /// stands only for it; one of `of_a_cell/`, whose block each cell naming it has its own of; one of `of_a_line/`,
+    /// whose block each line has its own of, which a cell on no line cannot name; one a rule of
     /// `of_a_group/` makes of a group of the flow's blocks, standing on each of them; or one a rule of `of_a_datum/`
     /// makes of a datum of the flow, standing on the datum. Gives what each is worked out to, by its
     /// place in the cell's `triggered_by`, and the blocks the triggers declare. The agent of an engine cell reads nothing.
@@ -964,7 +1001,7 @@ impl LaidOut {
         places: &mut Places,
         faults: &mut Vec<Fault>,
     ) -> (Resolved, BTreeSet<String>) {
-        let mut named: BTreeMap<&str, &(String, TriggerFile, bool)> = BTreeMap::new();
+        let mut named: BTreeMap<&str, &(String, TriggerFile, Whose)> = BTreeMap::new();
         for trigger in &self.triggers {
             named.entry(stem(&trigger.0)).or_insert(trigger);
         }
@@ -979,7 +1016,8 @@ impl LaidOut {
                 faults.push(fault(path, "", what));
             }
         }
-        // The first file to declare each block, with the cell whose own it is where every cell has its own.
+        // The first file to declare each block, with the cell whose own it is where every cell has its own: of a block
+        // each line has its own of, the cells of the line share the declarer.
         let mut declarers: BTreeMap<String, (&str, Option<&str>)> = BTreeMap::new();
         // Each block a fault was given for, with the file it was given on.
         let mut told: BTreeSet<(String, String)> = BTreeSet::new();
@@ -993,16 +1031,19 @@ impl LaidOut {
                     continue;
                 }
                 let does = cell.does.get(name).cloned();
-                let trigger = if let Some((path, file, own)) = named.get(name.as_str()).copied() {
-                    let fill = |text: &str| {
-                        if *own {
-                            text.replace(CELL, &small)
-                        } else {
-                            text.to_string()
-                        }
+                let line = cell.line.as_deref();
+                let trigger = if let Some((path, file, whose)) = named.get(name.as_str()).copied() {
+                    if *whose == Whose::Line && line.is_none() {
+                        worked.push((i, Err(FaultKind::NoLine)));
+                        continue;
+                    }
+                    let fill = |text: &str| match whose {
+                        Whose::Its => text.to_string(),
+                        Whose::Cell => text.replace(CELL, &small),
+                        Whose::Line => text.replace(LINE, line.unwrap_or_default()),
                     };
                     let block = fill(&file.block);
-                    let declarer = (path.as_str(), own.then_some(id.as_str()));
+                    let declarer = (path.as_str(), (*whose == Whose::Cell).then_some(id.as_str()));
                     let twice = if data.contains(&block) {
                         let what = FaultKind::DefinedTwice {
                             name: block.clone(),

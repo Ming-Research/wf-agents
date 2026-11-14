@@ -126,8 +126,25 @@ export type Now =
   | { kind: 'waits'; at: string; on: Waited[] }
   /// It is about to do something at this cell; a work is never left so between two things that happen to it.
   | { kind: 'next'; cell: string }
-  /// Nothing new runs a cell, and nothing of it is under way or waited for: it goes on once someone writes what runs one.
-  | { kind: 'idle' };
+  /// It can go on by itself no further at this cell, and nothing pauses it: each key of the cell's `requires` that does
+  /// not hold, none where it stands at its last cell for want of anything new to run it; and each cell that writes what
+  /// it waits for, none of which runs, with why. It goes on once the owner, or a source outside the work, writes what
+  /// runs a cell.
+  | { kind: 'stalled'; at: string; on: CellKey[]; by: Stalling[] };
+
+/// A key of a cell's `when` or `requires`: the named test, or the block's key as the cell's file writes it
+/// (`checked = yes`); and the words shown for it, the test's or the same key.
+export interface CellKey {
+  test: string;
+  words: string;
+}
+
+/// A cell that writes what a stalled work waits for, and why it does not run: its `when` does not hold, by these keys;
+/// nothing new runs it; or it stands at or after the cell the work stands at, whose `requires` hold it.
+export interface Stalling {
+  cell: string;
+  why: { kind: 'skipped'; on: CellKey[] } | { kind: 'nothingNew' } | { kind: 'held' };
+}
 
 /// How a cell stands for a work: a round of its run is under way; its run is at rest; its run's last round failed,
 /// and is given again once the work is let on; its condition is not met; it never finished a run; it has a record and

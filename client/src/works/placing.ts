@@ -105,11 +105,12 @@ export function findRun(steps: Step[], run: number): Run | undefined {
   return runsOf(steps).find((r) => r.run === run);
 }
 
-/// Where a work stands in the list: what waits for the owner first, then a fault or a pause of the engine's, as for a
-/// round that failed, then what goes on by itself, then what the owner paused, then what has ended.
+/// Where a work stands in the list: what waits for the owner first, a stalled work among it, then a fault or a pause
+/// of the engine's, as for a round that failed, then what goes on by itself, then what the owner paused, then what has
+/// ended.
 export function rank(summary: Summary): number {
   const now = summary.now;
-  if (now.kind === 'waits' && now.on.some(waitsForOwner)) return 0;
+  if ((now.kind === 'waits' && now.on.some(waitsForOwner)) || now.kind === 'stalled') return 0;
   if (now.kind === 'fault' || (now.kind === 'paused' && now.by === 'engine')) return 1;
   if (now.kind === 'merged' || now.kind === 'cancelled') return 4;
   if (summary.paused || now.kind === 'paused' || now.kind === 'everything') return 3;

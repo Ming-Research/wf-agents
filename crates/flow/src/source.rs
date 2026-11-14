@@ -42,10 +42,12 @@ pub const DATA_DIR: &str = "../data";
 
 /// The directory beside the flows, from a flow's directory, that holds what runs a cell: in it, as deep as is useful,
 /// each a trigger standing on a block that stands only for it, which it declares; in `of_a_cell/`, each a trigger that every
-/// cell naming it has its own of; in `of_a_datum/`, each a rule that makes a trigger of each datum of a flow; in
-/// `of_a_group/`, each a rule that makes a trigger of each group of a flow's blocks.
+/// cell naming it has its own of; in `of_a_line/`, each a trigger that every line has its own of, which each cell of the
+/// line naming it shares; in `of_a_datum/`, each a rule that makes a trigger of each datum of a flow; in `of_a_group/`,
+/// each a rule that makes a trigger of each group of a flow's blocks.
 pub const TRIGGERS_DIR: &str = "../triggers";
 pub const OF_A_CELL: &str = "of_a_cell";
+pub const OF_A_LINE: &str = "of_a_line";
 pub const OF_A_DATUM: &str = "of_a_datum";
 pub const OF_A_GROUP: &str = "of_a_group";
 
@@ -436,9 +438,10 @@ impl From<LaidOutBlockFile> for BlockFile {
 }
 
 /// A trigger as written in a file of `../triggers/`, by the name of its file: one standing on a block that stands only for
-/// it, which it declares, which the owner or a source outside the work writes; or, in `of_a_cell/`, one that every cell
+/// it, which it declares, which the owner or a source outside the work writes; in `of_a_cell/`, one that every cell
 /// naming it has its own of, `{cell}` standing for the id of the cell in small letters in `block`, which must hold it,
-/// and in `read`, `detail` and `do`.
+/// and in `read`, `detail` and `do`; or, in `of_a_line/`, one that every line has its own of, `{line}` standing so for
+/// the name of the line of the cell naming it, so that the cells of one line share it.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TriggerFile {
@@ -512,8 +515,8 @@ pub struct CellFile {
     /// What must hold before the cell: every key; the work waits before the cell while one does not.
     pub requires: Option<Keys>,
     /// What runs the cell, written `triggered_by`: each a trigger by its name, in the order it names them, a trigger of
-    /// `../triggers/` or of its `of_a_cell/` by the name of its file, or one a rule of `../triggers/of_a_datum/` makes
-    /// of a datum of the flow. A file names these and its `context`, or one of the forms before them, not two.
+    /// `../triggers/` or of its `of_a_cell/` or `of_a_line/` by the name of its file, or one a rule of
+    /// `../triggers/of_a_datum/` makes of a datum of the flow. A file names these and its `context`, or one of the forms before them, not two.
     #[serde(default, rename = "triggered_by")]
     pub triggers: Vec<String>,
     /// What the cell does for a trigger, by the trigger's name: each among `triggered_by`.

@@ -105,7 +105,7 @@ fn a_precondition_on_what_a_source_outside_the_work_writes_waits_for_that_source
 }
 
 #[test]
-fn a_precondition_on_what_only_a_cell_writes_waits_for_that_cell() {
+fn a_precondition_on_what_only_a_cell_writes_stalls_the_work_once_that_cell_has_nothing_new() {
     let (merge, named) = waiting_for_all("checked", &["checked"], cell("merge", &["code"], &[]));
     let cells = vec![cell("check", &["code"], &["checked"]), merge];
     let mut w = World::with_tests(cells, BTreeMap::from([named]));
@@ -114,8 +114,11 @@ fn a_precondition_on_what_only_a_cell_writes_waits_for_that_cell() {
     w.run("check", &[("checked", Value("no"))]);
     assert_eq!(
         w.decide(),
-        wait("merge", vec![precondition("checked", vec![by_cell("check")])])
+        stalled("merge", &["checked"], &[("check", Unrun::NothingNew)])
     );
+    // New code runs the check again.
+    w.person_writes("code");
+    assert!(matches!(w.decide(), Decision::Run { cell, .. } if cell.as_str() == "check"));
 }
 
 #[test]
@@ -140,10 +143,7 @@ fn a_precondition_waits_only_for_the_writers_of_the_blocks_that_keep_it_from_hol
     w.run("check", &[("checked", Value("no"))]);
     let both = vec![dependencies(), by_cell("check")];
     assert_eq!(w.decide(), wait("merge", vec![precondition("both", both)]));
-    // The items it depends on merge: only the check keeps the test from holding.
+    // The items it depends on merge: only the check keeps the test from holding, and it has nothing new.
     w.outside_sets("dependencies", "yes");
-    assert_eq!(
-        w.decide(),
-        wait("merge", vec![precondition("both", vec![by_cell("check")])])
-    );
+    assert_eq!(w.decide(), stalled("merge", &["both"], &[("check", Unrun::NothingNew)]));
 }

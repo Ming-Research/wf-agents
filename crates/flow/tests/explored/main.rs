@@ -13,11 +13,12 @@
 //! nothing a return that is sent back. A return that sends work round (opinions, a refusal, a send-back, a red check)
 //! may be given at every round of its cell from then on, for the same one spent: the flow's limits must stop it. What
 //! the outside writes, spending one: the owner speaks to a cell, changes the background, answers a question or takes
-//! another option for one, lets a cell go on at its limit; main moves, a session is begun anew, the tree changes. It
-//! writes while the work waits or rests, on a path that spent at most one before; while a round is under way, the owner
-//! speaks to its cell on such a path, and on a path that spent nothing the background or what runs the cell from
-//! outside is written too. The owner answers a question the work waits on whatever the path spent. Past a write from
-//! outside the cells give their content alone. The items the work depends on merging costs nothing.
+//! another option for one, lets a cell go on at its limit; main moves, a line begins a new session, the tree changes.
+//! It writes while the work waits or is stalled, on a path that spent at most one before; while a round is under way,
+//! the owner speaks to its cell on such a path, and on a path that spent nothing the background or what runs the cell
+//! from outside is written too. The owner answers a question the work waits on whatever the path spent. Past a write
+//! from outside the cells give their content alone. The items the work depends on merging costs nothing. A stalled
+//! work, which the engine pauses for the owner, saying why, is a stop for the owner as a wait for the owner is.
 //!
 //! Two states that would go on alike are one (`explore::Explorer::key`), and one reached having spent no more is kept.
 //! A path of more than 200 decisions with nothing written from outside, or that comes back to a state it was in, breaks
@@ -42,7 +43,8 @@ use std::path::Path;
 
 use decide::{BlockId, CellId};
 use explore::{
-    A_QUESTION_WAITED, Bounds, Explored, MAIN_WHILE_THE_CHECK_WAITS, Property, WAITED_FOR_THE_OWNER, explore,
+    A_QUESTION_WAITED, Bounds, Explored, MAIN_WHILE_THE_CHECK_WAITS, Property, STALLED_SHOWN, WAITED_FOR_THE_OWNER,
+    explore,
 };
 use flow::{Compiled, Has, compile, read};
 use model::{Model, ran, ran_on, reply_loop};
@@ -57,23 +59,14 @@ const BOUNDS: Bounds = Bounds {
 
 /// The breaches the flow's own definition makes, each by its property and its name, with why it is the flow's and not
 /// the engine's. Each is reported; none is mended here, since the flow changes only with the owner.
-const KNOWN: &[(Property, &str, &str)] = &[
-    (
-        Property::NextStep,
-        "the work waits at M2 for checked = yes, which M1 can make hold",
-        "A cell may hand in no block that runs a cell after it: R1 its choices alone, without the plan, or I1 \
-         nothing. Nothing then runs M1, and the merge waits on a precondition only M1 makes hold, naming no one who \
-         can act. The merge's gate names only the check, and no cell must write what runs the next.",
-    ),
-    (
-        Property::Gates,
-        "M1 ran while a question of R1 waited for the owner, R1 being skipped",
-        "R1 asks a question that waits and, in the same return, says deep_needed = yes. The work waits for an \
+const KNOWN: &[(Property, &str, &str)] = &[(
+    Property::Gates,
+    "M1 ran while a question of R1 waited for the owner, R1 being skipped",
+    "R1 asks a question that waits and, in the same return, says deep_needed = yes. The work waits for an \
          answer only at a cell that applies, and R1 no longer does: the deep research, the implementation, the \
          check and the merge go on, the question unanswered. The flow's check has no gate on the questions put to \
          the owner.",
-    ),
-];
+)];
 
 /// The engineer's flow as the repository defines it, compiled against what the engine has.
 fn engineer() -> Compiled {
@@ -131,6 +124,10 @@ const PROPERTIES: &[(Property, &str)] = &[
         "7. a write from outside runs again only the cells its change reaches",
     ),
     (
+        Property::Shown,
+        "8. every stall is shown as waiting for the owner, with where it stands, what it waits for and why",
+    ),
+    (
         Property::Engine,
         "the engine takes every step the exploration asks of it",
     ),
@@ -170,6 +167,10 @@ fn rare() -> Vec<String> {
         "a return was sent back".to_string(),
         A_QUESTION_WAITED.to_string(),
         ran_on(&cell("R0"), "on_session"),
+        ran_on(&cell("D1"), "on_session"),
+        // A cell hands in no block that runs a cell after it, I1 nothing for a red check: nothing runs the check again,
+        // and the merge waits on what only the check writes, shown as waiting for the owner.
+        STALLED_SHOWN.to_string(),
         MAIN_WHILE_THE_CHECK_WAITS.to_string(),
         WAITED_FOR_THE_OWNER.to_string(),
         "stop: the work merged".to_string(),
@@ -256,6 +257,12 @@ const NEVER: &[(&str, &str)] = &[
         "No path can: plan_review is written only by D3, which runs only while deep_needed is yes, and R1 only while \
          it is no. Only R1 writes deep_needed, and once it writes yes it is skipped and nothing writes it again. R1's \
          trigger on_plan_review never fires.",
+    ),
+    (
+        "M1 ran on on_asked",
+        "The exploration keeps no question in the records and never writes asked. That the owner's answer to the \
+         check's own question runs the check again, and the work merges on it, is the engine's test of a work taken \
+         to the merge on the answer alone (crates/engine/tests/engineer/merging.rs).",
     ),
     (
         "the work waited at M1 on asked = answered",

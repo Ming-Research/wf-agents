@@ -26,6 +26,7 @@ mod questions;
 mod room;
 mod rounds;
 mod skipping;
+mod stalling;
 mod stopping;
 mod waiting;
 mod written_over;
@@ -34,7 +35,7 @@ use std::collections::BTreeMap;
 
 use decide::{
     Abandoned, Abandoning, BlockId, CallId, Cause, Cell, Condition, Decision, Done, End, Flow, FlowFault, Maker,
-    Pauser, PutIn, RecordFault, Returned, Round, RunId, Seq, Waited, Who, Write, Written,
+    Pauser, PutIn, RecordFault, Returned, Round, RunId, Seq, Stalling, Unrun, Waited, Who, Write, Written,
 };
 use support::Says::{DoesNotMatter, Matters, Value};
 use support::{World, cell, gate, merge_word, resting};
@@ -82,6 +83,21 @@ fn abandon(cell: &str, run: RunId, because: Abandoning) -> Decision {
 
 fn wait(at: &str, on: Vec<Waited>) -> Decision {
     Decision::Wait { at: at.into(), on }
+}
+
+/// The work stalled at the cell, for these keys of its preconditions, each cell that writes what it waits for not
+/// running for its reason.
+fn stalled(at: &str, on: &[&str], by: &[(&str, Unrun)]) -> Decision {
+    Decision::Stalled {
+        at: at.into(),
+        on: on.iter().map(|key| (*key).into()).collect(),
+        by: (by.iter())
+            .map(|(cell, why)| Stalling {
+                cell: (*cell).into(),
+                why: why.clone(),
+            })
+            .collect(),
+    }
 }
 
 /// The first run of a cell, for each of these blocks that has a version, none consumed.

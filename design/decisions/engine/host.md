@@ -30,6 +30,10 @@ Why: Checked side by side, each work's merge moves main under the others', each 
 A merge refused because main moved since the check passed, as the engine finds or GitHub says ("Base branch was modified"), fails in passing and keeps the work's turn: the watch of main writes main's new head into the work at once, which runs the check again on it, and the merge is tried again after its wait with what that check found. Nothing waits for the owner.
 Why: Main moves under a checked work where it was merged by hand or by another engine; a refusal that waited for the owner stopped the work for what passes by itself. Merging main in within the merge lost, since what lands would be what no check judged (decision the-check-takes-main-in).
 
+### decision the-check-passes-no-empty-change
+The check fails, before the host is asked, a commit that changes nothing against the main it took in, in the words of its own file.
+Why: Its CI would pass and the merge would land nothing, the work merged with no change made, and nobody would see it; the flow's gate on the review's yes keeps such a branch from the check, and this holds whatever the flow's gates are.
+
 ### decision the-pull-request-says-what-the-work-wrote
 A work's pull request is a draft until just before its merge; its body is what the work wrote in the blocks the flow's check names, published with no mention, reference, closing word or path of this machine left to act, cut to a bound, and written over at each check, a person's edit included; the check before the merge and the agents' check work it out alike.
 Why: Anyone on GitHub sees what the change is and that it is not yet to be reviewed, and an agent's text on a public repository must notify, close and reveal nothing. Worked out otherwise by either check, the two would rewrite each other's body each time.

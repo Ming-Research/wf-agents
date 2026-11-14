@@ -7,6 +7,7 @@ import type {
   Call,
   CallRow,
   Cause,
+  CellKey,
   CellState,
   Failure,
   Given,
@@ -19,6 +20,7 @@ import type {
   Run,
   SessionWhy,
   Spent,
+  Stalling,
   Step,
   Summary,
   Unmet,
@@ -308,9 +310,30 @@ export function nowWords(now: Now): string {
       return `Waits at ${now.at} for ${now.on.map(waitedWords).join('; ')}`;
     case 'next':
       return `About to go on at ${now.cell}`;
-    case 'idle':
-      return 'At rest: nothing new runs a cell, until someone writes what runs one';
+    case 'stalled':
+      return `Stalled at ${now.at}: ${stalledWords(now)}`;
   }
+}
+
+/// What a stalled work waits for, which cells write it and why none of them runs, in a line.
+export function stalledWords(now: Extract<Now, { kind: 'stalled' }>): string {
+  const keys = (keys: CellKey[]) => keys.map((k) => k.words).join(' and ');
+  const writers = now.by.length === 0 ? 'no cell' : `only ${now.by.map((s) => `cell ${s.cell}`).join(' or ')}`;
+  const waits =
+    now.on.length > 0
+      ? `it waits for ${keys(now.on)}, which ${writers} can make hold`
+      : `nothing new runs this last cell, and what runs it ${writers} can write`;
+  const why = (s: Stalling) => {
+    switch (s.why.kind) {
+      case 'skipped':
+        return `it is skipped, ${keys(s.why.on)} not holding`;
+      case 'nothingNew':
+        return 'nothing new runs it';
+      case 'held':
+        return `${now.at} holds it`;
+    }
+  };
+  return [waits, ...now.by.map((s) => `cell ${s.cell} does not run: ${why(s)}`)].join('; ');
 }
 
 /// The word of what a work does now, for its tag, and the tone the tag takes.
@@ -330,10 +353,11 @@ export function nowTone(now: Now): Tone {
       return 'running';
     case 'waits':
       return now.on.some(waitsForOwner) ? 'owner' : 'quiet';
+    case 'stalled':
+      return 'owner';
     case 'cancelled':
     case 'everything':
     case 'next':
-    case 'idle':
       return 'quiet';
   }
 }

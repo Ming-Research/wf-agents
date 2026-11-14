@@ -3,8 +3,8 @@
 When a line of a work goes on in its session of the agents' program and when it begins a new one.
 
 ### decision a-new-session-loads-again-through-the-block
-A new session of a line that has a cell reading the block the outside source `session` writes writes that block, so that the cell runs again before the line goes on; a new session of a line with no such cell only begins. One block serves while one line has such a cell.
-Why: That cell's whole job is to read into the session what the line's later cells work from, and a new session holds nothing of it; written as the outside, the block makes the cell run by the one rule that runs any cell, and its run changing nothing it wrote, nothing after it runs again. A line whose cells each read what they need from their message loses nothing a block would bring back.
+A new session of a line that has a cell reading a block the outside source `session` writes writes that block, so that the cell runs again before the line goes on; a new session of a line with no such cell only begins. Each line has a block of its own, `<line>_session`, made by a trigger every line has its own of, and a new session of one line writes its block alone.
+Why: That cell's whole job is to read into the session what the line's later cells work from, and a new session holds nothing of it; written as the outside, the block makes the cell run by the one rule that runs any cell, and its run changing nothing it wrote, nothing after it runs again. A line whose cells each read what they need from their message loses nothing a block would bring back. One block for every line ran the loading cell of each other line again for nothing, a round of the deep research at its highest effort among them, at every new session or compaction of the engineer's line; a block of each cell's own was turned down, since a session is a line's and the cells of a line share it.
 
 ### decision a-lost-session-keeps-its-id
 A session the agents' program no longer has is begun again under the same id, and a compacted one goes on under it; only a new session for another reason takes an id of its own.

@@ -429,7 +429,7 @@ impl History {
                 }
                 people
             }
-            Decision::Idle => {
+            Decision::Stalled { .. } => {
                 if people {
                     self.person_acts(None, &[]);
                 }

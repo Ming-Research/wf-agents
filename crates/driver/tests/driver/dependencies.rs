@@ -82,7 +82,11 @@ fn a_waiting_work_not_yet_let_on_has_its_block_written_at_the_merge_and_begins_w
     assert_eq!(todos, vec![], "a paused work was given something to do");
     assert_eq!(h.dependencies(wb).as_deref(), Some(MERGED));
     // Not started by the owner, it has nothing new to run its first cell.
-    assert_eq!(h.decision(wb), Decision::Idle);
+    assert!(
+        matches!(h.decision(wb), Decision::Stalled { .. }),
+        "{:?}",
+        h.decision(wb)
+    );
     let todos = h.let_on(wb);
     assert_eq!(rounds(&todos), [(wb, "write".to_string(), 1)]);
 }
