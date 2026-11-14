@@ -3,7 +3,10 @@
 //! tools agents ask for. They are what `wf-agents run` carries the works out with where no script is given, as the
 //! installation's settings say.
 //!
-//! - [`settings`]: the installation's settings, read from `install.toml`.
+//! - [`settings`]: the installation's settings, read from `install.toml`, and the settings a text names given with
+//!   their values.
+//! - [`system`]: the system prompt of a line's session, made as the session begins from the files beside the flows
+//!   (`flow::system`) and kept with it, and what is checked of it as the engine starts.
 //! - [`git`]: a work's branch and worktree, what the check before its merge finds there, and the merge into the
 //!   repository's own main branch.
 //! - `host`: where the project's repository is hosted: the head of main, the verdict on a work's commit, the merge.
@@ -38,6 +41,7 @@ pub mod read;
 pub mod returns;
 pub mod session;
 pub mod settings;
+pub mod system;
 mod tools;
 
 use std::path::Path;
@@ -50,7 +54,7 @@ use settings::Project;
 use tools::Tools;
 
 pub use acts::{MAIN, WATCH, Watch, Words, faults, main_faults, word_faults};
-pub use agents::{Agents, PROTOCOL, ROUNDS};
+pub use agents::{Agents, ROUNDS};
 pub use host::github::{GhOffsite, UPLOAD_RATE};
 pub use process::{STOP_WAIT, TAIL};
 pub use settings::Settings;
@@ -58,7 +62,7 @@ pub use tools::{CHECK, CHECK_BEFORE};
 
 /// The carriers of these settings, keeping what they keep in the data directory: the installation's id, the works'
 /// worktrees, and what each round was told and returned. The agents' rounds are told, and given the form of return,
-/// as what is written beside the flows says.
+/// as what is written beside the flows says, and their system prompts are made from it ([`system`]).
 ///
 /// The acts and the tools are carried out on the host the settings say: GitHub where they have a table for it, with
 /// the engine's token from its environment, and the local repository where they have none.

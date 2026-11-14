@@ -3,6 +3,12 @@
 //! error; a long one cut to the failures, the summary and each error with the lines under it; and all of it within a
 //! number of bytes, the first and the end kept. Brought over from the old engine's `what_failed`, which learned that
 //! the last lines of a log are the runner's clean-up and the tests that passed, and miss the start of a failure.
+//!
+//! What GitHub itself writes in a log (a step's command, the runner's errors and clean-up) is known here; what the
+//! project's own tools print (which lines only show progress, say that a test failed or begin an error) is the
+//! project's, and the installation's settings say it (`github.log`).
+
+use crate::settings::Log;
 
 /// The most lines of a red job's log given whole once what only sets up, cleans up or shows progress is left out; a
 /// longer one is given as its failures, its summary and its errors.
@@ -17,47 +23,24 @@ const END: usize = 30;
 /// The most lines an error is given with, its own included, up to the blank line that ends it.
 const ERROR_LINES: usize = 30;
 
-/// The words a line of cargo or nextest begins with, right-aligned to twelve columns, that only show progress: a crate
-/// fetched or built, a test started, passed, skipped or slow.
-const PROGRESS: [&str; 21] = [
-    "Adding",
-    "Archiving",
-    "Blocking",
-    "Checking",
-    "Compiling",
-    "Documenting",
-    "Downloaded",
-    "Downloading",
-    "Finished",
-    "Fresh",
-    "Installed",
-    "Installing",
-    "Locking",
-    "Packaging",
-    "PASS",
-    "Removed",
-    "SKIP",
-    "START",
-    "Unpacking",
-    "Updating",
-    "Verifying",
-];
+/// How the runner begins a line of an error it reports, such as a step that exited with an error.
+const RUNNER_ERROR: &str = "##[error]";
 
-/// What of a red job's log tells why it is red, in at most `budget` bytes: the steps that failed, those with an
-/// `##[error]` line, each from its command, up to the last error, the tests still running in them kept, without the step's set-up (the shell and the
-/// environment it ran with), the lines that only show progress and repeated blank lines; with no step that failed,
-/// every step but the runner's set-up and clean-up. Up to [`WHOLE`] lines it is given whole; a longer one is given as
-/// the failures (each test that did not pass with its output), the summary and each error with the lines under it,
-/// what is left out between them said as how many lines; and at most [`MOST`] lines and `budget` bytes, the first and
-/// the end.
-pub(crate) fn what_failed(log: &str, budget: usize) -> String {
+/// What of a red job's log tells why it is red, in at most `budget` bytes, its lines told apart as `kinds` says: the
+/// steps that failed, those with an `##[error]` line, each from its command, up to the last error, the tests still
+/// running in them kept, without the step's set-up (the shell and the environment it ran with), the lines that only
+/// show progress and repeated blank lines; with no step that failed, every step but the runner's set-up and clean-up.
+/// Up to [`WHOLE`] lines it is given whole; a longer one is given as the failures (each test that did not pass with its
+/// output), the summary and each error with the lines under it, what is left out between them said as how many lines;
+/// and at most [`MOST`] lines and `budget` bytes, the first and the end.
+pub(crate) fn what_failed(log: &str, budget: usize, kinds: &Log) -> String {
     let mut lines: Vec<String> = log.lines().map(clean_line).collect();
     // What comes after the last error is the clean-up of the step and of the runner.
-    if let Some(last) = lines.iter().rposition(|l| l.starts_with("##[error]")) {
+    if let Some(last) = lines.iter().rposition(|l| l.starts_with(RUNNER_ERROR)) {
         lines.truncate(last + 1);
     }
-    let kept = failed_steps(&lines);
-    let kept = if kept.len() > WHOLE { picked(&kept) } else { kept };
+    let kept = failed_steps(&lines, kinds);
+    let kept = if kept.len() > WHOLE { picked(&kept, kinds) } else { kept };
     within(capped(kept, MOST), budget).join("\n")
 }
 
@@ -76,52 +59,63 @@ pub(crate) fn fenced(text: &str) -> String {
     format!("{fence}\n{text}\n{fence}")
 }
 
-/// The word a line of cargo or nextest begins with, right-aligned to twelve columns and followed by a space, such as
-/// `   Compiling`, `        PASS` or `     Summary`; none for any other line.
-fn status(line: &str) -> Option<&str> {
-    let head = line.get(..12)?;
+/// Whether a line is of a kind: it is the whole of one of the kind's patterns, the spaces it begins with included.
+fn of_kind(line: &str, patterns: &[String]) -> bool {
+    patterns.iter().any(|p| matches(p, line))
+}
+
+/// Whether a line begins with one word right-aligned to `width` columns and followed by a space, as cargo's
+/// `   Compiling`, nextest's `        PASS` or `     Summary` are to twelve.
+fn aligned(line: &str, width: usize) -> bool {
+    let Some(head) = line.get(..width) else {
+        return false;
+    };
     let word = head.trim_start();
-    let right_aligned = !word.is_empty() && !word.contains(' ') && line[12..].starts_with(' ');
-    right_aligned.then_some(word)
+    !word.is_empty() && !word.contains(' ') && line[width..].starts_with(' ')
 }
 
-/// Whether a line only shows progress: cargo fetching or building a crate, nextest starting, passing, skipping or
-/// waiting on a test, or libtest's line of a test that passed.
-fn progress(line: &str) -> bool {
-    status(line).is_some_and(|w| PROGRESS.contains(&w))
-        || (line.starts_with("test ") && (line.ends_with(" ... ok") || line.ends_with(" ... ignored")))
+/// Whether a text is the whole of a pattern, in which `*` stands for any text, none included.
+fn matches(pattern: &str, text: &str) -> bool {
+    let parts: Vec<&str> = pattern.split('*').collect();
+    let [first, middle @ .., last] = parts.as_slice() else {
+        return pattern == text;
+    };
+    if text.len() < first.len() + last.len() || !text.starts_with(first) || !text.ends_with(last) {
+        return false;
+    }
+    let mut rest = &text[first.len()..text.len() - last.len()];
+    for part in middle {
+        match rest.find(part) {
+            Some(at) => rest = &rest[at + part.len()..],
+            None => return false,
+        }
+    }
+    true
 }
 
-/// Whether a line is nextest's of a test that did not pass, as `        FAIL [   0.466s] (139/146) bin name`: failed,
-/// timed out, leaked, aborted or killed by a signal.
-fn failure(line: &str) -> bool {
-    status(line).is_some_and(|w| !PROGRESS.contains(&w) && w.chars().all(|c| c.is_ascii_uppercase() || c == '-'))
-        && line[12..].trim_start().starts_with('[')
+/// Whether a line ends the output of a test that did not pass, the line that says so aside: a line of one of the
+/// kinds, one that begins with a word aligned as the settings say, or an error the runner reports.
+fn ends_output(line: &str, kinds: &Log) -> bool {
+    line.starts_with(RUNNER_ERROR)
+        || kinds.status_width.is_some_and(|width| aligned(line, width))
+        || [
+            &kinds.progress,
+            &kinds.failures,
+            &kinds.running,
+            &kinds.summary,
+            &kinds.ends_output,
+        ]
+        .iter()
+        .any(|patterns| of_kind(line, patterns))
 }
 
-/// Whether a line says that a test was still running at that time: libtest's `has been running for over`, and
-/// nextest's `SLOW` line; of a job cancelled at its time limit, they say which test held it.
-fn still_running(line: &str) -> bool {
-    line.contains(" has been running for over ") || status(line) == Some("SLOW")
-}
-
-/// Whether a line begins an error: rustc's, cargo's, clippy's and nextest's errors and warnings, a diff of rustfmt,
-/// libtest's failures and result, and the runner's `##[error]`.
-fn error_begins(line: &str) -> bool {
-    let rustc = ["error", "warning"].iter().any(|w| {
-        line.strip_prefix(w)
-            .is_some_and(|rest| rest.starts_with(':') || rest.starts_with('['))
-    });
-    rustc
-        || line.starts_with("Diff in ")
-        || line.starts_with("##[error]")
-        || line.starts_with("failures:")
-        || line.starts_with("test result: FAILED")
-        || (line.starts_with("---- ") && line.ends_with(" ----"))
+/// Whether a line begins an error: one the runner reports, or one of the project's tools prints.
+fn error_begins(line: &str, kinds: &Log) -> bool {
+    line.starts_with(RUNNER_ERROR) || of_kind(line, &kinds.errors)
 }
 
 /// The lines of the steps of a job's log that failed, as [`what_failed`] takes them.
-fn failed_steps(lines: &[String]) -> Vec<String> {
+fn failed_steps(lines: &[String], kinds: &Log) -> Vec<String> {
     // A step begins with the group that shows its command, `##[group]Run …`; the runner's clean-up with `Post job
     // cleanup.`; what comes before the first step is the runner's set-up.
     let mut steps: Vec<Vec<&str>> = vec![Vec::new()];
@@ -136,7 +130,7 @@ fn failed_steps(lines: &[String]) -> Vec<String> {
     let cleanup = |s: &&Vec<&str>| s.first().is_some_and(|l| l.starts_with("Post job cleanup"));
     let ran: Vec<&Vec<&str>> = steps.iter().skip(1).filter(|s| !cleanup(s)).collect();
     let failed: Vec<&Vec<&str>> = (ran.iter().copied())
-        .filter(|s| s.iter().any(|l| l.starts_with("##[error]")))
+        .filter(|s| s.iter().any(|l| l.starts_with(RUNNER_ERROR)))
         .collect();
     let chosen = match (failed.is_empty(), ran.is_empty()) {
         (false, _) => failed,
@@ -156,7 +150,7 @@ fn failed_steps(lines: &[String]) -> Vec<String> {
                 }
                 continue;
             }
-            if progress(l) {
+            if of_kind(l, &kinds.progress) {
                 continue;
             }
             if l.trim().is_empty() && out.last().is_none_or(|x| x.trim().is_empty()) {
@@ -169,21 +163,19 @@ fn failed_steps(lines: &[String]) -> Vec<String> {
 }
 
 /// The lines of a long red log that tell why it is red: each step's command, each failure with the lines under it up
-/// to the next test's line, the summary to the end, and each error with the lines under it up to a blank line; the
-/// rest said as how many lines were left out, but for blank lines between what is given.
-fn picked(lines: &[String]) -> Vec<String> {
+/// to the next line that ends its output, the summary to the end, and each error with the lines under it up to a blank
+/// line; the rest said as how many lines were left out, but for blank lines between what is given.
+fn picked(lines: &[String], kinds: &Log) -> Vec<String> {
     let n = lines.len();
     let mut keep = vec![false; n];
-    // Nextest's summary: from the rule before it to the end.
-    let summary = (lines.iter())
-        .rposition(|l| l.trim_start().starts_with("Summary ["))
-        .map(|i| {
-            if i > 0 && lines[i - 1].starts_with('\u{2500}') {
-                i - 1
-            } else {
-                i
-            }
-        });
+    // The summary: from the first of the last lines of its kind that stand together to the end.
+    let summary = (lines.iter()).rposition(|l| of_kind(l, &kinds.summary)).map(|last| {
+        let mut first = last;
+        while first > 0 && of_kind(&lines[first - 1], &kinds.summary) {
+            first -= 1;
+        }
+        first
+    });
     let mut i = 0;
     while i < n {
         if summary == Some(i) {
@@ -191,19 +183,19 @@ fn picked(lines: &[String]) -> Vec<String> {
             break;
         }
         let l = &lines[i];
-        if l.starts_with("Run ") || still_running(l) {
+        if l.starts_with("Run ") || of_kind(l, &kinds.running) {
             keep[i] = true;
         }
-        if failure(l) {
+        if of_kind(l, &kinds.failures) {
             keep[i] = true;
             i += 1;
-            while i < n && status(&lines[i]).is_none() && !lines[i].starts_with('\u{2500}') && summary != Some(i) {
+            while i < n && !ends_output(&lines[i], kinds) && summary != Some(i) {
                 keep[i] = true;
                 i += 1;
             }
             continue;
         }
-        if error_begins(l) {
+        if error_begins(l, kinds) {
             let from = i;
             while i < n && i - from < ERROR_LINES && (i == from || !lines[i].trim().is_empty()) && summary != Some(i) {
                 keep[i] = true;
@@ -347,9 +339,93 @@ fn without_controls(text: &str) -> String {
     out
 }
 
+/// How the lines of a red job's log are told apart where the project's tools are cargo, rustc, clippy, rustfmt,
+/// libtest and nextest, as this repository's CI prints them: the settings of an installation whose project is on them,
+/// and of the tests.
+#[cfg(test)]
+pub(crate) fn cargo_and_nextest() -> Log {
+    let list = |l: &[&str]| l.iter().map(|p| p.to_string()).collect();
+    // Cargo's and nextest's words, right-aligned to twelve columns, of a line that only shows progress: a crate fetched
+    // or built, a test started, passed, skipped or slow; and libtest's line of a test that passed.
+    let words = [
+        "Adding",
+        "Archiving",
+        "Blocking",
+        "Checking",
+        "Compiling",
+        "Documenting",
+        "Downloaded",
+        "Downloading",
+        "Finished",
+        "Fresh",
+        "Installed",
+        "Installing",
+        "Locking",
+        "Packaging",
+        "PASS",
+        "Removed",
+        "SKIP",
+        "START",
+        "Unpacking",
+        "Updating",
+        "Verifying",
+    ];
+    // Each word is written aligned, as the tools print it.
+    let at = |word: &str, rest: &str| format!("{word:>12} {rest}");
+    let mut progress: Vec<String> = words.iter().map(|w| at(w, "*")).collect();
+    progress.extend(list(&["test * ... ok", "test * ... ignored"]));
+    // Nextest's lines of a test that failed, timed out, leaked, aborted, was killed by a signal, or is slow.
+    let failing = [
+        "FAIL",
+        "TIMEOUT",
+        "LEAK",
+        "LEAK-FAIL",
+        "ABORT",
+        "SLOW",
+        "SIGSEGV",
+        "SIGABRT",
+        "SIGKILL",
+        "SIGBUS",
+        "SIGILL",
+        "SIGFPE",
+        "SIGTERM",
+        "SIGTRAP",
+    ];
+    Log {
+        progress,
+        failures: failing.iter().map(|w| at(w, "[*")).collect(),
+        // Libtest's and nextest's lines of a test still running: of a job cancelled at its time limit, they say which
+        // test held it.
+        running: vec!["* has been running for over *".to_string(), at("SLOW", "*")],
+        // Rustc's, cargo's, clippy's and nextest's errors and warnings, a diff of rustfmt, libtest's failures and
+        // result.
+        errors: list(&[
+            "error:*",
+            "error[*",
+            "warning:*",
+            "warning[*",
+            "Diff in *",
+            "failures:*",
+            "test result: FAILED*",
+            "---- * ----",
+        ]),
+        // Nextest's summary, with the rule before it.
+        summary: vec![format!("{}*", "\u{2500}".repeat(12)), at("Summary", "[*")],
+        // A rule of nextest's, which stands between a test's output and what follows it.
+        ends_output: list(&["\u{2500}*"]),
+        // Cargo's and nextest's words are right-aligned to twelve columns.
+        status_width: Some(12),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A log read as this repository's CI prints it, in at most `budget` bytes.
+    fn what_failed(log: &str, budget: usize) -> String {
+        super::what_failed(log, budget, &cargo_and_nextest())
+    }
 
     /// Room enough for any of the logs below whole.
     const ROOM: usize = 1 << 20;
@@ -543,19 +619,54 @@ mod tests {
         assert_eq!(fenced("```rust\nx\n```"), "````\n```rust\nx\n```\n````");
     }
 
-    // Cargo's and nextest's lines that only show progress are known by their word, right-aligned to twelve columns;
-    // a test that did not pass, and an error, are not progress.
+    // A line is of a kind by the patterns the settings give it, after the spaces it begins with: a test that did not
+    // pass, and an error, are not progress.
     #[test]
-    fn progress_is_known_by_its_word() {
+    fn a_line_is_of_the_kind_whose_pattern_it_is() {
+        let kinds = cargo_and_nextest();
+        let progress = |line: &str| of_kind(line, &kinds.progress);
+        let failure = |line: &str| of_kind(line, &kinds.failures);
         assert!(progress("   Compiling engine v0.1.0 (/w/crates/engine)"));
         assert!(progress("        PASS [   0.006s] (  1/146) api control::tests::a"));
         assert!(progress("test tools::tests::a ... ok"));
+        assert!(!progress("Compiling"));
         assert!(!progress("        FAIL [   0.466s] (139/146) wf-agents::cli a"));
         assert!(failure("        FAIL [   0.466s] (139/146) wf-agents::cli a"));
         assert!(failure("     SIGSEGV [   0.466s] (139/146) wf-agents::cli a"));
         assert!(!failure("     Summary [ 105.999s] 142/146 tests run"));
         assert!(!progress("error[E0432]: unresolved import"));
-        assert!(error_begins("error[E0432]: unresolved import"));
-        assert!(!error_begins("errors: none"));
+        assert!(error_begins("error[E0432]: unresolved import", &kinds));
+        assert!(!error_begins("errors: none", &kinds));
+        assert!(error_begins(
+            "##[error]Process completed with exit code 1.",
+            &Log::default()
+        ));
+        // A pattern is matched with the spaces a line begins with: an aligned word is no other word written alone.
+        assert!(!progress("Compiling the summary of the run"));
+        assert!(failure("        SLOW [> 30.000s] carry tests::slower"));
+        // A failed test's output ends at any word aligned as the settings say, and at a rule.
+        assert!(ends_output("     Running unittests src/lib.rs", &kinds));
+        assert!(ends_output("\u{2500}\u{2500}\u{2500}\u{2500} STDOUT", &kinds));
+        assert!(!ends_output("    test result: FAILED. 0 passed", &kinds));
+        assert!(!ends_output("     Running unittests src/lib.rs", &Log::default()));
+        assert!(matches("a*b*c", "a-b-c") && matches("a*", "a") && matches("*", ""));
+        assert!(!matches("a*b*c", "a-c") && !matches("ab*ba", "aba") && !matches("a", "ab"));
+    }
+
+    // Without the project's kinds, a log is cut only by what GitHub writes in it: the steps that failed up to their
+    // last error, each from its command.
+    #[test]
+    fn without_the_projects_kinds_only_what_github_writes_cuts_a_log() {
+        let log = include_str!("../../../tests/fixtures/job-logs/nextest-fail.log");
+        let given = super::what_failed(log, ROOM, &Log::default());
+        assert!(
+            given.starts_with("Run cargo nextest run --workspace --locked"),
+            "{given}"
+        );
+        assert!(!given.contains("Current runner version"), "{given}");
+        assert!(
+            given.ends_with("##[error]Process completed with exit code 100."),
+            "{given}"
+        );
     }
 }

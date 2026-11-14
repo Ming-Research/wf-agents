@@ -186,7 +186,10 @@ impl Small {
             run,
             number,
             &given,
-            &Opening { begins, main: None },
+            &Opening {
+                begins,
+                ..Opening::default()
+            },
             &words(),
         )
     }

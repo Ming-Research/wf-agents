@@ -32,6 +32,10 @@ pub const ACTS_DIR: &str = "acts";
 /// The file, in `agents/`, of who the engine's commits are by and the words of each.
 pub const COMMITS_FILE: &str = "commits.toml";
 
+/// The file, in `agents/`, of what the place `{your_line}` in the engine's words says: what the line may do in the
+/// worktree.
+pub const YOUR_LINE_FILE: &str = "your_line.toml";
+
 /// The field of a return that holds the blocks a cell writes, each under its name. The form does not list them: the
 /// cell is told its own with its task, and the engine checks what it writes against them.
 pub const OUTPUTS: &str = "outputs";
@@ -45,6 +49,7 @@ pub struct Agents {
     pub session: Session,
     /// The text of each file of the engine's own words that the session names, by its name in `agents/`.
     pub words: BTreeMap<String, String>,
+    pub your_line: YourLine,
     /// The sets of rules for the agents, by name, as `agents/rules/rules.toml` names them, each with its text.
     pub rules: BTreeMap<String, RuleSet>,
     pub returns: Return,
@@ -172,6 +177,21 @@ impl OfTheReturn {
             OfTheReturn::HowYouReturn => "how_you_return",
         }
     }
+}
+
+/// [`YOUR_LINE_FILE`]: what the place `{your_line}` in the engine's words says the line may do in the worktree, as its
+/// file says whether it only reads, and as the installation lets it update a lock file.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct YourLine {
+    /// Of a line that only reads.
+    pub reads_only: String,
+    /// Of a line that writes.
+    pub writes: String,
+    /// Of a line that writes and may update a lock file, after `writes`: `{commands}` the commands it may update one
+    /// with, each between backticks, joined by commas, and the last by `or`.
+    pub locks: String,
+    pub or: String,
 }
 
 /// A set of rules for the agents as [`RULES_FILE`] names it, by its name.
@@ -393,6 +413,10 @@ pub struct Tool {
     pub words: String,
     /// The shape of a request of it.
     pub request: toml::Value,
+    /// What fills each place of its words that the engine fills by how the installation runs the tool, by the place's
+    /// name: the words for each way, by the way's name, which the engine chooses.
+    #[serde(default)]
+    pub places: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 /// `agents/message/message.toml`: what the engine sends a cell's agent as it enters the cell, its parts in order.
@@ -701,6 +725,7 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         project,
         session,
         words,
+        your_line: file(&at.join(YOUR_LINE_FILE))?,
         rules,
         returns,
         sent_back: file(&at.join("return").join("sent_back.toml"))?,

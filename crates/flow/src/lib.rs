@@ -15,11 +15,14 @@
 //! - [`compile`](mod@compile): the checks, their faults, and what a definition compiles to.
 //! - [`agents`]: what the engine says to every agent, whatever the flow, as written beside the flows.
 //! - [`form`](mod@form): the one form of a return of a flow, made of the flow and of what is written beside it.
+//! - [`system`]: the system prompt of a line's session, made from those files, which the engine sends and the page
+//!   shows.
 
 pub mod agents;
 pub mod compile;
 pub mod form;
 pub mod source;
+pub mod system;
 
 pub use compile::{
     Block, CellSpec, Compiled, Fault, FaultKind, Given, Has, Limits, Line, Readers, RunsOn, TURNING, Trigger, Writers,

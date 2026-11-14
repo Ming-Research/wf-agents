@@ -1,19 +1,24 @@
 //! What the agents of a line may run: the rules the engine gives every round's command line after the installation's
-//! own arguments (`agents.args`), and what the agent is told in its system prompt that no rule says by itself.
+//! own arguments (`agents.args`), and what the agent is told in its system prompt that no rule says by itself, in the
+//! words beside the flows.
 //!
 //! On every line the heavy commands are refused: compiling, type checking, building, test suites, benchmarks, and
 //! pushing. The project's check is had through the tool `check`, and only the engine pushes; run by an agent, they
 //! would fight the owner for the processor, and push what no check passed. On a line that writes, the commands that
-//! update a lock file and build, run and install nothing are allowed, though a heavy command covers them, rather than
-//! leave the agent to write a lock file by hand and the check to find its mistakes. A line that only reads, as its
-//! line in the flow says, is refused the tools that edit files and the git commands that change the repository; those
-//! that only read, such as `show`, `diff` and `log`, it may run. The lists are the engine's, and an installation's
-//! settings may add to them (`agents.permissions`) for its project's toolchain.
+//! update the project's lock files and build, run and install nothing are allowed, though a heavy command covers them,
+//! rather than leave the agent to write a lock file by hand and the check to find its mistakes; which they are is the
+//! project's toolchain's, and only the installation's settings name them (`agents.permissions.locks`, with the uses of
+//! them refused all the same). A line that only reads, as its line in the flow says, is refused the tools that edit
+//! files and the git commands that change the repository; those that only read, such as `show`, `diff` and `log`, it
+//! may run. The other lists are the engine's, and an installation's settings may add to them (`agents.permissions`)
+//! for its project's toolchain.
 //!
 //! The command line allows what a rule of the installation's arguments or of these allows, unless a rule of either
 //! refuses it, and refuses what any rule refuses even where another allows it. A flag given twice adds its values to
 //! those it was given before, as `claude`'s parser of arguments does with every flag that takes a list (checked with
 //! claude 2.1.316).
+
+use flow::agents::YourLine;
 
 use crate::settings::PermissionsAdded;
 
@@ -53,39 +58,6 @@ pub const HEAVY: [&str; 29] = [
 /// The heavy commands that no lock command may fall under, as an installation may add one under another heavy
 /// command: pushing is the engine's alone.
 pub const NEVER_A_LOCK: [&str; 1] = ["git push"];
-
-/// The commands that update a lock file and build, run and install nothing, each a command with the start of its
-/// arguments: Cargo's and npm's. `cargo update` and `cargo add` resolve the dependencies and write Cargo.lock without
-/// compiling anything; `npm install --package-lock-only` writes package-lock.json and leaves node_modules alone, and
-/// with `--ignore-scripts` runs none of the package's own scripts, which it runs when it is given no package.
-pub const LOCKS: [&str; 3] = [
-    "cargo update",
-    "cargo add",
-    "npm install --package-lock-only --ignore-scripts",
-];
-
-/// The uses of the lock commands refused all the same, wherever those are allowed, each a command whose arguments may
-/// hold `*` for any text: npm's options that would undo `--package-lock-only` or `--ignore-scripts` or install
-/// elsewhere, as a later npm option overrides an earlier one. They are a negated option, which npm reads in any case
-/// (`--no-ignore-scripts`, `--NO-ignore-scripts`); any option given a value after `=`, which turns a flag off with
-/// `false`, `null`, `0` or nothing and sets `--location=global` or `--prefix=<dir>`; a flag turned off by a separate
-/// `false`; and `-g`, `--global`, `--location`, `--prefix` and `-C`, written out or shortened, and the short ones with
-/// two dashes, which npm takes as well. A short option in a cluster of them, as the `g` of `-Dg`, cannot be named in
-/// the command line's patterns without refusing the lock command itself, and is a risk left.
-pub const LOCKS_EXCEPT: [&str; 12] = [
-    "npm install *-no-*",
-    "npm install *-NO-*",
-    "npm install *-No-*",
-    "npm install *-nO-*",
-    "npm install *=*",
-    "npm install * false*",
-    "npm install * -g*",
-    "npm install *--g*",
-    "npm install *--loc*",
-    "npm install *--pref*",
-    "npm install * -C*",
-    "npm install *--C*",
-];
 
 /// The tools that edit files, which a line that only reads is refused.
 pub const EDIT_TOOLS: [&str; 4] = ["Edit", "Write", "MultiEdit", "NotebookEdit"];
@@ -148,7 +120,7 @@ impl Permissions {
         let locks: Vec<String> = if reads_only {
             Vec::new()
         } else {
-            (LOCKS.iter().copied().chain(added.locks.iter().map(String::as_str)))
+            (added.locks.iter().map(String::as_str))
                 .filter(|l| {
                     !heavy
                         .iter()
@@ -171,11 +143,7 @@ impl Permissions {
             }
         }
         if !locks.is_empty() {
-            let except = LOCKS_EXCEPT
-                .iter()
-                .copied()
-                .chain(added.locks_except.iter().map(String::as_str));
-            refused.extend(except.map(|c| format!("Bash({c})")));
+            refused.extend(added.locks_except.iter().map(|c| format!("Bash({c})")));
         }
         if reads_only {
             refused.extend(EDIT_TOOLS.iter().map(|t| t.to_string()));
@@ -204,20 +172,21 @@ impl Permissions {
     }
 
     /// What the agent is told its line may do in the worktree, in one line of the system prompt, which no rule says by
-    /// itself: that it changes no file there, or that it commits there and the commands it may update a lock file with.
-    pub fn told(&self) -> String {
+    /// itself, in the words beside the flows (`agents/your_line.toml`): that it changes no file there, or that it
+    /// commits there and the commands it may update a lock file with.
+    pub fn told(&self, words: &YourLine) -> String {
         if self.reads_only {
-            return "You only read it, and change no file.".to_string();
+            return words.reads_only.clone();
         }
-        let mut out = "Make your changes there and commit them there.".to_string();
+        let mut out = words.writes.clone();
         if !self.locks.is_empty() {
             let named: Vec<String> = self.locks.iter().map(|c| format!("`{c}`")).collect();
             let named = match named.split_last() {
                 Some((last, [])) => last.clone(),
-                Some((last, rest)) => format!("{} or {last}", rest.join(", ")),
+                Some((last, rest)) => format!("{}{}{last}", rest.join(", "), words.or),
                 None => String::new(),
             };
-            out.push_str(&format!(" Update a lock file with {named}, your arguments after it."));
+            out.push_str(&words.locks.replace("{commands}", &named));
         }
         out
     }

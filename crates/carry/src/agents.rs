@@ -1,10 +1,13 @@
 //! The agents' rounds, run with the `claude` command line: each round one run of the program, in the work's worktree,
 //! in the session of the cell's line, told its message on its standard input, with the form of return of its flow,
 //! made of the flow and the files beside the flows and so the same for every round of every cell of the flow
-//! ([`flow::form`]), and the same system prompt for every round of a line, which says what the line may run as its
-//! permissions give it to the program (`permissions`). What came back is read against the cell the round was entered
-//! for ([`returns`](crate::returns)). How many run at once is the engine's to bound: it gives at most as many
-//! rounds at once as the settings give slots, and holds the others back in its own order.
+//! ([`flow::form`]), and the same system prompt for every round of a line ([`system`](crate::system)), made from the
+//! files beside the flows, which says what the line may run as its permissions give it to the program
+//! (`permissions`). The system prompt is made as a session begins and kept with it, so that every round of the session
+//! is given the one it began with, whatever the work's branch has changed since; a round whose system prompt cannot be
+//! made, as for a file of the project's that is not in the worktree, fails, saying why. What came back is read against
+//! the cell the round was entered for ([`returns`](crate::returns)). How many run at once is the engine's to bound: it
+//! gives at most as many rounds at once as the settings give slots, and holds the others back in its own order.
 //!
 //! A round fails, handing in nothing, where the worktree is not there, the program cannot be started, or its stream
 //! holds no return of the form: neither one the command line took, nor, where it gave up on the return, its last
@@ -65,14 +68,11 @@ use crate::held::{Failing, Held, Stop};
 use crate::permissions::Permissions;
 use crate::process::{self, Ran};
 use crate::settings::Settings;
-use crate::{acts, failure, git, kept, message, returns, session};
+use crate::{acts, failure, git, kept, message, returns, session, system};
 
 /// What is written beside the flows, which every flow shares: the words the agents are sent, and the definitions the
 /// form of a return is made of.
 type Beside = flow::agents::Agents;
-
-/// The system prompt every round is given, before the owner's language and what the tool `check` does are put in.
-pub const PROTOCOL: &str = include_str!("protocol.md");
 
 /// The directory in the data directory where what each round was told and what it returned are kept.
 pub const ROUNDS: &str = "rounds";
@@ -87,10 +87,11 @@ struct Inner {
     settings: Settings,
     data: PathBuf,
     installation: Uuid,
-    /// What is written beside the flows.
+    /// What is written beside the flows, which the form and the system prompts are made from.
     beside: Beside,
-    /// The system prompt, the same for every round of a line once what the line may do is put in.
-    protocol: String,
+    /// What the engine puts into the texts its agents are sent: the settings they name, with their values, and the
+    /// places it fills alike for every line.
+    filling: system::Filling,
     held: Held<(WorkNumber, RunId, usize), RoundReply>,
     /// The clock a usage limit's reset is read by, where the command line gives it as a time of day.
     clock: Arc<dyn Clock>,
@@ -114,7 +115,7 @@ const COMPACTED: &str = "Your session was compacted during this round. What the 
 impl Agents {
     /// The agents of these settings, with this data directory, which is an absolute path, the installation's id, the
     /// reference of the project's repository that holds main's head as the host last gave it, and what is written
-    /// beside the flows.
+    /// beside the flows, which their system prompts are made from.
     pub fn new(settings: Settings, data: PathBuf, installation: Uuid, main: String, beside: Beside) -> Self {
         Self::with_clock(settings, data, installation, main, beside, Arc::new(SystemClock))
     }
@@ -128,15 +129,14 @@ impl Agents {
         beside: Beside,
         clock: Arc<dyn Clock>,
     ) -> Self {
-        let protocol = (PROTOCOL.replace("{owner_language}", &settings.agents.owner_language))
-            .replace("{check}", &crate::tools::told(&settings));
+        let filling = system::filling(&settings, &beside);
         Agents {
             inner: Arc::new(Inner {
                 settings,
                 data,
                 installation,
                 beside,
-                protocol,
+                filling,
                 held: Held::new(),
                 clock,
                 main,
@@ -273,12 +273,15 @@ impl Inner {
         let at = work::sessions::began_at(work, round.run, round.number);
         let recorded =
             (work::sessions::of_line(work, line)).any(|s| s.why == Why::Lost && at.is_some_and(|a| a < s.at));
+        // The task as the message sends it, each setting it names with its value beside it.
+        let task = system::task(&self.filling.named, &round.cell)?;
         let (status, stream, stderr) = loop {
             // A round whose run ran in another session before is told what a session that begins is told: the
             // session it goes on in never saw the run.
             let opening = message::Opening {
                 begins: begin == Begin::New || moved,
                 main: main.as_ref(),
+                task: task.as_deref(),
             };
             let (cell, beside) = (&round.cell, &self.beside);
             let told = message::message(
@@ -304,7 +307,25 @@ impl Inner {
             // What the try runs on is said before its message is written, which makes the try one that was kept.
             teller.ran_on(n, on.clone());
             write(&told_at, told.as_bytes()).await?;
-            let command = self.command(&dir, &on, &permissions, &form, &compacted, &words, session, begin);
+            // The system prompt is the one the session began with: made from the worktree as it begins, and kept.
+            let made = || {
+                let read = |path: &str| system::read_within(&dir, path);
+                let your_line = permissions.told(&self.beside.your_line);
+                system::of_line(&self.beside, &self.filling, flow, &round.cell, &your_line, read)
+            };
+            let kept_at = system::kept_at(&self.data, session);
+            let system = system::of_session(&kept_at, made)?;
+            let command = self.command(
+                &dir,
+                &on,
+                &system,
+                &permissions,
+                &form,
+                &compacted,
+                &words,
+                session,
+                begin,
+            );
             // The stream is kept as it comes, so that what the agent is doing can be read while it does it.
             let mut kept = Keeping::to(&stream_at)?;
             let mut each = |line: &[u8]| kept.line(line);
@@ -376,14 +397,14 @@ impl Inner {
         }
     }
 
-    /// The program's command line for a round on what it runs on, of a line with these permissions, given the form of
-    /// return of its flow, in the session, begun or gone on in, in the worktree. The system prompt says what the line
-    /// may do.
+    /// The program's command line for a round on what it runs on, with its line's system prompt, of a line with these
+    /// permissions, given the form of return of its flow, in the session, begun or gone on in, in the worktree.
     #[allow(clippy::too_many_arguments)]
     fn command(
         &self,
         dir: &Path,
         on: &RanOn,
+        system: &str,
         permissions: &Permissions,
         form: &str,
         compacted: &Compacted,
@@ -392,19 +413,8 @@ impl Inner {
         begin: Begin,
     ) -> Command {
         let agents = &self.settings.agents;
-        let protocol = self.protocol.replace("{your_line}", &permissions.told());
         let mut command = Command::new(&agents.command);
-        let args = cli::arguments(
-            agents,
-            on,
-            &protocol,
-            form,
-            permissions,
-            compacted,
-            words,
-            session,
-            begin,
-        );
+        let args = cli::arguments(agents, on, system, form, permissions, compacted, words, session, begin);
         command
             .args(args)
             .env_clear()

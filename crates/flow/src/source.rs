@@ -313,9 +313,8 @@ pub struct LineFile {
     #[serde(default)]
     pub levels_above: u32,
     /// The flow's sets of rules for the agents that the system prompt of the line's session holds, each `rules/<name>.md`
-    /// by its name, in the order they stand in it; none where it is left out. The engine places its own parts around
-    /// them, the same for every line: the project's guide for its agents, the constitution and the rules of the design
-    /// tree before them, its own words on working in the engine after them.
+    /// by its name, in the order they stand in it; none where it is left out. The other parts of the system prompt, and
+    /// where these stand among them, are those `agents/session.toml` beside the flows names.
     #[serde(default)]
     pub system: Vec<String>,
 }

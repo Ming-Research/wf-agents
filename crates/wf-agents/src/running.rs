@@ -29,8 +29,8 @@ const HELD: &str = "engine.lock";
 /// driver's, whether the items an item depends on have merged, and, with the real carriers, `main`, through the
 /// acts' watch of main; nothing writes `session` or `tree` yet, so a block of either stays unwritten, and a cell that
 /// reads one starts from no version of it.
-fn has(source: &Source) -> Has {
-    crate::has(source)
+fn has(dir: &Path) -> Has {
+    crate::has(dir)
 }
 
 /// What carries the works out.
@@ -45,7 +45,7 @@ pub enum With {
 enum Read {
     Script(Script),
     /// The settings, and what is written beside the flows: what the acts write and the agents' rounds are told, and
-    /// what the form of a return is made of.
+    /// what the form of a return and the system prompts are made of.
     Settings(Box<carry::Settings>, Box<flow::agents::Agents>),
 }
 
@@ -166,7 +166,8 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         }
         // The page lays out what an agent is sent as a cell is entered, read from beside the flow shown, with the
         // project's own files as its checkout holds them.
-        let mut flows_shown = web::Flows::dirs(shown.clone(), Box::new(has));
+        let in_dir = shown.clone();
+        let mut flows_shown = web::Flows::dirs(shown.clone(), Box::new(move |_: &Source| has(&in_dir)));
         flows_shown.alike.project = project;
         let router = match copies {
             Some(keeping) => {
@@ -338,7 +339,7 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
                 continue;
             }
         };
-        match flow::compile(&source, &has(&source)) {
+        match flow::compile(&source, &has(dir)) {
             Ok(compiled) => flows.push(compiled),
             Err(faults) => {
                 for fault in &faults {
@@ -356,32 +357,27 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
     }
     let read = match with {
         With::Script(script) => read_script(script, &flows, compiled_all, &mut wrong).map(Read::Script),
-        With::Settings(settings) => {
-            // What is written beside the flows is in the directory that holds the first.
-            let root = dirs.first().and_then(|d| d.parent()).unwrap_or(Path::new("."));
-            match (carry::Settings::load(settings), beside(root, &flows)) {
-                (Ok(settings), Ok(beside)) => {
-                    // What the real acts need of a flow, checked once the flows compiled, and of their words.
-                    let faults = (flows.iter()).flat_map(|flow| carry::faults(flow, &beside.acts.check.values));
-                    let words_faults = carry::word_faults(&beside.acts.check);
-                    let words_faults = words_faults.into_iter().map(|f| format!("{}/{f}", root.display()));
-                    for fault in faults.chain(words_faults) {
-                        eprintln!("{fault}");
-                        wrong = true;
-                    }
-                    for warning in settings.warnings() {
-                        eprintln!("{warning}");
-                    }
-                    Some(Read::Settings(Box::new(settings), Box::new(beside)))
+        With::Settings(settings) => match (carry::Settings::load(settings), beside(dirs, &flows)) {
+            (Ok(settings), Ok(beside)) => {
+                // What the real acts need of a flow and of their words, checked once the flows compiled; what the
+                // system prompts of its lines are made of, its texts' settings with their values and its places
+                // filled; and the project's files every system prompt holds.
+                for fault in start_faults(&settings, &beside, &flows) {
+                    eprintln!("{fault}");
+                    wrong = true;
                 }
-                (settings, beside) => {
-                    for why in [settings.err(), beside.err()].into_iter().flatten() {
-                        eprintln!("{why}");
-                    }
-                    None
+                for warning in settings.warnings() {
+                    eprintln!("{warning}");
                 }
+                Some(Read::Settings(Box::new(settings), Box::new(beside)))
             }
-        }
+            (settings, beside) => {
+                for why in [settings.err(), beside.err()].into_iter().flatten() {
+                    eprintln!("{why}");
+                }
+                None
+            }
+        },
     };
     match read {
         Some(read) if !wrong && compiled_all => Some((flows, read)),
@@ -389,10 +385,47 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
     }
 }
 
+/// What keeps the real carriers from carrying out the flows, every fault at once: what the acts need of a flow and of
+/// their words beside the flows, what the texts sent to its agents name and hold ([`carry::system::faults`]), and the
+/// project's files every system prompt holds, on main where works branch from ([`carry::system::project_files`]).
+fn start_faults(settings: &carry::Settings, beside: &flow::agents::Agents, flows: &[Compiled]) -> Vec<String> {
+    let mut faults: Vec<String> = (flows.iter())
+        .flat_map(|flow| {
+            let acts = carry::faults(flow, &beside.acts.check.values);
+            [acts, carry::system::faults(settings, beside, flow)].concat()
+        })
+        .collect();
+    let words = carry::word_faults(&beside.acts.check).into_iter();
+    faults.extend(words.map(|fault| format!("{}/{fault}", beside.root.display())));
+    faults.extend(carry::system::project_files(settings, beside));
+    faults
+}
+
 /// What is written beside the flows, read from the directory that holds them, with the form of return of each flow
-/// that compiled made of it; or why it cannot be: what is beside them cannot be read, or a flow's form cannot be made
-/// of it.
-fn beside(root: &Path, flows: &[Compiled]) -> Result<flow::agents::Agents, String> {
+/// that compiled made of it; or why it cannot be: the flows are not all in one directory, what is beside them cannot be
+/// read, or a flow's form cannot be made of it. Every flow is beside the one directory: what every flow shares is
+/// written once, beside them all (principle one-thing-one-place).
+fn beside(dirs: &[PathBuf], flows: &[Compiled]) -> Result<flow::agents::Agents, String> {
+    let holder = |dir: &PathBuf| {
+        let dir = std::fs::canonicalize(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        (dir.parent().map(Path::to_path_buf)).ok_or_else(|| format!("{}: no directory holds it", dir.display()))
+    };
+    let mut roots = Vec::new();
+    for dir in dirs {
+        let root = holder(dir)?;
+        if !roots.contains(&root) {
+            roots.push(root);
+        }
+    }
+    let [root] = roots.as_slice() else {
+        return Err(format!(
+            "the flows are in more than one directory ({}): every flow is beside the files they share",
+            (roots.iter())
+                .map(|r| r.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    };
     let beside = flow::agents::read(root)?;
     for compiled in flows {
         flow::form::form(compiled, &beside)?;
@@ -418,5 +451,108 @@ fn read_script(script: &Path, flows: &[Compiled], compiled_all: bool, wrong: &mu
             eprintln!("{}: {e}", script.display());
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The directory that holds the repository's flows.
+    fn flows() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../flow")
+    }
+
+    /// The engineer's flow as the repository defines it, compiled as `wf-agents run` compiles it.
+    fn engineer() -> Compiled {
+        let dir = flows().join("engineer");
+        let source = flow::read(&dir).expect("the flow is read");
+        flow::compile(&source, &has(&dir)).expect("the flow compiles")
+    }
+
+    /// Runs git in the directory, which must pass.
+    fn git(dir: &Path, args: &[&str]) {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .expect("git runs");
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// The sample's settings, on a repository of their own whose main holds the files `project.toml` names.
+    fn settings(dir: &Path) -> carry::Settings {
+        let mut settings = carry::Settings::read(include_str!("../../carry/install.sample.toml")).expect("it reads");
+        let repo = dir.join("repo");
+        std::fs::create_dir_all(repo.join("design")).unwrap();
+        git(&repo, &["init", "-q", "-b", "main"]);
+        for (key, value) in [
+            ("user.name", "Tester"),
+            ("user.email", "tester@example.com"),
+            ("commit.gpgsign", "false"),
+        ] {
+            git(&repo, &["config", key, value]);
+        }
+        for path in ["AGENTS.md", "design/constitution.md", "design/README.md"] {
+            std::fs::write(repo.join(path), "Some text.\n").unwrap();
+        }
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "-q", "-m", "Files"]);
+        settings.project.repo = repo;
+        settings
+    }
+
+    // The flows given are beside one directory, whose files every flow shares; flows from two are refused.
+    #[test]
+    fn flows_from_more_than_one_directory_are_refused() {
+        let read = beside(&[flows().join("engineer"), flows().join("deliver")], &[]).expect("one directory");
+        assert_eq!(read.root, std::fs::canonicalize(flows()).unwrap());
+        let other = tempfile::tempdir().expect("a directory");
+        std::fs::create_dir_all(other.path().join("elsewhere")).unwrap();
+        let refused = beside(&[flows().join("engineer"), other.path().join("elsewhere")], &[]).expect_err("refused");
+        assert!(
+            refused.starts_with("the flows are in more than one directory"),
+            "{refused}"
+        );
+    }
+
+    // As the engine starts, the sample's installation, on the local repository with no fast CI, carries the engineer's
+    // flow out with nothing wrong; what the texts sent to the agents lack and what main lacks of the project's files are
+    // said together, with what the acts need: here a place no one fills in the heading of the project's files, for every
+    // line, and the tree's rules not on main.
+    #[test]
+    fn the_start_says_every_fault_of_the_prompts_and_the_projects_files() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let settings = settings(dir.path());
+        let mut beside = beside(&[flows().join("engineer")], &[]).expect("the files beside the flows");
+        let compiled = [engineer()];
+        assert_eq!(start_faults(&settings, &beside, &compiled), Vec::<String>::new());
+        beside.session.heading = "# `{path}` {where}\n\n{text}".to_string();
+        let mut lines: Vec<&str> = compiled[0].cells.iter().filter_map(|c| c.line.as_deref()).collect();
+        lines.sort();
+        lines.dedup();
+        let faults = start_faults(&settings, &beside, &compiled);
+        assert_eq!(faults.len(), lines.len(), "{faults:?}");
+        assert!(
+            (faults.iter()).all(|f| f.ends_with("flow/agents/session.toml: the engine fills no place `{where}`")),
+            "{faults:?}"
+        );
+        let repo = &settings.project.repo;
+        git(repo, &["rm", "-q", "design/README.md"]);
+        git(repo, &["commit", "-q", "-m", "No rules"]);
+        let faults = start_faults(&settings, &beside, &compiled);
+        assert_eq!(faults.len(), lines.len() + 1, "{faults:?}");
+        assert_eq!(
+            faults.last().map(String::as_str),
+            Some(
+                "project.toml: the file tree_rules, design/README.md, is not on main, refs/heads/main, where works branch \
+                 from"
+            )
+        );
     }
 }

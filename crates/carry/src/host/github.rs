@@ -79,6 +79,8 @@ pub struct Config {
     pub before_branches: bool,
     /// The project's fast CI, which runs the tests and checks an agent names; none where it has none.
     pub fast: Option<settings::Fast>,
+    /// How the lines of a red job's log are told apart, as the project's tools print them.
+    pub log: settings::Log,
     /// How often GitHub is asked how a run of the fast CI goes.
     pub fast_poll: Duration,
     /// The engine's token, which git's pushes and fetches are given in their environment; none where the address
@@ -103,6 +105,7 @@ impl std::fmt::Debug for Config {
             .field("delete_branch", &self.delete_branch)
             .field("before_branches", &self.before_branches)
             .field("fast", &self.fast)
+            .field("log", &self.log)
             .field("fast_poll", &self.fast_poll)
             .field("token", &self.token.as_ref().map(|_| "(given)"))
             .field("withheld", &self.withheld)
@@ -158,6 +161,7 @@ impl GitHub<Gh> {
             delete_branch: github.delete_branch,
             before_branches: github.runs_on_before_branches,
             fast: github.fast.clone(),
+            log: github.log.clone(),
             fast_poll: FAST_POLL,
             token: Some(token.clone()),
             withheld: withheld(data, &project.repo, env("HOME")),
@@ -449,7 +453,7 @@ impl<A: Api> GitHub<A> {
                 match self.api.log(job).await {
                     Ok(log) => lines.push(format!(
                         "What its log says of the failure, as the CI printed it:\n{}",
-                        log::fenced(&log::what_failed(&log, budget))
+                        log::fenced(&log::what_failed(&log, budget, &self.config.log))
                     )),
                     Err(why) => lines.push(format!("Its log could not be read: {why}")),
                 }
@@ -603,7 +607,7 @@ impl<A: Api> Host for GitHub<A> {
     }
 
     fn kept_main(&self) -> String {
-        format!("refs/remotes/{}/{}", self.config.remote, self.project.main)
+        kept_main(&self.config.remote, &self.project.main)
     }
 
     async fn check(&self, branch: &Branch<'_>, named: &Named, stop: &mut Stop) -> Result<Option<String>, String> {
@@ -772,6 +776,12 @@ pub(super) const NO_TESTS_BEFORE: &str = "Nothing was checked: the check before 
 /// The beginning of a commit by which a branch of one is named.
 fn short(commit: &str) -> &str {
     &commit[..commit.len().min(12)]
+}
+
+/// The reference that holds main's head as GitHub last gave it, fetched there from the remote of this name, main of
+/// this name.
+pub(crate) fn kept_main(remote: &str, main: &str) -> String {
+    format!("refs/remotes/{remote}/{main}")
 }
 
 /// What a check that ran whole found, said after [`WHOLE`] where the agent named what it does not run apart.
