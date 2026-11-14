@@ -132,8 +132,8 @@ run next all the same, and the note would be filled, since the new session lacks
     is the system prompt of the line's session, which the flow writes once on the line (principle
     the-system-prompt-holds-what-a-line-shares). It holds the project's guide for its agents (`AGENTS.md`), the
     constitution, the rules of the design tree, the rules for the agents that the line takes, the engine's own
-    words on working in it, and what the line's cells return (31), in that order. The agent's program takes it as the session begins and keeps it: a change
-    of one of them reaches a session only when it is reopened, and runs no cell.
+    words on working in it, and how a cell returns (31), in that order. The agent's program takes it as the session
+    begins and keeps it: a change of one of them reaches a session only when it is reopened, and runs no cell.
 
 25. The design tree is read by the agent, which chooses what bears on the problem. One cell does this reading for the
     cells that follow it in its session. So that the reading is done again in a session reopened, `session` runs this
@@ -171,16 +171,20 @@ run next all the same, and the note would be filled, since the new session lacks
     again with their results.
 
 31. Each field of a return, each tool and each datum is defined once, its shape with its words: the engine's own
-    fields and tools in the files beside the flows (51), a datum in the flow's definition where it is declared, and
-    what runs a cell, what it may write and what it may ask for on the cell. All that is sent about returning is made
-    from those definitions, by rules that name no cell and no datum, and is written nowhere by hand, in three parts:
-    - the line's form, the shape alone, given with every call (24, principle one-form-of-return-for-a-session);
-    - in the line's system prompt, a part of its own after the engine's words: what is common to every return of the
-      line, the two kinds of return, and no word of a field or a tool;
-    - with the cell's task, where the session lacks it, what this cell returns, and only that: each field it may use
-      and each tool it may ask for, with its words; the names it may say it has dealt with; the blocks it may write,
-      each with its words. A cell is told nothing of what it may not return. The page shows the same for each cell,
-      and the engine checks a return against it.
+    fields and tools in the files beside the flows (51), a datum in the flow's definition where it is declared, what a
+    cell may write on the cell, and the tools its cells may ask for on the flow. Every agent cell has each field of
+    the engine's and each tool its flow names. All that is sent about returning is made from those definitions, by
+    rules that name no cell and no datum, and is written nowhere by hand, in three parts:
+    - the flow's form, the shape alone, given with every call: the engine's fields and the flow's tools, the same for
+      every cell of the flow; the blocks a cell writes go in one field, `outputs`, under their names, which the form
+      does not list (24, principle one-form-of-return-for-a-session);
+    - in the line's system prompt, a part of its own after the engine's words: how a cell returns, the same for every
+      cell of the flow: the two kinds of return, and each field and each tool with its words;
+    - with the cell's task, where the session lacks it, the blocks this cell writes, each with its words, and only
+      those; a cell that writes none is sent nothing here. The names it may say it has dealt with are what ran it, as
+      the message gives them (9). The page shows the same for each cell, and the engine checks a return against it: a
+      block that is not the cell's, a value that is not one of its choice's, a block it must hand in and did not, a
+      name of what did not run it.
 
 ## What a person answers
 
