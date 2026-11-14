@@ -16,13 +16,10 @@ output_tokens = 3200
 answer = "Every check passed."
 ms = 6000
 
-# Understanding the problem: the decisions that bear on it, and nothing the background does not say.
+# Understanding the problem and the design tree: what it read stays in the session, and it hands in no block.
 [[flows.engineer.rounds]]
 cell = "R0"
-hands_in = [
-    { block = "context", content = "The constitution, design/principles/ and the decisions on runs and their costs." },
-    { block = "related", content = "calls-inside-a-run: a call is part of its run, so what it takes is the run's." },
-]
+hands_in = []
 
 # Research: a question to the owner, which ends its run; then, entered again for the answer, what it found, which
 # needs deep research, and its answer to the owner.
@@ -36,7 +33,7 @@ run = 2
 hands_in = [
     { block = "deep_needed", value = "yes" },
     { block = "found", content = "The rounds keep their cost; the calls keep none. Two ways to keep it were found; which one holds after a restart is open." },
-    { block = "reply_research", content = "As you answered, the cost is kept for each call as well." },
+    { block = "discussion", content = "As you answered, the cost is kept for each call as well." },
 ]
 
 # Deep research: the plan in full, and after the objection of the plan's review a revised plan with an answer.
@@ -56,14 +53,14 @@ cell = "D1"
 run = 2
 hands_in = [
     { block = "plan_agent", content = "Give a call's result what it took; keep it in the table of results; sum rounds and calls into the run; a call withdrawn takes nothing." },
-    { block = "answers_deep_research_to_plan_review", content = "Agreed: a withdrawn call takes nothing, and the plan now says so." },
+    { block = "reply_plan_review", content = "Agreed: a withdrawn call takes nothing, and the plan now says so." },
 ]
 
 # The plan's review: one objection to the plan, then content.
 [[flows.engineer.rounds]]
 cell = "D2"
 hands_in = [
-    { block = "plan_review_on_deep_research", content = "The plan does not say what a call that was withdrawn took." },
+    { block = "plan_review", content = "The plan does not say what a call that was withdrawn took." },
     { block = "plan_ok", value = "no" },
 ]
 

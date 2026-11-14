@@ -12,6 +12,7 @@ mod definition;
 mod directories;
 mod engine;
 mod failing;
+mod given;
 mod items;
 mod other_sites;
 mod page;
@@ -163,6 +164,7 @@ pub fn serve(shown: &Shared, against: Option<&Shared>) -> Router {
         shown: shown.read(),
         against: against.map(Shared::read),
         has: Box::new(has),
+        alike: web::given::Alike::default(),
     })
 }
 

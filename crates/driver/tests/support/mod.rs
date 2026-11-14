@@ -72,6 +72,7 @@ const DEPENDENCIES_BLOCK: &str = r#"
         [blocks.deps]
         values = ["waiting", "merged"]
         outside = "dependencies"
+        writes = { merged = "Every item this one depends on has merged.", waiting = "Waits for the items {items} to merge.", cancelled = "{item} (cancelled)", between = ", " }
         [tests.ready]
         says = "Every item this one depends on has merged"
         kind = "all"

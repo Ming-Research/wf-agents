@@ -137,6 +137,7 @@ fn started() -> flow::Compiled {
         [blocks.deps]
         values = ["waiting", "merged"]
         outside = "dependencies"
+        writes = { merged = "Every item this one depends on has merged.", waiting = "Waits for the items {items} to merge.", cancelled = "{item} (cancelled)", between = ", " }
         [blocks.start]
         outside = "start"
         [tests.ready]

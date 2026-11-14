@@ -17,6 +17,15 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
         "reads": ["go"],
         "is": "yes",
     });
+    // A cell in the old form, with one list: each block of it runs the cell, and an agent's cell is given it, as the
+    // version it last worked from and the latest where it names no kind. Each block that runs it is a trigger of the
+    // block's name, which its agent reads for it where the cell is given the block.
+    let both = json!({ "runs": { "why": null }, "given": { "kind": "lastAndLatest", "why": null } });
+    let runs = json!({ "runs": { "why": null }, "given": null });
+    let trigger = |block: &str, read: bool| {
+        let read = if read { vec![block] } else { Vec::new() };
+        json!({ "name": block, "what": null, "block": block, "read": read, "do": null })
+    };
     assert_eq!(
         get_json(&router, "/api/v1/flow").await,
         json!({
@@ -35,15 +44,17 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "task": "Write the plan from the request.",
                         "act": null,
                         "effort": "high",
+                        "takesMain": false,
                         "condition": null,
                         "preconditions": [],
                         "inputs": ["request", "opinions"],
-                        "input": {
-                            "request": { "kind": "lastAndLatest", "why": null },
-                            "opinions": { "kind": "lastAndLatest", "why": null },
-                        },
+                        "runsOn": ["request", "opinions"],
+                        "given": ["request", "opinions"],
+                        "input": { "request": both, "opinions": both },
                         "outputs": ["plan"],
                         "mustWrite": [],
+                        "tools": [],
+                        "triggers": [trigger("request", true), trigger("opinions", true)],
                         "limits": limits(3),
                     },
                     {
@@ -54,12 +65,17 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "task": "Review the plan.\nSay whether it is content.",
                         "act": null,
                         "effort": "high",
+                        "takesMain": false,
                         "condition": null,
                         "preconditions": [],
                         "inputs": ["plan"],
-                        "input": { "plan": { "kind": "lastAndLatest", "why": null } },
+                        "runsOn": ["plan"],
+                        "given": ["plan"],
+                        "input": { "plan": both },
                         "outputs": ["opinions", "content"],
                         "mustWrite": ["content"],
+                        "tools": [],
+                        "triggers": [trigger("plan", true)],
                         "limits": limits(5),
                     },
                     {
@@ -70,12 +86,17 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "task": null,
                         "act": "merge",
                         "effort": null,
+                        "takesMain": false,
                         "condition": null,
                         "preconditions": [may_merge],
                         "inputs": ["content"],
-                        "input": {},
+                        "runsOn": ["content"],
+                        "given": [],
+                        "input": { "content": runs },
                         "outputs": [],
                         "mustWrite": [],
+                        "tools": [],
+                        "triggers": [trigger("content", false)],
                         "limits": limits(3),
                     },
                 ],
@@ -84,6 +105,8 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "name": "content",
                         "values": ["yes", "no"],
                         "what": null,
+                        "trigger": false,
+                        "writes": [],
                         "writtenBy": { "cells": ["review"], "people": false, "note": false, "outside": null },
                         "readBy": { "cells": ["merge"], "conditions": [], "tests": [], "shown": false },
                     },
@@ -91,6 +114,8 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "name": "go",
                         "values": ["yes", "no"],
                         "what": null,
+                        "trigger": false,
+                        "writes": [],
                         "writtenBy": { "cells": [], "people": true, "note": false, "outside": null },
                         "readBy": { "cells": [], "conditions": [], "tests": ["may_merge"], "shown": false },
                     },
@@ -98,6 +123,8 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "name": "opinions",
                         "values": null,
                         "what": null,
+                        "trigger": false,
+                        "writes": [],
                         "writtenBy": { "cells": ["review"], "people": true, "note": false, "outside": null },
                         "readBy": { "cells": ["plan"], "conditions": [], "tests": [], "shown": false },
                     },
@@ -105,6 +132,8 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "name": "plan",
                         "values": null,
                         "what": null,
+                        "trigger": false,
+                        "writes": [],
                         "writtenBy": { "cells": ["plan"], "people": false, "note": false, "outside": null },
                         "readBy": { "cells": ["review"], "conditions": [], "tests": [], "shown": false },
                     },
@@ -112,6 +141,8 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "name": "request",
                         "values": null,
                         "what": null,
+                        "trigger": false,
+                        "writes": [],
                         "writtenBy": { "cells": [], "people": true, "note": false, "outside": null },
                         "readBy": { "cells": ["plan"], "conditions": [], "tests": [], "shown": false },
                     },
@@ -185,20 +216,24 @@ async fn how_a_cell_takes_a_block_and_what_a_block_is_are_given_as_written() {
     );
     let router = serve(&Shared::new(Ok(source)), None);
     let answer = get_json(&router, "/api/v1/flow").await;
+    let runs = json!({ "why": null });
     assert_eq!(
         answer["flow"]["cells"][1]["input"],
-        json!({ "plan": { "kind": "lastAndLatest", "why": "It is what to review." } })
+        json!({ "plan": { "runs": runs, "given": { "kind": "lastAndLatest", "why": "It is what to review." } } })
     );
     // Of a block an agent's cell names no kind of, it is given the version it last worked from and the latest; a why
     // it leaves unsaid is none; an engine's cell is given nothing.
     assert_eq!(
         answer["flow"]["cells"][0]["input"],
         json!({
-            "request": { "kind": "all", "why": null },
-            "opinions": { "kind": "lastAndLatest", "why": null },
+            "request": { "runs": runs, "given": { "kind": "all", "why": null } },
+            "opinions": { "runs": runs, "given": { "kind": "lastAndLatest", "why": null } },
         })
     );
-    assert_eq!(answer["flow"]["cells"][2]["input"], json!({}));
+    assert_eq!(
+        answer["flow"]["cells"][2]["input"],
+        json!({ "content": { "runs": runs, "given": null } })
+    );
     let plan = &answer["flow"]["blocks"][3];
     assert_eq!(
         (&plan["name"], &plan["what"]),

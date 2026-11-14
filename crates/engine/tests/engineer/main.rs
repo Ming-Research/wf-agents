@@ -123,6 +123,11 @@ fn engineer() -> Compiled {
     let has = Has {
         sources: names(&["dependencies", "main", "session", "start", "tree"]),
         acts: names(&["start", "check", "merge"]),
+        // The tools the flow names for its agent cells, the fields of a return its data are written through, and the
+        // place the engine fills with what changed of the tree.
+        tools: names(&["query", "run_tests"]),
+        fields: names(&["questions", "reply"]),
+        details: names(&["files"]),
         ..Default::default()
     };
     compile(&source, &has).expect("the engineer's flow compiles")

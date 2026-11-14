@@ -23,7 +23,8 @@ function draw(definition: Definition, comparison: Comparison = NOTHING): HTMLEle
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
-  act(() => root.render(<FlowPage definition={definition} comparison={comparison} />));
+  void comparison;
+  act(() => root.render(<FlowPage definition={definition} />));
   unmount = () => act(() => root.unmount());
   return container;
 }
@@ -76,9 +77,9 @@ describe('the chart', () => {
     ]);
     expect(texts(rowOf(page, 'plan'), '.spot .visually-hidden')).toEqual([
       'plan may write plan',
-      'judge reads plan',
-      'design reads plan',
-      'answer reads plan',
+      'judge is run by, is given plan',
+      'design is run by, is given plan',
+      'answer is run by, is given plan',
     ]);
     expect(texts(rowOf(page, 'needs_design'), '.spot .visually-hidden')).toEqual([
       'judge may write needs_design',
@@ -99,11 +100,11 @@ describe('the chart', () => {
       'answer Answer comments, engineer line, runs when The item has a comment (commented is yes), ' +
         'waits until The owner confirmed the plan (confirmed is yes)',
     );
-    // The one way back: judge writes the opinions plan reads, and the arrow is at plan's read.
+    // The one way back: judge writes the opinions that run plan, and the arrow is at plan's mark.
     expect(page.querySelector('.legend')?.textContent).toContain('way back (1)');
     const arrows = [...page.querySelectorAll('.arrow')];
     expect(arrows).toHaveLength(1);
-    expect(arrows[0].closest('td')?.textContent).toBe('plan reads opinions');
+    expect(arrows[0].closest('td')?.textContent).toBe('plan is run by, is given opinions');
   });
 
   it('marks each block a named test reads, by the condition’s mark or by a mark of a precondition’s own', () => {
@@ -114,7 +115,7 @@ describe('the chart', () => {
     expect(texts(rowOf(page, 'confirmed'), '.spot .visually-hidden')).toEqual(['answer waits on the value of confirmed']);
     expect(texts(rowOf(page, 'ci'), '.spot .visually-hidden')).toEqual([
       'check may write ci',
-      'merge reads, waits on the value of ci',
+      'merge is run by, waits on the value of ci',
     ]);
     expect(rowOf(page, 'confirmed').querySelectorAll('.part.precondition')).toHaveLength(1);
     expect(rowOf(page, 'commented').querySelectorAll('.part.condition')).toHaveLength(1);
@@ -138,9 +139,11 @@ describe('the chart', () => {
     const rows = [...panel.querySelectorAll('.uses li')].map((li) =>
       [...li.children].map((c) => c.textContent?.trim()).join(' '),
     );
-    expect(rows.slice(0, 3)).toEqual([
+    expect(rows.slice(0, 5)).toEqual([
       '1 request written by people',
       '2 opinions written by judge, people way back from judge',
+      '1 request is given written by people',
+      '2 opinions is given written by judge, people',
       'plan read by judge, design, answer',
     ]);
     click([...panel.querySelectorAll('button.link')].find((b) => b.textContent === 'opinions'));
@@ -153,11 +156,11 @@ describe('the chart', () => {
     const heads = page.querySelectorAll('thead .cell-head .head-button');
     click(heads[0]);
     const plan = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
-    expect(texts(plan, '.panel-part-label')).toEqual(['Reads 2', 'May write 1', 'Task', 'Session']);
+    expect(texts(plan, '.panel-part-label')).toEqual(['Runs it 2', 'Is given 2', 'May write 1', 'Task', 'Session']);
     expect(plan.querySelector('.content')?.textContent).toBe('Write the plan from the request.\nSay what it leaves out.');
     click(heads[4]);
     const check = page.querySelector('aside[aria-label="Cell check"]') as HTMLElement;
-    expect(texts(check, '.panel-part-label')).toEqual(['Reads 2', 'May write 1', 'Act']);
+    expect(texts(check, '.panel-part-label')).toEqual(['Runs it 2', 'May write 1', 'Act']);
     const act = [...check.querySelectorAll('.panel-part')].find((p) => p.querySelector('.panel-part-label')?.textContent === 'Act');
     expect(act?.querySelector('.mono')?.textContent).toBe('check');
   });
@@ -239,7 +242,7 @@ describe('the column of words', () => {
           title: 'Second',
           condition: { on: 'block', block: 'y', value: 'yes' },
           inputs: ['x', 'said'],
-          input: { x: { kind: 'latest', why: 'It is what to judge.' } },
+          input: { x: { runs: { why: null }, given: { kind: 'latest', why: 'It is what to judge.' } } },
           outputs: ['said'],
         }),
       ],
@@ -263,9 +266,9 @@ describe('the column of words', () => {
     const heads = page.querySelectorAll('thead .cell-head .head-button');
     click(heads[1]);
     expect(words(page)).toEqual({
-      x: 'takes the latest: It is what to judge.',
+      x: 'runs it; is given the latest version: It is what to judge.',
       y: 'runs when y is yes',
-      said: 'reads; may write, brought up to date: What was said of it.',
+      said: 'runs it; is given; may write, brought up to date: What was said of it.',
     });
     expect(page.querySelector('.words-label')?.textContent).toBe('What b says of each block');
     expect(page.querySelector('.words-about')?.textContent).toBe('b Second · engineer line · runs when y is yes');
@@ -342,15 +345,17 @@ describe('a comparison', () => {
         changes: [
           { kind: 'title', cell: 'a', before: 'A', after: 'First' },
           { kind: 'runsOnAdded', cell: 'b', block: 'y' },
+          { kind: 'givenAdded', cell: 'b', block: 'y' },
           { kind: 'blockAdded', block: 'y' },
         ],
       },
     );
     expect(texts(page, '.change-group h3')).toEqual(['a First', 'b B', 'Block y']);
-    expect(texts(page, '.changes .change')).toEqual(['TitleA → First', 'Runs ity', 'Declared']);
+    expect(texts(page, '.changes .change')).toEqual(['TitleA → First', 'Runs ity', 'Is giveny', 'Declared']);
     expect(page.querySelector('thead .cell-head')?.className).toContain('status-changed');
     expect(rowOf(page, 'y').className).toContain('status-added');
-    expect(page.querySelectorAll('.part.added')).toHaveLength(1);
+    // Both halves of the ring: y now runs b, and b is given it.
+    expect(page.querySelectorAll('.part.added')).toHaveLength(2);
 
     click([...page.querySelectorAll('button')].find((b) => b.textContent === 'As it was'));
     expect(headNames(page)).toEqual(['a A, engineer line, changed', 'b B, engineer line, changed']);
