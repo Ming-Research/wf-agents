@@ -269,24 +269,49 @@ function useSending(act: (what: Act) => Promise<unknown>) {
   return { waiting, refused, send };
 }
 
-/// The words for who writes a message or is named in one: a cell by the name the owner calls it.
+/// The words for who writes a message or is named in one, of those that are no cell.
 const WRITER: Record<string, string> = {
   owner: 'You',
   engineer: 'Engineer',
   architect: 'Architect',
   assistant: 'Assistant',
-  R1: 'Research',
-  D1: 'Deep research',
-  I1: 'Implementation',
 };
 
-/// Who writes a message or is named in one, in words: any other cell, such as one that asked a question, by its title
-/// in the work's flow.
-const writerOf = (x: Who | MessageCell, page: WorkPage | null): string =>
-  Object.hasOwn(WRITER, x) ? WRITER[x] : titleOf(page, x);
+/// Who writes a message or is named in one, in words: a cell of the work's flow by its line and its id
+/// (`plan_reviewer · D4`), or by its title where it runs in no line.
+const writerOf = (x: Who | MessageCell, page: WorkPage | null): string => {
+  if (Object.hasOwn(WRITER, x)) return WRITER[x];
+  const line = page?.flow.cells.find((c) => c.id === x)?.line;
+  return line ? `${line} · ${x}` : titleOf(page, x);
+};
 
-/// Whether a work went through a cell: it finished a round of it, or has one open.
-const went = (w: Summary, cell: string) => w.cells.some((c) => c.cell === cell && (c.finished > 0 || c.open !== null));
+/// The trigger by which the owner speaks to a cell, as the flows' triggers name it.
+const SPOKEN = 'on_spoken';
+
+/// Whom the owner can write to: each line of the work's flow with a cell the owner speaks to (one run by
+/// [`SPOKEN`]), in the walk order of its first such cell, with the one of them that ran last in this work, which the
+/// words go to, and that run's number; none where none of them has run, and then the line cannot be chosen.
+function speakable(page: WorkPage | null, work: Summary): { line: string; cell: string | null; last: number }[] {
+  const lines: { line: string; cells: string[] }[] = [];
+  for (const c of page?.flow.cells ?? []) {
+    if (c.kind !== 'agent' || !c.line || !c.triggers.some((t) => t.name === SPOKEN)) continue;
+    const known = lines.find((l) => l.line === c.line);
+    if (known) known.cells.push(c.id);
+    else lines.push({ line: c.line, cells: [c.id] });
+  }
+  // A run's number grows with each run the work starts, so the greatest is the latest.
+  const lastRun = (cell: string) => {
+    const now = work.cells.find((c) => c.cell === cell);
+    return Math.max(now?.open ?? -1, now?.record ?? -1);
+  };
+  return lines.map(({ line, cells }) => {
+    const [latest] = cells
+      .map((cell) => ({ cell, at: lastRun(cell) }))
+      .filter((r) => r.at >= 0)
+      .sort((a, b) => b.at - a.at);
+    return { line, cell: latest?.cell ?? null, last: latest?.at ?? -1 };
+  });
+}
 
 /// Where a message of a work stands in the window, to jump to it.
 const messageId = (work: number, at: number) => `cw-message-${work}-${at}`;
@@ -388,7 +413,8 @@ function ItemView({
   // the plan to the cell that wrote the plan. Nothing else changes: the work is not paused.
   const discuss = (c: Choice) => {
     setQuote(quoteOf(c));
-    setMessageTo(c.asks?.cell ?? (went(work, 'D1') ? 'D1' : 'R1'));
+    const asker = pageIn(page)?.flow.cells.find((x) => x.id === c.asks?.cell);
+    if (asker?.line) setMessageTo(asker.line);
     setDiscussed((n) => n + 1);
   };
   const jump = (at: number) =>
@@ -727,7 +753,7 @@ function Acts({ paused, goOn, act }: { paused: boolean; goOn: Act | null; act: (
 }
 
 /// Where a draft of a message is kept, so that it is not lost when the panel shows another item.
-const draftKey = (work: number, block: string) => `wf-agents.console-message.${work}.${block}`;
+const draftKey = (work: number, line: string) => `wf-agents.console-message.${work}.${line}`;
 
 function readDraft(key: string): string {
   try {
@@ -958,24 +984,17 @@ function RulingBox({ ruling, page, act }: {
   );
 }
 
-/// The discussion: the messages written before, the owner's and the replies, and a box to write one. The owner picks a block of
-/// the work that people write, of those that hold words rather than a choice, and what they send is written into it;
-/// the line under the box names the cells that read it, and those the message names with `@`.
-/// Whom the owner writes a message to, of the engineer's flow: the cells that plan and build, by the names the owner
-/// calls them.
-const MESSAGE_TO = [
-  { cell: 'R1', name: 'Research' },
-  { cell: 'D1', name: 'Deep research' },
-  { cell: 'I1', name: 'Implementation' },
-] as const;
-
+/// The discussion: the record of what is said, the owner's words and the cells' answers, and a box to write more. The
+/// owner picks a line of the work's flow, and what they send is said to that line, which the engine gives to the cell
+/// of it the work has reached: the one that ran last, which the line's switch names; the line under the box names that
+/// cell, and those the message names with `@`.
 function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unquote, box, act, sent }: {
   work: Summary;
   page: PageState;
   messages: Message[];
-  /// Whom the owner chose the message goes to; none where they did not.
-  messageTo: MessageCell | null;
-  setMessageTo: (cell: MessageCell) => void;
+  /// The line the owner chose the message goes to; none where they did not.
+  messageTo: string | null;
+  setMessageTo: (line: string) => void;
   quote: string | null;
   unquote: () => void;
   box: RefObject<HTMLTextAreaElement | null>;
@@ -983,27 +1002,12 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
   sent: (message: Message) => void;
 }) {
   const read = pageIn(page);
-  const blocks = (read?.flow.blocks ?? []).filter((b) => b.writtenBy.people && b.values === null);
-  // Whom a message goes to: the research, the deep research or the implementation, and a cell that asked the owner a
-  // question the work waits at, each by the block of the owner's words its cell reads. The deep research cannot be
-  // chosen where the work did not go through it. Once the work has come to the implementation, a message goes there
-  // unless the owner picks another; before that, to the research.
-  const askers = [...new Set(askedOf(work.now).flatMap((c) => (c.asks === undefined ? [] : [c.asks.cell])))];
-  const cells: { cell: MessageCell; name: string }[] = [
-    ...MESSAGE_TO,
-    ...askers.filter((c) => !MESSAGE_TO.some((t) => t.cell === c)).map((c) => ({ cell: c, name: titleOf(read, c) })),
-  ];
-  const targets = cells.map((t) => ({
-    ...t,
-    // The block that is the owner's words to this cell alone: one people write that this cell reads and no other cell
-    // does. A block several cells read, such as the background, is no message to one of them and is never written
-    // from here.
-    block: blocks.find((b) => b.readBy.cells.length === 1 && b.readBy.cells[0] === t.cell),
-    off: t.cell === 'D1' && !went(work, 'D1'),
-  }));
-  const usable = targets.filter((t) => t.block !== undefined && !t.off);
-  const target = usable.find((t) => t.cell === (messageTo ?? (went(work, 'I1') ? 'I1' : 'R1'))) ?? usable[0];
-  const block = target?.block;
+  // Whom a message goes to: a line, to the cell of it the owner speaks to that ran last. A line none of whose cells
+  // has run cannot be chosen. Unless the owner picks another, the line that ran last.
+  const targets = speakable(read, work);
+  const usable = targets.filter((t) => t.cell !== null);
+  const latest = [...usable].sort((a, b) => b.last - a.last)[0];
+  const target = usable.find((t) => t.line === messageTo) ?? latest;
   return (
     <Fold title="Discussion" count={messages.length}>
       {messages.map((n, i) => (
@@ -1021,33 +1025,33 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
         <p className="muted">Reading the work's flow</p>
       ) : 'failed' in page ? (
         <p className="failed small">The page could not read the work: {page.failed}</p>
-      ) : block === undefined ? (
-        <p className="muted">People write no block of this flow</p>
+      ) : target?.cell == null ? (
+        <p className="muted">No cell the owner speaks to has run in this work</p>
       ) : (
         <div className="write-box cw-compose">
           <div className="cw-to switch" role="radiogroup" aria-label="Whom the message goes to">
             {targets.map((t) => (
               <button
-                key={t.cell}
+                key={t.line}
                 type="button"
                 role="radio"
                 className="switch-choice"
-                aria-checked={t.cell === target?.cell}
-                aria-pressed={t.cell === target?.cell}
-                disabled={t.block === undefined || t.off}
-                title={t.off ? 'The work did not go through the deep research' : undefined}
-                onClick={() => setMessageTo(t.cell)}
+                aria-checked={t.line === target.line}
+                aria-pressed={t.line === target.line}
+                disabled={t.cell === null}
+                title={t.cell === null ? `No cell of ${t.line} has run in this work` : `To ${t.line} · ${t.cell}`}
+                onClick={() => setMessageTo(t.line)}
               >
-                {t.name}
+                {t.line}
               </button>
             ))}
           </div>
           <Compose
-            key={draftKey(work.number, block.name)}
+            key={draftKey(work.number, target.line)}
             work={work}
-            block={block.name}
-            to={target?.cell ?? 'R1'}
-            readers={block.readBy.cells.map((c) => titleOf(read, c))}
+            line={target.line}
+            to={target.cell}
+            readers={[titleOf(read, target.cell)]}
             quote={quote}
             unquote={unquote}
             box={box}
@@ -1060,12 +1064,12 @@ function Discussion({ work, page, messages, messageTo, setMessageTo, quote, unqu
   );
 }
 
-/// The box for one block of one work, its draft kept as it is typed, with the passage quoted into it over it, and the
+/// The box for one line of one work, its draft kept as it is typed, with the passage quoted into it over it, and the
 /// names one can write to offered when `@` is typed.
-function Compose({ work, block, to: cell, readers, quote, unquote, box, act, sent }: {
+function Compose({ work, line, to: cell, readers, quote, unquote, box, act, sent }: {
   work: Summary;
-  block: string;
-  /// The cell the message goes to.
+  line: string;
+  /// The cell the message goes to: the one of the line that ran last.
   to: MessageCell;
   readers: string[];
   quote: string | null;
@@ -1074,7 +1078,7 @@ function Compose({ work, block, to: cell, readers, quote, unquote, box, act, sen
   act: (what: Act) => Promise<unknown>;
   sent: (message: Message) => void;
 }) {
-  const key = draftKey(work.number, block);
+  const key = draftKey(work.number, line);
   const [text, setText] = useState(() => readDraft(key));
   const [written, setWritten] = useState(false);
   const { waiting, refused, send } = useSending(act);
@@ -1097,7 +1101,7 @@ function Compose({ work, block, to: cell, readers, quote, unquote, box, act, sen
   const submit = () => {
     const words = text.trim();
     const content = quote === null ? words : `${quote.replace(/^/gm, '> ')}\n\n${words}`;
-    void send({ kind: 'write', block, content, value: null }).then((done) => {
+    void send({ kind: 'say', line, words: content }).then((done) => {
       if (!done) return;
       writeDraft(key, '');
       setText((now) => (now.trim() === words ? '' : now));
@@ -1120,7 +1124,7 @@ function Compose({ work, block, to: cell, readers, quote, unquote, box, act, sen
         ref={box}
         rows={3}
         value={text}
-        aria-label={`What to write in ${block}`}
+        aria-label={`What to say to ${line}`}
         placeholder="Write a message"
         onChange={(e) => type(e.target.value)}
       />
@@ -1139,7 +1143,11 @@ function Compose({ work, block, to: cell, readers, quote, unquote, box, act, sen
           Send
         </Button>
       </div>
-      {written && <p className="cw-done">Written in {block}</p>}
+      {written && (
+        <p className="cw-done">
+          Said to {line} · {cell}
+        </p>
+      )}
       {refused !== null && <p className="failed small">{refused}</p>}
     </>
   );

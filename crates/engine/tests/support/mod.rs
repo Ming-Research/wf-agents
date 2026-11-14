@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 
 use decide::run::Failure;
-use decide::{CallId, Cause, Decision, Outsider, Pauser, Records, RunId, decide};
+use decide::{CallId, Cause, Decision, Outsider, Pauser, Records, RunId, Started, decide};
 use engine::{Ask, Back, Call, Came, Effect, Event, Spent, Time, Work, handle, pending};
 use flow::Compiled;
 
@@ -72,13 +72,16 @@ pub struct Seen {
     pub bound_finished: usize,
     /// Releases given of what a work that ended held.
     pub released: usize,
+    /// Words told to a round under way.
+    pub told: usize,
 }
 
 /// The first finished run of the records that lacks a write of a block its cell must write, read from the records of
 /// the finishes and the cells' definitions (property a-run-is-one-mechanism), said in words; none where there is none.
 /// A run is held to what its cell must write where its return asked for no call, however much of what ran its round it
 /// dealt with (decision a-return-hands-in-what-its-cell-must-every-time). A return with a question that waits is not
-/// held either; the histories that check this give no cell that must write a question to ask.
+/// held either; the histories that check this give no cell that must write a question to ask. Nor is a run entered while
+/// its cell waited ([`waited`]).
 pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String> {
     for finished in &records.finished {
         let started = (records.started.iter())
@@ -90,7 +93,7 @@ pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String
             .max();
         let asked = (records.called.iter())
             .any(|c| c.run == finished.run && c.at < finished.at && ended.is_none_or(|e| c.at > e));
-        if asked {
+        if asked || waited(records, started) {
             continue;
         }
         let spec = (flow.cells.iter())
@@ -106,6 +109,46 @@ pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String
         }
     }
     None
+}
+
+/// Whether the cell of the run waited, as the run started, for what an earlier run of it asked: the result of a call
+/// that run asked for as its return was taken, given to no run of the cell since and not in yet; or the owner's answer
+/// to a question of the cell that waits, with no answer to its latest version. A run entered meanwhile, for the owner's
+/// words, answers them and goes on waiting, held to nothing its cell must write (design document `data-and-context`,
+/// 42). Read from the records.
+pub fn waited(records: &Records, started: &Started) -> bool {
+    let at = started.at;
+    let earlier: Vec<&Started> = (records.started.iter())
+        .filter(|s| s.cell == started.cell && s.at < at)
+        .collect();
+    let given: BTreeSet<CallId> = (earlier.iter())
+        .flat_map(|s| &s.because)
+        .flat_map(|c| match c {
+            Cause::Results { calls } => calls.clone(),
+            _ => Vec::new(),
+        })
+        .collect();
+    let open = earlier.iter().any(|s| {
+        let Some(finished) = records.finished.iter().find(|f| f.run == s.run && f.at < at) else {
+            return false;
+        };
+        let ended = (records.returned.iter()).filter(|r| r.run == s.run).map(|r| r.at).max();
+        (records.called.iter()).any(|c| {
+            c.run == s.run
+                && c.at < finished.at
+                && ended.is_none_or(|e| c.at > e)
+                && !given.contains(&c.call)
+                && !records.done.iter().any(|d| d.call == c.call && d.at < at)
+        })
+    });
+    let held = (records.questions.iter())
+        .filter(|q| q.cell == started.cell && q.at < at)
+        .any(|q| {
+            let latest = !(records.questions.iter()).any(|o| o.name == q.name && o.at > q.at && o.at < at);
+            let answered = (records.answers.iter()).any(|a| a.question == q.name && a.version == q.at && a.at < at);
+            latest && q.waits && !q.withdrawn && !answered
+        });
+    open || held
 }
 
 /// Whether the run started for a note a person wrote, or for the owner turning to its cell: one of its reasons is a
@@ -253,6 +296,16 @@ impl Driver {
                 self.paused = decide::paused(&self.work.records);
                 for effect in effects {
                     match &effect {
+                        // Words told to a round under way are handed to it and kept by no one: a stop does not give
+                        // them again.
+                        Effect::Tell { run, .. } => {
+                            let r = &self.work.records;
+                            let began = r.rounds.iter().filter(|x| x.run == *run).count();
+                            let ended = r.returned.iter().filter(|x| x.run == *run).count();
+                            assert!(began > ended, "words are told to a run with no round under way");
+                            self.seen.told += 1;
+                            continue;
+                        }
                         Effect::Round { run, number, .. } => {
                             assert!(
                                 self.rounds.insert((*run, *number)),
@@ -375,6 +428,7 @@ impl Driver {
         }
         for effect in &self.held {
             match effect {
+                Effect::Tell { .. } => panic!("words told to a round are held"),
                 Effect::Round { run, .. } => assert!(r.started.iter().any(|s| s.run == *run), "an unknown run"),
                 Effect::Call { call, run, .. } => {
                     assert!(
@@ -482,6 +536,7 @@ impl Driver {
                 Effect::Round { .. } => true,
                 Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool { .. })),
                 Effect::Withdraw { .. } | Effect::Stop { .. } | Effect::Release { .. } => true,
+                Effect::Tell { .. } => false,
             })
             .cloned()
             .collect()
@@ -555,6 +610,7 @@ impl Driver {
                     "the release of a work that ended was refused"
                 );
             }
+            Effect::Tell { .. } => unreachable!("words told to a round are not held"),
         }
     }
 

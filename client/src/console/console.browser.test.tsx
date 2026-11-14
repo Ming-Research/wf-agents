@@ -504,8 +504,9 @@ describe('the console page, when a work cannot be read', () => {
     await expect.poll(said).toBe('The page could not read the work: /api/v1/works/12 answered 500');
     fails = false;
     (reopened as (() => void) | null)?.();
-    // The made-up flow has no block that is the owner's words to one cell of the engineer's, so no box is offered.
-    await expect.poll(said).toBe('People write no block of this flow');
+    // Read again, the discussion offers the box to say something to a line of the work's flow.
+    await expect.poll(() => container.querySelector('.drawer-body .cw-compose textarea') !== null).toBe(true);
+    expect(said()).toBeNull();
     root.unmount();
     container.remove();
   });

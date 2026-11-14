@@ -69,10 +69,11 @@
 //! the owner resumes a paused work, lets the cell it waits at go on at its limit, and makes a precondition it waits on
 //! hold where a person or the outside can: writes a verdict whose refusal stands as a value that is not, and the
 //! outside writes what the first cell's precondition looks for. Where the precondition reads a choice that only cells
-//! write (the check's), the owner writes a few words in an input of the cell that writes it which only people write,
-//! or, where that cell has none (the check is spoken to by no one), of the nearest cell before it that has one (the
-//! implementation, spoken to by the owner), so that the cell runs again, or the work goes on from the cell spoken to
-//! until it does; in the continuation the check then says yes.
+//! write (the check's), the owner speaks to the line of the cell that writes it, where the owner's words run that cell,
+//! or, where they do not (the check is spoken to by no one), of the nearest cell before it that they run and that
+//! applies (the implementation, of the engineer's line), so that the cell runs again, or the work goes on from the cell
+//! spoken to until it does; in the continuation the check then says yes. Among the random steps, the owner now and then
+//! speaks to a line.
 //!
 //! Every situation the properties are about is counted over all histories (`required`), and the test fails if one was
 //! never reached. A failing case prints its seed and its steps; `one_history(&flow, seed, ..)` replays it.
@@ -123,7 +124,16 @@ fn engineer() -> Compiled {
     let source = read(&dir).expect("the engineer's flow is read");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
     let has = Has {
-        sources: names(&["answer", "asked", "dependencies", "main", "session", "start", "tree"]),
+        sources: names(&[
+            "answer",
+            "asked",
+            "words",
+            "dependencies",
+            "main",
+            "session",
+            "start",
+            "tree",
+        ]),
         acts: names(&["start", "check", "merge"]),
         // The tools the flow names for its agent cells, the fields of a return its data are written through, and the
         // place the engine fills with what changed of the tree.
@@ -315,13 +325,14 @@ fn opinion(flow: &Compiled, block: &BlockId, i: usize) -> bool {
 }
 
 /// Whether the block is an opinion addressed to the cell at this place: one of its inputs that only people write, as
-/// prose, or that a cell after it writes.
+/// prose, that stands for the owner's words to it, or that a cell after it writes.
 fn addressed(flow: &Compiled, block: &BlockId, i: usize) -> bool {
     let b = &flow.blocks[block];
     let only_people =
         b.writers.people && b.writers.cells.is_empty() && b.writers.outside.is_none() && b.values.is_none();
+    let words = b.writers.outside.as_deref() == Some(flow::WORDS);
     let from_after = (b.writers.cells.iter()).any(|c| flow.flow.place(c).is_some_and(|j| j > i));
-    flow.flow.cells()[i].runs_on.contains(block) && (only_people || from_after)
+    flow.flow.cells()[i].runs_on.contains(block) && (only_people || words || from_after)
 }
 
 /// Whether the block was ever written.
@@ -649,11 +660,22 @@ impl Part for Random {
             .filter(|(_, b)| b.writers.people && b.values.is_none())
             .map(|(id, _)| id)
             .collect();
-        // The owner's start is written once, as the work begins.
+        // The owner's start is written once, as the work begins; what the engine writes itself, of the questions, the
+        // answers and the owner's words, is written by no one outside.
+        let engines = [START, "asked", flow::ANSWER, flow::WORDS];
         let outside: Vec<&BlockId> = (blocks.iter())
-            .filter(|(_, b)| b.writers.outside.is_some() && b.writers.outside.as_deref() != Some(START))
+            .filter(|(_, b)| b.writers.outside.as_deref().is_some_and(|s| !engines.contains(&s)))
             .map(|(id, _)| id)
             .collect();
+        // The lines the owner speaks to.
+        let mut lines: Vec<String> = (d.flow.cells.iter())
+            .filter(|c| {
+                (c.triggers.iter())
+                    .any(|t| blocks.get(&t.block).and_then(|b| b.writers.outside.as_deref()) == Some(flow::WORDS))
+            })
+            .filter_map(|c| c.line.clone())
+            .collect();
+        lines.dedup();
         // Around the check: a person pauses the work while the check's round is under way, and while the pause holds
         // the merge back after the check passed, writes for a judge or lets the work on, so that a judge looks again
         // after the check passed.
@@ -717,6 +739,7 @@ impl Part for Random {
                 };
                 Some(Event::LetGo { cell })
             }
+            77..=81 => (!lines.is_empty()).then(|| says(&lines[d.rng.below(lines.len())])),
             67..=76 => Some(if paused {
                 Event::Resumed
             } else {
@@ -839,23 +862,24 @@ fn content_bound(d: &Driver) -> u64 {
     d.held.len() as u64 + PER_RUN * runs + tested.len() as u64 + 1 + asked * (1 + PER_RUN)
 }
 
-/// The owner's few words to a cell, where the key reads a block only cells write: in an input of a cell that
-/// writes it which only people write, so that the cell runs again and writes the block anew; where that cell has no
-/// such input, in one of the nearest cell before it that has one and writes a block the writer runs on, whose run,
-/// answering the owner, writes it anew, so that the writer runs again; none where no such cell or input is. A cell
-/// spoken to that writes nothing the writer runs on would run again and leave the work where it was.
+/// The owner's few words to a cell, where the key reads a block only cells write: to the line of a cell that writes it
+/// that the owner's words run and that applies, so that the cell runs again and writes the block anew; where that cell
+/// is none, to the line of the nearest cell before it that is one and writes a block the writer runs on, whose run,
+/// answering the owner, writes it anew, so that the writer runs again; none where no such cell is. A cell spoken to that
+/// writes nothing the writer runs on would run again and leave the work where it was.
 fn ask_a_cell(d: &Driver, key: &Condition) -> Option<Event> {
     let only_cells = |b: &BlockId| {
         let w = &d.flow.blocks[b].writers;
         !w.people && w.outside.is_none()
     };
-    let only_people = |b: &BlockId| {
-        let block = &d.flow.blocks[b];
-        let w = &block.writers;
-        w.people && w.cells.is_empty() && w.outside.is_none() && block.values.is_none()
-    };
+    let reading = Reading::new(&d.flow.flow, &d.work.records, None);
     let cells = d.flow.flow.cells();
-    let spoken_to = |j: usize| cells[j].runs_on.iter().find(|b| only_people(b));
+    let spoken_to = |j: usize| {
+        let spec = &d.flow.cells[j];
+        let words = (spec.triggers.iter())
+            .any(|t| d.flow.blocks.get(&t.block).and_then(|b| b.writers.outside.as_deref()) == Some(flow::WORDS));
+        spec.line.clone().filter(|_| words && reading.applies(j))
+    };
     // Whether the cell at `j` runs the writer at `w` again by what it writes: it is the writer, or writes a block the
     // writer runs on.
     let leads_to = |j: usize, w: usize| j == w || cells[j].outputs.iter().any(|b| cells[w].runs_on.contains(b));
@@ -863,7 +887,15 @@ fn ask_a_cell(d: &Driver, key: &Condition) -> Option<Event> {
         .flat_map(|b| &d.flow.blocks[b].writers.cells)
         .filter_map(|c| d.flow.flow.place(c))
         .find_map(|w| (0..=w).rev().filter(|&j| leads_to(j, w)).find_map(spoken_to))
-        .map(|b| wrote(b, Outsider::Person, true, None))
+        .map(|line| says(&line))
+}
+
+/// The owner's few words to the line.
+fn says(line: &str) -> Event {
+    Event::Said {
+        line: line.to_string(),
+        words: format!("{line}, do it again"),
+    }
 }
 
 /// What one history found: the first breach of each property, and what it reached.

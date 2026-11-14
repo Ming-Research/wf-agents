@@ -331,6 +331,7 @@ fn done(work: u64, act: &Act) -> String {
         Act::Resume {} => format!("Work {work} goes on."),
         Act::Cancel { .. } => format!("Work {work} is cancelled."),
         Act::Result { call, .. } => format!("Call {call} of work {work} has its result."),
+        Act::Say { line, .. } => format!("Said to the line {line} of work {work}."),
         Act::Answer {
             question,
             version,

@@ -594,6 +594,7 @@ pub struct SentBackFaults {
     pub question_twice: String,
     pub not_an_option: String,
     pub not_answerable: String,
+    pub not_answered: String,
 }
 
 /// Where a field's words go in the part on returning.
@@ -742,6 +743,9 @@ pub struct Message {
     pub parts: Vec<MessagePart>,
     /// What a session compacted during a round is told before the round's message is given again, whole.
     pub compacted: String,
+    /// What the owner says to a round while it runs, as its session is given it after its next use of a tool:
+    /// `{words}` what was said, `{trigger}` the trigger it is new to the round as, `{do}` what the cell does for it.
+    pub said: String,
 }
 
 /// A part of a message.
@@ -854,6 +858,20 @@ pub struct Given {
     pub latest: GivenKind,
     pub last_and_latest: GivenKind,
     pub all: GivenKind,
+    /// Who wrote a version, as `{by}` in a text names it.
+    pub by: GivenBy,
+}
+
+/// Who wrote a version of a datum, as `{by}` in a text of `given.toml` names it.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GivenBy {
+    /// A person: the owner.
+    pub person: String,
+    /// The engine, or a source outside the work it reads.
+    pub outside: String,
+    /// A run of a cell, `{cell}` the cell.
+    pub cell: String,
 }
 
 /// How a datum given in one kind is put in.

@@ -436,6 +436,7 @@ impl History {
                 spent: self.spent(run),
             },
             Effect::Release { .. } => Event::Released,
+            Effect::Tell { .. } => unreachable!("words told to a round are not held"),
         };
         self.act(Act::On(todo.work, event));
         true
