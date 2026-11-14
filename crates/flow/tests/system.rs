@@ -18,7 +18,16 @@ fn engineer() -> Compiled {
     let source = flow::read(&root().join("engineer")).expect("the engineer's flow is read");
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = Has {
-        sources: names(&["answer", "asked", "dependencies", "main", "session", "start", "tree"]),
+        sources: names(&[
+            "answer",
+            "asked",
+            "words",
+            "dependencies",
+            "main",
+            "session",
+            "start",
+            "tree",
+        ]),
         acts: names(&["start", "check", "merge", "deliver"]),
         tools: names(&["query", "run_tests"]),
         fields: names(&[

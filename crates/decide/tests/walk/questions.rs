@@ -96,3 +96,55 @@ fn an_answer_to_a_version_no_question_has_is_a_fault_of_the_records() {
     let at = w.answers("which", Seq(version.0 + 100), 1);
     assert_eq!(w.decide(), Decision::Fault(RecordFault::AnswerNoVersion(at)));
 }
+
+#[test]
+fn the_owner_speaking_to_a_cell_held_by_its_question_enters_it_and_it_goes_on_waiting() {
+    let mut w = World::with_gate(vec![
+        cell(
+            "research",
+            &["brief", "research answered", "spoken to research"],
+            &["plan"],
+        ),
+        cell("implement", &["plan"], &["code"]),
+    ]);
+    w.turning("research answered");
+    w.turning("spoken to research");
+    w.person_writes("brief");
+    w.run("research", &[("plan", Matters)]);
+    w.questions("research", "which", true);
+    // What is not the owner's turning enters it for nothing.
+    w.person_writes("brief");
+    assert_eq!(w.decide(), waits_for("research", "which"));
+    w.outside_writes("spoken to research");
+    let Decision::Run { cell, because, .. } = w.decide() else {
+        panic!("nothing runs: {:?}", w.decide())
+    };
+    assert_eq!(cell.as_str(), "research");
+    assert_eq!(because, vec![changed("spoken to research", None, false)]);
+    // The round answers the owner and is held to nothing its cell must write, since the cell still waits.
+    let answering = w.start("research");
+    let told = decide::told(&w.flow, &w.records, answering).expect("the run started");
+    assert!(told.waits);
+    w.finish("research", &[]);
+    assert_eq!(w.decide(), waits_for("research", "which"));
+}
+
+#[test]
+fn the_cell_spoken_to_is_the_one_of_the_line_the_work_reached_last_of_those_that_apply() {
+    let mut w = World::with_gate(vec![
+        cell("research", &["brief"], &["plan"]),
+        cell("deep", &["plan"], &["solution"]),
+        cell("implement", &["plan"], &["code"]),
+    ]);
+    let line: Vec<decide::CellId> = vec!["research".into(), "implement".into()];
+    // Before any of them ran, the first of them.
+    assert_eq!(decide::spoken_to(&w.flow, &w.records, &line), Some("research".into()));
+    w.person_writes("brief");
+    w.run("research", &[("plan", Matters)]);
+    assert_eq!(decide::spoken_to(&w.flow, &w.records, &line), Some("research".into()));
+    w.run("deep", &[("solution", Matters)]);
+    w.start("implement");
+    assert_eq!(decide::spoken_to(&w.flow, &w.records, &line), Some("implement".into()));
+    // Of none of the line's cells, none.
+    assert_eq!(decide::spoken_to(&w.flow, &w.records, &[]), None);
+}

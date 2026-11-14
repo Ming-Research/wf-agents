@@ -72,6 +72,19 @@ async fn an_act_that_cannot_be_taken_is_refused_with_why() {
         post(router, ACTS, &json!({ "kind": "letGo", "cell": "deploy" })).await,
         (unprocessable, error("The flow has no cell deploy."))
     );
+    // The owner speaks to a line: one the flow has none of, or one with no cell the owner's words run.
+    let say = |line: &str| json!({ "kind": "say", "line": line, "words": "Keep it short." });
+    assert_eq!(
+        post(router, ACTS, &say("ops")).await,
+        (unprocessable, error("The flow has no cell on the line ops."))
+    );
+    assert_eq!(
+        post(router, ACTS, &say("engineer")).await,
+        (
+            unprocessable,
+            error("No cell of the line engineer that the owner's words run applies now.")
+        )
+    );
     for act in [
         r#"{ "kind": "jump" }"#,
         r#"{ "kind": "pause", "at": 3 }"#,

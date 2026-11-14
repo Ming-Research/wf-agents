@@ -19,5 +19,12 @@ text = "## `{block}`, version {number}{choice}\n\n{content}"
 text = "## `{block}`, what changed from version {last_number} to version {number}\n\n{diff}"
 whole = "## `{block}`, version {number}{choice}\n\n{content}"
 
+# `{by}` in a text is who wrote the version: `person` a person, the owner; `outside` the engine or a source it reads;
+# `cell` a run of a cell, `{cell}` the cell.
+[by]
+person = "the owner"
+outside = "the engine"
+cell = "`{cell}`"
+
 [all]
-text = "## `{block}`, version {first_number}{choice}\n\n{content}\n\n{each_version}"
+text = "## `{block}`, version {first_number}, by {by}{choice}\n\n{content}\n\n{each_version}"

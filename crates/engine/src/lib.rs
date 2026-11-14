@@ -26,11 +26,13 @@
 //! - [`event`]: what happens to a work, and what is to be done for it.
 //! - [`handle`](mod@handle): the loop.
 //! - [`held`](mod@held): what holds a work back, as the loop leaves it.
+//! - [`spoken`]: what the owner says to a work and its cells answer.
 
 pub mod asked;
 pub mod event;
 pub mod handle;
 pub mod held;
+pub mod spoken;
 
 pub use event::{Came, Effect, Event, Gate, Refused};
 pub use handle::{handle, handle_held, handle_in, handle_then, handle_with, pending};

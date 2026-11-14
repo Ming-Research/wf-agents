@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use decide::run::{Return, Told};
+use decide::run::{Asking, Return, Told};
 use decide::{BlockId, CallId, Cell, CellId, Condition, TestKind, Write};
 use flow::{Compiled, Kind};
 
@@ -26,6 +26,10 @@ pub const DEPENDENCIES: &str = "dependencies";
 pub const MAIN: &str = "main";
 pub const SESSION: &str = "session";
 pub const TREE: &str = "tree";
+
+/// The source that writes whether every question that stands has the owner's answer, as the questions and the answers
+/// come to stand; its words, `waiting` and `between`, as its file writes them.
+pub const ASKED: &str = "asked";
 
 /// The engine's act that checks the work before the merge.
 const CHECK: &str = "check";
@@ -92,11 +96,14 @@ pub enum Event {
     Speaks(CellId),
     /// The owner writes the background again.
     Background,
-    /// The owner answers the call: a question's, with `answers` and the asking cell's block of `on_answer` where it
-    /// has one; or the owner's word at a run's limit of returns, letting the run go on.
+    /// The owner gives the call its result: the owner's word at a run's limit of returns, letting the run go on.
     Answers(CallId),
-    /// The owner answers a question of the cell's with another option than its own: `answers`, and its block of
-    /// `on_answer`.
+    /// The owner answers the latest version of the question of this name: an entry of the record of answers, which
+    /// `answers` says, and, since the work goes by none of the options of a question that waits, the asking cell's
+    /// block of `on_answer`.
+    Answer(String),
+    /// The owner answers again a question of the cell's that has an answer, with another option: `answers`, and its
+    /// block of `on_answer`.
     OtherOption(CellId),
     /// The owner lets the cell go on at its limit.
     LetsGo(CellId),
@@ -112,6 +119,7 @@ impl fmt::Display for Event {
             Event::Speaks(cell) => write!(f, "the owner speaks to {cell}"),
             Event::Background => write!(f, "the owner changes the background"),
             Event::Answers(call) => write!(f, "the owner answers the call {}", call.0),
+            Event::Answer(question) => write!(f, "the owner answers the question {question}"),
             Event::OtherOption(cell) => write!(f, "the owner takes another option for a question of {cell}"),
             Event::LetsGo(cell) => write!(f, "the owner lets {cell} go on at its limit"),
             Event::Source(MAIN) => write!(f, "main moves"),
@@ -149,6 +157,11 @@ pub struct Model {
     pub contradicting: Vec<(usize, usize, BlockId)>,
     /// The block each source outside the work writes.
     pub sources: BTreeMap<&'static str, BlockId>,
+    /// The words the block of [`ASKED`] is written with while a question waits, `{questions}` the names of those
+    /// without an answer, and what goes between two names.
+    pub asked_words: (String, String),
+    /// Each line with a cell the owner speaks to, with those cells in the order of the walk.
+    pub lines: Vec<(String, Vec<CellId>)>,
     /// The place of the check's cell.
     pub check: usize,
     /// Of each cell by its place, a block that is no choice and that it does not write: what a return sent back
@@ -248,7 +261,7 @@ impl Model {
             spoken.push(own(SPOKEN));
             answered.push(own(ANSWERED));
         }
-        let sources = [START, DEPENDENCIES, MAIN, SESSION, TREE]
+        let sources = [START, DEPENDENCIES, MAIN, SESSION, TREE, ASKED]
             .into_iter()
             .filter_map(|source| {
                 (compiled.blocks.iter())
@@ -259,6 +272,23 @@ impl Model {
         let check = (compiled.cells.iter())
             .position(|c| c.act.as_deref() == Some(CHECK))
             .expect("the flow has a check");
+        let asked_words = (compiled.blocks.values())
+            .find(|b| b.writers.outside.as_deref() == Some(ASKED))
+            .map(|b| {
+                let text = |name: &str| b.writes.get(name).unwrap_or_default().to_string();
+                (text("waiting"), text("between"))
+            })
+            .unwrap_or_default();
+        let mut lines: Vec<(String, Vec<CellId>)> = Vec::new();
+        for (i, spec) in compiled.cells.iter().enumerate() {
+            let Some(line) = spec.line.clone().filter(|_| spoken[i].is_some()) else {
+                continue;
+            };
+            match lines.iter_mut().find(|(l, _)| *l == line) {
+                Some((_, cells)) => cells.push(spec.id.clone()),
+                None => lines.push((line, vec![spec.id.clone()])),
+            }
+        }
         let stray = (cells.iter())
             .map(|cell| {
                 (compiled.blocks.keys())
@@ -281,6 +311,8 @@ impl Model {
             answered,
             contradicting,
             sources,
+            asked_words,
+            lines,
             check,
             stray,
         }
@@ -377,9 +409,13 @@ impl Model {
             }
             sets = more;
         }
-        // A question with its content's choices, or with choices that skip the cell itself: one it leaves behind.
+        // A question with its content's choices, or with choices that skip the cell itself: one it leaves behind. Only
+        // a cell an answer runs asks: the answer to another's could reach none.
         let own: Vec<BlockId> = cell.applies.iter().flat_map(|k| self.key_reads(k)).collect();
-        for set in sets.iter().filter(|set| set.keys().all(|b| own.contains(b))) {
+        for set in sets
+            .iter()
+            .filter(|set| self.answered[i].is_some() && set.keys().all(|b| own.contains(b)))
+        {
             out.push((Variant::Asks(set.clone()), false));
         }
         for set in sets.into_iter().filter(|set| !set.is_empty()) {
@@ -482,13 +518,19 @@ impl Model {
             })
             .collect();
         let asks = matches!(variant, Variant::Asks(_));
+        let questions = (asks.then(|| Asking {
+            name: question_of(&cell.id),
+            withdrawn: false,
+        }))
+        .into_iter()
+        .collect();
         let ret = Return::Came {
             dealt_with: ran_by,
             writes,
             calls: 0,
             found: Vec::new(),
             waits: asks,
-            questions: Vec::new(),
+            questions,
         };
         (ret, asks)
     }
@@ -566,6 +608,11 @@ pub fn ran_back_on(cell: &CellId, trigger: &str) -> String {
 
 pub fn skipped(cell: &CellId) -> String {
     format!("{cell} was skipped by its condition with something new to it")
+}
+
+/// The name of the question a cell asks: one for each cell, asked anew each time it asks again.
+pub fn question_of(cell: &CellId) -> String {
+    format!("{}_asks", cell.as_str().to_lowercase())
 }
 
 pub fn waited_at_gate(cell: &CellId, key: &Condition) -> String {

@@ -37,6 +37,16 @@ pub const WITHDRAWN: &str = "Withdrawn: its run was abandoned before it had its 
 ///
 /// Both methods are called inside the loop, between two things it takes: each returns at once, and does its work
 /// elsewhere, on a task or a thread of its own, so that the loop is held up by no round.
+/// What the owner said to a round under way, as its carrier is to hand it in.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Telling {
+    pub words: String,
+    /// The trigger of the round's cell the words are new to the round as.
+    pub trigger: String,
+    /// What the cell does for that trigger, where its definition says.
+    pub does: Option<String>,
+}
+
 pub trait Rounds: Send + Sync {
     /// Gives the round: an agent is given it in the session of the cell's line, or the act is done. The round ends
     /// when the reply says what came back and what it took, or that it failed and why. Given again after the process started again, it is the
@@ -47,6 +57,13 @@ pub trait Rounds: Send + Sync {
     /// saying what it took; what came back is dropped. A round has one end: where the reply it was given with is
     /// still held, that one is used and this one dropped, and where the round has ended already this one is dropped.
     fn stop(&self, round: Round, reply: RoundReply);
+
+    /// Tells the round, which is under way, what the owner said to it, to be handed to its session after the program's
+    /// next use of one of its own tools: the words, the trigger of the cell's they are new to the round as, and what
+    /// the cell does for it. Rounds carried out by no session are told nothing, as by default.
+    fn tell(&self, round: Round, told: Telling) {
+        let _ = (round, told);
+    }
 
     /// What the round of this number of the run was told and what came back of it, each try in order, as far as
     /// this carrier keeps them; no try where it keeps nothing, as by default. Unlike the others, this is called off

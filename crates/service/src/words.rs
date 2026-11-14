@@ -132,6 +132,9 @@ pub fn refused_words(refused: &Refused) -> String {
         Refused::NotToRelease => {
             "the work has not ended, or something of it is under way: it has nothing to let go".to_string()
         }
+        Refused::NoOneSpokenTo(line) => {
+            format!("no cell of the line {line} that the owner's words run applies now")
+        }
         Refused::NoSuchQuestion(question) => format!("the work has no question {question}"),
         Refused::NoSuchVersion { question, version } => {
             format!("the question {question} has no version {} that asks it", version.0)

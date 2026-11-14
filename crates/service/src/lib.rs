@@ -58,7 +58,7 @@ use work::{Ask, Call, RanOn, Time, Why};
 
 pub use carriers::{
     Back, CallReply, Carriers, Doing, Network, Release, ReleaseReply, Returned, Round, RoundReply, Rounds, Teller,
-    Told, ToolCall, Tools, Try, WITHDRAWN,
+    Telling, Told, ToolCall, Tools, Try, WITHDRAWN,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use levels::{Level, Levels, LevelsFault};
@@ -160,6 +160,11 @@ pub enum Act {
     Result {
         call: CallId,
         result: String,
+    },
+    /// Says these words to the line: to the cell of it the work has reached.
+    Say {
+        line: String,
+        words: String,
     },
     /// Answers this version of a question, taking this option, counted from one, for this reason where one is given.
     Answer {
@@ -492,6 +497,7 @@ impl Service {
             Act::Resume => Event::Resumed,
             Act::Cancel { why } => Event::Cancelled { why },
             Act::NewSession { line } => Event::Anew { line, why: Why::Owner },
+            Act::Say { line, words } => Event::Said { line, words },
             Act::Answer {
                 question,
                 version,
@@ -579,6 +585,24 @@ impl Service {
                 let (round, kind) = round(*run, &started.cell, number, given.clone())?;
                 let reply = RoundReply::new(work, *run, self.to.clone());
                 self.rounds(kind).stop(round, reply);
+            }
+            Effect::Tell {
+                run,
+                trigger,
+                words,
+                does,
+            } => {
+                let started =
+                    (records.started.iter().find(|s| s.run == *run)).ok_or_else(|| stray(Missing::Run(*run)))?;
+                let number = records.rounds.iter().filter(|r| r.run == *run).count();
+                let given = (kept.work.given.get(&(*run, number))).ok_or_else(|| stray(Missing::Given(*run)))?;
+                let (round, kind) = round(*run, &started.cell, number, given.clone())?;
+                let told = Telling {
+                    words: words.clone(),
+                    trigger: trigger.clone(),
+                    does: does.clone(),
+                };
+                self.rounds(kind).tell(round, told);
             }
             Effect::Call {
                 call,

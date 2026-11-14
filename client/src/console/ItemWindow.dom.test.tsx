@@ -36,12 +36,6 @@ const pageOf = (i: Item): PageState => ({
   } satisfies WorkPage,
 });
 
-/// The same, with the engineer's flow's own cell ids (R1, D1, I1) in place of the made-up ones, which the discussion
-/// writes to by those ids.
-const ENGINEER: Record<string, string> = { research: 'R1', deep_research: 'D1', implement: 'I1' };
-const engineer = <T,>(x: T): T =>
-  JSON.parse(JSON.stringify(x).replace(/"(research|deep_research|implement)"/g, (_, id: string) => `"${ENGINEER[id]}"`)) as T;
-
 /// What the panel sent, each answered at once.
 type Sent = [number, Act][];
 const answered = (sent: Sent) => (work: number, what: Act) => {
@@ -49,10 +43,9 @@ const answered = (sent: Sent) => (work: number, what: Act) => {
   return Promise.resolve(null);
 };
 
-/// Draws the panel of item `n` as the console does, in the same root as the panel drawn before it, if any; `asEngineer`
-/// draws it with the engineer's flow's cell ids.
-function draw(n: number, send: (work: number, what: Act) => Promise<unknown>, page?: PageState, asEngineer = false) {
-  const item = asEngineer ? engineer(itemOf(n)) : itemOf(n);
+/// Draws the panel of item `n` as the console does, in the same root as the panel drawn before it, if any.
+function draw(n: number, send: (work: number, what: Act) => Promise<unknown>, page?: PageState) {
+  const item = itemOf(n);
   if (root === undefined) {
     container = document.createElement('div');
     document.body.append(container);
@@ -63,7 +56,7 @@ function draw(n: number, send: (work: number, what: Act) => Promise<unknown>, pa
     r.render(
       <ItemPanel
         item={item}
-        page={page === undefined ? (asEngineer ? engineer(pageOf(itemOf(n))) : pageOf(item)) : page}
+        page={page === undefined ? pageOf(item) : page}
         act={send}
         waitsFor={[11]}
         onTitle={() => undefined}
@@ -176,29 +169,34 @@ describe('the panel of the item selected', () => {
     expect(text(el, '.cw-choice-stops')).toEqual(['The work waits for this answer']);
   });
 
-  it('writes a message into the block that is the owner\'s words to the cell chosen, and names the cells that read it', async () => {
+  it("offers the lines the owner speaks to, from the work's flow, and says the words to the line chosen", async () => {
     const sent: Sent = [];
-    const el = draw(12, answered(sent), undefined, true);
-    expect(text(el, '.cw-to .switch-choice')).toEqual(['Research', 'Deep research', 'Implementation']);
-    // Before the work has come to the implementation, a message goes to the research.
-    expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['Research']);
+    const el = draw(12, answered(sent));
+    // The lines with a cell run by on_spoken, in the walk order of the first: none of review's has run in this work.
+    expect(text(el, '.cw-to .switch-choice')).toEqual(['engineer', 'deep_research', 'review']);
+    expect(button(el, 'review').disabled).toBe(true);
+    expect(button(el, 'review').title).toBe('No cell of review has run in this work');
+    // The line that ran last is chosen at first, with the cell of it that ran last.
+    expect(text(el, '.cw-to [aria-checked="true"]')).toEqual(['deep_research']);
+    expect(button(el, 'deep_research').title).toBe('To deep_research · deep_research');
+    expect(text(el, '.write-readers')).toEqual(['Goes to Deep research']);
+    act(() => button(el, 'engineer').click());
     expect(text(el, '.write-readers')).toEqual(['Goes to Initial research']);
-    act(() => button(el, 'Implementation').click());
-    expect(text(el, '.write-readers')).toEqual(['Goes to Implement']);
     expect(button(el, 'Send').disabled).toBe(true);
     type(el.querySelector('textarea') as HTMLTextAreaElement, '  Keep it to one table  ');
     expect(button(el, 'Send').disabled).toBe(false);
     await act(async () => button(el, 'Send').click());
-    expect(sent).toEqual([[12, { kind: 'write', block: 'code_opinions', content: 'Keep it to one table', value: null }]]);
+    // One act: the words to the line, which the engine gives to the cell of it the work has reached.
+    expect(sent).toEqual([[12, { kind: 'say', line: 'engineer', words: 'Keep it to one table' }]]);
     expect((el.querySelector('textarea') as HTMLTextAreaElement).value).toBe('');
-    expect(text(el, '.cw-done')).toEqual(['Written in code_opinions']);
+    expect(text(el, '.cw-done')).toEqual(['Said to engineer · research']);
   });
 
-  it('keeps what is typed for a block of a work, so that it stands when the panel shows it again', () => {
-    const el = draw(12, answered([]), undefined, true);
+  it('keeps what is typed for a line of a work, so that it stands when the panel shows it again', () => {
+    const el = draw(12, answered([]));
     type(el.querySelector('textarea') as HTMLTextAreaElement, 'Half a thought');
-    draw(2, answered([]), undefined, true);
-    draw(12, answered([]), undefined, true);
+    draw(2, answered([]));
+    draw(12, answered([]));
     expect((el.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Half a thought');
   });
 
@@ -238,7 +236,7 @@ describe('the panel of the item selected', () => {
 
   it('sends a message once: Send waits while it is under way', async () => {
     const { sent, answers, send } = held();
-    const el = draw(12, send, undefined, true);
+    const el = draw(12, send);
     type(el.querySelector('textarea') as HTMLTextAreaElement, 'Once');
     act(() => button(el, 'Send').click());
     act(() => button(el, 'Send').click());
@@ -259,7 +257,7 @@ describe('the panel of the item selected', () => {
     draw(5, send);
     expect(text(el, '.failed')).toEqual([]);
     // A message refused, then another item.
-    draw(12, send, undefined, true);
+    draw(12, send);
     type(el.querySelector('textarea') as HTMLTextAreaElement, 'No');
     act(() => button(el, 'Send').click());
     await act(async () => answers[1].no('People do not write it'));

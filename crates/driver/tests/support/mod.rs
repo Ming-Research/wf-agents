@@ -918,6 +918,7 @@ impl H {
             match todo.effect {
                 Effect::Round { .. } | Effect::Call { .. } | Effect::Release { .. } => self.ever.insert(key(todo)),
                 Effect::Stop { .. } | Effect::Withdraw { .. } => self.undone.insert(key(todo)),
+                Effect::Tell { .. } => panic!("words told to a round are given again as the driver opens: {todo:?}"),
             };
             assert!(
                 self.kept_as_pending(todo),
@@ -969,6 +970,8 @@ impl H {
     fn given(&mut self, todos: &[Todo]) {
         for todo in todos {
             match &todo.effect {
+                // Words told to a round are handed to it, and no one answers them: nothing is kept of them.
+                Effect::Tell { .. } => continue,
                 Effect::Round { .. } | Effect::Call { .. } | Effect::Release { .. } => {
                     assert!(self.ever.insert(key(todo)), "given twice: {todo:?}");
                 }

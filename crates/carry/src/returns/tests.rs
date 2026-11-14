@@ -67,7 +67,7 @@ pub(crate) fn flow() -> Compiled {
         ),
         (
             "../triggers/of_a_cell/on_spoken.toml",
-            "block = \"{cell}_spoken_to\"\nfrom = \"owner\"\nread = [\"discussion\"]\n",
+            "block = \"{cell}_spoken_to\"\nfrom = \"words\"\nread = [\"discussion\"]\n",
         ),
         ("../data/answers.toml", "from = \"owner\"\nshown = true\n"),
         (
@@ -89,7 +89,7 @@ pub(crate) fn flow() -> Compiled {
     };
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = flow::Has {
-        sources: names(&["answer"]),
+        sources: names(&["answer", "words"]),
         acts: names(&["merge"]),
         tools: names(&["query"]),
         fields: names(&["reply"]),
@@ -177,6 +177,29 @@ fn a_block_named_as_written_with_its_meaning_unchanged_runs_no_cell() {
     let mut expected = worked();
     expected.writes[0].matters = false;
     assert_eq!(read(&r), Ok(expected));
+}
+
+#[test]
+fn a_return_that_deals_with_the_owners_words_and_gives_no_answer_to_them_is_found_wanting() {
+    let mut r = work();
+    r["outcome"]["dealt_with"] = json!(["on_request", "on_spoken"]);
+    let came = read(&r).expect("it is read");
+    assert_eq!(
+        came.found,
+        [Unmet::NotAnswered {
+            name: "on_spoken".to_string(),
+            field: "reply".to_string()
+        }]
+    );
+    // An answer in words, or words that are only space, tell them apart.
+    r["outcome"]["reply"] = json!("  ");
+    assert_eq!(read(&r).expect("it is read").found.len(), 1);
+    r["outcome"]["reply"] = json!("Done as you said.");
+    assert_eq!(read(&r).expect("it is read").found, []);
+    // A return that answers what nobody said to it is not found wanting.
+    let mut r = work();
+    r["outcome"]["reply"] = json!("Nobody asked.");
+    assert_eq!(read(&r).expect("it is read").found, []);
 }
 
 #[test]

@@ -12,6 +12,7 @@ use flow::{Compiled, Kind};
 
 use crate::asked;
 use crate::event::{Effect, Event, Gate, Refused};
+use crate::spoken;
 use work::{Ask, Back, Call, Filled, Given, Moment, Ran, Session, Time, Work};
 
 /// Takes one thing that happened to the work, at the time the driver's clock gives, and gives what is to be done for
@@ -80,8 +81,11 @@ pub fn handle_then(
     let from = work.tick();
     let releasing = release(flow, work).is_some();
     let ended = matches!(decide(&flow.flow, &work.records), Decision::Ended(_));
-    take(flow, work, event)?;
     let mut effects = Vec::new();
+    match event {
+        Event::Said { line, words } => spoken::said(flow, work, line, words, &mut effects)?,
+        event => take(flow, work, event)?,
+    }
     // What a round returned is taken as the round ends: where it meets everything the flow requires, the run finishes
     // here, before the walk, so that no cell before it comes between.
     if let Some(run) = returned
@@ -409,6 +413,8 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
             asked::answer(flow, work, question, version, option, why)?;
             asked::tell(flow, work);
         }
+        // Taken before the rest, as it gives what is to be done.
+        Event::Said { .. } => {}
         Event::Anew { line, why } => {
             if !flow
                 .cells
@@ -670,9 +676,11 @@ fn finish(
     effects: &mut Vec<Effect>,
 ) {
     let mut questions = Vec::new();
+    let mut reply = None;
     let (handed, asks) = match work.back.get(&(run, ended(work, run))) {
         Some(Back::Returned { handed, asks, said, .. }) => {
             questions = said.questions.clone();
+            reply = said.reply.clone();
             (handed.clone(), asks.clone())
         }
         Some(Back::HandedIn(handed)) => (handed.clone(), Vec::new()),
@@ -699,6 +707,21 @@ fn finish(
     for h in handed {
         work.contents.insert((h.block, at), h.content);
     }
+    // What the return says in a field that a datum is written through is the run's version of that datum: its answer
+    // to the owner an entry of the record of what is said, its questions the questions as they then stand.
+    let mut writes = writes;
+    let reply_to = fielded(flow, REPLY).filter(|_| reply.is_some());
+    let asked_in = fielded(flow, QUESTIONS).filter(|_| !questions.is_empty());
+    for block in reply_to.iter().chain(&asked_in) {
+        writes.push(Write {
+            block: block.clone(),
+            meaning_unchanged: false,
+            value: None,
+        });
+    }
+    if let (Some(block), Some(reply)) = (reply_to, reply) {
+        work.contents.insert((block, at), reply);
+    }
     work.records.finished.push(Finished {
         run,
         at,
@@ -718,6 +741,23 @@ fn finish(
         asked::record(work, run, &cell, false, &questions);
         asked::tell(flow, work);
     }
+    if let Some(block) = asked_in {
+        let standing = asked::standing(flow, work, &block);
+        work.contents.insert((block, at), standing);
+    }
+}
+
+/// The field of a return that holds its answer to the owner.
+const REPLY: &str = "reply";
+
+/// The field of a return that holds its questions.
+const QUESTIONS: &str = "questions";
+
+/// The block of the flow written through this field of a return, where it has one.
+fn fielded(flow: &Compiled, field: &str) -> Option<BlockId> {
+    (flow.blocks.iter())
+        .find(|(_, b)| b.field.as_deref() == Some(field))
+        .map(|(name, _)| name.clone())
 }
 
 /// Records a call of the run, and gives it to be made.

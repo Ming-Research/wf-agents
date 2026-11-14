@@ -181,10 +181,11 @@ pub struct Told {
     pub ran_by: Vec<BlockId>,
     /// Of each block the cell may write, the version the round was told of and the latest.
     pub outputs: BTreeMap<BlockId, Standing>,
-    /// Whether the round's cell still waits for the results of calls its runs asked for: the round was entered for the
-    /// owner turning to the cell meanwhile, answers and goes on waiting, and so is held to no block its cell must write
-    /// (design document `data-and-context`, 40, 42).
-    pub waits_for_calls: bool,
+    /// Whether the round's cell still waits for the results of calls its runs asked for, or for the answer to a question
+    /// of its asked before the run began: the round was entered for the owner turning to the cell meanwhile, answers
+    /// and goes on waiting, and so is held to no block its cell must write (design document `data-and-context`, 36, 40,
+    /// 42).
+    pub waits: bool,
     /// Each question of the work, by its name, as the round's cell stands to it.
     pub questions: BTreeMap<String, Asked>,
 }
@@ -207,7 +208,7 @@ pub struct Requires<'a> {
     pub outputs: &'a [BlockId],
     /// The blocks among those that every return that asks for no call includes, but one with a question that waits
     /// for the owner's answer, or one of a round whose cell still waits for the results of calls
-    /// ([`Told::waits_for_calls`]).
+    /// ([`Told::waits`]).
     pub must_write: &'a [BlockId],
     /// The values of each block that is a choice.
     pub choices: &'a BTreeMap<BlockId, Vec<String>>,
@@ -310,6 +311,9 @@ pub enum Unmet {
     NotAnOption { name: String },
     /// The return asks a question, of this name, of a cell that no answer runs: the answer could not reach it.
     NotAnswerable { name: String },
+    /// The return names as dealt with the owner's words, by this trigger, and gives no answer in this field of its, which
+    /// the record of what is said is written through (design document `data-and-context`, 44).
+    NotAnswered { name: String, field: String },
 }
 
 /// What a pause of the run's work holds back of its rounds.
@@ -533,7 +537,7 @@ fn unmet(
     let misshapen = |block: &BlockId| {
         (found.iter()).any(|u| matches!(u, Unmet::NoValue { block: b } | Unmet::NotAChoice { block: b } if b == block))
     };
-    if calls == 0 && !waits && !told.waits_for_calls {
+    if calls == 0 && !waits && !told.waits {
         for block in requires.must_write {
             if !writes.iter().any(|w| w.block == *block) && !misshapen(block) {
                 unmet.push(Unmet::NotHandedIn { block: block.clone() });
