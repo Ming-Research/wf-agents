@@ -119,6 +119,8 @@ export interface Block {
   default: string | null;
   /// What the block is, in a sentence; none where the definition does not say.
   what: string | null;
+  /// The field of a return a cell writes it through, where it is not written as a block.
+  field?: string | null;
   /// It has no content and stands only for a trigger.
   trigger?: boolean;
   /// Of a block a source of the engine's writes, what it writes, each text by its name as its file writes them.

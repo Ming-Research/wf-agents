@@ -259,6 +259,9 @@ pub struct Block {
     pub values: Option<Vec<String>>,
     /// What the block is, in a sentence; none where the definition does not say.
     pub what: Option<String>,
+    /// The field of a return a cell writes it through, where it is not written as a block; none where it is.
+    #[serde(default)]
+    pub field: Option<String>,
     /// It has no content and stands only for a trigger.
     #[serde(default)]
     pub trigger: bool,
@@ -613,6 +616,7 @@ impl Flow {
                 name: name.to_string(),
                 values: block.values.clone(),
                 what: block.what.clone(),
+                field: block.field.clone(),
                 trigger: block.trigger,
                 writes: (block.writes.0.iter())
                     .map(|(name, text)| (name.clone(), crate::given::with_slots(text)))
