@@ -1,19 +1,19 @@
-# Why this cell exists: so that the work starts from facts checked in the code: the problem seen where it shows, its
-# root cause, and a plan the implementation can follow; or, where the facts cannot settle the direction in a round or
-# two, the deep research is called with what it must settle. From the owner's words on the research (2026-11-08 to
+# Why this cell exists: so that the work starts from facts checked in the code: what the item says, found to hold, and
+# a plan the implementation can follow; or, where the facts cannot settle the direction in a round or two, the deep
+# research is called with what it must settle. From the owner's words on the research (2026-11-08 to
 # 11-13), gone through with the owner on 2026-11-14.
 title = "Initial research"
 kind = "agent"
 line = "engineer"
 effort = "high"
 task = '''
-Research how to solve the item's problem with code, going on from the tree you read. First ask `query` whether the
-item was worked on before; where it was, see how far that got, and keep what still holds. Reproduce a defect first,
-where it shows, such as on the page in a real browser or in the program on its own data; a cause read from the code,
-or a test in a stand-in such as a simulated page, has not seen it. If it is seen nowhere after looking as far as the
-tools reach, ask the owner how to go on, with a question that waits. An item that adds what is not there has no defect
-to reproduce: show first that it is not there. The test goes with the project's tests, anything else
-you make in `project.research`, committed. Find the root cause; if the design itself is at fault, say so.
+Research how to do what the item asks with code, going on from the tree you read. First ask `query` whether the item
+was worked on before; where it was, see how far that got, and keep what still holds. Then check that what the item
+says holds, where it shows: a fault it reports, seen as it happens, such as on the page in a real browser or in the
+program on its own data, and its root cause (a cause read from the code, or a test in a stand-in such as a simulated
+page, has not seen it); what it asks for, not there already. Where it does not hold after looking as far as the tools
+reach, ask the owner how to go on, with a question that waits. A test goes with the project's tests, anything else you
+make in `project.research`, committed. If the design itself is at fault, say so.
 
 Decide `deep_needed`. With yes, write only `found`. With no, write the plan (`plan_owner`, `plan_agent`,
 `acceptance`, and `tree_edits` with `edits_tree`) and no `found`. Where the solution needs a decision changed,

@@ -1,2 +1,5 @@
+# Not below the plan it reviews, which the deep research may have written a level up (principle
+# the-reviewer-knows-no-less; the owner, 2026-11-14).
+levels_above = 1
 reads_only = true
-rules = ["general"]
+rules = ["general", "engineering"]

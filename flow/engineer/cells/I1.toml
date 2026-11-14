@@ -9,10 +9,10 @@ takes_main = true
 task = '''
 Implement `plan_agent`, changing only what this work needs. Follow for each of `questions` the option the owner took
 in `answers`, or else the one it recommends, and write into `design/` what `tree_edits` holds: an entry may follow
-main's tree in wording and place, not in meaning. For wrong behaviour, start from a test that reproduces it, the
-research's where it left one. Run each test you add or extend on the change and on the code before it; a test removed,
-skipped or weakened needs a technical reason. Where cost per operation or request can change, measure what it can make
-slower as well as what it is for.
+main's tree in wording and place, not in meaning. Start from a test that shows what the change is for, red on the code
+before it: the research's, where it left one. Run each test you add or extend on the change and on the code before it;
+a test removed, skipped or weakened needs a technical reason. Where cost per operation or request can change, measure
+what it can make slower as well as what it is for.
 
 Where the plan does not hold (its direction is wrong, or it needs a tree decision changed or a choice the owner has
 not made, such as accepting a slowdown), do not work around it: say where and why in `plan_doubts`, and
@@ -22,9 +22,9 @@ Commit everything in the worktree, and hand in `code`, `decisions` and `evidence
 your last commit: `decisions` only where there is one, and `acceptance` only when a condition must change, the whole
 list as it now stands, with why.
 
-Before fixing a defect, look for others of its kind. A red check is fixed, or shown not to be this change's. Where
-main does not merge into the branch, merge it in yourself and run the check again. A point its judge insists on, fix
-or have the owner rule. If the problem needs no change, ask the owner.
+A red check is fixed, or shown not to be this change's. Where main does not merge into the branch, merge it in
+yourself and run the check again. A point its judge insists on, fix or have the owner rule. If what the item asks
+needs no change, ask the owner.
 '''
 triggered_by = [
   "on_plan_agent",
