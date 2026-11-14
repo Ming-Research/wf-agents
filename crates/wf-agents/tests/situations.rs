@@ -82,14 +82,37 @@ fn a_datum_given_latest_the_session_lacks_is_sent_whole_and_one_it_holds_new_its
 }
 
 #[test]
+fn every_setting_a_message_names_is_given_beside_its_name() {
+    let out = tempfile::tempdir().expect("a directory");
+    assert!(situations(out.path(), "I1").status.success());
+    for entry in fs::read_dir(out.path().join("I1")).expect("the cell's directory is read") {
+        let path = entry.expect("an entry").path();
+        let text = fs::read_to_string(&path).expect("the file is read");
+        let message = text.split("===== message =====").nth(1).expect("a message");
+        let bare = message.matches("`owner.language`").count();
+        let given = message.matches("`owner.language` ({owner.language})").count();
+        assert_eq!(bare, given, "{}", path.display());
+        assert!(given > 0, "{}", path.display());
+    }
+}
+
+#[test]
 fn a_trigger_on_a_session_begun_anew_runs_a_first_or_reopened_entry_never_a_later_one() {
     let out = tempfile::tempdir().expect("a directory");
     assert!(situations(out.path(), "R0").status.success());
     let names: Vec<String> = (fs::read_dir(out.path().join("R0")).expect("the cell's directory is read"))
         .map(|entry| entry.expect("an entry").file_name().to_string_lossy().into_owned())
         .collect();
-    let with = |entry: &str| names.iter().any(|n| n.contains(&format!("-{entry}-on_session-")));
+    let with = |entry: &str| {
+        let of = |n: &&String| n.contains(&format!("-{entry}-"));
+        names.iter().filter(of).any(|n| n.contains("on_session"))
+    };
     assert!(with("first") && with("reopened") && !with("later"), "{names:?}");
+    // The work starts with the background, which runs the cell's first entry with the session begun.
+    assert!(
+        names.iter().any(|n| n.contains("-first-on_background+on_session-")),
+        "{names:?}"
+    );
     // Reopened, the background the cell worked from, which is not new, is sent whole.
     let reopened = file(&out.path().join("R0"), "reopened-on_session-rest_lacks");
     assert!(datum(&reopened, "background").ends_with("{content}"), "{reopened}");

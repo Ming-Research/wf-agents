@@ -472,3 +472,18 @@ fn the_real_store_opened_to_agents_is_described_in_the_system_prompt_without_the
         );
     }
 }
+
+// The words of what a cell returns are sent in a message, which gives each setting they name with its value: one with no
+// value is refused as the engine starts, as in any other text sent.
+#[test]
+fn the_words_of_what_a_cell_returns_naming_a_setting_with_no_value_are_refused_as_the_engine_starts() {
+    let (mut beside, flow) = (beside(), engineer());
+    beside.returns.outputs.none = "This cell writes no block; it reads `project.research`.".to_string();
+    assert_eq!(faults(&settings(), &beside, &flow), Vec::<String>::new());
+    beside.project.project.remove("research");
+    beside.project.installation.names.push("project.research".to_string());
+    let said = "flow engineer: flow/agents/return/return.toml, [outputs]: names the setting `project.research`, which \
+                has no value";
+    let faults = faults(&settings(), &beside, &flow);
+    assert!(faults.iter().any(|f| f == said), "{faults:#?}");
+}

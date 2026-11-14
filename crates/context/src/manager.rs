@@ -45,15 +45,15 @@ pub type Changes = BTreeMap<(BlockId, Seq), String>;
 
 /// What the carrier brings to an entry that neither the flow nor the work's records hold: which work the round is of;
 /// what came of taking main in as the run started, where the cell takes main in and the branch did not hold it
-/// already; what changed in the data whose versions the carrier compares itself; the cell's task as it is sent, each
-/// setting it names with its value beside it, none sending it as written; and each result given otherwise than the
-/// records hold it, as a result of the tool `query` is given cut.
+/// already; what changed in the data whose versions the carrier compares itself; the settings the flow's words may
+/// name, with their values; and each result given otherwise than the records hold it, as a result of the tool `query`
+/// is given cut.
 #[derive(Clone, Copy, Debug)]
 pub struct Carried<'a> {
     pub about: For<'a>,
     pub main: Option<&'a Main>,
     pub changes: &'a Changes,
-    pub task: Option<&'a str>,
+    pub named: &'a flow::system::Settings,
     pub results: &'a BTreeMap<CallId, String>,
 }
 
@@ -110,7 +110,7 @@ pub fn enter(
         item: about.item.to_string(),
         item_title: about.title.to_string(),
         main: carried.main.cloned(),
-        task: carried.task.map(str::to_string),
+        named: carried.named.clone(),
         ..Run::default()
     };
     situation.main = values.main.as_ref().map(|m| m.key().to_string());
@@ -161,10 +161,11 @@ pub fn enter(
             // told against: the latest is sent whole, as where the session lacks that version.
             (Stands::Lacks, whole(latest.at))
         } else if holds(latest.at) {
-            let stands = if new && last.is_some() {
-                Stands::HoldsLatest
-            } else {
-                Stands::Holds
+            // A datum the cell never worked from is new to it whole, the line that it is held naming its version.
+            let stands = match last {
+                None => Stands::HoldsNew,
+                Some(_) if new => Stands::HoldsLatest,
+                Some(_) => Stands::Holds,
             };
             (stands, Vec::new())
         } else {

@@ -94,6 +94,9 @@ pub struct Part {
     pub pieces: Vec<Piece>,
     /// What is sent in its place where the session holds it already; nothing where nothing is.
     pub held: Vec<Piece>,
+    /// Of the content of a block, what is sent in its place where the session holds it and the cell never worked from
+    /// it: `held_new`.
+    pub held_new: Vec<Piece>,
     /// Of the content of a block, what is sent in place of its text where the session lacks what the text needs.
     pub whole: Vec<Piece>,
     /// Of the triggers' part, the line of each trigger of the cell, by the trigger's name, in the order the cell names
@@ -304,6 +307,7 @@ impl<'a> Build<'a> {
             kind: None,
             pieces,
             held: Vec::new(),
+            held_new: Vec::new(),
             whole: Vec::new(),
             items: Vec::new(),
             after: Vec::new(),
@@ -346,6 +350,7 @@ impl<'a> Build<'a> {
                 kind: part.kind.map(|k| kind_name(InputKind::of(k)).to_string()),
                 pieces: part.pieces,
                 held: part.held,
+                held_new: part.held_new,
                 whole: part.whole,
                 items: part.items,
                 after: part.after,

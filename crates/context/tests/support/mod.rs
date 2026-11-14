@@ -19,6 +19,7 @@ use context::{Changes, Entered, For, Main};
 use decide::{BlockId, CallId, CellId, Outsider, RunId, Seq};
 use engine::{Came, Effect, Event, Fill, Handed, RanOn, Spent, Time, Why, Work, handle, pending};
 use flow::agents::Agents;
+use flow::system::Settings;
 use flow::{CellSpec, Compiled, Has, Source};
 
 const FLOW: &str = r#"
@@ -197,6 +198,8 @@ pub struct Sim {
     pub work: Work,
     /// Whether main is taken in as a run of a cell that takes it in starts ([`Sim::main`]); not where it is not set.
     pub takes_main: bool,
+    /// The settings the words may name, with their values: none.
+    pub named: Settings,
     time: u64,
 }
 
@@ -208,11 +211,17 @@ impl Default for Sim {
 
 impl Sim {
     pub fn new() -> Sim {
+        Sim::of(flow(), words())
+    }
+
+    /// A work of this flow, with these words beside it.
+    pub fn of(flow: Compiled, words: Agents) -> Sim {
         Sim {
-            flow: flow(),
-            words: words(),
+            flow,
+            words,
             work: Work::default(),
             takes_main: false,
+            named: Settings::default(),
             time: 0,
         }
     }
@@ -222,6 +231,17 @@ impl Sim {
         self.time += 1;
         let taken = handle(&self.flow, &mut self.work, Time(self.time), event.clone());
         taken.unwrap_or_else(|refused| panic!("{event:?} is refused: {refused:?}"))
+    }
+
+    /// The block is written so, with this value where it is a choice.
+    pub fn wrote(&mut self, block: &str, content: &str, value: Option<&str>, by: Outsider) {
+        self.take(Event::Wrote {
+            block: block.into(),
+            by,
+            content: content.to_string(),
+            matters: true,
+            value: value.map(str::to_string),
+        });
     }
 
     /// A person writes the block.
@@ -300,7 +320,7 @@ impl Sim {
             about: FOR,
             main: main.as_ref(),
             changes,
-            task: None,
+            named: &self.named,
             results: &BTreeMap::new(),
         };
         let (run, number) = (round.run, round.number);
@@ -361,8 +381,8 @@ impl Sim {
     /// The round ends with this, having reached the model, its session compacted so many times during it: each
     /// compaction told as the session reopened while the round is under way, as the carrier tells it.
     pub fn returns(&mut self, round: &Given, came: Came, compactions: u32) {
-        let line = self.line(round);
         for _ in 0..compactions {
+            let line = self.line(round);
             self.anew(&line, Why::Compacted);
         }
         let spent = Spent {

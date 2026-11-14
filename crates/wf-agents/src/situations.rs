@@ -1,10 +1,11 @@
 //! `wf-agents flow situations`: what each agent's cell of a definition is sent in every situation an entry of it can
-//! be in (`context::situations`), a file for each situation in a directory for the cell. A file holds the situation,
+//! reach (`context::situations`), a file for each situation in a directory for the cell. A file holds the situation,
 //! as its keys write it; the system prompt of the cell's line, made as the engine makes it (`flow::system`); the
 //! message, built by the builder the engine sends it with (`context::message`); and the form of a return, made as the
 //! engine gives it to the agents' program (`flow::form`). What a run fills is left open as `{name}`, and a setting a
-//! text names stands as it is written: the command reads nothing of an installation or a work. The project's files the
-//! system prompt holds are read from a checkout where one is given, and are left out where none is.
+//! text names is given beside its name where a run gives it, its value left open as `{name}` too: the command reads
+//! nothing of an installation or a work. The project's files the system prompt holds are read from a checkout where one
+//! is given, and are left out where none is.
 
 use std::fmt::Write as _;
 use std::path::Path;
@@ -47,6 +48,8 @@ pub fn write(asked: &Asked, has: &flow::Has) -> Result<Vec<String>, String> {
     if let (Some(id), true) = (asked.cell, cells.is_empty()) {
         return Err(format!("{} has no agent's cell {id}", compiled.name));
     }
+    // A setting a text names is given beside its name as a run gives it, its value the place `{name}`.
+    let named = flow::system::Settings::of(&beside.project, |key| Some(format!("{{{key}}}")));
     let mut said = Vec::new();
     for cell in cells {
         let at = asked.out.join(cell.id.as_str());
@@ -55,16 +58,16 @@ pub fn write(asked: &Asked, has: &flow::Has) -> Result<Vec<String>, String> {
             return Err(format!("{} holds files already", at.display()));
         }
         std::fs::create_dir_all(&at).map_err(|e| format!("{}: {e}", at.display()))?;
-        let system = system(&beside, &compiled, cell, asked.project)?;
+        let system = system(&beside, &compiled, cell, asked.project, &named)?;
         let all = situations::situations(&compiled, &beside, cell, driver::sessions::SESSION);
-        for (n, named) in all.iter().enumerate() {
-            let sent = context::message(&compiled, &beside, cell, &named.situation, Values::Slots);
+        for (n, situation) in all.iter().enumerate() {
+            let sent = context::message(&compiled, &beside, cell, &situation.situation, Values::Slots(&named));
             let message = context::message::text(&sent);
-            let path = at.join(format!("{:03}-{}.md", n + 1, named.name));
-            let text = file(named, &system, &message, &form);
+            let path = at.join(format!("{:03}-{}.md", n + 1, situation.name));
+            let text = file(situation, &system, &message, &form);
             std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
         }
-        let every = situations::combinations(&compiled, cell, driver::sessions::SESSION);
+        let every = situations::combinations(&compiled, &beside, cell, driver::sessions::SESSION);
         said.push(format!(
             "{}: {} situations, in {}; {every} combinations of each datum's own state",
             cell.id.as_str(),
@@ -75,16 +78,19 @@ pub fn write(asked: &Asked, has: &flow::Has) -> Result<Vec<String>, String> {
     Ok(said)
 }
 
-/// The system prompt of the cell's line, each part's text as the files write it, the parts apart by a blank line and
-/// a part with no text left out, as the engine puts them together.
-fn system(beside: &Agents, flow: &Compiled, cell: &CellSpec, project: Option<&Path>) -> Result<String, String> {
+/// The system prompt of the cell's line, put together as the engine puts it together (`flow::system::prompt`): each
+/// place the engine fills left as `{name}`, and each setting named given beside its name as these settings give it.
+fn system(
+    beside: &Agents,
+    flow: &Compiled,
+    cell: &CellSpec,
+    project: Option<&Path>,
+    named: &flow::system::Settings,
+) -> Result<String, String> {
     let read = |path: &str| Ok(project.and_then(|checkout| std::fs::read_to_string(checkout.join(path)).ok()));
     let parts = flow::system::parts(beside, flow, cell, read).map_err(|wrong| wrong.join("; "))?;
-    let texts: Vec<String> = (parts.iter())
-        .map(|part| flow::system::as_written(&part.pieces))
-        .filter(|text| !text.is_empty())
-        .collect();
-    Ok(texts.join("\n\n"))
+    let open = |name: &str| Some(format!("{{{name}}}"));
+    flow::system::prompt(&parts, named, open).map_err(|wrong| wrong.join("; "))
 }
 
 /// A situation's file: the situation, then the system prompt, the message and the form, each under a line that says

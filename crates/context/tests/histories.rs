@@ -120,6 +120,7 @@ struct Reached {
     changes: usize,
     files: usize,
     held: usize,
+    held_new: usize,
     lacks_last: usize,
     put_in: usize,
     written_over: usize,
@@ -367,10 +368,10 @@ impl History {
             return (Stands::Lacks, vec![whole(latest)], last);
         }
         if held.holds(block, latest) {
-            let stands = if new && last.is_some() {
-                Stands::HoldsLatest
-            } else {
-                Stands::Holds
+            let stands = match last {
+                None => Stands::HoldsNew,
+                Some(_) if new => Stands::HoldsLatest,
+                Some(_) => Stands::Holds,
             };
             return (stands, Vec::new(), last);
         }
@@ -517,6 +518,17 @@ impl History {
                     );
                     reached.held += 1;
                 }
+                Stands::HoldsNew => {
+                    let sent = sent.expect("the line of a datum held that the cell never worked from");
+                    assert_eq!(sent.form, Form::Held);
+                    let version = format!("version {}, ", entered.run.data[&g.block].latest.number.0);
+                    assert!(
+                        as_written(&sent.pieces).contains(&version),
+                        "{}",
+                        as_written(&sent.pieces)
+                    );
+                    reached.held_new += 1;
+                }
                 Stands::Holds | Stands::Unwritten => assert!(sent.is_none(), "{name} is sent"),
                 Stands::Lacks if held.holds(&g.block, entered.run.data[&g.block].latest.number) => {
                     reached.lacks_last += 1;
@@ -591,7 +603,13 @@ impl History {
         assert_eq!(entered.run.taken, held.taken, "what the last return handed in");
         assert_eq!(entered.situation.after_hand_in, !held.taken.is_empty());
         // What the page shows for the situation, its places open, is what the engine sends in it.
-        let open = context::message(&sim.flow, &sim.words, cell, &entered.situation, Values::Slots);
+        let open = context::message(
+            &sim.flow,
+            &sim.words,
+            cell,
+            &entered.situation,
+            Values::Slots(&sim.named),
+        );
         assert_eq!(open.len(), entered.sent.len(), "{}", entered.text);
         for (open, sent) in open.iter().zip(&entered.sent) {
             assert_eq!(
@@ -654,6 +672,10 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
     for (what, n) in [
         ("a change sent", reached.changes),
         ("the line of a datum held that is new", reached.held),
+        (
+            "the line of a datum held that the cell never worked from",
+            reached.held_new,
+        ),
         (
             "the latest sent whole where the session holds it and not the version last worked from",
             reached.lacks_last,

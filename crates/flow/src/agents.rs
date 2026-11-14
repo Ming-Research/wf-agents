@@ -761,8 +761,10 @@ impl Only {
 pub struct Given {
     /// What a text says of a datum that is a choice.
     pub choice: String,
-    /// What stands in place of a datum's content where the session holds its latest version already.
+    /// What stands in place of a datum's content where the session holds its latest version already: `held` where the
+    /// cell worked from an earlier version, `held_new` where it never worked from it.
     pub held: String,
+    pub held_new: String,
     pub latest: GivenKind,
     pub last_and_latest: GivenKind,
     pub all: GivenKind,

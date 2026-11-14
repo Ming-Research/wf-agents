@@ -13,6 +13,7 @@ use std::collections::BTreeMap;
 use decide::run::Unmet;
 use decide::{BlockId, CallId, Seq};
 use flow::agents::{Agents, GivenKind, MessagePart, Only, Part};
+use flow::system::Settings;
 use flow::{CellSpec, Compiled, InputKind};
 use serde::{Deserialize, Serialize};
 
@@ -30,8 +31,10 @@ pub enum Stands {
     HoldsLast,
     /// The session holds its latest version, and it is new to the cell since the version the cell last worked from.
     HoldsLatest,
-    /// The session holds its latest version, and nothing of it is new to the cell since it last worked from it, or the
-    /// cell worked from none of it: nothing is sent of it.
+    /// The session holds its latest version, and the cell never worked from it: all of it is new to the cell.
+    HoldsNew,
+    /// The session holds its latest version, and nothing of it is new to the cell since it last worked from it: nothing
+    /// is sent of it.
     Holds,
 }
 
@@ -43,6 +46,7 @@ impl Stands {
             Stands::Lacks => "lacks",
             Stands::HoldsLast => "holds_last",
             Stands::HoldsLatest => "holds_latest",
+            Stands::HoldsNew => "holds_new",
             Stands::Holds => "holds",
         }
     }
@@ -71,11 +75,13 @@ pub struct Situation {
     pub sent_back: bool,
 }
 
-/// What fills the places of a message filled in a run.
+/// What fills the places of a message filled in a run. Either way, each setting that the cell's task, what a trigger
+/// says the cell does for it, or the words of what the cell returns name is given with the value beside its name, as
+/// the system prompt gives a setting.
 #[derive(Clone, Copy, Debug)]
 pub enum Values<'a> {
-    /// Each place is left open, as the page shows it.
-    Slots,
+    /// Each place is left open, as the page shows it, and each setting given as these settings give it.
+    Slots(&'a Settings),
     /// The places as the round fills them.
     Run(&'a Run),
 }
@@ -92,9 +98,8 @@ pub struct Run {
     pub item_title: String,
     /// What came of taking main in as the run started; none where the branch held main already.
     pub main: Option<Main>,
-    /// The cell's task as it is sent, each setting it names with its value beside it; none where it is sent as
-    /// written.
-    pub task: Option<String>,
+    /// The settings the flow's words may name, with their values.
+    pub named: Settings,
     /// Each datum of the cell's context that has a version, by its name.
     pub data: BTreeMap<BlockId, Datum>,
     /// What happened, by the place a trigger's detail names; a place the engine has no value for is left out with its
@@ -248,6 +253,8 @@ pub struct Defined {
     pub pieces: Vec<Piece>,
     /// What is sent in its place where the session holds it already; nothing where nothing is.
     pub held: Vec<Piece>,
+    /// Of a datum, what is sent in its place where the session holds it and the cell never worked from it.
+    pub held_new: Vec<Piece>,
     /// Of a datum, what is sent in place of its text where the session lacks what the text needs.
     pub whole: Vec<Piece>,
     /// Of the triggers, the line of each trigger of the cell, by its name, in the cell's order: the lines of those that
@@ -258,11 +265,13 @@ pub struct Defined {
 
 /// The message as the files define it for the cell: each part, each datum of its context a part of its own.
 pub fn defined(flow: &Compiled, words: &Agents, cell: &CellSpec) -> Vec<Defined> {
+    // The page shows the words as the files write them, each setting by its name alone.
+    let as_written = Settings::default();
     let build = Build {
         flow,
         words,
         cell,
-        values: Values::Slots,
+        values: Values::Slots(&as_written),
         situation: None,
     };
     let mut out = Vec::new();
@@ -274,6 +283,7 @@ pub fn defined(flow: &Compiled, words: &Agents, cell: &CellSpec) -> Vec<Defined>
             only: part.only,
             pieces,
             held: build.held(part),
+            held_new: Vec::new(),
             whole: Vec::new(),
             items: Vec::new(),
             after: Vec::new(),
@@ -289,6 +299,7 @@ pub fn defined(flow: &Compiled, words: &Agents, cell: &CellSpec) -> Vec<Defined>
                         only: None,
                         pieces: datum.text,
                         held: datum.held,
+                        held_new: datum.held_new,
                         whole: datum.whole,
                         items: Vec::new(),
                         after: Vec::new(),
@@ -439,11 +450,13 @@ pub fn text(sent: &[Sent]) -> String {
     text
 }
 
-/// The forms of a datum's content: its kind's text, what stands in its place where the session holds it, and its
-/// content whole where the kind's text needs what the session lacks.
+/// The forms of a datum's content: its kind's text, what stands in its place where the session holds it, as the cell
+/// worked from an earlier version or from none, and its content whole where the kind's text needs what the session
+/// lacks.
 struct DatumForms {
     text: Vec<Piece>,
     held: Vec<Piece>,
+    held_new: Vec<Piece>,
     whole: Vec<Piece>,
 }
 
@@ -460,16 +473,25 @@ impl Build<'_> {
     /// The run's values, where the places are filled.
     fn run(&self) -> Option<&Run> {
         match self.values {
-            Values::Slots => None,
+            Values::Slots(_) => None,
             Values::Run(run) => Some(run),
         }
     }
 
-    /// The part's own text, with the places the flow fills filled: the cell's title and task, as the run sends it.
+    /// The text with each setting it names given its value beside its name; as it is where a setting has none, which
+    /// the engine refuses to start with.
+    fn named(&self, text: &str) -> String {
+        let settings = match self.values {
+            Values::Slots(settings) => settings,
+            Values::Run(run) => &run.named,
+        };
+        settings.named_in(text).unwrap_or_else(|_| text.to_string())
+    }
+
+    /// The part's own text, with the places the flow fills filled: the cell's title and task.
     fn own(&self, part: &MessagePart) -> Vec<Piece> {
-        let sent = self.run().and_then(|run| run.task.as_deref());
-        let task = sent.or(self.cell.task.as_deref()).unwrap_or_default().trim_end();
-        let known = [("title", self.cell.title.as_str()), ("task", task)];
+        let task = self.named(self.cell.task.as_deref().unwrap_or_default().trim_end());
+        let known = [("title", self.cell.title.as_str()), ("task", task.as_str())];
         part.text.as_deref().map_or_else(Vec::new, |text| fill(text, &known))
     }
 
@@ -606,7 +628,7 @@ impl Build<'_> {
         } else {
             lines.join("\n")
         };
-        written(&[told.heading.clone(), list].join("\n\n"))
+        written(&self.named(&[told.heading.clone(), list].join("\n\n")))
     }
 
     /// What comes before the results of the calls, in the words of `results.toml`.
@@ -778,7 +800,7 @@ impl Build<'_> {
         };
         // The words of what the cell does are sent as they are: nothing in them is filled.
         let does = match (&trigger.does, &part.does) {
-            (Some(words), Some(does)) => put(with_slots(does), "do", &written(words.trim())),
+            (Some(words), Some(does)) => put(with_slots(does), "do", &written(&self.named(words.trim()))),
             _ => Vec::new(),
         };
         let line = put(put(each, "detail", &detail), "do", &does);
@@ -804,11 +826,16 @@ impl Build<'_> {
             Some(datum) => self.filled_by(form(whole), datum, &datum.latest),
             None => form(whole),
         });
-        let held = match datum {
-            Some(datum) => self.filled_by(form(&given.held), datum, &datum.latest),
-            None => form(&given.held),
+        let held_as = |text: &str| match datum {
+            Some(datum) => self.filled_by(form(text), datum, &datum.latest),
+            None => form(text),
         };
-        DatumForms { text, held, whole }
+        DatumForms {
+            text,
+            held: held_as(&given.held),
+            held_new: held_as(&given.held_new),
+            whole,
+        }
     }
 
     /// A datum's content as an entry in this situation sends it: none where nothing is sent of it.
@@ -818,6 +845,7 @@ impl Build<'_> {
         match stands {
             Stands::Unwritten | Stands::Holds => None,
             Stands::HoldsLatest => Some((Form::Held, forms.held)),
+            Stands::HoldsNew => Some((Form::Held, forms.held_new)),
             Stands::Lacks if whole => Some((Form::Whole, forms.whole)),
             Stands::Lacks | Stands::HoldsLast => Some((Form::Text, forms.text)),
         }

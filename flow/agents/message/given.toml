@@ -7,8 +7,10 @@
 # design tree's, what it says changed: the files, one to a line; `each_version`, each later version as the first.
 choice = ", with the value `{value}`"
 # What stands in place of a datum's content where the session holds its latest version already: `{number}` its latest
-# version, `{last_number}` the one the cell last worked from.
+# version, `{last_number}` the one the cell last worked from; `held_new` where the cell never worked from it, as a cell
+# entered after another of its line that read or wrote it.
 held = "## `{block}`, version {number}, in this session already; you last worked from version {last_number}"
+held_new = "## `{block}`, version {number}, in this session already"
 
 [latest]
 text = "## `{block}`, version {number}{choice}\n\n{content}"

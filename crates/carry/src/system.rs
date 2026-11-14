@@ -12,7 +12,8 @@
 //! hold, as [`crate::store`] gives it; and `{named_checks}`, the checks an agent may name to
 //! `run_tests`, in the words its file gives for how the installation runs the project's CI. Each setting the texts name, but in a file of the project, is given with
 //! its value beside it: the project's from `project.toml`, and the installation's it names there from these settings
-//! ([`named`]); so is each setting a cell's task names, as its message sends it.
+//! ([`named`]); so is each setting a message names, in the cell's task, in what a trigger says the cell does for it,
+//! and in the words of what the cell returns (crate `context`), with these settings.
 //!
 //! As the engine starts, every text sent to the agents is checked, each fault said with the file or the thing of the
 //! flow that holds the text, all of them at once ([`faults`]): a place the engine does not fill, a setting named that
@@ -154,27 +155,12 @@ pub(crate) fn of_line(
     flow::system::prompt(&parts, &filling.named, fill).map_err(|wrong| wrong.join("; "))
 }
 
-/// The cell's task as its message sends it, each setting it names with its value beside it; or the settings it names
-/// that have no value.
-pub(crate) fn task(named: &flow::system::Settings, cell: &flow::CellSpec) -> Result<Option<String>, String> {
-    let Some(task) = &cell.task else {
-        return Ok(None);
-    };
-    let lacking = |names: Vec<String>| {
-        format!(
-            "the task of the cell {} names settings that have no value: {}",
-            cell.id.as_str(),
-            names.join(", ")
-        )
-    };
-    named.named_in(task).map(Some).map_err(lacking)
-}
-
 /// What is wrong with the texts the flow's agents are sent that is known before any session begins, every fault at
 /// once, each once, with the flow and the file or the thing of the flow that holds the text: of each line's system
 /// prompt, a set of rules or a tool that nothing beside the flows defines, a place the engine does not fill (a file of
 /// the project standing as empty under its heading), and a setting named that has no value; and a setting named with no
-/// value in a cell's task, in what a trigger says the cell does for it, or in the words of a block.
+/// value in a cell's task, in what a trigger says the cell does for it, in the words of a block, or in the words of what
+/// a cell returns (`[outputs]` of `agents/return/return.toml`).
 pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<String> {
     let filling = filling(settings, beside);
     let named = &filling.named;
@@ -199,7 +185,24 @@ pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<Stri
             add(format!("the system prompt of the line {line}: {what}"));
         }
     }
-    for said in flow::system::flow_texts(flow) {
+    // The flow's texts a message sends, and the words of what a cell returns, which a message gives each setting they
+    // name with its value as the system prompt does.
+    let told = &beside.returns.outputs;
+    let returns = beside.source("agents/return/return.toml");
+    let outputs = [
+        &told.heading,
+        &told.block,
+        &told.choice,
+        &told.shown,
+        &told.must_write,
+        &told.none,
+    ];
+    let words = outputs.into_iter().map(|text| flow::system::Said {
+        source: format!("{returns}, [outputs]"),
+        text: text.clone(),
+        places: true,
+    });
+    for said in flow::system::flow_texts(flow).into_iter().chain(words) {
         for name in named.named_in(&said.text).err().unwrap_or_default() {
             add(format!(
                 "{}: names the setting `{name}`, which has no value",

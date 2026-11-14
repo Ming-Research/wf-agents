@@ -325,6 +325,9 @@ export interface SentPart {
   pieces: SentPiece[];
   /// What is sent in its place where the session holds it already: its `held`.
   held: SentPiece[];
+  /// Of the content of a block, what is sent in its place where the session holds it and the cell never worked from it:
+  /// `held_new`.
+  heldNew: SentPiece[];
   /// Of the content of a block, what is sent in place of its text where the session lacks what the text needs.
   whole: SentPiece[];
   /// Of a part of a list, each item it may hold, by its key, in the order sent: of the triggers, the line of each
