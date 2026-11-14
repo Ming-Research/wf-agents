@@ -247,7 +247,7 @@ const IN_MEMORY: &str = "/dev/shm";
 impl Db {
     /// A new file, in memory where the system keeps files there ([`IN_MEMORY`]): each history writes the store tens
     /// of thousands of times, each write waiting for the disk to hold it, and with the tests beside it doing the same
-    /// the disk of a CI machine was seen to stall the writes of every test for seconds at a time.
+    /// a disk that gives no more stalls the writes of every test.
     pub fn new() -> Self {
         let in_memory = Path::new(IN_MEMORY);
         let dir = if in_memory.is_dir() {

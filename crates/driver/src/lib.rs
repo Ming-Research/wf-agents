@@ -852,11 +852,17 @@ impl Driver {
     /// every block.
     pub fn view(&self, number: WorkNumber) -> Option<View> {
         let kept = self.work(number)?;
-        Some(decide::view_in(
-            &kept.flow.flow,
-            &kept.work.records,
-            self.room(Some(number), true),
-        ))
+        let mut view = decide::view_in(&kept.flow.flow, &kept.work.records, self.room(Some(number), true));
+        // A work held at fault by the driver, though the walk finds its records sound, is one the deciding code goes
+        // round on without end ([`step`]): it shows as that fault.
+        let at_fault = self
+            .works
+            .get(&number)
+            .is_some_and(|held| held.standing == Standing::AtFault);
+        if at_fault && !matches!(view.decision, Decision::Fault(_)) {
+            view.decision = Decision::Fault(decide::RecordFault::WithoutEnd);
+        }
+        Some(view)
     }
 
     /// What holds back the round the work would begin next: its own pause, the owner's pause of everything, or a slot;
@@ -1076,7 +1082,17 @@ fn step(
         events.extend(start(flow, work));
         events
     };
-    let effects = handle_then(&held.flow, &mut held.work, now, event, room, gate, &then).map_err(Halt::Refused)?;
+    let effects = match handle_then(&held.flow, &mut held.work, now, event, room, gate, &then) {
+        Ok(effects) => effects,
+        // The deciding code goes round without end on the work's records: what was done to the work for this is let
+        // go, the work is held at fault as the store keeps it, nothing more is decided of it, and the rest go on.
+        Err(engine::Refused::WithoutEnd(_)) => {
+            held.work = store.load(held.head.number).map_err(Halt::Store)?;
+            held.standing = Standing::AtFault;
+            return Ok(Vec::new());
+        }
+        Err(refused) => return Err(Halt::Refused(refused)),
+    };
     if held.work.tick() != before {
         store.save(held.head.number, &held.work).map_err(Halt::Store)?;
         held.standing = standing_of(&held.flow, &held.work);

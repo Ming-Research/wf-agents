@@ -357,4 +357,7 @@ pub enum RecordFault {
     CalledAfterEnd(CallId),
     /// The answer at this place names no version of its question, asking it, written before it.
     AnswerNoVersion(Seq),
+    /// What is decided on these records, once done, leads to deciding again without end: the engine, which went round
+    /// past its bound, says so, as the walk alone cannot.
+    WithoutEnd,
 }

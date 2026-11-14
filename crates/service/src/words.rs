@@ -139,6 +139,9 @@ pub fn refused_words(refused: &Refused) -> String {
         Refused::NotAnOption { question, option } => {
             format!("the version of the question {question} answered has no option {option}")
         }
+        Refused::WithoutEnd(decision) => {
+            format!("what is decided on the work's records leads to deciding again without end, last {decision:?}")
+        }
     }
 }
 
@@ -177,6 +180,11 @@ pub fn record_fault_words(fault: &RecordFault) -> String {
             "the answer at place {} names no version of its question that asks it, written before it",
             at.0
         ),
+        RecordFault::WithoutEnd => {
+            "what is decided on the work's records leads to deciding again without end, and the \
+                                    engine decides nothing more of it"
+                .to_string()
+        }
     }
 }
 

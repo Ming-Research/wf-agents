@@ -103,7 +103,7 @@ pub fn handle_then(
         take(flow, work, event)?;
     }
     let at = At { from, now, room, gate };
-    advance(flow, work, at, &mut effects);
+    advance(flow, work, at, &mut effects)?;
     // A work that has just ended withdraws the calls its cells were waiting on: no cell is entered for their results.
     // Those of a run abandoned were withdrawn as it was.
     if !ended && matches!(decide(&flow.flow, &work.records), Decision::Ended(_)) {
@@ -509,22 +509,20 @@ impl At {
 /// Asks the deciding code what follows, and does it, until the work has a round under way, waits or has ended. Each
 /// time round abandons a run, starts one, which then begins its round or rests, or goes on with one, which then
 /// finishes, makes a wait or rests at a limit: so no more often than twice the runs the work has started, and once
-/// for each cell besides. Going round more often, the deciding code decides without end, and that is said, with what
-/// it decides, rather than the engine holding the process for ever.
-fn advance(flow: &Compiled, work: &mut Work, at: At, effects: &mut Vec<Effect>) {
+/// for each cell besides. Going round more often, the deciding code decides without end on these records, which is
+/// refused with what it decided last, rather than the engine holding the process for ever.
+fn advance(flow: &Compiled, work: &mut Work, at: At, effects: &mut Vec<Effect>) -> Result<(), Refused> {
     let bound = 2 * work.records.started.len() + flow.cells.len() + 2;
     let mut passes = 0;
     loop {
         let decision = decide_in(&flow.flow, &work.records, at.room);
         passes += 1;
-        assert!(
-            passes <= bound,
-            "the engine went round {passes} times for one thing that happened to a work, deciding {decision:?} at the \
-             last: the deciding code decides without end"
-        );
+        if passes > bound {
+            return Err(Refused::WithoutEnd(decision));
+        }
         let run = match decision {
             // A run of a cell whose rounds are held is not started: its first round could not begin.
-            Decision::Run { cell, .. } if at.holds(flow, &cell) => return,
+            Decision::Run { cell, .. } if at.holds(flow, &cell) => return Ok(()),
             Decision::Run { cell, because, basis } => {
                 let run = RunId(work.name());
                 let at = work.tick();
@@ -554,11 +552,11 @@ fn advance(flow: &Compiled, work: &mut Work, at: At, effects: &mut Vec<Effect>) 
             | Decision::Paused
             | Decision::Wait { .. }
             | Decision::Idle => {
-                return;
+                return Ok(());
             }
         };
         if !step(flow, work, run, at, effects) {
-            return;
+            return Ok(());
         }
     }
 }
