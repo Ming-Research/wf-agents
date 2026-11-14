@@ -21,9 +21,11 @@ use decide::{
     Returned, Round, RunId, Seq, Started, Waited, Who, decide, told,
 };
 
+use decide::questions::questions;
+
 use crate::model::{
-    ANSWERS, BACKGROUND, DEPENDENCIES, DISCUSSION, Event, MAIN, Model, SESSION, START, TREE, Variant, ran, ran_back_on,
-    ran_on, reply_loop, show_key, skipped, waited_at_gate,
+    ANSWERS, ASKED, BACKGROUND, DEPENDENCIES, DISCUSSION, Event, MAIN, Model, SESSION, START, TREE, Variant, ran,
+    ran_back_on, ran_on, reply_loop, show_key, skipped, waited_at_gate,
 };
 use crate::reading::{Reading, Reason, Writer};
 use crate::support::World;
@@ -160,6 +162,8 @@ struct Taint {
     reach: BTreeSet<usize>,
     versions: BTreeSet<Seq>,
     runs: BTreeSet<RunId>,
+    /// Of an answer, the place of the cell that asked.
+    asker: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -456,7 +460,14 @@ impl Explorer<'_> {
                 );
                 return false;
             };
-            let (ret, a) = m.hand_in(i, &v, &told);
+            let (mut ret, a) = m.hand_in(i, &v, &told);
+            if a && let run::Return::Came { questions, found, .. } = &mut ret {
+                let name = format!("q{}", run.0);
+                if m.answered[i].is_none() {
+                    found.push(run::Unmet::NotAnswerable { name: name.clone() });
+                }
+                questions.push(run::Asking { name, withdrawn: false });
+            }
             last.returned = Some(ret);
             asks = a;
             variant = Some(v);
@@ -488,16 +499,7 @@ impl Explorer<'_> {
                     }
                 );
                 if asks {
-                    let call = CallId(s.world.id());
-                    let at = s.world.tick();
-                    s.world.records.called.push(Called {
-                        call,
-                        run,
-                        on: Some(Who::Owner),
-                        at,
-                    });
-                    s.questions.insert(call, cell.clone());
-                    said.push_str(&format!(", and the owner is asked, the call {}", call.0));
+                    said.push_str(&format!(", and asks the owner q{}, which it waits for", run.0));
                 }
                 s.trace = s.trace.then(s.spent, said);
                 let at = s.world.tick();
@@ -507,6 +509,11 @@ impl Explorer<'_> {
                     writes,
                     dealt_with: Some(dealt_with),
                 });
+                // As the engine takes a return that asks: the question's version after the finish, then `asked`.
+                if asks {
+                    s.world.questions(cell.as_str(), &format!("q{}", run.0), true);
+                    s.world.outside_sets(m.sources[&ASKED].as_str(), "waiting");
+                }
                 if let Some(t) = s.outside.as_mut()
                     && t.runs.contains(&run)
                 {
@@ -517,6 +524,7 @@ impl Explorer<'_> {
             // ran while the return waited to be taken, and wrote what this one writes.
             Step::SendBack { unmet }
                 if variant.is_none()
+                    || unmet.iter().any(|u| matches!(u, run::Unmet::NotAnswerable { .. }))
                     || sent_back
                     || unmet.iter().all(|u| matches!(u, run::Unmet::WrittenOver { .. })) =>
             {
@@ -636,19 +644,15 @@ impl Explorer<'_> {
                     for e in self.events(s, d) {
                         out.push(self.event(s, d, e));
                     }
-                } else if s.outside.is_none()
-                    && let Decision::Wait { on, .. } = d
-                {
-                    // The owner answers a question the work waits on, whatever the path spent.
-                    for w in on {
-                        if let Waited::Call {
-                            call,
-                            on: Some(Who::Owner),
-                        } = w
-                            && s.questions.contains_key(call)
-                        {
-                            out.push(self.event(s, d, Event::Answers(*call)));
-                        }
+                }
+                // The owner answers a question that stands unanswered, whatever the path spent.
+                if s.outside.is_none() {
+                    let names: Vec<String> = (questions(&s.world.records).into_iter())
+                        .filter(|(_, q)| q.unanswered())
+                        .map(|(name, _)| name.to_string())
+                        .collect();
+                    for name in names {
+                        out.push(self.event(s, d, Event::Answer(name)));
                     }
                 }
             }
@@ -732,6 +736,7 @@ impl Explorer<'_> {
         // A cell an answer enters, which no block it writes may run.
         let mut entered: Option<usize> = None;
         let mut answer: Option<Seq> = None;
+        let mut asker_of: Option<usize> = None;
         let person = |w: &mut World, block: &BlockId, written: &mut Vec<(BlockId, Seq)>| {
             let at = w.person_writes(block.as_str());
             written.push((block.clone(), at));
@@ -768,7 +773,25 @@ impl Explorer<'_> {
             Event::OtherOption(cell) => {
                 person(w, &ANSWERS.into(), &mut written);
                 let block = m.answered[m.place(cell)].clone().expect("the cell is answered");
-                person(w, &block, &mut written);
+                let at = w.outside_writes(block.as_str());
+                written.push((block, at));
+            }
+            Event::Answer(name) => {
+                let latest = questions(&w.records)[name.as_str()].latest.clone();
+                let asker = m.place(&latest.cell);
+                entered = Some(asker);
+                asker_of = Some(asker);
+                answer = Some(w.answers(name, latest.at, 1));
+                if let Some(block) = m.answered[asker].clone() {
+                    person(w, &ANSWERS.into(), &mut written);
+                    let at = w.outside_writes(block.as_str());
+                    written.push((block, at));
+                }
+                if questions(&w.records).values().all(|q| !q.unanswered()) {
+                    let block = m.sources[&ASKED].clone();
+                    let at = w.outside_sets(block.as_str(), "answered");
+                    written.push((block, at));
+                }
             }
             Event::LetsGo(cell) => {
                 let at = w.tick();
@@ -801,6 +824,7 @@ impl Explorer<'_> {
             reach,
             versions: written.iter().map(|(_, at)| *at).chain(answer).collect(),
             runs: BTreeSet::new(),
+            asker: asker_of,
         });
         c
     }
@@ -879,6 +903,9 @@ impl Explorer<'_> {
             .any(|st| &st.cell == last && r.finished.contains_key(&st.run))
             .hash(&mut h);
         s.always.hash(&mut h);
+        for q in questions(records).values() {
+            (&q.latest.cell, q.latest.waits, q.stands(), q.unanswered()).hash(&mut h);
+        }
         // Past a write from outside, what it reached: what it was, how far it can reach, which of what is new to each
         // cell it wrote, and which open runs run for it.
         if let Some(t) = &s.outside {
@@ -1050,8 +1077,9 @@ impl Explorer<'_> {
             }
         }
         if i == m.check {
-            for (call, asker) in &s.questions {
-                if !r.done(*call, NOW) {
+            for q in questions(&s.world.records).values().filter(|q| q.unanswered()) {
+                let asker = &q.latest.cell;
+                {
                     let applies = r.applies(flow, m.place(asker));
                     let name = format!(
                         "{cell} ran while a question of {asker} waited for the owner, {asker} being {}",
@@ -1163,6 +1191,27 @@ impl Explorer<'_> {
         {
             self.reach(A_QUESTION_WAITED.to_string());
         }
+        if let Decision::Wait { on, .. } = d
+            && on.iter().any(|w| matches!(w, Waited::Answer { .. }))
+        {
+            self.reach(A_QUESTION_WAITED.to_string());
+        }
+        if let Some(t) = &s.outside
+            && let Some(asker) = t.asker
+        {
+            let cell = &m.cells()[asker].id;
+            let r = Reading::new(&s.world.records);
+            let took = (t.runs.iter()).any(|run| r.started.get(run).is_some_and(|st| &st.cell == cell));
+            let on = if r.applies(&m.compiled.flow, asker) {
+                "on"
+            } else {
+                "skipped"
+            };
+            let taken = if took { cell.to_string() } else { "no cell".to_string() };
+            self.reach(format!(
+                "the answer to a question of {cell}, {on} at the stop after it, was taken by {taken}"
+            ));
+        }
         // 7: the write reached each cell it runs before where the work stops.
         let Some(t) = &s.outside else {
             return;
@@ -1243,7 +1292,7 @@ fn show_waited(w: &Waited) -> String {
 /// What an outside write is, apart from the call it answers.
 fn kind_of(e: &Event) -> String {
     match e {
-        Event::Answers(_) => "the owner answers".to_string(),
+        Event::Answers(_) | Event::Answer(_) => "the owner answers".to_string(),
         e => e.to_string(),
     }
 }

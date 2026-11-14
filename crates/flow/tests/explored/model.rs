@@ -26,6 +26,7 @@ pub const DEPENDENCIES: &str = "dependencies";
 pub const MAIN: &str = "main";
 pub const SESSION: &str = "session";
 pub const TREE: &str = "tree";
+pub const ASKED: &str = "asked";
 
 /// The engine's act that checks the work before the merge.
 const CHECK: &str = "check";
@@ -100,6 +101,9 @@ pub enum Event {
     OtherOption(CellId),
     /// The owner lets the cell go on at its limit.
     LetsGo(CellId),
+    /// The owner answers the latest version of the question of this name, as the engine takes an answer: the answer
+    /// kept, `answers` and the asking cell's block of `on_answer` written where it has one, and `asked` again.
+    Answer(String),
     /// The source outside the work writes its block: main moves, a line begins a new session, the tree changes.
     Source(&'static str),
     /// The items the work depends on have all merged.
@@ -114,6 +118,7 @@ impl fmt::Display for Event {
             Event::Answers(call) => write!(f, "the owner answers the call {}", call.0),
             Event::OtherOption(cell) => write!(f, "the owner takes another option for a question of {cell}"),
             Event::LetsGo(cell) => write!(f, "the owner lets {cell} go on at its limit"),
+            Event::Answer(name) => write!(f, "the owner answers the question {name}"),
             Event::Source(MAIN) => write!(f, "main moves"),
             Event::Source(SESSION) => write!(f, "a session is begun anew"),
             Event::Source(source) => write!(f, "the outside writes {source}"),
@@ -248,7 +253,7 @@ impl Model {
             spoken.push(own(SPOKEN));
             answered.push(own(ANSWERED));
         }
-        let sources = [START, DEPENDENCIES, MAIN, SESSION, TREE]
+        let sources = [START, DEPENDENCIES, MAIN, SESSION, TREE, ASKED]
             .into_iter()
             .filter_map(|source| {
                 (compiled.blocks.iter())
