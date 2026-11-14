@@ -1,0 +1,7 @@
+# What the engine's act `deliver` writes into the block its cell writes: that the item is delivered, and the items it
+# was made of, by their numbers in order. Filled in a run: `{item}` the one item; `{items}` each item but the last,
+# with `between` between two; `{last}` the last.
+none = "Delivered, made of no other item."
+one = "Delivered, made of the item {item}."
+many = "Delivered, made of the items {items} and {last}."
+between = ", "

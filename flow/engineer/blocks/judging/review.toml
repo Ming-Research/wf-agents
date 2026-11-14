@@ -1,0 +1,2 @@
+# What the review says to the cell it judges. Only the review writes it, so that no one writes over what it said.
+what = "What the review says to the implementation, in English: each point, where, what must change and why, what it rests on."

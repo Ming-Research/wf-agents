@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use decide::{BlockId, Cell, Condition, TestName};
 use flow::{
     Block, CellSpec, Effort, FLOW_FILE, FaultKind::*, Given, InputKind, Kind, Limits, Readers, RunsOn, Test, TestKind,
-    Trigger, Writers,
+    Texts, Trigger, Writers,
 };
 
 use crate::support::{at, compiled, edit, faults, valid};
@@ -103,6 +103,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
         (blocks.iter())
             .map(|&b| Trigger {
                 name: b.to_string(),
+                what: None,
                 block: b.into(),
                 read: if read { vec![b.into()] } else { Vec::new() },
                 detail: None,
@@ -180,6 +181,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
             what: None,
             field: None,
             trigger: false,
+            writes: Texts::default(),
             writers: Writers {
                 cells: ids(writers),
                 people: who.0,

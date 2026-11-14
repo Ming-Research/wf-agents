@@ -30,5 +30,5 @@ pub use compile::{
 pub use decide::{Test, TestKind};
 pub use source::{
     BLOCKS_DIR, CELLS_DIR, DATA_DIR, Effort, FLOW_FILE, GiveFile, InputKind, Kind, LINES_DIR, OF_A_CELL, OF_A_DATUM,
-    OWNER, RULES_DIR, RunFile, Source, TESTS_DIR, TRIGGERS_DIR, read, rules_file,
+    OWNER, RULES_DIR, RunFile, Source, TESTS_DIR, TRIGGERS_DIR, Texts, read, rules_file,
 };

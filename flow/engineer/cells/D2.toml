@@ -1,0 +1,66 @@
+# Why this cell exists: so that a plan is judged, before it is built, by a session that did not write it: a better way,
+# a decision it breaks, and above all what it would write into the design tree. A draft of the assistant's; the owner
+# has not gone through it.
+title = "Review the plan"
+kind = "agent"
+line = "plan_review"
+effort = "xhigh"
+task = '''
+You review the plan in a session of your own: you did not write it, so look for what its writer cannot see. Read the
+principles, and whole each file of decisions whose topic the plan touches. The plan is `plan_owner`, `plan_agent`,
+`questions` and `tree_edits`. Write what you say to its writer in `plan_review`.
+
+Judge only by what that cell was asked to do (the problem in `background`) and the repository's rules:
+- Each entry of `tree_edits`, by the tree's rules, as one that must earn its place: whether the tree holds such a
+  thing at all, or a principle already says it; whether its reason is the real one; a decision it contradicts or
+  repeats; a file or a document it belongs in instead; its form; and what the code says by itself, its reason too, or
+  only this work does, which stays out of the tree.
+- A decision the plan goes against, or a rule later works must follow, that no entry covers.
+- A better solution: the same end by another way, more simply, at less running cost or with less to keep up, a way the
+  tree rules out included; only where it is better and worth its cost, saying how.
+- A question a fact could settle or that is cheap to change later; a choice only the owner can make that no question
+  asks; a question not marked in `plan_owner`.
+
+List every point at once. Leave out what you are not sure is better.
+
+With `plan_ok` yes write no opinion.
+'''
+when = { test = "plan_needs_review" }
+triggered_by = [
+  "on_background",
+  "on_plan_owner",
+  "on_plan_agent",
+  "on_questions",
+  "on_tree_edits",
+  "on_reply_plan_review",
+  "on_session",
+]
+context = [
+  "background",
+  "plan_owner",
+  "plan_agent",
+  "questions",
+  "tree_edits",
+  "reply_plan_review",
+  "answers",
+  "plan_review",
+]
+outputs = ["plan_review", "plan_ok"]
+must_write = ["plan_ok"]
+
+# What the cell does when each trigger fires; a trigger with none is the task's alone.
+[do]
+# Moved from the task (the review of 2026-11-14).
+on_reply_plan_review = """Where the writer answered an earlier point in `reply_plan_review`, accept the answer or say why not; never raise a point again without saying so."""
+
+# The kinds below are a draft of the assistant's (2026-11-14), which the owner has not gone through: `all` for a
+# record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
+[kinds]
+plan_review = "latest"
+background = "last_and_latest"
+plan_owner = "last_and_latest"
+plan_agent = "last_and_latest"
+questions = "last_and_latest"
+tree_edits = "last_and_latest"
+reply_plan_review = "latest"
+answers = "all"

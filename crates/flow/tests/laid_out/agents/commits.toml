@@ -1,0 +1,18 @@
+# The commits the engine makes in the project's repository, which the agents see in its history: who they are by, and
+# the words of each. The engine knows a merge of main as its own by this address and its words, so that a merge made
+# before it stopped is not made again.
+name = "wf-agents"
+email = "wf-agents@localhost"
+
+# The words of each. Filled in a run: `{main}` the main branch's name, `{head}` the head of main merged, `{run}` the
+# run's number, `{branch}` the work's branch.
+#
+# A run of a cell that takes main in merges main's head into the work's branch as it starts.
+run = "Merge {main} at {head} into the work's branch as run {run} starts"
+# The check before the merge merges main's head into the work's branch, where the branch does not hold it. Its words
+# are not a run's, so that neither takes the other's merge for its own.
+check = "Merge {main} at {head} into the work's branch"
+# The code before the change: the commit of main the change begins from, with the files named put on it.
+before = "The code before the change of {branch}, with its tests"
+# The merge of the work's branch into main, where no host merges it.
+merge = "Merge {branch}"

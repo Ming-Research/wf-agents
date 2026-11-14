@@ -1,0 +1,23 @@
+# The blocks the cell writes, each a field under its name, which the form does not list: the cell is told its own with
+# its task (`../return.toml`, `[outputs]`), and the engine checks what it writes against them. A choice holds its value
+# and a line of why, as a choice did in the old engine; any other block its whole new version. The words are those the
+# owner went through, but for `outputs`, where the blocks are listed and the choice's `why` (2026-11-14), a draft of
+# the assistant's.
+in = ["outcome"]
+told = "alone"
+words = '''
+Each block you write is a field of `outputs` under the block's name. A block that is a choice holds `value`, one of
+its values, and `why`, a line of why in `owner.language`; any other holds the block's whole new version. Write only the
+blocks listed under "What this cell returns", and only where one no longer stands as it is.'''
+
+[shape]
+type = "object"
+
+[[shape.additionalProperties.anyOf]]
+type = "string"
+
+[[shape.additionalProperties.anyOf]]
+type = "object"
+properties = { value = { type = "string" }, why = { type = "string" } }
+required = ["value", "why"]
+additionalProperties = false

@@ -6,7 +6,8 @@ held = "## `{block}`, version {number}, in this session already"
 text = "## `{block}`, version {number}{choice}\n\n{content}"
 
 [last_and_latest]
-text = "## `{block}`, {which_version}\n\n{change}"
+text = "## `{block}`, what changed from version {last_number} to version {number}\n\n{diff}"
+whole = "## `{block}`, version {number}{choice}\n\n{content}"
 
 [all]
 text = "## `{block}`, version {first_number}{choice}\n\n{content}\n\n{each_version}"

@@ -4,5 +4,6 @@ parts = [
   { project = "constitution" },
   { line = "rules" },
   { words = "how_you_work_here.md" },
+  { returns = "how_you_return" },
 ]
 heading = "# `{path}`\n\n{text}"

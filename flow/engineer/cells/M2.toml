@@ -1,0 +1,6 @@
+title = "Merge"
+kind = "engine"
+act = "merge"
+requires = ["checked"]
+triggered_by = ["on_checked"]
+outputs = ["merged"]

@@ -1,0 +1,3 @@
+# The answer to `review`, for the cell that wrote it to read: a block of its own for each judge, so that an
+# answer to one runs no other again.
+what = "The implementation's answer to each point of `review`: fixed, with its commit, or why not."

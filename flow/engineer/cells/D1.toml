@@ -1,0 +1,82 @@
+# Why this cell exists: so that a direction the facts could not settle in the research is settled by a deeper look,
+# in a session of its own with a stronger model, before anything is built on it. A draft of the assistant's; the owner
+# has not gone through it.
+title = "Deep research"
+kind = "agent"
+line = "deep_research"
+effort = "xhigh"
+takes_main = true
+task = '''
+Research what `found` left open, and work out how to solve the problem in `background`. This session has not read the
+tree: read it for the problem as the tree's rules say, and the code yourself. Take `found` as a hypothesis to verify,
+and use what the research left in `project.research` rather than run it again. Find out a fact left open, try the ways
+to try, analyse a fault of the design itself as a design; verify a fact that would change the direction before using
+it, and weigh the upkeep the solution adds.
+
+Write the plan: `plan_owner`, `plan_agent`, `acceptance`, and `tree_edits` with `edits_tree`. In `plan_owner` say
+also what the plan was compared with and where it wins, and what it leaves out. Settle what a fact settles and decide
+what is cheap to change later: ask the owner only the rest.
+
+If the solution falls into parts each mergeable on its own, too large for one work, ask the owner with a question
+that waits, naming them in order.
+'''
+when = { block = "deep_needed", is = "yes" }
+triggered_by = [
+  "on_background",
+  "on_found",
+  "on_session",
+  "on_spoken",
+  "on_answer",
+  "on_plan_review",
+  "on_plan_doubts",
+]
+context = [
+  "background",
+  "found",
+  "discussion",
+  "answers",
+  "plan_review",
+  "plan_doubts",
+  "plan_owner",
+  "plan_agent",
+  "questions",
+  "acceptance",
+  "tree_edits",
+]
+outputs = [
+  "plan_owner",
+  "plan_agent",
+  "questions",
+  "acceptance",
+  "tree_edits",
+  "edits_tree",
+  "reply_plan_review",
+  "reply_plan_doubts",
+  "discussion",
+]
+
+# What the cell does when each trigger fires; a trigger with none is the task's alone.
+[do]
+# A draft of the assistant's (2026-11-14), which the owner has not gone through.
+on_background = """See what changed from the version you last worked from, the whole of it where you worked from none, and bring the research and the plan up to date for it."""
+on_plan_review = """Take each point of `plan_review`: change the plan where it touches, only there, or say why not, and answer it in `reply_plan_review`."""
+on_plan_doubts = """Take each point of `plan_doubts`: change the plan where it touches, only there, or say why not, and answer it in `reply_plan_doubts`."""
+on_answer = """The owner has answered one of your questions in `answers` with another option than yours, or one you wait for: bring the plan to it."""
+# Back from the old cell, where the task said it (the review of 2026-11-14).
+on_spoken = """The owner has said something to you in `discussion`: that comes first. Take each point of it: change the plan where it touches, only there, or say why not, and answer it in `reply`."""
+on_session = """Read the tree from the start: the session holds nothing of what you read before."""
+
+# The kinds below are a draft of the assistant's (2026-11-14), which the owner has not gone through: `all` for a
+# record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
+[kinds]
+background = "last_and_latest"
+found = "latest"
+discussion = "all"
+answers = "all"
+plan_review = "latest"
+plan_doubts = "latest"
+plan_owner = "latest"
+plan_agent = "latest"
+questions = "latest"
+acceptance = "latest"
+tree_edits = "latest"

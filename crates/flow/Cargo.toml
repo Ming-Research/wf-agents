@@ -10,7 +10,7 @@ repository.workspace = true
 [dependencies]
 decide = { path = "../decide" }
 serde.workspace = true
-toml.workspace = true
+toml = { workspace = true, features = ["preserve_order"] }
 
 [lints]
 workspace = true

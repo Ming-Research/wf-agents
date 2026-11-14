@@ -1,0 +1,6 @@
+# What the owner says to the work and what its cells answer: one record, which the cells that can be spoken to are
+# given. A cell writes it through the return's field `reply`.
+what = "What the owner says to the work and what its cells answer, each entry with who spoke, in order."
+from = "owner"
+shown = true
+field = "reply"

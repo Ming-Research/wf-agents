@@ -1,0 +1,7 @@
+# The blocks the cell writes, each under its name, which the form does not list.
+in = ["outcome"]
+told = "alone"
+words = "Each block you write is a field of `outputs` under the block's name."
+
+[shape]
+type = "object"

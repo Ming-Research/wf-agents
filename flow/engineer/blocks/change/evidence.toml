@@ -1,0 +1,1 @@
+what = "For each acceptance condition, what shows it on that commit (tests with results after and before the change, a measurement, a CI job, or where to read in the diff); each test added, extended or weakened, with what it catches or why."

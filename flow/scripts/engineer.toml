@@ -34,7 +34,7 @@ asks = [{ question = "Should the cost of a round be kept for each call of a tool
 cell = "R1"
 run = 2
 hands_in = [
-    { block = "needs_deep_research", value = "yes" },
+    { block = "deep_needed", value = "yes" },
     { block = "found", content = "The rounds keep their cost; the calls keep none. Two ways to keep it were found; which one holds after a restart is open." },
     { block = "reply_research", content = "As you answered, the cost is kept for each call as well." },
 ]
@@ -47,8 +47,8 @@ hands_in = [
     { block = "plan_agent", content = "Give a call's result what it took; keep it in the store beside the result; sum rounds and calls into the run." },
     { block = "questions", content = "None." },
     { block = "acceptance", content = "A call's cost shows on the work's page, is counted in the total, and outlives a restart." },
-    { block = "tree_changes", content = "A decision that what a call took is kept with its result, in a table only added to." },
-    { block = "changes_tree", value = "yes" },
+    { block = "tree_edits", content = "A decision that what a call took is kept with its result, in a table only added to." },
+    { block = "edits_tree", value = "yes" },
 ]
 
 [[flows.engineer.rounds]]
@@ -64,13 +64,13 @@ hands_in = [
 cell = "D2"
 hands_in = [
     { block = "plan_review_on_deep_research", content = "The plan does not say what a call that was withdrawn took." },
-    { block = "plan_settled", value = "no" },
+    { block = "plan_ok", value = "no" },
 ]
 
 [[flows.engineer.rounds]]
 cell = "D2"
 run = 2
-hands_in = [{ block = "plan_settled", value = "yes" }]
+hands_in = [{ block = "plan_ok", value = "yes" }]
 
 # Implementation: asks for the check, which ends its run, and, entered again for its result, hands in the code with a
 # decision of its own; then a fix for the review, one for the testing and one for the check before the merge.
@@ -92,7 +92,7 @@ cell = "I1"
 run = 3
 hands_in = [
     { block = "code", content = "The call's cost is kept with its result and summed into the run; the page shows it per call." },
-    { block = "answers_review", content = "Done: the step's panel now shows what each call took." },
+    { block = "reply_review", content = "Done: the step's panel now shows what each call took." },
 ]
 
 [[flows.engineer.rounds]]
@@ -100,7 +100,7 @@ cell = "I1"
 run = 4
 hands_in = [
     { block = "code", content = "As before, and a call with no result yet is counted as taking nothing." },
-    { block = "answers_testing", content = "Fixed: the sum no longer fails on a call that has no result." },
+    { block = "reply_testing", content = "Fixed: the sum no longer fails on a call that has no result." },
 ]
 
 [[flows.engineer.rounds]]
@@ -108,7 +108,7 @@ cell = "I1"
 run = 5
 hands_in = [
     { block = "code", content = "As before, with the latest main taken in and the work's migration renamed to follow main's." },
-    { block = "answers_check", content = "Fixed: the work's migration now follows the one main added." },
+    { block = "reply_check", content = "Fixed: the work's migration now follows the one main added." },
 ]
 
 # The review: objects once, then asks for adversarial testing, and keeps asking for it while the summing that made it
@@ -116,33 +116,33 @@ hands_in = [
 [[flows.engineer.rounds]]
 cell = "T1"
 hands_in = [
-    { block = "review_on_implement", content = "The acceptance says the cost shows on the page; the page does not show it per call." },
-    { block = "review_settled", value = "no" },
-    { block = "more_testing", value = "no" },
+    { block = "review", content = "The acceptance says the cost shows on the page; the page does not show it per call." },
+    { block = "review_ok", value = "no" },
+    { block = "needs_testing", value = "no" },
 ]
 
 [[flows.engineer.rounds]]
 cell = "T1"
 run = 2
 hands_in = [
-    { block = "review_settled", value = "yes" },
-    { block = "more_testing", value = "yes" },
+    { block = "review_ok", value = "yes" },
+    { block = "needs_testing", value = "yes" },
 ]
 
 [[flows.engineer.rounds]]
 cell = "T1"
 run = 3
 hands_in = [
-    { block = "review_settled", value = "yes" },
-    { block = "more_testing", value = "yes" },
+    { block = "review_ok", value = "yes" },
+    { block = "needs_testing", value = "yes" },
 ]
 
 [[flows.engineer.rounds]]
 cell = "T1"
 run = 4
 hands_in = [
-    { block = "review_settled", value = "yes" },
-    { block = "more_testing", value = "yes" },
+    { block = "review_ok", value = "yes" },
+    { block = "needs_testing", value = "yes" },
 ]
 
 # Adversarial testing: finds one fault, then none on its fix and none on the fix for the check.
@@ -150,8 +150,8 @@ hands_in = [
 cell = "T2"
 hands_in = [
     { block = "tests", content = "Four tests; one fails: the sum of a run with a call that has no result." },
-    { block = "testing_on_implement", content = "Summing a run fails when one of its calls has no result yet." },
-    { block = "testing_settled", value = "no" },
+    { block = "testing", content = "Summing a run fails when one of its calls has no result yet." },
+    { block = "testing_ok", value = "no" },
 ]
 
 [[flows.engineer.rounds]]
@@ -159,7 +159,7 @@ cell = "T2"
 run = 2
 hands_in = [
     { block = "tests", content = "Four tests, all passing on the fix; the one that failed fails on the commit before it." },
-    { block = "testing_settled", value = "yes" },
+    { block = "testing_ok", value = "yes" },
 ]
 
 [[flows.engineer.rounds]]
@@ -167,7 +167,7 @@ cell = "T2"
 run = 3
 hands_in = [
     { block = "tests", content = "The same four tests, all passing with the latest main taken in." },
-    { block = "testing_settled", value = "yes" },
+    { block = "testing_ok", value = "yes" },
 ]
 
 # The check before the merge: fails once with the latest main taken in, then passes on the fix.
@@ -176,7 +176,7 @@ cell = "M1"
 took = { ms = 8000 }
 hands_in = [
     { block = "checked", value = "no" },
-    { block = "check_on_implement", content = "With the latest main taken in, the migrations fail: main added one of the same minute as the work's." },
+    { block = "check", content = "With the latest main taken in, the migrations fail: main added one of the same minute as the work's." },
 ]
 
 [[flows.engineer.rounds]]

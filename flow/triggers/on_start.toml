@@ -1,0 +1,5 @@
+# A block with no content, which the engine writes as the owner first lets the work on: what runs the first cell, since
+# a cell runs only for what is new to it.
+what = "Fires when the owner first lets the work on."
+block = "start"
+from = "start"

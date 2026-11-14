@@ -1,0 +1,3 @@
+# Only the check before the merge writes it, so that no one writes over what it said.
+what = "What the check before the merge says to the cell it judges."
+shown = true

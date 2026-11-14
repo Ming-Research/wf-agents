@@ -1,0 +1,5 @@
+# A trigger on a datum of the flow. A cell names it by the name below, `{datum}` being the datum's name; its agent reads
+# the datum for it, so the cell has the datum in its `context`.
+name = "on_{datum}"
+what = "Fires when `{datum}` has a new version, changing its meaning, that the cell did not write itself."
+read = ["{datum}"]

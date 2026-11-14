@@ -1,0 +1,2 @@
+what = "Whether the plan needs the deep research first: yes only when the direction rests on a fact that cannot be checked in a round or two, or on trying several ways first. Nothing else is a reason: a choice for the owner is a question, a fact the history holds is looked up, and an item that contradicts itself is settled by the facts."
+values = ["yes", "no"]

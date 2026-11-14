@@ -15,7 +15,7 @@ use crate::agents::RuleSetFile;
 use crate::source::{
     BLOCKS_DIR, BlockFile, CELLS_DIR, CellFile, DATA_DIR, Effort, FLOW_FILE, FlowFile, InputKind, Kind, LINES_DIR,
     LaidOutBlockFile, LaidOutFlowFile, LaidOutLineFile, LineFile, OF_A_CELL, OF_A_DATUM, OfADatumFile, RULES_DIR,
-    Source, TESTS_DIR, TRIGGERS_DIR, TestFile, TriggerFile, When, WhenIs, WhenTest, rules_file, who_writes,
+    Source, TESTS_DIR, TRIGGERS_DIR, TestFile, Texts, TriggerFile, When, WhenIs, WhenTest, rules_file, who_writes,
 };
 
 /// A flow's definition compiled.
@@ -98,8 +98,8 @@ pub struct CellSpec {
     /// The blocks the cell is given, its session kept supplied with their content, in the order it names them; none
     /// for an engine cell, which has no session.
     pub given: Vec<Given>,
-    /// The tools of the engine's that the cell's agent may ask for in its return, in the order written; none for an
-    /// engine cell.
+    /// The tools of the engine's that the cell's agent may ask for in its return, in the order written: those its
+    /// flow names for every agent cell, where it names any, else the cell's own; none for an engine cell.
     pub tools: Vec<String>,
     /// The flow's sets of rules for the agents that the system prompt of the session of the cell's line holds, by
     /// name, in the order its line names them, between the engine's parts; none for an engine cell.
@@ -126,6 +126,8 @@ pub struct CellSpec {
 pub struct Trigger {
     /// Its name, as the cell names it.
     pub name: String,
+    /// What it is, in a sentence, where the file beside the flows that defines it says: when it fires.
+    pub what: Option<String>,
     /// The block whose new version is the event.
     pub block: BlockId,
     /// The data the cell's agent reads for it, each among those the cell is given.
@@ -165,6 +167,9 @@ pub struct Block {
     pub field: Option<String>,
     /// The block has no content and stands only for a trigger, which declares it.
     pub trigger: bool,
+    /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, as the
+    /// block's file or the trigger that declares it says; none where neither does.
+    pub writes: Texts,
     /// Who writes it.
     pub writers: Writers,
     /// Who reads it.
@@ -221,7 +226,8 @@ pub enum FaultKind {
     NoCellFile { cell: String },
     /// A cell's file is not named in the order.
     NotInOrder { cell: String },
-    /// The name is given a second time in the same list.
+    /// The name is given a second time in the same list; or, named `tools`, an agent cell names tools of its own in a
+    /// flow whose `flow.toml` names the tools of every agent cell of it.
     Twice { name: String },
     /// A limit is not a whole number from one to the largest count the engine keeps.
     LimitOutOfRange { value: i64 },
@@ -380,6 +386,12 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
         calls: limit("limits.calls", flow_file.limits.calls),
     };
     faults.extend(parsed.faults.iter().cloned());
+    for (field, what) in check_list(&parsed.tools, "tools", |tool| {
+        let what = FaultKind::UnknownTool { tool: tool.to_string() };
+        (!has.tools.contains(tool)).then_some(what)
+    }) {
+        faults.push(fault(FLOW_FILE, field, what));
+    }
     def.check_lines(&has.system, &source.rules, &mut faults);
     def.check_blocks(has, &mut faults);
     def.check_tests(&mut faults);
@@ -443,6 +455,8 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
 /// written before it, with where each thing is written and what each cell's triggers are worked out to.
 struct Parsed {
     flow: FlowFile,
+    /// Of a flow laid out one thing to a file, the tools its `flow.toml` names for every agent cell of it.
+    tools: Vec<String>,
     cells: BTreeMap<String, CellFile>,
     places: Places,
     triggers: Resolved,
@@ -528,17 +542,18 @@ fn parse(source: &Source) -> Result<Parsed, Vec<Fault>> {
     let parsed = if source.laid_out {
         let flow = shape::<LaidOutFlowFile>(FLOW_FILE, &source.flow, &mut faults);
         let files = LaidOut::parse(&source.files, &mut faults);
-        flow.map(|flow| (flow.data.clone(), FlowFile::from(flow), files))
+        flow.map(|flow| (flow.data.clone(), flow.tools.clone(), FlowFile::from(flow), files))
     } else {
         let flow = shape::<FlowFile>(FLOW_FILE, &source.flow, &mut faults);
-        flow.map(|flow| (Vec::new(), flow, LaidOut::default()))
+        flow.map(|flow| (Vec::new(), Vec::new(), flow, LaidOut::default()))
     };
     match parsed {
-        Some((data, mut flow, files)) if faults.is_empty() => {
+        Some((data, tools, mut flow, files)) if faults.is_empty() => {
             let rule_sets = files.gather(&mut flow, &data, &mut places, &mut faults);
             let (triggers, trigger_blocks) = files.resolve(&cells, &mut flow, &mut places, &mut faults);
             Ok(Parsed {
                 flow,
+                tools,
                 cells,
                 places,
                 triggers,
@@ -549,7 +564,7 @@ fn parse(source: &Source) -> Result<Parsed, Vec<Fault>> {
             })
         }
         parsed => {
-            let place = (parsed.as_ref()).map(|(_, flow, _)| first_places(&flow.order, &source.cells));
+            let place = (parsed.as_ref()).map(|(_, _, flow, _)| first_places(&flow.order, &source.cells));
             sort(&mut faults, place.as_ref(), &places);
             Err(faults)
         }
@@ -835,6 +850,7 @@ impl LaidOut {
                                 let blank = BlockFile {
                                     people,
                                     outside,
+                                    writes: file.writes.clone(),
                                     ..BlockFile::default()
                                 };
                                 flow.blocks.insert(block.clone(), blank);
@@ -865,6 +881,7 @@ impl LaidOut {
                     }
                     Ok(Trigger {
                         name: name.clone(),
+                        what: file.what.as_deref().map(fill),
                         block: BlockId(block),
                         read: if engine {
                             Vec::new()
@@ -879,6 +896,7 @@ impl LaidOut {
                     match made.iter().find(|(.., datum)| data.contains(datum)) {
                         Some((_, rule, datum)) => Ok(Trigger {
                             name: name.clone(),
+                            what: rule.what.as_ref().map(|w| w.replace(DATUM, datum)),
                             block: BlockId(datum.clone()),
                             read: if engine {
                                 Vec::new()
@@ -1000,6 +1018,8 @@ enum NotBefore<'a> {
 /// The parsed files, with what the checks look up in them.
 struct Definition<'a> {
     flow: &'a FlowFile,
+    /// The tools the flow names for every agent cell of it.
+    tools: &'a [String],
     cells: &'a BTreeMap<String, CellFile>,
     places: &'a Places,
     triggers: &'a Resolved,
@@ -1018,6 +1038,7 @@ impl<'a> Definition<'a> {
         let (flow, cells) = (&parsed.flow, &parsed.cells);
         let mut def = Self {
             flow,
+            tools: &parsed.tools,
             cells,
             places: &parsed.places,
             triggers: &parsed.triggers,
@@ -1292,8 +1313,15 @@ impl<'a> Definition<'a> {
             (Kind::Agent, None) => found.push(("effort".to_string(), FaultKind::NoEffort)),
             _ => {}
         }
+        // The tools a flow names are every agent cell's: the form of a return is one for the whole flow.
+        let flow_tools = file.kind == Kind::Agent && !self.tools.is_empty();
         if file.kind == Kind::Engine && !file.tools.is_empty() {
             found.push(("tools".to_string(), FaultKind::EngineHasTools));
+        } else if flow_tools && !file.tools.is_empty() {
+            let what = FaultKind::Twice {
+                name: "tools".to_string(),
+            };
+            found.push(("tools".to_string(), what));
         } else {
             found.extend(check_list(&file.tools, "tools", |tool| {
                 let what = FaultKind::UnknownTool { tool: tool.to_string() };
@@ -1423,7 +1451,11 @@ impl<'a> Definition<'a> {
             describes: file.describes.iter().map(|b| BlockId(b.clone())).collect(),
             runs_on: takes.runs_on,
             given: takes.given,
-            tools: file.tools.clone(),
+            tools: if flow_tools {
+                self.tools.to_vec()
+            } else {
+                file.tools.clone()
+            },
             system: (file.line.as_ref())
                 .and_then(|line| self.flow.lines.get(line))
                 .map_or_else(Vec::new, |line| line.system.clone()),
@@ -1701,6 +1733,7 @@ impl<'a> Definition<'a> {
                     what: declared.what.clone(),
                     field: declared.field.clone(),
                     trigger: self.trigger_blocks.contains(name),
+                    writes: declared.writes.clone(),
                     writers: Writers {
                         cells: ids(&writers),
                         people: declared.people,
@@ -1785,6 +1818,7 @@ fn takes(file: &CellFile, triggers: Vec<Trigger>) -> Takes {
     let triggers = (runs_on.iter())
         .map(|r| Trigger {
             name: r.block.to_string(),
+            what: None,
             block: r.block.clone(),
             read: if given.iter().any(|g| g.block == r.block) {
                 vec![r.block.clone()]

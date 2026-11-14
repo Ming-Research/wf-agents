@@ -1,0 +1,61 @@
+# A message: what the engine sends a cell's agent each time it enters the cell, of what the session lacks; its parts in
+# this order. In a text, `{title}` is the cell's title, `{task}` the cell's task, `{trigger}` a trigger's name. Any
+# other `{name}` is filled in a run:
+#   taken: each block and question the last return handed in, and the version it is kept as;
+#   work, item: the work's number, as W2, and the item's number and title;
+#   files: of the trigger `on_tree`, the files of the tree that changed.
+#
+# What a part is, the engine knows by `part`. A part the session keeps, as data are kept, has a `kind`, as a datum a
+# cell is given has (`given.toml`): it is sent where the session lacks its latest version, and again when it changes;
+# `context` is each datum of the cell's context, by the kind the cell gives it in. A part with no kind is written anew
+# each time the cell is entered; `only` names when it is sent at all: `after_hand_in`, after a return that handed in
+# blocks; `takes_main`, to a cell that takes main in. `outputs` is the blocks the cell writes, as `[outputs]` in
+# `../return/return.toml` says, where it writes any; how every cell returns is in the system prompt. A part with a kind
+# may say in `held` what is sent in its place where the session holds it already. The data come before what the cell
+# is to do with them, and what ran it, with what to do for each, comes last.
+
+[[parts]]
+part = "taken"
+only = "after_hand_in"
+text = "What your last return handed in is kept as: {taken}"
+
+[[parts]]
+part = "heading"
+text = "# {title}"
+
+[[parts]]
+part = "work"
+kind = "latest"
+text = "Work {work}, on the item {item}."
+
+# The engine writes it: the commit of main merged in and the git command that shows what it changed, or why main
+# could not be taken in and the files in conflict.
+[[parts]]
+part = "main"
+only = "takes_main"
+
+# Each datum of the cell's `context` that is new to it since it last worked from it, or that the session lacks: its
+# content as `given.toml` says for the cell's kind of it, or `held` there where the session holds it already.
+[[parts]]
+part = "context"
+
+[[parts]]
+part = "outputs"
+kind = "latest"
+
+[[parts]]
+part = "task"
+kind = "latest"
+text = "## Your task\n\n{task}"
+# Where the session holds the task already, its heading still comes, so that each message says what the cell is to do.
+held = "## Your task\n\nAs given before in this session, under `# {title}`."
+
+# Each trigger new to the cell: its name, what happened where the engine says it (`detail`, the trigger's own place
+# filled), and what the cell does for it (`do`, from the cell or the trigger), the first time too; then `after`.
+[[parts]]
+part = "triggers"
+text = "## Why you are run\n"
+each = "\n- `{trigger}`{detail}{do}"
+detail = " ({detail})"
+do = ": {do}"
+after = "\n\nName in `dealt_with` each of these you have dealt with: one you leave out runs this cell again."

@@ -1,0 +1,6 @@
+# The plan is written by the research or the deep research: the one of them the flow puts in charge, by this test and
+# `deep_needed`.
+says = "The research writes the plan: it has not handed the work to the deep research"
+kind = "none"
+reads = ["deep_needed"]
+is = "yes"

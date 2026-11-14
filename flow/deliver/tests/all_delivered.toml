@@ -1,0 +1,4 @@
+says = "The items it is made of are merged"
+kind = "all"
+reads = ["dependencies"]
+is = "merged"

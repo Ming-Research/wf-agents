@@ -1,0 +1,5 @@
+# A block with no content of each cell that names it, under the block's name below. The answers are in `answers`.
+what = "Fires when the owner answers a question of the cell's with another option than its own, or one it waits for."
+block = "{cell}_answered"
+from = "owner"
+read = ["answers"]

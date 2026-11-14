@@ -1,0 +1,23 @@
+# How the content of a datum a cell is given is put into its session, by the kind the cell gives it in (design
+# statements 17 to 19): `latest`, its latest version whole, where the session lacks it; `last_and_latest`, what changed
+# since the version the cell last worked from, or the whole where the session lacks that one or the change would be
+# longer; `all`, each version the session lacks, whole. `{choice}` in a text is `choice` below for a datum that is a
+# choice, and nothing for another. Filled in a run: `number`, `last_number`, `first_number`, `value`, `content`;
+# `diff`, each changed line with two on each side; `each_version`, each later version as the first.
+choice = ", with the value `{value}`"
+# What stands in place of a datum's content where the session holds its latest version already: `{number}` its latest
+# version, `{last_number}` the one the cell last worked from. A draft of the assistant's (2026-11-14), which the owner
+# has not gone through.
+held = "## `{block}`, version {number}, in this session already; you last worked from version {last_number}"
+
+[latest]
+text = "## `{block}`, version {number}{choice}\n\n{content}"
+
+# Where the session holds the version the cell last worked from: what changed since, each changed line with two on
+# each side; `whole` in its place where the session lacks that version, or the change would be longer than the whole.
+[last_and_latest]
+text = "## `{block}`, what changed from version {last_number} to version {number}\n\n{diff}"
+whole = "## `{block}`, version {number}{choice}\n\n{content}"
+
+[all]
+text = "## `{block}`, version {first_number}{choice}\n\n{content}\n\n{each_version}"

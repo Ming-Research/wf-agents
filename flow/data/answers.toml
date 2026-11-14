@@ -1,0 +1,4 @@
+# What the owner answers to the work's questions: one record, which each cell that asks is given.
+what = "The owner's answers to the work's questions, each entry the question, the version answered, the option taken and why."
+from = "owner"
+shown = true

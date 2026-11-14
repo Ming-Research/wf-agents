@@ -3,169 +3,17 @@ name = "engineer"
 # The order of the walk, from the first cell to the merge.
 order = ["S1", "R0", "R1", "D1", "D2", "I1", "T1", "T2", "M1", "M2"]
 
+# The engine's own data this flow uses, each defined once in `../data/`. The flow's own data are in `blocks/`, its
+# lines in `lines/`, its named tests in `tests/` and its cells in `cells/`, one file each. What runs a cell is named on
+# the cell, from `../triggers/`.
+data = ["background", "dependencies", "questions", "answers", "discussion"]
+
+# The engine's tools every agent cell of the flow may ask for, each defined once in `../agents/tools/`. The form of a
+# return holds them, the same for every cell of the flow (`../agents/return/return.toml`).
+tools = ["query", "run_tests"]
+
+# Chosen, not measured: no work yet showed what these should be.
 [limits]
 runs = 3
 returns = 3
 calls = 40
-
-# The lines, each the cells that share one session. The agents of a line that only reads edit no file and change
-# nothing of the repository.
-[lines.engineer]
-[lines.deep_research]
-levels_above = 1
-[lines.plan_review]
-reads_only = true
-[lines.review]
-reads_only = true
-[lines.adversarial]
-
-[tests.may_start]
-says = "The items it depends on are merged"
-kind = "all"
-reads = ["dependencies"]
-is = "merged"
-
-[tests.plan_needs_review]
-says = "The plan changes the design tree, or went through deep research"
-kind = "any"
-reads = ["needs_deep_research", "changes_tree"]
-is = "yes"
-
-[tests.settled]
-says = "No cell that judged the work says it is not settled"
-kind = "none_standing"
-reads = ["plan_settled", "review_settled", "testing_settled"]
-is = "no"
-
-[tests.checked]
-says = "The check before the merge passed"
-kind = "all"
-reads = ["checked"]
-is = "yes"
-
-# What people and the outside write.
-[blocks.background]
-people = true
-shown = true
-[blocks.dependencies]
-values = ["waiting", "merged"]
-outside = "dependencies"
-[blocks.tree]
-outside = "tree"
-[blocks.session]
-outside = "session"
-[blocks.main]
-outside = "main"
-[blocks.start]
-outside = "start"
-
-# What the first cells make of the item.
-[blocks.place]
-shown = true
-[blocks.context]
-[blocks.related]
-[blocks.supplement]
-
-# The plan.
-[blocks.needs_deep_research]
-values = ["yes", "no"]
-[blocks.found]
-[blocks.plan_owner]
-shown = true
-[blocks.plan_agent]
-[blocks.questions]
-shown = true
-[blocks.acceptance]
-[blocks.tree_changes]
-[blocks.changes_tree]
-values = ["yes", "no"]
-[blocks.plan_settled]
-values = ["yes", "no"]
-people = true
-shown = true
-
-# The change.
-[blocks.code]
-[blocks.evidence]
-[blocks.more_testing]
-values = ["yes", "no"]
-[blocks.review_settled]
-values = ["yes", "no"]
-people = true
-shown = true
-[blocks.decisions]
-shown = true
-[blocks.tests]
-[blocks.testing_settled]
-values = ["yes", "no"]
-people = true
-shown = true
-[blocks.checked]
-values = ["yes", "no"]
-shown = true
-[blocks.merged]
-shown = true
-
-# What the owner says to each cell on the page: blocks only people write.
-[blocks.opinions_context]
-people = true
-note = true
-[blocks.opinions_research]
-people = true
-note = true
-[blocks.opinions_deep_research]
-people = true
-note = true
-[blocks.opinions_plan_review]
-people = true
-note = true
-[blocks.opinions_implement]
-people = true
-note = true
-[blocks.opinions_review]
-people = true
-note = true
-[blocks.opinions_testing]
-people = true
-note = true
-[blocks.opinions_check]
-people = true
-note = true
-
-# What each cell answers to what the owner said to it, for the owner to read on the page: only that cell writes it, and
-# no cell reads it.
-[blocks.reply_context]
-shown = true
-[blocks.reply_research]
-shown = true
-[blocks.reply_deep_research]
-shown = true
-[blocks.reply_plan_review]
-shown = true
-[blocks.reply_implement]
-shown = true
-[blocks.reply_review]
-shown = true
-[blocks.reply_testing]
-shown = true
-
-# What each cell that judges says to the cell it judges: a block for each pair, which only the judging cell writes, so
-# that no one writes over what another said.
-[blocks.plan_review_on_research]
-[blocks.plan_review_on_deep_research]
-[blocks.implement_on_research]
-[blocks.implement_on_deep_research]
-[blocks.review_on_implement]
-[blocks.testing_on_implement]
-[blocks.check_on_implement]
-shown = true
-
-# What a cell answers to what was said to it, for the cell that judges it to read. A cell answers each of its judges
-# in a block of that judge's, so that an answer to one runs no other again.
-[blocks.answers_research_to_plan_review]
-[blocks.answers_research_to_implement]
-[blocks.answers_deep_research_to_plan_review]
-[blocks.answers_deep_research_to_implement]
-[blocks.answers_review]
-[blocks.answers_testing]
-[blocks.answers_check]

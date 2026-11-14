@@ -1,0 +1,10 @@
+# What the cell came across beyond the work, each kept as an observation of the installation (design statement 47).
+in = ["outcome"]
+told = "listed"
+words = '''
+`observations`: what you came across beyond this work that is worth an item of its own, a defect or something that
+  should change, each a text in English that says what it is and where.'''
+
+[shape]
+type = "array"
+items = { type = "string" }

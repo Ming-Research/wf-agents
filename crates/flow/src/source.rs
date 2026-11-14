@@ -258,6 +258,11 @@ pub struct LaidOutFlowFile {
     /// the flow's own blocks has the name.
     #[serde(default)]
     pub data: Vec<String>,
+    /// The tools of the engine's that every agent cell of the flow may ask for in its return, by name, each a tool the
+    /// engine has: the form of a return is the same for every cell of the flow, so a cell of a flow that names them
+    /// names none of its own.
+    #[serde(default)]
+    pub tools: Vec<String>,
 }
 
 /// The limits as written. They are read as any whole number so that one that is not positive is a fault of the
@@ -341,6 +346,10 @@ pub struct BlockFile {
     /// The field of a return that a cell writes the block through, where it writes it through one and not as a block
     /// under the block's name: a name of a field of the engine's.
     pub field: Option<String>,
+    /// What a source of the engine's writes into the block, as a file laid out one thing to a file says it; none in
+    /// `flow.toml`.
+    #[serde(skip)]
+    pub writes: Texts,
 }
 
 /// A block as written in a file of a flow's `blocks/`, or, of the engine's own data, in a file of `../data/`: as in
@@ -366,6 +375,10 @@ pub struct LaidOutBlockFile {
     /// The field of a return that a cell writes the block through, where it writes it through one and not as a block
     /// under the block's name: a name of a field of the engine's.
     pub field: Option<String>,
+    /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, a
+    /// `{name}` in it a place the engine fills in a run. The words are the flow's, so the code holds none of them.
+    #[serde(default)]
+    pub writes: Texts,
 }
 
 /// Who writes a block from outside the cells, as `from` says it: whether the owner does, and the source outside the
@@ -389,6 +402,7 @@ impl From<LaidOutBlockFile> for BlockFile {
             shown: block.shown,
             what: block.what,
             field: block.field,
+            writes: block.writes,
         }
     }
 }
@@ -400,6 +414,8 @@ impl From<LaidOutBlockFile> for BlockFile {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TriggerFile {
+    /// What it is, in a sentence: when it fires. The owner's page shows it with each cell it runs.
+    pub what: Option<String>,
     /// The block it stands on.
     pub block: String,
     /// Who writes the block: [`OWNER`], or a name of a source outside the work that the engine has.
@@ -412,6 +428,9 @@ pub struct TriggerFile {
     /// What a cell does for it, where the cell says nothing of its own.
     #[serde(rename = "do")]
     pub does: Option<String>,
+    /// What the source writes into the block it stands on, where it is one of the engine's: as a block's `writes`.
+    #[serde(default)]
+    pub writes: Texts,
 }
 
 /// A rule as written in a file of `../triggers/of_a_datum/`, which makes a trigger of each datum of a flow: a cell names
@@ -421,6 +440,9 @@ pub struct TriggerFile {
 pub struct OfADatumFile {
     /// The name of a datum's trigger, which must hold `{datum}`, standing for the datum's name.
     pub name: String,
+    /// What a datum's trigger is, in a sentence, `{datum}` standing for the datum's name: when it fires. The owner's
+    /// page shows it with each cell it runs.
+    pub what: Option<String>,
     /// The data the agent reads for it, `{datum}` standing for the datum's name.
     #[serde(default)]
     pub read: Vec<String>,
@@ -619,4 +641,41 @@ pub struct WhenIs {
 #[serde(deny_unknown_fields)]
 pub struct WhenTest {
     pub test: String,
+}
+
+/// Texts by their names, in the order the file writes them: a table of texts, read keeping its order, which this
+/// crate's `toml` keeps.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Texts(pub Vec<(String, String)>);
+
+impl Texts {
+    /// The text of this name, where there is one.
+    pub fn get(&self, name: &str) -> Option<&str> {
+        self.0.iter().find(|(n, _)| n == name).map(|(_, text)| text.as_str())
+    }
+
+    /// Whether it holds no text.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl<'de> Deserialize<'de> for Texts {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct InOrder;
+        impl<'de> serde::de::Visitor<'de> for InOrder {
+            type Value = Texts;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a table of texts")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Texts, A::Error> {
+                let mut texts = Vec::new();
+                while let Some(entry) = map.next_entry::<String, String>()? {
+                    texts.push(entry);
+                }
+                Ok(Texts(texts))
+            }
+        }
+        deserializer.deserialize_map(InOrder)
+    }
 }
