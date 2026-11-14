@@ -3,7 +3,6 @@
 # other `{name}` is filled in a run:
 #   taken: each block and question the last return handed in, and the version it is kept as;
 #   work, item: the work's number, as W2, and the item's number and title;
-#   files: of the trigger `on_tree`, the files of the tree that changed.
 #
 # What a part is, the engine knows by `part`. A part the session keeps, as data are kept, has a `kind`, as a datum a
 # cell is given has (`given.toml`): it is sent where the session lacks its latest version, and again when it changes;

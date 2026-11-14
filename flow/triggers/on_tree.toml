@@ -1,6 +1,0 @@
-# The agent reads the tree itself, so nothing of it is filled; the engine names the files that changed, in `{files}`.
-what = "Fires when the design tree on the work's branch has changed."
-do = """Read the files of the tree that this line names as changed."""
-block = "tree"
-from = "tree"
-detail = "files"

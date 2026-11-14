@@ -40,6 +40,7 @@ context = [
   "questions",
   "acceptance",
   "tree_edits",
+  "tree",
 ]
 outputs = [
   "deep_needed",
@@ -68,6 +69,8 @@ on_spoken = """The owner has said something to you in `discussion`: that comes f
 
 # `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]
+# Given as the files that changed since the tree this session read.
+tree = "last_and_latest"
 background = "last_and_latest"
 discussion = "all"
 answers = "all"

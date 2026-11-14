@@ -34,6 +34,7 @@ context = [
   "questions",
   "tree_review",
   "reply_tree_review",
+  "tree",
 ]
 outputs = ["tree_review", "tree_ok", "discussion"]
 must_write = ["tree_ok"]
@@ -43,6 +44,8 @@ on_plan = """See what changed in the plan since the version you last reviewed, t
 on_reply_tree_review = """Where the writer answered an earlier point in `reply_tree_review`, accept the answer or say why not; never raise a point again without saying so, and raise nothing new the answers did not bring."""
 
 [kinds]
+# Given as the files that changed since the tree this session read.
+tree = "last_and_latest"
 background = "latest"
 discussion = "all"
 # For an entry that changes a principle or the constitution: is the owner asked.

@@ -39,6 +39,7 @@ context = [
   "questions",
   "answers",
   "review",
+  "tree",
 ]
 outputs = ["review", "review_ok", "needs_testing", "discussion"]
 must_write = ["review_ok", "needs_testing"]
@@ -52,6 +53,8 @@ on_reply_review = """Look at what changed: accept each answer in `reply_review` 
 
 # `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]
+# Given as the files that changed since the tree this session read.
+tree = "last_and_latest"
 review = "latest"
 code = "last_and_latest"
 decisions = "last_and_latest"

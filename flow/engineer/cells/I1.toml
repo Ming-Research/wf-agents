@@ -48,6 +48,7 @@ context = [
   "testing",
   "check",
   "plan_doubts",
+  "tree",
 ]
 outputs = [
   "code",
@@ -72,6 +73,8 @@ on_check = """Answer each point of `check` in `reply_check`: fixed, with its com
 
 # `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]
+# Given as the files that changed since the tree this session read.
+tree = "last_and_latest"
 background = "latest"
 plan_owner = "last_and_latest"
 plan_doubts = "latest"

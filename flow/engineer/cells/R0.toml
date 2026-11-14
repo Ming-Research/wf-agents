@@ -11,8 +11,8 @@ look. Then read the tree for it as the tree's rules say. The research comes next
 what you read here: this run is for the tree of this repository, `design/`, and whatever else the `background` names
 is read in the research. What you read stays in this session for the research: hand in only `dealt_with`.
 '''
-triggered_by = ["on_background", "on_tree", "on_session"]
-context = ["background"]
+triggered_by = ["on_background", "on_session"]
+context = ["background", "tree"]
 outputs = []
 
 # What the cell does when each trigger fires; a trigger with none is the task's alone.
@@ -22,5 +22,7 @@ on_background = """See what changed from the version you last worked from, the w
 on_session = """Do all of this from the start: the session holds nothing of what you read before."""
 
 [kinds]
+# Given as the files that changed since the tree this session read.
+tree = "last_and_latest"
 # It says what the item asks for, and so where in the tree to look.
 background = "last_and_latest"

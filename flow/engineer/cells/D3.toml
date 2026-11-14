@@ -38,6 +38,7 @@ context = [
   "answers",
   "plan_review",
   "reply_plan_review",
+  "tree",
 ]
 outputs = ["plan_review", "plan_ok", "discussion"]
 must_write = ["plan_ok"]
@@ -51,6 +52,8 @@ on_reply_plan_review = """Where the writer answered an earlier point in `reply_p
 
 # `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]
+# Given as the files that changed since the tree this session read.
+tree = "last_and_latest"
 background = "last_and_latest"
 # What the research found, and what it sent the deep research to settle.
 found = "latest"

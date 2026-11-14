@@ -43,6 +43,7 @@ context = [
   "questions",
   "acceptance",
   "tree_edits",
+  "tree",
 ]
 outputs = [
   "plan_owner",
@@ -69,6 +70,8 @@ on_session = """Read the tree from the start: the session holds nothing of what 
 
 # `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]
+# Given as the files that changed since the tree this session read.
+tree = "last_and_latest"
 background = "last_and_latest"
 found = "latest"
 discussion = "all"
