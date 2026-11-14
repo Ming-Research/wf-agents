@@ -234,7 +234,8 @@ async fn doing(State(handle): State<Handle>, path: Result<Path<(u64, u64, usize)
     found(page, number, missing)
 }
 
-/// The system prompt the line's session of this number, the first being one, began with, as its carrier kept it.
+/// The system prompt the line's session of this number, the line's first being none, began with, as its carrier kept
+/// it.
 async fn system(State(handle): State<Handle>, path: Result<Path<(u64, String, u32)>, PathRejection>) -> Response {
     let (number, line, session) = match path {
         Ok(Path((number, line, session))) => (WorkNumber(number), line, session),
@@ -244,11 +245,7 @@ async fn system(State(handle): State<Handle>, path: Result<Path<(u64, String, u3
         "Work {} kept no system prompt of session {session} of {line}.",
         number.0
     );
-    // The records count a line's sessions from none.
-    let Some(counted) = session.checked_sub(1) else {
-        return fail(StatusCode::NOT_FOUND, missing);
-    };
-    let system = handle.system(number, line.clone(), counted).await;
+    let system = handle.system(number, line.clone(), session).await;
     let page = system.map(|work| {
         work.map(|system| {
             system

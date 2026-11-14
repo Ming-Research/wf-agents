@@ -330,10 +330,7 @@ async fn a_round_is_given_each_try_with_what_it_ran_on_and_what_was_filled_into_
         .expect("the plan's first run")
         .clone();
     let round = &run["rounds"][0];
-    assert_eq!(
-        round["session"],
-        json!({ "line": "engineer", "number": 1, "begins": true })
-    );
+    assert_eq!(round["session"], json!({ "line": "engineer", "number": 0 }));
     assert_eq!(
         round["tries"],
         json!([{
@@ -393,30 +390,26 @@ async fn what_the_agent_of_a_round_was_last_seen_doing_is_read_from_its_carrier(
 }
 
 #[tokio::test(start_paused = true)]
-async fn the_system_prompt_a_session_began_with_is_given_by_the_session_s_number_from_one() {
+async fn the_system_prompt_a_session_began_with_is_given_by_the_session_s_number_as_the_records_count_it() {
     let running = keeping(BTreeMap::new());
     let router = &running.router;
     greeted(router).await;
     assert_eq!(
-        get_json(router, "/api/v1/works/1/lines/engineer/sessions/1/system").await,
-        json!({ "line": "engineer", "session": 1, "text": SYSTEM })
+        get_json(router, "/api/v1/works/1/lines/engineer/sessions/0/system").await,
+        json!({ "line": "engineer", "session": 0, "text": SYSTEM })
     );
     let none = StatusCode::NOT_FOUND;
     for (path, words) in [
         (
-            "/api/v1/works/1/lines/engineer/sessions/2/system",
-            "Work 1 kept no system prompt of session 2 of engineer.",
+            "/api/v1/works/1/lines/engineer/sessions/1/system",
+            "Work 1 kept no system prompt of session 1 of engineer.",
         ),
         (
-            "/api/v1/works/1/lines/engineer/sessions/0/system",
-            "Work 1 kept no system prompt of session 0 of engineer.",
+            "/api/v1/works/1/lines/reviewer/sessions/0/system",
+            "Work 1 kept no system prompt of session 0 of reviewer.",
         ),
         (
-            "/api/v1/works/1/lines/reviewer/sessions/1/system",
-            "Work 1 kept no system prompt of session 1 of reviewer.",
-        ),
-        (
-            "/api/v1/works/9/lines/engineer/sessions/1/system",
+            "/api/v1/works/9/lines/engineer/sessions/0/system",
             "There is no work 9.",
         ),
     ] {

@@ -5,8 +5,8 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { AGAIN_MS, newlyWaiting, useNotifications, waitingByWork, waitingKey } from './notify';
-import type { Item, Items, Now } from './works-api';
+import { AGAIN_MS, heldByWork, newlyHeld, questionsHolding, useNotifications } from './notify';
+import type { Item, Items, Now, Waited } from './works-api';
 import { fixtureItems } from './works/fixtures';
 
 /// The browser's notifications, as a test sees them: each one made, and the leave the page was given.
@@ -22,7 +22,7 @@ class Told {
   closed = false;
   constructor(
     readonly title: string,
-    readonly options: NotificationOptions = {},
+    readonly options: NotificationOptions & { renotify?: boolean } = {},
   ) {
     Told.made.push(this);
   }
@@ -53,19 +53,29 @@ afterEach(() => {
   window.location.hash = '';
 });
 
-function Notifying({ items }: { items: Items | null }) {
-  useNotifications(items);
+function Notifying({ items, on }: { items: Items | null; on: boolean }) {
+  useNotifications(items, on);
   return null;
 }
 
 /// Draws the hook with these items, and gives the way to draw it again with others.
-function drawn(items: Items | null) {
+function drawn(items: Items | null, on = true) {
   const container = document.createElement('div');
   const root = createRoot(container);
-  act(() => root.render(<Notifying items={items} />));
+  act(() => root.render(<Notifying items={items} on={on} />));
   unmounts.push(() => act(() => root.unmount()));
-  return (next: Items | null) => act(() => root.render(<Notifying items={next} />));
+  return (next: Items | null) => act(() => root.render(<Notifying items={next} on={on} />));
 }
+
+/// A question to the owner by the call that puts it.
+const question = (call: number, words = `Question ${call}?`): Waited => ({
+  kind: 'call',
+  call,
+  who: 'owner',
+  what: { kind: 'question', who: 'owner', question: words },
+});
+
+const waiting = (...on: Waited[]): Now => ({ kind: 'waits', at: 'plan', on });
 
 /// The fixtures' items, with the work of this item doing this now.
 function withNow(item: number, now: Now): Items {
@@ -73,47 +83,52 @@ function withNow(item: number, now: Now): Items {
   return { items, outage: null };
 }
 
-const question = (call: number): Now => ({
-  kind: 'waits',
-  at: 'plan',
-  on: [{ kind: 'call', call, who: 'owner', what: { kind: 'question', who: 'owner', question: 'Which?' } }],
-});
-
-describe('what newly waits for the owner', () => {
-  it("is what the bar counts, told apart by what the owner's answer is for", () => {
-    expect(waitingKey(question(3))).toBe('waits plan: call 3');
-    expect(waitingKey(question(4))).not.toBe(waitingKey(question(3)));
-    expect(waitingKey({ kind: 'paused', by: 'engine', why: 'A round failed.' })).toBe('paused A round failed.');
-    expect(waitingKey({ kind: 'fault', words: 'Two entries at 3' })).toBe('fault Two entries at 3');
-    expect(waitingKey({ kind: 'paused', by: 'owner', why: null })).toBeNull();
-    expect(waitingKey({ kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] })).toBeNull();
-    expect(waitingKey({ kind: 'round', cell: 'plan', run: 1, round: 1, since: 0 })).toBeNull();
+describe('the questions that hold a work', () => {
+  it('are the questions to the owner it waits for, and nothing else the owner gives', () => {
+    expect(questionsHolding(waiting(question(3, 'Which?'), { kind: 'slot' }))).toEqual(['Which?']);
+    expect(questionsHolding(waiting({ kind: 'answer', question: 'scope' }, question(4, 'Why?')))).toEqual([
+      'scope',
+      'Why?',
+    ]);
+    const limit = { kind: 'atLimit' as const, limit: { of: 'returns' as const, sentBack: 2 } };
+    expect(questionsHolding(waiting({ kind: 'call', call: 4, who: 'owner', what: limit }))).toEqual([]);
+    expect(questionsHolding(waiting({ kind: 'limit', runs: 3 }))).toEqual([]);
+    expect(questionsHolding({ kind: 'paused', by: 'engine', why: 'A round failed.' })).toEqual([]);
+    expect(questionsHolding({ kind: 'fault', words: 'Two entries at 3' })).toEqual([]);
   });
 
-  it('is nothing at the first reading, and then each work that waits for something it did not wait for before', () => {
+  it('are new where a work holds more of them than before, not where one of several was answered', () => {
     const items = fixtureItems().items;
-    expect(newlyWaiting(null, items)).toEqual([]);
-    const before = waitingByWork(items);
-    expect(newlyWaiting(before, items)).toEqual([]);
-    const again = withNow(142, question(9)).items;
-    expect(newlyWaiting(before, again).map((i) => i.number)).toEqual([142]);
-    expect(newlyWaiting(waitingByWork(again), withNow(142, question(10)).items).map((i) => i.number)).toEqual([142]);
+    expect(newlyHeld(null, items)).toEqual([]);
+    const before = heldByWork(items);
+    expect(newlyHeld(before, items)).toEqual([]);
+    const two = withNow(142, waiting(question(3), question(4))).items;
+    expect(newlyHeld(before, two).map((i) => i.number)).toEqual([142]);
+    // Call 3 answered, call 4 left: nothing new.
+    expect(newlyHeld(heldByWork(two), withNow(142, waiting(question(4))).items)).toEqual([]);
   });
 });
 
 describe("the browser's notifications", () => {
-  it('tell of each work that newly waits for the owner once, by its item, and a click opens the work', () => {
+  it('tell of each work that comes to hold a new question once, by its item and its question, and open the item', () => {
     const draw = drawn(fixtureItems());
     expect(Told.made).toEqual([]);
-    draw(withNow(142, question(9)));
-    expect(Told.made.map((n) => [n.title, n.options.body])).toEqual([
-      ["Waits for you: #142 Keep the panel's width", "Waits at plan for the owner's answer to a question"],
+    draw(withNow(142, waiting(question(9, 'Keep the width per view?'))));
+    expect(Told.made.map((n) => [n.title, n.options.body, n.options.tag, n.options.renotify])).toEqual([
+      ["Waits for you: #142 Keep the panel's width", 'Keep the width per view?', 'wf-agents-item-142', true],
     ]);
-    draw(withNow(142, question(9)));
+    draw(withNow(142, waiting(question(9, 'Keep the width per view?'))));
     expect(Told.made).toHaveLength(1);
     act(() => Told.made[0].onclick?.());
-    expect(window.location.hash).toBe('#/works/42');
+    expect(window.location.hash).toBe('#/console/items/142');
     expect(Told.made[0].closed).toBe(true);
+  });
+
+  it('tell nothing of a fault, a pause of the engine or a command line that cannot run', () => {
+    const draw = drawn(fixtureItems());
+    draw(withNow(142, { kind: 'paused', by: 'engine', why: 'A round failed.' }));
+    draw(withNow(142, { kind: 'fault', words: 'Two entries at 3' }));
+    expect(Told.made).toEqual([]);
   });
 
   it('tell nothing while the owner looks at the page, or where the browser was given no leave', () => {
@@ -121,24 +136,25 @@ describe("the browser's notifications", () => {
     // The page is in sight, and has the focus.
     expect(document.visibilityState).toBe('visible');
     looking = true;
-    draw(withNow(142, question(9)));
+    draw(withNow(142, waiting(question(9))));
     looking = false;
     Told.permission = 'denied';
-    draw(withNow(142, question(10)));
+    draw(withNow(142, waiting(question(9), question(10))));
     expect(Told.made).toEqual([]);
   });
 
-  it('tell again each hour how many works wait, while any does', () => {
+  it('tell again each hour how many questions are left, while any is', () => {
     vi.useFakeTimers();
+    const left = [...heldByWork(fixtureItems().items).values()].reduce((a, b) => a + b, 0);
+    expect(left).toBeGreaterThan(0);
     drawn(fixtureItems());
-    const waiting = waitingByWork(fixtureItems().items).size;
-    expect(waiting).toBeGreaterThan(0);
     act(() => {
       vi.advanceTimersByTime(AGAIN_MS);
     });
-    expect(Told.made.map((n) => n.title)).toEqual([`${waiting} works wait for you`]);
-    act(() => Told.made[0].onclick?.());
-    expect(window.location.hash).toBe('#/console');
+    const title = `${left} ${left === 1 ? 'question waits' : 'questions wait'} for you`;
+    expect(Told.made.map((n) => [n.title, n.options.tag, n.options.renotify])).toEqual([
+      [title, 'wf-agents-questions', true],
+    ]);
   });
 
   it('ask the browser for leave once, at the first click on the page', () => {
@@ -150,5 +166,20 @@ describe("the browser's notifications", () => {
       window.dispatchEvent(new Event('pointerdown'));
     });
     expect(Told.asked).toBe(1);
+  });
+
+  it('neither tell nor ask on a page that is not the engine\'s own', () => {
+    vi.useFakeTimers();
+    Told.permission = 'default';
+    const draw = drawn(fixtureItems(), false);
+    act(() => {
+      window.dispatchEvent(new Event('pointerdown'));
+    });
+    Told.permission = 'granted';
+    draw(withNow(142, waiting(question(9))));
+    act(() => {
+      vi.advanceTimersByTime(AGAIN_MS);
+    });
+    expect([Told.asked, Told.made.length]).toEqual([0, 0]);
   });
 });

@@ -34,7 +34,7 @@ function round(number: number, from: number, to: number, usd: number, over: Part
     spent: spent(usd, to - from),
     context: 400,
     compactions: 0,
-    session: { line: 'engineer', number: 1, begins: number === 1 },
+    session: { line: 'engineer', number: 0 },
     tries: [{ attempt: 1, ran: { level: '2', model: 'claude-sonnet-5-5', effort: 'high' }, filled: [] }],
     ...over,
   };
@@ -70,7 +70,7 @@ function work(): WorkPage {
       'plan',
       [
         round(1, 30, 40, 3, {
-          session: { line: 'engineer', number: 2, begins: true },
+          session: { line: 'engineer', number: 1 },
           tries: [{ attempt: 1, ran: { level: '3', model: 'claude-opus-5-5', effort: null }, filled: [] }],
         }),
       ],
@@ -121,7 +121,7 @@ describe('what a work used', () => {
 
   it('groups the rounds by the model, level and effort they recorded, and the cost by cell, the dearest first', () => {
     const u = usageOf(work(), 0);
-    expect(u.models.map((m) => [m.ran?.model, m.ran?.level, m.ran?.effort, m.rounds, m.usdMicros])).toEqual([
+    expect(u.models.map((m) => [m.ran?.model, m.ran?.level, m.ran?.effort, m.spent.rounds, m.spent.usdMicros])).toEqual([
       ['claude-opus-5-5', '3', null, 1, 3_000_000],
       ['claude-sonnet-5-5', '2', 'high', 2, 2_000_000],
     ]);
@@ -131,12 +131,13 @@ describe('what a work used', () => {
     ]);
   });
 
-  it('gives each session of a line why it began and its context after each round', () => {
+  it('gives each session of a line, as the records count them, why it began and its context after each round', () => {
     const u = usageOf(work(), 0);
-    expect(u.sessions.map((s) => [s.line, s.number, s.why, s.rounds, s.context, s.compactions])).toEqual([
-      ['engineer', 1, null, 2, 800, 1],
-      ['engineer', 2, { kind: 'limit', context: 900, limit: 500 }, 1, 400, 0],
+    expect(u.sessions.map((s) => [s.line, s.number, s.why, s.spent.rounds, s.context, s.compactions])).toEqual([
+      ['engineer', 0, null, 2, 800, 1],
+      ['engineer', 1, { kind: 'limit', context: 900, limit: 500 }, 1, 400, 0],
     ]);
+    expect(u.sessions.map((s) => s.spent.usdMicros)).toEqual([2_000_000, 3_000_000]);
     expect(u.sessions[0].points.map((p) => [p.at, p.context, p.compacted])).toEqual([
       [0, 400, false],
       [1, 800, true],

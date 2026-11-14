@@ -488,25 +488,12 @@
   margin-top: var(--space-4);
 }
 
-/* What a work used, in the panel: its totals as numbers with no frame, then its parts. */
-.usage-tiles {
-  display: grid;
-  /* Four to a row of the panel at the width it opens at. */
-  grid-template-columns: repeat(auto-fill, minmax(calc(var(--panel) / 4), 1fr));
-  gap: var(--space-12);
-  margin-bottom: var(--space-16);
-}
-
-.usage-tile {
+/* What a work used, in the panel: its totals by their keys, then its parts. */
+.usage-totals {
   display: flex;
   flex-direction: column;
-  min-width: 0;
-}
-
-.usage-value {
-  font-size: var(--size-title);
-  font-weight: var(--weight-strong);
-  font-variant-numeric: tabular-nums;
+  gap: var(--space-4);
+  margin-bottom: var(--space-16);
 }
 
 /* The bar of where the time went: its parts side by side, each as wide as its share. */

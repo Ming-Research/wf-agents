@@ -1,43 +1,48 @@
-// What a work used, as the old page's Usage tab showed it, from the rounds the work recorded: what it cost, how long it
-// took, its rounds and tokens and the share read from the cache; where the time went, as one bar and as a line of time
-// with a block for each round and each tool's call, each gap saying its own length; each model at the level and effort
-// its rounds recorded; the cost by cell; each session of a line with why it began and its context after each round; and
-// how long each tool ran. Every mark says what it is on pointing at it. It is shown in the work's panel when the owner
-// opens it from what the view's line says the work has taken.
+// What a work used, from the rounds the work recorded, each by the keys the records keep it under and what the page
+// works out from them said plainly: what it took and the share read from the cache; where the time went, as one bar
+// and as a line of time with a block for each round and each tool's call, each gap saying its own length; each model
+// at the level and effort its rounds recorded; the cost by cell; each session of a line with why it began and its
+// context after each round; and how long each tool ran. Every mark says what it is on pointing at it. It is shown in
+// the work's panel when the owner opens it from what the view's line says the work has taken.
 
 import type { ReactNode } from 'react';
 
 import { Attr, ListRow, Panel, PanelPart } from '../parts';
 import type { SessionWhy } from '../works-api';
+import { Keys } from './Round';
 import type { PanelProps } from './StepPanel';
 import { type RoundOf, type SessionRow, type Span, usageOf } from './used';
-import { clock, count, dollars, duration, share, tokens } from './words';
+import { DOLLARS, type Key, clock, count, dollars, duration, keysLine, share, spentKeys, tokens } from './words';
 
 const pct = (part: number, whole: number) => (whole > 0 ? (100 * part) / whole : 0);
 
-/// A round as the usage names it: its run and its number in the run, at its cell.
-const roundName = (r: RoundOf) => `run ${r.run}, round ${r.number}, ${r.cell}`;
+/// How long rounds were under way together, said plainly.
+const UNDER_WAY = 'under way';
 
-/// A number that stands for the whole work, under its name, with what more it says under it.
-function Tile({ name, value, more }: { name: string; value: string; more?: ReactNode }) {
-  return (
-    <div className="usage-tile">
-      <span className="label">{name}</span>
-      <span className="usage-value">{value}</span>
-      {more !== undefined && <span className="muted small">{more}</span>}
-    </div>
-  );
-}
+/// A round by its keys: its run, its number in the run, and its cell.
+const roundKeys = (r: RoundOf): Key[] => [
+  ['run', String(r.run)],
+  ['round', String(r.number)],
+  ['cell', r.cell],
+];
 
-/// What a stretch of the work's time was, on pointing at it.
-function spanWords(s: Span): string {
-  const when = `${clock(s.start)} to ${clock(s.end)}, ${duration(s.end - s.start)}`;
+/// When a stretch began and ended, and how long it was.
+const whenKeys = (s: Span): Key[] => [
+  ['from', clock(s.start)],
+  ['to', clock(s.end)],
+  [UNDER_WAY, duration(s.end - s.start)],
+];
+
+/// What a stretch of the work's time was, on pointing at it: a round, a tool's call, or a gap, which says its length.
+function spanTip(s: Span): string {
   if (s.round) {
-    const cost = s.round.spent ? `, ${dollars(s.round.spent.usdMicros)}` : s.round.underWay ? ', under way' : '';
-    return `${roundName(s.round)}: ${when}${cost}`;
+    const took: Key[] = s.round.spent ? [[DOLLARS, dollars(s.round.spent.usdMicros)]] : [];
+    return keysLine([...roundKeys(s.round), ...whenKeys(s), ...took]);
   }
-  if (s.call && s.call.what.kind === 'tool') return `call ${s.call.call}, the tool ${s.call.what.name}: ${when}`;
-  return `Not running: ${when}`;
+  if (s.call && s.call.what.kind === 'tool') {
+    return keysLine([['call', String(s.call.call)], ['tool', s.call.what.name], ...whenKeys(s)]);
+  }
+  return `Not running: ${keysLine([['from', clock(s.start)], ['to', clock(s.end)], ['for', duration(s.end - s.start)]])}`;
 }
 
 /// The work's time from its first round's begin to its last round's end, a block for each stretch.
@@ -50,7 +55,7 @@ function Timeline({ spans, start, end }: { spans: Span[]; start: number; end: nu
           <span
             key={i}
             className={`us-block us-${s.kind}`}
-            title={spanWords(s)}
+            title={spanTip(s)}
             style={{ left: `${pct(s.start - start, whole)}%`, width: `max(${pct(s.end - s.start, whole)}%, 2px)` }}
           />
         ))}
@@ -116,21 +121,13 @@ function Bars({ rows }: { rows: { key: string; name: ReactNode; value: number; t
 /// Why a session began, by the kind the records name and the values it carries; the line's first began with it.
 function WhyKeys({ why }: { why: SessionWhy | null }) {
   if (why === null) return <span className="muted">the line's first</span>;
-  return (
-    <span className="keys">
-      <Attr name="why" value={why.kind} />
-      {why.kind === 'limit' && (
-        <>
-          <Attr name="context" value={count(why.context)} />
-          <Attr name="limit" value={count(why.limit)} />
-        </>
-      )}
-      {why.kind === 'model' && <Attr name="was" value={why.was} />}
-    </span>
-  );
+  const keys: Key[] = [['why', why.kind]];
+  if (why.kind === 'limit') keys.push(['context', count(why.context)], ['limit', count(why.limit)]);
+  if (why.kind === 'model') keys.push(['was', why.was]);
+  return <Keys keys={keys} />;
 }
 
-/// A session as the usage names it: its line, and its number among the line's.
+/// A session as the usage names it: its line, and its number among the line's as the records count them.
 const sessionName = (s: SessionRow) => `${s.line} ${s.number}`;
 
 /// Each session's context after each of its rounds, a line for each session labelled at its end, a compaction marked
@@ -159,7 +156,13 @@ function ContextChart({ sessions, rounds }: { sessions: SessionRow[]; rounds: nu
             {s.points.map((p) => (
               <circle key={p.at} className="usage-point" cx={x(p.at)} cy={y(p.context)} r={p.compacted ? 4 : 2.5}>
                 <title>
-                  {`${roundName(p.round)}: ${sessionName(s)}, context_tokens ${count(p.context)}${p.compacted ? ', compacted' : ''}`}
+                  {keysLine([
+                    ...roundKeys(p.round),
+                    ['line', s.line],
+                    ['session', String(s.number)],
+                    ['context_tokens', count(p.context)],
+                    ...(p.compacted ? ([['compactions', String(p.round.compactions)]] as Key[]) : []),
+                  ])}
                 </title>
               </circle>
             ))}
@@ -179,7 +182,6 @@ function ContextChart({ sessions, rounds }: { sessions: SessionRow[]; rounds: nu
 export function UsagePanel({ page, fold }: PanelProps) {
   const u = usageOf(page, Date.now());
   const work = page.summary.number;
-  const read = u.spent.inputTokens + u.spent.cachedTokens;
   const head = { label: `What work W${work} used`, id: `W${work}`, title: 'Usage', belongs: 'of the work' };
   if (u.rounds.length === 0) {
     return (
@@ -188,19 +190,19 @@ export function UsagePanel({ page, fold }: PanelProps) {
       </Panel>
     );
   }
+  const whole: Key[] = [
+    ['rounds', String(u.rounds.length)],
+    ["rounds of agents' cells", String(u.agentRounds)],
+    ['sent_back', String(u.sentBack)],
+    ['compactions', String(u.compactions)],
+    ["first round's begin to last round's end", duration(u.end - u.start)],
+    [UNDER_WAY, duration(u.time.model + u.time.tool + u.time.engine)],
+  ];
   return (
     <Panel {...head} {...fold}>
-      <div className="usage-tiles">
-        <Tile name="Cost" value={dollars(u.spent.usdMicros)} more={`${u.agentRounds} agent rounds`} />
-        <Tile
-          name="Time"
-          value={duration(u.end - u.start)}
-          more={`running ${duration(u.time.model + u.time.tool + u.time.engine)}`}
-        />
-        <Tile name="Rounds" value={String(u.rounds.length)} more={`${u.sentBack} sent back`} />
-        <Tile name="Tokens read" value={tokens(read)} more={`${share(u.spent.cachedTokens, read)} from cache`} />
-        <Tile name="Tokens written" value={tokens(u.spent.outputTokens)} />
-        <Tile name="Compactions" value={String(u.compactions)} />
+      <div className="usage-totals">
+        <Keys keys={spentKeys(u.spent)} />
+        <Keys keys={whole} />
       </div>
       <PanelPart label="Where the time went">
         <TimeBar time={u.time} />
@@ -219,14 +221,14 @@ export function UsagePanel({ page, fold }: PanelProps) {
                   {m.ran.effort !== null && <Attr name="effort" value={m.ran.effort} />}
                 </>
               )}
-              <span className="row-note keys small">
-                <Attr name="rounds" value={m.rounds} />
-                <Attr name="time" value={duration(m.ms)} />
-                <Attr name="input_tokens" value={tokens(m.inputTokens)} />
-                <Attr name="cached_tokens" value={tokens(m.cachedTokens)} />
-                <Attr name="output_tokens" value={tokens(m.outputTokens)} />
-                <Attr name="cache_hit" value={share(m.cachedTokens, m.inputTokens + m.cachedTokens)} />
-                <Attr name="cost" value={`${dollars(m.usdMicros)}, ${share(m.usdMicros, u.spent.usdMicros)}`} />
+              <span className="row-note small">
+                <Keys
+                  keys={[
+                    ['rounds', String(m.spent.rounds)],
+                    [UNDER_WAY, duration(m.spent.workingMs)],
+                    ...spentKeys(m.spent),
+                  ]}
+                />
               </span>
             </ListRow>
           ))}
@@ -246,7 +248,12 @@ export function UsagePanel({ page, fold }: PanelProps) {
               ),
               value: c.usdMicros,
               text: dollars(c.usdMicros),
-              tip: `${c.cell}: ${dollars(c.usdMicros)}, ${share(c.usdMicros, u.spent.usdMicros)} of the cost, ${c.rounds} rounds`,
+              tip: keysLine([
+                ['cell', c.cell],
+                [DOLLARS, dollars(c.usdMicros)],
+                ['share of the cost', share(c.usdMicros, u.spent.usdMicros)],
+                ['rounds', String(c.rounds)],
+              ]),
             };
           })}
         />
@@ -258,12 +265,16 @@ export function UsagePanel({ page, fold }: PanelProps) {
               <Attr name="line" value={s.line} />
               <Attr name="session" value={s.number} />
               <WhyKeys why={s.why} />
-              <span className="row-note keys small">
-                <Attr name="rounds" value={s.rounds} />
-                <Attr name="time" value={duration(s.ms)} />
-                <Attr name="context_tokens" value={s.context === null ? '–' : tokens(s.context)} />
-                <Attr name="compactions" value={s.compactions} />
-                <Attr name="cost" value={dollars(s.usdMicros)} />
+              <span className="row-note small">
+                <Keys
+                  keys={[
+                    ['rounds', String(s.spent.rounds)],
+                    [UNDER_WAY, duration(s.spent.workingMs)],
+                    ['context_tokens', s.context === null ? '–' : count(s.context)],
+                    ['compactions', String(s.compactions)],
+                    ...spentKeys(s.spent),
+                  ]}
+                />
               </span>
             </ListRow>
           ))}
@@ -279,7 +290,11 @@ export function UsagePanel({ page, fold }: PanelProps) {
               name: <span className="mono">{t.name}</span>,
               value: t.ms,
               text: duration(t.ms),
-              tip: `the tool ${t.name}: ${duration(t.ms)}, ${t.calls} calls`,
+              tip: keysLine([
+                ['tool', t.name],
+                [UNDER_WAY, duration(t.ms)],
+                ['calls', String(t.calls)],
+              ]),
             }))}
           />
         </PanelPart>

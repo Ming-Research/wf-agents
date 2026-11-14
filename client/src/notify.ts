@@ -1,22 +1,20 @@
-// The browser's notifications of what newly waits for the owner: what the bar counts (`waitsForOwner`, Engine.tsx) and
-// nothing else. Each work that comes to wait for the owner for something new, a question, a stopped work, a fault, is
-// told of once, by its item and what it waits for, and a click on it opens the work; while anything is left waiting,
-// the owner is told again each hour how many works wait. The page asks the browser for leave once, at the owner's first
-// click on it as browsers want, and never again whatever the answer; it tells nothing while the owner looks at the page,
-// whose bar counts what waits already. Brought over from the page on `old-main` (`client/src/notify.ts`), which told of
-// conversations.
+// The browser's notifications of the questions to the owner that hold a work, and of nothing else (principle
+// one-count-of-what-waits). A work that holds more of them than when the items were read before is told of once, by
+// its item and its latest question, and a click on it opens the item in the console, where the question is answered;
+// while any is left, the owner is told again each hour how many there are. A notification that takes the place of one
+// before it alerts again. The page asks the browser for leave once, at the owner's first click on it as browsers want,
+// and never again whatever the answer; it tells nothing while the owner looks at the page, and nothing at all, nor
+// asks, on a page that is not the engine's own (`on`).
 
 import { useEffect, useRef } from 'react';
 
-import { whoGives } from './console/items';
-import { waitsForOwner } from './Engine';
-import type { Item, Items, Now, Waited } from './works-api';
-import { nowWords } from './works/words';
+import { hashOf } from './route';
+import type { Item, Items, Now } from './works-api';
 
 /// Where this browser keeps that the page asked for leave.
 const ASKED = 'wf-agents.notifications-asked';
 
-/// How often the owner is told again that works wait, while any does.
+/// How often the owner is told again of the questions that are left, while any is.
 export const AGAIN_MS = 60 * 60 * 1000;
 
 /// Whether the browser has notifications at all.
@@ -48,91 +46,74 @@ function askOnce(): (() => void) | undefined {
 /// Whether the owner looks at the page now.
 const looking = (): boolean => document.visibilityState === 'visible' && document.hasFocus();
 
-/// What of a wait is the owner's to give, by what tells one apart from another.
-function waitedKey(w: Waited): string {
-  switch (w.kind) {
-    case 'call':
-      return `call ${w.call}`;
-    case 'precondition':
-      return `precondition ${w.test}`;
-    case 'agents':
-      return `agents ${w.outage.failure}`;
-    default:
-      return w.kind;
-  }
+/// The questions to the owner that hold a work now, in the order the work waits for them: a question its cell asked,
+/// by its name, or one put to the owner as a call, by its words.
+export function questionsHolding(now: Now): string[] {
+  if (now.kind !== 'waits') return [];
+  return now.on.flatMap((w) => {
+    if (w.kind === 'answer') return [w.question];
+    return w.kind === 'call' && w.what.kind === 'question' && w.what.who === 'owner' ? [w.what.question] : [];
+  });
 }
 
-/// What a work waits for the owner for, as a key that differs whenever it waits for something new; none where it waits
-/// for nothing of the owner's.
-export function waitingKey(now: Now): string | null {
-  if (!waitsForOwner(now)) return null;
-  switch (now.kind) {
-    case 'fault':
-      return `fault ${now.words}`;
-    case 'paused':
-      return `paused ${now.why ?? ''}`;
-    case 'waits':
-      return `waits ${now.at}: ${now.on.filter((w) => whoGives(w) === 'owner').map(waitedKey).join(', ')}`;
-    default:
-      return now.kind;
-  }
-}
-
-/// What each work waits for the owner for, by the work's number.
-export function waitingByWork(items: Item[]): Map<number, string> {
-  const out = new Map<number, string>();
+/// How many questions to the owner hold each work, by the work's number, for those that hold any.
+export function heldByWork(items: Item[]): Map<number, number> {
+  const out = new Map<number, number>();
   for (const i of items) {
-    const key = waitingKey(i.work.now);
-    if (key !== null) out.set(i.work.number, key);
+    const n = questionsHolding(i.work.now).length;
+    if (n > 0) out.set(i.work.number, n);
   }
   return out;
 }
 
-/// The items whose works wait for the owner for something they did not wait for before; none at the first reading
-/// (`before` none), when everything that waits is old.
-export function newlyWaiting(before: Map<number, string> | null, items: Item[]): Item[] {
+/// The items whose works hold more questions to the owner than they did before; none at the first reading (`before`
+/// none), when every question is old. A question answered among others is no new one.
+export function newlyHeld(before: Map<number, number> | null, items: Item[]): Item[] {
   if (before === null) return [];
-  return items.filter((i) => {
-    const key = waitingKey(i.work.now);
-    return key !== null && before.get(i.work.number) !== key;
-  });
+  return items.filter((i) => questionsHolding(i.work.now).length > (before.get(i.work.number) ?? 0));
 }
 
-/// Tells the owner, by the browser's notifications, of each work that newly waits for them, as the items are read
-/// again, and again each hour how many wait, while any does.
-export function useNotifications(items: Items | null): void {
-  const before = useRef<Map<number, string> | null>(null);
-  const waiting = useRef(0);
-  useEffect(() => askOnce(), []);
+/// A notification that takes the place of one with its tag, and alerts again as it does.
+function tell(title: string, body: string | undefined, tag: string, opens: string) {
+  const options: NotificationOptions & { renotify: boolean } = { body, tag, renotify: true };
+  const n = new Notification(title, options);
+  n.onclick = () => {
+    window.focus();
+    window.location.hash = opens;
+    n.close();
+  };
+}
+
+/// Tells the owner, by the browser's notifications, of each work that newly holds a question to them, as the items
+/// are read again, and again each hour how many questions are left, while any is; on a page that is not the engine's
+/// own (`on` false), nothing.
+export function useNotifications(items: Items | null, on: boolean): void {
+  const before = useRef<Map<number, number> | null>(null);
+  const left = useRef(0);
+  useEffect(() => (on ? askOnce() : undefined), [on]);
   useEffect(() => {
-    if (items === null) return;
-    const fresh = newlyWaiting(before.current, items.items);
-    before.current = waitingByWork(items.items);
-    waiting.current = before.current.size;
+    if (!on || items === null) return;
+    const fresh = newlyHeld(before.current, items.items);
+    before.current = heldByWork(items.items);
+    left.current = [...before.current.values()].reduce((a, b) => a + b, 0);
     if (fresh.length === 0 || !can() || Notification.permission !== 'granted' || looking()) return;
     for (const i of fresh) {
-      const n = new Notification(`Waits for you: #${i.number} ${i.title}`, {
-        body: nowWords(i.work.now),
-        tag: `wf-agents-work-${i.work.number}`,
-      });
-      n.onclick = () => {
-        window.focus();
-        window.location.hash = `#/works/${i.work.number}`;
-        n.close();
-      };
+      const questions = questionsHolding(i.work.now);
+      tell(
+        `Waits for you: #${i.number} ${i.title}`,
+        questions[questions.length - 1],
+        `wf-agents-item-${i.number}`,
+        hashOf({ view: 'console', item: i.number }),
+      );
     }
-  }, [items]);
+  }, [items, on]);
   useEffect(() => {
+    if (!on) return;
     const timer = setInterval(() => {
-      const n = waiting.current;
+      const n = left.current;
       if (n === 0 || !can() || Notification.permission !== 'granted' || looking()) return;
-      const told = new Notification(`${n} ${n === 1 ? 'work waits' : 'works wait'} for you`, { tag: 'wf-agents-waiting' });
-      told.onclick = () => {
-        window.focus();
-        window.location.hash = '#/console';
-        told.close();
-      };
+      tell(`${n} ${n === 1 ? 'question waits' : 'questions wait'} for you`, undefined, 'wf-agents-questions', '#/console');
     }, AGAIN_MS);
     return () => clearInterval(timer);
-  }, []);
+  }, [on]);
 }

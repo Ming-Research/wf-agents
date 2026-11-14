@@ -47,7 +47,7 @@ export interface Reader {
   /// What a round was told and returned, as its carrier kept them; kept once read only where the round had ended.
   told(run: number, number: number, ended: boolean): Promise<ToldPage>;
   call(call: number): Promise<string | null>;
-  /// The system prompt the line's session of this number, the first being one, began with; kept once read.
+  /// The system prompt the line's session of this number, the line's first being none, began with; kept once read.
   system(line: string, session: number): Promise<string>;
   /// What the agent of a round was last seen doing, the latest last; read anew each time.
   doing(run: number, number: number): Promise<Doing[]>;
@@ -121,9 +121,10 @@ function CallLine({ row, reader, abandoned }: { row: CallRow; reader: Reader; ab
 }
 
 /// One round: what it was given, what came back, when it began and ended, what it ran on, what it took, the context it
-/// ended with, what was filled into its session and, while it is under way, what its agent is doing; then the system
-/// prompt of the session it begins, and what it was told and what it returned, as its carrier kept them.
-function RoundPart({ run, round, reader }: { run: Run; round: Round; reader: Reader }) {
+/// ended with, what was filled into its session and, while it is under way, what its agent is doing, read only while
+/// the panel is `shown`; then the system prompt of its session, and what it was told and what it returned, as its
+/// carrier kept them.
+function RoundPart({ run, round, reader, shown }: { run: Run; round: Round; reader: Reader; shown: boolean }) {
   const doing = useCallback(() => reader.doing(run.run, round.number), [reader, run.run, round.number]);
   const session = round.session;
   const given = round.given;
@@ -245,12 +246,12 @@ function RoundPart({ run, round, reader }: { run: Run; round: Round; reader: Rea
           <>
             <dt>Doing</dt>
             <dd>
-              <DoingNow load={doing} />
+              <DoingNow load={doing} shown={shown} />
             </dd>
           </>
         )}
       </dl>
-      {session?.begins && <SystemPrompt load={() => reader.system(session.line, session.number)} />}
+      {session !== null && <SystemPrompt load={() => reader.system(session.line, session.number)} />}
       <RoundTold
         load={() => reader.told(run.run, round.number, round.ended !== null)}
         ended={round.ended}
@@ -327,7 +328,7 @@ export function RunPanel({ run, page, reader, fold }: PanelProps & { run: Run })
         </ul>
       </PanelPart>
       {run.rounds.map((round) => (
-        <RoundPart key={round.number} run={run} round={round} reader={reader} />
+        <RoundPart key={round.number} run={run} round={round} reader={reader} shown={!fold.folded} />
       ))}
       <PanelPart label="Calls" count={run.calls.length} last>
         {run.calls.length === 0 ? (

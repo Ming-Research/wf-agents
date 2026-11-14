@@ -11,6 +11,7 @@ import {
   fixtureCopies,
   fixtureDoing,
   fixtureItems,
+  fixtureProjects,
   fixtureRound,
   fixtureSystem,
   fixtureTold,
@@ -38,6 +39,7 @@ function sourceOf(over: Partial<Source> = {}): Source & { reads: { doing: number
     reads,
     loadCopies: async () => fixtureCopies(),
     loadItems: async () => fixtureItems(),
+    loadProjects: async () => fixtureProjects(),
     loadWork: async (n) => fixtureWork(n),
     loadVersion: async (n, block, at) => fixtureVersion(n, block, at),
     loadRound: async (n, run, round) => fixtureRound(n, run, round),
@@ -119,27 +121,26 @@ const button = (root: ParentNode, words: string) =>
 
 describe("a round's part of a run's panel", () => {
   it('shows what it ran on, what it took and the context it ended with, by their keys', async () => {
-    // The long history's plan: its first round begins the engineer's first session, and asks for two calls.
+    // The long history's plan: its first round runs in the engineer's first session, which the records count as none,
+    // and asks for two calls.
     const panel = await runPanel(fixtureWork(41), 1, sourceOf());
     const first = roundPart(panel, 1);
     expect(keys(pair(first, 'Ran'))).toEqual([
       'line engineer',
-      'session 1',
-      'begins true',
+      'session 0',
       'level 2',
       'model claude-sonnet-5-5',
       'effort high',
     ]);
+    // The records' keys, and what the page works out from them said plainly.
     expect(keys(pair(first, 'Took'))).toEqual([
-      'cost $0.09',
+      'usd_micros in dollars $0.09',
       'input_tokens 20,200',
       'cached_tokens 14,140',
       'output_tokens 1,500',
-      'cache_hit 41%',
+      'cached_tokens / (input_tokens + cached_tokens) 41%',
     ]);
     expect(keys(pair(first, 'Context'))).toEqual(['context_tokens 34,340', 'compactions 0']);
-    // A round that goes on in its session does not begin it.
-    expect(keys(pair(roundPart(panel, 2), 'Ran'))).not.toContain('begins true');
   });
 
   it('shows what was filled into its session, each part as the flow\'s files name it, before what it was sent', async () => {
@@ -152,15 +153,16 @@ describe("a round's part of a run's panel", () => {
     expect(order.indexOf('Filled')).toBeLessThan(order.indexOf('Show what it was told'));
   });
 
-  it("shows the line's system prompt once a session, on the round that begins it, read when opened", async () => {
+  it("shows on each round the system prompt of its session, which each round is sent, read once when opened", async () => {
     const source = sourceOf();
     const panel = await runPanel(fixtureWork(41), 1, source);
-    const first = roundPart(panel, 1);
-    expect(button(roundPart(panel, 2), 'Show system prompt')).toBeUndefined();
+    const [first, second] = [roundPart(panel, 1), roundPart(panel, 2)];
     expect(source.reads.system).toEqual([]);
     await click(button(first, 'Show system prompt'));
-    expect(source.reads.system).toEqual(['engineer 1']);
-    expect(first.querySelector('pre.content')?.textContent).toBe(fixtureSystem(41, 'engineer', 1).text);
+    await click(button(second, 'Show system prompt'));
+    expect(source.reads.system).toEqual(['engineer 0']);
+    const text = fixtureSystem(41, 'engineer', 0).text;
+    expect([first, second].map((r) => r.querySelector('pre.content')?.textContent)).toEqual([text, text]);
   });
 
   it('shows what the agent of a round under way is doing, read again every few seconds while it is shown', async () => {
@@ -190,6 +192,14 @@ describe("a round's part of a run's panel", () => {
     });
     expect(reads).toBe(2);
     expect(rows(pair(roundPart(panel, 2), 'Doing'))).toEqual(['The types check.', 'compact_boundary']);
+    // Folded away, the panel reads nothing; brought back, it reads again at once.
+    await click(panel.querySelector('.drawer-tab'));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3 * DOING_MS);
+    });
+    expect(reads).toBe(2);
+    await click(panel.querySelector('.drawer-tab'));
+    expect(reads).toBe(3);
     // Let go of, the run's panel reads nothing more.
     act(() => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
@@ -197,7 +207,7 @@ describe("a round's part of a run's panel", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3 * DOING_MS);
     });
-    expect(reads).toBe(2);
+    expect(reads).toBe(3);
   });
 });
 
@@ -210,13 +220,20 @@ describe('what a work used', () => {
     const panel = page.querySelector('aside') as HTMLElement;
     expect(panel.getAttribute('aria-label')).toBe('What work W41 used');
     expect(spend.getAttribute('aria-pressed')).toBe('true');
-    expect([...panel.querySelectorAll('.usage-tile .label')].map((l) => l.textContent)).toEqual([
-      'Cost',
-      'Time',
-      'Rounds',
-      'Tokens read',
-      'Tokens written',
-      'Compactions',
+    // What it took and its rounds, by the records' keys and what the page works out from them said plainly.
+    const totals = [...panel.querySelectorAll('.usage-totals .keys > span > span:first-child')];
+    expect(totals.map((k) => k.textContent)).toEqual([
+      'usd_micros in dollars',
+      'input_tokens',
+      'cached_tokens',
+      'output_tokens',
+      'cached_tokens / (input_tokens + cached_tokens)',
+      'rounds',
+      "rounds of agents' cells",
+      'sent_back',
+      'compactions',
+      "first round's begin to last round's end",
+      'under way',
     ]);
     expect([...panel.querySelectorAll('.panel-part-label')].map((l) => l.firstChild?.textContent)).toEqual([
       'Where the time went',
@@ -235,7 +252,7 @@ describe('what a work used', () => {
     // Each gap on the line of time says its own length on pointing at it.
     const gaps = [...panel.querySelectorAll('.usage-timeline .us-gap')].map((g) => g.getAttribute('title') ?? '');
     expect(gaps.length).toBeGreaterThan(0);
-    for (const gap of gaps) expect(gap).toMatch(/^Not running: .+ to .+, \d+[smhd]/);
+    for (const gap of gaps) expect(gap).toMatch(/^Not running: from .+, to .+, for \d+[smhd]/);
     await click(spend);
     expect(page.querySelector('aside')?.getAttribute('aria-label')).toBe('Blocks');
   });

@@ -41,16 +41,11 @@ export interface Span {
   call: CallRow | null;
 }
 
-/// The rounds that ran on one model at one level and effort, as the rounds recorded them; `ran` none for the rounds
-/// that recorded none.
+/// The rounds that ran on one model at one level and effort, as the rounds recorded them, and what they took together;
+/// `ran` none for the rounds that recorded none.
 export interface ModelRow {
   ran: RanOn | null;
-  rounds: number;
-  ms: number;
-  inputTokens: number;
-  cachedTokens: number;
-  outputTokens: number;
-  usdMicros: number;
+  spent: Spent;
 }
 
 export interface CellRow {
@@ -64,12 +59,11 @@ export interface SessionRow {
   line: string;
   number: number;
   why: SessionWhy | null;
-  rounds: number;
-  ms: number;
+  /// What its rounds took together.
+  spent: Spent;
   /// The context its last round that knew it ended with.
   context: number | null;
   compactions: number;
-  usdMicros: number;
   /// Each of its rounds that knew its context: its place among the work's rounds, the context it ended with, and
   /// whether the session was compacted during it.
   points: { at: number; context: number; compacted: boolean; round: RoundOf }[];
@@ -202,21 +196,8 @@ export function usageOf(page: WorkPage, now: number): Usage {
     cells.set(r.cell, cell);
     if (!r.agent || r.spent === null) continue;
     const key = r.ran === null ? '' : `${r.ran.model}\u0000${r.ran.level}\u0000${r.ran.effort ?? ''}`;
-    const m = models.get(key) ?? {
-      ran: r.ran,
-      rounds: 0,
-      ms: 0,
-      inputTokens: 0,
-      cachedTokens: 0,
-      outputTokens: 0,
-      usdMicros: 0,
-    };
-    m.rounds += 1;
-    m.ms += r.ended - r.began;
-    m.inputTokens += r.spent.inputTokens;
-    m.cachedTokens += r.spent.cachedTokens;
-    m.outputTokens += r.spent.outputTokens;
-    m.usdMicros += r.spent.usdMicros;
+    const m = models.get(key) ?? { ran: r.ran, spent: nothing() };
+    m.spent = add(m.spent, r.spent);
     models.set(key, m);
   }
 
@@ -228,18 +209,14 @@ export function usageOf(page: WorkPage, now: number): Usage {
     const s = sessions.get(key) ?? {
       line,
       number,
-      why: number > 1 ? (whyOf(page.steps, line)[number - 2] ?? null) : null,
-      rounds: 0,
-      ms: 0,
+      why: number > 0 ? (whyOf(page.steps, line)[number - 1] ?? null) : null,
+      spent: nothing(),
       context: null,
       compactions: 0,
-      usdMicros: 0,
       points: [],
     };
-    s.rounds += 1;
-    s.ms += r.ended - r.began;
+    if (r.spent) s.spent = add(s.spent, r.spent);
     s.compactions += r.compactions;
-    s.usdMicros += r.spent?.usdMicros ?? 0;
     if (r.context !== null) {
       s.context = r.context;
       s.points.push({ at, context: r.context, compacted: r.compactions > 0, round: r });
@@ -257,6 +234,7 @@ export function usageOf(page: WorkPage, now: number): Usage {
   }
 
   const byCost = <T extends { usdMicros: number }>(rows: T[]) => rows.sort((a, b) => b.usdMicros - a.usdMicros);
+  const modelsByCost = [...models.values()].sort((a, b) => b.spent.usdMicros - a.spent.usdMicros);
   return {
     rounds,
     agentRounds: rounds.filter((r) => r.agent).length,
@@ -267,7 +245,7 @@ export function usageOf(page: WorkPage, now: number): Usage {
     end,
     time,
     spans,
-    models: byCost([...models.values()]),
+    models: modelsByCost,
     cells: byCost([...cells.values()]),
     sessions: [...sessions.values()],
     tools: [...tools.values()].sort((a, b) => b.ms - a.ms),

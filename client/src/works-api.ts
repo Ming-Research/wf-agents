@@ -23,7 +23,7 @@
 // - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}/doing`: what the round's agent was last seen doing, as its
 //   carrier keeps it as it comes (`DoingPage`); read again every few seconds while the round is under way.
 // - `GET  /api/v1/works/{work}/lines/{line}/sessions/{session}/system`: the system prompt the line's session of this
-//   number, the first being one, began with (`SystemPage`).
+//   number, the line's first being none, began with (`SystemPage`).
 // - `GET  /api/v1/works/{work}/calls/{call}`: a call with its result (`CallPage`).
 // - `POST /api/v1/works/{work}/acts`: what the owner does to a work (`Act`); answers with no content, or with why it
 //   was refused (`Refusal`) and a status of 4xx.
@@ -326,12 +326,11 @@ export interface Round {
   tries: RoundTry[];
 }
 
-/// The session of its line a round runs in: which of the line's sessions, the first being one, and whether the round
-/// begins it, so that the session is given the line's system prompt with it.
+/// The session of its line a round runs in: which of the line's sessions, as the records count them, the line's first
+/// being none.
 export interface RoundSession {
   line: string;
   number: number;
-  begins: boolean;
 }
 
 /// A try of a round, as the records hold it: what it ran on, and each time something was filled into its session,

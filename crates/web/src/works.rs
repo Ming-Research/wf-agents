@@ -677,6 +677,7 @@ pub struct Round {
     /// How often its session was compacted during it.
     pub compactions: u32,
     /// The session of its line it runs in; none for a round of a cell that is not on a line, as an engine's act is.
+    /// Worked out for a work's page only, as are its tries.
     pub session: Option<RoundSession>,
     /// Each try of it the records hold, in order; none for a try that began before tries were recorded.
     pub tries: Vec<RoundTry>,
@@ -687,11 +688,8 @@ pub struct Round {
 #[serde(rename_all = "camelCase")]
 pub struct RoundSession {
     pub line: String,
-    /// Which of the line's sessions it is, the first being one.
+    /// Which of the line's sessions it is, as the records count them: the line's first is none.
     pub number: u32,
-    /// Whether the round begins it: no round of the line before it in the session reached the model, so that the
-    /// session holds nothing yet, and is given the line's system prompt with the round.
-    pub begins: bool,
 }
 
 /// A try of a round, as the records hold it: what it ran on, and what was filled into its session.
@@ -1037,7 +1035,7 @@ pub enum TryBack {
 #[serde(rename_all = "camelCase")]
 pub struct SystemPage {
     pub line: String,
-    /// Which of the line's sessions it is, the first being one.
+    /// Which of the line's sessions it is, as the records count them: the line's first is none.
     pub session: u32,
     pub text: String,
 }
@@ -1624,7 +1622,9 @@ impl WorkPage {
                     .collect(),
             })
             .collect();
-        let mut steps: Vec<Step> = runs(kept)?.into_iter().map(Step::Run).collect();
+        let mut runs = runs(kept)?;
+        in_detail(kept, &mut runs);
+        let mut steps: Vec<Step> = runs.into_iter().map(Step::Run).collect();
         for written in &work.records.written {
             let version = (view.blocks.get(&written.block))
                 .and_then(|versions| versions.iter().find(|v| v.at == written.at))
@@ -2050,8 +2050,10 @@ impl Unmet {
     }
 }
 
-/// Every run of the work, in the order they started, each with its rounds, its calls and how it ended.
-pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
+/// Gives each round of the runs the session of its line it runs in, by the records' count, and each try of it the
+/// records hold, with what was filled into its session: what a work's page shows of a round, and nothing else needs,
+/// since working out a round's session counts the line's rounds before it.
+fn in_detail(kept: Kept<'_>, runs: &mut [Run]) {
     let work = kept.work;
     let records = &work.records;
     // The line of each run's cell, where the flow puts it on one.
@@ -2060,10 +2062,45 @@ pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
         let spec = kept.flow.cells.iter().find(|spec| spec.id == *cell)?;
         spec.line.as_deref()
     };
+    for r in runs {
+        let run = RunId(r.run);
+        let line = line_of(run);
+        for round in &mut r.rounds {
+            let number = round.number;
+            round.session = line.map(|line| {
+                let on_line = |other: RunId| line_of(other) == Some(line);
+                RoundSession {
+                    line: line.to_string(),
+                    number: sessions::of_round(work, line, on_line, run, number).0,
+                }
+            });
+            round.tries = (work.ran.iter())
+                .filter(|ran| ran.run == run && ran.round == number)
+                .map(|ran| RoundTry {
+                    attempt: ran.attempt,
+                    ran: RanOn {
+                        level: ran.on.level.clone(),
+                        model: ran.on.model.clone(),
+                        effort: ran.on.effort.clone(),
+                    },
+                    filled: (work.filled.iter())
+                        .filter(|f| f.run == run && f.round == number && f.attempt == ran.attempt)
+                        .map(|f| f.fills.iter().map(Fill::of).collect())
+                        .collect(),
+                })
+                .collect();
+        }
+    }
+}
+
+/// Every run of the work, in the order they started, each with its rounds, its calls and how it ended; a round's
+/// session and tries are left out, for [`in_detail`] to give where they are shown.
+pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
+    let work = kept.work;
+    let records = &work.records;
     let mut runs = Vec::new();
     for started in &records.started {
         let run = started.run;
-        let line = line_of(run);
         let began: Vec<Seq> = (records.rounds.iter()).filter(|r| r.run == run).map(|r| r.at).collect();
         let ended: Vec<Seq> = (records.returned.iter())
             .filter(|r| r.run == run)
@@ -2125,29 +2162,6 @@ pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                 }
             };
             let took = took.flatten();
-            let session = line.map(|line| {
-                let (session, begins) = sessions::of_round(work, line, |r| line_of(r) == Some(line), run, number);
-                RoundSession {
-                    line: line.to_string(),
-                    number: session.saturating_add(1),
-                    begins,
-                }
-            });
-            let tries = (work.ran.iter())
-                .filter(|ran| ran.run == run && ran.round == number)
-                .map(|ran| RoundTry {
-                    attempt: ran.attempt,
-                    ran: RanOn {
-                        level: ran.on.level.clone(),
-                        model: ran.on.model.clone(),
-                        effort: ran.on.effort.clone(),
-                    },
-                    filled: (work.filled.iter())
-                        .filter(|f| f.run == run && f.round == number && f.attempt == ran.attempt)
-                        .map(|f| f.fills.iter().map(Fill::of).collect())
-                        .collect(),
-                })
-                .collect();
             rounds.push(Round {
                 number,
                 began,
@@ -2157,8 +2171,8 @@ pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                 spent,
                 context: took.and_then(|t| t.context_tokens),
                 compactions: took.map_or(0, |t| t.compactions),
-                session,
-                tries,
+                session: None,
+                tries: Vec::new(),
             });
         }
         let mut calls = Vec::new();

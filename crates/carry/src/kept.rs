@@ -540,22 +540,29 @@ mod tests {
             let input = serde_json::json!({ "command": format!("echo {n}") });
             assistant(serde_json::json!([{ "type": "tool_use", "name": "Bash", "input": input }]))
         };
-        // A tool's long result after the first uses puts them past what is read of the stream's end.
-        let mut lines: Vec<String> = (0..3).map(echo).collect();
-        lines.push(format!(
+        let used = |from: usize, to: usize| (from..to).map(echo).collect::<Vec<_>>().join("\n");
+        let seen = |dir: &tempfile::TempDir| -> Vec<Option<String>> {
+            (doing_at(dir).into_iter())
+                .map(|d| match d {
+                    Doing::Tool { on, .. } => on,
+                    _ => None,
+                })
+                .collect()
+        };
+        let echoed =
+            |from: usize, to: usize| -> Vec<Option<String>> { (from..to).map(|n| Some(format!("echo {n}"))).collect() };
+        // Of many, the last few.
+        std::fs::write(stream_at(&base, 1), used(0, 12)).unwrap();
+        assert_eq!(seen(&dir), echoed(4, 12));
+        // A tool's long result after the first uses puts them past what is read of the stream's end: fewer than the
+        // last few are given, those after it.
+        let long = format!(
             r#"{{"type":"user","message":{{"content":"{}"}}}}"#,
             "x".repeat(300 << 10)
-        ));
-        lines.extend((3..13).map(echo));
-        std::fs::write(stream_at(&base, 1), lines.join("\n")).unwrap();
-        let got: Vec<Option<String>> = (doing_at(&dir).into_iter())
-            .map(|d| match d {
-                Doing::Tool { on, .. } => on,
-                _ => None,
-            })
-            .collect();
-        let latest: Vec<Option<String>> = (5..13).map(|n| Some(format!("echo {n}"))).collect();
-        assert_eq!(got, latest);
+        );
+        let stream = [used(0, 5), long, used(5, 8)].join("\n");
+        std::fs::write(stream_at(&base, 1), stream).unwrap();
+        assert_eq!(seen(&dir), echoed(5, 8));
     }
 
     #[test]

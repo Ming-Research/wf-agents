@@ -300,7 +300,7 @@ class History {
       spent: null,
       context: null,
       compactions: 0,
-      session: line === null ? null : { line, number: 1, begins },
+      session: line === null ? null : { line, number: 0 },
       tries:
         line === null
           ? []

@@ -85,6 +85,32 @@ export function share(part: number, whole: number): string {
   return whole > 0 ? `${Math.round((100 * part) / whole)}%` : '–';
 }
 
+/// A key of what was taken, or what the page works out from them, said plainly, with its value.
+export type Key = [string, string];
+
+/// The key the page shows a cost under: the records keep it in millionths of a dollar, and the page says it in dollars.
+export const DOLLARS = 'usd_micros in dollars';
+
+/// The share of what was sent that was read from the cache, as the page works it out from the records' keys.
+export const CACHED_SHARE = 'cached_tokens / (input_tokens + cached_tokens)';
+
+/// What a round, or rounds together, took, by each key the records keep it under, with its value, and the share read
+/// from the cache.
+export function spentKeys(spent: Spent): Key[] {
+  return [
+    [DOLLARS, dollars(spent.usdMicros)],
+    ['input_tokens', count(spent.inputTokens)],
+    ['cached_tokens', count(spent.cachedTokens)],
+    ['output_tokens', count(spent.outputTokens)],
+    [CACHED_SHARE, share(spent.cachedTokens, spent.inputTokens + spent.cachedTokens)],
+  ];
+}
+
+/// Keys with their values in a line, for the pointer's tip: `rounds 3, calls 2`.
+export function keysLine(keys: Key[]): string {
+  return keys.map(([key, value]) => `${key} ${value}`).join(', ');
+}
+
 /// Every token a round took: what it was given, what it read from the cache, and what it gave back.
 export function allTokens(spent: Spent): number {
   return spent.inputTokens + spent.cachedTokens + spent.outputTokens;
