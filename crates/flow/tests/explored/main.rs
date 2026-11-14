@@ -23,8 +23,9 @@
 //! A path of more than 200 decisions with nothing written from outside, or that comes back to a state it was in, breaks
 //! property 4.
 //!
-//! What it costs: a few thousand states, each a few decisions of the walk, in a few seconds; the coverage test prints
-//! the numbers. Nextest runs each test in a process of its own, so each test runs the search once.
+//! What it costs: a few thousand states, each a few decisions of the walk, in a few seconds; the test prints the
+//! numbers. The search runs once, in one test that checks every property on what it found and names each that fails,
+//! with every breach of it.
 
 #[allow(dead_code)]
 #[path = "../../../decide/tests/support/mod.rs"]
@@ -38,7 +39,6 @@ mod explore;
 mod model;
 
 use std::path::Path;
-use std::sync::OnceLock;
 
 use decide::{BlockId, CellId};
 use explore::{
@@ -91,87 +91,66 @@ fn engineer() -> Compiled {
     compile(&source, &has).expect("the engineer's flow compiles")
 }
 
-fn model() -> &'static Model {
-    static MODEL: OnceLock<Model> = OnceLock::new();
-    MODEL.get_or_init(|| Model::new(engineer()))
-}
-
-fn explored() -> &'static Explored {
-    static EXPLORED: OnceLock<Explored> = OnceLock::new();
-    EXPLORED.get_or_init(|| explore(model(), BOUNDS))
-}
-
 fn stats(e: &Explored) -> String {
     let s = &e.stats;
     format!(
         "{} states, {} decisions of the walk, {} readings of what a round was told, {} runs, at most {} decisions in a \
-         row, in {:.2?}",
-        s.states, s.decisions, s.told, s.runs, s.longest, s.took
-    ) + &format!(
-        "; states by what their paths spent, and whether the outside wrote: {:?}",
-        s.by_spent
+         row, in {:.2?}; states by what their paths spent, and whether the outside wrote: {:?}",
+        s.states, s.decisions, s.told, s.runs, s.longest, s.took, s.by_spent
     )
 }
 
-/// The property holds on every path explored, but for the breaches [`KNOWN`] gives it, each of which is found.
-fn holds(property: Property) {
-    let e = explored();
+/// Each property by its number and what it says, as a failure names it.
+const PROPERTIES: &[(Property, &str)] = &[
+    (
+        Property::NewToIt,
+        "1. a cell runs only on a version of its own trigger that it has not consumed and did not write",
+    ),
+    (
+        Property::Contradicting,
+        "2. cells whose conditions want another value never run off the same version",
+    ),
+    (
+        Property::NextStep,
+        "3. every state has a next step, or waits for the owner or the outside, or has merged",
+    ),
+    (
+        Property::ComesToRest,
+        "4. with nothing written from outside, the walk comes to a stop within a bound",
+    ),
+    (
+        Property::Groups,
+        "5. a group runs a cell only for a change of a member, and the cell is given every member",
+    ),
+    (
+        Property::Gates,
+        "6. a cell runs only through its gates, and the check only once every question is answered",
+    ),
+    (
+        Property::Incremental,
+        "7. a write from outside runs again only the cells its change reaches",
+    ),
+    (
+        Property::Engine,
+        "the engine takes every step the exploration asks of it",
+    ),
+];
+
+/// What breaks the property on the paths explored: each breach [`KNOWN`] does not give it, and each [`KNOWN`] gives it
+/// that was not found.
+fn failures(e: &Explored, property: Property) -> Vec<String> {
     let found: Vec<_> = e.breaches.iter().filter(|((p, _), _)| *p == property).collect();
     let known = |name: &str| KNOWN.iter().any(|(p, n, _)| *p == property && *n == name);
-    let new: Vec<String> = (found.iter())
+    let mut failures: Vec<String> = (found.iter())
         .filter(|((_, name), _)| !known(name))
-        .map(|((_, name), b)| format!("{name}\n{}", b.show()))
+        .map(|((_, name), b)| format!("breached: {name}\n{}", b.show()))
         .collect();
-    let gone: Vec<&str> = (KNOWN.iter())
-        .filter(|(p, n, _)| *p == property && !found.iter().any(|((_, name), _)| name == n))
-        .map(|(_, n, _)| *n)
-        .collect();
-    let mut known_found = String::new();
-    for ((_, name), b) in found.iter().filter(|((_, name), _)| known(name)) {
-        known_found.push_str(&format!("{name} (known)\n{}", b.show()));
+    for (_, name, _) in KNOWN.iter().filter(|(p, _, _)| *p == property) {
+        if !found.iter().any(|((_, n), _)| n == name) {
+            failures.push(format!("known, and no longer found: {name}"));
+        }
     }
-    eprintln!("{}\n{known_found}", stats(e));
-    assert!(
-        new.is_empty() && gone.is_empty(),
-        "{}\n\nbreached:\n{}\nknown and no longer found: {gone:?}",
-        stats(e),
-        new.join("\n")
-    );
-}
-
-#[test]
-fn a_cell_runs_only_on_a_version_of_its_own_trigger_that_it_has_not_consumed_and_did_not_write() {
-    holds(Property::NewToIt);
-}
-
-#[test]
-fn cells_whose_conditions_want_another_value_never_run_off_the_same_version() {
-    holds(Property::Contradicting);
-}
-
-#[test]
-fn every_state_has_a_next_step_or_waits_for_the_owner_or_has_merged() {
-    holds(Property::NextStep);
-}
-
-#[test]
-fn with_nothing_written_from_outside_the_walk_comes_to_a_stop_within_a_bound() {
-    holds(Property::ComesToRest);
-}
-
-#[test]
-fn a_group_runs_a_cell_only_for_a_change_of_a_member_and_the_cell_is_given_every_member() {
-    holds(Property::Groups);
-}
-
-#[test]
-fn a_cell_runs_only_through_its_gates_and_the_check_only_once_every_question_is_answered() {
-    holds(Property::Gates);
-}
-
-#[test]
-fn a_write_from_outside_runs_again_only_the_cells_its_change_reaches() {
-    holds(Property::Incremental);
+    failures
 }
 
 /// The paths the owner's test plan names as rarely taken, each of which the exploration must reach.
@@ -197,44 +176,62 @@ fn rare() -> Vec<String> {
     ]
 }
 
-#[test]
-fn the_exploration_reaches_every_rarely_taken_path_and_the_engine_takes_every_step() {
-    let e = explored();
-    let m = model();
-    let missing: Vec<String> = rare().into_iter().filter(|r| !e.reached.contains_key(r)).collect();
-    let never: Vec<String> = m
-        .universe()
-        .into_iter()
+/// What the coverage lacks: a rarely taken path not reached, and what was never reached against [`NEVER`].
+fn coverage(e: &Explored, m: &Model) -> Vec<String> {
+    let mut failures: Vec<String> = (rare().into_iter())
+        .filter(|r| !e.reached.contains_key(r))
+        .map(|r| format!("not reached: {r}"))
+        .collect();
+    let never: Vec<String> = (m.universe().into_iter())
         .filter(|u| !e.reached.contains_key(u))
         .collect();
-    let engine: Vec<String> = (e.breaches.iter())
-        .filter(|((p, _), _)| *p == Property::Engine)
-        .map(|((_, name), b)| format!("{name}\n{}", b.show()))
-        .collect();
-    let mut reruns = String::new();
+    for n in never.iter().filter(|n| !NEVER.iter().any(|(item, _)| item == n)) {
+        failures.push(format!("never reached, and not said why: {n}"));
+    }
+    for (item, _) in NEVER.iter().filter(|(item, _)| !never.iter().any(|n| n == item)) {
+        failures.push(format!("said never reached, and reached: {item}"));
+    }
+    failures
+}
+
+/// What the exploration reached, and what each write from outside ran again.
+fn report(e: &Explored) -> String {
+    let mut s = String::from("what each write from outside ran again:\n");
     for (what, cells) in &e.reruns {
         let cells: Vec<&str> = cells.iter().map(CellId::as_str).collect();
-        reruns.push_str(&format!("  {what}: {}\n", cells.join(", ")));
+        s.push_str(&format!("  {what}: {}\n", cells.join(", ")));
     }
-    let mut reached = String::new();
+    s.push_str("reached:\n");
     for (what, n) in &e.reached {
-        reached.push_str(&format!("  {n:>6} {what}\n"));
+        s.push_str(&format!("  {n:>6} {what}\n"));
     }
-    let report = format!(
-        "{}\n\nnever reached:\n  {}\n\nwhat each write from outside ran again:\n{reruns}\nreached:\n{reached}",
-        stats(e),
-        never.join("\n  ")
-    );
-    eprintln!("{report}");
-    let expected: Vec<&str> = NEVER.iter().map(|(item, _)| *item).collect();
-    let unexpected: Vec<&String> = never.iter().filter(|n| !expected.contains(&n.as_str())).collect();
-    let now_reached: Vec<&str> = expected.into_iter().filter(|x| !never.iter().any(|n| n == x)).collect();
-    assert!(
-        missing.is_empty() && engine.is_empty() && unexpected.is_empty() && now_reached.is_empty(),
-        "{report}\nnot reached: {missing:?}\nnever reached, and not said why: {unexpected:?}\nsaid never \
-         reached, and reached: {now_reached:?}\nsteps the engine refused:\n{}",
-        engine.join("\n")
-    );
+    s
+}
+
+/// One search of the engineer's flow, and every property checked on what it found: each that fails is named with
+/// every breach of it, all in one run.
+#[test]
+fn the_engineers_flow_keeps_every_property_on_every_path_explored_and_reaches_every_rare_path() {
+    let m = Model::new(engineer());
+    let e = explore(&m, BOUNDS);
+    let mut failed = Vec::new();
+    for (property, name) in PROPERTIES {
+        let failures = failures(&e, *property);
+        if !failures.is_empty() {
+            failed.push(format!("property {name}:\n{}", failures.join("\n")));
+        }
+    }
+    let coverage = coverage(&e, &m);
+    if !coverage.is_empty() {
+        failed.push(format!("8. coverage:\n  {}", coverage.join("\n  ")));
+    }
+    let is_known = |p: &Property, n: &String| KNOWN.iter().any(|(kp, kn, _)| kp == p && kn == n);
+    let mut known = String::new();
+    for ((_, name), b) in e.breaches.iter().filter(|((p, n), _)| is_known(p, n)) {
+        known.push_str(&format!("{name} (known)\n{}", b.show()));
+    }
+    eprintln!("{}\n\n{known}\n{}", stats(&e), report(&e));
+    assert!(failed.is_empty(), "{}\n\n{}", stats(&e), failed.join("\n\n"));
 }
 
 /// What of the flow the exploration never reaches, each with why: what the flow's definition holds and no path can
