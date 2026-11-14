@@ -10,8 +10,14 @@ slow-timeout = { period = "30s", terminate-after = 2 }
 # on GitHub's machines several take longer than 60 s, by the number of histories they need to reach what they must
 # (two of them above 90 s and 150 s, unoptimized, run alone by `cargo test`). They are stopped at 300 s.
 [[profile.ci.overrides]]
-filter = 'binary(histories) | test(=random_works_on_the_engineers_flow_keep_what_the_flow_must)'
+filter = 'binary(histories)'
 slow-timeout = { period = "60s", terminate-after = 5 }
+
+# The histories of the engineer's flow walk the most, its cells running on the groups of its blocks: on GitHub's
+# machines its 500 histories take longer than 300 s. They are stopped at 540 s, inside the job's 15 minutes.
+[[profile.ci.overrides]]
+filter = 'test(=random_works_on_the_engineers_flow_keep_what_the_flow_must)'
+slow-timeout = { period = "60s", terminate-after = 9 }
 
 # What became of each test of a run, as JUnit XML, at target/nextest/ci/junit.xml: fast.yml uploads it for the engine
 # to read (the artifact test-results), and ci.yml keeps it with its run.
