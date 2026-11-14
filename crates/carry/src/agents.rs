@@ -346,14 +346,13 @@ impl Inner {
         let changes = tree::changes(flow, work, round.run, round.number, &dir, tree_dir).await?;
         // The task as the message sends it, each setting it names with its value beside it; and a result of the tool
         // `query` longer than its file says a message gives, cut as the tool cuts it, the records holding it whole.
-        let task = system::task(&of.filling.named, &round.cell)?;
         let results = tools::given(work, &of.beside);
         let told = main.as_ref().and_then(CaughtUp::told);
         let carried = context::Carried {
             about,
             main: told.as_ref(),
             changes: &changes,
-            task: task.as_deref(),
+            named: &of.filling.named,
             results: &results,
         };
         let enter = |anew| context::enter(flow, &of.beside, work, round.run, round.number, &carried, anew);
