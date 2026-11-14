@@ -93,7 +93,7 @@ fn results(calls: &[CallId]) -> Cause {
 
 /// The wait on the precondition, which these can make hold.
 fn precondition(test: &str, by: Vec<Maker>) -> Waited {
-    Waited::Precondition { test: test.into(), by }
+    Waited::Precondition { on: test.into(), by }
 }
 
 /// The cell of this name, as one who can make a precondition hold.
@@ -103,16 +103,16 @@ fn by_cell(cell: &str) -> Maker {
 
 /// A cell that runs only when the block's current value is this one.
 fn when(block: &str, value: &str, mut c: Cell) -> Cell {
-    c.applies = Some(Condition::Is {
+    c.applies = vec![Condition::Is {
         block: block.into(),
         value: value.into(),
-    });
+    }];
     c
 }
 
 /// A cell that runs only while the named test holds.
 fn on_test(test: &str, mut c: Cell) -> Cell {
-    c.applies = Some(Condition::Test(test.into()));
+    c.applies = vec![Condition::Test(test.into())];
     c
 }
 

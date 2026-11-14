@@ -37,11 +37,7 @@ pub const GATE: &str = "the merge may go";
 fn tests_for(cells: &[Cell], given: &BTreeMap<TestName, Test>) -> BTreeMap<TestName, Test> {
     let mut tests = given.clone();
     for c in cells {
-        let condition = match &c.applies {
-            Some(Condition::Test(t)) => Some(t),
-            _ => None,
-        };
-        for t in condition.into_iter().chain(&c.requires) {
+        for t in c.tests() {
             tests.entry(t.clone()).or_insert_with(|| word(t.as_str()));
         }
     }
@@ -106,7 +102,7 @@ pub fn gate() -> Cell {
 /// The owner's word at the merge, as the walk reports waiting for it.
 pub fn merge_word() -> Waited {
     Waited::Precondition {
-        test: GATE.into(),
+        on: GATE.into(),
         by: vec![Maker::Owner],
     }
 }

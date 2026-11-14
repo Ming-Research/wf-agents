@@ -58,6 +58,8 @@ pub struct Flow {
     tests: BTreeMap<TestName, Test>,
     /// Who besides the cells writes each block; a block not here is written by cells alone.
     outsiders: BTreeMap<BlockId, Outsiders>,
+    /// The value each choice that has one counts as before anyone has written it, by block.
+    defaults: BTreeMap<BlockId, String>,
 }
 
 /// Who writes a block without running a cell: the cells that write it are those with it among their outputs.
@@ -89,7 +91,7 @@ pub struct Test {
 }
 
 /// How the blocks a named test reads make it hold, by which of them have the value it tests for now. A block never
-/// written has no value. A new kind is a new function of the walk.
+/// written has no value, or its default where the flow gives it one. A new kind is a new function of the walk.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TestKind {
@@ -122,7 +124,7 @@ pub enum FlowFault {
     LastHasCondition(CellId),
     /// The cell's limit is zero: it could never run again for what a cell after it wrote, nor be let go on.
     NoLimit(CellId),
-    /// The cell's condition or a precondition is a named test the flow does not have.
+    /// A key of the cell's condition or of its preconditions names a named test the flow does not have.
     NoSuchTest(CellId, TestName),
     /// A named test a cell uses reads a block that no cell, person or source outside the work writes: nobody could
     /// change whether it holds, and a wait on it would name nobody.
@@ -139,7 +141,7 @@ impl Flow {
         let Some(last) = cells.last() else {
             return Err(FlowFault::Empty);
         };
-        if last.applies.is_some() {
+        if !last.applies.is_empty() {
             return Err(FlowFault::LastHasCondition(last.id.clone()));
         }
         for (i, cell) in cells.iter().enumerate() {
@@ -149,24 +151,16 @@ impl Flow {
             if cell.limit == 0 {
                 return Err(FlowFault::NoLimit(cell.id.clone()));
             }
-            if let Some(Condition::Is { block, .. }) = &cell.applies
-                && cell.outputs.contains(block)
-            {
-                let others = cells.iter().any(|c| c.id != cell.id && c.outputs.contains(block))
-                    || outsiders.get(block).is_some_and(|o| o.people || o.outside.is_some());
-                if others {
-                    return Err(FlowFault::ConditionOnOwnOutput(cell.id.clone()));
-                }
-            }
-            let condition = match &cell.applies {
-                Some(Condition::Test(test)) => Some(test),
-                _ => None,
+            // A block the cell writes that another writer writes too.
+            let shared = |block: &BlockId| {
+                cell.outputs.contains(block)
+                    && (cells.iter().any(|c| c.id != cell.id && c.outputs.contains(block))
+                        || outsiders.get(block).is_some_and(|o| o.people || o.outside.is_some()))
             };
-            if let Some(test) = condition
-                .into_iter()
-                .chain(&cell.requires)
-                .find(|t| !tests.contains_key(t))
-            {
+            if (cell.applies.iter()).any(|key| matches!(key, Condition::Is { block, .. } if shared(block))) {
+                return Err(FlowFault::ConditionOnOwnOutput(cell.id.clone()));
+            }
+            if let Some(test) = cell.tests().find(|t| !tests.contains_key(t)) {
                 return Err(FlowFault::NoSuchTest(cell.id.clone(), test.clone()));
             }
         }
@@ -174,19 +168,27 @@ impl Flow {
             cells,
             tests,
             outsiders,
+            defaults: BTreeMap::new(),
         };
         for cell in &flow.cells {
-            let condition = match &cell.applies {
-                Some(Condition::Test(test)) => Some(test),
-                _ => None,
-            };
-            for name in condition.into_iter().chain(&cell.requires) {
+            for name in cell.tests() {
                 if let Some(block) = flow.tests[name].reads.iter().find(|b| !flow.is_written(b)) {
                     return Err(FlowFault::Unwritten(name.clone(), block.clone()));
                 }
             }
         }
         Ok(flow)
+    }
+
+    /// The flow with these defaults: the value each of these choices counts as before anyone has written it.
+    pub fn with_defaults(mut self, defaults: BTreeMap<BlockId, String>) -> Self {
+        self.defaults = defaults;
+        self
+    }
+
+    /// The value the block counts as before anyone has written it; none where it has no default.
+    pub fn default_of(&self, block: &BlockId) -> Option<&str> {
+        self.defaults.get(block).map(String::as_str)
     }
 
     /// Whether the block is a note: what people write in it are their words to the cells that read it.
@@ -234,12 +236,12 @@ impl Flow {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Cell {
     pub id: CellId,
-    /// When the cell runs at all; with none it always may. A cell whose condition is not met is skipped: what it wrote
-    /// before still counts.
-    pub applies: Option<Condition>,
-    /// The preconditions, each a named test of the flow: while one does not hold, the work waits before this cell for
-    /// whoever writes a block that keeps it from holding.
-    pub requires: Vec<TestName>,
+    /// When the cell runs at all: every one of these keys holds; with none it always may. A cell whose condition is not
+    /// met is skipped: what it wrote before still counts.
+    pub applies: Vec<Condition>,
+    /// The preconditions: while one of these keys does not hold, the work waits before this cell for whoever writes a
+    /// block that keeps it from holding.
+    pub requires: Vec<Condition>,
     /// The blocks whose new version runs the cell (design document `data-and-context`, 5 and 6): a block is new to the
     /// cell while it has a version, changing its meaning, later than the one the cell consumed, that the cell did not
     /// write itself. What the cell is given besides is no matter of the walk's.
@@ -258,12 +260,20 @@ pub struct Cell {
 }
 
 impl Cell {
+    /// The named tests its condition and its preconditions name, in that order.
+    pub fn tests(&self) -> impl Iterator<Item = &TestName> {
+        (self.applies.iter().chain(&self.requires)).filter_map(|key| match key {
+            Condition::Test(test) => Some(test),
+            Condition::Is { .. } => None,
+        })
+    }
+
     /// A cell of this name that always applies, that nothing runs, that writes nothing, has a limit of three runs and
     /// of three calls and takes a slot for each of its rounds: what a definition starts from.
     pub fn new(id: &str) -> Self {
         Self {
             id: id.into(),
-            applies: None,
+            applies: Vec::new(),
             requires: Vec::new(),
             runs_on: Vec::new(),
             outputs: Vec::new(),
@@ -274,11 +284,18 @@ impl Cell {
     }
 }
 
-/// When a cell runs at all.
+/// One key of a cell's condition or of its preconditions, every one of which holds where the cell runs, or goes on.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Condition {
     /// The block's current value is this one (principle yes-no-forks).
     Is { block: BlockId, value: String },
     /// The named test of the flow holds.
     Test(TestName),
+}
+
+/// The named test of this name, as a key.
+impl From<&str> for Condition {
+    fn from(test: &str) -> Self {
+        Condition::Test(test.into())
+    }
 }

@@ -99,9 +99,9 @@ pub enum Abandoning {
 pub enum Waited {
     /// The result of a call the cell's run rests at: from this person, or from the engine where `on` is `None`.
     Call { call: CallId, on: Option<Who> },
-    /// A precondition of the cell, a named test of the flow, does not hold: each of these writes a block that keeps it
-    /// from holding, and none other can make it hold.
-    Precondition { test: TestName, by: Vec<Maker> },
+    /// A key of the cell's preconditions does not hold: each of these writes a block that keeps it from holding, and
+    /// none other can make it hold.
+    Precondition { on: Condition, by: Vec<Maker> },
     /// The cell's last runs, this many in a row, were each for what a cell after it wrote, and so would the next be:
     /// the owner lets it go on or cancels the work.
     Limit { runs: u32 },
@@ -564,28 +564,37 @@ impl<'a> Walk<'a> {
         }
     }
 
-    /// Whether the condition of the cell at this place is met: with none it always is.
+    /// Whether the condition of the cell at this place is met: every key of it holds; with none it always is.
     pub(crate) fn applies(&self, i: usize) -> bool {
-        match &self.flow.cells()[i].applies {
-            None => true,
-            Some(Condition::Test(name)) => self.holds(name, i),
-            Some(Condition::Is { block, value }) => self.current(block).and_then(|v| v.value) == Some(value.as_str()),
+        (self.flow.cells()[i].applies.iter()).all(|key| self.keeping(key, i).is_empty())
+    }
+
+    /// The blocks that keep one key of a condition or of the preconditions of the cell at this place from holding, by
+    /// the value each has now; none where it holds. A write of any of them can change whether it holds.
+    fn keeping(&self, key: &'a Condition, i: usize) -> Vec<&'a BlockId> {
+        match key {
+            Condition::Test(name) => self.holding(name, i),
+            Condition::Is { block, value } if self.value_now(block) != Some(value.as_str()) => vec![block],
+            Condition::Is { .. } => Vec::new(),
         }
     }
 
-    /// Whether the named test holds, for the cell at this place: when no block it reads keeps it from holding.
-    fn holds(&self, name: &TestName, i: usize) -> bool {
-        self.holding(name, i).is_empty()
+    /// The block's value now: its current version's, or, where it was never written, its default.
+    fn value_now(&self, block: &BlockId) -> Option<&str> {
+        match self.current(block) {
+            Some(v) => v.value,
+            None => self.flow.default_of(block),
+        }
     }
 
     /// The blocks the named test reads that keep it from holding, for the cell at this place, by the value each has
     /// now: a write of any of them can change whether it holds. The flow has every test its cells name.
     fn holding(&self, name: &TestName, i: usize) -> Vec<&'a BlockId> {
         let test = &self.flow.tests()[name];
-        let has = |block: &BlockId| {
-            self.current(block).is_some_and(|v| {
-                v.value == Some(test.is.as_str()) && (test.kind != TestKind::NoneStanding || self.stands(v, i))
-            })
+        // A block never written has its default, which no cell wrote and so stands.
+        let has = |block: &BlockId| match self.current(block) {
+            Some(v) => v.value == Some(test.is.as_str()) && (test.kind != TestKind::NoneStanding || self.stands(v, i)),
+            None => self.flow.default_of(block) == Some(test.is.as_str()),
         };
         let reads = test.reads.iter();
         match test.kind {
@@ -695,11 +704,11 @@ impl<'a> Walk<'a> {
     /// holding.
     fn unmet(&self, i: usize) -> Vec<Waited> {
         (self.flow.cells()[i].requires.iter())
-            .filter_map(|test| {
-                let holding = self.holding(test, i);
-                (!holding.is_empty()).then(|| Waited::Precondition {
-                    test: test.clone(),
-                    by: self.makers(&holding),
+            .filter_map(|key| {
+                let keeping = self.keeping(key, i);
+                (!keeping.is_empty()).then(|| Waited::Precondition {
+                    on: key.clone(),
+                    by: self.makers(&keeping),
                 })
             })
             .collect()
