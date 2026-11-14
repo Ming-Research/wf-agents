@@ -2,7 +2,8 @@
 //!
 //! A line is a work that stands where only someone outside its flow can move it, and came to stand so since the mark
 //! the planner gives: it ended, merged or cancelled; it rests for a person, at a cell's question, a ruling only a person
-//! can give, a limit, or a pause the engine made with its reason; it waits for items none of which is going on; or its
+//! can give, a limit, a pause the engine made with its reason, or stalled, no cell able to write what it waits for; it
+//! waits for items none of which is going on; or its
 //! records cannot be those of a work. A work going on from one cell to the next is nothing for the planner, and neither
 //! is one the owner paused, which shows only as the reason why a work waiting for it is idle. A work that ended and
 //! could not let go of what it held, which the engine paused saying why, rests for a person. One line is about no
@@ -60,7 +61,7 @@ pub enum Heed {
     /// The work's records cannot be those of a work: nothing is decided on them.
     Fault { work: WorkNumber },
     /// The work rests for a person: a call a person answers, a precondition a person can make hold, a limit, a pause
-    /// the engine made with its reason, or nothing new to run any cell.
+    /// the engine made with its reason, or stalled, no cell able to write what it waits for.
     ForAPerson { work: WorkNumber },
     /// The work waits for these items, none of which is going on.
     Idle { work: WorkNumber, items: Vec<Idle> },
@@ -276,7 +277,7 @@ enum Standing {
     PausedByOwner {
         at: Seq,
     },
-    /// Nothing new runs a cell of it and nothing of it is under way or waited for: it rests until someone writes
+    /// It is stalled, and nothing pauses it: no cell will write what it waits for, and it rests until someone writes
     /// what runs a cell.
     Still,
     /// It goes on: a round is under way or about to begin, or it waits for what the engine or a cell will give.
@@ -318,9 +319,9 @@ impl Standing {
                     Standing::Going
                 }
             }
-            // A work at rest that a pause holds is the pauser's to let on.
-            Decision::Idle if decide::paused(records) => paused(),
-            Decision::Idle => Standing::Still,
+            // A stalled work that a pause holds is the pauser's to let on: the engine's pause says why it stalled.
+            Decision::Stalled { .. } if decide::paused(records) => paused(),
+            Decision::Stalled { .. } => Standing::Still,
             Decision::Busy { .. } | Decision::Run { .. } | Decision::GoOn { .. } | Decision::Abandon { .. } => {
                 Standing::Going
             }

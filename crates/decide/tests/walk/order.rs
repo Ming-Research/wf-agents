@@ -9,8 +9,8 @@ fn the_cells_run_in_their_order_each_for_what_is_new_to_it_and_a_work_ends_when_
         cell("b", &["p"], &["q"]),
         cell("merge", &["q"], &[]),
     ]);
-    // Nothing has a version, so nothing runs a cell.
-    assert_eq!(w.decide(), Decision::Idle);
+    // Nothing has a version, so nothing runs a cell: the work is stalled at the merge, which only b writes what runs.
+    assert_eq!(w.decide(), stalled("merge", &[], &[("b", Unrun::NothingNew)]));
     let brief = w.person_writes("brief");
     assert_eq!(
         w.decide(),
@@ -25,12 +25,12 @@ fn the_cells_run_in_their_order_each_for_what_is_new_to_it_and_a_work_ends_when_
 }
 
 #[test]
-fn a_work_in_which_nothing_new_runs_a_cell_rests_idle_until_someone_writes_what_runs_one() {
+fn a_work_in_which_nothing_new_runs_a_cell_is_stalled_at_its_last_cell_until_someone_writes_what_runs_one() {
     let mut w = World::new(vec![cell("a", &["brief"], &["p"]), cell("merge", &["p"], &[])]);
     w.person_writes("brief");
-    // The cell deals with the brief and hands in nothing new: nothing runs the merge.
+    // The cell deals with the brief and hands in nothing new: nothing runs the merge, and only a writes what runs it.
     w.run("a", &[]);
-    assert_eq!(w.decide(), Decision::Idle);
+    assert_eq!(w.decide(), stalled("merge", &[], &[("a", Unrun::NothingNew)]));
     w.person_writes("brief");
     assert!(matches!(w.decide(), Decision::Run { cell, .. } if cell.as_str() == "a"));
 }

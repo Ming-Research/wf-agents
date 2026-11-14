@@ -1249,7 +1249,7 @@ impl H {
                     number.0
                 );
             }
-            Decision::Wait { .. } | Decision::Ended(_) | Decision::Idle => {}
+            Decision::Wait { .. } | Decision::Ended(_) | Decision::Stalled { .. } => {}
         }
         if !matches!(shown, Decision::Busy { .. }) {
             assert_eq!(

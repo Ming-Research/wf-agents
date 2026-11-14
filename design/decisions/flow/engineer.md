@@ -32,7 +32,16 @@ of another.
 
 ### decision the-tree-runs-no-cell
 The design tree is a datum each cell that reads the tree is given `last_and_latest`, the files that changed since the
-version its session read, and runs no cell; of what comes from outside the work, only main runs a cell, the check before
-the merge.
+version its session read, and runs no cell; of what comes from outside the work, only main and `asked` run a cell, the
+check before the merge.
 Why: A changed tree run as a trigger would run the reading cell again, and every cell after it, for each commit that
 touches the tree; given as a datum, it is read where the line goes on, by the cell that next enters the session.
+
+### decision the-check-waits-for-the-review
+The check before the merge requires the review's yes beside its other gates, and runs again as the owner's answers
+change whether every question is answered (`asked`), as well as on the change and on main.
+Why: The watch of main writes main into every work, and before anything is judged the check's other gates hold: a
+research that handed in no plan, or an implementation that handed in nothing, let main run the check on a branch no one
+reviewed, holding the research's commits or nothing, whose CI passed and which merged. The old flow merged only after
+its review approved. The answer to a question the check asks reaches the last cell with a trigger of an answer, the
+implementation, which may have nothing to do: run only by what it writes, the check never looked again.

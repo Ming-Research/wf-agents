@@ -24,7 +24,7 @@
 //!
 //! And once people stop, the owner lets the work on if it is paused, for whatever reason, and no round fails any more:
 //! the work then rests within the bound stated on `bound` (property a-work-comes-to-rest), at rest it is not paused and
-//! the walk waits, has nothing new to any cell, or has ended, and `pending` holds only calls for a person; a work that
+//! the walk waits, is stalled, or has ended, and `pending` holds only calls for a person; a work that
 //! ended has let go of what it held; a cancelled work ends with nothing pending, and a look at it gives nothing. The
 //! same history ends with the same work run twice, and with its stops as without them, failed rounds among them.
 //!
@@ -399,11 +399,14 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
         if !paused {
             d.seen.rested_unpaused += 1;
         }
-        // Let on as people stopped, and failing no round since, the work rests not paused: it waits, has nothing new
-        // to any cell, or has ended.
+        // Let on as people stopped, and failing no round since, the work rests not paused: it waits, is stalled, or has
+        // ended.
         assert!(!paused, "the work rests paused");
         assert!(
-            matches!(decision, Decision::Wait { .. } | Decision::Idle | Decision::Ended(_)),
+            matches!(
+                decision,
+                Decision::Wait { .. } | Decision::Stalled { .. } | Decision::Ended(_)
+            ),
             "the work rests deciding {decision:?}"
         );
         for effect in pending(&d.flow, &d.work) {

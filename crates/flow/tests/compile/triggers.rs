@@ -576,3 +576,83 @@ fn a_file_beside_the_flows_that_stands_for_each_cell_or_each_datum_holds_the_nam
         [at("../triggers/of_a_datum/new.toml", "name", datum_missing)]
     );
 }
+
+/// The file of `reopened`, a trigger each line has its own of, written from outside.
+const REOPENED: &str =
+    "what = \"Fires when the session of {line} was reopened.\"\nblock = \"{line}_reopened\"\nfrom = \"main\"";
+
+/// The twin laid out one thing to a file with `reopened`, which the planning cell and the design, on the engineer's
+/// line, and the judge, on the review's, name besides their own triggers.
+fn reopened() -> Source {
+    let source = plan_triggers(r#"triggered_by = ["on_request", "on_opinions", "reopened"]"#);
+    let source = set(source, "../triggers/of_a_line/reopened.toml", REOPENED);
+    let source = edit(
+        source,
+        "cells/judge.toml",
+        r#"triggered_by = ["on_plan"]"#,
+        r#"triggered_by = ["on_plan", "reopened"]"#,
+    );
+    edit(
+        source,
+        "cells/design.toml",
+        r#"triggered_by = ["on_plan"]"#,
+        r#"triggered_by = ["on_plan", "reopened"]"#,
+    )
+}
+
+#[test]
+fn a_trigger_each_line_has_its_own_of_gives_the_cells_of_a_line_its_block_and_no_cell_of_another() {
+    let compiled = compiled(&reopened());
+    let stands_on = |id: &str| {
+        let t = (cell(&compiled, id).triggers.iter())
+            .find(|t| t.name == "reopened")
+            .expect("the trigger");
+        (t.block.to_string(), t.what.clone())
+    };
+    let of = |line: &str| {
+        (
+            format!("{line}_reopened"),
+            Some(format!("Fires when the session of {line} was reopened.")),
+        )
+    };
+    assert_eq!(stands_on("plan"), of("engineer"));
+    assert_eq!(stands_on("design"), of("engineer"));
+    assert_eq!(stands_on("judge"), of("review"));
+    for (block, readers) in [
+        ("engineer_reopened", vec!["plan", "design"]),
+        ("review_reopened", vec!["judge"]),
+    ] {
+        let declared = &compiled.blocks[&BlockId::from(block)];
+        assert!(declared.trigger, "{block}");
+        assert_eq!(declared.writers.outside.as_deref(), Some("main"), "{block}");
+        let read: Vec<&str> = declared.readers.cells.iter().map(|c| c.as_str()).collect();
+        assert_eq!(read, readers, "{block}");
+    }
+}
+
+#[test]
+fn a_cell_on_no_line_names_no_trigger_each_line_has_its_own_of() {
+    let source = edit(
+        reopened(),
+        "cells/check.toml",
+        r#"triggered_by = ["on_main", "on_design"]"#,
+        r#"triggered_by = ["on_main", "on_design", "reopened"]"#,
+    );
+    assert_eq!(faults(&source), [at("cells/check.toml", "triggered_by[2]", NoLine)]);
+}
+
+#[test]
+fn a_file_of_a_trigger_each_line_has_its_own_of_holds_the_name_that_stands_for_the_line() {
+    let source = set(
+        reopened(),
+        "../triggers/of_a_line/reopened.toml",
+        "block = \"reopened\"\nfrom = \"main\"",
+    );
+    let line_missing = MissingPlaceholder {
+        placeholder: "{line}".into(),
+    };
+    assert_eq!(
+        faults(&source),
+        [at("../triggers/of_a_line/reopened.toml", "block", line_missing)]
+    );
+}

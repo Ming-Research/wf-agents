@@ -588,7 +588,7 @@ fn advance(flow: &Compiled, work: &mut Work, at: At, effects: &mut Vec<Effect>) 
             | Decision::Busy { .. }
             | Decision::Paused
             | Decision::Wait { .. }
-            | Decision::Idle => {
+            | Decision::Stalled { .. } => {
                 return Ok(());
             }
         };

@@ -169,7 +169,7 @@ fn a_store_holding_works_gives_exactly_what_was_to_be_done_and_is_not_known_as_d
     rows.clear();
     assert_eq!(after, before, "opened again, the driver holds otherwise");
     // Never started by the owner, it has nothing new to run its first cell.
-    assert_eq!(h.decision(e), Decision::Idle);
+    assert!(matches!(h.decision(e), Decision::Stalled { .. }), "{:?}", h.decision(e));
     assert_eq!(h.decision(f), Decision::Ended(End::Merged));
 }
 

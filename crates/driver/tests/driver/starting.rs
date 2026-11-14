@@ -101,7 +101,11 @@ fn opened_on_works_going_on_it_pauses_everything_and_begins_nothing_until_the_ow
     );
     assert_eq!(h.d().everything_paused(), None);
     // Never started by the owner, it has nothing new to run its first cell.
-    assert_eq!(h.decision(never), Decision::Idle);
+    assert!(
+        matches!(h.decision(never), Decision::Stalled { .. }),
+        "{:?}",
+        h.decision(never)
+    );
 }
 
 #[test]

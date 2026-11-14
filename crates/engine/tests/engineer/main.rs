@@ -69,10 +69,10 @@
 //! the owner resumes a paused work, lets the cell it waits at go on at its limit, and makes a precondition it waits on
 //! hold where a person or the outside can: writes a verdict whose refusal stands as a value that is not, and the
 //! outside writes what the first cell's precondition looks for. Where the precondition reads a choice that only cells
-//! write (the check's), the owner writes a few words in an input of the cell that writes it which only people write,
-//! or, where that cell has none (the check is spoken to by no one), of the nearest cell before it that has one (the
-//! implementation, spoken to by the owner), so that the cell runs again, or the work goes on from the cell spoken to
-//! until it does; in the continuation the check then says yes.
+//! write (the check's), the work is stalled: the owner writes a few words in an input of the cell that writes it which
+//! only people write, or, where that cell has none (the check is spoken to by no one), of the nearest cell before it
+//! that has one (the implementation, spoken to by the owner), so that the cell runs again, or the work goes on from the
+//! cell spoken to until it does; in the continuation the check then says yes.
 //!
 //! Every situation the properties are about is counted over all histories (`required`), and the test fails if one was
 //! never reached. A failing case prints its seed and its steps; `one_history(&flow, seed, ..)` replays it.
@@ -82,6 +82,7 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+mod merging;
 mod reading;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -1095,10 +1096,16 @@ impl History {
         }
     }
 
-    /// What the owner or the outside does in the content continuation where nothing is to be done: resumes the work,
-    /// lets the cell it waits at go on at its limit, or makes a precondition it waits on hold, or asks the cell that
-    /// writes what it reads to write it again, which it says; none where none of these moves it on.
+    /// What the owner or the outside does in the content continuation where nothing is to be done: of a stalled work,
+    /// asks the cell that writes what it waits for to write it again, which it says; resumes the work; lets the cell it
+    /// waits at go on at its limit, or makes a precondition it waits on hold, or asks the cell that writes what it reads
+    /// to write it again, which it says; none where none of these moves it on.
     fn resolve(&self, decision: &Decision) -> Option<(Event, bool)> {
+        if let Decision::Stalled { on, .. } = decision
+            && let Some(asked) = on.iter().find_map(|key| ask_a_cell(&self.d, key))
+        {
+            return Some((asked, true));
+        }
         if decide::paused(&self.d.work.records) {
             return Some((Event::Resumed, false));
         }

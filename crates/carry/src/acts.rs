@@ -565,10 +565,11 @@ pub(crate) struct Gate<'a> {
 /// commit the work names ([`Gate::named`]), and that its branch merges into the head of main the host gives with no
 /// conflict (worked out without changing anything), all found holding the repository; then main's head is merged into
 /// the branch, where it does not hold it, as a commit of the engine's, so that what is judged is what a merge would
-/// land; then that commit's own change under the paths the project protects is empty or one the owner let merge, which
-/// fails the check otherwise, with what the engine asks of it, and fails it too where it cannot be looked at
-/// ([`crate::protected`]); then the host's verdict on the commit, waited for without the repository. Says why where it
-/// could not check, and gives none where it was stopped; what failed is what was found, not a reason to fail.
+/// land, which fails the check where it changes nothing against main, there being nothing to merge; then that commit's
+/// own change under the paths the project protects is empty or one the owner let merge, which fails the check
+/// otherwise, with what the engine asks of it, and fails it too where it cannot be looked at ([`crate::protected`]);
+/// then the host's verdict on the commit, waited for without the repository. Says why where it could not check, and
+/// gives none where it was stopped; what failed is what was found, not a reason to fail.
 pub(crate) async fn check(
     project: &Project,
     host: &impl Host,
@@ -619,6 +620,17 @@ pub(crate) async fn check(
             return Ok(Some(found(failed)));
         }
         let (commit, took_in) = git::take_in(&dir, &main, project).await?;
+        let tree = |of: &str| format!("{of}^{{tree}}");
+        let ours = git::git(&project.repo, &["rev-parse", &tree(&commit)]).await?;
+        let theirs = git::git(&project.repo, &["rev-parse", &tree(&main)]).await?;
+        if ours == theirs {
+            let empty = fill(&words.found.empty, &[("main", &project.main), ("head", &main)]);
+            return Ok(Some(Checked {
+                commit,
+                took_in,
+                ..found(empty)
+            }));
+        }
         (commit, took_in, main)
     };
     let mut checked = Checked {
@@ -1557,7 +1569,8 @@ mod tests {
     async fn a_host_that_cannot_judge_the_work_fails_the_check_with_why() {
         let repo = Repo::new("true");
         let main = run(&repo.project.repo, &["rev-parse", "main"]);
-        start_with(&repo, &Fake::new(&main)).await.unwrap();
+        let started = start_with(&repo, &Fake::new(&main)).await.unwrap();
+        commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let host = Fake::new(&main).judges(Err("GitHub cannot be reached".to_string()));
         let failed = check_with(&repo, &host, &mut Stop::never())
             .await
@@ -1678,6 +1691,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_branch_that_changes_nothing_against_main_fails_the_check_before_the_host_is_asked() {
+        let repo = Repo::new("true");
+        let local = run(&repo.project.repo, &["rev-parse", "main"]);
+        let started = start_with(&repo, &Fake::new(&local)).await.unwrap();
+        // Nothing built, main moved on: the branch, main taken in, holds only what main does.
+        let main = commit(&repo.project.repo, "weather.txt", "Sunny.\n");
+        let host = Fake::new(&main);
+        let checked = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
+        let empty = fill(&words().check.found.empty, &[("main", "main"), ("head", &main)]);
+        assert_eq!(checked.failed.as_deref(), Some(empty.as_str()));
+        assert_eq!(host.asked(), [Asked::Main], "the host is not asked for a verdict");
+        assert!(checked.took_in);
+        // A file added and taken back again changes nothing either.
+        commit(&started.place.dir, "draft.txt", "Soon.\n");
+        run(&started.place.dir, &["rm", "-q", "draft.txt"]);
+        run(&started.place.dir, &["commit", "-q", "-m", "Take the draft back"]);
+        let checked = check_with(&repo, &host, &mut Stop::never()).await.unwrap().unwrap();
+        assert_eq!(checked.failed.as_deref(), Some(empty.as_str()));
+    }
+
+    #[tokio::test]
     async fn a_branch_that_holds_main_is_judged_as_it_is() {
         let repo = Repo::new("true");
         let main = run(&repo.project.repo, &["rev-parse", "main"]);
@@ -1727,7 +1761,8 @@ mod tests {
     #[tokio::test]
     async fn the_local_check_fails_a_failing_command_with_the_end_of_what_it_said() {
         let repo = Repo::new("echo the greeting is wrong >&2; exit 3");
-        start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let failed = checked_locally(&repo).await.failed.expect("the check fails");
         assert!(failed.contains("the greeting is wrong"), "{failed}");
     }
@@ -1750,7 +1785,8 @@ mod tests {
     async fn a_stopped_local_check_gives_nothing() {
         let repo = Repo::new("sleep 30");
         let host = Local::new(repo.project.clone());
-        start_with(&repo, &host).await.unwrap();
+        let started = start_with(&repo, &host).await.unwrap();
+        commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let held: Held<u8, ()> = Held::new();
         let mut stop = held.hold(1, ()).expect("held");
         let stopping = async {
@@ -1766,7 +1802,8 @@ mod tests {
         let mut repo = Repo::new("true");
         // Allowed, so that the check goes on to run its commands, none of which runs it.
         repo.project.allowed_config = vec!["core.fsmonitor".to_string()];
-        start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        let started = start_with(&repo, &Local::new(repo.project.clone())).await.unwrap();
+        commit(&started.place.dir, "farewell.txt", "Bye.\n");
         let marked = repo.data.join("monitor-ran");
         let monitor = repo.data.join("monitor");
         marking(&monitor, &marked);

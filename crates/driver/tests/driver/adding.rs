@@ -198,14 +198,17 @@ fn the_work_is_paused_from_its_first_entry_and_holds_its_dependencies_block_and_
         assert_eq!(deps_write.by, Outsider::Outside);
         assert_eq!(deps_write.value.as_deref(), Some(deps));
         assert_eq!(h.dependencies(work).as_deref(), Some(deps));
-        // With nothing written that runs its first cell, nothing is to be done; with the request written, it waits
-        // before its first cell for its dependencies.
-        let decision = if deps == MERGED {
-            Decision::Idle
+        // With nothing written that runs its first cell, nothing is to be done, and its own pause holds it; with the
+        // request written, it waits before its first cell for its dependencies.
+        if deps == MERGED {
+            assert!(
+                matches!(h.decision(work), Decision::Stalled { .. }),
+                "{:?}",
+                h.decision(work)
+            );
         } else {
-            waits_for_dependencies("write")
-        };
-        assert_eq!(h.decision(work), decision);
+            assert_eq!(h.decision(work), waits_for_dependencies("write"));
+        }
     }
     // What people wrote first follows, in order.
     let kept = h.d().work(wb).expect("the work is there");

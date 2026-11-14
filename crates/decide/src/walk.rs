@@ -11,11 +11,14 @@
 //! waits for standing unanswered, the work waits for the owner's answer, the cell being entered for nothing else
 //! meanwhile and no later cell run (design document `data-and-context`, 36); at the first whose preconditions do not
 //! hold, or that something new runs and that has reached a limit, the work waits; the first that something new runs is
-//! otherwise entered; the rest are passed. A work in which nothing new runs a cell, and nothing is under way or
-//! waited for, rests until someone writes what runs one. One round of a work is under way at a time: a round of a cell
-//! after one the owner turned to, by words or by an answer, is stopped, nothing else beginning until it has ended, and
-//! its cell runs again later. A work has ended when its last cell has a record or its item is cancelled and not
-//! reopened since; a reopened work is walked from its records as any other, what its cancel abandoned leaving no record.
+//! otherwise entered; the rest are passed. A work that waits only for what cells write, and in which nothing new runs a
+//! cell, nothing is under way and no one is waited for, is stalled: every cell before where it stands was passed and
+//! every one after it is held, so no cell will write what it waits for, and it goes on only once a person or a source
+//! outside the work writes what runs a cell ([`Decision::Stalled`]). One round of a work is under way at a time: a
+//! round of a cell after one the owner turned to, by words or by an answer, is stopped, nothing else beginning until it
+//! has ended, and its cell runs again later. A work has ended when its last cell has a record or its item is cancelled
+//! and not reopened since; a reopened work is walked from its records as any other, what its cancel abandoned leaving
+//! no record.
 //!
 //! A pause of the work changes none of this order. It holds back the run the walk comes to, unless one of that run's
 //! reasons is a note a person wrote, or the owner turning to the cell, since the cell last ran (since the run of its
@@ -70,11 +73,42 @@ pub enum Decision {
         run: RunId,
         because: Abandoning,
     },
-    /// The work waits at this cell, for each of these.
+    /// The work waits at this cell, for each of these: a person, the outside or the engine can give one of them, or a
+    /// call owed to the cell is still to come.
     Wait { at: CellId, on: Vec<Waited> },
-    /// Nothing new runs a cell the flow lets run, nothing of the work is under way or waited for, and it has not ended:
-    /// it goes on once someone writes what runs a cell.
-    Idle,
+    /// The work has not ended and can go on by itself no further: nothing new runs a cell the flow lets run, nothing of
+    /// it is under way, and what it waits for, if anything, only cells write, none of which will run. It goes on once a
+    /// person or a source outside the work writes what runs a cell; until then it is shown as waiting for the owner,
+    /// with these as its reason, worked out again from the records each time it is shown.
+    Stalled {
+        /// Where it stands: the first cell that applies whose preconditions do not hold, or, where there is none, its
+        /// last cell, which has no record.
+        at: CellId,
+        /// The keys of that cell's preconditions that do not hold, each of which only cells make hold; none where it
+        /// stands at its last cell for want of anything new to run it.
+        on: Vec<Condition>,
+        /// Each cell that writes what the work waits for, in the order of the walk, with why it does not run: a block
+        /// that keeps a key of `on` from holding, or, where `on` has none, a block that runs the last cell.
+        by: Vec<Stalling>,
+    },
+}
+
+/// A cell that writes what a stalled work waits for, and why it does not run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Stalling {
+    pub cell: CellId,
+    pub why: Unrun,
+}
+
+/// Why a cell that writes what a stalled work waits for does not run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Unrun {
+    /// Its condition does not hold: these keys of it.
+    Skipped { on: Vec<Condition> },
+    /// Nothing new runs it: no block that runs it has a version new to it.
+    NothingNew,
+    /// It stands at or after the cell the work stands at, whose preconditions hold it and everything after it.
+    Held,
 }
 
 /// How a work ended.
@@ -193,10 +227,7 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
         if !walk.applies(i) {
             continue;
         }
-        let wait = |on| Decision::Wait {
-            at: cell.id.clone(),
-            on,
-        };
+        let wait = |on| walk.waiting(i, on);
         if let Some(run) = walk.runs.values().find(|r| r.at_rest() && r.started.cell == cell.id) {
             let mut on = walk.open_calls(run);
             on.extend(walk.unmet(i));
@@ -242,7 +273,7 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
             basis: walk.basis(cell),
         };
     }
-    Decision::Idle
+    walk.stalled_at_the_end()
 }
 
 /// What the round of the run was told, and how the blocks its cell may write stand now: what its return may name as
@@ -766,6 +797,87 @@ impl<'a> Walk<'a> {
                     on: key.clone(),
                     by: self.makers(&keeping),
                 })
+            })
+            .collect()
+    }
+
+    /// What the work does, waiting at the cell at this place for each of these, of which there is at least one: it
+    /// waits for them; or, where each is a precondition that only cells make hold and no call of the cell waits for its
+    /// result, it is stalled there. Every cell before it was passed, with nothing new to it or its condition not
+    /// holding, and every one after it is held, so none of those cells will write what it waits for.
+    fn waiting(&self, i: usize, on: Vec<Waited>) -> Decision {
+        let at = self.flow.cells()[i].id.clone();
+        // A call owed to the cell that has no result is still to come, where the owner turning to the cell left it out
+        // of what the work waits for.
+        if !self.owed(i).1.is_empty() {
+            return Decision::Wait { at, on };
+        }
+        let mut keys = Vec::new();
+        let mut cells = Vec::new();
+        for waited in &on {
+            let Waited::Precondition { on: key, by } = waited else {
+                return Decision::Wait { at, on };
+            };
+            let mut only_cells = Vec::new();
+            for maker in by {
+                match maker {
+                    Maker::Cell { cell } => only_cells.push(cell),
+                    Maker::Owner | Maker::Outside { .. } => return Decision::Wait { at, on },
+                }
+            }
+            keys.push(key.clone());
+            cells.extend(only_cells);
+        }
+        Decision::Stalled {
+            at,
+            on: keys,
+            by: self.stalling(i, cells),
+        }
+    }
+
+    /// The work stalled at its last cell, which has no record and which nothing new runs, every cell before it passed:
+    /// what it waits for is what runs that cell, and each cell that writes it, the last itself apart, is given with why
+    /// it does not run.
+    fn stalled_at_the_end(&self) -> Decision {
+        let cells = self.flow.cells();
+        let last = cells.len() - 1;
+        let end = &cells[last];
+        let writers = (end.runs_on.iter())
+            .flat_map(|block| self.flow.writers(block))
+            .filter(|cell| cell.id != end.id)
+            .map(|cell| &cell.id);
+        Decision::Stalled {
+            at: end.id.clone(),
+            on: Vec::new(),
+            by: self.stalling(last, writers),
+        }
+    }
+
+    /// Each of these cells once, in the order of the walk, with why it does not run, the work standing at the cell at
+    /// this place: it is held where it stands at or after that cell, skipped where its condition does not hold, and
+    /// else has nothing new, since the walk passed it.
+    fn stalling<'c>(&self, i: usize, cells: impl IntoIterator<Item = &'c CellId>) -> Vec<Stalling> {
+        let mut places: Vec<usize> = cells.into_iter().filter_map(|cell| self.flow.place(cell)).collect();
+        places.sort_unstable();
+        places.dedup();
+        (places.into_iter())
+            .map(|j| {
+                let cell = &self.flow.cells()[j];
+                let why = if j >= i {
+                    Unrun::Held
+                } else if !self.applies(j) {
+                    let on = (cell.applies.iter())
+                        .filter(|key| !self.keeping(key, j).is_empty())
+                        .cloned()
+                        .collect();
+                    Unrun::Skipped { on }
+                } else {
+                    Unrun::NothingNew
+                };
+                Stalling {
+                    cell: cell.id.clone(),
+                    why,
+                }
             })
             .collect()
     }

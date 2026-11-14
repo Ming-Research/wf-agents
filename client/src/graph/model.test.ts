@@ -134,6 +134,8 @@ describe('the flowchart of the engineer flow', () => {
   it('keeps each requires as a gate on the path into its cell, with what the outside writes of it', () => {
     expect(nodeOf(chart, wayInNode('M1'))?.requires.map((k) => (k.on === 'test' ? k.test.name : k.block))).toEqual([
       'settled',
+      'asked',
+      'review_ok',
     ]);
     expect(nodeOf(chart, wayInNode('M2'))?.requires).toEqual([{ on: 'block', block: 'checked', value: 'yes' }]);
     expect(nodeOf(chart, wayInNode('S1'))?.requires).toEqual([{ on: 'block', block: 'dependencies', value: 'merged' }]);
@@ -241,11 +243,16 @@ describe('the flowchart of the engineer flow', () => {
         .filter((e) => e.kind === 'outside' && e.target === cellNode(id))
         .map((e) => nodeOf(chart, e.source))
         .map((n) => `${n?.name} ${n?.outside?.people ? 'people' : ''}${n?.outside?.sources.join(' ') ?? ''}`);
-    expect(tags('R1')).toEqual(['background people', 'r1_spoken_to people', 'r1_answered people']);
-    expect(tags('D1')).toEqual(['background people', 'session session', 'd1_spoken_to people', 'd1_answered people']);
-    expect(tags('M1')).toEqual(['main main']);
-    expect(tags('R2')).toEqual([]);
-    expect(nodeOf(chart, outsideNode('R0', 'session'))?.cell).toBe('R0');
+    expect(tags('R1')).toEqual(['background people', 'r1_spoken_to people', 'r1_answered answer']);
+    expect(tags('D1')).toEqual([
+      'background people',
+      'deep_researcher_session session',
+      'd1_spoken_to people',
+      'd1_answered answer',
+    ]);
+    expect(tags('M1')).toEqual(['main main', 'asked asked']);
+    expect(tags('R2')).toEqual(['r2_answered answer']);
+    expect(nodeOf(chart, outsideNode('R0', 'engineer_session'))?.cell).toBe('R0');
   });
 
   it('needs no tie where the main path reaches every cell', () => {

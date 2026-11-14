@@ -1,6 +1,7 @@
 //! When a line of a work begins a new session: the driver records it with why, from the work's records and the
-//! installation's policy, and writes the block of the source `session` where a cell of the line reads it, so that the
-//! cell runs again before the line's next round.
+//! installation's policy, and writes the block of the source `session` that a cell of the line reads, so that the cell
+//! runs again before the line's next round; where each line has a block of its own, a new session of one line writes
+//! its block alone and runs again no cell of another line.
 
 use std::sync::{Arc, Mutex};
 
@@ -74,6 +75,70 @@ fn flow() -> Compiled {
     };
     let has = Has {
         sources: [SESSION.to_string(), "tree".to_string()].into(),
+        acts: ["merge".to_string()].into(),
+        ..Default::default()
+    };
+    flow::compile(&source, &has).expect("the flow compiles")
+}
+
+/// The words the driver writes into a session block, as the flow's own trigger gives them.
+const SESSION_WRITES: &str = r#"writes = { text = "A new session of the line `{line}`: {why}.", limit = "its context was {context} tokens as its last round ended, past the limit of {limit}", model = "its rounds now run on another model than {was}, which it was begun on", account = "its rounds now run under another account than it was begun under", owner = "the owner asked for one", flagged = "the service's safety check flagged its last round", lost = "the agents' program no longer had the session it was in", compacted = "The session of the line `{line}` was compacted: it holds only a summary of what it read." }"#;
+
+/// Two lines, each loading its session by a cell that reads a session block of its own: `load` the engineer's, which
+/// `build` goes on in, and `look` the review's, which `review` goes on in.
+fn two_lines() -> Compiled {
+    let flow = format!(
+        r#"
+        name = "sessions"
+        order = ["load", "build", "look", "review", "merge"]
+        [limits]
+        runs = 3
+        returns = 2
+        calls = 3
+        [lines.engineer]
+        [lines.review]
+        [blocks.request]
+        people = true
+        [blocks.engineer_session]
+        outside = "session"
+        {SESSION_WRITES}
+        [blocks.review_session]
+        outside = "session"
+        {SESSION_WRITES}
+        [blocks.context]
+        [blocks.code]
+        [blocks.notes]
+        [blocks.verdict]
+        [blocks.merged]
+        shown = true
+    "#
+    );
+    let cell = |line: &str, inputs: &str, outputs: &str| {
+        format!(
+            "title = \"A cell\"\nkind = \"agent\"\nline = \"{line}\"\neffort = \"low\"\ntask = \"Do it.\"\ninputs = {inputs}\noutputs = {outputs}\n"
+        )
+    };
+    let merge =
+        "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"verdict\"]\noutputs = [\"merged\"]\n";
+    let source = flow::Source {
+        flow,
+        cells: [
+            (
+                "load",
+                cell("engineer", r#"["request", "engineer_session"]"#, r#"["context"]"#),
+            ),
+            ("build", cell("engineer", r#"["request", "context"]"#, r#"["code"]"#)),
+            ("look", cell("review", r#"["code", "review_session"]"#, r#"["notes"]"#)),
+            ("review", cell("review", r#"["code", "notes"]"#, r#"["verdict"]"#)),
+            ("merge", merge.to_string()),
+        ]
+        .into_iter()
+        .map(|(id, text)| (id.to_string(), text))
+        .collect(),
+        ..Default::default()
+    };
+    let has = Has {
+        sources: [SESSION.to_string()].into(),
         acts: ["merge".to_string()].into(),
         ..Default::default()
     };
@@ -157,8 +222,12 @@ impl S {
 
     /// A driver with the policy, whose rounds' tries begin under the account.
     fn with(policy: Policy, account: Option<&str>) -> S {
+        S::on_flow(flow(), policy, account)
+    }
+
+    /// A driver on the flow with the policy, whose rounds' tries begin under the account.
+    fn on_flow(flow: Compiled, policy: Policy, account: Option<&str>) -> S {
         let db = Db::new();
-        let flow = flow();
         let (mut driver, _) = Driver::open(
             Box::new(db.open()),
             vec![flow.clone()],
@@ -247,6 +316,7 @@ impl S {
         let block = match cell.as_str() {
             "load" => "context",
             "build" => "code",
+            "look" => "notes",
             _ => "verdict",
         };
         let handed = Handed {
@@ -274,7 +344,12 @@ impl S {
 
     /// The versions of the session block, as their content.
     fn session_block(&self) -> Vec<String> {
-        let block = BlockId::from("session");
+        self.versions_of("session")
+    }
+
+    /// The versions of the block, as their content.
+    fn versions_of(&self, block: &str) -> Vec<String> {
+        let block = BlockId::from(block);
         (self.kept().records.written.iter())
             .filter(|w| w.block == block)
             .map(|w| self.kept().contents[&(block.clone(), w.at)].clone())
@@ -346,6 +421,81 @@ fn a_round_past_the_limit_has_the_cell_that_loads_the_session_run_again_once_the
     assert_eq!(s.engineer(load, 1), (1, true));
     s.hands_in(100, false);
     assert_eq!(s.session_block().len(), 1, "nothing more is written");
+}
+
+#[test]
+fn a_new_session_of_one_line_writes_its_own_block_alone_and_runs_again_no_cell_of_another_line() {
+    let mut s = S::on_flow(two_lines(), policy("opus"), None);
+    s.hands_in(100, true);
+    // The build ends past the limit: the engineer's line begins a new session, and its own block is written.
+    s.hands_in(600, true);
+    assert!(matches!(s.sessions().last(), Some((line, Why::Limit { .. })) if line == "engineer"));
+    assert_eq!(s.versions_of("engineer_session").len(), 1);
+    assert!(
+        s.versions_of("review_session").is_empty(),
+        "the review's line began none"
+    );
+    // Its loading cell runs again before anything else; the review's does not, and runs once, for the code.
+    assert_eq!(s.round().1, "load");
+    s.hands_in(100, false);
+    assert_eq!(s.round().1, "look");
+    s.hands_in(100, true);
+    assert_eq!(s.round().1, "review");
+    // The review ends past the limit: its line begins a new session, which writes its own block and runs its loading
+    // cell alone.
+    s.hands_in(600, true);
+    assert!(matches!(s.sessions().last(), Some((line, Why::Limit { .. })) if line == "review"));
+    assert_eq!(s.versions_of("review_session").len(), 1);
+    assert_eq!(
+        s.versions_of("engineer_session").len(),
+        1,
+        "the engineer's line began no other"
+    );
+    assert_eq!(s.round().1, "look");
+    assert_eq!((runs(&s, "load"), runs(&s, "look")), (2, 2));
+}
+
+#[test]
+fn the_engineers_flow_gives_each_line_that_loads_its_session_a_block_of_its_own() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");
+    let source = flow::read(&dir).expect("the engineer's flow is read");
+    let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
+    let has = Has {
+        sources: names(&[
+            "answer",
+            "asked",
+            driver::DEPENDENCIES,
+            "main",
+            SESSION,
+            "start",
+            "tree",
+        ]),
+        acts: names(&["start", "check", "merge"]),
+        tools: names(&["query", "run_tests"]),
+        fields: names(&["questions", "reply"]),
+        details: names(&["files"]),
+        ..Default::default()
+    };
+    let flow = flow::compile(&source, &has).expect("the engineer's flow compiles");
+    // Each reader as its id and its line.
+    let reader = |cell: &decide::CellId| {
+        let line = (flow.cells.iter()).find(|c| &c.id == cell).and_then(|c| c.line.clone());
+        format!("{cell} on {}", line.unwrap_or_default())
+    };
+    let read: Vec<(String, Vec<String>)> = (flow.blocks.iter())
+        .filter(|(_, b)| b.writers.outside.as_deref() == Some(SESSION))
+        .map(|(block, b)| (block.to_string(), b.readers.cells.iter().map(reader).collect()))
+        .collect();
+    assert_eq!(
+        read,
+        [
+            (
+                "deep_researcher_session".to_string(),
+                vec!["D1 on deep_researcher".to_string()]
+            ),
+            ("engineer_session".to_string(), vec!["R0 on engineer".to_string()]),
+        ]
+    );
 }
 
 #[test]

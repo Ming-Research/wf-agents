@@ -90,10 +90,16 @@ export const started = (w: Summary): boolean =>
 /// Whether a work still goes on: not merged and not cancelled.
 const live = (w: Summary) => w.now.kind !== 'merged' && w.now.kind !== 'cancelled';
 
-/// Whether a card draws the work: while it goes on, once it has begun, or before that while it is paused, at fault or
-/// waits, which every work added paused is.
+/// Whether a card draws the work: while it goes on, once it has begun, or before that while it is paused, at fault,
+/// waits or is stalled, which every work added paused is.
 const drawn = (w: Summary) =>
-  live(w) && (started(w) || w.now.kind === 'paused' || w.now.kind === 'everything' || w.now.kind === 'fault' || w.now.kind === 'waits');
+  live(w) &&
+  (started(w) ||
+    w.now.kind === 'paused' ||
+    w.now.kind === 'everything' ||
+    w.now.kind === 'fault' ||
+    w.now.kind === 'waits' ||
+    w.now.kind === 'stalled');
 
 export function shownTree(data: Items): Shown[] {
   const byId = new Map(data.items.map((i) => [i.number, i]));

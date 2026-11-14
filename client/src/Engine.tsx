@@ -14,10 +14,10 @@ import type { Items, Now } from './works-api';
 import { useStreamLost } from './changes';
 import { useChanges, useItems, useReading, useSource } from './works/source';
 
-/// Whether a work waits for the owner: for an answer, for a test only the owner can make hold, at a limit, or
-/// stopped by the engine or by a fault.
+/// Whether a work waits for the owner: for an answer, for a test only the owner can make hold, at a limit, stalled,
+/// or stopped by the engine or by a fault.
 export function waitsForOwner(now: Now): boolean {
-  if (now.kind === 'fault') return true;
+  if (now.kind === 'fault' || now.kind === 'stalled') return true;
   if (now.kind === 'paused') return now.by === 'engine';
   if (now.kind !== 'waits') return false;
   return now.on.some((w) => whoGives(w) === 'owner');

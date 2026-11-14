@@ -381,7 +381,9 @@ case "$first" in
                 git -C "$r" add design/main.md
                 git -C "$r" -c user.name=Tester -c user.email=tester@example.com commit -q -m 'Main moved'
             fi
-            git -c user.name=Fake -c user.email=fake@example.com commit -q --allow-empty -m 'Build the greeting'
+            echo "$n" >> built.txt
+            git add built.txt
+            git -c user.name=Fake -c user.email=fake@example.com commit -q -m 'Build the greeting'
             head=$(git rev-parse HEAD)
             out="\"code\":\"A greeting, in commit $head.\""
         fi ;;

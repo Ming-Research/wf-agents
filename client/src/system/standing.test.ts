@@ -36,8 +36,8 @@ describe('where a work stands', () => {
     expect(standingOf(work({ kind: 'next', cell: 'plan' }))).toBe('due');
     const tool = { kind: 'call', call: 3, who: null, what: { kind: 'tool', name: 'ci', input: '' } } as const;
     expect(standingOf(work({ kind: 'waits', at: 'build', on: [tool] }))).toBe('others');
-    expect(standingOf(work({ kind: 'idle' }))).toBe('idle');
-    expect(standingOf(work({ kind: 'idle' }, true))).toBe('paused');
+    const stalled = { kind: 'stalled', at: 'M2', on: [{ test: 'checked = yes', words: 'checked = yes' }], by: [{ cell: 'M1', why: { kind: 'nothingNew' } }] } as const;
+    expect(standingOf(work({ ...stalled, on: [...stalled.on], by: [...stalled.by] }))).toBe('owner');
   });
 });
 

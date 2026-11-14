@@ -19,8 +19,8 @@ pub const ANSWERS: &str = "answers";
 const SPOKEN: &str = "on_spoken";
 const ANSWERED: &str = "on_answer";
 
-/// The sources outside the work: the start, the items the work depends on, main, the sessions of the lines and the
-/// design tree.
+/// The sources outside the work: the start, the items the work depends on, main, the sessions of the lines, each line
+/// writing a block of its own, and the design tree.
 pub const START: &str = "start";
 pub const DEPENDENCIES: &str = "dependencies";
 pub const MAIN: &str = "main";
@@ -100,8 +100,10 @@ pub enum Event {
     OtherOption(CellId),
     /// The owner lets the cell go on at its limit.
     LetsGo(CellId),
-    /// The source outside the work writes its block: main moves, a line begins a new session, the tree changes.
+    /// The source outside the work writes its block: main moves, the tree changes.
     Source(&'static str),
+    /// The line begins a new session, which writes its own block of the source `session`.
+    Session(String),
     /// The items the work depends on have all merged.
     Dependencies,
 }
@@ -115,8 +117,8 @@ impl fmt::Display for Event {
             Event::OtherOption(cell) => write!(f, "the owner takes another option for a question of {cell}"),
             Event::LetsGo(cell) => write!(f, "the owner lets {cell} go on at its limit"),
             Event::Source(MAIN) => write!(f, "main moves"),
-            Event::Source(SESSION) => write!(f, "a session is begun anew"),
             Event::Source(source) => write!(f, "the outside writes {source}"),
+            Event::Session(line) => write!(f, "a session of {line} is begun anew"),
             Event::Dependencies => write!(f, "the items the work depends on merge"),
         }
     }
@@ -147,8 +149,10 @@ pub struct Model {
     pub answered: Vec<Option<BlockId>>,
     /// Each pair of cells whose conditions want another value of a block, by their places, with the block.
     pub contradicting: Vec<(usize, usize, BlockId)>,
-    /// The block each source outside the work writes.
+    /// The block each source outside the work but `session` writes.
     pub sources: BTreeMap<&'static str, BlockId>,
+    /// The block of the source `session` of each line whose cells read one, by the line.
+    pub sessions: BTreeMap<String, BlockId>,
     /// The place of the check's cell.
     pub check: usize,
     /// Of each cell by its place, a block that is no choice and that it does not write: what a return sent back
@@ -248,12 +252,23 @@ impl Model {
             spoken.push(own(SPOKEN));
             answered.push(own(ANSWERED));
         }
-        let sources = [START, DEPENDENCIES, MAIN, SESSION, TREE]
+        let sources = [START, DEPENDENCIES, MAIN, TREE]
             .into_iter()
             .filter_map(|source| {
                 (compiled.blocks.iter())
                     .find(|(_, b)| b.writers.outside.as_deref() == Some(source))
                     .map(|(block, _)| (source, block.clone()))
+            })
+            .collect();
+        let line_of = |cell: &CellId| {
+            (compiled.cells.iter())
+                .find(|c| &c.id == cell)
+                .and_then(|c| c.line.clone())
+        };
+        let sessions = (compiled.blocks.iter())
+            .filter(|(_, b)| b.writers.outside.as_deref() == Some(SESSION))
+            .flat_map(|(block, b)| {
+                (b.readers.cells.iter()).filter_map(move |cell| line_of(cell).map(|line| (line, block.clone())))
             })
             .collect();
         let check = (compiled.cells.iter())
@@ -281,6 +296,7 @@ impl Model {
             answered,
             contradicting,
             sources,
+            sessions,
             check,
             stray,
         }
