@@ -158,14 +158,17 @@ pub fn valid() -> Source {
     source
 }
 
-/// What the engine has: the source outside a work and the acts the small flow names, two tools, and two parts of a
-/// line's system prompt that it fills in itself.
+/// What the engine has: the source outside a work and the acts the small flow names, two tools, two parts of a line's
+/// system prompt that it fills in itself, two fields of a return a datum may be written through, and one place it fills
+/// with what happened.
 pub fn has() -> Has {
     Has {
         sources: names(&["main"]),
         acts: names(&["check", "merge"]),
         tools: names(&["query", "run_tests"]),
         system: names(&["guide", "tree_rules"]),
+        fields: names(&["reply", "questions"]),
+        details: names(&["files"]),
     }
 }
 

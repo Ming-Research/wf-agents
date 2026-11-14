@@ -1,15 +1,16 @@
 //! What runs a cell named apart from what it is given: its triggers, each an event worked out to the block it stands
 //! on, and its context, each datum in its kind. A cell so written runs on the blocks its triggers stand on and is given
 //! its context, as a cell written before triggers runs on and is given its blocks; and of such a cell, each block that
-//! runs it is a trigger of the block's name.
+//! runs it is a trigger of the block's name. What runs a cell is defined beside the flows, once, and a block that
+//! stands only for a trigger is never given, written or described by.
 
 use decide::BlockId;
 use flow::FaultKind::*;
-use flow::{CellSpec, Compiled, FLOW_FILE, FaultKind, InputKind, Trigger};
+use flow::{CellSpec, Compiled, FLOW_FILE, FaultKind, InputKind, Source, Trigger};
 
 use crate::support::{at, compiled, edit, faults, laid_out, set, valid};
 
-const PLAN_TRIGGERS: &str = r#"triggers = ["request_changed", "opinions_changed"]"#;
+const PLAN_TRIGGERS: &str = r#"triggers = ["on_request", "on_opinions"]"#;
 const PLAN_CONTEXT: &str = r#"context = ["request", "opinions"]"#;
 const PLAN_KINDS: &str = "opinions = \"last_and_latest\"";
 
@@ -27,16 +28,55 @@ fn trigger(name: &str, block: &str, read: &[&str], does: Option<&str>) -> Trigge
     }
 }
 
+fn defined_twice(name: &str, also: &str) -> FaultKind {
+    DefinedTwice {
+        name: name.to_string(),
+        also: also.to_string(),
+    }
+}
+
 /// The twin laid out one thing to a file, its planning cell naming these triggers in place of its own.
-fn plan_triggers(triggers: &str) -> flow::Source {
+fn plan_triggers(triggers: &str) -> Source {
     edit(laid_out(), "cells/plan.toml", PLAN_TRIGGERS, triggers)
 }
 
 /// The twin laid out one thing to a file, with this after the rest of its planning cell's file.
-fn plan_adds(text: &str) -> flow::Source {
+fn plan_adds(text: &str) -> Source {
     let mut source = laid_out();
     source.cells.get_mut("plan").expect("the planning cell").push_str(text);
     source
+}
+
+/// The twin laid out one thing to a file, naming `discussion` among its data, its answering cell renamed `R1` and
+/// run when the owner speaks to it as well, with the record of what was said in its context.
+fn r1_spoken_to() -> Source {
+    let source = edit(
+        laid_out(),
+        FLOW_FILE,
+        "data = [\"request\"]",
+        "data = [\"request\", \"discussion\"]",
+    );
+    let mut source = edit(source, FLOW_FILE, "\"answer\"", "\"R1\"");
+    let answer = source.cells.remove("answer").expect("the answering cell");
+    source.cells.insert("R1".to_string(), answer);
+    let source = edit(
+        source,
+        "cells/R1.toml",
+        r#"triggers = ["on_comments", "on_plan"]"#,
+        r#"triggers = ["on_comments", "on_plan", "on_spoken"]"#,
+    );
+    let source = edit(
+        source,
+        "cells/R1.toml",
+        r#"context = ["comments", "plan"]"#,
+        r#"context = ["comments", "plan", "discussion"]"#,
+    );
+    edit(
+        source,
+        "cells/R1.toml",
+        "plan = \"last_and_latest\"",
+        "plan = \"last_and_latest\"\ndiscussion = \"all\"",
+    )
 }
 
 #[test]
@@ -46,16 +86,16 @@ fn each_trigger_is_worked_out_to_the_block_it_stands_on_with_what_its_agent_read
     assert_eq!(
         cell(&compiled, "plan").triggers,
         [
-            trigger("request_changed", "request", &["request"], None),
-            trigger("opinions_changed", "opinions", &["opinions"], None),
+            trigger("on_request", "request", &["request"], None),
+            trigger("on_opinions", "opinions", &["opinions"], None),
         ]
     );
-    // A trigger of its own stands on the block with no content it declares.
+    // A trigger of its own stands on the block with no content it declares; an engine cell has no agent to read.
     assert_eq!(
         cell(&compiled, "check").triggers,
         [
-            trigger("main_moved", "main", &[], None),
-            trigger("design_changed", "design", &["design"], None),
+            trigger("on_main", "main", &[], None),
+            trigger("on_design", "design", &[], None),
         ]
     );
     let main = &compiled.blocks[&BlockId::from("main")];
@@ -78,35 +118,63 @@ fn each_trigger_is_worked_out_to_the_block_it_stands_on_with_what_its_agent_read
 
 #[test]
 fn what_a_cell_does_for_a_trigger_is_its_own_word_or_the_trigger_s_and_is_why_its_block_runs_the_cell() {
-    let source = plan_adds("\n[do]\nrequest_changed = \"Plan again from what changed.\"\n");
+    let source = plan_adds("\n[do]\non_request = \"Plan again from what changed.\"\n");
+    let source = set(
+        source,
+        "../triggers/of_a_datum/changed.toml",
+        "name = \"on_{datum}\"\nread = [\"{datum}\"]\ndo = \"See what changed in `{datum}`.\"",
+    );
     let compiled = compiled(&source);
     let plan = cell(&compiled, "plan");
     assert_eq!(
-        plan.triggers[0],
-        trigger(
-            "request_changed",
-            "request",
-            &["request"],
-            Some("Plan again from what changed.")
-        )
+        plan.triggers,
+        [
+            trigger(
+                "on_request",
+                "request",
+                &["request"],
+                Some("Plan again from what changed.")
+            ),
+            trigger(
+                "on_opinions",
+                "opinions",
+                &["opinions"],
+                Some("See what changed in `opinions`.")
+            ),
+        ]
     );
     assert_eq!(plan.runs_on[0].why.as_deref(), Some("Plan again from what changed."));
-    assert_eq!(plan.runs_on[1].why, None);
+    assert_eq!(plan.runs_on[1].why.as_deref(), Some("See what changed in `opinions`."));
 }
 
 #[test]
-fn a_trigger_each_cell_has_its_own_of_gives_each_cell_that_names_it_its_own_block() {
-    let source = edit(
+fn what_a_trigger_says_of_what_happened_is_a_place_the_engine_fills() {
+    let on_main = "block = \"main\"\nfrom = \"main\"\ndetail = \"{detail}\"";
+    let source = set(
         laid_out(),
-        FLOW_FILE,
-        "data = [\"request\"]",
-        "data = [\"request\", \"discussion\"]",
+        "../triggers/on_main.toml",
+        &on_main.replace("{detail}", "files"),
     );
+    assert_eq!(
+        cell(&compiled(&source), "check").triggers[0].detail.as_deref(),
+        Some("files")
+    );
+    let source = set(
+        laid_out(),
+        "../triggers/on_main.toml",
+        &on_main.replace("{detail}", "lines"),
+    );
+    let what = UnknownDetail { detail: "lines".into() };
+    assert_eq!(faults(&source), [at("../triggers/on_main.toml", "detail", what)]);
+}
+
+#[test]
+fn a_trigger_each_cell_has_its_own_of_gives_each_cell_that_names_it_its_own_block_by_its_id_in_small_letters() {
     let source = edit(
-        source,
+        r1_spoken_to(),
         "cells/plan.toml",
         PLAN_TRIGGERS,
-        r#"triggers = ["request_changed", "opinions_changed", "spoken_to"]"#,
+        r#"triggers = ["on_request", "on_opinions", "on_spoken"]"#,
     );
     let source = edit(
         source,
@@ -118,60 +186,63 @@ fn a_trigger_each_cell_has_its_own_of_gives_each_cell_that_names_it_its_own_bloc
         source,
         "cells/plan.toml",
         PLAN_KINDS,
-        "opinions = \"last_and_latest\"\ndiscussion = \"all\"",
-    );
-    let source = edit(
-        source,
-        "cells/answer.toml",
-        r#"triggers = ["comments_changed", "plan_changed"]"#,
-        r#"triggers = ["comments_changed", "plan_changed", "spoken_to"]"#,
-    );
-    let source = edit(
-        source,
-        "cells/answer.toml",
-        r#"context = ["comments", "plan"]"#,
-        r#"context = ["comments", "plan", "discussion"]"#,
-    );
-    let source = edit(
-        source,
-        "cells/answer.toml",
-        "plan = \"last_and_latest\"",
-        "plan = \"last_and_latest\"\ndiscussion = \"all\"\n\n[do]\nspoken_to = \"Answer, then go on.\"",
+        "opinions = \"last_and_latest\"\ndiscussion = \"all\"\n\n[do]\non_spoken = \"Answer, then go on.\"",
     );
     let compiled = compiled(&source);
     assert_eq!(
         cell(&compiled, "plan").triggers[2],
         trigger(
-            "spoken_to",
+            "on_spoken",
             "plan_spoken_to",
-            &["discussion"],
-            Some("Answer what the owner said.")
-        )
-    );
-    assert_eq!(
-        cell(&compiled, "answer").triggers[2],
-        trigger(
-            "spoken_to",
-            "answer_spoken_to",
             &["discussion"],
             Some("Answer, then go on.")
         )
     );
-    for (block, id) in [("plan_spoken_to", "plan"), ("answer_spoken_to", "answer")] {
+    assert_eq!(
+        cell(&compiled, "R1").triggers[2],
+        trigger(
+            "on_spoken",
+            "r1_spoken_to",
+            &["discussion"],
+            Some("Answer what the owner said.")
+        )
+    );
+    for (block, id) in [("plan_spoken_to", "plan"), ("r1_spoken_to", "R1")] {
         let declared = &compiled.blocks[&BlockId::from(block)];
         assert!(declared.trigger && declared.writers.people, "{block}");
         let readers: Vec<&str> = declared.readers.cells.iter().map(|c| c.as_str()).collect();
         assert_eq!(readers, [id], "{block}");
     }
     // The walk runs each cell on its own block.
-    let walked = compiled
-        .flow
-        .cells()
-        .iter()
+    let walked = (compiled.flow.cells().iter())
         .find(|c| c.id.as_str() == "plan")
         .expect("plan");
     let runs_on: Vec<&str> = walked.runs_on.iter().map(|b| b.as_str()).collect();
     assert_eq!(runs_on, ["request", "opinions", "plan_spoken_to"]);
+}
+
+#[test]
+fn the_name_of_a_cell_stands_in_all_a_trigger_each_cell_has_its_own_of_says() {
+    let source = plan_triggers(r#"triggers = ["on_request", "on_opinions", "noted"]"#);
+    let source = set(
+        source,
+        "../triggers/of_a_cell/noted.toml",
+        "block = \"{cell}_noted\"\nfrom = \"owner\"\nread = [\"{cell}_notes\"]\ndo = \"Take in the notes on {cell}.\"",
+    );
+    let mut source = set(source, "blocks/plan_notes.toml", "from = \"owner\"");
+    let plan = source.cells.get_mut("plan").expect("the planning cell");
+    *plan = plan.replace(PLAN_CONTEXT, r#"context = ["request", "opinions", "plan_notes"]"#);
+    plan.push_str("plan_notes = \"latest\"\n");
+    let compiled = compiled(&source);
+    assert_eq!(
+        cell(&compiled, "plan").triggers[2],
+        trigger(
+            "noted",
+            "plan_noted",
+            &["plan_notes"],
+            Some("Take in the notes on plan.")
+        )
+    );
 }
 
 #[test]
@@ -196,37 +267,61 @@ fn a_cell_written_before_triggers_has_a_trigger_of_each_block_that_runs_it() {
 }
 
 #[test]
-fn a_trigger_nothing_beside_the_flows_defines_or_named_twice_is_refused() {
-    let source = plan_triggers(
-        r#"triggers = ["request_changed", "opinions_changed", "ghost_changed", "nothing_happened", "request_changed"]"#,
+fn a_cell_names_its_triggers_only_in_a_flow_laid_out_one_thing_to_a_file() {
+    let mut source = edit(
+        valid(),
+        "plan.toml",
+        r#"inputs = ["request", "opinions"]"#,
+        &format!("{PLAN_TRIGGERS}\n{PLAN_CONTEXT}"),
     );
-    let unknown = |name: &str| NoSuchTrigger {
-        trigger: name.to_string(),
+    let plan = source.cells.get_mut("plan").expect("the planning cell");
+    plan.push_str("\n[kinds]\nrequest = \"latest\"\nopinions = \"latest\"\n");
+    assert_eq!(faults(&source), [at("plan.toml", "triggers", NotLaidOut)]);
+}
+
+#[test]
+fn a_trigger_nothing_beside_the_flows_defines_or_named_twice_is_refused() {
+    let source =
+        plan_triggers(r#"triggers = ["on_request", "on_opinions", "on_ghost", "nothing_happened", "on_request"]"#);
+    let no_datum = |trigger: &str, datum: &str| NoSuchDatum {
+        trigger: trigger.to_string(),
+        datum: datum.to_string(),
     };
     assert_eq!(
         faults(&source),
         [
-            at("cells/plan.toml", "triggers[2]", unknown("ghost_changed")),
-            at("cells/plan.toml", "triggers[3]", unknown("nothing_happened")),
+            at("cells/plan.toml", "triggers[2]", no_datum("on_ghost", "ghost")),
+            at(
+                "cells/plan.toml",
+                "triggers[3]",
+                NoSuchTrigger {
+                    trigger: "nothing_happened".into()
+                }
+            ),
             at(
                 "cells/plan.toml",
                 "triggers[4]",
                 Twice {
-                    name: "request_changed".into()
+                    name: "on_request".into()
                 }
             ),
         ]
     );
-    // A block a trigger declares is no datum of the flow, which a rule of `of_a_datum/` makes a trigger of.
+    // A block a trigger declares is no datum of the flow, which a rule of `of_a_datum/` makes a trigger of: `on_answer`
+    // declares `check_answered` for the cell, and `on_check_answered` is not made of it.
     let source = edit(
         laid_out(),
         "cells/check.toml",
-        r#"triggers = ["main_moved", "design_changed"]"#,
-        r#"triggers = ["main_moved", "design_changed", "main_changed"]"#,
+        r#"triggers = ["on_main", "on_design"]"#,
+        r#"triggers = ["on_main", "on_design", "on_answer", "on_check_answered"]"#,
     );
     assert_eq!(
         faults(&source),
-        [at("cells/check.toml", "triggers[2]", unknown("main_changed"))]
+        [at(
+            "cells/check.toml",
+            "triggers[3]",
+            no_datum("on_check_answered", "check_answered")
+        )]
     );
 }
 
@@ -235,11 +330,11 @@ fn a_trigger_of_an_agent_cell_has_its_agent_read_only_what_the_cell_s_context_ho
     let source = edit(
         laid_out(),
         "cells/judge.toml",
-        r#"triggers = ["plan_changed"]"#,
-        r#"triggers = ["plan_changed", "request_changed"]"#,
+        r#"triggers = ["on_plan"]"#,
+        r#"triggers = ["on_plan", "on_request"]"#,
     );
     let what = ReadNotInContext {
-        trigger: "request_changed".into(),
+        trigger: "on_request".into(),
         block: "request".into(),
     };
     assert_eq!(faults(&source), [at("cells/judge.toml", "triggers[1]", what)]);
@@ -247,8 +342,8 @@ fn a_trigger_of_an_agent_cell_has_its_agent_read_only_what_the_cell_s_context_ho
     let source = edit(
         laid_out(),
         "cells/check.toml",
-        r#"triggers = ["main_moved", "design_changed"]"#,
-        r#"triggers = ["main_moved", "design_changed", "request_changed"]"#,
+        r#"triggers = ["on_main", "on_design"]"#,
+        r#"triggers = ["on_main", "on_design", "on_request"]"#,
     );
     compiled(&source);
 }
@@ -317,6 +412,36 @@ fn each_datum_of_an_agent_cell_s_context_is_declared_once_with_its_kind_and_an_e
 }
 
 #[test]
+fn a_block_that_stands_only_for_a_trigger_is_in_no_context_and_no_cell_writes_it() {
+    let source = edit(
+        laid_out(),
+        "cells/plan.toml",
+        PLAN_CONTEXT,
+        r#"context = ["request", "opinions", "main"]"#,
+    );
+    let source = edit(
+        source,
+        "cells/plan.toml",
+        "outputs = [\"plan\"]",
+        "outputs = [\"plan\", \"main\"]",
+    );
+    let source = edit(
+        source,
+        "cells/plan.toml",
+        PLAN_KINDS,
+        &format!("{PLAN_KINDS}\nmain = \"latest\""),
+    );
+    let only = || TriggerOnly { block: "main".into() };
+    assert_eq!(
+        faults(&source),
+        [
+            at("cells/plan.toml", "context[2]", only()),
+            at("cells/plan.toml", "outputs[1]", only()),
+        ]
+    );
+}
+
+#[test]
 fn an_agent_cell_that_no_trigger_runs_is_refused() {
     assert_eq!(
         faults(&plan_triggers("triggers = []")),
@@ -343,15 +468,109 @@ fn a_cell_names_what_it_takes_in_one_form_only() {
 }
 
 #[test]
-fn a_trigger_whose_block_the_flow_defines_as_well_is_refused() {
-    let source = set(laid_out(), "blocks/main.toml", "outside = \"main\"");
-    let twice: FaultKind = Twice { name: "main".into() };
+fn a_trigger_whose_block_the_flow_defines_as_well_is_refused_once_on_the_flow_s_block() {
+    let source = set(laid_out(), "blocks/main.toml", "from = \"main\"");
+    // Two cells naming the trigger make one fault.
+    let source = edit(
+        source,
+        "cells/merge.toml",
+        r#"triggers = ["on_ci"]"#,
+        r#"triggers = ["on_ci", "on_main"]"#,
+    );
+    // With `main` a datum of the flow, the rule `on_{datum}` makes `on_main` of it as well.
     assert_eq!(
         faults(&source),
         [
-            at("cells/check.toml", "triggers[0]", twice),
-            // The flow's own block stands, and no trigger stands on it.
-            at("blocks/main.toml", "", NoReader { block: "main".into() }),
+            at(
+                "../triggers/on_main.toml",
+                "",
+                defined_twice("on_main", "../triggers/of_a_datum/changed.toml")
+            ),
+            at(
+                "blocks/main.toml",
+                "",
+                defined_twice("main", "../triggers/on_main.toml")
+            ),
         ]
+    );
+}
+
+#[test]
+fn a_block_that_two_triggers_declare_is_refused_on_the_second() {
+    // Two files of triggers of their own.
+    let source = set(
+        laid_out(),
+        "../triggers/on_merged.toml",
+        "block = \"main\"\nfrom = \"main\"",
+    );
+    let source = edit(
+        source,
+        "cells/merge.toml",
+        r#"triggers = ["on_ci"]"#,
+        r#"triggers = ["on_ci", "on_merged"]"#,
+    );
+    assert_eq!(
+        faults(&source),
+        [at(
+            "../triggers/on_merged.toml",
+            "block",
+            defined_twice("main", "../triggers/on_main.toml")
+        )]
+    );
+    // One file of a trigger each cell has its own of, and two cells whose ids are the same in small letters.
+    let source = edit(r1_spoken_to(), FLOW_FILE, "\"merge\"]", "\"r1\", \"merge\"]");
+    let source = set(
+        source,
+        "cells/r1.toml",
+        "title = \"Look\"\nkind = \"engine\"\nact = \"check\"\ntriggers = [\"on_spoken\"]",
+    );
+    assert_eq!(
+        faults(&source),
+        [at(
+            "cells/r1.toml",
+            "triggers[0]",
+            defined_twice("r1_spoken_to", "cells/R1.toml")
+        )]
+    );
+}
+
+#[test]
+fn a_trigger_of_a_file_that_a_rule_makes_of_a_datum_of_the_flow_as_well_is_refused() {
+    let source = set(
+        laid_out(),
+        "../triggers/on_plan.toml",
+        "block = \"plan_poked\"\nfrom = \"owner\"",
+    );
+    assert_eq!(
+        faults(&source),
+        [at(
+            "../triggers/on_plan.toml",
+            "",
+            defined_twice("on_plan", "../triggers/of_a_datum/changed.toml")
+        )]
+    );
+}
+
+#[test]
+fn a_file_beside_the_flows_that_stands_for_each_cell_or_each_datum_holds_the_name_that_stands_for_it() {
+    let source = set(
+        laid_out(),
+        "../triggers/of_a_cell/on_spoken.toml",
+        "block = \"spoken_to\"\nfrom = \"owner\"",
+    );
+    let cell_missing = MissingPlaceholder {
+        placeholder: "{cell}".into(),
+    };
+    assert_eq!(
+        faults(&source),
+        [at("../triggers/of_a_cell/on_spoken.toml", "block", cell_missing)]
+    );
+    let source = set(laid_out(), "../triggers/of_a_datum/new.toml", "name = \"news\"");
+    let datum_missing = MissingPlaceholder {
+        placeholder: "{datum}".into(),
+    };
+    assert_eq!(
+        faults(&source),
+        [at("../triggers/of_a_datum/new.toml", "name", datum_missing)]
     );
 }

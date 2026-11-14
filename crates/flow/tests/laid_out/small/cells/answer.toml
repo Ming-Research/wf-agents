@@ -9,7 +9,7 @@ Say what you changed for each.
 """
 when = { test = "has_comment" }
 requires = ["plan_confirmed"]
-triggers = ["comments_changed", "plan_changed"]
+triggers = ["on_comments", "on_plan"]
 context = ["comments", "plan"]
 outputs = ["reply"]
 limit = 5

@@ -1,2 +1,2 @@
 values = ["yes", "no"]
-people = true
+from = "owner"

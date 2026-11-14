@@ -18,6 +18,10 @@ pub const AGENTS_DIR: &str = "agents";
 /// The file beside the flows that names the project's files and settings.
 pub const PROJECT_FILE: &str = "project.toml";
 
+/// The file, from the directory that holds the flows, that names the sets of rules for the agents, each by its name
+/// with its file beside it. A line names those it takes.
+pub const RULES_FILE: &str = "agents/rules/rules.toml";
+
 /// All of it, read from the directory that holds the flows.
 #[derive(Clone, Debug)]
 pub struct Agents {
@@ -117,14 +121,20 @@ pub struct WordsPart {
     pub words: String,
 }
 
-/// A set of rules for the agents, as `agents/rules/rules.toml` names it.
+/// A set of rules for the agents as [`RULES_FILE`] names it, by its name.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct RuleSetFile {
+    /// Its file, beside [`RULES_FILE`].
+    pub file: String,
+}
+
+/// A set of rules for the agents, with its text.
+#[derive(Clone, Debug)]
 pub struct RuleSet {
-    /// Its file, in `agents/rules/`.
+    /// Its file, beside [`RULES_FILE`].
     pub file: String,
     /// The text of its file.
-    #[serde(skip)]
     pub text: String,
 }
 
@@ -140,14 +150,35 @@ pub struct Return {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Form {
-    /// The fields of a return that asks for calls, in order.
-    pub calls: Vec<String>,
-    /// The fields of a return that does the cell's work, in order.
-    pub outcome: Vec<String>,
+    /// What a return that asks for calls holds, in order.
+    pub calls: Vec<InForm>,
+    /// What a return that does the cell's work holds, in order.
+    pub outcome: Vec<InForm>,
     /// The shape of a block that is a choice.
     pub choice: toml::Value,
     /// The shape of a block that is a text.
     pub text: toml::Value,
+}
+
+/// What stands at a place of the form: a group the form makes of what the line's cells have, or a field of the
+/// engine's by its name.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+pub enum InForm {
+    Group(Group),
+    Field(String),
+}
+
+/// A group the form makes of what the line's cells have.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Group {
+    /// Each tool the line's cells may ask for.
+    Tools,
+    /// The blocks of the line that are choices.
+    Choices,
+    /// The blocks of the line that are texts.
+    Texts,
 }
 
 /// What holds together what a cell is told it returns.
@@ -188,13 +219,21 @@ pub struct Field {
     pub required: bool,
     pub given_to: GivenTo,
     pub told: ToldAs,
-    /// Of a list whose items are names, which names, by a name the engine knows.
+    /// Of a list whose items are names, which names.
     #[serde(rename = "enum")]
-    pub names: Option<String>,
+    pub names: Option<Names>,
     pub words: String,
     /// What is told after the list of the fields, of a field told `listed`.
     pub also: Option<String>,
     pub shape: toml::Value,
+}
+
+/// The names the items of a field that is a list of names are among.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Names {
+    /// The names of what runs the line's cells.
+    RunsOn,
 }
 
 /// A kind of return.
@@ -251,8 +290,8 @@ pub struct Message {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MessagePart {
-    /// What the part is, by a name the engine knows.
-    pub part: String,
+    /// What the part is.
+    pub part: Part,
     pub sent: Sent,
     pub text: Option<String>,
     /// Of a part that is a list, each item of it.
@@ -266,6 +305,30 @@ pub struct MessagePart {
     pub does: Option<String>,
     /// What follows the list.
     pub after: Option<String>,
+}
+
+/// What a part of a message is: what the engine puts into it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Part {
+    /// What the last return handed in is kept as.
+    Taken,
+    /// The cell's title.
+    Heading,
+    /// Which work and which item the session is for.
+    Work,
+    /// The commit of main taken in, or why it could not be.
+    Main,
+    /// Each datum of the cell's context the session lacks or that is new to the cell.
+    Context,
+    /// What the cell returns.
+    Returns,
+    /// The heading of the cell's task.
+    TaskHeading,
+    /// The cell's task.
+    Task,
+    /// Each trigger new to the cell.
+    Triggers,
 }
 
 /// When a part of a message is sent.
@@ -303,29 +366,58 @@ pub struct GivenKind {
 }
 
 /// Reads it all from the directory that holds the flows, anew each time, so that an edit of a file shows; or says which
-/// file cannot be read, and why.
+/// file cannot be read, and why. A file the session names that `project.toml` does not have, and a name in the form
+/// or in `told` that is no field of `return/fields/`, are refused as well, on the file that names them.
 pub fn read(root: &Path) -> Result<Agents, String> {
     let at = root.join(AGENTS_DIR);
-    let session: Session = file(&at.join("session.toml"))?;
+    let session_file = at.join("session.toml");
+    let session: Session = file(&session_file)?;
+    let project: Project = file(&root.join(PROJECT_FILE))?;
     let mut words = BTreeMap::new();
     for part in &session.parts {
-        if let SessionPart::Words(WordsPart { words: name }) = part {
-            words.insert(name.clone(), text(&at.join(name))?);
+        match part {
+            SessionPart::Words(WordsPart { words: name }) => {
+                words.insert(name.clone(), text(&at.join(name))?);
+            }
+            SessionPart::Project(ProjectPart { project: name }) if !project.files.contains_key(name) => {
+                let named = format!("names the file {name}, which {PROJECT_FILE} does not have");
+                return Err(format!("{}: {named}", session_file.display()));
+            }
+            _ => {}
         }
     }
-    let rules_dir = at.join("rules");
-    let mut rules: BTreeMap<String, RuleSet> = file(&rules_dir.join("rules.toml"))?;
-    for set in rules.values_mut() {
-        set.text = text(&rules_dir.join(&set.file))?;
+    let rules_file = root.join(RULES_FILE);
+    let sets: BTreeMap<String, RuleSetFile> = file(&rules_file)?;
+    let beside = rules_file.parent().unwrap_or(root);
+    let mut rules = BTreeMap::new();
+    for (name, set) in sets {
+        let text = text(&beside.join(&set.file))?;
+        rules.insert(name, RuleSet { file: set.file, text });
+    }
+    let return_file = at.join("return").join("return.toml");
+    let returns: Return = file(&return_file)?;
+    let fields: BTreeMap<String, Field> = each(&at.join("return").join("fields"))?;
+    let in_form = (returns.form.calls.iter()).chain(&returns.form.outcome);
+    let named = (in_form.filter_map(|f| match f {
+        InForm::Field(name) => Some(name),
+        InForm::Group(_) => None,
+    }))
+    .chain(&returns.told.listed)
+    .chain(&returns.told.reads);
+    for name in named {
+        if !fields.contains_key(name) {
+            let what = format!("names the field {name}, which return/fields/ does not have");
+            return Err(format!("{}: {what}", return_file.display()));
+        }
     }
     Ok(Agents {
         root: root.to_path_buf(),
-        project: file(&root.join(PROJECT_FILE))?,
+        project,
         session,
         words,
         rules,
-        returns: file(&at.join("return").join("return.toml"))?,
-        fields: each(&at.join("return").join("fields"))?,
+        returns,
+        fields,
         tools: each(&at.join("tools"))?,
         message: file(&at.join("message").join("message.toml"))?,
         given: file(&at.join("message").join("given.toml"))?,

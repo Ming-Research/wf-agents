@@ -24,14 +24,14 @@ fn a_directory_with_cells_is_read_laid_out_one_thing_to_a_file_with_what_it_may_
     write("lines/engineer.toml", "rules = []");
     write("lines/deep/not.toml", "not directly in lines");
     write("blocks/plan.toml", "");
-    write("blocks/judging/deep/opinions.toml", "people = true");
+    write("blocks/judging/deep/opinions.toml", "from = \"owner\"");
     write("blocks/notes.md", "not a block");
     write("tests/settled.toml", "says = \"\"");
-    write("../data/request.toml", "people = true");
+    write("../data/request.toml", "from = \"owner\"");
     write("../data/more/answers.toml", "shown = true");
-    write("../triggers/main_moved.toml", "block = \"main\"");
-    write("../triggers/of_a_cell/spoken_to.toml", "block = \"{cell}_spoken_to\"");
-    write("../triggers/of_a_datum/changed.toml", "name = \"{datum}_changed\"");
+    write("../triggers/on_main.toml", "block = \"main\"");
+    write("../triggers/of_a_cell/on_spoken.toml", "block = \"{cell}_spoken_to\"");
+    write("../triggers/of_a_datum/changed.toml", "name = \"on_{datum}\"");
     write("../agents/rules/rules.toml", "[general]\nfile = \"general.md\"");
     write("../agents/rules/general.md", "not read with the flow");
     write("../agents/session.toml", "not read with the flow");
@@ -54,16 +54,16 @@ fn a_directory_with_cells_is_read_laid_out_one_thing_to_a_file_with_what_it_may_
             "../agents/rules/rules.toml",
             "../data/more/answers.toml",
             "../data/request.toml",
-            "../triggers/main_moved.toml",
-            "../triggers/of_a_cell/spoken_to.toml",
+            "../triggers/of_a_cell/on_spoken.toml",
             "../triggers/of_a_datum/changed.toml",
+            "../triggers/on_main.toml",
             "blocks/judging/deep/opinions.toml",
             "blocks/plan.toml",
             "lines/engineer.toml",
             "tests/settled.toml",
         ]
     );
-    assert_eq!(source.files["../data/request.toml"], "people = true");
+    assert_eq!(source.files["../data/request.toml"], "from = \"owner\"");
 }
 
 #[test]

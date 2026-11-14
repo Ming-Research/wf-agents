@@ -3,4 +3,4 @@ title = "Merge"
 kind = "engine"
 act = "merge"
 requires = ["may_merge"]
-triggers = ["ci_changed"]
+triggers = ["on_ci"]

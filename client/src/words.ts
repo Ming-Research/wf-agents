@@ -115,8 +115,22 @@ export function faultWords(fault: Fault): string {
       return 'Name them one way: inputs, runs_on and given, or triggers and context.';
     case 'noSuchData':
       return `The flow names ${w.name} among the engine's own data, but no file of ../data/ defines ${w.name}.`;
+    case 'definedTwice':
+      return `${w.name} is defined here and again in ${w.also}.`;
     case 'noSuchTrigger':
       return `The cell names the trigger ${w.trigger}, which nothing in ../triggers/ defines.`;
+    case 'noSuchDatum':
+      return `The cell names the trigger ${w.trigger}, but the flow has no datum ${w.datum}.`;
+    case 'triggerOnly':
+      return `${w.block} stands only for a trigger and has no content: no cell is given it or writes it.`;
+    case 'notLaidOut':
+      return 'The cell names triggers and context, which only a flow laid out one thing to a file has.';
+    case 'missingPlaceholder':
+      return `This must hold ${w.placeholder}.`;
+    case 'unknownReturnField':
+      return `The engine's return has no field named "${w.field}".`;
+    case 'unknownDetail':
+      return `The engine fills no place named "${w.detail}".`;
     case 'readNotInContext':
       return `The trigger ${w.trigger} has the agent read ${w.block}, but ${w.block} is not in the cell's context.`;
     case 'notATrigger':

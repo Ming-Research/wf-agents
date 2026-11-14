@@ -5,31 +5,43 @@
 
 use decide::BlockId;
 use flow::FaultKind::*;
-use flow::{Compiled, FLOW_FILE, Fault};
+use flow::{FLOW_FILE, Fault, FaultKind};
 
 use crate::support::{at, compiled, edit, faults, laid_out, set, unreadable, valid};
 
-/// The definition compiled, with no cell's triggers: a cell written before triggers names them by its blocks.
-fn without_triggers(compiled: Compiled) -> Compiled {
-    let mut compiled = compiled;
-    for cell in &mut compiled.cells {
-        cell.triggers.clear();
-    }
-    compiled
+fn twice(name: &str) -> FaultKind {
+    Twice { name: name.to_string() }
 }
 
-fn twice(name: &str) -> flow::FaultKind {
-    Twice { name: name.to_string() }
+fn defined_twice(name: &str, also: &str) -> FaultKind {
+    DefinedTwice {
+        name: name.to_string(),
+        also: also.to_string(),
+    }
+}
+
+/// The name of the twin's trigger that stands on each block that runs a cell of the small flow: `on_main` on `main`,
+/// which stands only for it, and on each other block, a datum, the trigger the rule `on_{datum}` makes of it.
+fn trigger_of(block: &str) -> String {
+    format!("on_{block}")
 }
 
 #[test]
 fn a_flow_laid_out_one_thing_to_a_file_compiles_to_what_its_twin_written_before_compiles_to() {
-    let mut twin = without_triggers(compiled(&laid_out()));
-    // Every block is as it was, but that `main` stands for the trigger `main_moved`, which declares it.
+    let mut before = compiled(&valid());
+    // A cell written before triggers has a trigger of each block that runs it, by the block's name. The twin's are
+    // named as events and stand on the same blocks, and each has its agent read and do the same.
+    for cell in &mut before.cells {
+        for trigger in &mut cell.triggers {
+            trigger.name = trigger_of(trigger.block.as_str());
+        }
+    }
+    let mut twin = compiled(&laid_out());
+    // Every block is as it was, but that `main` stands for the trigger `on_main`, which declares it.
     let main = twin.blocks.get_mut(&BlockId::from("main")).expect("main is declared");
     assert!(main.trigger, "main stands only for a trigger");
     main.trigger = false;
-    assert_eq!(twin, without_triggers(compiled(&valid())));
+    assert_eq!(twin, before);
 }
 
 #[test]
@@ -71,27 +83,123 @@ fn a_datum_the_flow_names_that_is_not_beside_the_flows_named_twice_or_defined_by
             at(FLOW_FILE, "data[2]", twice("request")),
         ]
     );
-    let source = set(laid_out(), "blocks/request.toml", "people = true");
-    assert_eq!(faults(&source), [at(FLOW_FILE, "data[0]", twice("request"))]);
+    let source = set(laid_out(), "blocks/request.toml", "from = \"owner\"");
+    assert_eq!(
+        faults(&source),
+        [at(
+            FLOW_FILE,
+            "data[0]",
+            defined_twice("request", "blocks/request.toml")
+        )]
+    );
 }
 
 #[test]
-fn a_second_file_of_one_name_is_refused_on_the_second_by_its_path() {
+fn whether_a_datum_of_the_engine_s_is_written_and_read_is_the_flow_s_and_its_shape_is_its_own_file_s() {
+    let source = edit(
+        laid_out(),
+        FLOW_FILE,
+        "data = [\"request\"]",
+        "data = [\"request\", \"unused\"]",
+    );
+    let source = set(source, "../data/unused.toml", "from = \"owner\"\nvalues = []");
+    assert_eq!(
+        faults(&source),
+        [
+            at(FLOW_FILE, "data[1]", NoReader { block: "unused".into() }),
+            at("../data/unused.toml", "values", ValuesEmpty),
+        ]
+    );
+}
+
+#[test]
+fn who_writes_a_block_from_outside_the_cells_is_said_by_from_the_owner_or_a_source_the_engine_has() {
+    let compiled = compiled(&laid_out());
+    let opinions = &compiled.blocks[&BlockId::from("opinions")];
+    assert!(opinions.writers.people && opinions.writers.outside.is_none());
+    let main = &compiled.blocks[&BlockId::from("main")];
+    assert!(!main.writers.people);
+    assert_eq!(main.writers.outside.as_deref(), Some("main"));
+    // A source the engine does not have is refused where `from` names it.
+    let source = edit(
+        laid_out(),
+        "blocks/check/ci.toml",
+        "values",
+        "from = \"mirror\"\nvalues",
+    );
+    let what = UnknownSource {
+        block: "ci".into(),
+        source: "mirror".into(),
+    };
+    assert_eq!(faults(&source), [at("blocks/check/ci.toml", "from", what)]);
+    // `people` and `outside` are said in a flow written before it was laid out one thing to a file only.
+    unreadable(
+        &edit(laid_out(), "blocks/comments.toml", "from = \"owner\"", "people = true"),
+        "blocks/comments.toml",
+    );
+    unreadable(
+        &set(
+            laid_out(),
+            "../triggers/on_main.toml",
+            "block = \"main\"\noutside = \"main\"",
+        ),
+        "../triggers/on_main.toml",
+    );
+}
+
+#[test]
+fn a_datum_is_written_only_through_a_field_of_a_return_the_engine_has() {
+    let source = edit(
+        laid_out(),
+        FLOW_FILE,
+        "data = [\"request\"]",
+        "data = [\"request\", \"discussion\"]",
+    );
+    let source = edit(
+        source,
+        "../data/discussion.toml",
+        "field = \"reply\"",
+        "field = \"words\"",
+    );
+    let what = UnknownReturnField { field: "words".into() };
+    assert_eq!(faults(&source), [at("../data/discussion.toml", "field", what)]);
+}
+
+#[test]
+fn a_second_file_of_one_name_is_refused_on_the_second_naming_the_first() {
     // A block, wherever in `blocks/` it is.
     let source = set(laid_out(), "blocks/other/plan.toml", "");
-    assert_eq!(faults(&source), [at("blocks/plan.toml", "", twice("plan"))]);
+    assert_eq!(
+        faults(&source),
+        [at(
+            "blocks/plan.toml",
+            "",
+            defined_twice("plan", "blocks/other/plan.toml")
+        )]
+    );
     // A datum of the engine's.
-    let source = set(laid_out(), "../data/more/request.toml", "people = true");
-    assert_eq!(faults(&source), [at("../data/request.toml", "", twice("request"))]);
-    // A trigger, of its own or one each cell has its own of.
+    let source = set(laid_out(), "../data/more/request.toml", "from = \"owner\"");
+    assert_eq!(
+        faults(&source),
+        [at(
+            "../data/request.toml",
+            "",
+            defined_twice("request", "../data/more/request.toml")
+        )]
+    );
+    // A trigger, of its own or one each cell has its own of: the two are named alike.
     let source = set(
         laid_out(),
-        "../triggers/of_a_cell/main_moved.toml",
-        "block = \"{cell}_main\"\npeople = true",
+        "../triggers/on_spoken.toml",
+        "block = \"spoken\"\nfrom = \"owner\"",
     );
     assert_eq!(
         faults(&source),
-        [at("../triggers/of_a_cell/main_moved.toml", "", twice("main_moved"))]
+        [at(
+            "../triggers/on_spoken.toml",
+            "",
+            defined_twice("on_spoken", "../triggers/of_a_cell/on_spoken.toml")
+        )]
     );
 }
 
@@ -143,8 +251,8 @@ fn each_fault_is_in_the_file_of_the_thing_it_is_about_flow_toml_first_then_the_c
     let source = edit(
         source,
         "blocks/judging/opinions.toml",
-        "people = true",
-        "people = true\nnote = true\nvalues = [\"a\"]",
+        "from = \"owner\"",
+        "from = \"owner\"\nnote = true\nvalues = [\"a\"]",
     );
     let source = set(
         source,
@@ -191,10 +299,10 @@ fn a_file_laid_out_one_thing_to_a_file_that_cannot_be_read_is_reported_by_its_pa
     unreadable(
         &set(
             laid_out(),
-            "../triggers/main_moved.toml",
+            "../triggers/on_main.toml",
             "block = \"main\"\nwhen = \"now\"",
         ),
-        "../triggers/main_moved.toml",
+        "../triggers/on_main.toml",
     );
     // A line laid out so names its rules, not the parts of its system prompt.
     unreadable(

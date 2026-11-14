@@ -1,0 +1,4 @@
+# Fires when the owner answers a question of the cell's: a block with no content of each cell that names it.
+block = "{cell}_answered"
+from = "owner"
+read = ["answers"]

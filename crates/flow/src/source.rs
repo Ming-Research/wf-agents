@@ -16,6 +16,8 @@ use std::{fs, io};
 use decide::TestKind;
 use serde::Deserialize;
 
+use crate::agents;
+
 /// The name of the file that holds what belongs to the flow as a whole.
 pub const FLOW_FILE: &str = "flow.toml";
 
@@ -41,8 +43,11 @@ pub const TRIGGERS_DIR: &str = "../triggers";
 pub const OF_A_CELL: &str = "of_a_cell";
 pub const OF_A_DATUM: &str = "of_a_datum";
 
-/// The file beside the flows, from a flow's directory, that names the sets of rules for the agents a line may take.
-pub const RULES_FILE: &str = "../agents/rules/rules.toml";
+/// The path, from a flow's directory, of the file beside the flows that names the sets of rules for the agents a line
+/// may take: [`agents::RULES_FILE`].
+pub fn rules_file() -> String {
+    format!("../{}", agents::RULES_FILE)
+}
 
 /// The text of a flow's files.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -59,13 +64,13 @@ pub struct Source {
     /// Of a flow laid out one thing to a file, the text of each of its files but `flow.toml` and its cells', and of
     /// each file beside the flows that it may use, by its path from the flow's directory: `lines/<name>.toml`,
     /// `blocks/.../<name>.toml`, `tests/<name>.toml`, `../data/.../<name>.toml`, `../triggers/.../<name>.toml` and
-    /// [`RULES_FILE`].
+    /// [`rules_file`].
     pub files: BTreeMap<String, String>,
 }
 
 /// Reads the flow in this directory. Laid out one thing to a file where it has `cells/`: `flow.toml`; each `.toml` file
 /// directly in `cells/`, `lines/` and `tests/`; each in `blocks/`, `../data/` and `../triggers/` or in a directory in
-/// them; and [`RULES_FILE`]. Else as it was written before: `flow.toml`, every other `.toml` file directly in it as the
+/// them; and [`rules_file`]. Else as it was written before: `flow.toml`, every other `.toml` file directly in it as the
 /// file of the cell its name gives, and every `.md` file directly in its `rules/`, where it has one, as the set of rules
 /// its name gives. Other files and directories are not read.
 pub fn read(dir: &Path) -> io::Result<Source> {
@@ -90,9 +95,9 @@ pub fn read(dir: &Path) -> io::Result<Source> {
                 }
             }
         }
-        let rules = dir.join(RULES_FILE);
+        let rules = dir.join(rules_file());
         if rules.is_file() {
-            source.add(RULES_FILE, fs::read_to_string(rules)?);
+            source.add(&rules_file(), fs::read_to_string(rules)?);
         }
         return Ok(source);
     }
@@ -200,7 +205,7 @@ fn laid_out(path: &str) -> Option<Kept<'_>> {
     } else if dir == LINES_DIR || dir == TESTS_DIR || under(BLOCKS_DIR) || under(DATA_DIR) || under(TRIGGERS_DIR) {
         Some(Kept::File)
     } else {
-        (path == RULES_FILE).then_some(Kept::File)
+        (path == rules_file()).then_some(Kept::File)
     }
 }
 
@@ -301,14 +306,18 @@ pub struct LaidOutLineFile {
     #[serde(default)]
     pub levels_above: u32,
     /// The sets of rules for the agents that the system prompt of the line's session holds, each by its name in
-    /// [`RULES_FILE`], in the order they stand in it; none where it is left out. The rest of the system prompt is the
+    /// [`agents::RULES_FILE`], in the order they stand in it; none where it is left out. The rest of the system prompt is the
     /// same for every line, and is said beside the flows.
     #[serde(default)]
     pub rules: Vec<String>,
 }
 
-/// A block as written: in `flow.toml`, in a file of the flow's `blocks/`, or, of the engine's own data, in a file of
-/// `../data/`.
+/// The value of `from` that says the owner writes a block, by the owner's acts on the page; any other value names a
+/// source outside the work. The two stay apart because a paused work still lets through what the owner writes, and
+/// nothing a source outside writes.
+pub const OWNER: &str = "owner";
+
+/// A block as written in the `flow.toml` of a flow written before it was laid out one thing to a file.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlockFile {
@@ -334,19 +343,67 @@ pub struct BlockFile {
     pub field: Option<String>,
 }
 
+/// A block as written in a file of a flow's `blocks/`, or, of the engine's own data, in a file of `../data/`: as in
+/// `flow.toml` before, but that who writes it from outside the cells is said by one key, `from`.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LaidOutBlockFile {
+    /// The values of a block that is a choice; a block with none is not one.
+    pub values: Option<Vec<String>>,
+    /// Who writes the block from outside the cells, where anyone does: [`OWNER`], or a name of a source outside the
+    /// work that the engine has.
+    pub from: Option<String>,
+    /// The block is a note: what the owner writes in it are their words to the cells that read it, which a paused
+    /// work still answers. Only a block the owner writes, and no choice, is one.
+    #[serde(default)]
+    pub note: bool,
+    /// The owner's page reads the block, so it needs no other reader.
+    #[serde(default)]
+    pub shown: bool,
+    /// What the block is, in a sentence, for whoever reads the flow: the owner's page shows it with the block and with
+    /// each cell that reads or writes it.
+    pub what: Option<String>,
+    /// The field of a return that a cell writes the block through, where it writes it through one and not as a block
+    /// under the block's name: a name of a field of the engine's.
+    pub field: Option<String>,
+}
+
+/// Who writes a block from outside the cells, as `from` says it: whether the owner does, and the source outside the
+/// work that does, where one does.
+pub fn who_writes(from: Option<&str>) -> (bool, Option<String>) {
+    match from {
+        Some(OWNER) => (true, None),
+        Some(source) => (false, Some(source.to_string())),
+        None => (false, None),
+    }
+}
+
+impl From<LaidOutBlockFile> for BlockFile {
+    fn from(block: LaidOutBlockFile) -> Self {
+        let (people, outside) = who_writes(block.from.as_deref());
+        BlockFile {
+            values: block.values,
+            people,
+            note: block.note,
+            outside,
+            shown: block.shown,
+            what: block.what,
+            field: block.field,
+        }
+    }
+}
+
 /// A trigger as written in a file of `../triggers/`, by the name of its file: one standing on a block with no content,
-/// which it declares, which the outside or people write; or, in `of_a_cell/`, one that every cell naming it has its own
-/// of, `{cell}` in `block` standing for the id of the cell in small letters.
+/// which it declares, which the owner or a source outside the work writes; or, in `of_a_cell/`, one that every cell
+/// naming it has its own of, `{cell}` standing for the id of the cell in small letters in `block`, which must hold it,
+/// and in `read`, `detail` and `do`.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TriggerFile {
     /// The block it stands on.
     pub block: String,
-    /// The source outside the work that writes the block, where one does: a name of a source the engine has.
-    pub outside: Option<String>,
-    /// People write the block.
-    #[serde(default)]
-    pub people: bool,
+    /// Who writes the block: [`OWNER`], or a name of a source outside the work that the engine has.
+    pub from: Option<String>,
     /// What the engine says of what happened, where it says something: the name of a place it fills in a run.
     pub detail: Option<String>,
     /// The data the agent reads for it, each among those its cell is given.
@@ -362,19 +419,14 @@ pub struct TriggerFile {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OfADatumFile {
-    /// The name of a datum's trigger, `{datum}` standing for the datum's name.
+    /// The name of a datum's trigger, which must hold `{datum}`, standing for the datum's name.
     pub name: String,
     /// The data the agent reads for it, `{datum}` standing for the datum's name.
     #[serde(default)]
     pub read: Vec<String>,
-}
-
-/// A set of rules for the agents as [`RULES_FILE`] names it.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RulesSetFile {
-    /// Its file, beside [`RULES_FILE`].
-    pub file: String,
+    /// What a cell does for it, where the cell says nothing of its own, `{datum}` standing for the datum's name.
+    #[serde(rename = "do")]
+    pub does: Option<String>,
 }
 
 /// A named test as written: a test of the values of blocks of the work itself.

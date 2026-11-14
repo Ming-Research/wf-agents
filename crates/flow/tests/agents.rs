@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use flow::agents::{self, GivenTo, OfTheLine, ReturnKind, Sent, SessionPart, ToldAs};
+use flow::agents::{self, GivenTo, Group, InForm, Names, OfTheLine, Part, ReturnKind, Sent, SessionPart, ToldAs};
 
 /// The directory of the tests' flows, beside which the files are.
 fn beside() -> PathBuf {
@@ -73,7 +73,11 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
         ]
     );
 
-    assert_eq!(read.returns.form.calls, ["tools", "summary"]);
+    assert_eq!(
+        read.returns.form.calls,
+        [InForm::Group(Group::Tools), InForm::Field("summary".to_string())]
+    );
+    assert_eq!(read.returns.form.outcome[1], InForm::Group(Group::Choices));
     assert_eq!(read.returns.told.listed, ["reply", "summary"]);
     assert_eq!(
         read.fields.keys().map(String::as_str).collect::<Vec<_>>(),
@@ -84,7 +88,7 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
     assert!(dealt_with.required);
     assert_eq!(dealt_with.given_to, GivenTo::Every);
     assert_eq!(dealt_with.told, ToldAs::Alone);
-    assert_eq!(dealt_with.names.as_deref(), Some("runs_on"));
+    assert_eq!(dealt_with.names, Some(Names::RunsOn));
     assert_eq!(dealt_with.shape["type"].as_str(), Some("array"));
     let summary = &read.fields["summary"];
     assert_eq!(summary.kinds, [ReturnKind::Calls, ReturnKind::Outcome]);
@@ -94,16 +98,14 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
     assert_eq!(read.tools.keys().map(String::as_str).collect::<Vec<_>>(), ["query"]);
     assert_eq!(read.tools["query"].request["required"][0].as_str(), Some("sql"));
 
-    let message: Vec<(&str, Sent)> = (read.message.parts.iter())
-        .map(|part| (part.part.as_str(), part.sent))
-        .collect();
+    let message: Vec<(Part, Sent)> = (read.message.parts.iter()).map(|part| (part.part, part.sent)).collect();
     assert_eq!(
         message,
         [
-            ("heading", Sent::EveryTime),
-            ("context", Sent::ByKind),
-            ("task", Sent::OnceASession),
-            ("triggers", Sent::EveryTime),
+            (Part::Heading, Sent::EveryTime),
+            (Part::Context, Sent::ByKind),
+            (Part::Task, Sent::OnceASession),
+            (Part::Triggers, Sent::EveryTime),
         ]
     );
     assert_eq!(read.message.parts[3].does.as_deref(), Some(": {do}"));
@@ -143,4 +145,50 @@ fn a_file_that_is_named_and_not_there_is_refused_with_its_path() {
     let refused = agents::read(&dir).unwrap_err();
     fs::remove_dir_all(&dir).unwrap();
     assert!(refused.contains(&general.display().to_string()), "{refused}");
+}
+
+#[test]
+fn a_file_of_the_project_the_session_names_is_one_project_toml_has() {
+    let dir = copy("project");
+    let session = dir.join("agents/session.toml");
+    let text = fs::read_to_string(&session).unwrap();
+    fs::write(
+        &session,
+        text.replace("{ project = \"constitution\" }", "{ project = \"charter\" }"),
+    )
+    .unwrap();
+    let refused = agents::read(&dir).unwrap_err();
+    fs::remove_dir_all(&dir).unwrap();
+    assert!(refused.contains(&session.display().to_string()), "{refused}");
+    assert!(refused.contains("charter"), "{refused}");
+}
+
+#[test]
+fn each_field_the_form_and_told_name_is_a_field_of_the_return_and_the_form_s_groups_are_its_own() {
+    for (name, from, to) in [
+        (
+            "form",
+            "\"summary\", \"reply\", \"texts\"",
+            "\"summary\", \"answer\", \"texts\"",
+        ),
+        (
+            "listed",
+            "listed = [\"reply\", \"summary\"]",
+            "listed = [\"reply\", \"summary\", \"notes\"]",
+        ),
+        (
+            "reads",
+            "reads = [\"reply\", \"summary\"]",
+            "reads = [\"reply\", \"words\"]",
+        ),
+    ] {
+        let dir = copy(name);
+        let returns = dir.join("agents/return/return.toml");
+        let text = fs::read_to_string(&returns).unwrap();
+        assert!(text.contains(from), "{name}");
+        fs::write(&returns, text.replace(from, to)).unwrap();
+        let refused = agents::read(&dir).unwrap_err();
+        fs::remove_dir_all(&dir).unwrap();
+        assert!(refused.contains(&returns.display().to_string()), "{name}: {refused}");
+    }
 }

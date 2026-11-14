@@ -143,8 +143,22 @@ export type What =
   | { kind: 'twoForms' }
   /// The flow names among the engine's own data one that no file beside the flows defines.
   | { kind: 'noSuchData'; name: string }
+  /// The thing is defined in this file and again in another.
+  | { kind: 'definedTwice'; name: string; also: string }
   /// The cell names a trigger that nothing beside the flows defines.
   | { kind: 'noSuchTrigger'; trigger: string }
+  /// The cell names a trigger a rule makes of a datum the flow does not have.
+  | { kind: 'noSuchDatum'; trigger: string; datum: string }
+  /// The block stands only for a trigger: no cell is given it, writes it or describes the work by it.
+  | { kind: 'triggerOnly'; block: string }
+  /// The cell names triggers and context in a flow not laid out one thing to a file.
+  | { kind: 'notLaidOut' }
+  /// A value of a file beside the flows lacks the name that stands for each cell or each datum.
+  | { kind: 'missingPlaceholder'; placeholder: string }
+  /// The block is written through a field of a return the engine does not have.
+  | { kind: 'unknownReturnField'; field: string }
+  /// The trigger says what happened by a place the engine does not fill.
+  | { kind: 'unknownDetail'; detail: string }
   /// A trigger of an agent's cell has its agent read a datum that the cell's context does not hold.
   | { kind: 'readNotInContext'; trigger: string; block: string }
   /// The cell says what it does for a trigger that is not among its triggers.
