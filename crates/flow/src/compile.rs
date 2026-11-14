@@ -920,13 +920,14 @@ impl LaidOut {
             .collect()
     }
 
-    /// The rules of `of_a_group/` that make a trigger of this name of a group of the flow's blocks, by their files, with
-    /// the group's name.
-    fn grouped(&self, name: &str, groups: &BTreeMap<String, Vec<String>>) -> Option<(&OfADatumFile, String)> {
+    /// The rule of `of_a_group/` that makes a trigger of this name of a group of the flow's blocks, with the group's
+    /// name. A group named as a block of the flow makes none: that is a fault of the group, and the block's own
+    /// trigger stands.
+    fn grouped(&self, name: &str, flow: &FlowFile) -> Option<(&OfADatumFile, String)> {
         (self.of_a_group.iter()).find_map(|(_, rule)| {
             let (before, after) = rule.name.split_once(GROUP)?;
             let group = name.strip_prefix(before)?.strip_suffix(after)?;
-            groups.contains_key(group).then(|| (rule, group.to_string()))
+            (flow.groups.contains_key(group) && !flow.blocks.contains_key(group)).then(|| (rule, group.to_string()))
         })
     }
 
@@ -1042,7 +1043,7 @@ impl LaidOut {
                         detail: file.detail.as_deref().map(fill),
                         does: does.or_else(|| file.does.as_deref().map(fill)),
                     })
-                } else if let Some((rule, group)) = self.grouped(name, &flow.groups) {
+                } else if let Some((rule, group)) = self.grouped(name, flow) {
                     // A group's trigger stands on each of its blocks; its agent reads them all where `read` names the
                     // group alone.
                     let members: Vec<BlockId> = flow.groups[&group].iter().map(|b| BlockId(b.clone())).collect();
