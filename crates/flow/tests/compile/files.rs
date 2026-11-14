@@ -44,7 +44,7 @@ fn a_field_no_file_knows_is_a_fault() {
         "[lines.engineer]\nmodel = \"big\"",
     );
     unreadable(&source, FLOW_FILE);
-    let source = edit(valid(), "answer.toml", "{ test = ", "{ block = \"ci\", test = ");
+    let source = edit(valid(), "answer.toml", "task = ", "colour = \"red\"\ntask = ");
     unreadable(&source, "answer.toml");
 }
 

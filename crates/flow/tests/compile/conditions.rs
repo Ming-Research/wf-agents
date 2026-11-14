@@ -63,7 +63,17 @@ fn a_condition_waits_for_a_value_the_choice_offers() {
 #[test]
 fn a_condition_of_no_keys_is_refused() {
     let source = edit(valid(), "design.toml", WHEN, "when = {}");
-    assert_eq!(faults(&source), [at("design.toml", "when", EmptyCondition)]);
+    // The judge's choice that the design's condition read then has no reader.
+    let unread = NoReader {
+        block: "needs_design".to_string(),
+    };
+    assert_eq!(
+        faults(&source),
+        [
+            at(FLOW_FILE, "blocks.needs_design", unread),
+            at("design.toml", "when", EmptyCondition),
+        ]
+    );
 }
 
 #[test]

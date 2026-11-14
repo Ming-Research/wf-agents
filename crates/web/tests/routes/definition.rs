@@ -440,6 +440,7 @@ async fn a_test_of_what_stands_is_given_with_its_kind() {
         json!({
             "name": "may_merge",
             "words": "The owner let the work merge",
+            "file": "flow.toml",
             "kind": "noneStanding",
             "reads": ["go", "content"],
             "is": "no",
