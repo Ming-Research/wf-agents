@@ -41,6 +41,18 @@ fn a_flow_laid_out_one_thing_to_a_file_compiles_to_what_its_twin_written_before_
     let main = twin.blocks.get_mut(&BlockId::from("main")).expect("main is declared");
     assert!(main.trigger, "main stands only for a trigger");
     main.trigger = false;
+    // Each thing of the twin is in a file of its own, where the flow written before has them all in `flow.toml`; and
+    // a line laid out so names its `rules` where one written before names its `system`.
+    for block in twin.blocks.values_mut() {
+        block.file = FLOW_FILE.to_string();
+    }
+    for file in twin.test_files.values_mut() {
+        *file = FLOW_FILE.to_string();
+    }
+    for line in twin.lines.values_mut() {
+        line.file = FLOW_FILE.to_string();
+        line.system = std::mem::take(&mut line.rules);
+    }
     assert_eq!(twin, before);
 }
 
