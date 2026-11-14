@@ -245,6 +245,32 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
                 at,
             });
         }
+        Event::WroteForRound { run, block, content } => {
+            if began(work, run) == ended(work, run) || !open(work, run) {
+                return Err(Refused::NoRoundUnderWay(run));
+            }
+            let wrote = Event::Wrote {
+                block: block.clone(),
+                by: Outsider::Outside,
+                content,
+                matters: true,
+                value: None,
+            };
+            take(flow, work, wrote)?;
+            let version = work
+                .records
+                .written
+                .last()
+                .map(|w| w.at)
+                .expect("the version was written");
+            let at = work.tick();
+            work.records.put_in.push(PutIn {
+                run,
+                block,
+                version,
+                at,
+            });
+        }
         Event::LetGo { cell } => {
             if flow.flow.place(&cell).is_none() {
                 return Err(Refused::NoSuchCell(cell));

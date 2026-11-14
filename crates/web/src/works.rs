@@ -508,6 +508,8 @@ pub enum SessionWhy {
     Flagged,
     /// The agents' program no longer had the session the line was in.
     Lost,
+    /// The agents' program compacted the line's session during a round.
+    Compacted,
 }
 
 impl SessionWhy {
@@ -522,6 +524,7 @@ impl SessionWhy {
             Why::Owner => SessionWhy::Owner,
             Why::Flagged => SessionWhy::Flagged,
             Why::Lost => SessionWhy::Lost,
+            Why::Compacted => SessionWhy::Compacted,
         }
     }
 }

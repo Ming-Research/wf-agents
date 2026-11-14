@@ -10,7 +10,8 @@
 //! asked for, or why what it handed in was sent back; one that begins a session, or goes on in one that never saw the
 //! run's earlier rounds, is given, after the task and the list, what each earlier round of the run was given, in their
 //! order, and then its own. Where the work's branch was to take main in as the run started ([`crate::catch_up`]), the
-//! task and the list are followed by what came of it, unless the branch held main already.
+//! task and the list are followed by what came of it in one line, in the words of the part `main` of the message,
+//! unless the branch held main already.
 //!
 //! Every round is told last what ran it: each trigger of its cell new to it, by the name its return names it by in
 //! `dealt_with`, with what the cell does for it (design document `data-and-context`, 9 and 12). What ran it, and why
@@ -24,7 +25,7 @@ use std::collections::BTreeMap;
 
 use decide::run::Unmet;
 use decide::{BlockId, CallId, Cause, RunId, Seq, Started, VersionView, Writer};
-use flow::agents::{self, Agents, Part, ResultGiven, SentBack, fill};
+use flow::agents::{self, Agents, MessagePart, Part, ResultGiven, SentBack, fill};
 use flow::{CellSpec, Compiled};
 use work::{Ask, Call, Given, Work};
 
@@ -93,39 +94,33 @@ fn read_all(input: &str) -> String {
     format!("To read all of it at once, ask for the tool `read` with the input `{input}`.")
 }
 const NOTHING_TO_READ: &str = "Nothing it reads or may write is written yet.";
-/// What came of taking main in as the run started; nothing where the branch held main already.
-fn caught_up(caught: &CaughtUp) -> Option<String> {
+/// What came of taking main in as the run started, in one line, in the words of the part `main` of the message; nothing
+/// where the branch held main already or the message says nothing of it.
+fn caught_up(caught: &CaughtUp, part: &MessagePart) -> Option<String> {
+    let between = part.between.as_deref().unwrap_or_default();
     let name = &caught.name;
-    Some(match &caught.outcome {
+    // What the worktree holds is said as the files of its changes, in one line.
+    let lines = |text: &str| {
+        let files = text.lines().map(|line| line.get(3..).unwrap_or(line).trim());
+        files.collect::<Vec<_>>().join(between)
+    };
+    let (text, places): (&Option<String>, Vec<(&str, String)>) = match &caught.outcome {
         Outcome::Holds { .. } => return None,
-        Outcome::TookIn { main, merge, files } => format!(
-            "## {name} taken in\nThe engine merged {name} at {main} into the work's branch as this run started, as \
-             the commit {merge}. The files {name} changed since the branch last took it in:\n{}",
-            files.join("\n")
+        Outcome::TookIn { main, merge, .. } => (&part.text, vec![("main", main.clone()), ("merge", merge.clone())]),
+        Outcome::Conflict { main, files } => (
+            &part.conflict,
+            vec![("main", main.clone()), ("files", files.join(between))],
         ),
-        Outcome::Conflict { main, files } => format!(
-            "## {name} not taken in\n{name} at {main} does not merge into the work's branch without a conflict, so \
-             the engine took nothing in. The files in conflict:\n{}\nMerge it yourself, with `git merge {main}`, \
-             before you change the code.",
-            files.join("\n")
+        Outcome::Uncommitted { main, changes, merging } => (
+            if *merging { &part.merging } else { &part.uncommitted },
+            vec![("main", main.clone()), ("changes", lines(changes))],
         ),
-        Outcome::Uncommitted {
-            main,
-            changes,
-            merging: true,
-        } => format!(
-            "## {name} not taken in\nA merge is under way in the worktree and is not committed, so the engine took \
-             nothing in:\n{changes}\nFinish it and commit it, then merge {name} yourself, with `git merge {main}`."
-        ),
-        Outcome::Uncommitted { main, changes, .. } => format!(
-            "## {name} not taken in\nThe worktree holds changes not committed, which taking {name} at {main} in \
-             could lose, so the engine took nothing in:\n{changes}\nCommit them, then merge it yourself, with \
-             `git merge {main}`."
-        ),
-        Outcome::Failed { why } => {
-            format!("## {name} not taken in\nThe engine could not take {name} in as this run started: {why}")
-        }
-    })
+        Outcome::Failed { .. } => (&part.failed, Vec::new()),
+    };
+    // What came of it is put in last, so that nothing in it is filled.
+    let mut slots: Vec<(&str, &str)> = vec![("name", name.as_str())];
+    slots.extend(places.iter().map(|(place, value)| (*place, value.as_str())));
+    text.as_deref().map(|text| agents::fill(text.trim_end(), &slots))
 }
 const RESULTS: &str = "## The results of what you asked for";
 fn tool(name: &str, input: &str) -> String {
@@ -182,7 +177,13 @@ pub fn message(
     let mut parts = vec![heading(cell, number)];
     if begins || *given == Given::Task {
         task(flow, work, cell, run, opening.task, &mut parts);
-        parts.extend(opening.main.and_then(caught_up));
+        let part = words.message.parts.iter().find(|p| p.part == Part::Main);
+        parts.extend(
+            opening
+                .main
+                .zip(part)
+                .and_then(|(caught, part)| caught_up(caught, part)),
+        );
     }
     // A new session holds nothing of the run: it is given what the run's earlier rounds were, in their order.
     if begins {
@@ -368,7 +369,7 @@ fn cut(result: &str, given: Option<&ResultGiven>) -> String {
 
 /// What ran the round: each trigger of the cell that is new to it, in the order the cell names them, with what the cell
 /// does for it, as the part of a message that says so is written; none where nothing new ran it, or the message names
-/// no such part. What happened is not said: the engine fills no place of a trigger's yet.
+/// no such part. What happened is not said: the engine fills no place of a trigger's.
 fn triggers(flow: &Compiled, work: &Work, cell: &CellSpec, run: RunId, words: &Agents) -> Option<String> {
     let part = words.message.parts.iter().find(|p| p.part == Part::Triggers)?;
     let ran_by = decide::told(&flow.flow, &work.records, run)?.ran_by;

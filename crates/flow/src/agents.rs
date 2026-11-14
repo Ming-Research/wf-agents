@@ -97,6 +97,8 @@ impl Agents {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Project {
+    /// The directory of the project's checkout that holds its design tree, from the root of the checkout.
+    pub tree: String,
     /// The project's files, by the name a part of a session gives them.
     pub files: BTreeMap<String, ProjectFile>,
     /// The installation's settings the words sent to the agents may name.
@@ -662,6 +664,16 @@ pub struct MessagePart {
     /// Of a part written anew each time, when it is sent at all; each time where none.
     pub only: Option<Only>,
     pub text: Option<String>,
+    /// Of the part `main`, what it says in place of `text` where main was not merged into the work's branch: for a
+    /// conflict, `{files}` the files in conflict; for changes not committed or a merge under way, `{changes}` the files
+    /// the worktree holds changes of; and for any other cause, nothing but that it was not. In each, `{name}` is the
+    /// main branch's name and `{main}` its head.
+    pub conflict: Option<String>,
+    pub uncommitted: Option<String>,
+    pub merging: Option<String>,
+    pub failed: Option<String>,
+    /// What stands between the items of a list a line of the part names, as the files in conflict.
+    pub between: Option<String>,
     /// Of a part that is a list, each item of it.
     pub each: Option<String>,
     /// What is sent in its place where the session holds it already.

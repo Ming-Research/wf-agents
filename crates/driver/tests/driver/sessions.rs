@@ -39,7 +39,10 @@ fn flow() -> Compiled {
         shown = true
         [blocks.session]
         outside = "session"
-        writes = { text = "A new session of the line `{line}`: {why}.", limit = "its context was {context} tokens as its last round ended, past the limit of {limit}", model = "its rounds now run on another model than {was}, which it was begun on", account = "its rounds now run under another account than it was begun under", owner = "the owner asked for one", flagged = "the service's safety check flagged its last round", lost = "the agents' program no longer had the session it was in" }
+        writes = { text = "A new session of the line `{line}`: {why}.", limit = "its context was {context} tokens as its last round ended, past the limit of {limit}", model = "its rounds now run on another model than {was}, which it was begun on", account = "its rounds now run under another account than it was begun under", owner = "the owner asked for one", flagged = "the service's safety check flagged its last round", lost = "the agents' program no longer had the session it was in", compacted = "The session of the line `{line}` was compacted: it holds only a summary of what it read." }
+        [blocks.tree]
+        outside = "tree"
+        shown = true
         [blocks.context]
         [blocks.code]
         [blocks.verdict]
@@ -70,7 +73,7 @@ fn flow() -> Compiled {
         ..Default::default()
     };
     let has = Has {
-        sources: [SESSION.to_string()].into(),
+        sources: [SESSION.to_string(), "tree".to_string()].into(),
         acts: ["merge".to_string()].into(),
         ..Default::default()
     };
@@ -647,4 +650,179 @@ fn another_account_begins_the_new_session_before_a_context_past_the_limit_does()
         spent,
     });
     assert_eq!(s.sessions(), [("engineer".to_string(), Why::Account { was: None })]);
+}
+
+/// The version of the tree a carrier says the work's branch has now.
+fn tree_is(content: &str) -> Event {
+    Event::Wrote {
+        block: "tree".into(),
+        by: Outsider::Outside,
+        content: content.to_string(),
+        matters: true,
+        value: None,
+    }
+}
+
+/// The agents' program compacted the line's session while a round of it was under way.
+fn compacted() -> Event {
+    Event::Anew {
+        line: "engineer".to_string(),
+        why: Why::Compacted,
+    }
+}
+
+/// How many runs of the cell the work has started.
+fn runs(s: &S, cell: &str) -> usize {
+    (s.kept().records.started.iter())
+        .filter(|started| started.cell.as_str() == cell)
+        .count()
+}
+
+/// Ends each round of the work, but the merge's, as the agents do: the loading cell hands in a context that matters
+/// the first time and changes nothing of what it means after, the others what matters. Each event is taken as the
+/// round of its number, counting from none, is under way. Gives how many of the events were taken that have the
+/// loading cell run again, which a tree does not.
+fn through(s: &mut S, events: &[(usize, Event)]) -> usize {
+    let (mut round, mut taken, mut loaded) = (0, 0, false);
+    loop {
+        let (_, cell) = s.round();
+        if cell == "merge" {
+            return taken;
+        }
+        for (at, event) in events {
+            if *at == round {
+                s.on(event.clone());
+                // The loading cell's own compaction has it run no more: it would load again without end.
+                taken += usize::from(matches!(event, Event::Anew { .. }) && cell != "load");
+            }
+        }
+        let matters = cell != "load" || !loaded;
+        loaded |= cell == "load";
+        s.hands_in(100, matters);
+        round += 1;
+        assert!(round < 20, "the work does not come to its merge");
+    }
+}
+
+#[test]
+fn a_compaction_within_a_round_counts_as_the_session_reopened_and_goes_on_under_its_id() {
+    let mut s = S::new();
+    s.hands_in(100, true);
+    let (build, cell) = s.round();
+    assert_eq!(cell, "build");
+    s.on(compacted());
+    assert_eq!(s.sessions(), [("engineer".to_string(), Why::Compacted)]);
+    let block = s.session_block();
+    assert_eq!(block.len(), 1, "a new version of the session block");
+    assert!(
+        block[0].contains("`engineer`") && block[0].contains("compacted"),
+        "{}",
+        block[0]
+    );
+    assert_eq!(
+        s.engineer(build, 1),
+        (0, false),
+        "the round goes on in the session it began in, under its id"
+    );
+    // The round did not end and consumed nothing: when it ends, the cell that loads the session runs first, and
+    // what it finds unchanged runs nothing after it.
+    s.hands_in(100, true);
+    let (_, cell) = s.round();
+    assert_eq!(cell, "load");
+    s.hands_in(100, false);
+    let (_, cell) = s.round();
+    assert_eq!(cell, "review");
+    assert_eq!(runs(&s, "build"), 1);
+}
+
+#[test]
+fn a_compaction_at_any_step_has_the_cell_that_loads_the_session_run_again_and_nothing_after_it() {
+    for round in 0..4 {
+        let mut s = S::new();
+        let taken = through(&mut s, &[(round, compacted())]);
+        let at = format!("a compaction as round {round} was under way");
+        assert_eq!(runs(&s, "load"), 1 + taken, "{at}");
+        assert_eq!(runs(&s, "build"), 1, "{at}");
+        assert_eq!(runs(&s, "review"), 1, "{at}");
+    }
+}
+
+#[test]
+fn a_new_version_of_the_tree_at_any_step_runs_no_cell() {
+    for round in 0..3 {
+        let mut s = S::new();
+        through(&mut s, &[(round, tree_is("c1 t1"))]);
+        let at = format!("a new tree as round {round} was under way");
+        assert_eq!(runs(&s, "load"), 1, "{at}");
+        assert_eq!(runs(&s, "build"), 1, "{at}");
+        assert_eq!(runs(&s, "review"), 1, "{at}");
+        assert_eq!(
+            s.kept()
+                .records
+                .written
+                .iter()
+                .filter(|w| w.block.as_str() == "tree")
+                .count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn a_session_compacted_and_a_tree_changed_at_two_steps_have_the_cell_run_again_for_the_compaction_alone() {
+    for first in 0..4 {
+        for second in 0..4 {
+            let mut s = S::new();
+            let events = [(first, compacted()), (second, tree_is("c1 t1"))];
+            let taken = through(&mut s, &events);
+            let at = format!("a compaction as round {first}, a new tree as round {second}");
+            assert_eq!(runs(&s, "load"), 1 + taken, "{at}");
+            assert_eq!(runs(&s, "build"), 1, "{at}");
+            assert_eq!(runs(&s, "review"), 1, "{at}");
+        }
+    }
+}
+
+#[test]
+fn a_version_written_for_the_round_is_put_into_it_and_runs_no_cell() {
+    let mut s = S::new();
+    s.hands_in(100, true);
+    let (build, cell) = s.round();
+    assert_eq!(cell, "build");
+    // The branch took main in as the run started: the tree is the merge's, and the round is told of it.
+    s.on(Event::WroteForRound {
+        run: build,
+        block: "tree".into(),
+        content: "c1 t1".to_string(),
+    });
+    let kept = s.kept();
+    let version = (kept.records.written.iter().rev())
+        .find(|w| w.block.as_str() == "tree")
+        .expect("the version is written")
+        .at;
+    let put = (kept.records.put_in.iter()).filter(|p| p.run == build);
+    assert_eq!(
+        put.map(|p| (p.block.as_str(), p.version)).collect::<Vec<_>>(),
+        [("tree", version)]
+    );
+    s.hands_in(100, true);
+    let (_, cell) = s.round();
+    assert_eq!(cell, "review", "nothing runs again for it");
+    assert_eq!((runs(&s, "load"), runs(&s, "build")), (1, 1));
+}
+
+#[test]
+fn a_compaction_within_a_round_of_the_cell_that_loads_the_session_has_it_run_no_more() {
+    let mut s = S::new();
+    let (_, cell) = s.round();
+    assert_eq!(cell, "load");
+    s.on(compacted());
+    assert_eq!(s.sessions(), [("engineer".to_string(), Why::Compacted)]);
+    assert!(s.session_block().is_empty(), "nothing is written for it");
+    s.hands_in(100, true);
+    let (_, cell) = s.round();
+    assert_eq!(cell, "build", "the loading cell does not run again");
+    // A later compaction of another cell's round is written, though the session block was not written for this one.
+    s.on(compacted());
+    assert_eq!(s.session_block().len(), 1);
 }

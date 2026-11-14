@@ -7,7 +7,7 @@ A new session of a line that has a cell reading the block the outside source `se
 Why: That cell's whole job is to read into the session what the line's later cells work from, and a new session holds nothing of it; written as the outside, the block makes the cell run by the one rule that runs any cell, and its run changing nothing it wrote, nothing after it runs again. A line whose cells each read what they need from their message loses nothing a block would bring back.
 
 ### decision a-lost-session-keeps-its-id
-A session the agents' program no longer has is begun again under the same id; only a new session for another reason takes an id of its own.
+A session the agents' program no longer has is begun again under the same id, and a compacted one goes on under it; only a new session for another reason takes an id of its own.
 Why: Which session a round runs in is counted from the new sessions recorded before its first try began, and the round that finds its session lost began its first try before that is recorded: under an id of its own, the session that round begins would be another than the one the rounds after it count.
 
 ### decision no-new-session-when-the-cache-expired
@@ -21,3 +21,7 @@ Why: The owner ruled that a change of these files made in a work counts in that 
 ### decision lines-say-where-sessions-begin
 No cell begins a new session of its line at a place of its own: a cell that must not go on in another's session is on a line of its own.
 Why: Lines say which cells share a session; a place within a line where its session began anew was turned down as a second way of saying the same thing, with a mark of its own on the chart.
+
+### decision a-compaction-reopens-the-session-under-its-id
+A compaction of a line's session by the agents' program during a round is recorded as the session reopened, once for each compaction, while the round is under way, and the session goes on under its id.
+Why: A compacted session holds a summary where it held what the line read, so the cell that reads into it must run again, and the rule that runs any cell, a new version of its input (document data-and-context, 25), does that only if the compaction is a new version of the data `session`. The program keeps the session under its id, so a new id would have the next round begin a session that exists (decision a-lost-session-keeps-its-id).

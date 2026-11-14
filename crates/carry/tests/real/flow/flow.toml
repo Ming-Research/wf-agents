@@ -26,6 +26,11 @@ values = ["yes", "no"]
 [blocks.merged]
 shown = true
 
+# The design tree on the work's branch, which the owner reads.
+[blocks.tree]
+outside = "tree"
+shown = true
+
 [tests.passed]
 says = "The check passed"
 kind = "all"

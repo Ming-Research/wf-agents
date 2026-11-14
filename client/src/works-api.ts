@@ -362,14 +362,15 @@ export type Step =
 
 /// Why a line began a new session: its context was past the limit; its rounds run on another model or under another
 /// account than its session's ran on; the owner asked; the service's safety check flagged the line's last round; the
-/// agents' program had lost the one before.
+/// agents' program had lost the one before; the agents' program compacted it during a round.
 export type SessionWhy =
   | { kind: 'limit'; context: number; limit: number }
   | { kind: 'model'; was: string }
   | { kind: 'account' }
   | { kind: 'owner' }
   | { kind: 'flagged' }
-  | { kind: 'lost' };
+  | { kind: 'lost' }
+  | { kind: 'compacted' };
 
 /// One work: as it is now, and step by step from its start.
 export interface WorkPage {

@@ -31,20 +31,18 @@ async fn a_run_of_the_build_after_main_moved_takes_it_in_and_is_told_so_once() {
         std::fs::read_to_string(rounds.join(format!("{}-1.message.md", run.0))).expect("the round was told")
     };
     // The first build's branch held main, as the start made it: it is told nothing of it.
-    assert!(!told(builds[0]).contains("taken in"), "{}", told(builds[0]));
+    assert!(!told(builds[0]).contains("merged into the work"), "{}", told(builds[0]));
     // Main moved during the first check; the second build took it in before its first round, and was told so.
     let second = told(builds[1]);
-    assert!(
-        second.contains(&format!(
-            "\n\n## main taken in\nThe engine merged main at {} into the work's branch as this run started",
-            git_in(&real.repo, &["log", "-1", "--format=%H", "--grep=Main moved", "main"])
-        )),
-        "{second}"
-    );
-    assert!(
-        second.contains("since the branch last took it in:\nother.txt\n"),
-        "{second}"
-    );
+    let main = git_in(&real.repo, &["log", "-1", "--format=%H", "--grep=Main moved", "main"]);
+    let said = format!("main at {main} was merged into the work's branch as the commit ");
+    let at = second.find(&said).unwrap_or_else(|| panic!("{second}")) + said.len();
+    let merge = &second[at..at + 40];
+    let shows = format!("`git diff --name-only {merge}^1 {merge}` shows what it changed.");
+    assert!(second.contains(&shows), "{second}");
+    // The command shows what main changed.
+    let changed = git_in(&real.repo, &["diff", "--name-only", &format!("{merge}^1"), merge]);
+    assert_eq!(changed, "other.txt");
     // What came of it is kept for the run, once.
     for run in &builds {
         assert!(rounds.join(format!("{}.main.json", run.0)).is_file());

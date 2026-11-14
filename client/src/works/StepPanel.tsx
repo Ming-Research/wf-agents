@@ -418,7 +418,9 @@ export function ActPanel({ step, fold }: PanelProps & { step: Step & { kind: key
     cancelled: 'The owner cancelled the work: its round under way was stopped, its calls withdrawn, and its runs abandoned',
     session:
       step.kind === 'session'
-        ? `The line ${step.line} began a session, ${sessionWords(step.why)}: its rounds from here on run in it`
+        ? step.why.kind === 'compacted'
+          ? `The session of the line ${step.line} was compacted: ${sessionWords(step.why)}`
+          : `The line ${step.line} began a session, ${sessionWords(step.why)}: its rounds from here on run in it`
         : '',
   }[step.kind];
   return (

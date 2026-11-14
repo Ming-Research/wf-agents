@@ -26,7 +26,7 @@ use std::time::Duration;
 use decide::{BlockId, End, Finished, RunId};
 use engine::Came;
 use flow::Compiled;
-use service::{Release, ReleaseReply, Round, RoundReply, Rounds};
+use service::{Release, ReleaseReply, Round, RoundReply, Rounds, Teller};
 use store::{ItemNumber, WorkNumber};
 use tokio::sync::{Mutex, Notify};
 use work::{Handed, Spent, Work};
@@ -38,6 +38,7 @@ use crate::git::{self, Place, Started};
 use crate::held::{Failing, Held, Stop};
 use crate::host::{Branch, Host};
 use crate::settings::Project;
+use crate::tree;
 
 use flow::agents::fill;
 
@@ -166,12 +167,13 @@ impl<H: Host> Rounds for Acts<H> {
     fn give(&self, round: Round, reply: RoundReply) {
         prune(&self.inner.held, &round);
         let key = (round.work, round.run, round.number);
+        let teller = reply.teller();
         let Some(mut stop) = self.inner.held.hold(key, reply) else {
             return;
         };
         let inner = self.inner.clone();
         tokio::spawn(async move {
-            let done = inner.act(&round, &mut stop).await;
+            let done = inner.act(&round, &teller, &mut stop).await;
             match done {
                 Ok(Done::HandsIn(handed)) => {
                     if let Some(reply) = inner.held.take(key) {
@@ -215,7 +217,7 @@ impl<H: Host> Rounds for Acts<H> {
 
 impl<H: Host> Inner<H> {
     /// Does the cell's act, and gives what it hands in.
-    async fn act(&self, round: &Round, stop: &mut Stop) -> Result<Done, String> {
+    async fn act(&self, round: &Round, teller: &Teller, stop: &mut Stop) -> Result<Done, String> {
         let act = round.cell.act.as_deref().unwrap_or_default();
         let outputs = outputs(&round.flow, round);
         let project = &self.project;
@@ -231,6 +233,7 @@ impl<H: Host> Inner<H> {
         match act {
             "start" => {
                 let started = start(project, &self.host, &place, &self.repository).await?;
+                tree::look(&round.flow, &round.kept, &project.tree, &started.place, teller).await;
                 let content = fill(
                     &words.start.text,
                     &[
@@ -243,7 +246,11 @@ impl<H: Host> Inner<H> {
                 Ok(Done::HandsIn(prose(&outputs, &content)))
             }
             "check" => match check(project, &self.host, &branch, &self.repository, stop, &words.check).await? {
-                Some(checked) => checked_in(&outputs, &checked, &project.main, &words.check).map(Done::HandsIn),
+                Some(checked) => {
+                    // The check may have taken main in.
+                    tree::look(&round.flow, &round.kept, &project.tree, &place, teller).await;
+                    checked_in(&outputs, &checked, &project.main, &words.check).map(Done::HandsIn)
+                }
                 None => Ok(Done::Stopped),
             },
             "merge" => {
@@ -782,7 +789,7 @@ mod tests {
         let source = flow::read(&dir).unwrap();
         let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
         let has = flow::Has {
-            sources: names(&[]),
+            sources: names(&["tree"]),
             acts: names(&["start", "check", "merge"]),
             ..Default::default()
         };

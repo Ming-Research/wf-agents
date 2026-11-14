@@ -74,6 +74,11 @@ async fn a_compaction_within_a_round_is_counted_and_given_the_rounds_whole_messa
         "{:?}",
         kept.spent
     );
+    // Each compaction is recorded as the session reopened, which the loop is told while the round is under way.
+    let compactions: u32 = kept.spent.values().map(|spent| spent.compactions).sum();
+    let reopened = (kept.sessions.iter()).filter(|s| s.why == work::Why::Compacted).count();
+    assert!(compactions > 0);
+    assert_eq!(reopened, compactions as usize, "{:?}", kept.sessions);
     let build = real.run_of(work, "build");
     let base = real.data.join(format!("rounds/1/{}-1", build.0));
     assert!(

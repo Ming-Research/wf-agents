@@ -24,6 +24,28 @@ async fn a_check_under_way_is_stopped_when_its_work_is_cancelled() {
 }
 
 #[tokio::test]
+async fn a_compaction_in_a_round_that_is_stopped_is_still_told_as_the_session_reopened() {
+    let fake = Fake {
+        compacts: true,
+        plan_sleeps: 30,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.wait(|real| real.calls().len() == 1).await;
+    let plan = real.run_of(work, "plan");
+    real.act(work, Act::Cancel { why: None });
+    real.until(|real| real.ended_rounds(work, plan)).await;
+    let kept = real.work(work);
+    assert!(
+        kept.sessions.iter().any(|s| s.why == work::Why::Compacted),
+        "{:?}",
+        kept.sessions
+    );
+}
+
+#[tokio::test]
 async fn an_agents_round_under_way_is_stopped_when_its_work_is_cancelled() {
     let fake = Fake {
         plan_sleeps: 30,

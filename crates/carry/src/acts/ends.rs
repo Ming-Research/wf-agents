@@ -51,7 +51,7 @@ fn acts_flow() -> Compiled {
     let source = flow::read(&dir).unwrap();
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
     let has = flow::Has {
-        sources: names(&[]),
+        sources: names(&["tree"]),
         acts: names(&["start", "check", "merge"]),
         ..Default::default()
     };

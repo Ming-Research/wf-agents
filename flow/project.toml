@@ -2,6 +2,9 @@
 # checkout, and its settings, which the words sent to the agents name as `project.<name>`. A path is from the root of
 # the project's checkout.
 
+# The directory that holds the project's design tree, which the engine looks at on each work's branch.
+tree = "design/"
+
 # The project's guide for its agents.
 [files.guide]
 path = "AGENTS.md"

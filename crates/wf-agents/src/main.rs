@@ -325,7 +325,8 @@ fn main() -> ExitCode {
 
 /// The names of the sources outside a work that write its blocks, which every definition is compiled against:
 /// `dependencies`, `session` and `start`, written by the engine's driver, the last as the owner starts the work;
-/// `main`, written by the acts' watch of main on the host; and `tree`, whose writer is not built yet.
+/// `main`, written by the acts' watch of main on the host; and `tree`, written by the carriers as they look at the
+/// design tree on a work's branch.
 const SOURCES: [&str; 5] = ["dependencies", "main", "session", "start", "tree"];
 
 /// The names of the acts of the engine's own that carry out an engine cell: `start` makes the place a work is done
@@ -345,7 +346,8 @@ const TOOLS: [&str; 2] = ["query", "run_tests"];
 const FIELDS: [&str; 5] = ["dealt_with", "meaning_unchanged", "observations", "questions", "reply"];
 
 /// The names of the places the engine fills in a run with what happened, which a trigger may say it happened by:
-/// `files`, the files of the design tree that changed. Not filled yet.
+/// `files`, the files of the design tree that changed. No trigger of the flows says it now: a cell is given the tree
+/// as a datum.
 const DETAILS: [&str; 1] = ["files"];
 
 /// What the engine has, by name, for the definition in this directory. Of the parts of a line's system prompt, the

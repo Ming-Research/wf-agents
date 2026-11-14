@@ -75,8 +75,9 @@ pub fn follow(flow: &Compiled, work: &Work, item: &Item, policy: Option<&Policy>
         .filter(|w| w.block == *block && w.by == Outsider::Outside)
         .map(|w| w.at)
         .max();
+    let loads = |cell: &str| declared.readers.cells.iter().any(|c| c.as_str() == cell);
     let recorded = (work.sessions.iter().rev())
-        .find(|s| read_on(&s.line))
+        .find(|s| read_on(&s.line) && !in_the_loader(work, s, &loads))
         .filter(|s| written.is_none_or(|w| w < s.at))
         .map(|s| said(&s.why, &s.line, &declared.writes));
     if let Some(content) = coming.or(recorded) {
@@ -91,11 +92,28 @@ pub fn follow(flow: &Compiled, work: &Work, item: &Item, policy: Option<&Policy>
     events
 }
 
+/// Whether the session is a compaction during a round of a cell that loads the session: that cell's own compaction
+/// does not have it run again, as the limit ends no session at its round, or it would load again without end. The
+/// round a session was recorded in is the latest that began before it.
+fn in_the_loader(work: &Work, session: &work::Session, loads: &dyn Fn(&str) -> bool) -> bool {
+    if session.why != Why::Compacted {
+        return false;
+    }
+    let round = (work.records.rounds.iter())
+        .filter(|round| round.at < session.at)
+        .max_by_key(|round| round.at);
+    let cell = round.and_then(|round| work.records.started.iter().find(|s| s.run == round.run));
+    cell.is_some_and(|started| loads(started.cell.as_str()))
+}
+
 /// What the block says of a new session of the line, in the words its definition gives (`writes`): `text`, with the
-/// line and the words of why it began one.
+/// line and the words of why it began one; of a compaction, which begins none, the words of `compacted` alone.
 fn said(why: &Why, line: &str, writes: &Texts) -> String {
     let says = |name: &str| writes.get(name).unwrap_or_default();
     let (kind, slots) = why.named();
+    if *why == Why::Compacted {
+        return fill(says(kind), &[("line", line)]);
+    }
     let slots: Vec<(&str, &str)> = slots.iter().map(|(name, value)| (*name, value.as_str())).collect();
     let why = fill(says(kind), &slots);
     fill(says("text"), &[("line", line), ("why", &why)])

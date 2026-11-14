@@ -686,7 +686,7 @@ mod tests {
     /// `agents.subagents.most` and `github.checks`, the last with no value.
     fn settings() -> Settings {
         let project: Project = toml::from_str(
-            "[files]\n[installation]\nnames = [\"owner.language\", \"agents.subagents.most\", \"github.checks\"]\n\
+            "tree = \"design/\"\n[files]\n[installation]\nnames = [\"owner.language\", \"agents.subagents.most\", \"github.checks\"]\n\
              [project]\nresearch = \"research/\"\ntest_names = \"By its own name.\"\n",
         )
         .unwrap();

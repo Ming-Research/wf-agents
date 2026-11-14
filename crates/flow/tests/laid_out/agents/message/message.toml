@@ -7,6 +7,12 @@ text = "# {title}"
 [[parts]]
 part = "main"
 only = "takes_main"
+text = "{name} at {main} was merged into the work's branch as the commit {merge}; `git diff --name-only {merge}^1 {merge}` shows what it changed."
+conflict = "{name} at {main} was not merged into the work's branch: it conflicts in {files}."
+uncommitted = "{name} at {main} was not merged into the work's branch: the worktree holds changes not committed, {changes}."
+merging = "{name} at {main} was not merged into the work's branch: a merge is under way in the worktree, not committed, {changes}."
+failed = "{name} was not merged into the work's branch."
+between = ", "
 
 [[parts]]
 part = "context"
