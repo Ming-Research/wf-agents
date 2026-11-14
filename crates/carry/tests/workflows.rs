@@ -1,8 +1,9 @@
-//! The repository's two CI workflows as the engine relies on them. The engine reads the jobs of a run by their names
-//! (`page` and `check` in this repository), and runs the workflows the project declares (`ci` in flow/project.toml) by
-//! hand on the commit it gives; so a job renamed, or added to the wrong workflow, or a trigger changed, changes what
-//! a green run means. GitHub is the reference for the workflow syntax; the comments at the head of each workflow say
-//! what it must and must not hold.
+//! The repository's two CI workflows as the engine relies on them. The engine runs the workflows the project declares
+//! (`ci` in flow/project.toml) by hand on the commit it gives, finds its own run by the value it gives (`call`) in the
+//! run's name, and judges a run by the conclusions of its jobs and by the JUnit of its tests in the artifact
+//! `test-results`; so a job renamed, or added to the wrong workflow, or a trigger changed, or JUnit left out, changes
+//! what a green run means. GitHub is the reference for the workflow syntax; the comments at the head of each workflow
+//! say what it must and must not hold.
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -84,9 +85,8 @@ fn scripts(text: &str) -> Vec<(usize, String)> {
     out
 }
 
-// The full workflow keeps the two checks the engine waits for, `page` and `check`, and `check` is red whenever the lint
-// or a job of the tests did not pass, cancelled ones included: a merge waits for that one job, not for the jobs it
-// gathers, so that how the tests are split can change without changing what the engine is told to wait for.
+// The full workflow keeps a job `check` that is red whenever the page, the lint or a job of the tests did not pass,
+// cancelled ones included, and that makes the JUnit of those jobs one artifact.
 #[test]
 fn the_full_workflow_keeps_the_checks_a_merge_waits_for() {
     let text = workflow("ci.yml");
@@ -96,30 +96,88 @@ fn the_full_workflow_keeps_the_checks_a_merge_waits_for() {
         assert!(names.iter().any(|n| n == want), "no job {want} in {names:?}");
     }
     let check = under(&jobs, "check").join("\n");
-    assert!(check.contains("needs: [lint, test]"), "{check}");
+    assert!(check.contains("needs: [page, lint, test]"), "{check}");
     assert!(check.contains("if: always()"), "{check}");
     assert!(check.contains(r#"[ "$r" = success ] || red=true"#), "{check}");
     for (job, lines) in [("page", under(&jobs, "page")), ("check", under(&jobs, "check"))] {
         assert!(
-            !lines.iter().any(|l| l.trim().starts_with("name:")),
+            !lines.iter().any(|l| l.starts_with("    name:")),
             "the job {job} is given another name, which the engine would not find"
         );
     }
 }
 
-// The full workflow runs on each pull request into `main` and each push to `main`, and on no other push. `next` is the
-// name `main` had, kept while a pull request targets it.
+// The full workflow is run by hand by the engine, with the commit to test and a value only its request knows, and still
+// runs on each pull request into `main` and each push to `main`, and on no other push, and on none to a branch of the
+// name `main` once had.
 #[test]
-fn the_full_workflow_runs_on_the_pull_requests_and_pushes_of_main() {
+fn the_full_workflow_runs_by_hand_and_on_the_pull_requests_and_pushes_of_main() {
     let text = workflow("ci.yml");
     let on = block(&text, "on");
-    assert_eq!(children(&on), ["pull_request", "push"]);
+    assert_eq!(children(&on), ["workflow_dispatch", "pull_request", "push"]);
     for event in ["pull_request", "push"] {
         let branches: Vec<&str> = (under(&on, event).iter())
             .filter_map(|l| l.trim().strip_prefix("- "))
             .collect();
-        assert_eq!(branches, ["main", "next"], "the branches of {event}");
+        assert_eq!(branches, ["main"], "the branches of {event}");
     }
+    assert!(
+        !text.contains("refs/heads/next") && !text.lines().any(|l| l.trim() == "- next"),
+        "the branch `next` is no part of the workflow"
+    );
+}
+
+// A workflow the engine runs by hand takes the commit to test and the value that finds its run, and its name holds that
+// value, so that the engine tells its run from every other of the workflow; each job tests that commit.
+#[test]
+fn each_workflow_the_engine_runs_takes_a_commit_and_a_call_and_names_its_run_by_the_call() {
+    for file in ["ci.yml", "fast.yml"] {
+        let text = workflow(file);
+        let dispatch = under(&block(&text, "on"), "workflow_dispatch");
+        let inputs = children(&under(&dispatch, "inputs")[1..]);
+        for input in ["commit", "call"] {
+            assert!(
+                inputs.iter().any(|i| i == input),
+                "{file}: no input {input} in {inputs:?}"
+            );
+        }
+        let run_name = text.lines().find(|l| l.starts_with("run-name:")).unwrap_or_default();
+        assert!(run_name.contains("inputs.call"), "{file}: {run_name:?}");
+    }
+    let text = workflow("ci.yml");
+    let checkouts = text.matches("uses: actions/checkout@").count();
+    assert!(checkouts >= 3, "{checkouts} checkouts");
+    assert_eq!(
+        text.matches("ref: ${{ inputs.commit }}").count(),
+        checkouts,
+        "each checkout of ci.yml is at the commit given"
+    );
+}
+
+// What a run uploads for the engine is JUnit, all of it in the one artifact `test-results`: the full workflow's jobs
+// each upload theirs in a file of their own, nextest's of each third of the Rust tests and vitest's of the page, and
+// the job `check` makes them one; the fast workflow uploads its own.
+#[test]
+fn every_test_of_a_run_is_reported_as_junit_in_the_artifact_test_results() {
+    let text = workflow("ci.yml");
+    let jobs = block(&text, "jobs");
+    let page = under(&jobs, "page").join("\n");
+    assert!(page.contains("--reporter=junit") && page.contains("page.xml"), "{page}");
+    assert!(page.contains("name: junit-page"), "{page}");
+    let test = under(&jobs, "test").join("\n");
+    assert!(
+        test.contains("rust-$PARTITION.xml") && test.contains("name: junit-${{ matrix.partition }}"),
+        "{test}"
+    );
+    let check = under(&jobs, "check").join("\n");
+    assert!(check.contains("actions/upload-artifact/merge@"), "{check}");
+    assert!(
+        check.contains("name: test-results") && check.contains("pattern: junit-*"),
+        "{check}"
+    );
+    let fast = workflow("fast.yml");
+    assert!(fast.contains("name: test-results"), "fast.yml uploads no test-results");
+    assert!(fast.contains("--reporter=junit"), "fast.yml reads no JUnit of the page");
 }
 
 // The fast workflow runs by hand and by nothing else: it runs on the owner's machine, and a trigger by a push or a pull
@@ -141,6 +199,28 @@ fn the_fast_workflow_runs_only_by_hand_and_has_no_check_a_merge_waits_for() {
         block(&text, "concurrency").is_empty(),
         "fast.yml has a concurrency group"
     );
+}
+
+// A test is named to the fast workflow by the name its results give it, and the workflow selects it by that name as it
+// is: a Rust test by nextest's exact name filter, a page test by the exact name vitest lists. It speaks of no
+// separator a project's tests might use, and of no setting or tool the engine no longer has.
+#[test]
+fn the_fast_workflow_selects_tests_by_their_names_as_they_are() {
+    let text = workflow("fast.yml");
+    assert!(
+        text.contains("test(=$n)"),
+        "the Rust tests are selected by an exact name"
+    );
+    for gone in [
+        "github.fast",
+        "check_before",
+        "separators",
+        "test_name.rs",
+        "wf-agents-before",
+        "git grep",
+    ] {
+        assert!(!text.contains(gone), "fast.yml still speaks of {gone}");
+    }
 }
 
 // What `check` gives of a job that did not pass is that job's own log, which the engine then reads in `check`'s. The

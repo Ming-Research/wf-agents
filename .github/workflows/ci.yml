@@ -2,29 +2,40 @@ name: ci
 
 # Every check of the code: the page's types, lint, tests and build; the Rust format and clippy with warnings as errors;
 # and the Rust tests, which take most of the time, split across three jobs beside the others. The job `check` is red
-# whenever the lint or a job of the tests is, and it and `page` are the checks the engine waits for. It runs on each
-# pull request into `main` and on each push to `main`, on GitHub's machines from a clean start: this is the CI the check
-# before a work's merge waits for. `next` is the name `main` had, kept in the lists below while a pull request targets
-# it. What an agent names to its check while it works, and the tests it runs on the code before its change, the fast CI
-# runs instead (fast.yml), on the owner's machine; so a push to a branch of the code before a change
-# (`wf-agents-before/`) runs nothing here.
+# whenever the page, the lint or a job of the tests is. It is the project's full workflow (`ci.full` of
+# flow/project.toml): what the check before a work's merge runs on the exact commit to merge, once, and what a request of
+# an agent's `run_tests` that names no test runs. The engine dispatches it by hand on main's file, with the commit to
+# test and a value only its request knows, which the run's name holds, and judges the run by the jobs' conclusions and
+# by the JUnit of every test in the artifact `test-results`: nextest's of each third of the Rust tests and vitest's of
+# the page's, each in a file of its own. It runs on each pull request into `main` and on each push to `main` as well,
+# on GitHub's machines from a clean start. What an agent names to `run_tests` while it works, the fast CI runs instead
+# (fast.yml), on the owner's machine.
+run-name: ${{ inputs.call && format('ci {0}', inputs.call) || '' }}
+
 on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: The commit to check out and test, pushed to a branch of the repository already
+        required: true
+      call:
+        description: A value only the request that asks for this run knows, which the run's name holds
+        required: true
   pull_request:
     branches:
       - main
-      - next
   push:
     branches:
       - main
-      - next
 
 permissions:
   contents: read
 
-# A newer push to the same pull request makes the older run pointless; `main` keeps every run.
+# A newer push to the same pull request makes the older run pointless; `main` keeps every run, and so does every run an
+# engine asked for by hand, which an agent or a merge waits for.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/next' }}
+  group: ci-${{ github.event_name == 'workflow_dispatch' && inputs.call || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && github.ref != 'refs/heads/main' }}
 
 jobs:
   # The owner's page (client/): checked and tested on its own, so that what is wrong with it shows without waiting for
@@ -38,6 +49,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The commit an engine's request gives; for a pull request or a push, empty, which is the commit of the event.
+          ref: ${{ inputs.commit }}
           # No later step pushes, so the token is not left in the checkout.
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -54,8 +67,16 @@ jobs:
       # version of Playwright the lock file locks drives, with the system libraries it needs, and nothing more.
       - name: Chromium for the page's browser tests
         run: npx --no-install playwright install --with-deps --only-shell chromium
+      # With vitest's JUnit beside its own report: what became of each test, by its describes and its title joined by
+      # ` > `, which is the name an agent asks for it by.
       - name: Test the page
-        run: npm test
+        run: npm test -- --reporter=default --reporter=junit --outputFile.junit="$RUNNER_TEMP/page.xml"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: junit-page
+          path: ${{ runner.temp }}/page.xml
+          if-no-files-found: ignore
       - name: Build the page
         run: npm run build
 
@@ -68,6 +89,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The commit an engine's request gives; for a pull request or a push, empty, which is the commit of the event.
+          ref: ${{ inputs.commit }}
           # No later step pushes, so the token is not left in the checkout.
           persist-credentials: false
       # Installs the toolchain rust-toolchain.toml pins, with its components.
@@ -76,13 +99,22 @@ jobs:
       - name: Format
         run: cargo fmt --all --check
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      # The page is built into the binary (crates/web/build.rs), so it is built before anything compiles that crate.
+      # The page is built into the binary (crates/web/build.rs), so it is built before anything compiles that crate. Its
+      # build is kept for the files of client/ as they are, so that a change that touches none of them has it already:
+      # the page is built once for each state of its files, not once in each job of each run.
+      - id: page
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: client/dist
+          key: page-node-24.21.0-${{ hashFiles('client/**') }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ steps.page.outputs.cache-hit != 'true' }}
         with:
           node-version: 24.21.0
           cache: npm
           cache-dependency-path: client/package-lock.json
       - name: Build the page
+        if: ${{ steps.page.outputs.cache-hit != 'true' }}
         working-directory: client
         run: |
           npm ci
@@ -106,6 +138,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The commit an engine's request gives; for a pull request or a push, empty, which is the commit of the event.
+          ref: ${{ inputs.commit }}
           # No later step pushes, so the token is not left in the checkout.
           persist-credentials: false
       - run: rustup toolchain install
@@ -120,12 +154,20 @@ jobs:
         if: steps.nextest.outputs.have != 'true'
         with:
           tool: cargo-nextest@0.9.146
+      # The page is built into the binary (crates/web/build.rs): its build is kept as the lint job keeps it.
+      - id: page
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: client/dist
+          key: page-node-24.21.0-${{ hashFiles('client/**') }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ steps.page.outputs.cache-hit != 'true' }}
         with:
           node-version: 24.21.0
           cache: npm
           cache-dependency-path: client/package-lock.json
       - name: Build the page
+        if: ${{ steps.page.outputs.cache-hit != 'true' }}
         working-directory: client
         run: |
           npm ci
@@ -139,24 +181,31 @@ jobs:
         run: |
           cargo nextest run --workspace --locked --cargo-profile ci --profile ci --no-fail-fast \
             --partition "count:$PARTITION/3"
-      # What became of each test of the job's third, as nextest's JUnit, whatever became of the step before.
+      # What became of each test of the job's third, as nextest's JUnit, in a file named by the third so that the thirds
+      # are one artifact together, whatever became of the step before.
+      - name: Name the results
+        if: ${{ !cancelled() }}
+        env:
+          PARTITION: ${{ matrix.partition }}
+        run: |
+          junit=target/nextest/ci/junit.xml
+          if [ -f "$junit" ]; then mv "$junit" "target/nextest/ci/rust-$PARTITION.xml"; fi
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
           name: junit-${{ matrix.partition }}
-          path: target/nextest/ci/junit.xml
+          path: target/nextest/ci/rust-${{ matrix.partition }}.xml
           if-no-files-found: ignore
 
-  # The check a merge waits for, named as the engine reads it (`github.checks`): red whenever the lint or a job of the
-  # tests did not pass, cancelled ones included.
+  # Red whenever the page, the lint or a job of the tests did not pass, cancelled ones included; and the one place the
+  # JUnit of every job is made one artifact, `test-results`, which the engine reads.
   #
-  # The engine gives the implementing agent the log of each red check it names, and reads only that one job's log, by
-  # the conventions of its reading (crates/carry/src/host/github/log.rs): a step begins at a line `##[group]Run ` and
-  # the steps that failed hold a line `##[error]`. So this job prints, in its own log, the steps of each job that did
-  # not pass, each after a line as a step begins that names the job, with GitHub's times taken off and its workflow
-  # commands stopped, so that they are printed as the job printed them.
+  # The jobs of a run are what the engine judges the run by, each by its conclusion; this job prints, in its own log,
+  # the steps of each job that did not pass, each after a line as a step begins that names the job, with GitHub's times
+  # taken off and its workflow commands stopped, so that they are printed as the job printed them, for whoever reads the
+  # run on GitHub.
   check:
-    needs: [lint, test]
+    needs: [page, lint, test]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -165,6 +214,14 @@ jobs:
       # To read the logs of the run's other jobs.
       actions: read
     steps:
+      # The JUnit of the page and of each third of the Rust tests, in one artifact. Where none was kept (each job was
+      # cancelled, say) there is nothing to merge, and the engine says the run uploaded none.
+      - uses: actions/upload-artifact/merge@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        with:
+          name: test-results
+          pattern: junit-*
       # The ten slowest tests of the run, read from the JUnit the jobs of the tests kept, in the run's summary and its
       # log: what a test costs, for whoever adds one. It never makes the check red.
       - name: The slowest tests
@@ -175,7 +232,7 @@ jobs:
         # ends without an error all the same: the engine gives an agent every step of this log that holds one. Results
         # kept half written end it so too, the status of the lines below being that of `tee`.
         run: |
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'junit-*' --dir "$RUNNER_TEMP/junit" \
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --pattern 'junit-[123]' --dir "$RUNNER_TEMP/junit" \
             || { echo "No job of the tests kept its results."; exit 0; }
           python3 -I - "$RUNNER_TEMP/junit" <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
           import pathlib, sys, xml.etree.ElementTree as ET
@@ -195,13 +252,13 @@ jobs:
           RESULTS: ${{ join(needs.*.result, ' ') }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "lint and test: $RESULTS"
+          echo "page, lint and test: $RESULTS"
           red=false
           for r in $RESULTS; do [ "$r" = success ] || red=true; done
           [ $red = true ] || exit 0
           jobs="repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs"
           mapfile -t not_passed < <(gh api --paginate "$jobs" --jq '.jobs[]
-            | select(.name == "lint" or (.name | startswith("test ")))
+            | select(.name == "page" or .name == "lint" or (.name | startswith("test ")))
             | select(.conclusion != "success") | "\(.id)\t\(.name)\t\(.conclusion // .status)"')
           stop="stop-$(cat /proc/sys/kernel/random/uuid)"
           for line in "${not_passed[@]}"; do
