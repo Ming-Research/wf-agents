@@ -3,7 +3,7 @@
 # has not gone through it.
 title = "Review"
 kind = "agent"
-line = "review"
+line = "code_reviewer"
 effort = "high"
 task = '''
 Review the change in `code`, in a session of your own, and change no file. Read the diff from main to the commit

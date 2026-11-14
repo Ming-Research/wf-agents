@@ -3,7 +3,7 @@
 # where the plan changes the tree. On the line of the review of the plan, after it (the owner, 2026-11-14).
 title = "Review against the tree"
 kind = "agent"
-line = "plan_review"
+line = "plan_reviewer"
 effort = "xhigh"
 task = '''
 You review the plan against the design tree, in a session that did not write it. Read the principles, and whole each

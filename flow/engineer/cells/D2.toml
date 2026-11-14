@@ -3,7 +3,7 @@
 # 40 times in 52). From the owner's words (2026-10-23, 2026-11-14).
 title = "Is there a better way"
 kind = "agent"
-line = "deep_research"
+line = "deep_researcher"
 effort = "xhigh"
 task = '''
 Think it through again from first principles: what does what `background` asks need at bottom, and does the plan make

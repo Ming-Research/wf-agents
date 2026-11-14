@@ -3,7 +3,7 @@
 # it.
 title = "Adversarial testing"
 kind = "agent"
-line = "adversarial"
+line = "tester"
 effort = "high"
 task = '''
 Test the change in `code` in a session of your own, looking for where it is wrong. You only write tests, in the

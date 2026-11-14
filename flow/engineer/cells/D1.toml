@@ -3,7 +3,7 @@
 # 2026-11-14.
 title = "Deep research"
 kind = "agent"
-line = "deep_research"
+line = "deep_researcher"
 effort = "xhigh"
 takes_main = true
 task = '''

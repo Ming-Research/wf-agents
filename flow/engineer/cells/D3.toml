@@ -3,7 +3,7 @@
 # judgment a round, each point answered (the owner, 2026-11-14).
 title = "Review the plan"
 kind = "agent"
-line = "plan_review"
+line = "plan_reviewer"
 effort = "xhigh"
 task = '''
 You review the plan in a session of your own: you did not write it, so look for what its writer cannot see. Read the
