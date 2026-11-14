@@ -3,8 +3,9 @@
 in = ["outcome"]
 told = "listed"
 words = '''
-`reply`: your answer to what the owner said to the cell, only where the owner said something to it; an answer to
-  a review, a test, a check or doubts is a block of its own, as the cell's list names it.'''
+`reply`: your answer to what the owner said to the cell, only where the owner said something to it. An answer to
+  a review, a test, a check or doubts is no `reply`: it is a block of its own, named `reply_` and what it answers,
+  written in `outputs`.'''
 
 [shape]
 type = "string"
