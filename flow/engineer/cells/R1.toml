@@ -1,7 +1,6 @@
 # Why this cell exists: so that the work starts from facts checked in the code: what the item says, found to hold, and
 # a plan the implementation can follow; or, where the facts cannot settle the direction in a round or two, the deep
-# research is called with what it must settle. From the owner's words on the research (2026-11-08 to
-# 11-13), gone through with the owner on 2026-11-14.
+# research is called with what it must settle.
 title = "Initial research"
 kind = "agent"
 line = "engineer"
@@ -20,7 +19,7 @@ Decide `deep_needed`. With yes, write only `found`. With no, write the plan (`pl
 propose that in `tree_edits` rather than bend the solution; a principle or the constitution, ask the owner. Before
 handing in, ask yourself where the plan is most likely wrong, and check that point.
 '''
-when = { test = "research_in_charge" }
+when = { deep_needed = "no" }
 triggered_by = [
   "on_background",
   "on_spoken",
@@ -65,11 +64,9 @@ on_plan_review = """Take each point of `plan_review`: change the plan where it t
 on_tree_review = """Take each point of `tree_review`: change the plan where it touches, only there, or say why not, and answer it in `reply_tree_review`."""
 on_plan_doubts = """Take each point of `plan_doubts`: change the plan where it touches, only there, or say why not, and answer it in `reply_plan_doubts`."""
 on_answer = """The owner has answered one of your questions in `answers` with another option than yours, or one you wait for: bring the plan to it."""
-# Back from the old cell, where the task said it (the review of 2026-11-14).
 on_spoken = """The owner has said something to you in `discussion`: that comes first. Take each point of it: change the plan where it touches, only there, or say why not, and answer it in `reply`."""
 
-# `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest (the owner,
-# 2026-11-14).
+# `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]
 background = "last_and_latest"
 discussion = "all"

@@ -1,6 +1,5 @@
 # Why this cell exists: so that the plan is built, and handed on only with what shows it works: the check passing on
-# the last commit, and evidence for each acceptance condition. A draft of the assistant's; the owner has not gone
-# through it.
+# the last commit, and evidence for each acceptance condition.
 title = "Implement"
 kind = "agent"
 line = "engineer"
@@ -27,10 +26,7 @@ yourself and run the check again. A point its judge insists on, fix or have the 
 needs no change, ask the owner.
 '''
 triggered_by = [
-  "on_plan_agent",
-  "on_questions",
-  "on_acceptance",
-  "on_tree_edits",
+  "on_plan",
   "on_reply_plan_doubts",
   "on_spoken",
   "on_answer",
@@ -39,6 +35,8 @@ triggered_by = [
   "on_check",
 ]
 context = [
+  "background",
+  "plan_owner",
   "plan_agent",
   "questions",
   "answers",
@@ -65,17 +63,17 @@ outputs = [
 
 # What the cell does when each trigger fires; a trigger with none is the task's alone.
 [do]
-# Back from the old I1, where the task said it (the review of 2026-11-14).
+on_plan = """See what changed in the plan since the version you last built from, the whole of it where you built from none, and bring the code to it."""
 on_spoken = """The owner has said something to you in `discussion`: that comes first. Do what it says, and answer it in `reply`: what you changed for it, or why not."""
 on_answer = """The owner has answered one of your questions in `answers` with another option than yours, or one you wait for: follow the option the owner took."""
-# Split from the task's sentence on the three judges, the words as they stood (2026-11-14).
 on_review = """Answer each point of `review` in `reply_review`: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
 on_testing = """Answer each point of `testing` in `reply_testing`: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
 on_check = """Answer each point of `check` in `reply_check`: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
 
-# The kinds below are a draft of the assistant's (2026-11-14), which the owner has not gone through: `all` for a
-# record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
+# `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]
+background = "latest"
+plan_owner = "last_and_latest"
 plan_doubts = "latest"
 plan_agent = "last_and_latest"
 questions = "latest"

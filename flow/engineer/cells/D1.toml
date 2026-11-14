@@ -1,6 +1,5 @@
-# Why this cell exists: so that a direction the facts could not settle in the research is settled by a deeper look,
-# in a session of its own with a stronger model, before anything is built on it. Gone through with the owner on
-# 2026-11-14.
+# Why this cell exists: so that a direction the facts could not settle in the research is settled by a deeper look, in
+# a session of its own with a stronger model, before anything is built on it.
 title = "Deep research"
 kind = "agent"
 line = "deep_researcher"
@@ -20,7 +19,7 @@ settles and decide what is cheap to change later: ask the owner only the rest.
 If the solution falls into parts each mergeable on its own, too large for one work, ask the owner with a question
 that waits, naming them in order.
 '''
-when = { block = "deep_needed", is = "yes" }
+when = { deep_needed = "yes" }
 triggered_by = [
   "on_background",
   "on_found",
@@ -65,12 +64,10 @@ on_plan_review = """Take each point of `plan_review`: change the plan where it t
 on_tree_review = """Take each point of `tree_review`: change the plan where it touches, only there, or say why not, and answer it in `reply_tree_review`."""
 on_plan_doubts = """Take each point of `plan_doubts`: change the plan where it touches, only there, or say why not, and answer it in `reply_plan_doubts`."""
 on_answer = """The owner has answered one of your questions in `answers` with another option than yours, or one you wait for: bring the plan to it."""
-# Back from the old cell, where the task said it (the review of 2026-11-14).
 on_spoken = """The owner has said something to you in `discussion`: that comes first. Take each point of it: change the plan where it touches, only there, or say why not, and answer it in `reply`."""
 on_session = """Read the tree from the start: the session holds nothing of what you read before."""
 
-# `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest (the owner,
-# 2026-11-14).
+# `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]
 background = "last_and_latest"
 found = "latest"

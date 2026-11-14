@@ -1,8 +1,6 @@
 # The blocks the cell writes, each a field under its name, which the form does not list: the cell is told its own with
 # its task (`../return.toml`, `[outputs]`), and the engine checks what it writes against them. A choice holds its value
-# and a line of why, as a choice did in the old engine; any other block its whole new version. The words are those the
-# owner went through, but for `outputs`, where the blocks are listed and the choice's `why` (2026-11-14), a draft of
-# the assistant's.
+# and a line of why; any other block its whole new version.
 in = ["outcome"]
 told = "alone"
 words = '''

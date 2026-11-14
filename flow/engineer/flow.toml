@@ -12,6 +12,12 @@ data = ["background", "dependencies", "questions", "answers", "discussion"]
 # return holds them, the same for every cell of the flow (`../agents/return/return.toml`).
 tools = ["query", "run_tests"]
 
+# The blocks of the plan, which a cell that reviews or rethinks the plan is run by as one: a new version of any of them
+# runs it once (`../triggers/of_a_group/`).
+[groups]
+plan = ["plan_owner", "plan_agent", "acceptance", "questions", "tree_edits"]
+change = ["code", "decisions", "evidence", "tests"]
+
 # Chosen, not measured: no work yet showed what these should be.
 [limits]
 runs = 3

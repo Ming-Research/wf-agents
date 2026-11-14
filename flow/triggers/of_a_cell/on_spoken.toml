@@ -1,6 +1,5 @@
 # A block with no content of each cell that names it, under the block's name below, `{cell}` being the cell's id in
-# small letters. What the owner said is in `discussion`. The words of `do` are a draft of the assistant's (2026-11-14),
-# from the settled sentence on `reply`, which the owner has not gone through.
+# small letters. What the owner said is in `discussion`.
 what = "Fires when the owner speaks to the cell."
 block = "{cell}_spoken_to"
 from = "owner"

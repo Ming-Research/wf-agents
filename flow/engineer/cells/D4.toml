@@ -1,14 +1,15 @@
 # Why this cell exists: so that what a plan would write into the design tree, and a decision it goes against, are
-# judged before it is built, by a session that did not write it, as a judgment of its own: after the deep research, or
-# where the plan changes the tree. On the line of the review of the plan, after it (the owner, 2026-11-14).
-title = "Review against the tree"
+# judged before it is built, by a session that did not write it, as a judgment of its own, where the plan changes the
+# tree; a decision a plan from the deep research goes against with no entry is D3's. On the line of the review of the
+# plan, after it.
+title = "Design tree review"
 kind = "agent"
 line = "plan_reviewer"
 effort = "xhigh"
 task = '''
 You review the plan against the design tree, in a session that did not write it. Read the principles, and whole each
 file of decisions whose topic the plan or `tree_edits` touches, where this session has not. The plan is
-`plan_owner`, `plan_agent` and `tree_edits`.
+`plan_owner`, `plan_agent`, `tree_edits` and `questions`.
 
 Judge it by the tree's rules, on each of these points:
 1. Each entry of `tree_edits`, as one that must earn its place: whether the tree holds such a thing at all, or a
@@ -16,37 +17,36 @@ Judge it by the tree's rules, on each of these points:
    document it belongs in instead; its form; and what the code says by itself, its reason too, or only this work
    does, which stays out of the tree.
 2. A decision the plan goes against, or a rule later works must follow, that no entry covers.
+3. An entry that changes a principle or the constitution, with no question in `questions` that asks the owner.
 
 In the why of `tree_ok`, answer each point by its number: none, or what you found. Write what the writer must take in
 `tree_review`, every point at once, and none with `tree_ok` yes. Leave out what you are not sure is better.
 '''
-when = { test = "plan_needs_review" }
-triggered_by = [
-  "on_plan_owner",
-  "on_plan_agent",
-  "on_tree_edits",
-  "on_reply_tree_review",
-  "on_session",
-]
+when = { edits_tree = "yes" }
+triggered_by = ["on_plan", "on_reply_tree_review", "on_spoken"]
 context = [
   "background",
+  "discussion",
   "plan_owner",
   "plan_agent",
+  "acceptance",
   "tree_edits",
+  "questions",
   "tree_review",
   "reply_tree_review",
 ]
-outputs = ["tree_review", "tree_ok"]
+outputs = ["tree_review", "tree_ok", "discussion"]
 must_write = ["tree_ok"]
 
 [do]
-on_plan_owner = """See what changed since the version you last reviewed, the whole of it where you reviewed none, and review it."""
-on_plan_agent = """See what changed since the version you last reviewed, the whole of it where you reviewed none, and review it."""
-on_tree_edits = """See what changed since the version you last reviewed, the whole of it where you reviewed none, and review it."""
+on_plan = """See what changed in the plan since the version you last reviewed, the whole of it where you reviewed none, and review it."""
 on_reply_tree_review = """Where the writer answered an earlier point in `reply_tree_review`, accept the answer or say why not; never raise a point again without saying so, and raise nothing new the answers did not bring."""
 
 [kinds]
 background = "latest"
+discussion = "all"
+# For an entry that changes a principle or the constitution: is the owner asked.
+questions = "last_and_latest"
 plan_owner = "last_and_latest"
 plan_agent = "last_and_latest"
 tree_edits = "last_and_latest"

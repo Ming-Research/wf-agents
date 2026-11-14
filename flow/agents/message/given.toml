@@ -6,8 +6,7 @@
 # `diff`, each changed line with two on each side; `each_version`, each later version as the first.
 choice = ", with the value `{value}`"
 # What stands in place of a datum's content where the session holds its latest version already: `{number}` its latest
-# version, `{last_number}` the one the cell last worked from. A draft of the assistant's (2026-11-14), which the owner
-# has not gone through.
+# version, `{last_number}` the one the cell last worked from.
 held = "## `{block}`, version {number}, in this session already; you last worked from version {last_number}"
 
 [latest]

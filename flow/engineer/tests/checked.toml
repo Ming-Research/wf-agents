@@ -1,4 +1,0 @@
-says = "The check before the merge passed"
-kind = "all"
-reads = ["checked"]
-is = "yes"

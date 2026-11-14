@@ -1,31 +1,20 @@
 # Why this cell exists: a plan, once written, is thought through again by its writer, in the same session: asked so, a
 # writer most often finds a better way (the old flow's cell that asked it, on the line that wrote the design, found one
-# 40 times in 52). From the owner's words (2026-10-23, 2026-11-14).
+# 40 times in 52).
 title = "Is there a better way"
 kind = "agent"
 line = "deep_researcher"
 effort = "xhigh"
-task = '''
-Think it through again from first principles: what does what `background` asks need at bottom, and does the plan make
-sense for it? Is there a better way: the same end by another way, more simply, at less running cost or with less to
-keep up, with a better structure in the code, more complete in what it should cover, truer to the project's intent; a
-way a decision of the tree rules out included. Think again in earnest; do not answer for the sake of answering.
-
-If there is, write the plan again for it, changed only where the better way changes it; where it needs a decision
-changed, propose that in `tree_edits`. If not, change nothing.
-'''
-when = { block = "deep_needed", is = "yes" }
-triggered_by = ["on_plan_owner", "on_plan_agent", "on_acceptance", "on_tree_edits"]
+task = { file = "tasks/better_way.md" }
+when = { deep_needed = "yes" }
+triggered_by = ["on_plan"]
 context = ["background", "plan_owner", "plan_agent", "acceptance", "questions", "tree_edits"]
 outputs = ["better_found", "plan_owner", "plan_agent", "questions", "acceptance", "tree_edits", "edits_tree"]
 must_write = ["better_found"]
 
-# Each version of the plan is thought through once; one it wrote itself runs it not again (the owner, 2026-11-14).
+# Each version of the plan is thought through once; one it wrote itself runs it not again.
 [do]
-on_plan_owner = """See what changed in the plan since you last thought it through, the whole of it where you never did, and think that through again."""
-on_plan_agent = """See what changed in the plan since you last thought it through, the whole of it where you never did, and think that through again."""
-on_acceptance = """See what changed in the plan since you last thought it through, the whole of it where you never did, and think that through again."""
-on_tree_edits = """See what changed in the plan since you last thought it through, the whole of it where you never did, and think that through again."""
+on_plan = """See what changed in the plan since you last thought it through, the whole of it where you never did, and think that through again."""
 
 [kinds]
 background = "latest"

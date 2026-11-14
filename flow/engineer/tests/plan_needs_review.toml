@@ -1,4 +1,0 @@
-says = "The plan changes the design tree, or went through deep research"
-kind = "any"
-reads = ["deep_needed", "edits_tree"]
-is = "yes"

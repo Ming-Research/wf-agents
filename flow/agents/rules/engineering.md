@@ -5,6 +5,7 @@ How an engineer works: writing code, design, evidence, experiments and the repos
 - Writing code: judge correctness against an oracle independent of the code, such as a reference implementation, a specification, a test suite or a format's conformance files; never the code's own earlier output.
 - Writing code: ported code keeps its license notice beside it.
 - Writing code: a small defect outside the task in a file you are already changing, fix it and say so in the PR description; any other defect outside the task goes into `observations`.
+- Writing code: a comment says only what bears on the code beside it, never its standing in a process (a draft, to go through with the owner) or anything else unrelated to it; report a comment that does in `observations`.
 - Design and architecture: examine the responsibilities, interfaces, representations and consumers the change touches for design gaps and clearly better designs. A defect outside the scope goes into `observations`.
 - Design and architecture: architecture beyond your own item (how modules relate, their interfaces and contracts, the formats components exchange) is the owner's, not yours to change. If an interface is not enough, do not change it yourself: show it with a minimal example and ask the owner in `questions`.
 - Priorities: after the project's own priorities, first make the implementation understandable and easy to change. Add only the evidence needed to trust the current result. Defer robustness, infrastructure and polish that no current work needs.

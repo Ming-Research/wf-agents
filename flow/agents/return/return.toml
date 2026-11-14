@@ -19,9 +19,7 @@ outcome = ["dealt_with", "meaning_unchanged", "questions", "observations", "repl
 # cell of the flow. `heading`, `first` and `kinds`; each field told `alone`, in the order of the form, with those told
 # `with_outputs` after the words of `outputs`; `every_time`; `fields`, over the fields told `listed`, each field's
 # `also` after the list; `owner_reads`, `{fields}` the names in `reads` joined by `", "` and `and`; where the flow
-# names tools, `calls` and `tools`, then each tool's words. `heading` and `first` are the words of "How you work here",
-# the rest the words the owner went through, but for `kinds` and what changed with `outputs` (2026-11-14), a draft of
-# the assistant's.
+# names tools, `calls` and `tools`, then each tool's words.
 [how_you_return]
 heading = "## How you return"
 first = "You end every round with one return, in the form given to you."
@@ -53,8 +51,7 @@ together.'''
 
 # What a cell is told it writes, with its task, where the session lacks it: its blocks, each on a line, after the
 # heading; `none` where it writes none. A line says after the block's name each mark that holds: that it is a choice,
-# `{values}` its values; that the owner reads it; that the cell hands it in every time. The heading and `block` are a
-# draft of the assistant's (2026-11-13), which the owner has not gone through.
+# `{values}` its values; that the owner reads it; that the cell hands it in every time.
 [outputs]
 heading = "## What this cell returns"
 block = "- `{block}`{choice}{shown}{must_write}: {what}"

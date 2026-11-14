@@ -1,6 +1,5 @@
 # Why this cell exists: so that a change of a kind that goes wrong silently is tested by a session that did not make
-# it, against an independent reference, before it merges. A draft of the assistant's; the owner has not gone through
-# it.
+# it, against an independent reference, before it merges.
 title = "Adversarial testing"
 kind = "agent"
 line = "tester"
@@ -19,7 +18,7 @@ branch.
 
 Hand in `tests`, and what stays red or stays suspect in `testing`.
 '''
-when = { block = "needs_testing", is = "yes" }
+when = { needs_testing = "yes" }
 triggered_by = ["on_code", "on_acceptance", "on_reply_testing"]
 context = [
   "background",
@@ -34,11 +33,9 @@ must_write = ["testing_ok"]
 
 # What the cell does when each trigger fires; a trigger with none is the task's alone.
 [do]
-# From the task's sentence on a run after a fix (2026-11-14), its first words dropped.
 on_reply_testing = """Run your tests on the new commit: accept each answer in `reply_testing`, checking a test called wrong against its reference, or say why not."""
 
-# The kinds below are a draft of the assistant's (2026-11-14), which the owner has not gone through: `all` for a
-# record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
+# `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]
 tests = "latest"
 background = "latest"
