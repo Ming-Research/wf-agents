@@ -99,9 +99,8 @@ use flow::{Compiled, Has, Kind, compile, read};
 use reading::{Reading, Writer};
 use support::{Driver, Part, Rng, lacking_a_must_write};
 
-/// How many histories are run: 8, where the flow before its groups ran 500, since its cells now run on the groups of
-/// its blocks and each history takes far longer (40 take longer than 540 s on GitHub's machines).
-const SEEDS: u64 = 8;
+/// How many histories are run.
+const SEEDS: u64 = 40;
 
 /// How many random steps, at most, a history takes before the content continuation.
 const RANDOM: usize = 200;
@@ -1329,6 +1328,10 @@ fn histories() {
     let mut most = (0, 1);
     for seed in 0..SEEDS {
         let mut log = Vec::new();
+        // Which history is under way, and how long each took, said as it goes: a history that takes the time the test
+        // has is named by the last of these.
+        let began = std::time::Instant::now();
+        let _ = writeln!(std::io::stderr(), "history {seed} begins");
         let verdict = match panic::catch_unwind(AssertUnwindSafe(|| one_history(&flow, seed, &mut log))) {
             Ok(verdict) => verdict,
             Err(e) => {
@@ -1337,6 +1340,12 @@ fn histories() {
                 verdict
             }
         };
+        let _ = writeln!(
+            std::io::stderr(),
+            "history {seed} took {:?}, {} steps",
+            began.elapsed(),
+            log.len()
+        );
         for r in verdict.reached {
             *reached.entry(r).or_default() += 1;
         }
