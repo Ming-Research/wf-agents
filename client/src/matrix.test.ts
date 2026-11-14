@@ -32,11 +32,11 @@ describe('the order of the blocks', () => {
   });
 });
 
-/// The row of a trigger, or of a datum, of this name.
-const rowAt = (m: ReturnType<typeof matrix>, name: string, trigger = false) =>
-  m.blocks.findIndex((b) => b.name === name && (b.trigger !== undefined) === trigger);
+/// The row of a trigger that stands on this block, or of the datum.
+const rowAt = (m: ReturnType<typeof matrix>, block: string, trigger = false) =>
+  m.blocks.findIndex((b) => b.on === block && (b.trigger !== undefined) === trigger);
 
-/// The mark of a cell on the row of a trigger, or of a datum, of this name.
+/// The mark of a cell on the row of a trigger that stands on this block, or of the datum.
 const markAt = (m: ReturnType<typeof matrix>, cellId: string, name: string, trigger = false) =>
   m.spots[rowAt(m, name, trigger)][m.cells.findIndex((c) => c.id === cellId)].mark;
 
@@ -146,16 +146,16 @@ describe('the marks', () => {
     expect(markAt(m, 'design', 'needs_design')).toEqual(datum({}));
     expect(markAt(m, 'merge', 'plan')).toEqual(datum({}));
     // The cells run left to right in the order of the walk; the triggers' rows stand first, by the blocks they stand
-    // on, then each datum's.
+    // on, each named for its trigger, then each datum's.
     expect(m.cells.map((c) => c.id)).toEqual(['plan', 'judge', 'design', 'answer', 'check', 'merge']);
-    expect(m.blocks.filter((b) => b.trigger !== undefined).map((b) => b.name)).toEqual([
-      'request',
-      'plan',
-      'opinions',
-      'design',
-      'comments',
-      'main',
-      'ci',
+    expect(m.blocks.filter((b) => b.trigger !== undefined).map((b) => [b.name, b.on])).toEqual([
+      ['on_request', 'request'],
+      ['on_plan', 'plan'],
+      ['on_opinions', 'opinions'],
+      ['on_design', 'design'],
+      ['on_comments', 'comments'],
+      ['on_main', 'main'],
+      ['on_ci', 'ci'],
     ]);
     expect(m.blocks.filter((b) => b.trigger === undefined).map((b) => b.name)).toEqual(blockOrder(small()));
   });

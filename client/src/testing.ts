@@ -8,7 +8,8 @@ const LIMITS: Limits = { runs: 3, returns: 2, calls: 40 };
 /// A cell of an agent in the line `engineer`, told to do its part, that reads and writes nothing, with these fields over
 /// it. What runs it and what it is given are worked out as the compiler does: from `runsOn` and `given` where they are
 /// set, and otherwise from `inputs` as from a file in the old form, each block of it running the cell and given to an
-/// agent's cell; `inputs` and `input` follow from them, `input` with what `fields` says over it.
+/// agent's cell; `inputs` and `input` follow from them, `input` with what `fields` says over it. Each block that runs
+/// it does so by a trigger named apart from the block, `on_` and its name, as the flow's triggers are.
 export function cell(id: string, fields: Partial<Cell> = {}): Cell {
   const kind = fields.kind ?? 'agent';
   const named = fields.inputs ?? [];
@@ -34,7 +35,7 @@ export function cell(id: string, fields: Partial<Cell> = {}): Cell {
     effort: 'high',
     takesMain: false,
     tools: [],
-    triggers: runsOn.map((b) => ({ name: b, what: null, block: b, read: [], do: null })),
+    triggers: runsOn.map((b) => ({ name: `on_${b}`, what: null, block: b, read: [], do: null })),
     condition: null,
     preconditions: [],
     outputs: [],

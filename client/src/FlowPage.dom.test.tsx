@@ -67,13 +67,13 @@ describe('the chart', () => {
     const page = draw({ state: 'compiled', flow: small() });
     expect(texts(page, 'thead .cell-head .cell-id')).toEqual(['plan', 'judge', 'design', 'answer', 'check', 'merge']);
     expect(rows(page, true).map((tr) => tr.querySelector('.block-name')?.textContent)).toEqual([
-      'request',
-      'plan',
-      'opinions',
-      'design',
-      'comments',
-      'main',
-      'ci',
+      'on_request',
+      'on_plan',
+      'on_opinions',
+      'on_design',
+      'on_comments',
+      'on_main',
+      'on_ci',
     ]);
     expect(rows(page, false).map((tr) => tr.querySelector('.block-name')?.textContent)).toEqual([
       'request',
@@ -90,11 +90,11 @@ describe('the chart', () => {
     ]);
     // On a trigger's row, the cells it runs and those that write the block it stands on; on a datum's, those given it
     // and those that write it.
-    expect(texts(rowOf(page, 'plan', true), '.spot .visually-hidden')).toEqual([
+    expect(texts(rowOf(page, 'on_plan', true), '.spot .visually-hidden')).toEqual([
       'plan outputs plan',
-      'judge triggered_by plan',
-      'design triggered_by plan',
-      'answer triggered_by plan',
+      'judge triggered_by on_plan',
+      'design triggered_by on_plan',
+      'answer triggered_by on_plan',
     ]);
     expect(texts(rowOf(page, 'plan'), '.spot .visually-hidden')).toEqual([
       'plan outputs plan',
@@ -113,7 +113,7 @@ describe('the chart', () => {
     expect(page.querySelector('.legend')?.textContent).toContain('way back (1)');
     const arrows = [...page.querySelectorAll('.arrow')];
     expect(arrows).toHaveLength(1);
-    expect(arrows[0].closest('td')?.textContent).toBe('plan triggered_by opinions');
+    expect(arrows[0].closest('td')?.textContent).toBe('plan triggered_by on_opinions');
   });
 
   it('draws each condition once, on its own row over the blocks: a block a when reads, or a named test', () => {
@@ -143,7 +143,10 @@ describe('the chart', () => {
     // Nothing of the conditions stays on the blocks' rows.
     expect(texts(rowOf(page, 'commented'), '.spot .visually-hidden')).toEqual([]);
     expect(texts(rowOf(page, 'ci'), '.spot .visually-hidden')).toEqual(['check outputs ci']);
-    expect(texts(rowOf(page, 'ci', true), '.spot .visually-hidden')).toEqual(['check outputs ci', 'merge triggered_by ci']);
+    expect(texts(rowOf(page, 'on_ci', true), '.spot .visually-hidden')).toEqual([
+      'check outputs ci',
+      'merge triggered_by on_ci',
+    ]);
     expect(page.querySelectorAll('tbody:not(.band) .part.condition, tbody:not(.band) .part.precondition')).toHaveLength(0);
     expect(bandRow(page, 'condition-row', 'may_merge').querySelectorAll('.part.precondition')).toHaveLength(1);
     expect(bandRow(page, 'condition-row', 'needs_design').querySelectorAll('.part.holds')).toHaveLength(1);
@@ -219,9 +222,10 @@ describe('the chart', () => {
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
     const panel = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
     expect(panel.textContent).toContain('line engineer cells plan, design, answer');
+    // What runs it, by the names of the triggers its file writes, each with the block it stands on.
     expect(items(panel).slice(0, 6)).toEqual([
-      '1 request written_by people',
-      '2 opinions written_by judge, people way_back [judge]',
+      '1 on_request block request written_by people',
+      '2 on_opinions block opinions written_by judge, people way_back [judge]',
       '1 task',
       '2 request kind written_by people',
       '3 opinions kind written_by judge, people',
@@ -229,7 +233,7 @@ describe('the chart', () => {
     ]);
     click([...panel.querySelectorAll('button.link')].find((b) => b.textContent === 'opinions'));
     const block = page.querySelector('aside[aria-label="Block opinions"]') as HTMLElement;
-    expect(block.textContent).toContain('judge → plan');
+    expect(items(block)).toEqual(['judge → plan triggered_by [on_opinions]']);
   });
 
   it('shows an agent’s cell’s task with its line breaks, and the act that carries out an engine’s cell', () => {
@@ -306,10 +310,10 @@ describe('the column of words', () => {
     const heads = page.querySelectorAll('thead .cell-head .head-button');
     click(heads[1]);
     expect(words(page)).toEqual({
-      x: 'triggered_by x; context latest: It is what to judge.',
+      x: 'triggered_by on_x; context latest: It is what to judge.',
       // Its when is said on the condition's row, once.
       y: '',
-      said: 'triggered_by said; context; outputs: What was said of it.',
+      said: 'triggered_by on_said; context; outputs: What was said of it.',
     });
     expect(page.querySelector('.words-label')?.textContent).toBe('What b says of each row');
     expect(page.querySelector('.words-about')?.textContent).toBe('b Second · engineer · when y = yes');

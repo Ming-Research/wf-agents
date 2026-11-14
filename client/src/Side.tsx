@@ -5,7 +5,7 @@ import { Fragment, type ReactNode, useState } from 'react';
 import type { ActWords, Block, Cell, Fault, Flow, SentCarried, SentPart, SentPiece, Unknown } from './api';
 import type { Chosen } from './Chart';
 import { FormTree } from './FormTree';
-import { type BlockRow, type ConditionRow, type LineRow, type Matrix, markOf, where } from './matrix';
+import { type BlockRow, type ConditionRow, type LineRow, type Matrix, where } from './matrix';
 import { Attr, ListRow, Panel, PanelPart, StatusLine } from './parts';
 import {
   charactersWords,
@@ -334,33 +334,48 @@ export function CellPanel(props: {
         </>
       ) : (
         <>
-          <PanelPart label="triggered_by" count={cell.runsOn.length}>
+          <PanelPart label="triggered_by" count={cell.triggers.length}>
             <ul className="uses">
-              {cell.runsOn.map((name, place) => {
-                const block = blocks.get(name) as Block;
-                const back = later(block.writtenBy.cells.filter((id) => id !== cell.id));
+              {cell.triggers.map((t, place) => {
+                const block = blocks.get(t.block);
+                // The later cells that write the block the trigger stands on send the work back to this one.
+                const back = later((block?.writtenBy.cells ?? []).filter((id) => id !== cell.id));
+                const why = cell.input[t.block]?.runs?.why;
                 return (
-                  <ListRow key={name}>
+                  <ListRow key={`${t.name} ${t.block}`}>
                     <span
                       className="muted mono"
                       title="Its place among what runs the cell, in the order the cell names them"
                     >
                       {place + 1}
                     </span>
-                    <Choose chosen={{ block: name }} onChoose={onChoose}>
-                      <span className="mono">{name}</span>
-                    </Choose>
-                    <WrittenBy flow={flow} cell={cell} block={block} onChoose={onChoose} />
+                    <span className="mono">{t.name}</span>
+                    <Attr
+                      name="block"
+                      value={
+                        <Choose chosen={{ block: t.block }} onChoose={onChoose}>
+                          {t.block}
+                        </Choose>
+                      }
+                    />
+                    {block && <WrittenBy flow={flow} cell={cell} block={block} onChoose={onChoose} />}
                     {back.length > 0 && (
                       <span className="way-back">
                         <Attr name="way_back" value={listed(back)} />
                       </span>
                     )}
-                    {block.what !== null && <span className="row-note">{block.what}</span>}
-                    {cell.input[name]?.runs?.why && (
+                    {t.read.length > 0 && <Attr name="read" value={listed(t.read)} />}
+                    {block && block.what !== null && <span className="row-note">{block.what}</span>}
+                    {why && (
                       <span className="row-note">
-                        <Attr name="why" value={cell.input[name].runs?.why} />
+                        <Attr name="why" value={why} />
                       </span>
+                    )}
+                    {t.do && (
+                      <div className="row-note">
+                        <Attr name="do" value="" />
+                        {t.do}
+                      </div>
                     )}
                   </ListRow>
                 );
@@ -418,9 +433,10 @@ export function CellPanel(props: {
             <ul className="uses">
               {cell.outputs.map((name) => {
                 const block = blocks.get(name) as Block;
-                const above = block.readBy.cells.filter((id) => where(flow, cell.id, id) === 'above');
-                const aboveConditions = block.readBy.conditions.filter((id) => where(flow, cell.id, id) === 'above');
-                const sendsBack = [...new Set([...above, ...aboveConditions])];
+                // A write of it sends the work back to each cell before this one that a trigger on it runs.
+                const sendsBack = flow.cells
+                  .filter((c) => where(flow, cell.id, c.id) === 'above' && c.triggers.some((t) => t.block === name))
+                  .map((c) => c.id);
                 return (
                   <ListRow key={name}>
                     <Choose chosen={{ block: name }} onChoose={onChoose}>
@@ -572,7 +588,9 @@ function Readers(props: { flow: Flow; from?: string; block: Block; alone?: boole
   );
 }
 
-/// Everything about a block: its values, who writes it, who reads it, and the ways back through it.
+/// Everything about a block: its values, who writes it, who reads it, and the ways back through it, as the chart draws
+/// them on its triggers' rows: each cell a trigger on it runs, with the later cells whose write of it runs that cell
+/// again. A cell given it, or whose condition reads it, is not run by it, and no way back reaches it.
 export function BlockPanel(props: {
   row: BlockRow;
   matrix: Matrix;
@@ -584,10 +602,10 @@ export function BlockPanel(props: {
   const block = row.block;
   const besides = writersBesideCells(block);
   const backs = flow.cells.flatMap((reader, r) => {
-    const mark = markOf(reader, block.name);
-    if (!mark.runs && !mark.condition) return [];
-    const writers = flow.cells.filter((w, i) => i > r && markOf(w, block.name).write).map((w) => w.id);
-    return writers.length > 0 ? [{ reader: reader.id, writers, byCondition: !mark.runs }] : [];
+    const triggers = reader.triggers.filter((t) => t.block === block.name).map((t) => t.name);
+    if (triggers.length === 0) return [];
+    const writers = flow.cells.filter((w, i) => i > r && w.outputs.includes(block.name)).map((w) => w.id);
+    return writers.length > 0 ? [{ reader: reader.id, writers, triggers }] : [];
   });
   return (
     <Panel
@@ -639,12 +657,12 @@ export function BlockPanel(props: {
       {backs.length > 0 && (
         <PanelPart label="way_back" count={backs.length}>
           <ul className="uses">
-            {backs.map(({ reader, writers, byCondition }) => (
+            {backs.map(({ reader, writers, triggers }) => (
               <ListRow key={reader}>
                 <span className="way-back mono">
                   {writers.join(', ')} → {reader}
                 </span>
-                <span className="muted mono">{byCondition ? 'when' : 'triggered_by'}</span>
+                <Attr name="triggered_by" value={listed(triggers)} />
               </ListRow>
             ))}
           </ul>
