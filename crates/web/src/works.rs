@@ -1117,8 +1117,17 @@ impl ChangeAsked {
         use store::ItemChange as C;
         let item = ItemNumber(self.item());
         let asked = match self {
-            ChangeAsked::Title { title, .. } => Asked::Item(C::Title(title)),
-            ChangeAsked::Level { level, .. } => Asked::Item(C::Level(levels.of_item(Some(&level))?)),
+            ChangeAsked::Title { title, .. } => {
+                levels
+                    .title_fits(&title)
+                    .map_err(|why| format!("the item's title: {why}"))?;
+                Asked::Item(C::Title(title))
+            }
+            ChangeAsked::Level { level, .. } => Asked::Item(C::Level(
+                levels
+                    .of_item(Some(&level))
+                    .map_err(|why| format!("the item's level: {why}"))?,
+            )),
             ChangeAsked::DependsOn { on, .. } => Asked::Item(C::DependsOn(ItemNumber(on))),
             ChangeAsked::NoLongerDependsOn { on, .. } => Asked::Item(C::NoLongerDependsOn(ItemNumber(on))),
             ChangeAsked::Tag { tag, .. } => Asked::Item(C::Tagged(tag)),
@@ -2088,6 +2097,9 @@ impl NewItem {
     /// The item as the driver adds it, at the level it asks for or else at the default of these levels, of the project
     /// it asks for among these; or why it cannot be, in words.
     pub fn taken(self, levels: &Levels, projects: &Projects) -> Result<driver::NewItem, String> {
+        levels
+            .title_fits(&self.title)
+            .map_err(|why| format!("The item's title: {why}"))?;
         let level = levels
             .of_item(self.level.as_deref())
             .map_err(|why| format!("The item's level: {why}"))?;
