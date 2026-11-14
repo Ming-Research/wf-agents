@@ -123,7 +123,7 @@ fn block_name(b: &str) -> &'static str {
 fn merge(bound: bool) -> String {
     let must = if bound { "\"merged\"" } else { "" };
     format!(
-        "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nrequires = { test = \"may_merge\" }\n\
+        "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nrequires = {{ test = \"may_merge\" }}\n\
          inputs = [\"plan\"]\noutputs = [\"merged\"]\nmust_write = [{must}]\n"
     )
 }
