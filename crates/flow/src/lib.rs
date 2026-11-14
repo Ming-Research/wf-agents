@@ -14,9 +14,11 @@
 //! - [`source`]: the files as they are written, and the reading of a directory.
 //! - [`compile`](mod@compile): the checks, their faults, and what a definition compiles to.
 //! - [`agents`]: what the engine says to every agent, whatever the flow, as written beside the flows.
+//! - [`form`](mod@form): the one form of a return of a flow, made of the flow and of what is written beside it.
 
 pub mod agents;
 pub mod compile;
+pub mod form;
 pub mod source;
 
 pub use compile::{

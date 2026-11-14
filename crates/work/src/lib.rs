@@ -146,11 +146,17 @@ pub enum Back {
     HandedIn(Vec<Handed>),
     /// A return: which of what ran the round it dealt with, in the order it named them, the blocks it writes, and the
     /// calls it asks for (design document `data-and-context`, 9, 27, 30). Taken, the calls are made as its run
-    /// finishes, before the finish.
+    /// finishes, before the finish. What was found wrong with it as it was read, which only its reading could see, is
+    /// kept with it, so that the run is decided again from the records alone; and so is what it says beside its work.
+    /// Returns kept before a return was read so have neither, and read as having none.
     Returned {
         dealt_with: Vec<BlockId>,
         handed: Vec<Handed>,
         asks: Vec<Ask>,
+        #[serde(default)]
+        found: Vec<Unmet>,
+        #[serde(default)]
+        said: Said,
     },
     /// Nothing came back: the round failed, for this reason, as whatever carried it out says, with the kind of cause
     /// it told apart. The run's next round is given what this one was given, as the kind's handling lets it (crate
@@ -165,6 +171,51 @@ pub enum Back {
         #[serde(default)]
         resets: Option<Time>,
     },
+}
+
+/// What a return says beside its work: no data of the work, and nothing the engine acts on yet but whether a question
+/// waits (design document `data-and-context`, 32 to 40, 49).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Said {
+    /// What it asks the owner, each question by its name, in the order it wrote them.
+    #[serde(default)]
+    pub questions: Vec<Question>,
+    /// What its agent came across beyond the work, each a text.
+    #[serde(default)]
+    pub observations: Vec<String>,
+    /// Its answer to what the owner said to its cell, where it gave one.
+    #[serde(default)]
+    pub reply: Option<String>,
+}
+
+impl Said {
+    /// Whether a question it asks waits for the owner's answer: the work stops at its cell until the answer comes.
+    pub fn waits(&self) -> bool {
+        (self.questions.iter()).any(|q| matches!(q, Question::Asked { waits: true, .. }))
+    }
+}
+
+/// A question a return asks the owner, or withdraws, under its name.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Question {
+    /// The question asked, or asked anew: whether its cell waits for the answer, the option it recommends, counted
+    /// from one, what it asks, and its options.
+    Asked {
+        name: String,
+        waits: bool,
+        recommends: u64,
+        ask: String,
+        options: Vec<Way>,
+    },
+    /// The question withdrawn, for this reason.
+    Withdrawn { name: String, why: String },
+}
+
+/// An option of a question, one of the ways that each would do: what the work does by it, and what follows from it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Way {
+    pub does: String,
+    pub follows: String,
 }
 
 /// A block as a run hands it in.

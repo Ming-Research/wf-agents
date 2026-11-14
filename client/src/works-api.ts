@@ -264,7 +264,10 @@ export type Unmet =
   | { kind: 'dealtWithNothing' }
   | { kind: 'writtenOver'; block: string; version: number }
   | { kind: 'choiceChanged'; block: string }
-  | { kind: 'asksAndWorks' };
+  | { kind: 'asksAndWorks' }
+  | { kind: 'notATrigger'; name: string }
+  | { kind: 'notATool'; name: string }
+  | { kind: 'unchangedNotWritten'; block: string };
 
 /// What a round is given: the cell's task, the results of the calls the round before asked for, or why what the
 /// round before handed in was sent back.

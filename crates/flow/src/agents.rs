@@ -48,6 +48,8 @@ pub struct Agents {
     /// The sets of rules for the agents, by name, as `agents/rules/rules.toml` names them, each with its text.
     pub rules: BTreeMap<String, RuleSet>,
     pub returns: Return,
+    /// What a round is told of a return sent back: `agents/return/sent_back.toml`.
+    pub sent_back: SentBack,
     /// Each field of a return that is the engine's, by name: `agents/return/fields/<name>.toml`.
     pub fields: BTreeMap<String, Field>,
     /// Each tool of the engine's, by name: `agents/tools/<name>.toml`.
@@ -289,6 +291,62 @@ pub enum ReturnKind {
     Calls,
     /// A return that does the cell's work.
     Outcome,
+}
+
+impl ReturnKind {
+    /// Its name, as the files write it, which is its field in a return.
+    pub fn name(self) -> &'static str {
+        match self {
+            ReturnKind::Calls => "calls",
+            ReturnKind::Outcome => "outcome",
+        }
+    }
+}
+
+/// `agents/return/sent_back.toml`: what a round is told of the return before it that was sent back, each thing wrong
+/// with it on a line of its own, and nothing else.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SentBack {
+    /// What comes before the list.
+    pub heading: String,
+    /// What comes before the list of an earlier round of the run, told to a session that never saw it: `{round}` its
+    /// number.
+    pub earlier: String,
+    /// An item of the list, `{text}` the words of one thing wrong.
+    pub item: String,
+    /// What comes between two names where a text names several.
+    pub between: String,
+    /// What follows the list.
+    pub again: String,
+    /// The words of each thing that can be wrong with a return.
+    pub faults: SentBackFaults,
+}
+
+/// The words of each thing that can be wrong with a return, by its kind. In a text, `{block}` is a block's name,
+/// `{name}` a name as the return wrote it or, of what it dealt with, the trigger's name, `{value}` a value it wrote,
+/// `{values}` the values of a choice, each between backticks, `{version}` a version's number and `{why}` why what came
+/// back could not be read.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SentBackFaults {
+    pub asks_nothing: String,
+    pub not_an_output: String,
+    pub written_twice: String,
+    pub no_value: String,
+    pub not_a_value: String,
+    pub not_a_choice: String,
+    pub not_handed_in: String,
+    pub unreadable: String,
+    pub not_run_by: String,
+    pub dealt_with_twice: String,
+    pub dealt_with_nothing: String,
+    pub written_over: String,
+    pub choice_changed: String,
+    pub asks_and_works: String,
+    pub not_a_trigger: String,
+    pub not_a_tool: String,
+    pub unchanged_not_written: String,
 }
 
 /// Where a field's words go in the part on returning.
@@ -620,6 +678,7 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         words,
         rules,
         returns,
+        sent_back: file(&at.join("return").join("sent_back.toml"))?,
         fields,
         tools: each(&at.join("tools"))?,
         message: file(&at.join("message").join("message.toml"))?,

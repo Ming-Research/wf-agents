@@ -2,7 +2,6 @@
 //! its dependencies block and what people wrote for it first, and an add that a stop cuts short leaving all of it or
 //! none.
 
-use decide::run::Unmet;
 use driver::{MERGED, NewItem, WAITING};
 use store::ItemChange;
 
@@ -131,22 +130,22 @@ fn a_first_write_the_flow_does_not_allow_is_refused_and_nothing_changes() {
         ),
         (
             vec![first_write("verdict", Some("maybe"))],
-            engine::Refused::Unmet(Unmet::NotAValue {
+            engine::Refused::NotAValue {
                 block: block("verdict"),
                 value: "maybe".into(),
-            }),
+            },
         ),
         (
             vec![first_write("verdict", None)],
-            engine::Refused::Unmet(Unmet::NoValue {
+            engine::Refused::NoValue {
                 block: block("verdict"),
-            }),
+            },
         ),
         (
             vec![first_write("request", Some("yes"))],
-            engine::Refused::Unmet(Unmet::NotAChoice {
+            engine::Refused::NotAChoice {
                 block: block("request"),
-            }),
+            },
         ),
         // The block the driver writes is not people's to write.
         (

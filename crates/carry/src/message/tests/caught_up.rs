@@ -1,7 +1,7 @@
 //! What a round is told of taking main in as its run started: after the task and the list, wherever they are given.
 
 use super::super::{Opening, message};
-use super::{Small, asked};
+use super::{Small, asked, words};
 use crate::catch_up::{CaughtUp, Outcome};
 
 /// What the round given is told, opening so, with this come of taking main in.
@@ -12,7 +12,7 @@ fn told(small: &Small, begins: bool, caught: &CaughtUp) -> String {
         begins,
         main: Some(caught),
     };
-    message(&small.flow, &small.work, spec, run, number, &given, &opening)
+    message(&small.flow, &small.work, spec, run, number, &given, &opening, &words())
 }
 
 fn caught(outcome: Outcome) -> CaughtUp {
@@ -30,10 +30,11 @@ fn main_taken_in_is_told_after_the_list_with_the_files_it_changed() {
         merge: "c0ffee".to_string(),
         files: vec!["a.rs".to_string(), "b.rs".to_string()],
     });
-    let expected = format!(
-        "{}\n## main taken in\nThe engine merged main at beef into the work's branch as this run started, as the \
-         commit c0ffee. The files main changed since the branch last took it in:\na.rs\nb.rs\n",
-        small.told()
+    // What ran the round is told after it, last.
+    let expected = small.told().replace(
+        "## Why you are run",
+        "## main taken in\nThe engine merged main at beef into the work's branch as this run started, as the commit \
+         c0ffee. The files main changed since the branch last took it in:\na.rs\nb.rs\n\n## Why you are run",
     );
     assert_eq!(told(&small, false, &took), expected);
 }
@@ -47,10 +48,10 @@ fn main_in_conflict_is_told_with_its_files_and_how_to_merge_it() {
     });
     let said = told(&small, false, &conflict);
     assert!(
-        said.ends_with(
+        said.contains(
             "\n\n## main not taken in\nmain at beef does not merge into the work's branch without a conflict, so the \
              engine took nothing in. The files in conflict:\na.rs\nMerge it yourself, with `git merge beef`, before \
-             you change the code.\n"
+             you change the code.\n\n## Why you are run"
         ),
         "{said}"
     );
@@ -66,10 +67,10 @@ fn changes_not_committed_and_a_failure_are_told_why_nothing_was_taken_in() {
     });
     let said = told(&small, false, &left);
     assert!(
-        said.ends_with(
+        said.contains(
             "\n\n## main not taken in\nThe worktree holds changes not committed, which taking main at beef in could \
              lose, so the engine took nothing in:\n M a.rs\nCommit them, then merge it yourself, with `git merge \
-             beef`.\n"
+             beef`.\n\n## Why you are run"
         ),
         "{said}"
     );
@@ -80,9 +81,10 @@ fn changes_not_committed_and_a_failure_are_told_why_nothing_was_taken_in() {
     });
     let said = told(&small, false, &merging);
     assert!(
-        said.ends_with(
+        said.contains(
             "\n\n## main not taken in\nA merge is under way in the worktree and is not committed, so the engine \
-             took nothing in:\nUU a.rs\nFinish it and commit it, then merge main yourself, with `git merge beef`.\n"
+             took nothing in:\nUU a.rs\nFinish it and commit it, then merge main yourself, with `git merge beef`.\n\n\
+             ## Why you are run"
         ),
         "{said}"
     );
@@ -91,8 +93,9 @@ fn changes_not_committed_and_a_failure_are_told_why_nothing_was_taken_in() {
     });
     let said = told(&small, false, &failed);
     assert!(
-        said.ends_with(
-            "\n\n## main not taken in\nThe engine could not take main in as this run started: the network is down\n"
+        said.contains(
+            "\n\n## main not taken in\nThe engine could not take main in as this run started: the network is down\n\n\
+             ## Why you are run"
         ),
         "{said}"
     );

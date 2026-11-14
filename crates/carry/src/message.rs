@@ -12,13 +12,18 @@
 //! order, and then its own. Where the work's branch was to take main in as the run started ([`crate::catch_up`]), the
 //! task and the list are followed by what came of it, unless the branch held main already.
 //!
-//! Every fixed word an agent is told is in the constants below, in the order they come in a message, so that each
-//! sentence is found and changed in one place; how to return is in `protocol.md`, which every round is given as its
-//! system prompt.
+//! Every round is told last what ran it: each trigger of its cell new to it, by the name its return names it by in
+//! `dealt_with`, with what the cell does for it (design document `data-and-context`, 9 and 12). What ran it, and why
+//! what a round returned was sent back, are told in the words of the files beside the flows
+//! (`agents/message/message.toml` and `agents/return/sent_back.toml`); every other fixed word an agent is told is in the
+//! constants below, in the order they come in a message, so that each sentence is found and changed in one place; how
+//! to return is in `protocol.md`, which every round is given as its system prompt.
 
 use std::collections::BTreeMap;
 
+use decide::run::Unmet;
 use decide::{BlockId, CallId, Cause, RunId, Seq, Started, VersionView, Writer};
+use flow::agents::{self, Agents, Part, SentBack};
 use flow::{CellSpec, Compiled};
 use work::{Ask, Call, Given, Work};
 
@@ -144,12 +149,7 @@ fn read_before(input: &str) -> String {
     let names: Vec<&str> = input.split_whitespace().collect();
     format!("### You read {}: read again what you need.", names.join(", "))
 }
-fn earlier_sent_back(round: usize) -> String {
-    format!("## Round {round} of this run: what you handed in was sent back")
-}
 const GO_ON: &str = "Go on with the task.";
-const SENT_BACK: &str = "## What you handed in was sent back";
-const HAND_IN_AGAIN: &str = "Hand in again: everything the cell hands in, in one return.";
 
 /// How a round opens, beside what it is given.
 #[derive(Clone, Copy, Debug, Default)]
@@ -161,7 +161,8 @@ pub struct Opening<'a> {
 }
 
 /// What the agent is told at the start of the round of this number of the run of the cell, which is given this, and
-/// which opens so.
+/// which opens so, in the words of the files beside the flows where they say it.
+#[allow(clippy::too_many_arguments)]
 pub fn message(
     flow: &Compiled,
     work: &Work,
@@ -170,8 +171,10 @@ pub fn message(
     number: usize,
     given: &Given,
     opening: &Opening<'_>,
+    words: &Agents,
 ) -> String {
     let begins = opening.begins;
+    let told = &words.sent_back;
     let mut parts = vec![heading(cell, number)];
     if begins || *given == Given::Task {
         task(flow, work, cell, run, &mut parts);
@@ -186,8 +189,8 @@ pub fn message(
                     calls_and_results(work, calls, true, &mut parts);
                 }
                 Some(Given::SentBack(unmet)) => {
-                    parts.push(earlier_sent_back(earlier));
-                    parts.push(sent_back(unmet));
+                    parts.push(told.earlier.replace("{round}", &earlier.to_string()));
+                    parts.push(sent_back(flow, cell, unmet, told));
                 }
                 Some(Given::Task) | None => {}
             }
@@ -201,11 +204,12 @@ pub fn message(
             parts.push(GO_ON.to_string());
         }
         Given::SentBack(unmet) => {
-            parts.push(SENT_BACK.to_string());
-            parts.push(sent_back(unmet));
-            parts.push(HAND_IN_AGAIN.to_string());
+            parts.push(told.heading.clone());
+            parts.push(sent_back(flow, cell, unmet, told));
+            parts.push(told.again.clone());
         }
     }
+    parts.extend(triggers(flow, work, cell, run, words));
     let mut text = parts.join("\n\n");
     text.push('\n');
     text
@@ -261,7 +265,9 @@ fn task(flow: &Compiled, work: &Work, cell: &CellSpec, run: RunId, parts: &mut V
 
     parts.push(MAY_WRITE.to_string());
     let mut lines = Vec::new();
-    for block in outputs {
+    // A block the cell writes through a field of its own is no block it writes as one.
+    let as_blocks = (outputs.iter()).filter(|b| flow.blocks.get(*b).is_none_or(|d| d.field.is_none()));
+    for block in as_blocks {
         let declared = flow.blocks.get(block);
         let mut line = format!("- `{block}`");
         if let Some(choice) = declared.and_then(|b| b.values.as_deref()) {
@@ -323,10 +329,80 @@ fn calls_and_results(work: &Work, calls: &[CallId], earlier: bool, parts: &mut V
     }
 }
 
-/// Why what was handed in was sent back, a line for each reason.
-fn sent_back(unmet: &[decide::run::Unmet]) -> String {
-    let why: Vec<String> = unmet.iter().map(|u| format!("- {}", service::unmet_words(u))).collect();
+/// What ran the round: each trigger of the cell that is new to it, in the order the cell names them, with what the cell
+/// does for it, as the part of a message that says so is written; none where nothing new ran it, or the message names
+/// no such part. What happened is not said: the engine fills no place of a trigger's yet.
+fn triggers(flow: &Compiled, work: &Work, cell: &CellSpec, run: RunId, words: &Agents) -> Option<String> {
+    let part = words.message.parts.iter().find(|p| p.part == Part::Triggers)?;
+    let ran_by = decide::told(&flow.flow, &work.records, run)?.ran_by;
+    let new: Vec<_> = cell.triggers.iter().filter(|t| ran_by.contains(&t.block)).collect();
+    if new.is_empty() {
+        return None;
+    }
+    let mut text = part.text.clone().unwrap_or_default();
+    let each = part.each.as_deref().unwrap_or_default();
+    for trigger in new {
+        let does = match (&trigger.does, &part.does) {
+            (Some(words), Some(does)) => does.replace("{do}", words.trim()),
+            _ => String::new(),
+        };
+        // The words of what the cell does are put in last, so that nothing in them is filled.
+        let line = (each.replace("{trigger}", &trigger.name)).replace("{detail}", "");
+        text.push_str(&line.replace("{do}", &does));
+    }
+    text.push_str(part.after.as_deref().unwrap_or_default());
+    Some(text.trim_end().to_string())
+}
+
+/// Why what the round returned was sent back, a line for each thing wrong with it, in the words of the file.
+fn sent_back(flow: &Compiled, cell: &CellSpec, unmet: &[Unmet], words: &SentBack) -> String {
+    let why: Vec<String> = (unmet.iter())
+        .map(|u| words.item.replace("{text}", &fault(flow, cell, u, words)))
+        .collect();
     why.join("\n")
+}
+
+/// One thing wrong with a return, in the words of the file, its places filled: the engine's own first, and what the
+/// return wrote last, so that nothing in that is filled.
+fn fault(flow: &Compiled, cell: &CellSpec, unmet: &Unmet, words: &SentBack) -> String {
+    let f = &words.faults;
+    let values = |block: &BlockId| {
+        let values = flow.blocks.get(block).and_then(|b| b.values.as_ref());
+        let ticked: Vec<String> = values.into_iter().flatten().map(|v| format!("`{v}`")).collect();
+        ticked.join(&words.between)
+    };
+    // What the return dealt with is named by the cell's trigger that stands on the block.
+    let trigger = |block: &BlockId| {
+        let named = cell.triggers.iter().find(|t| &t.block == block);
+        named.map_or_else(|| block.to_string(), |t| t.name.clone())
+    };
+    let block = |block: &BlockId| ("block", block.to_string());
+    let (text, places): (&str, Vec<(&str, String)>) = match unmet {
+        Unmet::AsksNothing => (&f.asks_nothing, vec![]),
+        Unmet::NotAnOutput { block: b } => (&f.not_an_output, vec![block(b)]),
+        Unmet::WrittenTwice { block: b } => (&f.written_twice, vec![block(b)]),
+        Unmet::NoValue { block: b } => (&f.no_value, vec![block(b), ("values", values(b))]),
+        Unmet::NotAValue { block: b, value } => (
+            &f.not_a_value,
+            vec![block(b), ("values", values(b)), ("value", value.clone())],
+        ),
+        Unmet::NotAChoice { block: b } => (&f.not_a_choice, vec![block(b)]),
+        Unmet::NotHandedIn { block: b } => (&f.not_handed_in, vec![block(b)]),
+        Unmet::Unreadable { why } => (&f.unreadable, vec![("why", why.clone())]),
+        Unmet::NotRunBy { block: b } => (&f.not_run_by, vec![("name", trigger(b))]),
+        Unmet::DealtWithTwice { block: b } => (&f.dealt_with_twice, vec![("name", trigger(b))]),
+        Unmet::DealtWithNothing => (&f.dealt_with_nothing, vec![]),
+        Unmet::WrittenOver { block: b, version } => {
+            (&f.written_over, vec![block(b), ("version", version.0.to_string())])
+        }
+        Unmet::ChoiceChanged { block: b } => (&f.choice_changed, vec![block(b)]),
+        Unmet::AsksAndWorks => (&f.asks_and_works, vec![]),
+        Unmet::NotATrigger { name } => (&f.not_a_trigger, vec![("name", name.clone())]),
+        Unmet::NotATool { name } => (&f.not_a_tool, vec![("name", name.clone())]),
+        Unmet::UnchangedNotWritten { block: b } => (&f.unchanged_not_written, vec![block(b)]),
+    };
+    let places: Vec<(&str, &str)> = places.iter().map(|(name, value)| (*name, value.as_str())).collect();
+    agents::fill(text.trim_end(), &places)
 }
 
 /// The version of the block written at this place.

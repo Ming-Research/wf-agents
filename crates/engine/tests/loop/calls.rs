@@ -59,6 +59,7 @@ fn a_return_that_asks_and_also_does_the_cells_work_is_sent_back() {
         dealt_with: None,
         writes: vec![handed("text", None)],
         asks: vec![tool("search")],
+        ..Came::default()
     };
     let effects = w.returns(write, mixed);
     assert_eq!(

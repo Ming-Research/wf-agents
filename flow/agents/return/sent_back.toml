@@ -1,0 +1,40 @@
+# What a round is told of the return before it that was sent back: each thing wrong with it, on a line of its own, and
+# nothing else (design statement 31). The engine finds them all in one pass, so one return sent back names everything
+# wrong with it. A draft of the assistant's (2026-11-14), made from the words the engine said before where they still
+# fit, which the owner has not gone through.
+
+heading = "## What you returned was sent back"
+# The same, of an earlier round of the run, told to a session that never saw it: `{round}` its number.
+earlier = "## Round {round} of this run: what you returned was sent back"
+# An item of the list: `{text}` the words of one thing wrong, from `[faults]`.
+item = "- {text}"
+# Between two names where a text names several, as the values of a choice.
+between = ", "
+again = "Return again: everything this return is to say, in one return."
+
+# The words of each thing that can be wrong. In a text, `{block}` is a block's name; `{name}` a name as the return
+# wrote it, or, of what it dealt with, the name of the trigger; `{value}` a value it wrote; `{values}` the values of a
+# choice, each between backticks, joined by `between`; `{version}` a version's number; `{why}` why what came back could
+# not be read.
+[faults]
+# The block is not one the cell writes in `outputs`: no block of the cell's, or one it writes through a field of its own.
+not_an_output = "`{block}` is not a block this cell writes in `outputs`."
+written_twice = "`{block}` is written twice."
+# A choice not written as `value` and `why`.
+no_value = "`{block}` is a choice: write it with `value`, one of {values}, and `why`."
+not_a_value = "`{value}` is not one of the values of `{block}`, which are {values}."
+# A block that is no choice, not written as a string.
+not_a_choice = "`{block}` is no choice: write its whole new version as a string."
+not_handed_in = "`{block}` is not handed in, and this cell hands it in every time, as it stands."
+unreadable = "What came back could not be read as a return of its form, each quote and each line break inside a text needing to be escaped: {why}"
+not_run_by = "`{name}` is named in `dealt_with`, but it did not run this round."
+dealt_with_twice = "`{name}` is named twice in `dealt_with`."
+dealt_with_nothing = "`dealt_with` names nothing of what ran this round, and the return asks for no call, so the cell would run again at once."
+written_over = "`{block}` has version {version} from another writer since this round was told of the one it writes over."
+choice_changed = "`{block}` is a choice, named in `meaning_unchanged` with another value than it has."
+asks_and_works = "The return asks for calls and also deals with something or writes a block: a return that asks for calls asks for nothing else."
+not_a_trigger = "`{name}` is named in `dealt_with`, and is not one of what runs this cell."
+not_a_tool = "`{name}` is not a tool this cell may ask for."
+unchanged_not_written = "`{block}` is named in `meaning_unchanged`, and this return does not write it."
+# Of a return of the form before a return said what it dealt with, which asked for calls and named none.
+asks_nothing = "The return asks for calls, and for none."

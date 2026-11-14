@@ -124,11 +124,19 @@ pub struct Round {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Return {
     /// The return was read: what of what ran the round it dealt with, in the order it named them, the blocks it writes,
-    /// and how many calls it asks for.
+    /// and how many calls it asks for; what was found wrong with it as it was read, which only its reading could see;
+    /// and whether a question it asks the owner waits for the answer.
     Came {
         dealt_with: Vec<BlockId>,
         writes: Vec<Write>,
         calls: usize,
+        /// What was found wrong with the return as it was read against its cell, in the order found: what it named
+        /// that is none of its cell's, and what it wrote in a shape its cell does not take ([`Unmet::NotATrigger`],
+        /// [`Unmet::NotATool`], [`Unmet::UnchangedNotWritten`], and others of a block the reading could not hand in).
+        found: Vec<Unmet>,
+        /// A question the return asks the owner waits for the answer: the work stops at the cell, and the return is
+        /// held to no block its cell must write.
+        waits: bool,
     },
     /// The round failed: nothing came back, for this kind of cause, said so.
     Failed {
@@ -178,8 +186,9 @@ pub struct Standing {
 pub struct Requires<'a> {
     /// The blocks the cell may write.
     pub outputs: &'a [BlockId],
-    /// The blocks among those that a return dealing with everything that ran its round, and asking for no call,
-    /// includes (plan, D8), unless its cell still waits for the results of calls ([`Told::waits_for_calls`]).
+    /// The blocks among those that every return that asks for no call includes, but one with a question that waits
+    /// for the owner's answer, or one of a round whose cell still waits for the results of calls
+    /// ([`Told::waits_for_calls`]).
     pub must_write: &'a [BlockId],
     /// The values of each block that is a choice.
     pub choices: &'a BTreeMap<BlockId, Vec<String>>,
@@ -253,8 +262,8 @@ pub enum Unmet {
     NotRunBy { block: BlockId },
     /// The return names the block as dealt with twice.
     DealtWithTwice { block: BlockId },
-    /// Something ran the round, and the return deals with none of it and asks for no call: the cell would be entered
-    /// again at once for the same.
+    /// Something ran the round, and the return deals with none of it, asks for no call and has no question that waits
+    /// for the owner's answer: the cell would be entered again at once for the same.
     DealtWithNothing,
     /// The block got this version from another writer after the round was told of the one it writes over: the return
     /// would write over what the round never saw. The next round is told of the version.
@@ -265,6 +274,12 @@ pub enum Unmet {
     /// The return asks for calls and also does the cell's work, dealing with something or writing a block: a return
     /// that asks for calls asks for nothing else, and deals with nothing (design document `data-and-context`, 30).
     AsksAndWorks,
+    /// The return names as dealt with a name that is none of its cell's triggers, as it wrote it.
+    NotATrigger { name: String },
+    /// The return asks for a tool its cell may not ask for, as it wrote it.
+    NotATool { name: String },
+    /// The return names the block as written with its meaning unchanged, and does not write it.
+    UnchangedNotWritten { block: BlockId },
 }
 
 /// What a pause of the run's work holds back of its rounds.
@@ -332,8 +347,10 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
             dealt_with,
             writes,
             calls,
+            found,
+            waits,
         } => {
-            let unmet = unmet(dealt_with, writes, *calls, requires);
+            let unmet = unmet(dealt_with, writes, *calls, found, *waits, requires);
             if unmet.is_empty() {
                 return Step::Finish {
                     dealt_with: dealt_with.clone(),
@@ -411,14 +428,21 @@ pub fn pausing(log: &Log) -> Option<Pausing> {
 }
 
 /// Each way in which what came back does not meet what the flow requires, in one pass (principle `report-all-at-once`):
-/// first what it says it dealt with, in its order; then one for each write, in the order of the writes; then whether
-/// it asks for calls beside doing the cell's work; then whether it deals with nothing while something ran its round
-/// and asks for no call; then each block the cell must hand in
-/// and did not, in the order the cell lists them, where the return deals with everything that ran its round and asks
-/// for no call.
-fn unmet(dealt_with: &[BlockId], writes: &[Write], calls: usize, requires: Requires) -> Vec<Unmet> {
+/// first what was found as it was read, in the order found; then what it says it dealt with, in its order; then one
+/// for each write, in the order of the writes; then whether it asks for calls beside doing the cell's work; then
+/// whether it deals with nothing while something ran its round, asks for no call and has no question that waits for
+/// the owner's answer; then each block the cell must hand in and did not, in the order the cell lists them, where the
+/// return asks for no call, has no question that waits and its cell waits for no result.
+fn unmet(
+    dealt_with: &[BlockId],
+    writes: &[Write],
+    calls: usize,
+    found: &[Unmet],
+    waits: bool,
+    requires: Requires,
+) -> Vec<Unmet> {
     let told = requires.told;
-    let mut unmet = Vec::new();
+    let mut unmet = found.to_vec();
     for (i, block) in dealt_with.iter().enumerate() {
         if dealt_with[..i].contains(block) {
             unmet.push(Unmet::DealtWithTwice { block: block.clone() });
@@ -467,11 +491,11 @@ fn unmet(dealt_with: &[BlockId], writes: &[Write], calls: usize, requires: Requi
     if calls > 0 && !(dealt_with.is_empty() && writes.is_empty()) {
         unmet.push(Unmet::AsksAndWorks);
     }
-    let everything = told.ran_by.iter().all(|b| dealt_with.contains(b));
-    if calls == 0 && dealt_with.is_empty() && !told.ran_by.is_empty() {
+    // A question that waits stops the work at the cell, which may leave all that ran it for after the answer.
+    if calls == 0 && dealt_with.is_empty() && !told.ran_by.is_empty() && !waits {
         unmet.push(Unmet::DealtWithNothing);
     }
-    if calls == 0 && everything && !told.waits_for_calls {
+    if calls == 0 && !waits && !told.waits_for_calls {
         for block in requires.must_write {
             if !writes.iter().any(|w| w.block == *block) {
                 unmet.push(Unmet::NotHandedIn { block: block.clone() });

@@ -76,14 +76,65 @@ fn what_a_return_lacks_is_said_after_what_its_writes_do_not_meet() {
 }
 
 #[test]
-fn a_return_that_deals_with_only_part_of_what_ran_its_round_is_not_held_to_what_the_cell_must_hand_in() {
+fn a_return_that_deals_with_only_part_of_what_ran_its_round_is_still_held_to_what_the_cell_must_hand_in() {
     let s = must_write(&["verdict"]);
     let partial = works(&["opinions"], vec![prose("plan")]);
+    let unmet = vec![Unmet::NotHandedIn {
+        block: "verdict".into(),
+    }];
+    assert_eq!(step(vec![partial], &s), send_back(unmet));
     let finish = Step::Finish {
         dealt_with: vec!["opinions".into()],
-        writes: vec![prose("plan")],
+        writes: vec![prose("plan"), valued("verdict", "yes")],
     };
+    let partial = works(&["opinions"], vec![prose("plan"), valued("verdict", "yes")]);
     assert_eq!(step(vec![partial], &s), finish);
+}
+
+#[test]
+fn a_return_with_a_question_that_waits_is_held_to_no_block_its_cell_must_write_and_may_deal_with_nothing() {
+    let s = must_write(&["verdict", "plan"]);
+    let finish = Step::Finish {
+        dealt_with: vec![],
+        writes: vec![],
+    };
+    assert_eq!(step(vec![came(&[], vec![], vec![], true)], &s), finish);
+    // What it hands in is still checked.
+    let unmet = vec![Unmet::NoValue {
+        block: "verdict".into(),
+    }];
+    assert_eq!(
+        step(vec![came(&["request"], vec![prose("verdict")], vec![], true)], &s),
+        send_back(unmet)
+    );
+}
+
+#[test]
+fn what_was_found_as_a_return_was_read_is_said_first_with_everything_else_wrong_with_it() {
+    let found = vec![
+        Unmet::NotATrigger {
+            name: "on_nothing".to_string(),
+        },
+        Unmet::UnchangedNotWritten {
+            block: "verdict".into(),
+        },
+    ];
+    let round = came(&["request", "plan"], vec![prose("code")], found.clone(), false);
+    let mut unmet = found;
+    unmet.extend([
+        Unmet::NotRunBy { block: "plan".into() },
+        Unmet::NotAnOutput { block: "code".into() },
+        Unmet::NotHandedIn {
+            block: "verdict".into(),
+        },
+    ]);
+    assert_eq!(step(vec![round], &must_write(&["verdict"])), send_back(unmet));
+    // What was found alone sends a return back that meets everything else.
+    let found = vec![Unmet::NotATool {
+        name: "browse".to_string(),
+    }];
+    let round = came(&["request", "opinions"], vec![], found.clone(), false);
+    assert_eq!(step(vec![round], &spec()), send_back(found));
 }
 
 #[test]

@@ -1,7 +1,9 @@
 //! The messages of a small flow, its records made by the engine's own loop: a plan and a build on one line, a review
-//! on another, and the merge.
+//! on another, and the merge. What the files beside the flows word is in the words of the flow crate's tests
+//! (`crates/flow/tests/laid_out`).
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
 use decide::{BlockId, CellId, Outsider, RunId};
 use engine::{Came, Effect, Event, handle};
@@ -11,6 +13,18 @@ use work::{Ask, Given, Handed, Spent, Time, Work};
 use super::{Opening, message};
 
 mod caught_up;
+
+/// What is written beside the flows, as the flow crate's tests have it.
+pub(crate) fn words() -> flow::agents::Agents {
+    let beside = Path::new(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/laid_out");
+    flow::agents::read(&beside).expect("the words beside the flows of the tests are read")
+}
+
+/// What ran a round, as it is told last: each of these triggers.
+pub(crate) fn ran_by(triggers: &[&str]) -> String {
+    let each: String = triggers.iter().map(|t| format!("\n- `{t}`")).collect();
+    format!("## Why you are run\n{each}\n\nName in `dealt_with` each of these you have dealt with.")
+}
 
 const FLOW: &str = r#"
 name = "small"
@@ -173,6 +187,7 @@ impl Small {
             number,
             &given,
             &Opening { begins, main: None },
+            &words(),
         )
     }
 
@@ -252,7 +267,10 @@ This is the cell's first run in this work.
 - `plan`: not written yet.
 
 To read all of it at once, ask for the tool `read` with the input `request@{request}`.
-"
+
+{}
+",
+        ran_by(&["request"])
     );
     assert_eq!(small.told(), expected);
     assert!(!small.told().contains("Greet the user."), "no content is sent");
@@ -283,7 +301,10 @@ This is the cell's first run in this work.
 - `code`: not written yet.
 
 To read all of it at once, ask for the tool `read` with the input `request@{request} plan@{plan}`.
-"
+
+{}
+",
+        ran_by(&["request", "plan"])
     );
     assert_eq!(small.told(), expected);
 }
@@ -327,7 +348,10 @@ Build what the plan says.
 - `code`: version {code}; its meaning last changed at this version.
 
 To read all of it at once, ask for the tool `read` with the input `request@{request} plan@{plan} opinions@{opinions} code@{code}`.
-"
+
+{}
+",
+        ran_by(&["opinions"])
     );
     assert_eq!(small.told(), expected);
 }
@@ -361,7 +385,10 @@ Review the code.
 - `verdict`, a choice, one of `yes`, `no` (hand it in every time): version {opinions}, with the value `no`; its meaning last changed at this version.
 
 To read all of it at once, ask for the tool `read` with the input `code@{later} code@{code}..{later} opinions@{opinions} verdict@{opinions}`.
-"
+
+{}
+",
+        ran_by(&["code"])
     );
     assert_eq!(small.told(), expected);
 }
@@ -388,9 +415,11 @@ fn a_changed_input_with_a_version_before_is_read_as_a_difference() {
 }
 
 #[test]
-fn a_run_entered_for_the_results_of_calls_is_given_them() {
+fn a_run_entered_for_the_results_of_calls_is_given_them_and_told_what_still_runs_it() {
     let small = asked();
-    let expected = "# Build (cell `build`), round 1
+    // The run that asked dealt with nothing: the opinions still run the build.
+    let expected = format!(
+        "# Build (cell `build`), round 1
 
 ## The results of what you asked for
 
@@ -399,7 +428,11 @@ fn a_run_entered_for_the_results_of_calls_is_given_them() {
 The check passed.
 
 Go on with the task.
-";
+
+{}
+",
+        ran_by(&["opinions"])
+    );
     assert_eq!(small.told(), expected);
 }
 
@@ -412,7 +445,11 @@ fn a_round_that_begins_a_session_is_given_the_task_and_the_list_before_the_resul
     let results = told.find("## The results of what you asked for").expect("the results");
     assert!(task < list && list < results, "{told}");
     assert!(told.starts_with("# Build (cell `build`), round 1\n"), "{told}");
-    assert!(told.ends_with("The check passed.\n\nGo on with the task.\n"), "{told}");
+    let last = format!(
+        "The check passed.\n\nGo on with the task.\n\n{}\n",
+        ran_by(&["opinions"])
+    );
+    assert!(told.ends_with(&last), "{told}");
 }
 
 /// The build's second run asks for the check, which passes, and the build is entered again for the result.
@@ -452,7 +489,8 @@ Go on with the task.
         told.starts_with("# Build (cell `build`), round 1\n\n## Your task"),
         "{told}"
     );
-    assert!(told.ends_with(expected), "{told}");
+    assert!(told.contains(expected), "{told}");
+    assert!(told.ends_with(&format!("{}\n", ran_by(&["opinions"]))), "{told}");
     assert!(
         !told.contains("Which name?"),
         "an earlier run's results are not given: {told}"
@@ -478,7 +516,7 @@ fn a_read_an_earlier_run_asked_for_is_not_given_again() {
         "an earlier read is not given again: {told}"
     );
     assert!(
-        told.ends_with("Greet the user.\n\nGo on with the task.\n"),
+        told.contains("Greet the user.\n\nGo on with the task.\n"),
         "the run's own read is given: {told}"
     );
 }
@@ -489,7 +527,16 @@ fn a_call_the_work_does_not_hold_is_said_so() {
     let (run, cell, ..) = small.round();
     let spec = small.flow.cells.iter().find(|spec| spec.id == cell).unwrap();
     let given = Given::Results(vec![decide::CallId(99)]);
-    let told = message(&small.flow, &small.work, spec, run, 2, &given, &Opening::default());
+    let told = message(
+        &small.flow,
+        &small.work,
+        spec,
+        run,
+        2,
+        &given,
+        &Opening::default(),
+        &words(),
+    );
     assert!(
         told.contains("### Call 99, which the work does not hold\n\n(It has no result.)"),
         "{told}"
@@ -497,17 +544,22 @@ fn a_call_the_work_does_not_hold_is_said_so() {
 }
 
 #[test]
-fn a_round_after_a_return_sent_back_is_told_why() {
+fn a_round_after_a_return_sent_back_is_told_why_in_the_words_of_the_file_and_what_runs_it() {
     let mut small = objected();
     small.hands_in(&[("verdict", "Fine.", Some("yes"))]);
-    let expected = "# Build (cell `build`), round 2
+    let expected = format!(
+        "# Build (cell `build`), round 2
 
-## What you handed in was sent back
+## Sent back
 
-- the block verdict is not one the cell may write
+- `verdict` is not written here.
 
-Hand in again: everything the cell hands in, in one return.
-";
+Return again.
+
+{}
+",
+        ran_by(&["opinions"])
+    );
     assert_eq!(small.told(), expected);
 }
 
@@ -515,15 +567,65 @@ Hand in again: everything the cell hands in, in one return.
 fn a_review_that_leaves_out_the_block_it_must_hand_in_is_told_so() {
     let (mut small, ..) = objected_twice();
     small.hands_in(&[("opinions", "Name the error, and say it.", None)]);
-    let expected = "# Review (cell `review`), round 2
+    let expected = format!(
+        "# Review (cell `review`), round 2
 
-## What you handed in was sent back
+## Sent back
 
-- the block verdict is not handed in, and the cell must hand it in every time
+- `verdict` is missing.
 
-Hand in again: everything the cell hands in, in one return.
-";
+Return again.
+
+{}
+",
+        ran_by(&["code"])
+    );
     assert_eq!(small.told(), expected);
+}
+
+#[test]
+fn each_thing_wrong_is_told_with_its_places_filled_what_was_dealt_with_by_its_trigger() {
+    let mut small = objected();
+    let came = Came {
+        dealt_with: Some(vec!["request".into()]),
+        writes: vec![Handed {
+            block: "code".into(),
+            content: "A greeting.".to_string(),
+            matters: true,
+            value: Some("yes".to_string()),
+        }],
+        found: vec![decide::run::Unmet::NotATrigger {
+            name: "on_{block}".to_string(),
+        }],
+        ..Came::default()
+    };
+    small.back(came);
+    let told = small.told();
+    for line in [
+        "- `on_{block}` does not run this cell.",
+        "- `request` did not run this round.",
+        "- `code` is a string.",
+    ] {
+        assert!(told.contains(&format!("{line}\n")), "{line} is not in:\n{told}");
+    }
+}
+
+#[test]
+fn a_choice_is_told_its_values_when_its_value_is_not_one_of_them() {
+    let (mut small, ..) = objected_twice();
+    small.hands_in(&[("verdict", "Fine.", Some("maybe"))]);
+    let told = small.told();
+    assert!(
+        told.contains("- `maybe` is not one of `yes`, `no` of `verdict`.\n"),
+        "{told}"
+    );
+}
+
+#[test]
+fn a_round_is_told_last_what_ran_it_each_time() {
+    let small = objected();
+    assert!(small.told().ends_with(&format!("{}\n", ran_by(&["opinions"]))));
+    assert!(small.told_as(true).ends_with(&format!("{}\n", ran_by(&["opinions"]))));
 }
 
 #[test]

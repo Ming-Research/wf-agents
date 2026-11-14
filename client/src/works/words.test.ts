@@ -170,6 +170,15 @@ describe('why a run ran, in words', () => {
     expect(unmetWords({ kind: 'notHandedIn', block: 'verdict' })).toBe(
       'it did not hand in verdict, which the cell must hand in every time',
     );
+    expect(unmetWords({ kind: 'notATrigger', name: 'on_nothing' })).toBe(
+      'it said it dealt with on_nothing, which does not run the cell',
+    );
+    expect(unmetWords({ kind: 'notATool', name: 'browse' })).toBe(
+      'it asked for browse, which is not a tool the cell may ask for',
+    );
+    expect(unmetWords({ kind: 'unchangedNotWritten', block: 'plan' })).toBe(
+      'it named plan as unchanged in meaning, and did not write it',
+    );
   });
 });
 

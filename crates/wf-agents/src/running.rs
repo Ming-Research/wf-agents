@@ -41,11 +41,12 @@ pub enum With {
     Settings(PathBuf),
 }
 
-/// What carries the works out, read and checked: a script, or the settings.
+/// What carries the works out, read and checked: a script, or the settings with what is written beside the flows.
 enum Read {
     Script(Script),
-    /// The settings, and what the acts write, from `agents/acts/` beside the flows.
-    Settings(Box<carry::Settings>, Box<carry::Writes>),
+    /// The settings, and what is written beside the flows: what the acts write and the agents' rounds are told, and
+    /// what the form of a return is made of.
+    Settings(Box<carry::Settings>, Box<flow::agents::Agents>),
 }
 
 /// The address the works page is printed at.
@@ -129,7 +130,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         let mut copies: Option<Keeping> = None;
         let (carriers, watch): (Carriers, Option<carry::Watch>) = match with {
             Read::Script(script) => (Scripted::new(script).carriers(), None),
-            Read::Settings(settings, words) => {
+            Read::Settings(settings, beside) => {
                 main_name = settings.project.main.clone();
                 match keeping(data, settings.backup.as_ref()) {
                     Ok(keeping) => copies = Some(keeping),
@@ -138,7 +139,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                         return ExitCode::FAILURE;
                     }
                 }
-                match carry::carry(*settings, data, *words) {
+                match carry::carry(*settings, data, *beside) {
                     Ok((carriers, watch)) => (carriers, Some(watch)),
                     Err(why) => {
                         eprintln!("The carriers cannot be made: {why}");
@@ -356,13 +357,13 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
     let read = match with {
         With::Script(script) => read_script(script, &flows, compiled_all, &mut wrong).map(Read::Script),
         With::Settings(settings) => {
-            // What the acts write is beside the flows, in the directory that holds the first.
+            // What is written beside the flows is in the directory that holds the first.
             let root = dirs.first().and_then(|d| d.parent()).unwrap_or(Path::new("."));
-            match (carry::Settings::load(settings), flow::agents::writes(root)) {
-                (Ok(settings), Ok(words)) => {
+            match (carry::Settings::load(settings), beside(root, &flows)) {
+                (Ok(settings), Ok(beside)) => {
                     // What the real acts need of a flow, checked once the flows compiled, and of their words.
-                    let faults = (flows.iter()).flat_map(|flow| carry::faults(flow, &words.acts.check.values));
-                    let words_faults = carry::word_faults(&words.acts.check);
+                    let faults = (flows.iter()).flat_map(|flow| carry::faults(flow, &beside.acts.check.values));
+                    let words_faults = carry::word_faults(&beside.acts.check);
                     let words_faults = words_faults.into_iter().map(|f| format!("{}/{f}", root.display()));
                     for fault in faults.chain(words_faults) {
                         eprintln!("{fault}");
@@ -371,10 +372,10 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
                     for warning in settings.warnings() {
                         eprintln!("{warning}");
                     }
-                    Some(Read::Settings(Box::new(settings), Box::new(words)))
+                    Some(Read::Settings(Box::new(settings), Box::new(beside)))
                 }
-                (settings, words) => {
-                    for why in [settings.err(), words.err()].into_iter().flatten() {
+                (settings, beside) => {
+                    for why in [settings.err(), beside.err()].into_iter().flatten() {
                         eprintln!("{why}");
                     }
                     None
@@ -386,6 +387,17 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
         Some(read) if !wrong && compiled_all => Some((flows, read)),
         _ => None,
     }
+}
+
+/// What is written beside the flows, read from the directory that holds them, with the form of return of each flow
+/// that compiled made of it; or why it cannot be: what is beside them cannot be read, or a flow's form cannot be made
+/// of it.
+fn beside(root: &Path, flows: &[Compiled]) -> Result<flow::agents::Agents, String> {
+    let beside = flow::agents::read(root)?;
+    for compiled in flows {
+        flow::form::form(compiled, &beside)?;
+    }
+    Ok(beside)
 }
 
 /// The script, checked against the flows where they all compiled; or none, having said why it cannot be read.

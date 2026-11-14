@@ -243,3 +243,17 @@ async fn each_agent_cell_of_the_repository_s_flow_is_sent_what_its_file_and_the_
         assert!(!text_of(task).is_empty(), "{id}: no task is sent");
     }
 }
+
+#[tokio::test]
+async fn the_form_each_cell_is_shown_is_the_one_the_engine_gives_the_program_for_the_flow() {
+    let given = get_json(&beside_the_repository_s_flows(), "/api/v1/flow/given").await;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    let beside = flow::agents::read(&root).expect("what is written beside the flows is read");
+    let compiled = flow::compile(&tiny(), &has(&tiny())).expect("the small flow compiles");
+    let form = flow::form::form(&compiled, &beside).expect("the form is made");
+    for (cell, parts) in given["cells"].as_object().expect("the cells") {
+        let parts = parts.as_array().expect("its parts");
+        let shown = parts.iter().find(|p| p["name"] == json!("form")).expect("the form");
+        assert_eq!(shown["pieces"], json!([{ "piece": "text", "text": form }]), "{cell}");
+    }
+}

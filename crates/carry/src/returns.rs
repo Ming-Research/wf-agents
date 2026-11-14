@@ -1,55 +1,84 @@
-//! What an agent returns at the end of a round: one form for every cell, given to the command line as its JSON
-//! schema, so that it is part of the prefix every round shares and the prompt cache keeps. A return hands in blocks
-//! or asks for calls: a tool to run, or a question for the owner. Whether a block is one the cell may write, and a
-//! value one its choice offers, the engine checks, and sends back what does not meet it.
+//! What an agent returns at the end of a round, read against the cell it was entered for. Every return of a flow is in
+//! one form, made of the flow and of what is written beside it ([`flow::form`]), which the agents' program is given
+//! with every call: one of two kinds, a return that asks the engine for calls or one that does the cell's work (design
+//! document `data-and-context`, 30 and 31). A return is put into the form's shape where it is not in it but means it,
+//! as the old engine read one, and then read: what it dealt with, by the names of the cell's triggers, each worked out
+//! to the block it stands on (9); each block it writes in `outputs`, a choice with its value and its line of why kept
+//! as its content (50); the calls it asks for, each request of a tool one call; and what it says beside its work, its
+//! questions, observations and reply, which are kept with it. What only its reading can see wrong with it against the
+//! cell is found as it is read and kept with it: a name in `dealt_with` that is none of the cell's triggers, a tool
+//! the cell may not ask for, a name in `meaning_unchanged` it does not write, and a block it writes in `outputs` that
+//! the cell does not write there or in a shape it does not take. The run's check names these with everything else
+//! wrong with the return, in one send-back (crate `decide`, module `run`).
 
-use decide::{BlockId, Who};
+use decide::BlockId;
+use decide::run::Unmet;
 use engine::Came;
+use flow::agents::ReturnKind;
+use flow::{CellSpec, Compiled};
 use serde::Deserialize;
-use serde_json::Value;
-use work::{Ask, Handed};
+use serde_json::{Map, Value};
+use work::{Ask, Handed, Question, Said, Way};
 
-/// The form of every return, as a JSON schema. It has no `oneOf` or `anyOf` at its top, which the model's interface
-/// refuses.
-pub const SCHEMA: &str = r#"{"type":"object","properties":{"hands_in":{"type":"array","items":{"type":"object","properties":{"block":{"type":"string"},"content":{"type":"string"},"value":{"type":"string"},"matters":{"type":"boolean"}},"required":["block","content","matters"],"additionalProperties":false}},"asks":{"type":"array","items":{"anyOf":[{"type":"object","properties":{"tool":{"type":"string"},"input":{"type":"string"}},"required":["tool","input"],"additionalProperties":false},{"type":"object","properties":{"question":{"type":"string"}},"required":["question"],"additionalProperties":false}]}}},"required":["hands_in","asks"],"additionalProperties":false}"#;
+/// The fields of the kind that does the cell's work that are lists, as the engine reads them.
+const LISTS: [&str; 4] = ["dealt_with", "meaning_unchanged", "questions", "observations"];
 
-/// A return as the agent writes it.
+/// The field that holds the blocks a cell writes, as the engine reads it.
+const OUTPUTS: &str = flow::agents::OUTPUTS;
+
+/// The fields of a question, of either shape, as the engine reads them.
+const QUESTION_FIELDS: [&str; 6] = ["name", "waits", "recommends", "ask", "options", "withdrawn"];
+
+/// A return as the agent writes it: one of the two kinds, or, where it mixes them, both, which the run's check sends
+/// back.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Return {
-    hands_in: Vec<HandIn>,
-    asks: Vec<AskIn>,
+    calls: Option<Map<String, Value>>,
+    outcome: Option<Outcome>,
 }
 
+/// A return that does the cell's work, as the agent writes it.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct HandIn {
-    block: String,
-    content: String,
-    value: Option<String>,
-    /// Whether the change matters to the cells that read the block. It has no default, so that each hand-in says it on
-    /// purpose: an agent that left it out was taken to mean that it did not.
-    matters: bool,
+struct Outcome {
+    dealt_with: Vec<String>,
+    meaning_unchanged: Vec<String>,
+    questions: Vec<QuestionIn>,
+    observations: Vec<String>,
+    reply: Option<String>,
+    outputs: Map<String, Value>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
-enum AskIn {
-    Tool(ToolIn),
-    Question(QuestionIn),
+enum QuestionIn {
+    Asked(AskedIn),
+    Withdrawn(WithdrawnIn),
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ToolIn {
-    tool: String,
-    input: String,
+struct AskedIn {
+    name: String,
+    waits: bool,
+    recommends: u64,
+    ask: String,
+    options: Vec<WayIn>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct QuestionIn {
-    question: String,
+struct WayIn {
+    does: String,
+    follows: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WithdrawnIn {
+    name: String,
+    withdrawn: String,
 }
 
 /// The object a text holds when nothing but whitespace and closing brackets follows it: the model at times writes a
@@ -76,234 +105,236 @@ fn list_of(value: Option<Value>) -> Value {
     }
 }
 
+/// The object a part of the form that is one comes as: a string holding one is read as it, one left out or null is
+/// empty.
+fn table_of(value: Option<Value>) -> Value {
+    match value {
+        None | Some(Value::Null) => Value::Object(Map::new()),
+        Some(Value::String(text)) => object_of(&text).unwrap_or(Value::String(text)),
+        Some(other) => other,
+    }
+}
+
 /// A return put into the shape of the form when it is not in it but means it, as the old engine read one
-/// (`as_taken`), kept to the one fixed form: the whole form, or the one object that wraps it, written as a string; the
-/// form wrapped one level in an object of one key; a list left out, null or written as a string; and, in an ask, the
-/// null fields of the other form. A content is never changed and a field the form requires never made up, so what
-/// this does not reach fails as it is read. The record of the round keeps the return as the command line printed it
-/// (`kept`), before this.
+/// (`as_taken`): the whole form, or the one object that wraps it, written as a string; the form wrapped one level in an
+/// object of one key that is no kind of return; a kind, or the blocks a cell writes, written as a string; a kind left
+/// out or null; a list left out, null or written as a string; and, in a question, the null fields of the other shape. A
+/// content is never changed and a field the form requires of an item never made up, so what this does not reach fails
+/// as it is read. The record of the round keeps the return as the command line printed it (`kept`), before this.
 fn normalised(structured: &Value) -> Value {
+    let kinds = [ReturnKind::Calls.name(), ReturnKind::Outcome.name()];
     let mut form = match structured {
         Value::String(text) => object_of(text).unwrap_or_else(|| structured.clone()),
         other => other.clone(),
     };
     let inner = match &form {
-        Value::Object(o) if !o.contains_key("hands_in") && !o.contains_key("asks") && o.len() == 1 => {
-            match o.values().next() {
-                Some(Value::String(text)) => object_of(text),
-                Some(inner @ Value::Object(_)) => Some(inner.clone()),
-                _ => None,
-            }
-        }
+        Value::Object(o) if o.len() == 1 && !kinds.iter().any(|k| o.contains_key(*k)) => match o.values().next() {
+            Some(Value::String(text)) => object_of(text),
+            Some(inner @ Value::Object(_)) => Some(inner.clone()),
+            _ => None,
+        },
         _ => None,
     };
     if let Some(inner) = inner {
         form = inner;
     }
     let Value::Object(o) = &mut form else { return form };
-    for name in ["hands_in", "asks"] {
-        let list = list_of(o.remove(name));
-        o.insert(name.to_string(), list);
+    for kind in kinds {
+        match o.remove(kind) {
+            None | Some(Value::Null) => {}
+            Some(value) => {
+                o.insert(kind.to_string(), table_of(Some(value)));
+            }
+        }
     }
-    if let Some(Value::Array(asks)) = o.get_mut("asks") {
-        for ask in asks {
-            if let Value::Object(ask) = ask {
-                // Only the fields the two forms have; a null of any other name is an unknown field and fails.
-                ask.retain(|name, v| !v.is_null() || !["tool", "input", "question"].contains(&name.as_str()));
+    if let Some(Value::Object(calls)) = o.get_mut(ReturnKind::Calls.name()) {
+        for requests in calls.values_mut() {
+            *requests = list_of(Some(requests.take()));
+        }
+    }
+    if let Some(Value::Object(outcome)) = o.get_mut(ReturnKind::Outcome.name()) {
+        for name in LISTS {
+            let list = list_of(outcome.remove(name));
+            outcome.insert(name.to_string(), list);
+        }
+        let outputs = table_of(outcome.remove(OUTPUTS));
+        outcome.insert(OUTPUTS.to_string(), outputs);
+        if outcome.get("reply").is_some_and(Value::is_null) {
+            outcome.remove("reply");
+        }
+        if let Some(Value::Array(questions)) = outcome.get_mut("questions") {
+            for question in questions {
+                if let Value::Object(question) = question {
+                    // Only the fields of the two shapes; a null of any other name is an unknown field and fails.
+                    question.retain(|name, v| !v.is_null() || !QUESTION_FIELDS.contains(&name.as_str()));
+                }
             }
         }
     }
     form
 }
 
-/// What came back, from the structured return; or why it is not one. A return that asks for anything asks, and what
-/// it hands in beside is not read; one that asks for nothing hands in, if only nothing.
-pub fn came(structured: &serde_json::Value) -> Result<Came, String> {
+/// What came back, from the structured return, read against the cell it was entered for in the flow; or why it is not
+/// one of the form's.
+pub fn came(structured: &Value, flow: &Compiled, cell: &CellSpec) -> Result<Came, String> {
     let r: Return =
         serde_json::from_value(normalised(structured)).map_err(|e| format!("the return is not of its form: {e}"))?;
-    if !r.asks.is_empty() {
-        let asks = (r.asks.into_iter())
-            .map(|ask| match ask {
-                AskIn::Tool(tool) => Ask::Tool {
-                    name: tool.tool,
-                    input: tool.input,
-                },
-                // A question an agent asks is the owner's: the owner decides whom else to ask.
-                AskIn::Question(question) => Ask::Person {
-                    who: Who::Owner,
-                    question: question.question,
-                },
-            })
-            .collect();
-        return Ok(Came::asks(asks));
+    let mut found = Vec::new();
+    let mut came = Came {
+        // A return that asks for calls and does no work deals with nothing.
+        dealt_with: Some(Vec::new()),
+        ..Came::default()
+    };
+    if let Some(outcome) = r.outcome {
+        came.dealt_with = Some(dealt_with(&outcome.dealt_with, cell, &mut found));
+        came.writes = writes(&outcome, flow, cell, &mut found);
+        for name in &outcome.meaning_unchanged {
+            if !outcome.outputs.contains_key(name) {
+                found.push(Unmet::UnchangedNotWritten {
+                    block: BlockId(name.clone()),
+                });
+            }
+        }
+        came.said = said(outcome);
     }
-    let handed = (r.hands_in.into_iter())
-        .map(|h| Handed {
-            block: BlockId(h.block),
-            content: h.content,
-            matters: h.matters,
-            value: h.value,
+    if let Some(calls) = r.calls {
+        came.asks = asks(calls, cell, &mut found)?;
+    }
+    came.found = found;
+    Ok(came)
+}
+
+/// The blocks what the return dealt with stand on, each name a trigger of the cell, in the order it names them; a name
+/// that is none of them is found. A name written twice stands twice, which the run's check finds; two triggers of the
+/// cell that stand on one block, each named once, stand on it once.
+fn dealt_with(names: &[String], cell: &CellSpec, found: &mut Vec<Unmet>) -> Vec<BlockId> {
+    let mut blocks: Vec<BlockId> = Vec::new();
+    for (i, name) in names.iter().enumerate() {
+        let Some(trigger) = cell.triggers.iter().find(|t| &t.name == name) else {
+            found.push(Unmet::NotATrigger { name: name.clone() });
+            continue;
+        };
+        let again = names[..i].contains(name);
+        if again || !blocks.contains(&trigger.block) {
+            blocks.push(trigger.block.clone());
+        }
+    }
+    blocks
+}
+
+/// Each block the return writes, in the order the cell writes them, then any other in the order of its name: one the
+/// cell writes there, as a string or as a choice's value with its line of why, which is kept as its content. A block
+/// the cell does not write in `outputs`, as one it writes through a field of its own, and one in a shape neither a
+/// block nor a choice has, is found.
+fn writes(outcome: &Outcome, flow: &Compiled, cell: &CellSpec, found: &mut Vec<Unmet>) -> Vec<Handed> {
+    let place = flow.flow.place(&cell.id);
+    let outputs = place.map_or(&[][..], |p| &flow.flow.cells()[p].outputs[..]);
+    let mut names: Vec<&String> = outcome.outputs.keys().collect();
+    names.sort_by_key(|name| {
+        let at = outputs.iter().position(|b| b.as_str() == name.as_str());
+        (at.unwrap_or(usize::MAX), name.as_str())
+    });
+    let mut handed = Vec::new();
+    for name in names {
+        let block = BlockId(name.clone());
+        let declared = flow.blocks.get(&block);
+        let through_a_field = declared.is_some_and(|d| d.field.is_some());
+        if !outputs.contains(&block) || through_a_field {
+            found.push(Unmet::NotAnOutput { block });
+            continue;
+        }
+        let matters = !outcome.meaning_unchanged.contains(name);
+        let (content, value) = match &outcome.outputs[name] {
+            Value::String(content) => (content.clone(), None),
+            Value::Object(choice) => match (choice.len(), choice.get("value"), choice.get("why")) {
+                (2, Some(Value::String(value)), Some(Value::String(why))) => (why.clone(), Some(value.clone())),
+                _ => {
+                    found.push(misshapen(declared.is_some_and(|d| d.values.is_some()), block));
+                    continue;
+                }
+            },
+            _ => {
+                found.push(misshapen(declared.is_some_and(|d| d.values.is_some()), block));
+                continue;
+            }
+        };
+        handed.push(Handed {
+            block,
+            content,
+            matters,
+            value,
+        });
+    }
+    handed
+}
+
+/// What is wrong with a block written in a shape neither a block nor a choice has: a choice is not written as its value
+/// and its line of why, and another block not as a string.
+fn misshapen(choice: bool, block: BlockId) -> Unmet {
+    if choice {
+        Unmet::NoValue { block }
+    } else {
+        Unmet::NotAChoice { block }
+    }
+}
+
+/// The calls the return asks for, each request of a tool one call, in the order the cell names its tools, then any
+/// other in the order of its name; a tool the cell may not ask for is found. Or why they are not of the form: a tool's
+/// requests that are no list.
+fn asks(calls: Map<String, Value>, cell: &CellSpec, found: &mut Vec<Unmet>) -> Result<Vec<Ask>, String> {
+    let mut tools: Vec<(String, Value)> = calls.into_iter().collect();
+    tools.sort_by_key(|(name, _)| {
+        let at = cell.tools.iter().position(|t| t == name);
+        (at.unwrap_or(usize::MAX), name.clone())
+    });
+    let mut asks = Vec::new();
+    for (name, requests) in tools {
+        let Value::Array(requests) = requests else {
+            return Err(format!(
+                "the return is not of its form: the requests of {name} are no list"
+            ));
+        };
+        if !cell.tools.contains(&name) {
+            found.push(Unmet::NotATool { name: name.clone() });
+        }
+        for request in requests {
+            asks.push(Ask::Tool {
+                name: name.clone(),
+                input: request.to_string(),
+            });
+        }
+    }
+    Ok(asks)
+}
+
+/// What the return says beside its work.
+fn said(outcome: Outcome) -> Said {
+    let questions = (outcome.questions.into_iter())
+        .map(|q| match q {
+            QuestionIn::Asked(q) => Question::Asked {
+                name: q.name,
+                waits: q.waits,
+                recommends: q.recommends,
+                ask: q.ask,
+                options: (q.options.into_iter())
+                    .map(|o| Way {
+                        does: o.does,
+                        follows: o.follows,
+                    })
+                    .collect(),
+            },
+            QuestionIn::Withdrawn(q) => Question::Withdrawn {
+                name: q.name,
+                why: q.withdrawn,
+            },
         })
         .collect();
-    Ok(Came::hands_in(handed))
+    Said {
+        questions,
+        observations: outcome.observations,
+        reply: outcome.reply,
+    }
 }
 
 #[cfg(test)]
-mod adversarial;
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    #[test]
-    fn the_schema_is_json_with_no_choice_at_its_top() {
-        let schema: serde_json::Value = serde_json::from_str(SCHEMA).unwrap();
-        for word in ["oneOf", "anyOf", "allOf"] {
-            assert!(schema.get(word).is_none(), "{word} at the top");
-        }
-    }
-
-    #[test]
-    fn a_return_that_asks_asks() {
-        let r = json!({"hands_in": [], "asks": [{"tool": "check", "input": ""}, {"question": "Which name?"}]});
-        let asks = vec![
-            Ask::Tool {
-                name: "check".to_string(),
-                input: String::new(),
-            },
-            Ask::Person {
-                who: Who::Owner,
-                question: "Which name?".to_string(),
-            },
-        ];
-        assert_eq!(came(&r), Ok(Came::asks(asks)));
-    }
-
-    #[test]
-    fn a_return_that_hands_in_hands_in() {
-        let r = json!({"hands_in": [
-            {"block": "plan", "content": "Greet by name.", "matters": true},
-            {"block": "verdict", "content": "Fine.", "value": "yes", "matters": false},
-        ], "asks": []});
-        let handed = vec![
-            Handed {
-                block: "plan".into(),
-                content: "Greet by name.".to_string(),
-                matters: true,
-                value: None,
-            },
-            Handed {
-                block: "verdict".into(),
-                content: "Fine.".to_string(),
-                matters: false,
-                value: Some("yes".to_string()),
-            },
-        ];
-        assert_eq!(came(&r), Ok(Came::hands_in(handed)));
-    }
-
-    #[test]
-    fn a_return_of_nothing_hands_in_nothing() {
-        assert_eq!(
-            came(&json!({"hands_in": [], "asks": []})),
-            Ok(Came::hands_in(Vec::new()))
-        );
-    }
-
-    fn nothing() -> Result<Came, String> {
-        Ok(Came::hands_in(Vec::new()))
-    }
-
-    fn plan() -> Result<Came, String> {
-        Ok(Came::hands_in(vec![Handed {
-            block: "plan".into(),
-            content: "Greet.".to_string(),
-            matters: true,
-            value: None,
-        }]))
-    }
-
-    fn form() -> Value {
-        json!({"hands_in": [{"block": "plan", "content": "Greet.", "matters": true}], "asks": []})
-    }
-
-    #[test]
-    fn a_form_written_as_a_string_is_read() {
-        let text = form().to_string();
-        assert_eq!(came(&json!(text)), plan());
-        assert_eq!(came(&json!(format!("{text}}}"))), plan());
-        assert_eq!(came(&json!(format!("{text}\n]}}"))), plan());
-        assert!(came(&json!(format!("{text} and more"))).is_err());
-    }
-
-    #[test]
-    fn a_form_wrapped_in_one_key_is_read() {
-        assert_eq!(came(&json!({"outcome": form()})), plan());
-        assert_eq!(came(&json!({"outcome": form().to_string()})), plan());
-        assert!(came(&json!({"outcome": form(), "more": 1})).is_err());
-        assert!(came(&json!({"foo": 1})).is_err());
-    }
-
-    #[test]
-    fn a_list_left_out_is_empty() {
-        assert_eq!(came(&json!({})), nothing());
-        assert_eq!(came(&json!({"outcome": {}})), nothing());
-        assert_eq!(came(&json!({"hands_in": null, "asks": null})), nothing());
-        assert_eq!(came(&json!({"hands_in": []})), nothing());
-        let asks = came(&json!({"asks": [{"question": "Which?"}]}));
-        assert!(matches!(asks, Ok(Came { ref asks, .. }) if !asks.is_empty()));
-    }
-
-    #[test]
-    fn a_list_written_as_a_string_is_read() {
-        let r = json!({"hands_in": form()["hands_in"].to_string(), "asks": "[]"});
-        assert_eq!(came(&r), plan());
-    }
-
-    #[test]
-    fn a_null_of_the_other_form_is_left_out() {
-        let tool = json!({"hands_in": [], "asks": [{"tool": "check", "input": "", "question": null}]});
-        let question = json!({"hands_in": [], "asks": [{"question": "Which?", "tool": null, "input": null}]});
-        assert!(matches!(came(&tool), Ok(Came { asks: a, .. }) if matches!(a[0], Ask::Tool { .. })));
-        assert!(matches!(came(&question), Ok(Came { asks: a, .. }) if matches!(a[0], Ask::Person { .. })));
-        let value =
-            json!({"hands_in": [{"block": "plan", "content": "Greet.", "matters": true, "value": null}], "asks": []});
-        assert_eq!(came(&value), plan());
-    }
-
-    #[test]
-    fn what_is_required_is_never_made_up() {
-        for r in [
-            json!({"hands_in": [{"block": "plan", "content": "x", "matters": null}], "asks": []}),
-            json!({"hands_in": [{"block": "plan", "content": null, "matters": true}], "asks": []}),
-            json!({"hands_in": [{"block": null, "content": "x", "matters": true}], "asks": []}),
-            json!({"hands_in": [], "asks": [{"tool": null}]}),
-            json!({"hands_in": [], "asks": [{"question": null}]}),
-            json!({"hands_in": [], "asks": [{"tool": "check", "input": null}]}),
-        ] {
-            assert!(came(&r).is_err(), "{r} is taken");
-        }
-    }
-
-    #[test]
-    fn a_return_in_its_form_is_read_as_it_was() {
-        for r in [form(), json!({"hands_in": [], "asks": [{"question": "Which?"}]})] {
-            assert_eq!(normalised(&r), r);
-        }
-    }
-
-    #[test]
-    fn a_malformed_return_is_none() {
-        for r in [
-            json!({"hands_in": [{"block": "plan", "matters": true}], "asks": []}),
-            json!({"hands_in": [{"block": "plan", "content": "Greet by name."}], "asks": []}),
-            json!({"hands_in": [], "asks": [{"tool": "check"}]}),
-            json!({"hands_in": [], "asks": [], "more": 1}),
-            json!("hands in nothing"),
-        ] {
-            assert!(came(&r).is_err(), "{r} is taken");
-        }
-    }
-}
+mod tests;

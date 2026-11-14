@@ -9,7 +9,7 @@ use decide::run::{Failure, Unmet};
 use service::Act;
 use work::{Back, Given, Why};
 
-use crate::{Fake, Real, ended};
+use crate::{Fake, Real, ended, rows};
 
 #[tokio::test]
 async fn a_failed_round_pauses_the_work_with_the_reason_and_the_next_round_runs_on_resume() {
@@ -144,26 +144,19 @@ async fn a_session_not_found_is_begun_again_with_the_task_and_the_list() {
 async fn a_session_lost_on_a_later_run_is_begun_again_with_the_task_and_the_runs_own_results() {
     let fake = Fake {
         lose_session: true,
-        question_first: true,
+        holds_first: true,
         ..Fake::default()
     };
     let mut real = Real::trial(fake);
     let work = real.add().await;
     real.act(work, Act::Resume);
-    real.until(|real| real.owners_call(work).is_some()).await;
-    let call = real.owners_call(work).unwrap();
-    let answer = "Greet them by their first name.".to_string();
-    real.act(
-        work,
-        Act::Answer {
-            call,
-            result: answer.clone(),
-        },
-    );
+    real.until(|real| real.holds(work)).await;
+    let answer = "Greet them by their first name.";
+    real.answer(work, answer);
     real.until(|real| ended(&real.decision(work))).await;
     let calls = real.calls();
-    // The plan, the build's question, its check, the run entered for the check's result refused and begun again, the
-    // review.
+    // The plan, the build's first query, the query of the check, the run entered for the check's result refused and
+    // begun again, the review.
     assert_eq!(calls.len(), 6);
     let again = &calls[4];
     assert_eq!(again.session().0, "--session-id");
@@ -172,13 +165,15 @@ async fn a_session_lost_on_a_later_run_is_begun_again_with_the_task_and_the_runs
         "{}",
         again.stdin
     );
-    for part in [
-        "## Your task",
-        "## The results of what you asked for",
-        "The check `true` passed.",
-    ] {
+    let checked = rows(r#"{"sql":"select the check"}"#);
+    for part in ["## Your task", "## The results of what you asked for", &checked] {
         assert!(again.stdin.contains(part), "{part} is missing from:\n{}", again.stdin);
     }
+    assert!(
+        !again.stdin.contains(answer),
+        "an earlier run's results are not given: {}",
+        again.stdin
+    );
 }
 
 /// The fake whose first call prints an error that cost eighty cents, every later call saying the session has cost

@@ -85,6 +85,9 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
     assert_eq!(read.returns.how_you_return.listed, ["reply", "summary"]);
     assert_eq!(read.returns.how_you_return.reads, ["reply", "summary"]);
     assert_eq!(read.returns.outputs.none, "This cell writes no block.");
+    assert_eq!(read.sent_back.heading, "## Sent back");
+    assert_eq!(read.sent_back.item, "- {text}");
+    assert_eq!(read.sent_back.faults.not_a_trigger, "`{name}` does not run this cell.");
     assert_eq!(
         read.fields.keys().map(String::as_str).collect::<Vec<_>>(),
         ["dealt_with", "meaning_unchanged", "outputs", "reply", "summary"]
@@ -191,6 +194,22 @@ fn a_value_no_kind_of_it_has_is_refused_with_the_path_of_its_file() {
     fs::remove_dir_all(&dir).unwrap();
     assert!(refused.contains(&message.display().to_string()), "{refused}");
     assert!(refused.contains("now_and_then"), "{refused}");
+}
+
+#[test]
+fn the_words_of_a_return_sent_back_lacking_those_of_one_thing_wrong_are_refused_with_the_path_of_their_file() {
+    let dir = copy("sent-back");
+    let sent_back = dir.join("agents/return/sent_back.toml");
+    let text = fs::read_to_string(&sent_back).unwrap();
+    let lacking: String = (text.lines())
+        .filter(|line| !line.starts_with("not_a_tool"))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    fs::write(&sent_back, lacking).unwrap();
+    let refused = agents::read(&dir).unwrap_err();
+    fs::remove_dir_all(&dir).unwrap();
+    assert!(refused.contains(&sent_back.display().to_string()), "{refused}");
+    assert!(refused.contains("not_a_tool"), "{refused}");
 }
 
 #[test]

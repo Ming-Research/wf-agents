@@ -178,11 +178,19 @@ fn handed_in(writes: Vec<Write>) -> Round {
 
 /// A round whose return dealt with these, and wrote these.
 fn works(dealt_with: &[&str], writes: Vec<Write>) -> Round {
+    came(dealt_with, writes, vec![], false)
+}
+
+/// A round whose return dealt with these, wrote these, was found to have these wrong as it was read, and asked a
+/// question that waits or none.
+fn came(dealt_with: &[&str], writes: Vec<Write>, found: Vec<Unmet>, waits: bool) -> Round {
     Round {
         returned: Some(Return::Came {
             dealt_with: dealt_with.iter().map(|&b| b.into()).collect(),
             writes,
             calls: 0,
+            found,
+            waits,
         }),
     }
 }
@@ -212,6 +220,8 @@ fn asks(calls: usize) -> Round {
             dealt_with: vec![],
             writes: vec![],
             calls,
+            found: vec![],
+            waits: false,
         }),
     }
 }
