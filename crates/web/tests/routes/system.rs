@@ -86,8 +86,14 @@ async fn all_time_gives_the_merge_and_what_was_spent_on_each_cell_and_model() {
     assert_eq!(
         weeks["weeks"],
         json!([
-            { "start": week, "spent": spent, "merged": 1, "cancelled": 0, "added": 1, "sentBack": 0, "failed": 0 },
-            { "start": before, "spent": nothing, "merged": 0, "cancelled": 0, "added": 0, "sentBack": 0, "failed": 0 },
+            {
+                "start": week, "spent": spent, "pinged": nothing, "merged": 1, "cancelled": 0, "added": 1, "sentBack": 0,
+                "failed": 0
+            },
+            {
+                "start": before, "spent": nothing, "pinged": nothing, "merged": 0, "cancelled": 0, "added": 0,
+                "sentBack": 0, "failed": 0
+            },
         ])
     );
 }

@@ -305,6 +305,8 @@ class History {
         line === null
           ? []
           : [{ attempt: 1, ran: { level: '2', model: 'claude-sonnet-5-5', effort: defined?.effort ?? null }, filled: [fills] }],
+      missed: null,
+      estimated: false,
     };
     run.rounds.push(round);
     const results = given.kind === 'results' ? given.calls.map((c) => this.callPages.get(c) as CallPage) : [];

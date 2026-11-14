@@ -149,6 +149,10 @@ export function sessionWords(why: SessionWhy): string {
       return 'a new one, as the owner asked';
     case 'flagged':
       return "a new one, the service's safety check having flagged its last round";
+    case 'guarded':
+      return 'a new one, the run guard having stopped its last round';
+    case 'tooLong':
+      return "a new one, its last round's prompt having been too long for the model";
     case 'lost':
       return "begun again, the agents' program having lost it";
     case 'compacted':
@@ -200,6 +204,8 @@ export function failureWords(failure: Failure): string {
       return 'what came back could not be read';
     case 'flagged':
       return "the service's safety check flagged it";
+    case 'guarded':
+      return "the run guard stopped it, its context growing past what its cell's history explains";
     case 'usageLimit':
       return "the account's usage limit was reached";
     case 'cannotRun':

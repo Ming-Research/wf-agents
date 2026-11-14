@@ -5,8 +5,11 @@
 //! What a session holds is read from what was filled into it, as each try of a round recorded it, and from what its
 //! rounds handed in, since the session last held nothing: since it began, since the agents' program lost it and it was
 //! begun again under its id, or since a round of it was compacted, which counts as the session reopened and leaves it
-//! holding only what that round then handed in. Only a round that reached the model put anything into it. Everything
-//! is read as the records stood when the round began, so that a round given again is sent the same.
+//! holding only what that round then handed in. Only a round whose program put its message into the session put
+//! anything into it: one that reached the model, and one whose program said it had taken the message in
+//! (`work::sessions::wrote_into`). A version is held by what it is, never by its content: a new version is new, though
+//! it says what an earlier one said, as a person saying the same twice, or a datum changed and changed back.
+//! Everything is read as the records stood when the round began, so that a round given again is sent the same.
 //!
 //! The round is filled with what its cell is given and its session lacks, in the order of the message: which work it
 //! is, each datum of the cell's context by the kind the cell gives it in, what the cell returns, its task, and the
@@ -24,7 +27,7 @@ use decide::{BlockId, CallId, Records, RunId, Seq, VersionView, Writer};
 use flow::agents::{Agents, Part};
 use flow::{CellSpec, Compiled, InputKind};
 use work::sessions::{began_at, number_at, of_line, of_round, start};
-use work::{Ask, Back, Call, Fill, Given, Spent, Why, Work};
+use work::{Ask, Back, Call, Fill, Given, Why, Work};
 
 use crate::diff;
 use crate::message::{self, Called, Datum, Form, Main, Run, Sent, Situation, Stands, Values, Version};
@@ -144,9 +147,8 @@ pub fn enter(
         };
         let lacking: Vec<&VersionView> = all.iter().filter(|v| !holds(v.at)).collect();
         let compared = changes.keys().any(|(b, _)| b == block);
-        // A version the cell last worked from that is not the latest, and that the session lacks, while what is newer
-        // is new to the cell.
-        let lacks_last = new && last.is_some_and(|l| l < latest.at && !holds(l));
+        // A latest version the session holds is never sent again, though the session lacks the version the cell last
+        // worked from: the change could not be told against it, and the whole would give the session what it holds.
         let (stands, fills) = if given.kind == InputKind::All && !lacking.is_empty() {
             datum.versions = lacking.iter().map(|v| version(v)).collect();
             let fills = lacking.iter().flat_map(|v| whole(v.at)).collect();
@@ -156,10 +158,6 @@ pub fn enter(
                 Stands::Lacks
             };
             (stands, fills)
-        } else if holds(latest.at) && lacks_last && given.kind == InputKind::LastAndLatest && !compared {
-            // The session holds the latest and not the version the cell last worked from, which the change would be
-            // told against: the latest is sent whole, as where the session lacks that version.
-            (Stands::Lacks, whole(latest.at))
         } else if holds(latest.at) {
             let stands = if new && last.is_some() {
                 Stands::HoldsLatest
@@ -412,7 +410,7 @@ fn held(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize, beg
             top = top.max(s.at);
         }
     }
-    let reached = |r: RunId, k: usize| work.spent.get(&(r, k)).is_some_and(spent);
+    let reached = |r: RunId, k: usize| work::sessions::wrote_into(work, r, k);
     let mut held = Held::default();
     let hold = |held: &mut Held, block: &BlockId, at: Seq| {
         held.versions.entry(block.clone()).or_default().insert(at);
@@ -462,9 +460,4 @@ fn held(flow: &Compiled, work: &Work, line: &str, run: RunId, number: usize, beg
     }
     held.taken = last.map(|(_, taken)| taken).unwrap_or_default();
     held
-}
-
-/// Whether the round took tokens: it reached the model.
-fn spent(s: &Spent) -> bool {
-    s.input_tokens + s.cached_tokens + s.output_tokens > 0
 }

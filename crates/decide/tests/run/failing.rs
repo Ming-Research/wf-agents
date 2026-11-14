@@ -195,6 +195,21 @@ fn a_flagged_round_is_tried_again_once_and_flagged_again_pauses_the_work() {
 }
 
 #[test]
+fn a_round_the_run_guard_stopped_is_tried_again_once_and_stopped_again_pauses_the_work() {
+    let s = spec();
+    let guarded = || failed_as(Failure::Guarded);
+    assert_eq!(pausing(&let_on(vec![guarded()], 0)), None);
+    assert_eq!(step(vec![guarded()], &s), Step::Retry);
+    assert_eq!(
+        pausing(&let_on(vec![guarded(), guarded()], 0)),
+        Some(Pausing::GuardedAgain)
+    );
+    // A flag between is another cause, which does not count as the guard stopping it again.
+    assert_eq!(pausing(&let_on(vec![guarded(), failed_as(Failure::Flagged)], 0)), None);
+    assert_eq!(pausing(&let_on(vec![guarded(), guarded()], 1)), None, "let on between");
+}
+
+#[test]
 fn a_failure_running_again_cannot_help_pauses_the_work_and_one_every_work_shares_does_not() {
     for kind in [Failure::PromptTooLong, Failure::Other] {
         assert_eq!(pausing(&let_on(vec![failed_as(kind)], 0)), Some(Pausing::Failed(kind)));

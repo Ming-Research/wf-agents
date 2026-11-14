@@ -14,6 +14,7 @@ mod dependencies;
 mod failing;
 mod going;
 mod pausing;
+mod pinging;
 mod shared_wait;
 mod stopped;
 mod stopping;
@@ -28,12 +29,12 @@ use driver::{FirstWrite, NewItem, Todo};
 use engine::{Effect, Event};
 use flow::Compiled;
 use service::{
-    Act, CallReply, Carriers, Inbox, Message, Refusal, Release, ReleaseReply, Round, RoundReply, Rounds, Script,
-    Scripted, Service, TokioClock, ToolCall, Tools,
+    Act, CallReply, Carriers, Inbox, Message, Ping, PingReply, Refusal, Release, ReleaseReply, Round, RoundReply,
+    Rounds, Script, Scripted, Service, TokioClock, ToolCall, Tools,
 };
 use store::{ItemNumber, Storage, Store, WorkNumber};
 use tokio::sync::oneshot;
-use work::{Ask, Call, Time, Work};
+use work::{Ask, Call, RanOn, Spent, Time, Work};
 
 /// An item of the trial flow with a request, depending on these items, added paused: its work begins nothing until it is
 /// let on.
@@ -123,7 +124,12 @@ pub struct Trial {
     answered: BTreeMap<Unit, usize>,
     /// How many things the loop took, over every start.
     pub steps: usize,
+    /// The keep-warm pings handed out and not yet answered, where the agents' sessions are kept warm.
+    pings: Option<Pings>,
 }
+
+/// The keep-warm pings handed out and not yet answered, each with its reply.
+type Pings = Arc<Mutex<Vec<(Ping, PingReply)>>>;
 
 impl Trial {
     /// The loop with the trial's script, on an empty store.
@@ -133,11 +139,23 @@ impl Trial {
 
     /// The loop with this script, on an empty store.
     pub fn with(script: Script) -> Trial {
+        Trial::opened(script, None)
+    }
+
+    /// The loop with the trial's script, on an empty store, whose agents' rounds run in sessions kept warm: every round
+    /// runs on one model, and a line that waits has its session pinged 55 minutes after its last call, at most twice
+    /// in a wait.
+    pub fn warm() -> Trial {
+        Trial::opened(trial_script(), Some(Pings::default()))
+    }
+
+    /// The loop with this script, on an empty store, its sessions kept warm where `pings` holds the pings in hand.
+    fn opened(script: Script, pings: Option<Pings>) -> Trial {
         let dir = tempfile::tempdir().expect("a directory for the store");
         let path = dir.path().join("store.sqlite");
         let clock = Arc::new(TokioClock::new(START));
         let handed = Arc::new(Mutex::new(BTreeSet::new()));
-        let (service, inbox) = open(&path, &script, &clock, &handed);
+        let (service, inbox) = open(&path, &script, &clock, &handed, pings.as_ref());
         let trial = Trial {
             _dir: dir,
             path,
@@ -148,16 +166,39 @@ impl Trial {
             handed,
             answered: BTreeMap::new(),
             steps: 0,
+            pings,
         };
         trial.check();
         trial
+    }
+
+    /// The works with a keep-warm ping in hand.
+    pub fn pinged(&self) -> BTreeSet<WorkNumber> {
+        let pings = self
+            .pings
+            .as_ref()
+            .map(|pings| pings.lock().expect("the pings").iter().map(|(p, _)| p.work).collect());
+        pings.unwrap_or_default()
+    }
+
+    /// The first keep-warm ping in hand ends, having read the session from the cache.
+    pub fn ping_ends(&mut self) {
+        let pings = self.pings.as_ref().expect("sessions kept warm");
+        let (_, reply) = pings.lock().expect("the pings").remove(0);
+        reply.ended(Spent {
+            cached_tokens: 14_000,
+            ..Spent::default()
+        });
     }
 
     /// Stops the process and starts it again on the same store: what was under way is lost with it, and the loop
     /// hands out again what is to be done.
     pub fn restart(&mut self) {
         self.handed = Arc::new(Mutex::new(BTreeSet::new()));
-        let (service, inbox) = open(&self.path, &self.script, &self.clock, &self.handed);
+        if let Some(pings) = &self.pings {
+            pings.lock().expect("the pings").clear();
+        }
+        let (service, inbox) = open(&self.path, &self.script, &self.clock, &self.handed, self.pings.as_ref());
         self.service = service;
         self.inbox = inbox;
         self.check();
@@ -366,13 +407,25 @@ impl Trial {
             .filter(|unit| !self.answered.contains_key(unit))
             .collect();
         let driver = self.service.driver();
+        // What is to be done for a work whose ping is in hand waits for the ping, the loop handing none of it out.
+        let pinged = self.pinged();
         let pending: BTreeSet<Unit> = (driver.pending().iter())
             .filter_map(|todo| carried(driver, todo))
+            .filter(|unit| !pinged.contains(&unit.work()) || open.contains(unit))
             .collect();
         assert_eq!(
             open, pending,
             "what was handed out and not answered is what is to be done"
         );
+    }
+}
+
+impl Unit {
+    /// The work it is of.
+    fn work(&self) -> WorkNumber {
+        match self {
+            Unit::Round(work, ..) | Unit::Call(work, _) | Unit::Release(work) => *work,
+        }
     }
 }
 
@@ -397,16 +450,19 @@ fn carried(driver: &driver::Driver, todo: &Todo) -> Option<Unit> {
         Effect::Call { .. } => None,
         Effect::Withdraw { call } => Some(Unit::Call(work, *call)),
         Effect::Release { .. } => Some(Unit::Release(work)),
+        // A ping is carried out beside the rounds, and is no unit of one.
+        Effect::Ping { .. } => None,
     }
 }
 
 /// Opens the loop on the store at this path, with carriers following the script that record in `handed` what they
-/// are given.
+/// are given, and keep the agents' sessions warm where `pings` holds the pings in hand.
 fn open(
     path: &Path,
     script: &Script,
     clock: &Arc<TokioClock>,
     handed: &Arc<Mutex<BTreeSet<Unit>>>,
+    pings: Option<&Pings>,
 ) -> (Service, Inbox) {
     let store = Store::open(path).expect("the store opens");
     let recording = Arc::new(Recording {
@@ -414,8 +470,15 @@ fn open(
         handed: handed.clone(),
         path: path.to_path_buf(),
     });
+    let agents: Arc<dyn Rounds> = match pings {
+        Some(pings) => Arc::new(Warm {
+            recording: recording.clone(),
+            pings: pings.clone(),
+        }),
+        None => recording.clone(),
+    };
     let carriers = Carriers {
-        agents: recording.clone(),
+        agents,
         acts: recording.clone(),
         tools: recording.clone(),
         network: Arc::new(recording.scripted.clone()),
@@ -424,6 +487,59 @@ fn open(
     };
     let clock: Arc<dyn service::Clock> = clock.clone();
     Service::open(Box::new(store), vec![trial_flow()], carriers, clock).expect("the loop opens")
+}
+
+/// The model every round of the agents runs on where their sessions are kept warm.
+const MODEL: &str = "the model";
+
+/// What a round runs on where the agents' sessions are kept warm.
+fn ran_on() -> RanOn {
+    RanOn {
+        level: "1".to_string(),
+        model: MODEL.to_string(),
+        effort: None,
+        account: None,
+    }
+}
+
+/// The agents' recording carrier, whose rounds run in sessions kept warm: each round's try says what it runs on, and
+/// each ping is kept in hand until the test answers it.
+struct Warm {
+    recording: Arc<Recording>,
+    pings: Pings,
+}
+
+impl Rounds for Warm {
+    fn give(&self, round: Round, reply: RoundReply) {
+        reply.teller().ran_on(1, ran_on());
+        self.recording.give(round, reply);
+    }
+
+    fn stop(&self, round: Round, reply: RoundReply) {
+        self.recording.stop(round, reply);
+    }
+
+    fn release(&self, release: Release, reply: ReleaseReply) {
+        self.recording.release(release, reply);
+    }
+
+    fn policy(&self) -> Option<driver::Policy> {
+        Some(driver::Policy {
+            samples: 19,
+            limit: 500_000,
+            on: Box::new(|_, _| Some(ran_on())),
+            warm: Some(driver::Warm {
+                life_ms: 3_600_000,
+                after_ms: 3_300_000,
+                most: [(MODEL.to_string(), 2)].into(),
+                while_paused: false,
+            }),
+        })
+    }
+
+    fn ping(&self, ping: Ping, reply: PingReply) {
+        self.pings.lock().expect("the pings").push((ping, reply));
+    }
 }
 
 /// The scripted carriers, recording what they are handed after checking that the store holds it as to be done.

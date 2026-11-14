@@ -297,6 +297,7 @@ impl Driver {
                             );
                             self.seen.released += 1;
                         }
+                        Effect::Ping { .. } => panic!("the work's loop gives a ping, which only its driver gives"),
                     }
                     self.held.push(effect);
                 }
@@ -386,6 +387,7 @@ impl Driver {
                     assert!(r.called.iter().any(|c| c.call == *call), "an unknown call withdrawn");
                 }
                 Effect::Stop { run } => assert!(r.started.iter().any(|s| s.run == *run), "an unknown run stopped"),
+                Effect::Ping { .. } => panic!("the work's loop gives a ping, which only its driver gives"),
                 // Nothing of a work is under way as it lets go of what it holds: no round, and no call, which a tool
                 // may be working at in the worktree.
                 Effect::Release { end } => {
@@ -481,7 +483,7 @@ impl Driver {
             .filter(|e| match e {
                 Effect::Round { .. } => true,
                 Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool { .. })),
-                Effect::Withdraw { .. } | Effect::Stop { .. } | Effect::Release { .. } => true,
+                Effect::Withdraw { .. } | Effect::Stop { .. } | Effect::Release { .. } | Effect::Ping { .. } => true,
             })
             .cloned()
             .collect()
@@ -559,6 +561,7 @@ impl Driver {
                     "the release of a work that ended was refused"
                 );
             }
+            Effect::Ping { .. } => panic!("the work's loop gives a ping, which only its driver gives"),
         }
     }
 

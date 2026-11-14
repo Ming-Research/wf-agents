@@ -52,6 +52,7 @@ export type Failure =
   | 'passing'
   | 'unread'
   | 'flagged'
+  | 'guarded'
   | 'usageLimit'
   | 'cannotRun'
   | 'offline'
@@ -187,6 +188,8 @@ export interface Summary {
   /// In the order of the walk.
   cells: CellNow[];
   spent: Spent;
+  /// What the keep-warm pings of its sessions took, each counted as a round. Absent from an engine that keeps none.
+  pinged?: Spent;
   /// When something last happened to it.
   last: number | null;
   /// When its first round began; none before it has one. Absent from an engine that does not give it yet.
@@ -354,6 +357,19 @@ export interface Round {
   session: RoundSession | null;
   /// Each try of it the records hold, in order; none for a try that began before tries were recorded.
   tries: RoundTry[];
+  /// How it missed its session's prompt cache, where it did.
+  missed: Missed | null;
+  /// Whether what it took was worked out from its calls at the models' prices, no result saying it: an estimate.
+  estimated: boolean;
+}
+
+/// How a round missed its session's prompt cache: it went on in its session within the cache's lifetime, and its first
+/// call read less than half of what the session held from the cache. `differs` names what comes before the session's
+/// messages and differs from the call before, the cause by design; none where nothing does, a fault of wf-agents.
+export interface Missed {
+  read: number;
+  held: number;
+  differs: string[];
 }
 
 /// The session of its line a round runs in: which of the line's sessions, as the records count them, the line's first
@@ -436,15 +452,18 @@ export type Step =
   /// A new session of the line began, or begins with the line's next round.
   | { kind: 'session'; at: number; time: number; line: string; why: SessionWhy };
 
-/// Why a line began a new session: its context was past the limit; its rounds run on another model or under another
-/// account than its session's ran on; the owner asked; the service's safety check flagged the line's last round; the
-/// agents' program had lost the one before; the agents' program compacted it during a round.
+/// Why a line began a new session: its context was past the limit of its line; its rounds run on another
+/// model or under another account than its session's ran on; the owner asked; the service's safety check flagged the
+/// line's last round; the run guard stopped it; the agents' program had lost the one before; the agents' program
+/// compacted it during a round.
 export type SessionWhy =
   | { kind: 'limit'; context: number; limit: number }
   | { kind: 'model'; was: string }
   | { kind: 'account' }
   | { kind: 'owner' }
   | { kind: 'flagged' }
+  | { kind: 'guarded' }
+  | { kind: 'tooLong' }
   | { kind: 'lost' }
   | { kind: 'compacted' };
 

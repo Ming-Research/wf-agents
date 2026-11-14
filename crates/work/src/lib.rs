@@ -11,10 +11,12 @@ use decide::{BlockId, CallId, Records, RunId, Seq, Who};
 use serde::{Deserialize, Serialize};
 
 pub mod filled;
+pub mod measured;
 pub mod observations;
 pub mod sessions;
 
 pub use filled::{Fill, FillFault, Filled};
+pub use measured::{Measured, Measures, Pinged};
 pub use observations::Observed;
 pub use sessions::{Ran, RanOn, Session, Why};
 
@@ -48,6 +50,10 @@ pub struct Work {
     pub ran: Vec<Ran>,
     /// The observations its runs kept as each finished, in the order they were kept (module [`observations`]).
     pub observed: Vec<Observed>,
+    /// What the calls of each try of an agent's round to the model came to, where its carrier said, in order.
+    pub measured: Vec<Measured>,
+    /// Each keep-warm ping of a line's session, in order.
+    pub pinged: Vec<Pinged>,
     /// Why the work's item was cancelled, by the place of each cancel, as whoever cancelled it said; none for a cancel
     /// where nothing was said, as one kept before a cancel said why.
     pub why_cancelled: BTreeMap<Seq, String>,
@@ -78,7 +84,9 @@ impl Work {
             .chain(r.releases.iter().copied())
             .chain(self.sessions.iter().map(|s| s.at))
             .chain(self.filled.iter().map(|f| f.at))
-            .chain(self.ran.iter().map(|r| r.at));
+            .chain(self.ran.iter().map(|r| r.at))
+            .chain(self.measured.iter().map(|m| m.at))
+            .chain(self.pinged.iter().map(|p| p.at));
         Seq(places.map(|at| at.0).max().unwrap_or(0) + 1)
     }
 
@@ -95,6 +103,12 @@ impl Work {
         let names = (r.started.iter().map(|s| s.run.0)).chain(r.called.iter().map(|c| c.call.0));
         names.max().unwrap_or(0) + 1
     }
+}
+
+/// The digest of a text that tells it apart from another and keeps nothing of it: its SHA-1, in hexadecimal (principle
+/// `stored-content-is-kept-small`).
+pub fn digest(text: &str) -> String {
+    sha1_smol::Sha1::from(text).digest().to_string()
 }
 
 /// A time, as whatever drives the engine reads its clock: milliseconds since the start of 1970. The engine reads no

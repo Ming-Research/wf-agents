@@ -53,8 +53,11 @@ pub struct System {
     pub now: u64,
     /// When the span begins: its first week; none for all time.
     pub from: Option<u64>,
-    /// What every round that ended in the span took.
+    /// What every round that ended in the span took, and every keep-warm ping: `rounds` counts the rounds alone.
     pub spent: Spent,
+    /// What the keep-warm pings that ended in the span took, each counted as a round.
+    #[serde(default)]
+    pub pinged: Spent,
     /// Week by week, the latest first, each week the span was given; a week with nothing in it is there with nothing.
     pub weeks: Vec<Week>,
     /// What the span's rounds took, by the cell of the flow they ran, the costliest first.
@@ -62,7 +65,7 @@ pub struct System {
     /// By the model a round ran on, the costliest first: an agent's round's model, the engine's own acts, which run on
     /// none, and an agent's round whose model was not recorded.
     pub by_model: Vec<ModelSpent>,
-    /// By work, the costliest first: each work a round of which ended in the span.
+    /// By work, the costliest first: each work a round or a keep-warm ping of which ended in the span.
     pub by_work: Vec<WorkSpent>,
     /// The works merged in the span, the latest first.
     pub merged: Vec<Merged>,
@@ -82,7 +85,11 @@ pub struct System {
 pub struct Week {
     /// When it begins, as the page gave it.
     pub start: u64,
+    /// What its rounds and its keep-warm pings took: `rounds` counts the rounds alone.
     pub spent: Spent,
+    /// What the keep-warm pings that ended in it took, each counted as a round.
+    #[serde(default)]
+    pub pinged: Spent,
     pub merged: usize,
     pub cancelled: usize,
     pub added: usize,
@@ -122,10 +129,11 @@ pub enum RanOn {
 pub struct WorkSpent {
     pub work: u64,
     pub item: u64,
+    /// What its rounds and keep-warm pings that ended in the span took: `rounds` counts the rounds alone.
     pub spent: Spent,
 }
 
-/// A work merged: when, when its first round began, and what all its rounds took.
+/// A work merged: when, when its first round began, and what all its rounds and keep-warm pings took.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Merged {
@@ -190,6 +198,7 @@ impl System {
             now: now.0,
             from,
             spent: Spent::default(),
+            pinged: Spent::default(),
             weeks: Vec::new(),
             by_cell: Vec::new(),
             by_model: Vec::new(),
@@ -227,7 +236,27 @@ impl System {
                     week.added += 1;
                 }
             }
-            let mut of_work = Spent::default();
+            let pinged = crate::works::pinged(kept.work, &within);
+            system.pinged = system.pinged.with(pinged);
+            system.spent = system.spent.with(pinged.as_no_round());
+            for ping in &kept.work.pinged {
+                let Some(at) = kept.work.time_of(ping.at).map(|at| at.0).filter(|at| within(*at)) else {
+                    continue;
+                };
+                if let Some(week) = week_of(&mut counted, at) {
+                    let one = Spent {
+                        usd_micros: ping.spent.usd_micros,
+                        input_tokens: ping.spent.input_tokens,
+                        cached_tokens: ping.spent.cached_tokens,
+                        output_tokens: ping.spent.output_tokens,
+                        working_ms: 0,
+                        rounds: 1,
+                    };
+                    week.pinged = week.pinged.with(one);
+                    week.spent = week.spent.with(one.as_no_round());
+                }
+            }
+            let mut of_work = pinged.as_no_round();
             for run in &runs {
                 for round in &run.rounds {
                     if let Given::SentBack { .. } = round.given
@@ -287,7 +316,7 @@ impl System {
                     }
                 }
             }
-            if of_work.rounds > 0 {
+            if of_work.rounds > 0 || pinged.rounds > 0 {
                 system.by_work.push(WorkSpent {
                     work,
                     item,
@@ -301,7 +330,8 @@ impl System {
                         item,
                         at,
                         from: runs.iter().flat_map(|run| &run.rounds).map(|round| round.began).min(),
-                        spent: (runs.iter()).fold(Spent::default(), |sum, run| sum.with(run.spent)),
+                        spent: (runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)))
+                            .with(crate::works::pinged(kept.work, &|_| true).as_no_round()),
                     });
                     if let Some(week) = week_of(&mut counted, at) {
                         week.merged += 1;

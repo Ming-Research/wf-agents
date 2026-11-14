@@ -731,6 +731,21 @@ fn show(page: &WorkPage) -> String {
             "  run {} of {}: {rounds}{calls}{context}{compacted}, {end}",
             run.run, run.cell
         ));
+        // A round that missed its session's prompt cache, with what differed before the messages, or that nothing did,
+        // which is a fault of wf-agents.
+        for round in &run.rounds {
+            let Some(missed) = &round.missed else {
+                continue;
+            };
+            let cause = match missed.differs.is_empty() {
+                true => "nothing before the messages differed, a fault of wf-agents".to_string(),
+                false => format!("{} differed from the call before", missed.differs.join(", ")),
+            };
+            lines.push(format!(
+                "    round {} missed its session's cache: read {} of the {} tokens it held; {cause}",
+                round.number, missed.read, missed.held
+            ));
+        }
     }
     let sessions: Vec<String> = (page.steps.iter())
         .filter_map(|step| match step {
@@ -809,6 +824,8 @@ fn session_why(why: &SessionWhy) -> String {
         SessionWhy::Account => "a new one, its rounds running under another account".to_string(),
         SessionWhy::Owner => "a new one, as the owner asked".to_string(),
         SessionWhy::Flagged => "a new one, the service's safety check having flagged its last round".to_string(),
+        SessionWhy::Guarded => "a new one, the run guard having stopped its last round".to_string(),
+        SessionWhy::TooLong => "a new one, its last round's prompt having been too long for the model".to_string(),
         SessionWhy::Lost => "begun again, the agents' program having lost it".to_string(),
         SessionWhy::Compacted => "compacted: it holds only a summary of what it read".to_string(),
     }
@@ -1533,6 +1550,7 @@ mod tests {
                 },
                 cells: Vec::new(),
                 spent: Spent::default(),
+                pinged: Spent::default(),
                 last: None,
                 from: None,
                 bar: String::new(),

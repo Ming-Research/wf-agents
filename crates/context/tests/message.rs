@@ -450,7 +450,8 @@ fn the_tree_changed_since_the_session_read_it_is_sent_as_the_files_the_carrier_s
 }
 
 #[test]
-fn a_datum_given_last_and_latest_whose_session_holds_its_latest_and_not_the_version_last_worked_from_is_sent_whole() {
+fn a_datum_given_last_and_latest_whose_session_holds_its_latest_and_not_the_version_last_worked_from_is_not_sent_again()
+{
     let mut sim = reviewed();
     let first = sim.version("code");
     carry(&mut sim, &[("plan", "Greet by name, and say why.", None)]);
@@ -465,14 +466,12 @@ fn a_datum_given_last_and_latest_whose_session_holds_its_latest_and_not_the_vers
     let entered = sim.enter(&round, false);
     let code = sim.version("code");
     assert!(first < code);
-    assert_eq!(entered.situation.data["code"], Stands::Lacks);
+    assert_eq!(entered.situation.data["code"], Stands::HoldsLatest);
     let sent = (entered.sent.iter())
         .find(|s| s.block.as_deref() == Some("code"))
-        .expect("the code is sent");
-    assert_eq!(sent.form, context::Form::Whole);
-    let text = format!("## `code`, version {code}\n\n{changed}");
-    assert_eq!(context::text::as_written(&sent.pieces), text);
-    assert!(entered.fills.contains(&whole("code", code)));
+        .expect("the code's line is sent");
+    assert_eq!(sent.form, context::Form::Held);
+    assert!(!entered.fills.contains(&whole("code", code)), "{:?}", entered.fills);
 }
 
 #[test]
@@ -507,4 +506,73 @@ fn a_return_that_would_write_over_a_version_it_never_saw_is_sent_back_with_that_
     );
     assert!(entered.text.contains(&sent_back), "{}", entered.text);
     assert_eq!(entered.fills, [Fill::SentBack { round: 2 }, whole("verdict", over)]);
+}
+
+#[test]
+fn a_round_whose_program_said_it_took_its_message_in_holds_it_whatever_it_failed_of_and_one_that_said_nothing_does_not()
+{
+    use decide::run::Failure;
+    // A crash before the program read its input fails in passing as one after it does: only what the stream said tells.
+    for (failure, received) in [
+        (Failure::Passing, true),
+        (Failure::Passing, false),
+        (Failure::UsageLimit, true),
+        (Failure::UsageLimit, false),
+    ] {
+        let mut sim = Sim::new();
+        sim.writes("request", "Greet the user.");
+        let round = sim.round().expect("the plan is entered");
+        let first = sim.enter(&round, sim.begins(&round));
+        sim.tries(&round, 1, first.fills.clone());
+        sim.fails_as(&round, failure, received);
+        if failure == Failure::Passing {
+            let wait = *sim.calls().last().expect("the wait before it is tried again");
+            sim.done(wait, "over");
+        }
+        let again = sim.round().expect("the plan's round is tried again");
+        assert_eq!((again.run, again.number), (round.run, 2));
+        assert_eq!(sim.begins(&again), !received, "{failure:?}, {received}");
+        let entered = sim.enter(&again, sim.begins(&again));
+        let request = whole("request", sim.version("request"));
+        assert_eq!(
+            entered.fills.contains(&request),
+            !received,
+            "{failure:?}: {:?}",
+            entered.fills
+        );
+    }
+}
+
+#[test]
+fn a_version_that_says_what_an_earlier_one_said_is_new_and_sent_and_no_repeat() {
+    let mut sim = reviewed();
+    let held = sim.version("plan");
+    // The plan changes and changes back; the review, whose session holds the first, is sent the third whole, though it
+    // says what the first said.
+    carry(&mut sim, &[("plan", "Greet by name, kindly.", None)]);
+    carry(&mut sim, &[("code", "fn greet() {}\n", None)]);
+    carry(
+        &mut sim,
+        &[("opinions", "Kinder.", None), ("verdict", "no", Some("no"))],
+    );
+    carry(&mut sim, &[("plan", "Greet by name.", None)]);
+    // The owner says the same twice while the build runs: each is given.
+    sim.writes("notes", "Keep it short.");
+    sim.writes("notes", "Keep it short.");
+    carry(&mut sim, &[("code", "fn greet(name: &str) {}\n", None)]);
+    let round = sim.round().expect("the review is entered again");
+    assert_eq!(round.cell.as_str(), "review");
+    let latest = sim.version("plan");
+    assert_eq!(sim.content("plan", Seq(latest)), sim.content("plan", Seq(held)));
+    let entered = sim.enter(&round, sim.begins(&round));
+    assert!(entered.fills.contains(&whole("plan", latest)), "{:?}", entered.fills);
+    let notes = sim.versions("notes");
+    assert_eq!(notes.len(), 2);
+    for version in notes {
+        assert!(
+            entered.fills.contains(&whole("notes", version.0)),
+            "{:?}",
+            entered.fills
+        );
+    }
 }
