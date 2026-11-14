@@ -263,7 +263,7 @@ pub fn environment(agents: &Agents, engine: impl IntoIterator<Item = (String, St
     env.sort();
     env.extend(ENVIRONMENT.map(|(name, value)| (name.to_string(), value.to_string())));
     if let Some(dir) = &agents.config_dir {
-        env.push(("CLAUDE_CONFIG_DIR".to_string(), dir.to_string_lossy().into_owned()));
+        env.push((crate::account::VARIABLE.to_string(), dir.to_string_lossy().into_owned()));
     }
     env
 }

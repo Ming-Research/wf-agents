@@ -19,6 +19,7 @@ mod page;
 mod sessions;
 mod stopped;
 mod stream;
+mod system;
 mod told;
 mod works;
 

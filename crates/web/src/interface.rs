@@ -48,6 +48,7 @@ pub fn router(handle: Handle, levels: Levels) -> Router {
         .route("/api/v1/works/{work}/calls/{call}", get(call))
         .route("/api/v1/works/{work}/acts", post(act))
         .route("/api/v1/attention", get(crate::attention::attention))
+        .route("/api/v1/system", get(crate::system::system))
         .route("/api/v1/engine", get(engine))
         .route("/api/v1/engine/acts", post(engine_act))
         .route("/api/v1/changes", get(changes))

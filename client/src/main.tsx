@@ -11,6 +11,7 @@ import './styles/chart.css';
 import './styles/graph.css';
 import './styles/works.css';
 import './styles/observations.css';
+import './styles/system.css';
 
 const root = document.getElementById('root');
 if (root) {

@@ -1305,7 +1305,7 @@ impl Maker {
 }
 
 impl Spent {
-    fn with(self, other: Spent) -> Spent {
+    pub(crate) fn with(self, other: Spent) -> Spent {
         Spent {
             usd_micros: self.usd_micros + other.usd_micros,
             input_tokens: self.input_tokens + other.input_tokens,
@@ -1660,7 +1660,7 @@ fn viewed(driver: &Driver, number: WorkNumber) -> Result<View, Broken> {
 }
 
 /// When the entry at this place was added. Every entry the engine's loop adds has its time.
-fn time(work: &Work, at: Seq) -> Result<u64, Broken> {
+pub(crate) fn time(work: &Work, at: Seq) -> Result<u64, Broken> {
     (work.time_of(at).map(|time| time.0)).ok_or_else(|| Broken(format!("the entry at {} has no time", at.0)))
 }
 
@@ -1770,7 +1770,7 @@ impl Unmet {
 }
 
 /// Every run of the work, in the order they started, each with its rounds, its calls and how it ended.
-fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
+pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
     let work = kept.work;
     let records = &work.records;
     let mut runs = Vec::new();

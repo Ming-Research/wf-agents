@@ -108,8 +108,9 @@ drawn line with an arrow.
 - **Sign** (`Sign`): a 12px line drawing in the accent, for what a word would crowd: people write, the outside writes,
   shown. Muted, they were too faint to find.
 - **Edge** (`Edge`): the dragged edge of a part, as the rule on widths says.
-- **Box** (`textarea`, `.select`): a hairline box on the card with 3px corners, as a button; a choice is a native
-  select, 24px, which starts unset ("Pick a value") wherever the owner's pick is what is sent.
+- **Box** (`textarea`, `.field`, `.select`): a hairline box on the card with 3px corners, as a button; a field is one
+  line of text, 24px, as a choice is; a choice is a native select, 24px, which starts unset ("Pick a value") wherever
+  the owner's pick is what is sent.
 - **Read failed** (`.read-failed`): one line in red on the red tint under the view's line, when a view could not be read
   again; what is shown stays, from before, and so does what the owner typed. On the flow page, when what an agent is
   sent could not be read, with why: the flow is shown without it, and a tool's panel says it in place of the tool's
@@ -117,6 +118,18 @@ drawn line with an arrow.
 - **Content** (`Opener`): a link, "Show content" or "Show result", that reads a content only when the owner opens it and
   shows it under the link as it is (`Unfold` is the same link for what is shown otherwise, as what a round was told): preformatted monospace on the ground, in a hairline frame, wrapping, scrolling past
   its height. A content is read once; it does not change.
+
+## The system and the settings
+
+- **Number standing alone** (`Tile`): a number, 15px semibold, with what it counts under it as a label, and what more it
+  says small and muted after it; no border, which would read as the frame of an agent's words. A number that counts a
+  list is in the link colour and unfolds the list under the numbers, its label in the link colour while it is open.
+- **Numbers** (`Tiles`): the numbers of a part side by side, wrapping.
+- **Table of a view** (`ViewTable`): the page's table across the view, its heads in labels, numbers at the right of
+  their cells, every cell on one line, cut at its edge and whole on the pointer's tip.
+- **A part's head** (`.view-sub`): a label over a part of a section.
+- **A fault of what is shown** (`.view-fault`): in red, first in the view, as when the settings' file does not read as
+  settings; unlike a read that failed, what is shown is as it is now.
 
 ## The works page
 
@@ -145,7 +158,9 @@ What the owner reviews every work by, so that it says plainly why a work is wher
   the answer comes; a refusal is said in red, as an alert, where the act was. What the work waits for, and what the
   owner writes to it, are in the console's item window, where they happen, and not repeated on the work's page.
 - **Live**: the list and a work are read again on each change the interface sends, and whenever its stream of changes
-  opens again, since changes may have been missed while it was lost; an answer older than the one shown is dropped.
+  opens again, since changes may have been missed while it was lost; a part reads again at most once at a time, and
+  once more after a read that changes came during. The whole page listens on one stream, and while it is lost the bar
+  says Offline.
 - **Tabs kept**: the flow, once shown, is kept as the owner left it while another tab is shown, and is not read again.
 - **The flow alone**: a server that gives only the flow (`wf-agents flow page`) has no items and no works, and the
   console and the works would show only a read that failed. The page asks once; where the address names no view it

@@ -1,0 +1,144 @@
+/* The system's and the settings' views (system/): a page of parts under the view's line, each a section of the panel's
+   (parts.css), its numbers standing alone, its tables of the page's, and the boxes the settings are typed in. Every
+   value is a token (tokens.css). */
+
+/* A view read top to bottom: the full width, scrolled when it is longer than the window. */
+.view-page {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-12) var(--space-16);
+  background: var(--card);
+}
+
+/* The head of a part of a section: a label over what it holds. */
+.view-sub {
+  margin: var(--space-12) 0 var(--space-4);
+}
+
+/* The numbers of a part, side by side: each a number that stands alone, with no border, what it counts under it. */
+.tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4) var(--space-16);
+  margin-bottom: var(--space-8);
+}
+
+.tile {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: var(--space-4) var(--space-8) var(--space-4) 0;
+  border: 0;
+  border-radius: var(--corner);
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+
+.tile-value {
+  font-size: var(--size-title);
+  font-weight: var(--weight-strong);
+}
+
+.tile-more {
+  font-weight: var(--weight);
+}
+
+/* A number that counts a list opens it: a link's colour, and the list shown marked as chosen. */
+.tile-opens {
+  cursor: pointer;
+  transition: background-color var(--hover-time);
+}
+
+.tile-opens:hover {
+  background: var(--step);
+}
+
+.tile-opens .tile-value {
+  color: var(--accent-text);
+}
+
+.tile-opens[aria-expanded='true'] .label {
+  color: var(--accent-text);
+}
+
+/* A table of the view: across the page, each cell on one line, cut at its edge, whole on the pointer's tip. */
+.view-table {
+  width: 100%;
+  margin-bottom: var(--space-8);
+  table-layout: auto;
+}
+
+.view-table td {
+  max-width: calc(var(--panel) / 2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.view-table .view-cell-wide {
+  max-width: var(--panel);
+}
+
+.view-table .num {
+  text-align: right;
+}
+
+/* Label and value pairs of a view, each pair kept together on its row of the grid. */
+.view-pairs {
+  margin-bottom: var(--space-12);
+}
+
+.view-pairs .pair {
+  display: contents;
+}
+
+/* A value as the file writes it, over lines where it is written so. */
+.value-written {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.file-table {
+  margin-bottom: var(--space-8);
+}
+
+/* What is wrong with what the view shows, said first, over it. */
+.view-fault {
+  margin-bottom: var(--space-12);
+}
+
+.warn-text {
+  color: var(--orange-text);
+}
+
+/* What was saved: in the green of what is done. */
+.said {
+  color: var(--green-text);
+}
+
+/* The account the file names. */
+.account-named {
+  background: var(--accent);
+}
+
+/* The question asked before the agents run under another account, beside the account. */
+.ask-line {
+  white-space: normal;
+}
+
+.account-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8);
+  margin: var(--space-8) 0;
+}
+
+.command {
+  padding: 0 var(--space-4);
+  border-radius: var(--corner);
+  background: var(--ground);
+  user-select: all;
+}
