@@ -3,16 +3,16 @@
 //! with every call: one of two kinds, a return that asks the engine for calls or one that does the cell's work (design
 //! document `data-and-context`, 30 and 31). A return is put into the form's shape where it is not in it but means it,
 //! as the old engine read one, and then read: what it dealt with, by the names of the cell's triggers, each worked out
-//! to the block it stands on (9); each block it writes in `outputs`, a choice with its value and its line of why kept
-//! as its content (50); the calls it asks for, each request of a tool one call; and what it says beside its work, its
-//! questions, observations and reply, which are kept with it, its questions becoming data of their own once its run
-//! finishes (32 to 36). What only its reading can see wrong with it against the cell is found as it is read and kept
-//! with it: a return of both kinds, a name in `dealt_with` that is none of the cell's triggers, a tool the cell may not
-//! ask for, a name in `meaning_unchanged` it does not write, a block it writes in `outputs` that the cell does not
-//! write there or in a shape it does not take, and a question that recommends none of its options, that has the name
-//! of a question the engine itself asks, or that the cell asks where no answer runs it. The run's check names these
-//! with everything else wrong with the return, in one send-back (crate `decide`, module `run`). Why what came back
-//! cannot be read at all is said in the words of `agents/return/sent_back.toml`.
+//! to the block it stands on, a group's trigger to its group's name (9); each block it writes in `outputs`, a choice
+//! with its value and its line of why kept as its content (50); the calls it asks for, each request of a tool one call;
+//! and what it says beside its work, its questions, observations and reply, which are kept with it, its questions
+//! becoming data of their own once its run finishes (32 to 36). What only its reading can see wrong with it against the
+//! cell is found as it is read and kept with it: a return of both kinds, a name in `dealt_with` that is none of the
+//! cell's triggers, a tool the cell may not ask for, a name in `meaning_unchanged` it does not write, a block it writes
+//! in `outputs` that the cell does not write there or in a shape it does not take, and a question that recommends none
+//! of its options, that has the name of a question the engine itself asks, or that the cell asks where no answer runs
+//! it. The run's check names these with everything else wrong with the return, in one send-back (crate `decide`, module
+//! `run`). Why what came back cannot be read at all is said in the words of `agents/return/sent_back.toml`.
 
 use decide::BlockId;
 use decide::run::Unmet;
@@ -192,7 +192,9 @@ pub fn came(structured: &Value, flow: &Compiled, cell: &CellSpec, words: &Agents
     // A return is of one kind, never both, whatever each holds.
     let both = r.calls.is_some() && r.outcome.is_some();
     if let Some(outcome) = r.outcome {
-        came.dealt_with = Some(dealt_with(&outcome.dealt_with, cell, &mut found));
+        let (dealt_with, none) = cell.dealt_with(&outcome.dealt_with);
+        found.extend(none.into_iter().map(|name| Unmet::NotATrigger { name }));
+        came.dealt_with = Some(dealt_with);
         came.writes = writes(&outcome, flow, cell, &mut found);
         for name in &outcome.meaning_unchanged {
             if !outcome.outputs.contains_key(name) {
@@ -218,8 +220,8 @@ pub fn came(structured: &Value, flow: &Compiled, cell: &CellSpec, words: &Agents
 /// recommends none of its options, or has none; one with the name of the question the engine itself asks; and, of a
 /// cell that no answer runs, every question, which no answer could bring back to it.
 fn questions(asked: &[Question], flow: &Compiled, cell: &CellSpec, words: &Agents, found: &mut Vec<Unmet>) {
-    let answered = (cell.triggers.iter())
-        .any(|t| flow.blocks.get(&t.block).and_then(|b| b.writers.outside.as_deref()) == Some(flow::ANSWER));
+    let answered = (cell.triggers.iter().flat_map(|t| t.blocks()))
+        .any(|b| flow.blocks.get(b).and_then(|b| b.writers.outside.as_deref()) == Some(flow::ANSWER));
     for question in asked {
         let name = || question.name().to_string();
         if question.name() == words.asks.protected.name {
@@ -239,24 +241,6 @@ fn questions(asked: &[Question], flow: &Compiled, cell: &CellSpec, words: &Agent
             found.push(Unmet::NotAnswerable { name: name() });
         }
     }
-}
-
-/// The blocks what the return dealt with stand on, each name a trigger of the cell, in the order it names them; a name
-/// that is none of them is found. A name written twice stands twice, which the run's check finds; two triggers of the
-/// cell that stand on one block, each named once, stand on it once.
-fn dealt_with(names: &[String], cell: &CellSpec, found: &mut Vec<Unmet>) -> Vec<BlockId> {
-    let mut blocks: Vec<BlockId> = Vec::new();
-    for (i, name) in names.iter().enumerate() {
-        let Some(trigger) = cell.triggers.iter().find(|t| &t.name == name) else {
-            found.push(Unmet::NotATrigger { name: name.clone() });
-            continue;
-        };
-        let again = names[..i].contains(name);
-        if again || !blocks.contains(&trigger.block) {
-            blocks.push(trigger.block.clone());
-        }
-    }
-    blocks
 }
 
 /// Each block the return writes, in the order the cell writes them, then any other in the order of its name: one the

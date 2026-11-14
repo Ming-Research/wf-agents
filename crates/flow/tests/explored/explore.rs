@@ -468,6 +468,7 @@ impl Explorer<'_> {
         let spec = &m.compiled.cells[i];
         let requires = Requires {
             outputs: &m.cells()[i].outputs,
+            groups: &m.cells()[i].groups,
             must_write: &spec.must_write,
             choices: &m.choices,
             returns: spec.returns,

@@ -730,7 +730,7 @@ impl Build<'_> {
         };
         // What the return dealt with is named by the cell's trigger that stands on the block, or on a group of it.
         let trigger = |block: &BlockId| {
-            let named = (self.cell.triggers.iter()).find(|t| &t.block == block || t.group.contains(block));
+            let named = (self.cell.triggers.iter()).find(|t| &t.block == block || t.blocks().contains(block));
             named.map_or_else(|| block.to_string(), |t| t.name.clone())
         };
         let block = |block: &BlockId| ("block", block.to_string());

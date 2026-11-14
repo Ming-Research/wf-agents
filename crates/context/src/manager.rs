@@ -211,10 +211,7 @@ pub fn enter(
     let ran_by = decide::told(&flow.flow, &records, run)
         .map(|t| t.ran_by)
         .unwrap_or_default();
-    situation.triggers = (cell.triggers.iter())
-        .filter(|t| ran_by.contains(&t.block) || t.group.iter().any(|b| ran_by.contains(b)))
-        .map(|t| t.name.clone())
-        .collect();
+    situation.triggers = cell.ran(&ran_by).map(|t| t.name.clone()).collect();
     // The results the run's rounds are given, and why what its earlier rounds returned was sent back, that the session
     // lacks; the round's own reasons are always sent.
     let mut results: Vec<CallId> = Vec::new();

@@ -32,7 +32,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::flow::BlockId;
+use crate::flow::{self, BlockId};
 use crate::records::{CallId, Seq, Write};
 
 /// What a run has done so far: its rounds, in order.
@@ -126,7 +126,8 @@ pub struct Round {
 /// What came back at the end of a round.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Return {
-    /// The return was read: what of what ran the round it dealt with, in the order it named them, the blocks it writes,
+    /// The return was read: what of what ran the round it dealt with, in the order it named them, each trigger by the
+    /// block it stands on or, of a group's trigger, by the group's name ([`flow::stands_on`]); the blocks it writes,
     /// and how many calls it asks for; what was found wrong with it as it was read, which only its reading could see;
     /// and whether a question it asks the owner waits for the answer.
     Came {
@@ -179,8 +180,9 @@ pub struct Call {
 /// records ([`crate::told`]).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Told {
-    /// What ran the round, which its return may name as dealt with: each block new to the cell as the run started, in
-    /// the order the cell names them, then each block put in to the round since that was not among them.
+    /// What ran the round: each block new to the cell as the run started, in the order the cell names them, then each
+    /// block put in to the round since that was not among them. Its return may name as dealt with each trigger of the
+    /// cell that stands on one of them ([`flow::ran`]).
     pub ran_by: Vec<BlockId>,
     /// Of each block the cell may write, the version the round was told of and the latest.
     pub outputs: BTreeMap<BlockId, Standing>,
@@ -208,6 +210,9 @@ pub struct Standing {
 pub struct Requires<'a> {
     /// The blocks the cell may write.
     pub outputs: &'a [BlockId],
+    /// The cell's triggers that stand on a group of blocks, by the group's name, with the group's blocks
+    /// ([`crate::Cell::groups`]).
+    pub groups: &'a BTreeMap<BlockId, Vec<BlockId>>,
     /// The blocks among those that every return that asks for no call includes, but one with a question that waits
     /// for the owner's answer, or one of a round whose cell still waits for the results of calls
     /// ([`Told::waits_for_calls`]).
@@ -239,7 +244,7 @@ pub enum Step {
     /// What came back does not meet what the flow requires: it is sent back, the next round being given why.
     SendBack { unmet: Vec<Unmet> },
     /// What came back meets everything the flow requires: the calls it asks for are made, and the run finishes,
-    /// having dealt with these and writing these blocks.
+    /// having dealt with these blocks, each once, of what ran its round, and writing these blocks.
     Finish {
         dealt_with: Vec<BlockId>,
         writes: Vec<Write>,
@@ -280,9 +285,10 @@ pub enum Unmet {
     NotHandedIn { block: BlockId },
     /// What came back could not be read as a return, for this reason, as whatever carried the round out says.
     Unreadable { why: String },
-    /// The return names the block as dealt with, and it is not among what ran the round.
+    /// The return names the trigger that stands on the block, or on the group of this name, as dealt with, and it did
+    /// not run the round: neither the block nor any of the group's is among what ran it.
     NotRunBy { block: BlockId },
-    /// The return names the block as dealt with twice.
+    /// The return names the trigger that stands on the block, or on the group of this name, as dealt with twice.
     DealtWithTwice { block: BlockId },
     /// Something ran the round, and the return deals with none of it, asks for no call and has no question that waits
     /// for the owner's answer: the cell would be entered again at once for the same.
@@ -326,6 +332,21 @@ pub enum Hold {
     Retry,
     /// Every round: the work is paused, and the run did not start for a note a person wrote.
     Rounds,
+}
+
+/// The blocks a return that is taken deals with: of each trigger it names, in its order, the blocks it stands on that
+/// ran the round, each once. A group's trigger is dealt with for each of its blocks that ran the round, and so each of
+/// their versions the round was told of is consumed.
+fn consumed(dealt_with: &[BlockId], requires: Requires) -> Vec<BlockId> {
+    let mut blocks: Vec<BlockId> = Vec::new();
+    for named in dealt_with {
+        for block in flow::ran(flow::stands_on(requires.groups, named), &requires.told.ran_by) {
+            if !blocks.contains(block) {
+                blocks.push(block.clone());
+            }
+        }
+    }
+    blocks
 }
 
 /// What the run does next. Where the run would have a round that the pause of its work holds back, it is held.
@@ -387,7 +408,7 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
             let unmet = unmet(dealt_with, writes, *calls, found, *waits, questions, requires);
             if unmet.is_empty() {
                 return Step::Finish {
-                    dealt_with: dealt_with.clone(),
+                    dealt_with: consumed(dealt_with, requires),
                     writes: writes.clone(),
                 };
             }
@@ -479,11 +500,14 @@ fn unmet(
 ) -> Vec<Unmet> {
     let told = requires.told;
     let mut unmet = found.to_vec();
-    for (i, block) in dealt_with.iter().enumerate() {
-        if dealt_with[..i].contains(block) {
-            unmet.push(Unmet::DealtWithTwice { block: block.clone() });
-        } else if !told.ran_by.contains(block) {
-            unmet.push(Unmet::NotRunBy { block: block.clone() });
+    for (i, named) in dealt_with.iter().enumerate() {
+        if dealt_with[..i].contains(named) {
+            unmet.push(Unmet::DealtWithTwice { block: named.clone() });
+        } else if flow::ran(flow::stands_on(requires.groups, named), &told.ran_by)
+            .next()
+            .is_none()
+        {
+            unmet.push(Unmet::NotRunBy { block: named.clone() });
         }
     }
     for (i, write) in writes.iter().enumerate() {
