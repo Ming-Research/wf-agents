@@ -47,16 +47,20 @@ function click(element: Element | null | undefined) {
 const headNames = (page: HTMLElement) =>
   [...page.querySelectorAll('thead .cell-head .head-button')].map((b) => b.getAttribute('aria-label'));
 
-/// Whether a row of the chart stands for a trigger.
-const isTrigger = (tr: Element) => tr.querySelector('.block-head .tool-label')?.textContent === 'trigger';
-
-/// The rows of the triggers, or of the data, by their names.
-const rows = (page: HTMLElement, triggers: boolean) =>
-  [...page.querySelectorAll('tbody tr')].filter((tr) => tr.querySelector('.block-name') && isTrigger(tr) === triggers);
+/// The rows of the triggers, in their band, or of the data, under the bands.
+const rows = (page: HTMLElement, triggers: boolean) => [
+  ...page.querySelectorAll(triggers ? 'tbody.triggers tr' : 'tbody:not(.band) tr'),
+];
 
 /// The row of a datum, or of a trigger, of this name.
 const rowOf = (page: HTMLElement, name: string, trigger = false) =>
   rows(page, trigger).find((tr) => tr.querySelector('.block-name')?.textContent === name) as HTMLElement;
+
+/// The row of a band over the blocks, by its kind (`line-row`, `condition-row`) and its name.
+const bandRow = (page: HTMLElement, kind: string, name: string) =>
+  [...page.querySelectorAll(`tbody.band tr.${kind}`)].find(
+    (tr) => tr.querySelector('.block-name')?.textContent === name,
+  ) as HTMLElement;
 
 describe('the chart', () => {
   it('shows the triggers’ rows over the data’s, the cells across in the order of the walk, and what each cell does with each', () => {
@@ -98,21 +102,12 @@ describe('the chart', () => {
       'design context plan',
       'answer context plan',
     ]);
-    expect(texts(rowOf(page, 'needs_design'), '.spot .visually-hidden')).toEqual([
-      'judge outputs needs_design',
-      'design when needs_design',
-    ]);
+    // What its condition reads is on the condition's own row.
+    expect(texts(rowOf(page, 'needs_design'), '.spot .visually-hidden')).toEqual(['judge outputs needs_design']);
     expect(rowOf(page, 'needs_design').querySelector('.block-values')?.textContent).toBe('yes|no');
-    // A head holds the id and the line alone; the rest is what its button is called, by the cell's keys.
-    expect(texts(page, 'thead .cell-head .head-button')).toEqual([
-      'planengineer',
-      'judgereview',
-      'designengineer',
-      'answerengineer',
-      'checkengine',
-      'mergeengine',
-    ]);
-    expect(headNames(page)[2]).toBe('design Design, engineer, when needs_design is yes');
+    // A head holds the id alone; its title, line, when and requires are what its button is called, by their keys.
+    expect(texts(page, 'thead .cell-head .head-button')).toEqual(['plan', 'judge', 'design', 'answer', 'check', 'merge']);
+    expect(headNames(page)[2]).toBe('design Design, engineer, when needs_design = yes');
     expect(headNames(page)[3]).toBe('answer Answer comments, engineer, when has_comment, requires [plan_confirmed]');
     // The one way back: judge writes the opinions whose trigger runs plan, and the arrow is at plan's mark.
     expect(page.querySelector('.legend')?.textContent).toContain('way back (1)');
@@ -121,15 +116,70 @@ describe('the chart', () => {
     expect(arrows[0].closest('td')?.textContent).toBe('plan triggered_by opinions');
   });
 
-  it('marks on a datum’s row each block a named test reads, by the condition’s mark or by a precondition’s', () => {
+  it('draws each condition once, on its own row over the blocks: a block a when reads, or a named test', () => {
     const page = draw({ state: 'compiled', flow: small() });
-    expect(texts(rowOf(page, 'commented'), '.spot .visually-hidden')).toEqual(['answer when commented']);
-    expect(texts(rowOf(page, 'confirmed'), '.spot .visually-hidden')).toEqual(['answer requires confirmed']);
-    expect(texts(rowOf(page, 'ci'), '.spot .visually-hidden')).toEqual(['check outputs ci', 'merge requires ci']);
+    expect(texts(page, 'tbody.band .condition-row .block-name')).toEqual([
+      'needs_design',
+      'has_comment',
+      'plan_confirmed',
+      'may_merge',
+    ]);
+    expect(texts(bandRow(page, 'condition-row', 'needs_design'), '.spot .visually-hidden')).toEqual([
+      'design when needs_design = yes',
+    ]);
+    expect(texts(bandRow(page, 'condition-row', 'has_comment'), '.spot .visually-hidden')).toEqual([
+      'answer when has_comment',
+    ]);
+    expect(texts(bandRow(page, 'condition-row', 'may_merge'), '.spot .visually-hidden')).toEqual([
+      'merge requires may_merge',
+    ]);
+    // What a test says is in the column of words, whether a cell's when names it or its requires.
+    expect(bandRow(page, 'condition-row', 'has_comment').querySelector('.words')?.textContent).toBe(
+      'The item has a comment',
+    );
+    expect(bandRow(page, 'condition-row', 'plan_confirmed').querySelector('.words')?.textContent).toBe(
+      'The owner confirmed the plan',
+    );
+    // Nothing of the conditions stays on the blocks' rows.
+    expect(texts(rowOf(page, 'commented'), '.spot .visually-hidden')).toEqual([]);
+    expect(texts(rowOf(page, 'ci'), '.spot .visually-hidden')).toEqual(['check outputs ci']);
     expect(texts(rowOf(page, 'ci', true), '.spot .visually-hidden')).toEqual(['check outputs ci', 'merge triggered_by ci']);
-    expect(rowOf(page, 'confirmed').querySelectorAll('.part.precondition')).toHaveLength(1);
-    expect(rowOf(page, 'commented').querySelectorAll('.part.condition')).toHaveLength(1);
-    expect(page.querySelector('.legend')?.textContent).toContain('requires');
+    expect(page.querySelectorAll('tbody:not(.band) .part.condition, tbody:not(.band) .part.precondition')).toHaveLength(0);
+    expect(bandRow(page, 'condition-row', 'may_merge').querySelectorAll('.part.precondition')).toHaveLength(1);
+    expect(bandRow(page, 'condition-row', 'needs_design').querySelectorAll('.part.holds')).toHaveLength(1);
+    expect(page.querySelector('.legend')?.textContent).toContain('when no');
+  });
+
+  it('marks a when on a block by a tick for yes, a cross for no and the value itself for another', () => {
+    const flow = flowOf(
+      [
+        cell('a', { outputs: ['x'] }),
+        cell('b', { condition: { on: 'block', block: 'x', value: 'yes' } }),
+        cell('c', { condition: { on: 'block', block: 'x', value: 'no' } }),
+        cell('d', { condition: { on: 'block', block: 'x', value: 'maybe' } }),
+        cell('e', { kind: 'engine', line: null, act: 'merge', task: null }),
+      ],
+      { x: { values: ['yes', 'no', 'maybe'], default: 'no' } },
+    );
+    const page = draw({ state: 'compiled', flow });
+    const x = bandRow(page, 'condition-row', 'x');
+    const spots = [...x.querySelectorAll('td.spot')];
+    expect(spots[1].querySelector('.part.holds')?.getAttribute('d')).toBe('M5.5 12.5 L10 17 L18.5 7');
+    expect(spots[2].querySelector('.part.holds')?.getAttribute('d')).toBe('M7 7 L17 17 M17 7 L7 17');
+    expect(spots[3].querySelector('.spot-value')?.textContent).toBe('maybe');
+    // What a block counts as before it is written is in the column of words, by its key.
+    expect(x.querySelector('.words')?.textContent).toBe('default no');
+    click(page.querySelectorAll('thead .cell-head .head-button')[2]);
+    expect(x.querySelector('.words')?.textContent).toBe('when x = no');
+  });
+
+  it('opens a named test’s panel, with its file and its keys as written, from its row', () => {
+    const page = draw({ state: 'compiled', flow: small() });
+    click(bandRow(page, 'condition-row', 'has_comment').querySelector('.head-button'));
+    const panel = page.querySelector('aside[aria-label="Test has_comment"]') as HTMLElement;
+    expect(panel.querySelector('.drawer-belongs')?.textContent).toBe('tests/has_comment.toml');
+    expect(texts(panel, '.status-line')).toEqual(['saysThe item has a comment', 'kind any', 'reads [commented]', 'is yes']);
+    expect(texts(panel, '.panel-part-label')).toEqual(['when 1']);
   });
 
   it('signs the source outside that writes a block on its row, and says it in its panel by its key', () => {
@@ -227,18 +277,19 @@ describe('the column of words', () => {
   it('says what each block is, and of the cell chosen what its file says of each block it has to do with', () => {
     const page = draw({ state: 'compiled', flow: flow() });
     expect(words(page)).toEqual({ x: 'The plan.', y: '', said: 'What was said of it.' });
-    expect(page.querySelector('.words-label')?.textContent).toBe('What each block is');
+    expect(page.querySelector('.words-label')?.textContent).toBe('What each row is');
     expect(page.querySelector('.words-about')?.textContent).toBe('');
 
     const heads = page.querySelectorAll('thead .cell-head .head-button');
     click(heads[1]);
     expect(words(page)).toEqual({
       x: 'triggered_by x; context latest: It is what to judge.',
-      y: 'when y is yes',
+      // Its when is said on the condition's row, once.
+      y: '',
       said: 'triggered_by said; context; outputs: What was said of it.',
     });
-    expect(page.querySelector('.words-label')?.textContent).toBe('What b says of each block');
-    expect(page.querySelector('.words-about')?.textContent).toBe('b Second · engineer · when y is yes');
+    expect(page.querySelector('.words-label')?.textContent).toBe('What b says of each row');
+    expect(page.querySelector('.words-about')?.textContent).toBe('b Second · engineer · when y = yes');
 
     click(heads[0]);
     expect(words(page)).toEqual({ x: 'must_write: The plan.', y: 'outputs', said: 'What was said of it.' });
@@ -264,9 +315,9 @@ describe('the column of words', () => {
     point(heads[0]);
     expect(page.querySelector('.words-about')?.textContent).toBe('a First · engineer');
     // The rows still say what the chosen cell says.
-    expect(page.querySelector('.words-label')?.textContent).toBe('What b says of each block');
+    expect(page.querySelector('.words-label')?.textContent).toBe('What b says of each row');
     point(page.querySelector('.words-head'));
-    expect(page.querySelector('.words-about')?.textContent).toBe('b Second · engineer · when y is yes');
+    expect(page.querySelector('.words-about')?.textContent).toBe('b Second · engineer · when y = yes');
   });
 });
 
@@ -348,7 +399,7 @@ describe('the panel and the widths', () => {
     expect(drawer.querySelector('.drawer-inner')?.hasAttribute('hidden')).toBe(true);
     expect(page.querySelector('.view-body')?.className).toContain('panel-folded');
     click(drawer.querySelector('.drawer-tab'));
-    expect(drawer.textContent).toContain("Choose a cell's head or a block's name");
+    expect(drawer.textContent).toContain("Choose a cell's head or a row's name");
     expect(page.querySelector('.view-body')?.className).not.toContain('panel-folded');
   });
 
@@ -368,19 +419,42 @@ describe('the panel and the widths', () => {
     expect(texts(page, '.corner .label')).toEqual(['Blocks ↓', 'Cells →']);
   });
 
-  it('marks the lines’ names, not the engine', () => {
+  it('has a row for each line at the top, its name in the accent, a dot under each cell on it, joined along it', () => {
     const page = draw({ state: 'compiled', flow: small() });
-    const lines = [...page.querySelectorAll('thead .cell-line')].map((e) => [
-      e.textContent,
-      e.classList.contains('line-name'),
+    expect(texts(page, 'tbody.band .line-row .block-name.line-name')).toEqual(['engineer', 'review']);
+    const engineer = bandRow(page, 'line-row', 'engineer');
+    expect(texts(engineer, '.spot .visually-hidden')).toEqual([
+      'plan line engineer',
+      'design line engineer',
+      'answer line engineer',
     ]);
-    expect(lines).toEqual([
-      ['engineer', true],
-      ['review', true],
-      ['engineer', true],
-      ['engineer', true],
-      ['engine', false],
-      ['engine', false],
-    ]);
+    expect(engineer.querySelectorAll('.part.on-line')).toHaveLength(3);
+    // Joined from plan to answer, across judge's column.
+    expect(engineer.querySelectorAll('.seg.line')).toHaveLength(6);
+    click(engineer.querySelector('.head-button'));
+    const panel = page.querySelector('aside[aria-label="Line engineer"]') as HTMLElement;
+    expect(panel.querySelector('.drawer-belongs')?.textContent).toBe('lines/engineer.toml');
+    expect(texts(panel, '.uses li')).toEqual(['planPlan', 'designDesign', 'answerAnswer comments']);
+  });
+
+  it('says a line’s keys as its file writes them, on its row and in its panel', () => {
+    const flow = flowOf(
+      [cell('a', { line: 'reviewer' }), cell('b', { line: 'engineer' })],
+      {},
+      'small',
+      { reviewer: { levelsAbove: 1, readsOnly: true, rules: ['general', 'engineering'] } },
+    );
+    const page = draw({ state: 'compiled', flow });
+    const reviewer = bandRow(page, 'line-row', 'reviewer');
+    expect(reviewer.querySelector('.words')?.textContent).toBe(
+      'levels_above 1, reads_only true, rules [general, engineering]',
+    );
+    // A key the file leaves out is not said.
+    expect(bandRow(page, 'line-row', 'engineer').querySelector('.words')?.textContent).toBe('');
+    click(page.querySelectorAll('thead .cell-head .head-button')[0]);
+    expect(reviewer.querySelector('.words')?.textContent).toBe('line');
+    click(reviewer.querySelector('.head-button'));
+    const panel = page.querySelector('aside[aria-label="Line reviewer"]') as HTMLElement;
+    expect(texts(panel, '.status-line')).toEqual(['levels_above 1', 'reads_only true', 'rules [general, engineering]']);
   });
 });

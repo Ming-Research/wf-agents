@@ -1,7 +1,7 @@
 // What the page's tests and the works page's fixtures build definitions from: cells written in short, and the flow they make as the interface would
 // give it, with who writes and reads each block worked out as the compiler does.
 
-import type { Block, Cell, Flow, Input, Limits, Test, TestKind } from './api';
+import type { Block, Cell, Flow, Input, Limits, Line, Test, TestKind } from './api';
 
 const LIMITS: Limits = { runs: 3, returns: 2, calls: 40 };
 
@@ -48,17 +48,31 @@ export function cell(id: string, fields: Partial<Cell> = {}): Cell {
   };
 }
 
-/// A named test of these blocks.
+/// A named test of these blocks, in a file of its own.
 export function test(name: string, words: string, kind: TestKind, reads: string[], is = 'yes'): Test {
-  return { name, words, kind, reads, is };
+  return { name, words, file: `tests/${name}.toml`, kind, reads, is };
 }
 
 /// What a block is besides who of the cells and the tests writes and reads it; `outside` names the source outside
 /// the work that writes it.
-export type Declared = Partial<{ values: string[]; people: boolean; note: boolean; outside: string; shown: boolean; what: string }>;
+export type Declared = Partial<{
+  values: string[];
+  default: string;
+  people: boolean;
+  note: boolean;
+  outside: string;
+  shown: boolean;
+  what: string;
+}>;
 
-/// The flow of these cells in this order, with these blocks, and the named tests the cells use.
-export function flowOf(cells: Cell[], blocks: Record<string, Declared>, name = 'small'): Flow {
+/// The flow of these cells in this order, with these blocks, and the named tests the cells use; each line in a file of
+/// its own, with what `lines` writes of it.
+export function flowOf(
+  cells: Cell[],
+  blocks: Record<string, Declared>,
+  name = 'small',
+  lines: Record<string, Partial<Line>> = {},
+): Flow {
   const used = cells.flatMap((c) => [...(c.condition?.on === 'test' ? [c.condition.test] : []), ...c.preconditions]);
   const tests = [...new Map(used.map((t) => [t.name, t])).values()].sort((a, b) => (a.name < b.name ? -1 : 1));
   const all: Block[] = Object.keys(blocks)
@@ -66,6 +80,7 @@ export function flowOf(cells: Cell[], blocks: Record<string, Declared>, name = '
     .map((b) => ({
       name: b,
       values: blocks[b].values ?? null,
+      default: blocks[b].default ?? null,
       what: blocks[b].what ?? null,
       writtenBy: {
         cells: cells.filter((c) => c.outputs.includes(b)).map((c) => c.id),
@@ -80,12 +95,19 @@ export function flowOf(cells: Cell[], blocks: Record<string, Declared>, name = '
         shown: blocks[b].shown ?? false,
       },
     }));
-  const lines = [...new Set(cells.flatMap((c) => (c.line ? [c.line] : [])))].sort().map((l) => ({
-    name: l,
-    cells: cells.filter((c) => c.line === l).map((c) => c.id),
-    levelsAbove: 0,
-  }));
-  return { name, limits: LIMITS, lines, tests, cells, blocks: all };
+  const declared = [...new Set(cells.flatMap((c) => (c.line ? [c.line] : [])))].sort().map(
+    (l): Line => ({
+      name: l,
+      cells: cells.filter((c) => c.line === l).map((c) => c.id),
+      levelsAbove: 0,
+      file: `lines/${l}.toml`,
+      readsOnly: false,
+      system: [],
+      rules: [],
+      ...lines[l],
+    }),
+  );
+  return { name, limits: LIMITS, lines: declared, tests, cells, blocks: all };
 }
 
 /// The small flow of `crates/web/tests/flows/small`: a plan a review can send back, a design when the review asks for

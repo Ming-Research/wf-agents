@@ -1,7 +1,7 @@
 // How the page writes what the interface gives as data: conditions, named tests and limits by their keys and values as
 // the flow's files write them (principle definitions-shown-as-written), and faults in a sentence each.
 
-import type { Block, Cell, Condition, Fault, Flow, InputKind, Test } from './api';
+import type { Block, Cell, Condition, Fault, Flow, InputKind, Line, Test } from './api';
 
 /// A name or a value as the files write it: a key of the interface in the files' own spelling.
 export function snake(name: string): string {
@@ -18,16 +18,32 @@ export function readsWords(test: Test): string {
   return `kind ${snake(test.kind)}, reads ${listed(test.reads)}, is ${test.is}`;
 }
 
+/// A line's keys as its file writes them, each with its value, in the order the files write them. A key it leaves out
+/// has no value of its own (`false`, `0`, none), and is not said.
+export function lineKeys(line: Line): [string, string][] {
+  const keys: [string, string][] = [];
+  if (line.levelsAbove !== 0) keys.push(['levels_above', `${line.levelsAbove}`]);
+  if (line.readsOnly) keys.push(['reads_only', 'true']);
+  if (line.system.length > 0) keys.push(['system', listed(line.system)]);
+  if (line.rules.length > 0) keys.push(['rules', listed(line.rules)]);
+  return keys;
+}
+
+/// Keys and their values on one line, as a row of the chart says a thing: `levels_above 1, reads_only true`.
+export function keysWords(keys: [string, string][]): string {
+  return keys.map(([key, value]) => `${key} ${value}`).join(', ');
+}
+
 /// A named test, wherever a cell's condition or precondition names it: by its name.
 export function testWords(test: Test): string {
   return test.name;
 }
 
-/// A condition as the cell's file writes it: the block and the value it waits for, or the named test; nothing where
-/// the cell has none.
+/// A condition as the cell's file writes it: the block and the value it waits for (`deep_needed = no`), or the named
+/// test; nothing where the cell has none.
 export function conditionWords(condition: Condition | null): string {
   if (!condition) return '';
-  return condition.on === 'block' ? `${condition.block} is ${condition.value}` : testWords(condition.test);
+  return condition.on === 'block' ? `${condition.block} = ${condition.value}` : testWords(condition.test);
 }
 
 /// Who writes a block besides cells, by the block's own keys: `people`, `note`, `outside` with its source.
@@ -213,8 +229,8 @@ export function thereWhen(flow: Flow, reader: string, block: Block): string {
 }
 
 /// What a cell's file says of a block, on one line, for the chart's column of words, each by its key: the `triggers`
-/// that stand on it; `context`, its kind and its `why`; `outputs` or `must_write`; `when`; `requires`. Empty where the cell has
-/// nothing to do with the block.
+/// that stand on it; `context`, its kind and its `why`; `outputs` or `must_write`. Empty where the cell has nothing to
+/// do with the block. Its `when` and its `requires` are said on the rows of the conditions, once.
 export function cellSays(cell: Cell, block: string): string {
   const parts: string[] = [];
   const input = cell.input[block];
@@ -228,16 +244,6 @@ export function cellSays(cell: Cell, block: string): string {
   }
   if (cell.outputs.includes(block)) {
     parts.push(cell.mustWrite.includes(block) ? 'must_write' : 'outputs');
-  }
-  const condition = cell.condition;
-  if (
-    condition !== null &&
-    (condition.on === 'block' ? condition.block === block : condition.test.reads.includes(block))
-  ) {
-    parts.push(`when ${conditionWords(condition)}`);
-  }
-  for (const test of cell.preconditions) {
-    if (test.reads.includes(block)) parts.push(`requires ${testWords(test)}`);
   }
   return parts.join('; ');
 }

@@ -131,12 +131,12 @@ tr.row.chosen > .block-head {
 }
 
 /* A cell's head. In the history of a work: its id, its title and how it stands. On the flow's chart, further down:
-   its id and the first word of its line. */
+   its id alone. */
 .cell-head {
   border-left: var(--hairline) solid var(--line);
 }
 
-/* A line's name stands out, so that the cells that share a session are seen at a glance; "engine" stays muted. */
+/* A line's name stands out wherever it stands, so that the cells that share a session are seen at a glance. */
 .line-name {
   color: var(--accent-text);
 }
@@ -159,14 +159,8 @@ tr.row.chosen > .block-head {
   overflow-wrap: break-word;
 }
 
-.cell-line {
-  color: var(--muted);
-  font-size: var(--size-label);
-  overflow-wrap: break-word;
-}
-
-/* The flow's chart. A cell's column is as wide as its marks, so its head holds the id and, under it, the first word of
-   its line, both in the middle. The corner's two labels stand on one line. */
+/* The flow's chart. A cell's column is as wide as its marks, so its head holds the id alone, in the middle. The
+   corner's two labels stand on one line. */
 .flow thead th {
   vertical-align: middle;
 }
@@ -177,8 +171,7 @@ tr.row.chosen > .block-head {
   padding: var(--space-4) var(--space-2);
 }
 
-.flow .cell-id,
-.flow .cell-line {
+.flow .cell-id {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -258,28 +251,29 @@ tr.row.chosen > .block-head {
   white-space: nowrap;
 }
 
-/* The rows of the tools of the engine's, over the blocks: a tool's name muted, so that it is not read as a block's, and
-   a firmer line under the last of them. */
+/* The bands of rows over the blocks, the lines', the conditions' and the triggers', each with a firmer line under its
+   last row, and what each row is after its name, muted: line, test, block, trigger. */
+.row-label {
+  margin-left: var(--space-4);
+  color: var(--muted);
+  font-size: var(--size-small);
+}
+
+.matrix tbody.band tr:last-child > * {
+  border-bottom-color: var(--muted);
+}
+
+/* The rows of the tools of the engine's, over the blocks: a tool's name muted, so that it is not read as a block's. */
 .tool-head {
   height: var(--row);
   padding: 0 var(--space-8);
   white-space: nowrap;
 }
 
-.tool-name,
-.tool-label {
+.tool-name {
   color: var(--muted);
   font-family: var(--mono);
   font-size: var(--size-small);
-}
-
-.tool-label {
-  margin-left: var(--space-4);
-  font-family: inherit;
-}
-
-.matrix tbody.tools tr:last-child > * {
-  border-bottom-color: var(--muted);
 }
 
 .part.tool {
@@ -400,6 +394,24 @@ tr.row.chosen > .block-head {
 .part.condition,
 .part.precondition {
   stroke-width: 1.5;
+}
+
+/* The tick of a cell that runs when a test holds or a block is yes, and the cross of one that runs when it is no. */
+.part.holds {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The value a cell's condition waits for, where it is neither yes nor no. */
+.spot-value {
+  font-family: var(--mono);
+  font-size: var(--size-small);
+}
+
+/* The dot of a cell on a line, in the accent as the lines' names are. */
+.part.on-line {
+  fill: var(--accent);
+  stroke: none;
 }
 
 /* The legend, in the view's line. */

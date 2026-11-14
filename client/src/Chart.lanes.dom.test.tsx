@@ -45,9 +45,9 @@ function drawn(flow: Flow): HTMLElement {
   return container;
 }
 
-/// What each crossing of the one row draws: its segments and its arrow, by their classes.
+/// What each crossing of the one trigger's row draws: its segments and its arrow, by their classes.
 const crossings = (page: HTMLElement) =>
-  [...page.querySelectorAll('tbody tr td.spot')].map((spot) =>
+  [...page.querySelectorAll('tbody.triggers tr td.spot')].map((spot) =>
     [...spot.querySelectorAll('.seg, .arrow')].map((part) => part.className.trim().replace(/\s+/g, ' ')),
   );
 

@@ -6,7 +6,7 @@ import { conditionWords, faultWords, readsWords, writersBesideCells } from './wo
 
 describe('the words of the page', () => {
   it('say a condition by its block and value, or by its test’s name, as the cell’s file writes it', () => {
-    expect(conditionWords({ on: 'block', block: 'needs_design', value: 'yes' })).toBe('needs_design is yes');
+    expect(conditionWords({ on: 'block', block: 'needs_design', value: 'yes' })).toBe('needs_design = yes');
     expect(
       conditionWords({ on: 'test', test: test('has_comment', 'The item has a comment', 'any', ['commented']) }),
     ).toBe('has_comment');
@@ -26,6 +26,7 @@ describe('the words of the page', () => {
     const block = {
       name: 'main',
       values: null,
+      default: null,
       what: null,
       writtenBy: { cells: [], people: true, note: false, outside: 'main' },
       readBy: { cells: [], conditions: [], tests: [], shown: false },
@@ -37,6 +38,7 @@ describe('the words of the page', () => {
     const block = {
       name: 'opinions',
       values: null,
+      default: null,
       what: null,
       writtenBy: { cells: [], people: true, note: true, outside: null },
       readBy: { cells: ['plan'], conditions: [], tests: [], shown: false },

@@ -1,8 +1,9 @@
 // The chart as a matrix: the blocks as rows, the cells as columns in the order of the walk, and at each crossing what
-// the cell does with the block. Everything the chart draws is worked out here, from the interface's JSON alone, so
-// that it can be tested without drawing: the order of the rows, the marks and the ways back.
+// the cell does with the block; over the blocks, a row for each line the cells run in and for each condition they
+// name. Everything the chart draws is worked out here, from the interface's JSON alone, so that it can be tested
+// without drawing: the order of the rows, the marks and the ways back.
 
-import type { Block, Cell, Flow, InputKind } from './api';
+import type { Block, Cell, Flow, InputKind, Line, Test } from './api';
 
 /// What a cell does with a block: a new version of it runs the cell, the cell is given it, may write it as an output,
 /// reads its value in its condition (directly, or by the named test that is its condition), or reads its value in a
@@ -119,6 +120,44 @@ export interface Spot {
   backTo: boolean;
 }
 
+/// Where a line's row crosses a cell's column: whether the cell is on the line, and the row's line through it.
+export interface LineSpot {
+  on: boolean;
+  /// The row's line, from the first cell on the line to the last: one session going on.
+  line: Segment;
+}
+
+/// A row of a line: the cells of an agent's that share one session.
+export interface LineRow {
+  name: string;
+  /// The line as the flow declares it.
+  line: Line | undefined;
+  /// By cell, in the order of the columns.
+  spots: LineSpot[];
+}
+
+/// Where a condition's row crosses a cell's column: whether the condition is the cell's `when`, so that the cell runs
+/// only when it holds and is skipped otherwise, and whether it is among the cell's `requires`, so that the work waits
+/// before the cell until it holds.
+export interface ConditionSpot {
+  when: boolean;
+  /// Of a block's row, the value the cell's `when` waits for.
+  value?: string;
+  requires: boolean;
+}
+
+/// A row of a condition the cells name: a named test, or a block whose value a cell's `when` reads.
+export interface ConditionRow {
+  /// The test's name, or the block's.
+  name: string;
+  /// Of a named test's row, the test as the flow declares it.
+  test?: Test;
+  /// Of a block's row, the block.
+  block?: string;
+  /// By cell, in the order of the columns.
+  spots: ConditionSpot[];
+}
+
 /// Where a tool's row crosses a cell's column: whether the cell may ask for the tool.
 export interface ToolSpot {
   asks: boolean;
@@ -143,6 +182,10 @@ export interface Matrix {
   cells: Cell[];
   /// By block, then by cell.
   spots: Spot[][];
+  /// The rows of the lines the agents' cells name, at the top, each where its first cell stands.
+  lines: LineRow[];
+  /// The rows of the conditions the cells name, under the lines', each where the first cell that names it stands.
+  conditions: ConditionRow[];
   /// The rows of the tools that a cell may ask for, over the blocks' rows.
   tools: ToolRow[];
   /// How many ways back the flow has: pairs of a cell a trigger runs and a later cell's write of the block the trigger
@@ -180,7 +223,8 @@ export function matrix(flow: Flow): Matrix {
   ];
 
   // Of a trigger's row: whether the cell runs on the trigger, and whether it writes the block the trigger stands on.
-  // Of a datum's row: whether the cell is given it and in which kind, writes it, or reads its value in a condition.
+  // Of a datum's row: whether the cell is given it and in which kind, or writes it. What a cell's condition reads is
+  // drawn once, on the condition's own row.
   const markIn = (cell: Cell, r: BlockRow): Mark => {
     if (r.trigger !== undefined) {
       return {
@@ -193,6 +237,8 @@ export function matrix(flow: Flow): Matrix {
     return {
       ...mark,
       runs: false,
+      condition: false,
+      precondition: false,
       kind: mark.given ? (cell.input[r.on]?.given?.kind ?? null) : null,
     };
   };
@@ -229,24 +275,84 @@ export function matrix(flow: Flow): Matrix {
     }
   });
 
-  const named = [...new Set(cells.flatMap((c) => c.tools))];
+  // The lines, each where the first cell on it stands, one session going on along its row from that cell to the last.
+  const lineNames = [...new Set(cells.flatMap((c) => (c.kind === 'agent' && c.line ? [c.line] : [])))];
+  const lines: LineRow[] = lineNames.map((name) => {
+    const on = cells.map((c) => c.kind === 'agent' && c.line === name);
+    const marked = on.flatMap((has, c) => (has ? [c] : []));
+    const line = span(cells.length, marked[0], marked[marked.length - 1]);
+    return {
+      name,
+      line: flow.lines.find((l) => l.name === name),
+      spots: on.map((has, c) => ({ on: has, line: line[c] })),
+    };
+  });
+
+  // The conditions, each where the first cell that names it stands: a cell's `when` first, then its `requires` in
+  // their order. A block is one row, whatever value each cell waits for; a test and a block of one name are two.
+  const named: { name: string; test?: Test; block?: string }[] = [];
+  for (const c of cells) {
+    const of = [
+      ...(c.condition === null
+        ? []
+        : [
+            c.condition.on === 'block'
+              ? { name: c.condition.block, block: c.condition.block }
+              : { name: c.condition.test.name, test: c.condition.test },
+          ]),
+      ...c.preconditions.map((t) => ({ name: t.name, test: t })),
+    ];
+    for (const row of of) {
+      if (!named.some((r) => r.name === row.name && (r.test === undefined) === (row.test === undefined))) {
+        named.push(row);
+      }
+    }
+  }
+  // Whether the cell's `when` is the row's condition: of a block's row the value it waits for, of a test's nothing.
+  const whenOn = (row: { name: string; block?: string }, c: Cell): string | undefined => {
+    const when = c.condition;
+    if (!when) return undefined;
+    if (row.block !== undefined) return when.on === 'block' && when.block === row.block ? when.value : undefined;
+    return when.on === 'test' && when.test.name === row.name ? '' : undefined;
+  };
+  const conditions: ConditionRow[] = named.map((row) => ({
+    ...row,
+    test: row.test && (flow.tests.find((t) => t.name === row.name) ?? row.test),
+    spots: cells.map((c) => {
+      const value = whenOn(row, c);
+      return {
+        when: value !== undefined,
+        value: row.block !== undefined ? value : undefined,
+        requires: row.test !== undefined && c.preconditions.some((t) => t.name === row.name),
+      };
+    }),
+  }));
+
+  const tooled = [...new Set(cells.flatMap((c) => c.tools))];
   const place = (tool: string) => (TOOLS.includes(tool) ? TOOLS.indexOf(tool) : TOOLS.length);
-  const tools: ToolRow[] = named
+  const tools: ToolRow[] = tooled
     .sort((a, b) => place(a) - place(b) || (a < b ? -1 : a > b ? 1 : 0))
     .map((name) => ({
       name,
       spots: cells.map((cell) => ({ asks: cell.tools.includes(name) })),
     }));
 
-  return { blocks, cells, spots, tools, waysBack };
+  return { blocks, cells, spots, lines, conditions, tools, waysBack };
+}
+
+/// How a line runs along a row of `n` crossings from the middle of the one at `from` to the middle of the one at `to`.
+function span(n: number, from?: number, to?: number): Segment[] {
+  return Array.from({ length: n }, (_, c): Segment => {
+    if (from === undefined || to === undefined || from >= to || c < from || c > to) return 'none';
+    return c === from ? 'right' : c === to ? 'left' : 'through';
+  });
 }
 
 /// Paints a line along a row from the middle of the crossing at `from` to the middle of the one at `to`.
 function paint(row: Spot[], which: 'line' | 'back', from?: number, to?: number): void {
-  if (from === undefined || to === undefined || from >= to) return;
-  for (let c = from; c <= to; c += 1) {
-    row[c][which] = c === from ? 'right' : c === to ? 'left' : 'through';
-  }
+  span(row.length, from, to).forEach((segment, c) => {
+    if (segment !== 'none') row[c][which] = segment;
+  });
 }
 
 /// Where a block another cell writes or reads stands from a cell: above it, below it, or the cell itself.

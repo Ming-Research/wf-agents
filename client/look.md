@@ -191,25 +191,37 @@ The panel of a step, docked at the right as the flow page's:
 ## The flow chart
 
 The blocks down the side, the cells across in the order of the walk. A block's name is in monospace, with its signs,
-the name of the source outside that writes it, and the values of a choice after it, the last two muted. A cell's head: its id in monospace and, under it, the
-first word of its line, or "engine", in 11px, both in the middle. A cell's column starts 56px wide, which its marks
-need, and is dragged up to 480px. The width the cells leave is a column of words at the right, one line to a row, cut
-where it is longer and whole on hovering: what the block is; and, once a cell is chosen, on the rows of the blocks it
-has to do with, what that cell says of the block, the other rows muted. Over that column stand, on one line, the id,
-the title, the line, when it runs and what it waits for of the cell under the pointer or holding the focus, or else of
-the cell chosen; and under them, in a label, what the column holds. The chart scrolls sideways where the words would
-have less than 280px. The corner says "Blocks ↓" at its left and "Cells →" at its right, on one line. The wheel scrolls the chart wherever the pointer is over it, the fixed heads and names too. The marks: a ring reads, a dot may
-write, both where both, a diamond where its condition reads the block, directly or by the named test that is its
-condition, and a square where a named test that is one of its preconditions reads it. The diamond and the square are
-drawn round the ring and the dot in a thinner line, so that what a cell runs on stays the mark's centre and what decides
-whether it runs, or waits, its frame. A block's marks are joined by a line along its
-row. The line starts at the first mark that no way back reaches, which is the first cell that writes the block where a
-cell does, and runs to the row's last mark: it shows the way the block goes on, and a read left of every write is
-reached by the way back alone. A way back is the same line in the way back's purple with an arrow at the read it sends
-the work back to. Where a way back runs along a stretch of the row's line, each keeps to a lane of its own, the line
-3px above the middle and the way back with its arrow 3px below it, the marks staying in the middle: drawn on the one
-middle line, the way back covered the line and the row read as if nothing went forward there. The row
-or column chosen is tinted with the accent.
+the name of the source outside that writes it, and the values of a choice after it, the last two muted. A cell's head:
+its id in monospace, in the middle. A cell's column starts 56px wide, which its marks need, and is dragged up to
+480px. The width the cells leave is a column of words at the right, one line to a row, cut where it is longer and whole
+on hovering: what the row's thing is; and, once a cell is chosen, on the rows it has to do with, what that cell says of
+it, the other rows muted. Over that column stand, on one line, the id, the title, the line, when it runs and what it
+waits for of the cell under the pointer or holding the focus, or else of the cell chosen; and under them, in a label,
+what the column holds. The chart scrolls sideways where the words would have less than 280px. The corner says "Blocks
+↓" at its left and "Cells →" at its right, on one line. The wheel scrolls the chart wherever the pointer is over it, the
+fixed heads and names too.
+
+Over the blocks stand two bands of rows, each with a firmer line under its last row and what each row is muted after its
+name, so that each thing is drawn once. The lines: a row for each line the agents' cells name, where the first cell on
+it stands, its name in full in the accent, a dot in the accent under each cell on it, the dots joined by the row's
+line, so that a joined row reads as one session going on; in the column of words its keys as its file writes them
+(`levels_above 1, reads_only true, rules [general, engineering]`). The conditions: a row for each named test and each
+block a cell's `when` reads, where the first cell that names it stands; under a cell whose `when` it is, a tick where it
+runs when the test holds or the block is yes, a cross where it runs when the block is no, and the value itself, in
+monospace, where it runs on another; a square under a cell that `requires` the test; in the column of words what the
+test `says`, or the block's `default`. Each row's name opens its panel: a line's, with its file, its keys and its
+cells; a test's, with its file and its keys; a block's. Under the bands, the rows of the triggers stand over the data's,
+with the same firmer line under their last. The marks on a trigger's row: a ring where the trigger runs the cell, a dot
+where the cell may write the block it stands on, both where both; on a datum's row, side by side, a dot where the cell
+may write it and a ring where the cell is given it, with its kind inside (`1` latest, `2` last and latest, `+` all);
+what a condition reads is on the condition's row alone. A trigger's marks are joined by a line along its row; a datum
+runs no cell, and its row has none. The line starts at the first mark that no way back reaches, which is the first
+cell that writes the block where a cell does, and runs to the row's last mark: it shows the way the block goes on, and
+a read left of every write is reached by the way back alone. A way back is the same line in the way back's purple with
+an arrow at the read it sends the work back to. Where a way back runs along a stretch of the row's line, each keeps to
+a lane of its own, the line 3px above the middle and the way back with its arrow 3px below it, the marks staying in
+the middle: drawn on the one middle line, the way back covered the line and the row read as if nothing went forward
+there. The row or column chosen is tinted with the accent.
 
 ## The console
 

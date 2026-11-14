@@ -1,20 +1,22 @@
-// The panel docked at the chart's right: everything about the cell or block the owner chose.
+// The panel docked at the chart's right: everything about the cell, block, line or named test the owner chose.
 
 import { Fragment, type ReactNode, useState } from 'react';
 
 import type { ActWords, Block, Cell, Fault, Flow, SentCarried, SentPart, SentPiece, Unknown } from './api';
 import type { Chosen } from './Chart';
 import { FormTree } from './FormTree';
-import { type BlockRow, type Matrix, markOf, where } from './matrix';
+import { type BlockRow, type ConditionRow, type LineRow, type Matrix, markOf, where } from './matrix';
 import { Attr, ListRow, Panel, PanelPart, StatusLine } from './parts';
 import {
   charactersWords,
   conditionWords,
   faultWords,
   inputKindWords,
+  lineKeys,
   listed,
   readsWords,
   runBy,
+  snake,
   testWords,
   thereWhen,
   writersBesideCells,
@@ -591,7 +593,19 @@ export function BlockPanel(props: {
     <Panel
       label={`Block ${block.name}`}
       title={<span className="mono">{block.name}</span>}
-      belongs={block.values ? <Attr name="values" value={listed(block.values)} /> : undefined}
+      belongs={
+        block.values ? (
+          <>
+            <Attr name="values" value={listed(block.values)} />
+            {block.default != null && (
+              <>
+                {' '}
+                <Attr name="default" value={block.default} />
+              </>
+            )}
+          </>
+        ) : undefined
+      }
       lines={
         <>
           {block.what !== null && <StatusLine word={<span className="mono">what</span>}>{block.what}</StatusLine>}
@@ -634,6 +648,104 @@ export function BlockPanel(props: {
               </ListRow>
             ))}
           </ul>
+        </PanelPart>
+      )}
+    </Panel>
+  );
+}
+
+/// The cells of a list, each chosen by its id, with its title.
+function CellRows({ flow, ids, onChoose }: { flow: Flow; ids: string[]; onChoose: (c: Chosen) => void }) {
+  return (
+    <ul className="uses">
+      {ids.map((id) => (
+        <ListRow key={id}>
+          <Choose chosen={{ cell: id }} onChoose={onChoose}>
+            <span className="mono">{id}</span>
+          </Choose>
+          <span>{flow.cells.find((c) => c.id === id)?.title}</span>
+        </ListRow>
+      ))}
+    </ul>
+  );
+}
+
+/// Everything about a line: the file it is written in, its keys as that file writes them, and the cells on it, which
+/// share its session, in the order of the walk.
+export function LinePanel(props: { row: LineRow; flow: Flow; onChoose: (c: Chosen) => void; fold: Fold }) {
+  const { row, flow, onChoose, fold } = props;
+  const cells = flow.cells.filter((c) => c.kind === 'agent' && c.line === row.name).map((c) => c.id);
+  return (
+    <Panel
+      label={`Line ${row.name}`}
+      title={<span className="mono line-name">{row.name}</span>}
+      belongs={row.line && <span className="mono">{row.line.file}</span>}
+      lines={(row.line ? lineKeys(row.line) : []).map(([key, value]) => (
+        <StatusLine key={key} word={<Attr name={key} value={value} />} />
+      ))}
+      {...fold}
+    >
+      <PanelPart label="cells" count={cells.length}>
+        <CellRows flow={flow} ids={cells} onChoose={onChoose} />
+      </PanelPart>
+    </Panel>
+  );
+}
+
+/// Everything about a named test: the file it is written in, its keys as that file writes them, each block it reads
+/// chosen by its name, and the cells that name it, by the key that names it: those that run only when it holds, and
+/// those the work waits before until it holds.
+export function TestPanel(props: { row: ConditionRow; flow: Flow; onChoose: (c: Chosen) => void; fold: Fold }) {
+  const { row, flow, onChoose, fold } = props;
+  const test = row.test;
+  if (!test) return null;
+  const when = flow.cells
+    .filter((c) => c.condition?.on === 'test' && c.condition.test.name === test.name)
+    .map((c) => c.id);
+  const requires = flow.cells.filter((c) => c.preconditions.some((t) => t.name === test.name)).map((c) => c.id);
+  return (
+    <Panel
+      label={`Test ${test.name}`}
+      title={<span className="mono">{test.name}</span>}
+      belongs={<span className="mono">{test.file}</span>}
+      lines={
+        <>
+          <StatusLine word={<span className="mono">says</span>}>{test.words}</StatusLine>
+          <StatusLine word={<Attr name="kind" value={snake(test.kind)} />} />
+          <StatusLine
+            word={
+              <Attr
+                name="reads"
+                value={
+                  <>
+                    [
+                    {test.reads.map((block, i) => (
+                      <Fragment key={block}>
+                        {i > 0 && ', '}
+                        <Choose chosen={{ block }} onChoose={onChoose}>
+                          {block}
+                        </Choose>
+                      </Fragment>
+                    ))}
+                    ]
+                  </>
+                }
+              />
+            }
+          />
+          <StatusLine word={<Attr name="is" value={test.is} />} />
+        </>
+      }
+      {...fold}
+    >
+      {when.length > 0 && (
+        <PanelPart label="when" count={when.length}>
+          <CellRows flow={flow} ids={when} onChoose={onChoose} />
+        </PanelPart>
+      )}
+      {requires.length > 0 && (
+        <PanelPart label="requires" count={requires.length}>
+          <CellRows flow={flow} ids={requires} onChoose={onChoose} />
         </PanelPart>
       )}
     </Panel>

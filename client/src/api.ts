@@ -11,12 +11,21 @@ export interface Limits {
   calls: number;
 }
 
-/// The cells that share one session.
+/// The cells that share one session, and what its file writes of it.
 export interface Line {
   name: string;
+  /// In the order of the walk.
   cells: string[];
   /// How many levels above its item's its rounds run at, never above the highest an item may be at.
   levelsAbove: number;
+  /// The file it is written in, from the flow's directory.
+  file: string;
+  /// Its agents only read.
+  readsOnly: boolean;
+  /// The parts of its system prompt, as written; none where it names only the rules it takes.
+  system: string[];
+  /// The sets of rules for its agents, as written.
+  rules: string[];
 }
 
 /// How the blocks a named test reads make it hold: when every one, at least one, or none has the value it looks for;
@@ -26,7 +35,10 @@ export type TestKind = 'all' | 'any' | 'none' | 'noneStanding';
 /// A named test: the words shown for it, and what it holds on.
 export interface Test {
   name: string;
+  /// Its `says`.
   words: string;
+  /// The file it is written in, from the flow's directory.
+  file: string;
   kind: TestKind;
   /// The blocks it reads, as the definition lists them.
   reads: string[];
@@ -58,7 +70,8 @@ export interface Input {
   given: { kind: InputKind | null; why: string | null } | null;
 }
 
-/// When a cell runs: when a block has a value, or when a named test holds.
+/// When a cell runs: when a block has a value (`when = { deep_needed = "no" }`), or when a named test holds
+/// (`when = { test = "settled" }`).
 export type Condition = { on: 'block'; block: string; value: string } | { on: 'test'; test: Test };
 
 export interface Cell {
@@ -102,6 +115,8 @@ export interface Block {
   name: string;
   /// The values of a choice; none for a block that is not one.
   values: string[] | null;
+  /// Of a choice, the value it counts as before anyone has written it; none where it has none.
+  default: string | null;
   /// What the block is, in a sentence; none where the definition does not say.
   what: string | null;
   /// It has no content and stands only for a trigger.

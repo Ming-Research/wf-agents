@@ -76,6 +76,7 @@ function flowOf(
     .map((b) => ({
       name: b,
       values: blocks[b].values ?? null,
+      default: null,
       what: null,
       writtenBy: {
         cells: all.filter((c) => c.outputs.includes(b)).map((c) => c.id),
@@ -94,12 +95,23 @@ function flowOf(
     name: l,
     cells: all.filter((c) => c.line === l).map((c) => c.id),
     levelsAbove: 0,
+    file: `lines/${l}.toml`,
+    readsOnly: false,
+    system: [],
+    rules: [],
   }));
   return { name, limits: LIMITS, lines, tests, cells: all, blocks: named };
 }
 
 /// A named test that holds when each of these blocks, which the owner sets, says yes.
-const test = (name: string, words: string, reads: string[]): Test => ({ name, words, kind: 'all', reads, is: 'yes' });
+const test = (name: string, words: string, reads: string[]): Test => ({
+  name,
+  words,
+  file: `tests/${name}.toml`,
+  kind: 'all',
+  reads,
+  is: 'yes',
+});
 
 const PLAN_CONFIRMED = test('plan_confirmed', 'The owner confirmed the plan', ['plan_confirmed']);
 const REQUEST_READ = test('request_read', 'The owner read what the item asks for', ['request_read']);

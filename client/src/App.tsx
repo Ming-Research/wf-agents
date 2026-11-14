@@ -13,7 +13,7 @@ import { Bar, Edge, Panel, Switch } from './parts';
 import { type Route, hashOf, tabOf, useRoute } from './route';
 import { type Serves, opensOnFlow, useServes } from './serves';
 import { PANEL, WIDTH_KEYS, useKeptWidth } from './sizes';
-import { BlockPanel, CellPanel, Faults, type Fold } from './Side';
+import { BlockPanel, CellPanel, Faults, type Fold, LinePanel, TestPanel } from './Side';
 import { type Theme, useTheme } from './theme';
 import { WorkView } from './works/WorkView';
 import { WorksList } from './works/WorksList';
@@ -226,6 +226,9 @@ export function FlowPage({ definition, given, active = true }: {
     chosen && 'block' in chosen
       ? (drawn.blocks.find((b) => b.name === chosen.block) ?? drawn.blocks.find((b) => b.on === chosen.block))
       : undefined;
+  const lineRow = chosen && 'line' in chosen ? drawn.lines.find((l) => l.name === chosen.line) : undefined;
+  const testRow =
+    chosen && 'test' in chosen ? drawn.conditions.find((c) => c.test && c.name === chosen.test) : undefined;
   const edge = (
     <Edge
       side="left"
@@ -239,7 +242,7 @@ export function FlowPage({ definition, given, active = true }: {
 
   let panel = (
     <Panel label="Nothing chosen" {...fold}>
-      <p className="muted">Choose a cell's head or a block's name to see everything about it</p>
+      <p className="muted">Choose a cell's head or a row's name to see everything about it</p>
     </Panel>
   );
   if (cell) {
@@ -266,6 +269,10 @@ export function FlowPage({ definition, given, active = true }: {
         fold={fold}
       />
     );
+  } else if (lineRow) {
+    panel = <LinePanel row={lineRow} flow={flow} onChoose={choose} fold={fold} />;
+  } else if (testRow) {
+    panel = <TestPanel row={testRow} flow={flow} onChoose={choose} fold={fold} />;
   }
 
   return (

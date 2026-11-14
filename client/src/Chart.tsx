@@ -1,23 +1,32 @@
 // The chart: the matrix of the blocks, one to a row, against the cells, one to a column in the order of the walk. It is
 // how the owner checks the flow (Article 7), so every cell and every block is on it, and what a cell does with a block
-// is a mark where they cross. A write of a block by a cell right of one the block runs is the work going back: its line
-// is drawn leftwards along the row to each cell it sends the work back to, in the way back's purple, so that every way
-// back shows at a glance. The blocks' names stay in place as the chart scrolls sideways, and the cells' heads
-// as it scrolls down, in the chart's own frame.
+// is a mark where they cross. What runs a cell is a trigger, one to a row over the data's rows: a write of the block a
+// trigger stands on, by a cell right of one the trigger runs, is the work going back, and its line is drawn leftwards
+// along the trigger's row to each cell it sends the work back to, in the way back's purple, so that every way back
+// shows at a glance. The blocks' names stay in place as the chart scrolls sideways, and the cells' heads as it scrolls
+// down, in the chart's own frame.
 //
-// A cell's column holds only marks, so it is only as wide as they are, and its head holds the cell's id and the first
-// word of its line. The width this leaves, right of the marks, is a column of words, one line to a row: what the block
-// is, or, on the rows of the cell chosen, what that cell says of the block. What a head has no room for, the cell's
-// title and when it runs, stands over that column for the cell under the pointer.
+// A cell's column holds only marks, so it is only as wide as they are, and its head holds the cell's id alone. The
+// width this leaves, right of the marks, is a column of words, one line to a row: what the row's thing is, or, on the
+// rows of the cell chosen, what that cell says of it. What a head has no room for, the cell's title, its line, when it
+// runs and what it waits for, stands over that column for the cell under the pointer.
 //
-// Over the blocks stand the rows of the engine's tools, one to a tool that a cell may ask for in its return, with a
-// mark under each cell that may.
+// Over the blocks stand bands of rows, each thing drawn once: the lines, one to a line the agents' cells name, with a
+// dot under each cell on it, the dots joined along the row, so that a joined row reads as one session going on; and
+// the conditions, one to a named test or a block a cell's condition names: under a cell whose `when` it is, a tick
+// where the cell runs when the test holds or the block is yes, a cross where it runs when the block is no, and the
+// value itself where it waits for another; and a square under each cell that `requires` the test, which the work waits
+// before until it holds.
 
 import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, useState } from 'react';
 
-import type { Cell, InputKind } from './api';
+import type { Block, Cell, InputKind } from './api';
 import {
   type BlockRow,
+  type ConditionRow,
+  type ConditionSpot,
+  type LineRow,
+  type LineSpot,
   type Mark,
   MARK_PARTS,
   type MarkPart,
@@ -30,10 +39,18 @@ import {
 } from './matrix';
 import { Edge, Sign } from './parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from './sizes';
-import { cellSays, headFacts, inputKindWords, runBy } from './words';
+import { cellSays, headFacts, inputKindWords, keysWords, lineKeys } from './words';
 
-/// What the owner chose: a cell, a block, or nothing.
-export type Chosen = { cell: string } | { block: string } | null;
+/// What the owner chose: a cell, a block, a line, a named test, or nothing.
+export type Chosen = { cell: string } | { block: string } | { line: string } | { test: string } | null;
+
+/// The key a chosen thing's head is found by on the chart.
+function keyOf(chosen: NonNullable<Chosen>): string {
+  if ('cell' in chosen) return `cell:${chosen.cell}`;
+  if ('block' in chosen) return `block:${chosen.block}`;
+  if ('line' in chosen) return `line:${chosen.line}`;
+  return `test:${chosen.test}`;
+}
 
 const PART_WORDS: Record<MarkPart, string> = {
   runs: 'triggered_by',
@@ -93,11 +110,10 @@ export function TriggerGlyph({ spot }: { spot: Spot }) {
 }
 
 /// The marks on a datum's row, one for each thing, side by side: a disc where the cell writes it; a ring with its
-/// kind inside where the cell is given it; a diamond where its condition reads the datum's value, a square where a
-/// precondition does.
+/// kind inside where the cell is given it.
 export function DataGlyphs({ spot }: { spot: Spot }) {
   const m = spot.mark;
-  if (!m.write && !m.given && !m.condition && !m.precondition) return null;
+  if (!m.write && !m.given) return null;
   const box = (key: string, child: ReactNode) => (
     <svg key={key} className="glyph" viewBox="0 0 24 24" aria-hidden="true">
       {child}
@@ -118,9 +134,46 @@ export function DataGlyphs({ spot }: { spot: Spot }) {
             )}
           </>,
         )}
-      {m.condition && box('when', <polygon className="part condition" points="12,1.5 22.5,12 12,22.5 1.5,12" />)}
-      {m.precondition &&
-        box('requires', <rect className="part precondition" x="3.5" y="3.5" width="17" height="17" />)}
+    </span>
+  );
+}
+
+/// The mark of a cell on a line: a dot in the accent, as the lines' names are.
+export function LineGlyph({ on }: { on: boolean }) {
+  if (!on) return null;
+  return (
+    <svg className="glyph" viewBox="0 0 24 24" aria-hidden="true">
+      <circle className="part on-line" cx="12" cy="12" r="4.5" />
+    </svg>
+  );
+}
+
+/// The marks of a cell on a condition: where it is the cell's `when`, a tick where the cell runs when the test holds or
+/// the block is yes, a cross where it runs when the block is no, and the value itself where it runs on another; a
+/// square where the work waits before the cell until the test holds.
+export function ConditionGlyph({ spot }: { spot: ConditionSpot }) {
+  const { when, value, requires } = spot;
+  if (!when && !requires) return null;
+  const box = (key: string, child: ReactNode) => (
+    <svg key={key} className="glyph" viewBox="0 0 24 24" aria-hidden="true">
+      {child}
+    </svg>
+  );
+  const whenMark = () => {
+    if (value === undefined || value === 'yes') {
+      return box('when', <path className="part holds" d="M5.5 12.5 L10 17 L18.5 7" />);
+    }
+    if (value === 'no') return box('when', <path className="part holds" d="M7 7 L17 17 M17 7 L7 17" />);
+    return (
+      <span key="when" className="spot-value">
+        {value}
+      </span>
+    );
+  };
+  return (
+    <span className="glyphs">
+      {when && whenMark()}
+      {requires && box('requires', <rect className="part precondition" x="3.5" y="3.5" width="17" height="17" />)}
     </span>
   );
 }
@@ -133,8 +186,21 @@ export function Legend({ waysBack }: { waysBack: number }) {
     back: 'none',
     backTo: false,
   });
+  const condition = (when: boolean, requires: boolean, value?: string): ConditionSpot => ({ when, value, requires });
   return (
     <ul className="legend" aria-label="What the marks mean">
+      <li>
+        <LineGlyph on /> line
+      </li>
+      <li>
+        <ConditionGlyph spot={condition(true, false)} /> when yes, when test
+      </li>
+      <li>
+        <ConditionGlyph spot={condition(true, false, 'no')} /> when no
+      </li>
+      <li>
+        <ConditionGlyph spot={condition(false, true)} /> requires
+      </li>
       <li>
         <TriggerGlyph spot={spot({ runs: true })} /> triggered_by
       </li>
@@ -155,12 +221,6 @@ export function Legend({ waysBack }: { waysBack: number }) {
       </li>
       <li>
         <DataGlyphs spot={spot({ given: true, kind: 'all' })} /> context all
-      </li>
-      <li>
-        <DataGlyphs spot={spot({ condition: true })} /> when
-      </li>
-      <li>
-        <DataGlyphs spot={spot({ precondition: true })} /> requires
       </li>
       <li>
         <ToolGlyph spot={{ asks: true }} /> tools
@@ -220,8 +280,8 @@ export const WIDTHS = {
 };
 
 /// The widths of the flow's chart, in pixels: a cell's column until the owner drags it, which is also the least it is
-/// dragged to, wide enough for its marks, a short id and the first word of its line; and the least the column of words
-/// keeps, the frame scrolling sideways below that.
+/// dragged to, wide enough for its marks and a short id; and the least the column of words keeps, the frame scrolling
+/// sideways below that.
 export const FLOW_WIDTHS = { cell: 56, words: 280 };
 
 /// How wide the table is: the whole width of its frame, the cells sharing evenly what the names' column and the cells
@@ -265,7 +325,7 @@ interface ChartProps {
 }
 
 export function Chart({ matrix, chosen, onChoose }: ChartProps) {
-  const { blocks, cells, spots, tools } = matrix;
+  const { blocks, cells, spots, lines, conditions, tools } = matrix;
   const isTrigger = (row: BlockRow) => row.trigger !== undefined;
   const [pointed, setPointed] = useState<number | null>(null);
   const frame = useRef<HTMLDivElement>(null);
@@ -281,13 +341,14 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
   // What is chosen elsewhere (a panel) is brought into view in the frame.
   useEffect(() => {
     if (!chosen) return;
-    const key = 'cell' in chosen ? `cell:${chosen.cell}` : `block:${chosen.block}`;
-    const target = frame.current?.querySelector(`[data-key="${CSS.escape(key)}"]`);
+    const target = frame.current?.querySelector(`[data-key="${CSS.escape(keyOf(chosen))}"]`);
     target?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [chosen]);
 
   const chosenCell = chosen && 'cell' in chosen ? chosen.cell : null;
   const chosenBlock = chosen && 'block' in chosen ? chosen.block : null;
+  const chosenLine = chosen && 'line' in chosen ? chosen.line : null;
+  const chosenTest = chosen && 'test' in chosen ? chosen.test : null;
   // The cell whose words the rows show, and the cell the head of the words is about: the one under the pointer, or
   // else the one chosen.
   const saying = cells.find((c) => c.id === chosenCell) ?? null;
@@ -338,8 +399,48 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
             <WordsHead about={about} saying={saying} onPoint={unpoint} />
           </tr>
         </thead>
+        {lines.length > 0 && (
+          <tbody className="band">
+            {lines.map((row) => (
+              <LineLine
+                key={row.name}
+                row={row}
+                cells={cells}
+                chosen={chosenLine === row.name}
+                onChoose={() => onChoose(chosenLine === row.name ? null : { line: row.name })}
+                chosenCell={chosenCell}
+                saying={saying}
+                pointed={pointed}
+                onPoint={setPointed}
+              />
+            ))}
+          </tbody>
+        )}
+        {conditions.length > 0 && (
+          <tbody className="band">
+            {conditions.map((row) => {
+              const isChosen = row.test ? chosenTest === row.name : chosenBlock === row.block;
+              const chosenNow: Chosen = row.test ? { test: row.name } : { block: row.name };
+              const declared = row.test ? undefined : blocks.find((b) => !b.trigger && b.name === row.name)?.block;
+              return (
+                <ConditionLine
+                  key={`${row.test ? 'test' : 'block'}:${row.name}`}
+                  row={row}
+                  declared={declared}
+                  cells={cells}
+                  chosen={isChosen}
+                  onChoose={() => onChoose(isChosen ? null : chosenNow)}
+                  chosenCell={chosenCell}
+                  saying={saying}
+                  pointed={pointed}
+                  onPoint={setPointed}
+                />
+              );
+            })}
+          </tbody>
+        )}
         {tools.length > 0 && (
-          <tbody className="tools">
+          <tbody className="band">
             {tools.map((row) => (
               <ToolLine
                 key={row.name}
@@ -354,7 +455,7 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
           </tbody>
         )}
         {[true, false].map((trigger) => (
-          <tbody key={trigger ? 'triggers' : 'blocks'} className={trigger ? 'tools' : undefined}>
+          <tbody key={trigger ? 'triggers' : 'blocks'} className={trigger ? 'band triggers' : undefined}>
             {blocks.map((row, r) => {
               if (isTrigger(row) !== trigger) return null;
               const isChosen = chosenBlock === row.on;
@@ -405,9 +506,10 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
   );
 }
 
-/// The head of a cell's column: its id and the first word of its line, which is all a column as wide as its marks has
-/// room for. Its title, its line in full, when it runs and what it waits for are over the column of words while the
-/// pointer or the keyboard is on the column, and in the cell's panel.
+/// The head of a cell's column: its id, which is all a column as wide as its marks has room for. Its title, its line,
+/// when it runs and what it waits for are what its button is called, over the column of words while the pointer or the
+/// keyboard is on the column, and in the cell's panel; its line, its `when` and its `requires` are drawn in the bands
+/// over the blocks.
 function CellHead(props: {
   cell: Cell;
   chosen: boolean;
@@ -439,7 +541,6 @@ function CellHead(props: {
         onBlur={onUnpoint}
       >
         <span className="cell-id">{cell.id}</span>
-        <span className={`cell-line ${cell.kind === 'agent' ? 'line-name' : ''}`}>{runBy(cell).split('_')[0]}</span>
       </button>
       <Edge
         side="right"
@@ -453,8 +554,8 @@ function CellHead(props: {
 }
 
 /// The head of the column of words: the cell under the pointer, or else the cell chosen, by its id, its title, who
-/// runs it, when it runs and what it waits for; and under that what the column holds, which is what each block is until
-/// a cell is chosen, and then what that cell says of each block it has to do with.
+/// runs it, when it runs and what it waits for; and under that what the column holds, which is what each row's thing is
+/// until a cell is chosen, and then what that cell says of each it has to do with.
 function WordsHead(props: { about: Cell | null; saying: Cell | null; onPoint: () => void }) {
   const { about: cell, saying, onPoint } = props;
   const facts = cell ? headFacts(cell) : null;
@@ -486,7 +587,7 @@ function WordsHead(props: { about: Cell | null; saying: Cell | null; onPoint: ()
         )}
       </span>
       <span className="label words-label">
-        {saying ? `What ${saying.id} says of each block` : 'What each block is'}
+        {saying ? `What ${saying.id} says of each row` : 'What each row is'}
       </span>
     </th>
   );
@@ -516,7 +617,7 @@ function BlockHead(props: {
         <span className="block-name" title={row.name}>
           {label ?? row.name}
         </span>
-        {label !== null && <span className="tool-label">trigger</span>}
+        {label !== null && <span className="row-label">trigger</span>}
         {block.writtenBy.people && <Sign name="people" />}
         {block.writtenBy.outside !== null && (
           <span title={`from ${block.writtenBy.outside}`}>
@@ -531,6 +632,158 @@ function BlockHead(props: {
         )}
       </button>
     </th>
+  );
+}
+
+/// The class of a crossing of a band's row.
+function bandSpot(cell: Cell, chosenCell: string | null, pointed: boolean): string {
+  return `spot ${chosenCell === cell.id ? 'chosen' : ''} ${pointed ? 'pointed' : ''}`;
+}
+
+/// The row of a line, at the top: its name in the accent, a dot under each cell on it, the dots joined along the row,
+/// and the line's keys as its file writes them; on the row of the chosen cell's line, that it is its `line`. Chosen by
+/// its name, it opens the line's panel.
+function LineLine(props: {
+  row: LineRow;
+  cells: Cell[];
+  chosen: boolean;
+  onChoose: () => void;
+  chosenCell: string | null;
+  saying: Cell | null;
+  pointed: number | null;
+  onPoint: (c: number | null) => void;
+}) {
+  const { row, cells, chosen, onChoose, chosenCell, saying, pointed, onPoint } = props;
+  const keys = row.line ? keysWords(lineKeys(row.line)) : '';
+  const says = saying?.kind === 'agent' && saying.line === row.name ? 'line' : '';
+  return (
+    <tr className={`row line-row ${chosen ? 'chosen' : ''}`}>
+      <th scope="row" className="lead block-head" data-key={`line:${row.name}`} onMouseEnter={() => onPoint(null)}>
+        <button
+          type="button"
+          className="head-button"
+          aria-pressed={chosen}
+          aria-label={`Line ${row.name}`}
+          onClick={onChoose}
+        >
+          <span className="block-name line-name" title={row.name}>
+            {row.name}
+          </span>
+          <span className="row-label">line</span>
+        </button>
+      </th>
+      {cells.map((cell, c) => {
+        const spot = row.spots[c];
+        const words = spot.on ? `${cell.id} line ${row.name}` : '';
+        return (
+          <td
+            key={cell.id}
+            className={bandSpot(cell, chosenCell, pointed === c)}
+            title={words || undefined}
+            onMouseEnter={() => onPoint(c)}
+          >
+            <LineSegments spot={spot} />
+            <LineGlyph on={spot.on} />
+            {words && <span className="visually-hidden">{words}</span>}
+          </td>
+        );
+      })}
+      <td
+        className={`words ${says ? 'said' : saying ? 'beside' : ''}`}
+        title={says || keys || undefined}
+        onMouseEnter={() => onPoint(null)}
+      >
+        {says || keys}
+      </td>
+    </tr>
+  );
+}
+
+/// A line's row through a crossing, up to the middle, where the dot is drawn over it.
+function LineSegments({ spot }: { spot: LineSpot }) {
+  const runs = (side: 'left' | 'right') => spot.line === side || spot.line === 'through';
+  return (
+    <>
+      {runs('left') && <span className="seg seg-left line" aria-hidden="true" />}
+      {runs('right') && <span className="seg seg-right line" aria-hidden="true" />}
+    </>
+  );
+}
+
+/// The row of a condition, under the lines: a named test, or a block a cell's `when` reads, by its name; under each cell
+/// whose `when` it is, a tick, a cross or the value (`ConditionGlyph`), and a square under each that `requires` it; and
+/// what the test `says`, or the block's `default`. On the row of a condition the chosen cell names, by which key it
+/// names it. Chosen by its name, it opens the test's panel, or the block's.
+function ConditionLine(props: {
+  row: ConditionRow;
+  /// Of a block's row, the block as the flow declares it.
+  declared?: Block;
+  cells: Cell[];
+  chosen: boolean;
+  onChoose: () => void;
+  chosenCell: string | null;
+  saying: Cell | null;
+  pointed: number | null;
+  onPoint: (c: number | null) => void;
+}) {
+  const { row, declared, cells, chosen, onChoose, chosenCell, saying, pointed, onPoint } = props;
+  // How a cell's `when` names the row's condition: by the test, or by the block with its value.
+  const whenWords = (value?: string) => (row.test ? 'when' : `when ${row.name} = ${value}`);
+  const at = saying ? cells.findIndex((cell) => cell.id === saying.id) : -1;
+  const own = at === -1 ? undefined : row.spots[at];
+  const says = own
+    ? [...(own.when ? [whenWords(own.value)] : []), ...(own.requires ? ['requires'] : [])].join('; ')
+    : '';
+  const what = row.test ? row.test.words : declared?.default ? `default ${declared.default}` : '';
+  return (
+    <tr className={`row condition-row ${chosen ? 'chosen' : ''}`}>
+      <th
+        scope="row"
+        className="lead block-head"
+        data-key={row.test ? `test:${row.name}` : undefined}
+        onMouseEnter={() => onPoint(null)}
+      >
+        <button
+          type="button"
+          className="head-button"
+          aria-pressed={chosen}
+          aria-label={row.test ? `Test ${row.name}` : `Block ${row.name}`}
+          onClick={onChoose}
+        >
+          <span className="block-name" title={row.name}>
+            {row.name}
+          </span>
+          <span className="row-label">{row.test ? 'test' : 'block'}</span>
+        </button>
+      </th>
+      {cells.map((cell, c) => {
+        const spot = row.spots[c];
+        const words = [
+          spot.when ? `${cell.id} ${whenWords(spot.value)}${row.test ? ` ${row.name}` : ''}` : '',
+          spot.requires ? `${cell.id} requires ${row.name}` : '',
+        ]
+          .filter((w) => w !== '')
+          .join(', ');
+        return (
+          <td
+            key={cell.id}
+            className={bandSpot(cell, chosenCell, pointed === c)}
+            title={words || undefined}
+            onMouseEnter={() => onPoint(c)}
+          >
+            <ConditionGlyph spot={spot} />
+            {words && <span className="visually-hidden">{words}</span>}
+          </td>
+        );
+      })}
+      <td
+        className={`words ${says ? 'said' : saying ? 'beside' : ''}`}
+        title={says || what || undefined}
+        onMouseEnter={() => onPoint(null)}
+      >
+        {says || what}
+      </td>
+    </tr>
   );
 }
 
@@ -552,7 +805,7 @@ function ToolLine(props: {
         <span className="tool-name" title={`Tool ${row.name}`}>
           {row.name}
         </span>
-        <span className="tool-label">tool</span>
+        <span className="row-label">tool</span>
       </th>
       {cells.map((cell, c) => {
         const spot = row.spots[c];

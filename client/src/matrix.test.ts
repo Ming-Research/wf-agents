@@ -43,6 +43,60 @@ const markAt = (m: ReturnType<typeof matrix>, cellId: string, name: string, trig
 /// A mark on a datum's row, which says the kind the cell is given the datum in.
 const datum = (mark: Partial<typeof NO_MARK>, kind: string | null = null) => ({ ...NO_MARK, ...mark, kind });
 
+describe('the bands over the blocks', () => {
+  const ready = test('ready', 'Ready', 'all', ['go']);
+  const flow = () =>
+    flowOf(
+      [
+        cell('a', { line: 'first', outputs: ['x'] }),
+        cell('b', { line: 'second', condition: { on: 'block', block: 'x', value: 'no' } }),
+        cell('c', { line: 'first', condition: { on: 'block', block: 'x', value: 'yes' }, preconditions: [ready] }),
+        cell('d', { kind: 'engine', line: null, condition: { on: 'block', block: 'x', value: 'maybe' } }),
+        cell('e', { kind: 'engine', line: null, condition: { on: 'test', test: ready }, preconditions: [ready] }),
+      ],
+      { x: { values: ['yes', 'no', 'maybe'] }, go: { people: true, values: ['yes', 'no'] } },
+    );
+
+  it('have a row for each line, where its first cell stands, its cells joined along it', () => {
+    const m = matrix(flow());
+    expect(m.lines.map((l) => l.name)).toEqual(['first', 'second']);
+    expect(m.lines[0].spots.map((s) => s.on)).toEqual([true, false, true, false, false]);
+    expect(m.lines[0].spots.map((s) => s.line)).toEqual(['right', 'through', 'left', 'none', 'none']);
+    // A line of one cell has nothing to join.
+    expect(m.lines[1].spots.map((s) => s.line)).toEqual(['none', 'none', 'none', 'none', 'none']);
+    expect(m.lines[0].line?.file).toBe('lines/first.toml');
+  });
+
+  it('have a row for each block a cell’s when reads, with the value each cell waits for, and one for each named test', () => {
+    const m = matrix(flow());
+    expect(m.conditions.map((r) => [r.name, r.test !== undefined])).toEqual([
+      ['x', false],
+      ['ready', true],
+    ]);
+    const [x, named] = m.conditions;
+    expect(x.spots.map((s) => [s.when, s.value])).toEqual([
+      [false, undefined],
+      [true, 'no'],
+      [true, 'yes'],
+      [true, 'maybe'],
+      [false, undefined],
+    ]);
+    expect(named.spots.map((s) => [s.when, s.requires])).toEqual([
+      [false, false],
+      [false, false],
+      [false, true],
+      [false, false],
+      [true, true],
+    ]);
+    expect(named.test?.file).toBe('tests/ready.toml');
+  });
+
+  it('leave what a condition reads off the blocks’ rows, where it was drawn twice', () => {
+    const m = matrix(flow());
+    expect(m.spots.flat().some((s) => s.mark.condition || s.mark.precondition)).toBe(false);
+  });
+});
+
 describe('the marks of named tests', () => {
   const flow = flowOf(
     [
@@ -56,12 +110,16 @@ describe('the marks of named tests', () => {
     { x: { values: ['yes', 'no'] }, y: { values: ['yes', 'no'] }, go: { people: true, values: ['yes', 'no'] }, request: { people: true } },
   );
 
-  it('put the condition’s mark on each datum the test that is the condition reads, and a precondition’s on each its test reads', () => {
+  it('leave what the test that is the condition reads, and what a precondition’s test reads, off the data’s rows', () => {
     const m = matrix(flow);
-    expect(markAt(m, 'more', 'x')).toEqual(datum({ given: true, condition: true }));
-    expect(markAt(m, 'more', 'y')).toEqual(datum({ condition: true }));
-    expect(markAt(m, 'more', 'go')).toEqual(datum({ precondition: true }));
+    expect(markAt(m, 'more', 'x')).toEqual(datum({ given: true }));
+    expect(markAt(m, 'more', 'y')).toEqual(datum({}));
+    expect(markAt(m, 'more', 'go')).toEqual(datum({}));
     expect(markAt(m, 'more', 'request')).toEqual(datum({ given: true }));
+    // Each test is a row of its own, under the cell that names it.
+    expect(m.conditions.map((r) => r.name)).toEqual(['either', 'given']);
+    expect(m.conditions[0].spots.map((s) => s.when)).toEqual([false, true]);
+    expect(m.conditions[1].spots.map((s) => s.requires)).toEqual([false, true]);
     // What runs the cell is on its triggers' rows, and only there.
     expect(markAt(m, 'more', 'x', true)).toEqual({ ...NO_MARK, runs: true });
     expect(markAt(m, 'more', 'request', true)).toEqual({ ...NO_MARK, runs: true });
@@ -85,7 +143,7 @@ describe('the marks', () => {
     expect(markAt(m, 'plan', 'request')).toEqual(datum({ given: true }));
     expect(markAt(m, 'plan', 'plan', true)).toEqual({ ...NO_MARK, write: true });
     expect(markAt(m, 'plan', 'plan')).toEqual(datum({ write: true }));
-    expect(markAt(m, 'design', 'needs_design')).toEqual(datum({ condition: true }));
+    expect(markAt(m, 'design', 'needs_design')).toEqual(datum({}));
     expect(markAt(m, 'merge', 'plan')).toEqual(datum({}));
     // The cells run left to right in the order of the walk; the triggers' rows stand first, by the blocks they stand
     // on, then each datum's.
@@ -188,7 +246,7 @@ describe('the ways back', () => {
     });
     const m = matrix(flow);
     expect(m.spots[rowAt(m, 'x')].every((spot) => spot.line === 'none' && spot.back === 'none')).toBe(true);
-    expect(markAt(m, 'a', 'x')).toEqual(datum({ precondition: true }));
+    expect(markAt(m, 'a', 'x')).toEqual(datum({}));
     // On the trigger's row the line runs from b's write to c, which it runs.
     expect(row(m, 'x').map((spot) => spot.line)).toEqual(['none', 'right', 'left']);
   });
@@ -207,8 +265,8 @@ describe('the ways back', () => {
     const m = matrix(flow);
     expect(row(m, 'x').map((spot) => spot.backTo)).toEqual([true, false, false, true, false]);
     expect(row(m, 'x').map((spot) => spot.back)).toEqual(['right', 'through', 'through', 'through', 'left']);
-    // a is run by x and written after twice, d once; b's condition reads it on the datum's row.
+    // a is run by x and written after twice, d once; b's condition reads it on the condition's row alone.
     expect(m.waysBack).toBe(3);
-    expect(markAt(m, 'b', 'x')).toEqual(datum({ condition: true }));
+    expect(markAt(m, 'b', 'x')).toEqual(datum({}));
   });
 });
