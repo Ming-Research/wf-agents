@@ -343,8 +343,25 @@ pub enum What {
     TakenNotRead {
         block: String,
     },
-    /// The cell names what it takes both in the old form and in the new.
+    /// The cell names what it takes in two forms of three.
     TwoForms,
+    /// The flow names among the engine's own data one that no file beside the flows defines.
+    NoSuchData {
+        name: String,
+    },
+    /// The cell names a trigger that nothing beside the flows defines.
+    NoSuchTrigger {
+        trigger: String,
+    },
+    /// A trigger of an agent cell has its agent read a datum that the cell's context does not hold.
+    ReadNotInContext {
+        trigger: String,
+        block: String,
+    },
+    /// The cell says what it does for a trigger that is not among its triggers.
+    NotATrigger {
+        trigger: String,
+    },
     /// An engine cell says how it is given the block, and it has no session.
     EngineIsGiven {
         block: String,
@@ -893,6 +910,10 @@ impl What {
             F::DescribedNotRunOn { block } => What::DescribedNotRunOn { block },
             F::TakenNotRead { block } => What::TakenNotRead { block },
             F::TwoForms => What::TwoForms,
+            F::NoSuchData { name } => What::NoSuchData { name },
+            F::NoSuchTrigger { trigger } => What::NoSuchTrigger { trigger },
+            F::ReadNotInContext { trigger, block } => What::ReadNotInContext { trigger, block },
+            F::NotATrigger { trigger } => What::NotATrigger { trigger },
             F::EngineIsGiven { block } => What::EngineIsGiven { block },
             F::RunByNothing => What::RunByNothing,
             F::NoKind { block } => What::NoKind { block },

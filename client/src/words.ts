@@ -112,7 +112,15 @@ export function faultWords(fault: Fault): string {
     case 'takenNotRead':
       return `The cell says how it takes ${w.block}, but ${w.block} is not among the blocks it reads.`;
     case 'twoForms':
-      return 'Name them one way: either inputs, or runs_on and given.';
+      return 'Name them one way: inputs, runs_on and given, or triggers and context.';
+    case 'noSuchData':
+      return `The flow names ${w.name} among the engine's own data, but no file of ../data/ defines ${w.name}.`;
+    case 'noSuchTrigger':
+      return `The cell names the trigger ${w.trigger}, which nothing in ../triggers/ defines.`;
+    case 'readNotInContext':
+      return `The trigger ${w.trigger} has the agent read ${w.block}, but ${w.block} is not in the cell's context.`;
+    case 'notATrigger':
+      return `The cell says what it does for ${w.trigger}, but ${w.trigger} is not among its triggers.`;
     case 'engineIsGiven':
       return `An engine's cell says how it is given ${w.block}, but it has no session.`;
     case 'runByNothing':

@@ -1,0 +1,12 @@
+# The project of the tests: the files of it the engine gives every agent, and the settings the words may name.
+[files.guide]
+path = "AGENTS.md"
+
+[files.constitution]
+path = "design/constitution.md"
+
+[installation]
+names = ["owner.language"]
+
+[project]
+research = "research/"

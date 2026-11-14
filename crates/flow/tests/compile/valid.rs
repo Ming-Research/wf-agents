@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use decide::{BlockId, Cell, Condition, TestName};
 use flow::{
     Block, CellSpec, Effort, FLOW_FILE, FaultKind::*, Given, InputKind, Kind, Limits, Readers, RunsOn, Test, TestKind,
-    Writers,
+    Trigger, Writers,
 };
 
 use crate::support::{at, compiled, edit, faults, valid};
@@ -87,12 +87,26 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
         effort: None,
         levels_above: 0,
         takes_main: false,
+        triggers: Vec::new(),
     };
     let runs_on = |blocks: &[&str]| {
         (blocks.iter())
             .map(|&b| RunsOn {
                 block: b.into(),
                 why: None,
+            })
+            .collect()
+    };
+    // Each block that runs a cell written before triggers is a trigger of its name, which the agent reads for it where
+    // the cell is given the block.
+    let triggers = |blocks: &[&str], read: bool| {
+        (blocks.iter())
+            .map(|&b| Trigger {
+                name: b.to_string(),
+                block: b.into(),
+                read: if read { vec![b.into()] } else { Vec::new() },
+                detail: None,
+                does: None,
             })
             .collect()
     };
@@ -109,11 +123,13 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
                 why: None,
             })
             .collect(),
+        triggers: triggers(inputs, true),
         ..spec(id, title, Kind::Agent, Some(line))
     };
     let engine = |id: &str, title: &str, act: &str, inputs: &[&str]| CellSpec {
         act: Some(act.to_string()),
         runs_on: runs_on(inputs),
+        triggers: triggers(inputs, false),
         ..spec(id, title, Kind::Engine, None)
     };
     assert_eq!(
@@ -162,6 +178,8 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
         Block {
             values: values.map(|v| v.iter().map(|s| s.to_string()).collect()),
             what: None,
+            field: None,
+            trigger: false,
             writers: Writers {
                 cells: ids(writers),
                 people: who.0,

@@ -1,0 +1,5 @@
+# Fires when the owner speaks to the cell: a block with no content of each cell that names it.
+block = "{cell}_spoken_to"
+people = true
+read = ["discussion"]
+do = "Answer what the owner said."

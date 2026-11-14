@@ -1,0 +1,8 @@
+# A sentence or two on the round, for the owner.
+in = ["calls", "outcome"]
+given_to = "every"
+told = "listed"
+words = "`summary`: what this round did and found."
+
+[shape]
+type = "string"

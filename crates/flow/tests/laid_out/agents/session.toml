@@ -1,0 +1,8 @@
+# What a line's session of the tests begins with, in this order.
+parts = [
+  { project = "guide" },
+  { project = "constitution" },
+  { line = "rules" },
+  { words = "how_you_work_here.md" },
+]
+heading = "# `{path}`\n\n{text}"

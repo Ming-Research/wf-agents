@@ -1,8 +1,13 @@
 //! The definition of a flow as it is written: the text of its files, and the shape each file must have.
 //!
-//! A flow is a directory holding `flow.toml`, one `<cell id>.toml` for each cell, and in `rules/` one `<name>.md` for
-//! each set of rules for the agents that a line's system prompt names. A field a file does not know is refused, so that
-//! every new kind of field is added on purpose.
+//! A flow is a directory. Laid out one thing to a file, it holds `flow.toml` for what is the flow's as a whole, and one
+//! file to each cell, line, block and named test, in `cells/`, `lines/`, `blocks/` (in directories of their own, as
+//! deep as is useful) and `tests/`, each named by the thing it defines. What every flow shares is beside the flows,
+//! defined once: the engine's own data in `../data/`, which a flow names among those it uses; what runs a cell, in
+//! `../triggers/`; and the sets of rules for the agents that a line names, in `../agents/rules/rules.toml`. Written
+//! before that layout, a flow is `flow.toml` holding its lines, blocks and named tests, one `<cell id>.toml` beside it
+//! for each cell, and in `rules/` one `<name>.md` for each set of rules for the agents that a line's system prompt
+//! names. A field a file does not know is refused, so that every new kind of field is added on purpose.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -14,94 +19,205 @@ use serde::Deserialize;
 /// The name of the file that holds what belongs to the flow as a whole.
 pub const FLOW_FILE: &str = "flow.toml";
 
-/// The name of the directory, beside the flow's files, that holds its sets of rules for the agents.
+/// The name of the directory, beside the files of a flow written before it was laid out one thing to a file, that
+/// holds its sets of rules for the agents.
 pub const RULES_DIR: &str = "rules";
+
+/// The directories of a flow laid out one thing to a file, each holding the files of one kind of thing: its cells, its
+/// lines, its blocks, as deep as is useful, and its named tests. A flow is laid out so where it has `cells/`.
+pub const CELLS_DIR: &str = "cells";
+pub const LINES_DIR: &str = "lines";
+pub const BLOCKS_DIR: &str = "blocks";
+pub const TESTS_DIR: &str = "tests";
+
+/// The directory beside the flows, from a flow's directory, that holds the engine's own data, as deep as is useful:
+/// each defined once for every flow, and used by a flow that names it.
+pub const DATA_DIR: &str = "../data";
+
+/// The directory beside the flows, from a flow's directory, that holds what runs a cell: in it, as deep as is useful,
+/// each a trigger standing on a block with no content, which it declares; in `of_a_cell/`, each a trigger that every
+/// cell naming it has its own of; in `of_a_datum/`, each a rule that makes a trigger of each datum of a flow.
+pub const TRIGGERS_DIR: &str = "../triggers";
+pub const OF_A_CELL: &str = "of_a_cell";
+pub const OF_A_DATUM: &str = "of_a_datum";
+
+/// The file beside the flows, from a flow's directory, that names the sets of rules for the agents a line may take.
+pub const RULES_FILE: &str = "../agents/rules/rules.toml";
 
 /// The text of a flow's files.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Source {
+    /// The flow is laid out one thing to a file; else it is written as it was before that layout.
+    pub laid_out: bool,
     /// The text of `flow.toml`.
     pub flow: String,
     /// The text of each cell's file, by the cell's id: the file's name without `.toml`.
     pub cells: BTreeMap<String, String>,
-    /// The text of each set of rules for the agents, by its name: the name of its file in `rules/` without `.md`.
+    /// Of a flow written before it was laid out one thing to a file, the text of each set of rules for the agents, by
+    /// its name: the name of its file in `rules/` without `.md`.
     pub rules: BTreeMap<String, String>,
+    /// Of a flow laid out one thing to a file, the text of each of its files but `flow.toml` and its cells', and of
+    /// each file beside the flows that it may use, by its path from the flow's directory: `lines/<name>.toml`,
+    /// `blocks/.../<name>.toml`, `tests/<name>.toml`, `../data/.../<name>.toml`, `../triggers/.../<name>.toml` and
+    /// [`RULES_FILE`].
+    pub files: BTreeMap<String, String>,
 }
 
-/// Reads the flow in this directory: `flow.toml`, every other `.toml` file directly in it as the file of the cell its
-/// name gives, and every `.md` file directly in its `rules/`, where it has one, as the set of rules its name gives.
-/// Other files and directories are not read.
+/// Reads the flow in this directory. Laid out one thing to a file where it has `cells/`: `flow.toml`; each `.toml` file
+/// directly in `cells/`, `lines/` and `tests/`; each in `blocks/`, `../data/` and `../triggers/` or in a directory in
+/// them; and [`RULES_FILE`]. Else as it was written before: `flow.toml`, every other `.toml` file directly in it as the
+/// file of the cell its name gives, and every `.md` file directly in its `rules/`, where it has one, as the set of rules
+/// its name gives. Other files and directories are not read.
 pub fn read(dir: &Path) -> io::Result<Source> {
-    let flow = fs::read_to_string(dir.join(FLOW_FILE))?;
-    let cells = files(dir, "toml", |name| name != FLOW_FILE)?;
-    let rules_dir = dir.join(RULES_DIR);
-    let rules = if rules_dir.is_dir() {
-        files(&rules_dir, "md", |_| true)?
-    } else {
-        BTreeMap::new()
+    let mut source = Source {
+        laid_out: dir.join(CELLS_DIR).is_dir(),
+        flow: fs::read_to_string(dir.join(FLOW_FILE))?,
+        ..Source::default()
     };
-    Ok(Source { flow, cells, rules })
+    if source.laid_out {
+        for (sub, deep) in [
+            (CELLS_DIR, false),
+            (LINES_DIR, false),
+            (BLOCKS_DIR, true),
+            (TESTS_DIR, false),
+            (DATA_DIR, true),
+            (TRIGGERS_DIR, true),
+        ] {
+            let at = dir.join(sub);
+            if at.is_dir() {
+                for (path, text) in files(&at, "toml", deep)? {
+                    source.add(&format!("{sub}/{path}"), text);
+                }
+            }
+        }
+        let rules = dir.join(RULES_FILE);
+        if rules.is_file() {
+            source.add(RULES_FILE, fs::read_to_string(rules)?);
+        }
+        return Ok(source);
+    }
+    for (name, text) in files(dir, "toml", false)? {
+        source.add(&name, text);
+    }
+    let rules_dir = dir.join(RULES_DIR);
+    if rules_dir.is_dir() {
+        for (name, text) in files(&rules_dir, "md", false)? {
+            source.add(&format!("{RULES_DIR}/{name}"), text);
+        }
+    }
+    Ok(source)
 }
 
-/// The text of each file directly in this directory whose name ends in this extension and is taken, by its name
-/// without the extension.
-fn files(dir: &Path, extension: &str, taken: impl Fn(&str) -> bool) -> io::Result<BTreeMap<String, String>> {
-    let mut files = BTreeMap::new();
+/// The text of each file in this directory whose name ends in this extension, and, where `deep`, of each in the
+/// directories in it, by its path from it.
+fn files(dir: &Path, extension: &str, deep: bool) -> io::Result<Vec<(String, String)>> {
+    let mut files = Vec::new();
     for entry in fs::read_dir(dir)? {
         let path = entry?.path();
-        if !path.is_file() || path.extension().is_none_or(|e| e != extension) {
+        let within = deep && path.is_dir();
+        if !within && !(path.is_file() && path.extension().is_some_and(|e| e == extension)) {
             continue;
         }
-        let (Some(name), Some(stem)) = (
-            path.file_name().and_then(|n| n.to_str()),
-            path.file_stem().and_then(|s| s.to_str()),
-        ) else {
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("a file's name in {} is not UTF-8", dir.display()),
             ));
         };
-        if taken(name) {
-            files.insert(stem.to_string(), fs::read_to_string(&path)?);
+        if within {
+            for (inner, text) in self::files(&path, extension, true)? {
+                files.push((format!("{name}/{inner}"), text));
+            }
+        } else {
+            files.push((name.to_string(), fs::read_to_string(&path)?));
         }
     }
     Ok(files)
 }
 
 impl Source {
-    /// The flow these files make, each by its path within the flow's directory and its text, as [`read`] takes the
-    /// files of a directory: `flow.toml`, every other file directly in it whose name ends in `.toml` as the file of the
-    /// cell its name gives, and every file directly in `rules/` whose name ends in `.md` as the set of rules its name
-    /// gives. Other files are left out. None where there is no `flow.toml` among them.
+    /// The flow these files make, each by its path from the flow's directory and its text, as [`read`] takes the files
+    /// of a directory: laid out one thing to a file where a file of `cells/` is among them, else as it was written
+    /// before. Other files are left out. None where there is no `flow.toml` among them.
     pub fn of_files(files: impl IntoIterator<Item = (String, String)>) -> Option<Source> {
+        let files: Vec<(String, String)> = files.into_iter().collect();
+        let mut source = Source {
+            laid_out: (files.iter()).any(|(path, _)| matches!(laid_out(path), Some(Kept::Cell(_)))),
+            ..Source::default()
+        };
         let mut flow = None;
-        let mut cells = BTreeMap::new();
-        let mut rules = BTreeMap::new();
         for (path, text) in files {
-            match path.split_once('/') {
-                None if path == FLOW_FILE => flow = Some(text),
-                None => {
-                    if let Some(id) = path.strip_suffix(".toml") {
-                        cells.insert(id.to_string(), text);
-                    }
-                }
-                Some((RULES_DIR, name)) if !name.contains('/') => {
-                    if let Some(name) = name.strip_suffix(".md") {
-                        rules.insert(name.to_string(), text);
-                    }
-                }
-                Some(_) => {}
+            if path == FLOW_FILE {
+                flow = Some(text);
+            } else {
+                source.add(&path, text);
             }
         }
-        Some(Source {
-            flow: flow?,
-            cells,
-            rules,
-        })
+        source.flow = flow?;
+        Some(source)
+    }
+
+    /// Keeps a file, by its path from the flow's directory, where it is one that a flow of its layout is made of.
+    fn add(&mut self, path: &str, text: String) {
+        let kept = if self.laid_out {
+            laid_out(path)
+        } else {
+            written_before(path)
+        };
+        match kept {
+            Some(Kept::Cell(id)) => {
+                self.cells.insert(id.to_string(), text);
+            }
+            Some(Kept::Rules(name)) => {
+                self.rules.insert(name.to_string(), text);
+            }
+            Some(Kept::File) => {
+                self.files.insert(path.to_string(), text);
+            }
+            None => {}
+        }
     }
 }
 
-/// `flow.toml`: what belongs to the flow as a whole.
+/// What a file of a flow is kept as.
+enum Kept<'a> {
+    /// The file of the cell of this id.
+    Cell(&'a str),
+    /// The set of rules of this name, of a flow written before it was laid out one thing to a file.
+    Rules(&'a str),
+    /// Another file of a flow laid out one thing to a file, kept by its path.
+    File,
+}
+
+/// What a file of a flow laid out one thing to a file is kept as, by its path from the flow's directory; none where it
+/// is none that the flow is made of.
+fn laid_out(path: &str) -> Option<Kept<'_>> {
+    let (dir, name) = path.rsplit_once('/')?;
+    let stem = name.strip_suffix(".toml")?;
+    let under = |root: &str| dir == root || dir.starts_with(&format!("{root}/"));
+    if dir == CELLS_DIR {
+        Some(Kept::Cell(stem))
+    } else if dir == LINES_DIR || dir == TESTS_DIR || under(BLOCKS_DIR) || under(DATA_DIR) || under(TRIGGERS_DIR) {
+        Some(Kept::File)
+    } else {
+        (path == RULES_FILE).then_some(Kept::File)
+    }
+}
+
+/// What a file of a flow written before it was laid out one thing to a file is kept as, by its path from the flow's
+/// directory: every `.toml` file directly in it but `flow.toml` as a cell's, and every `.md` file directly in `rules/`
+/// as a set of rules; none where it is none that the flow is made of.
+fn written_before(path: &str) -> Option<Kept<'_>> {
+    match path.split_once('/') {
+        None if path == FLOW_FILE => None,
+        None => path.strip_suffix(".toml").map(Kept::Cell),
+        Some((RULES_DIR, name)) if !name.contains('/') => name.strip_suffix(".md").map(Kept::Rules),
+        Some(_) => None,
+    }
+}
+
+/// `flow.toml` of a flow written before it was laid out one thing to a file: what belongs to the flow as a whole, its
+/// lines, its blocks and its named tests among it.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FlowFile {
@@ -120,6 +236,23 @@ pub struct FlowFile {
     /// The named tests the cells use, by name.
     #[serde(default)]
     pub tests: BTreeMap<String, TestFile>,
+}
+
+/// `flow.toml` of a flow laid out one thing to a file: what is the flow's as a whole. Its lines, blocks and named tests
+/// are each in a file of its own.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LaidOutFlowFile {
+    /// The flow's name.
+    pub name: String,
+    /// The ids of the cells, in the order the walk takes them.
+    pub order: Vec<String>,
+    /// The limits of everything that repeats, for each cell that sets none of its own.
+    pub limits: LimitsFile,
+    /// The engine's own data the flow uses, each by its name: a file of `../data/` of that name defines it, and none of
+    /// the flow's own blocks has the name.
+    #[serde(default)]
+    pub data: Vec<String>,
 }
 
 /// The limits as written. They are read as any whole number so that one that is not positive is a fault of the
@@ -155,8 +288,28 @@ pub struct LineFile {
     pub system: Vec<String>,
 }
 
-/// A block as written.
-#[derive(Clone, Debug, Deserialize)]
+/// The file of a line, in a flow laid out one thing to a file.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LaidOutLineFile {
+    /// The line's agents only read: they edit no file and change nothing of the repository. A line that writes code,
+    /// tests or anything else it commits leaves it out.
+    #[serde(default)]
+    pub reads_only: bool,
+    /// How many levels above its item's the line's rounds run at, none above the highest an item may be at; none
+    /// where it is left out.
+    #[serde(default)]
+    pub levels_above: u32,
+    /// The sets of rules for the agents that the system prompt of the line's session holds, each by its name in
+    /// [`RULES_FILE`], in the order they stand in it; none where it is left out. The rest of the system prompt is the
+    /// same for every line, and is said beside the flows.
+    #[serde(default)]
+    pub rules: Vec<String>,
+}
+
+/// A block as written: in `flow.toml`, in a file of the flow's `blocks/`, or, of the engine's own data, in a file of
+/// `../data/`.
+#[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlockFile {
     /// The values of a block that is a choice; a block with none is not one.
@@ -176,6 +329,52 @@ pub struct BlockFile {
     /// What the block is, in a sentence, for whoever reads the flow: the owner's page shows it with the block and with
     /// each cell that reads or writes it.
     pub what: Option<String>,
+    /// The field of a return that a cell writes the block through, where it writes it through one and not as a block
+    /// under the block's name: a name of a field of the engine's.
+    pub field: Option<String>,
+}
+
+/// A trigger as written in a file of `../triggers/`, by the name of its file: one standing on a block with no content,
+/// which it declares, which the outside or people write; or, in `of_a_cell/`, one that every cell naming it has its own
+/// of, `{cell}` in `block` standing for the id of the cell in small letters.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TriggerFile {
+    /// The block it stands on.
+    pub block: String,
+    /// The source outside the work that writes the block, where one does: a name of a source the engine has.
+    pub outside: Option<String>,
+    /// People write the block.
+    #[serde(default)]
+    pub people: bool,
+    /// What the engine says of what happened, where it says something: the name of a place it fills in a run.
+    pub detail: Option<String>,
+    /// The data the agent reads for it, each among those its cell is given.
+    #[serde(default)]
+    pub read: Vec<String>,
+    /// What a cell does for it, where the cell says nothing of its own.
+    #[serde(rename = "do")]
+    pub does: Option<String>,
+}
+
+/// A rule as written in a file of `../triggers/of_a_datum/`, which makes a trigger of each datum of a flow: a cell names
+/// it by `name`, `{datum}` there standing for the datum's name, and it stands on the datum.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OfADatumFile {
+    /// The name of a datum's trigger, `{datum}` standing for the datum's name.
+    pub name: String,
+    /// The data the agent reads for it, `{datum}` standing for the datum's name.
+    #[serde(default)]
+    pub read: Vec<String>,
+}
+
+/// A set of rules for the agents as [`RULES_FILE`] names it.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RulesSetFile {
+    /// Its file, beside [`RULES_FILE`].
+    pub file: String,
 }
 
 /// A named test as written: a test of the values of blocks of the work itself.
@@ -211,6 +410,22 @@ pub struct CellFile {
     /// The named tests that must hold before the cell.
     #[serde(default)]
     pub requires: Vec<String>,
+    /// What runs the cell, each a trigger by its name, in the order it names them: a trigger of `../triggers/` or of
+    /// its `of_a_cell/` by the name of its file, or one a rule of `../triggers/of_a_datum/` makes of a datum of the
+    /// flow. A file names these and its `context`, or one of the forms before them, not two.
+    #[serde(default)]
+    pub triggers: Vec<String>,
+    /// What the cell does for a trigger, by the trigger's name: each among `triggers`.
+    #[serde(default, rename = "do")]
+    pub does: BTreeMap<String, String>,
+    /// The data the cell's session must hold, its context, in the order it names them: each filled in by its kind.
+    /// Only an agent cell has a session to fill.
+    #[serde(default)]
+    pub context: Vec<String>,
+    /// The kind the cell is given each datum of its `context` in, by the datum's name: each among `context`, and each
+    /// datum of `context` has one.
+    #[serde(default)]
+    pub kinds: BTreeMap<String, InputKind>,
     /// The blocks whose new version runs the cell, in the order it names them.
     #[serde(default)]
     pub runs_on: Vec<String>,
@@ -226,7 +441,7 @@ pub struct CellFile {
     #[serde(default)]
     pub give: BTreeMap<String, GiveFile>,
     /// The old form of `runs_on` and `given`, one list for both: each block of it runs the cell, and an agent cell is
-    /// given it. A file names this list or the two, not both.
+    /// given it. A file names this list, the two, or `triggers` and `context`: one of the three forms.
     #[serde(default)]
     pub inputs: Vec<String>,
     /// The old form of `give`, by the block's name: each a block among `inputs`. Of an engine cell, which is given

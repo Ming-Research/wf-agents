@@ -446,7 +446,19 @@ fn words(what: &FaultKind) -> String {
         F::TakenNotRead { block } => {
             format!("the cell says how it takes {block}, but {block} is not among the blocks it reads")
         }
-        F::TwoForms => "name them one way: either inputs, or runs_on and given".to_string(),
+        F::TwoForms => "name them one way: inputs, runs_on and given, or triggers and context".to_string(),
+        F::NoSuchData { name } => {
+            format!("the flow names {name} among the engine's own data, but no file of ../data/ defines {name}")
+        }
+        F::NoSuchTrigger { trigger } => {
+            format!("the cell names the trigger {trigger}, which nothing in ../triggers/ defines")
+        }
+        F::ReadNotInContext { trigger, block } => {
+            format!("the trigger {trigger} has the agent read {block}, but {block} is not in the cell's context")
+        }
+        F::NotATrigger { trigger } => {
+            format!("the cell says what it does for {trigger}, but {trigger} is not among its triggers")
+        }
         F::EngineIsGiven { block } => {
             format!("an engine's cell says how it is given {block}, but it has no session")
         }

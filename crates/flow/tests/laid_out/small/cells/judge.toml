@@ -1,0 +1,12 @@
+# A cell that judges the plan: it writes a choice and its opinions, which the planning cell reads.
+title = "Judge the plan"
+kind = "agent"
+effort = "high"
+line = "review"
+task = "Judge the plan, and say whether it needs a design."
+triggers = ["plan_changed"]
+context = ["plan"]
+outputs = ["needs_design", "opinions"]
+
+[kinds]
+plan = "last_and_latest"

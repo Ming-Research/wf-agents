@@ -1,0 +1,12 @@
+# How a datum is put into a session of the tests, by its kind.
+choice = ", with the value `{value}`"
+held = "## `{block}`, version {number}, in this session already"
+
+[latest]
+text = "## `{block}`, version {number}{choice}\n\n{content}"
+
+[last_and_latest]
+text = "## `{block}`, {which_version}\n\n{change}"
+
+[all]
+text = "## `{block}`, version {first_number}{choice}\n\n{content}\n\n{each_version}"

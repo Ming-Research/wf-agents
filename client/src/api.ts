@@ -139,8 +139,16 @@ export type What =
   | { kind: 'describedNotRunOn'; block: string }
   /// In the old form, the cell says how or why it takes the block, and it is not among its inputs.
   | { kind: 'takenNotRead'; block: string }
-  /// The cell names what it takes both in the old form and in the new.
+  /// The cell names what it takes in two forms of three.
   | { kind: 'twoForms' }
+  /// The flow names among the engine's own data one that no file beside the flows defines.
+  | { kind: 'noSuchData'; name: string }
+  /// The cell names a trigger that nothing beside the flows defines.
+  | { kind: 'noSuchTrigger'; trigger: string }
+  /// A trigger of an agent's cell has its agent read a datum that the cell's context does not hold.
+  | { kind: 'readNotInContext'; trigger: string; block: string }
+  /// The cell says what it does for a trigger that is not among its triggers.
+  | { kind: 'notATrigger'; trigger: string }
   | { kind: 'engineIsGiven'; block: string }
   /// In the new form, an agent's cell that nothing runs.
   | { kind: 'runByNothing' }
