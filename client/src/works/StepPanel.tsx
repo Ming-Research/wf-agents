@@ -1,19 +1,22 @@
 // The panel docked at the right of a work's history: everything about the step chosen (a run: why it ran, what it
-// started from, each round with what it was told and returned, its calls and how it ended; a write: the block, who, its value, whether it changed the
-// meaning, and its content; an act of the owner's), or the cell chosen (how it stands, why it would run, what its
-// record knows of each block it reads), or, with nothing chosen, every block that has versions, each version with its
-// content. A content is read only when the owner opens it.
+// started from, each round with what it ran on, took, was filled with, was told and returned, its calls and how it
+// ended; a write: the block, who, its value, whether it changed the meaning, and its content; an act of the owner's),
+// or the cell chosen (how it stands, why it would run, what its record knows of each block it reads), or what the work
+// used (Usage.tsx), or, with nothing chosen, every block that has versions, each version with its content. A content
+// is read only when the owner opens it.
 
-import type { ReactNode } from 'react';
+import { type ReactNode, useCallback } from 'react';
 
 import type { Flow } from '../api';
 import { ListRow, Panel, PanelPart, StatusLine, type Tone } from '../parts';
 import type { Fold } from '../Side';
-import type { Block, CallRow, Handed, Round, RoundPage, Run, Step, ToldPage, WorkPage } from '../works-api';
+import type { Block, CallRow, Doing, Handed, Round, RoundPage, Run, Step, ToldPage, WorkPage } from '../works-api';
 import type { Chosen } from './History';
 import { findRun } from './placing';
 import { Opener, StateMark, cellNowWords } from './marks';
+import { ContextKeys, DoingNow, Filled, RanKeys, SystemPrompt, TookKeys } from './Round';
 import { RoundTold } from './Told';
+import { UsagePanel } from './Usage';
 import {
   RUN_WORDS,
   STATE_WORDS,
@@ -23,7 +26,6 @@ import {
   callWords,
   causeRest,
   clock,
-  dollars,
   duration,
   fullTime,
   givenWords,
@@ -33,8 +35,6 @@ import {
   runTook,
   sessionWords,
   spentWords,
-  tokens,
-  tokensWords,
   unmetWords,
   writerWords,
 } from './words';
@@ -47,6 +47,10 @@ export interface Reader {
   /// What a round was told and returned, as its carrier kept them; kept once read only where the round had ended.
   told(run: number, number: number, ended: boolean): Promise<ToldPage>;
   call(call: number): Promise<string | null>;
+  /// The system prompt the line's session of this number, the line's first being none, began with; kept once read.
+  system(line: string, session: number): Promise<string>;
+  /// What the agent of a round was last seen doing, the latest last; read anew each time.
+  doing(run: number, number: number): Promise<Doing[]>;
 }
 
 /// What every panel of a work is given.
@@ -116,9 +120,13 @@ function CallLine({ row, reader, abandoned }: { row: CallRow; reader: Reader; ab
   );
 }
 
-/// One round: what it was given, what came back, when it began and ended, and what it took; then what it was told
-/// and what it returned, as its carrier kept them.
-function RoundPart({ run, round, reader }: { run: Run; round: Round; reader: Reader }) {
+/// One round: what it was given, what came back, when it began and ended, what it ran on, what it took, the context it
+/// ended with, what was filled into its session and, while it is under way, what its agent is doing, read only while
+/// the panel is `shown`; then the system prompt of its session, and what it was told and what it returned, as its
+/// carrier kept them.
+function RoundPart({ run, round, reader, shown }: { run: Run; round: Round; reader: Reader; shown: boolean }) {
+  const doing = useCallback(() => reader.doing(run.run, round.number), [reader, run.run, round.number]);
+  const session = round.session;
   const given = round.given;
   const back = round.back;
   const when =
@@ -202,11 +210,19 @@ function RoundPart({ run, round, reader }: { run: Run; round: Round; reader: Rea
             </>
           )}
         </dd>
+        {(session !== null || round.tries.length > 0) && (
+          <>
+            <dt>Ran</dt>
+            <dd>
+              <RanKeys round={round} />
+            </dd>
+          </>
+        )}
         {round.spent && (
           <>
             <dt>Took</dt>
             <dd>
-              {dollars(round.spent.usdMicros)}, {tokensWords(round.spent)}
+              <TookKeys spent={round.spent} />
             </dd>
           </>
         )}
@@ -214,12 +230,28 @@ function RoundPart({ run, round, reader }: { run: Run; round: Round; reader: Rea
           <>
             <dt>Context</dt>
             <dd>
-              {tokens(round.context)} tokens at its end
-              {round.compactions > 0 && `, the session compacted ${round.compactions === 1 ? 'once' : `${round.compactions} times`}`}
+              <ContextKeys context={round.context} compactions={round.compactions} />
+            </dd>
+          </>
+        )}
+        {round.tries.some((t) => t.filled.length > 0) && (
+          <>
+            <dt>Filled</dt>
+            <dd>
+              <Filled tries={round.tries} />
+            </dd>
+          </>
+        )}
+        {round.ended === null && session !== null && (
+          <>
+            <dt>Doing</dt>
+            <dd>
+              <DoingNow load={doing} shown={shown} />
             </dd>
           </>
         )}
       </dl>
+      {session !== null && <SystemPrompt load={() => reader.system(session.line, session.number)} />}
       <RoundTold
         load={() => reader.told(run.run, round.number, round.ended !== null)}
         ended={round.ended}
@@ -296,7 +328,7 @@ export function RunPanel({ run, page, reader, fold }: PanelProps & { run: Run })
         </ul>
       </PanelPart>
       {run.rounds.map((round) => (
-        <RoundPart key={round.number} run={run} round={round} reader={reader} />
+        <RoundPart key={round.number} run={run} round={round} reader={reader} shown={!fold.folded} />
       ))}
       <PanelPart label="Calls" count={run.calls.length} last>
         {run.calls.length === 0 ? (
@@ -574,6 +606,7 @@ export function BlocksPanel({ page, reader, fold }: PanelProps) {
 export function ChosenPanel(props: PanelProps & { chosen: Chosen }) {
   const { chosen, page } = props;
   if (chosen && 'cell' in chosen) return <WorkCellPanel {...props} cell={chosen.cell} />;
+  if (chosen && 'usage' in chosen) return <UsagePanel {...props} />;
   const step = chosen && 'step' in chosen ? page.steps[chosen.step] : undefined;
   if (!step) return <BlocksPanel {...props} />;
   switch (step.kind) {

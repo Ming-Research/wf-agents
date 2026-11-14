@@ -13,6 +13,8 @@ import {
   fixtureProjects,
   fixtureRound,
   fixtureTold,
+  fixtureDoing,
+  fixtureSystem,
   fixtureVersion,
   fixtureWork,
 } from './fixtures';
@@ -79,6 +81,8 @@ function fixtureSource(over: Partial<Source> = {}): TestSource {
       return fixtureRound(n, run, round);
     },
     loadTold: async (n, run, round) => fixtureTold(n, run, round),
+    loadDoing: async (n, run, round) => fixtureDoing(n, run, round),
+    loadSystem: async (n, line, session) => fixtureSystem(n, line, session),
     loadCall: async (n, call) => fixtureCall(n, call),
     act: async (work, what) => {
       s.acts.push({ work, what });

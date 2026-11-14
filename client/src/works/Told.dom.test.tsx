@@ -13,6 +13,8 @@ import {
   fixtureProjects,
   fixtureRound,
   fixtureTold,
+  fixtureDoing,
+  fixtureSystem,
   fixtureVersion,
   fixtureWork,
 } from './fixtures';
@@ -42,6 +44,8 @@ function sourceOf(told?: () => ToldPage): Source & { reads: number } {
       s.reads += 1;
       return told ? told() : fixtureTold(n, run, round);
     },
+    loadDoing: async (n: number, run: number, round: number) => fixtureDoing(n, run, round),
+    loadSystem: async (n: number, line: string, session: number) => fixtureSystem(n, line, session),
     loadCall: async (n: number, call: number) => fixtureCall(n, call),
     act: async () => null,
     changes: () => () => undefined,
@@ -120,7 +124,10 @@ describe('what a round was told and returned', () => {
     if (told.back.kind !== 'returned') throw new Error('the fixture returned nothing');
     expect(texts(round, 'pre.content')).toEqual([told.message, told.back.structured]);
     expect(button(round, 'Show structured return')).toBeUndefined();
-    expect(round.textContent).toContain('4 turns, 1m 58s, claude-haiku-5-5');
+    // What the program printed beside the return, by its keys.
+    expect(texts(round, '.keys.small')).toEqual([
+      'num_turns 4duration_ms 118,000modelUsage claude-sonnet-5-5cache_creation_input_tokens 21,400',
+    ]);
     // What an ended round was told is read once.
     await click(button(round, 'Hide what it was told'));
     await click(button(round, 'Show what it was told'));
@@ -164,7 +171,7 @@ describe('what a round was told and returned', () => {
     expect(texts(round, 'pre.content')).toEqual(['Done.']);
     await click(button(round, 'Show structured return'));
     expect(texts(round, 'pre.content')).toEqual(['Done.', '{\n  "asks": []\n}']);
-    expect(round.textContent).toContain('1 turn');
+    expect(round.textContent).toContain('num_turns 1');
   });
 
   it('says in one muted line that nothing was kept of a round that ended', async () => {

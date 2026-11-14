@@ -838,3 +838,31 @@ textarea:disabled {
   margin-left: var(--space-2);
   color: var(--red-text);
 }
+
+/* Where a work's time went: one block for each stretch of a model or of the tools, and one for each stretch nothing
+   ran in, on a muted ground; the console's item window and a work's usage draw it alike. */
+.us-track {
+  position: relative;
+  height: var(--space-8);
+  border-radius: var(--corner);
+  background: var(--track-ground);
+}
+
+.us-block {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--corner);
+}
+
+.us-model {
+  background: var(--track-model);
+}
+
+.us-tool {
+  background: var(--track-tool);
+}
+
+.us-gap {
+  background: var(--track-gap);
+}

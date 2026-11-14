@@ -22,6 +22,8 @@ import type {
   CellNow,
   CellState,
   Copies,
+  DoingPage,
+  Fill,
   Handed,
   Item,
   Items,
@@ -32,6 +34,7 @@ import type {
   Run,
   Spent,
   Step,
+  SystemPage,
   ToldPage,
   Unmet,
   Version,
@@ -167,6 +170,8 @@ class History {
   private place = 0;
   private runs = 0;
   private calls = 0;
+  /// The lines a round has run on: each line's first round begins its one session.
+  private readonly lines = new Set<string>();
   time: number;
   readonly steps: Step[] = [];
   readonly versions = new Map<string, Version[]>();
@@ -269,8 +274,25 @@ class History {
           ? { kind: 'results', calls: run.calls.slice(-before.back.asks.length).map((c) => c.call) }
           : { kind: 'task' };
     const minutes = spec.minutes ?? 3;
+    const number = run.rounds.length + 1;
+    const defined = FLOW.cells.find((c) => c.id === run.cell);
+    const line = defined?.line ?? null;
+    const begins = line !== null && !this.lines.has(line);
+    if (line !== null) this.lines.add(line);
+    // What was filled into the session: the parts it keeps where it begins, and each datum the cell is given that has
+    // a version, with the task; the results of calls; why the round before was sent back.
+    const data = (defined?.given ?? []).flatMap((block): Fill[] => {
+      const v = this.current(block);
+      return v ? [{ kind: 'whole', block, version: v.at }] : [];
+    });
+    const fills: Fill[] =
+      given.kind === 'results'
+        ? [{ kind: 'results', calls: given.calls }]
+        : given.kind === 'sentBack'
+          ? [{ kind: 'sentBack', round: number - 1 }]
+          : [...(begins ? [{ kind: 'part' as const, part: 'work' }, { kind: 'part' as const, part: 'outputs' }] : []), ...data, { kind: 'part', part: 'task' }];
     const round: Round = {
-      number: run.rounds.length + 1,
+      number,
       began: this.time,
       ended: null,
       given,
@@ -278,6 +300,11 @@ class History {
       spent: null,
       context: null,
       compactions: 0,
+      session: line === null ? null : { line, number: 0 },
+      tries:
+        line === null
+          ? []
+          : [{ attempt: 1, ran: { level: '2', model: 'claude-sonnet-5-5', effort: defined?.effort ?? null }, filled: [fills] }],
     };
     run.rounds.push(round);
     const results = given.kind === 'results' ? given.calls.map((c) => this.callPages.get(c) as CallPage) : [];
@@ -546,9 +573,10 @@ const PLAN_TOLD: ToldPage = {
         ),
         turns: 4,
         durationMs: 118_000,
-        models: ['claude-haiku-5-5'],
+        models: ['claude-sonnet-5-5'],
+        cacheCreationInputTokens: 21_400,
       },
-      ran: { level: '1', model: 'claude-haiku-5-5', effort: 'high' },
+      ran: { level: '2', model: 'claude-sonnet-5-5', effort: 'high' },
     },
   ],
   leftOut: 0,
@@ -854,6 +882,28 @@ export function fixtureTold(n: number, run: number, round: number): ToldPage {
   const history = work(n).history;
   if (!history.rounds.has(`${run}/${round}`)) throw new Error(`no round ${round} of run ${run}`);
   return history.told.get(`${run}/${round}`) ?? { tries: [], leftOut: 0 };
+}
+
+/// What the agent of a round under way was last seen doing; nothing for a round that ended.
+export function fixtureDoing(n: number, run: number, round: number): DoingPage {
+  const found = work(n).page.steps.find((s) => s.kind === 'run' && s.run === run);
+  const r = found?.kind === 'run' ? found.rounds.find((x) => x.number === round) : undefined;
+  if (!r) throw new Error(`no round ${round} of run ${run}`);
+  if (r.ended !== null) return { doing: [] };
+  return {
+    doing: [
+      { kind: 'tool', name: 'Read', on: 'client/src/sizes.ts' },
+      { kind: 'said', text: 'The width is kept under the key the panel names; I will read it back as the page loads.' },
+      { kind: 'tool', name: 'Edit', on: 'client/src/sizes.ts' },
+      { kind: 'tool', name: 'Bash', on: 'npm run typecheck' },
+    ],
+  };
+}
+
+/// The system prompt a line's session began with.
+export function fixtureSystem(n: number, line: string, session: number): SystemPage {
+  work(n);
+  return { line, session, text: `# How you work here\n\nYou are the ${line} of this work.` };
 }
 
 export function fixtureCall(n: number, call: number): CallPage {

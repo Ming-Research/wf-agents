@@ -103,6 +103,13 @@
   --red-text: #c53030;
   --on-colour: #ffffff;
 
+  /* Where a work's time went: a model's stretches in the accent, the tools' in a teal no meaning has, those nothing
+     ran in grey, on a muted ground. */
+  --track-ground: #818b981f;
+  --track-model: var(--accent);
+  --track-tool: #14a3a8;
+  --track-gap: #e8ecf2;
+
   color-scheme: light;
 }
 
@@ -135,6 +142,9 @@
     --orange-text: #ff9a3c;
     --red-text: #ff6b70;
     --on-colour: #0f1012;
+    --track-ground: #656c7633;
+    --track-tool: #1f7f84;
+    --track-gap: #2a2d33;
     color-scheme: dark;
   }
 }
@@ -163,6 +173,9 @@
   --orange-text: #ff9a3c;
   --red-text: #ff6b70;
   --on-colour: #0f1012;
+  --track-ground: #656c7633;
+  --track-tool: #1f7f84;
+  --track-gap: #2a2d33;
   color-scheme: dark;
 }
 

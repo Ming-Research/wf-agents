@@ -40,6 +40,12 @@ function sources(engine: Engine = { slots: 2, taken: 1, paused: null }) {
     loadTold: async () => {
       throw new Error('not read here');
     },
+    loadDoing: async () => {
+      throw new Error('not read here');
+    },
+    loadSystem: async () => {
+      throw new Error('not read here');
+    },
     loadCall: async () => {
       throw new Error('not read here');
     },

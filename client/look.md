@@ -47,6 +47,10 @@ of text are under the tokens.
 | `--*-tint` | 10% over the card | 10% over the card | a fill that says the colour's meaning | `TINT` = 0.09 |
 | `--on-colour` | `#ffffff` | `#0f1012` | words on a filled tag or button | the white on a count tag |
 | `--step` | 4% black | 5% white | one step of hover | ours |
+| `--track-ground` | `#818b981f` | `#656c7633` | the ground of a work's line of time and of a bar of a share | ours |
+| `--track-model` | the accent | the accent | a model's stretch of a work's time, and a bar of a share | ours |
+| `--track-tool` | `#14a3a8` | `#1f7f84` | the tools' and the engine's stretch of a work's time: a teal no meaning has | ours |
+| `--track-gap` | `#e8ecf2` | `#2a2d33` | a stretch of a work's time in which nothing ran | ours |
 
 The dark values are ours: the console has no dark ground. They keep its relations: the card a step lighter than the
 ground, the colours lifted to read on it.

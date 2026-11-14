@@ -82,6 +82,12 @@ function manySource(n: number): ManySource {
       loadVersion: async () => {
         throw new Error('not read here');
       },
+      loadDoing: async () => {
+        throw new Error('not read here');
+      },
+      loadSystem: async () => {
+        throw new Error('not read here');
+      },
       loadRound: async () => {
         throw new Error('not read here');
       },

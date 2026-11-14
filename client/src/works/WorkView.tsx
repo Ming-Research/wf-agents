@@ -1,8 +1,8 @@
-// One work: the view's line with its item's title and project, what it does now, what it has taken and the owner's
-// buttons; its history as a chart; and the panel docked at the chart's right with what the owner chose. What the work
-// waits for, and what the owner writes to it, are in the console's item window. The work is read again each time the
-// interface says it changed and whenever the stream of changes opens again, keeping what the owner has chosen and
-// opened; a read that fails keeps what is shown and says so.
+// One work: the view's line with its item's title and project, what it does now, what it has taken, which opens what
+// the work used in the panel, and the owner's buttons; its history as a chart; and the panel docked at the chart's
+// right with what the owner chose. What the work waits for, and what the owner writes to it, are in the console's item
+// window. The work is read again each time the interface says it changed and whenever the stream of changes opens
+// again, keeping what the owner has chosen and opened; a read that fails keeps what is shown and says so.
 
 import { type CSSProperties, useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -62,6 +62,9 @@ export function readerOf(source: Source, work: number): Reader {
         ? cached<ToldPage>(`t:${run}/${number}`, () => source.loadTold(work, run, number))
         : source.loadTold(work, run, number),
     call: (call) => cached(`c:${call}`, async () => (await source.loadCall(work, call)).result),
+    system: (line, session) =>
+      cached(`s:${line}/${session}`, async () => (await source.loadSystem(work, line, session)).text),
+    doing: async (run, number) => (await source.loadDoing(work, run, number)).doing,
   };
 }
 
@@ -120,6 +123,7 @@ export function WorkScreen({ page, failed = null, onActed, run }: {
     />
   );
   const fold: Fold = { folded, onFold: () => setFolded((f) => !f), edge };
+  const usage = chosen !== null && 'usage' in chosen;
   return (
     <>
       <div className="view-line">
@@ -133,9 +137,15 @@ export function WorkScreen({ page, failed = null, onActed, run }: {
           <NowLine now={summary.now} paused={summary.paused} />
         </span>
         <span className="view-end">
-          <span className="muted small" title={tokensWords(summary.spent)}>
+          <button
+            type="button"
+            className="link small"
+            aria-pressed={usage}
+            title={`${usage ? 'Hide' : 'Show'} what the work used: ${tokensWords(summary.spent)}`}
+            onClick={() => choose(usage ? null : { usage: true })}
+          >
             {spentWords(summary.spent)}
-          </span>
+          </button>
           <ActButtons summary={summary} lines={page.flow.lines.map((l) => l.name)} send={send} />
         </span>
       </div>

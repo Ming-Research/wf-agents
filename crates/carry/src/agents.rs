@@ -67,7 +67,7 @@ use decide::RunId;
 use decide::run::Failure;
 use driver::Policy;
 use engine::Came;
-use service::{Clock, Round, RoundReply, Rounds, SystemClock, Teller, Told};
+use service::{Clock, Doing, Round, RoundReply, Rounds, SystemClock, Teller, Told};
 use store::WorkNumber;
 use tokio::process::Command;
 use uuid::Uuid;
@@ -241,6 +241,23 @@ impl Rounds for Agents {
 
     fn told(&self, work: WorkNumber, run: RunId, round: usize) -> Result<Told, String> {
         kept::told(&self.inner.data, work, run, round)
+    }
+
+    fn system(&self, work: WorkNumber, line: &str, number: u32) -> Result<Option<String>, String> {
+        let session = session::session(self.inner.installation, work, line, number);
+        let at = system::kept_at(&self.inner.data, session);
+        match std::fs::read_to_string(&at) {
+            Ok(system) => Ok(Some(system)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(format!(
+                "{}: {e}",
+                at.strip_prefix(&self.inner.data).unwrap_or(&at).display()
+            )),
+        }
+    }
+
+    fn doing(&self, work: WorkNumber, run: RunId, round: usize) -> Result<Vec<Doing>, String> {
+        kept::doing(&self.inner.data, work, run, round)
     }
 
     fn policy(&self) -> Option<Policy> {

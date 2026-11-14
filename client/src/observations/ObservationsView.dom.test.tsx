@@ -50,6 +50,8 @@ function engine(refuse?: string) {
     loadVersion: never,
     loadRound: never,
     loadTold: never,
+    loadDoing: never,
+    loadSystem: never,
     loadCall: never,
     act: async () => null,
     changes: (onChanged) => {

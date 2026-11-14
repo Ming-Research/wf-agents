@@ -11,6 +11,8 @@
 //! - [`WorkPage`]: one work, as it is now and step by step from its start.
 //! - [`RoundPage`], [`VersionPage`], [`CallPage`]: the content the history leaves out.
 //! - [`ToldPage`]: what a round was told and what came back of it, as its carrier kept them.
+//! - [`SystemPage`]: the system prompt a line's session began with, as its carrier kept it.
+//! - [`DoingPage`]: what the agent of a round was last seen doing, as its carrier keeps it as it comes.
 //! - [`Act`], [`NewItem`]: what the owner does on the pages.
 //! - [`Engine`], [`EngineAct`]: the engine as a whole, its slots and the pause of everything, and what the owner
 //!   does to it.
@@ -28,7 +30,7 @@ use flow::Kind;
 use serde::{Deserialize, Serialize};
 use service::{Levels, Projects};
 use store::{ItemNumber, WorkNumber};
-use work::{Ask as AskOf, Back as BackOf, Call as CallOf, Given as GivenOf, Time, Why, Work};
+use work::{Ask as AskOf, Back as BackOf, Call as CallOf, Fill as FillOf, Given as GivenOf, Time, Why, Work, sessions};
 
 use crate::view::Flow;
 
@@ -674,6 +676,49 @@ pub struct Round {
     pub context: Option<u64>,
     /// How often its session was compacted during it.
     pub compactions: u32,
+    /// The session of its line it runs in; none for a round of a cell that is not on a line, as an engine's act is.
+    /// Worked out for a work's page only, as are its tries.
+    pub session: Option<RoundSession>,
+    /// Each try of it the records hold, in order; none for a try that began before tries were recorded.
+    pub tries: Vec<RoundTry>,
+}
+
+/// The session of its line a round runs in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoundSession {
+    pub line: String,
+    /// Which of the line's sessions it is, as the records count them: the line's first is none.
+    pub number: u32,
+}
+
+/// A try of a round, as the records hold it: what it ran on, and what was filled into its session.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoundTry {
+    /// Its number in its round, the first being one.
+    pub attempt: usize,
+    pub ran: RanOn,
+    /// Each time something was filled into its session, in order, what was: what the session lacked of what the
+    /// round's cell is given, as the flow's files name it. A try is filled again where its session is begun anew under
+    /// it.
+    pub filled: Vec<Vec<Fill>>,
+}
+
+/// One thing filled into a session, as the flow's files name it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Fill {
+    /// A part of the message that the session keeps, by its `part` in the flow's message.
+    Part { part: String },
+    /// A version of a datum of the cell's context, whole.
+    Whole { block: String, version: u64 },
+    /// A version of a datum, as what changed in it since an earlier version, which the session held.
+    Change { block: String, version: u64, since: u64 },
+    /// The results of these calls.
+    Results { calls: Vec<u64> },
+    /// Why what the round of this number of the same run returned was sent back.
+    SentBack { round: usize },
 }
 
 /// What a round is given.
@@ -974,11 +1019,84 @@ pub enum TryBack {
         duration_ms: Option<u64>,
         /// The models it was answered by, by name.
         models: Vec<String>,
+        /// The tokens it wrote to the prompt cache, as the program printed them; the records count them among those
+        /// not read from the cache.
+        cache_creation_input_tokens: Option<u64>,
     },
     /// The program said the try failed, for this reason.
     Failed { why: String },
     /// What was kept of it could not be read, for this reason.
     Unreadable { why: String },
+}
+
+/// The system prompt a line's session began with, as it was kept with the session: every round of the session is
+/// given it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemPage {
+    pub line: String,
+    /// Which of the line's sessions it is, as the records count them: the line's first is none.
+    pub session: u32,
+    pub text: String,
+}
+
+/// What the agent of a round was last seen doing, as its program said it as it went: the last few things its latest
+/// try did, the latest last.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DoingPage {
+    pub doing: Vec<Doing>,
+}
+
+/// A thing an agent was seen doing.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum Doing {
+    /// It used the tool of this name, on this where its input names what: a command, a path, a pattern.
+    Tool { name: String, on: Option<String> },
+    /// It said this; the start of it where it is long.
+    Said { text: String },
+    /// Its session was being compacted.
+    Compacting,
+}
+
+impl Fill {
+    fn of(fill: &FillOf) -> Fill {
+        match fill {
+            FillOf::Part { part, .. } => Fill::Part { part: part.clone() },
+            FillOf::Whole { block, version } => Fill::Whole {
+                block: block.to_string(),
+                version: version.0,
+            },
+            FillOf::Change { block, version, since } => Fill::Change {
+                block: block.to_string(),
+                version: version.0,
+                since: since.0,
+            },
+            FillOf::Results(calls) => Fill::Results {
+                calls: calls.iter().map(|call| call.0).collect(),
+            },
+            FillOf::SentBack { round } => Fill::SentBack { round: *round },
+        }
+    }
+}
+
+impl Doing {
+    fn of(doing: service::Doing) -> Doing {
+        match doing {
+            service::Doing::Tool { name, on } => Doing::Tool { name, on },
+            service::Doing::Said(text) => Doing::Said { text },
+            service::Doing::Compacting => Doing::Compacting,
+        }
+    }
+}
+
+impl DoingPage {
+    pub fn of(doing: Vec<service::Doing>) -> DoingPage {
+        DoingPage {
+            doing: doing.into_iter().map(Doing::of).collect(),
+        }
+    }
 }
 
 /// A call with its result.
@@ -1504,7 +1622,9 @@ impl WorkPage {
                     .collect(),
             })
             .collect();
-        let mut steps: Vec<Step> = runs(kept)?.into_iter().map(Step::Run).collect();
+        let mut runs = runs(kept)?;
+        in_detail(kept, &mut runs);
+        let mut steps: Vec<Step> = runs.into_iter().map(Step::Run).collect();
         for written in &work.records.written {
             let version = (view.blocks.get(&written.block))
                 .and_then(|versions| versions.iter().find(|v| v.at == written.at))
@@ -1676,6 +1796,7 @@ impl ToldPage {
                         turns: r.turns,
                         duration_ms: r.duration_ms,
                         models: r.models,
+                        cache_creation_input_tokens: r.cache_creation_input_tokens,
                     },
                     service::Back::Failed(why) => TryBack::Failed { why },
                     service::Back::Unreadable(why) => TryBack::Unreadable { why },
@@ -1929,7 +2050,51 @@ impl Unmet {
     }
 }
 
-/// Every run of the work, in the order they started, each with its rounds, its calls and how it ended.
+/// Gives each round of the runs the session of its line it runs in, by the records' count, and each try of it the
+/// records hold, with what was filled into its session: what a work's page shows of a round, and nothing else needs,
+/// since working out a round's session counts the line's rounds before it.
+fn in_detail(kept: Kept<'_>, runs: &mut [Run]) {
+    let work = kept.work;
+    let records = &work.records;
+    // The line of each run's cell, where the flow puts it on one.
+    let line_of = |run: RunId| {
+        let cell = records.started.iter().find(|s| s.run == run).map(|s| &s.cell)?;
+        let spec = kept.flow.cells.iter().find(|spec| spec.id == *cell)?;
+        spec.line.as_deref()
+    };
+    for r in runs {
+        let run = RunId(r.run);
+        let line = line_of(run);
+        for round in &mut r.rounds {
+            let number = round.number;
+            round.session = line.map(|line| {
+                let on_line = |other: RunId| line_of(other) == Some(line);
+                RoundSession {
+                    line: line.to_string(),
+                    number: sessions::of_round(work, line, on_line, run, number).0,
+                }
+            });
+            round.tries = (work.ran.iter())
+                .filter(|ran| ran.run == run && ran.round == number)
+                .map(|ran| RoundTry {
+                    attempt: ran.attempt,
+                    ran: RanOn {
+                        level: ran.on.level.clone(),
+                        model: ran.on.model.clone(),
+                        effort: ran.on.effort.clone(),
+                    },
+                    filled: (work.filled.iter())
+                        .filter(|f| f.run == run && f.round == number && f.attempt == ran.attempt)
+                        .map(|f| f.fills.iter().map(Fill::of).collect())
+                        .collect(),
+                })
+                .collect();
+        }
+    }
+}
+
+/// Every run of the work, in the order they started, each with its rounds, its calls and how it ended; a round's
+/// session and tries are left out, for [`in_detail`] to give where they are shown.
 pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
     let work = kept.work;
     let records = &work.records;
@@ -2006,6 +2171,8 @@ pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
                 spent,
                 context: took.and_then(|t| t.context_tokens),
                 compactions: took.map_or(0, |t| t.compactions),
+                session: None,
+                tries: Vec::new(),
             });
         }
         let mut calls = Vec::new();

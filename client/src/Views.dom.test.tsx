@@ -17,6 +17,8 @@ import {
   fixtureProjects,
   fixtureRound,
   fixtureTold,
+  fixtureDoing,
+  fixtureSystem,
   fixtureVersion,
   fixtureWork,
 } from './works/fixtures';
@@ -38,6 +40,8 @@ const source: Source = {
   loadVersion: async (n, block, at) => fixtureVersion(n, block, at),
   loadRound: async (n, run, round) => fixtureRound(n, run, round),
   loadTold: async (n, run, round) => fixtureTold(n, run, round),
+  loadDoing: async (n, run, round) => fixtureDoing(n, run, round),
+  loadSystem: async (n, line, session) => fixtureSystem(n, line, session),
   loadCall: async (n, call) => fixtureCall(n, call),
   act: async () => null,
   changes: () => () => undefined,

@@ -1,26 +1,32 @@
 //! `GET /api/v1/works/{work}/runs/{run}/rounds/{number}/told`: what a round was told and what came back of it, as
-//! its carrier kept them.
+//! its carrier kept them; `.../doing`: what its agent was last seen doing; and
+//! `GET /api/v1/works/{work}/lines/{line}/sessions/{session}/system`: the system prompt a session began with.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier};
 
 use axum::http::StatusCode;
-use decide::RunId;
+use decide::{RunId, Seq};
 use serde_json::json;
-use service::{Back, Returned, Round, RoundReply, Rounds, Scripted, Told, Try};
+use service::{Back, Doing, Returned, Round, RoundReply, Rounds, Scripted, Told, Try};
 use store::{Store, WorkNumber};
-use work::RanOn;
+use work::{Fill, RanOn};
 
 use crate::{Running, get_json, greeted, pass, post, refused, running, running_carried, trial_script};
 
-/// The script's agents, keeping for each round, by its work, run and number, what it is said here to have been told.
+/// The script's agents, keeping for each round, by its work, run and number, what it is said here to have been told
+/// and what its agent was seen doing, and the system prompt of the engineer's first session of the first work.
 struct Keeping {
     agents: Arc<dyn Rounds>,
     kept: BTreeMap<(u64, u64, usize), Told>,
-    /// The number of the try of the first round that says what it ran on.
+    /// The number of the try of the first round that says what it ran on and what was filled into its session.
     attempt: usize,
+    doing: BTreeMap<(u64, u64, usize), Vec<Doing>>,
 }
+
+/// The system prompt [`Keeping`] kept of the engineer's first session of the first work.
+const SYSTEM: &str = "# How you work here\n\nYou are an engineer.";
 
 impl Rounds for Keeping {
     fn give(&self, round: Round, reply: RoundReply) {
@@ -35,6 +41,12 @@ impl Rounds for Keeping {
                     account: None,
                 },
             );
+            let request = Fill::Whole {
+                block: "request".into(),
+                version: Seq(3),
+            };
+            let fills = vec![Fill::part("task", "Write the plan from the request."), request];
+            reply.teller().filled(self.attempt, fills);
         }
         self.agents.give(round, reply);
     }
@@ -46,6 +58,14 @@ impl Rounds for Keeping {
     fn told(&self, work: WorkNumber, run: RunId, round: usize) -> Result<Told, String> {
         Ok(self.kept.get(&(work.0, run.0, round)).cloned().unwrap_or_default())
     }
+
+    fn system(&self, work: WorkNumber, line: &str, session: u32) -> Result<Option<String>, String> {
+        Ok(((work.0, line, session) == (1, "engineer", 0)).then(|| SYSTEM.to_string()))
+    }
+
+    fn doing(&self, work: WorkNumber, run: RunId, round: usize) -> Result<Vec<Doing>, String> {
+        Ok(self.doing.get(&(work.0, run.0, round)).cloned().unwrap_or_default())
+    }
 }
 
 /// The trial flow run with its script, its agents keeping what each round of `kept` was told.
@@ -55,6 +75,15 @@ fn keeping(kept: BTreeMap<(u64, u64, usize), Told>) -> Running {
 
 /// As [`keeping`], the first round's try of this number saying what it ran on.
 fn keeping_at(kept: BTreeMap<(u64, u64, usize), Told>, attempt: usize) -> Running {
+    keeping_all(kept, attempt, BTreeMap::new())
+}
+
+/// As [`keeping_at`], the agent of each round of `doing` seen doing what it says.
+fn keeping_all(
+    kept: BTreeMap<(u64, u64, usize), Told>,
+    attempt: usize,
+    doing: BTreeMap<(u64, u64, usize), Vec<Doing>>,
+) -> Running {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(dir.path().join("store.sqlite")).unwrap();
     let mut carriers = Scripted::new(trial_script()).carriers();
@@ -62,6 +91,7 @@ fn keeping_at(kept: BTreeMap<(u64, u64, usize), Told>, attempt: usize) -> Runnin
         agents: carriers.agents.clone(),
         kept,
         attempt,
+        doing,
     });
     running_carried(Box::new(store), dir, carriers)
 }
@@ -83,6 +113,7 @@ async fn a_round_is_given_each_try_with_what_came_back() {
         turns: Some(3),
         duration_ms: Some(1500),
         models: vec!["a-model".to_string()],
+        cache_creation_input_tokens: Some(9090),
     };
     let told = Told {
         tries: vec![
@@ -128,6 +159,7 @@ async fn a_round_is_given_each_try_with_what_came_back() {
                         "turns": 3,
                         "durationMs": 1500,
                         "models": ["a-model"],
+                        "cacheCreationInputTokens": 9090,
                     },
                     "ran": null,
                 },
@@ -286,4 +318,101 @@ async fn a_round_there_is_none_of_is_refused_with_why() {
     let (status, words) = refused(router, "/api/v1/works/1/runs/1/rounds/one/told").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(words.starts_with("The path cannot be read: "), "{words}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_round_is_given_each_try_with_what_it_ran_on_and_what_was_filled_into_its_session() {
+    let running = keeping(BTreeMap::new());
+    greeted(&running.router).await;
+    let page = get_json(&running.router, "/api/v1/works/1").await;
+    let run = (page["steps"].as_array().unwrap().iter())
+        .find(|s| s["kind"] == "run" && s["run"] == 1)
+        .expect("the plan's first run")
+        .clone();
+    let round = &run["rounds"][0];
+    assert_eq!(round["session"], json!({ "line": "engineer", "number": 0 }));
+    assert_eq!(
+        round["tries"],
+        json!([{
+            "attempt": 1,
+            "ran": { "level": "3", "model": "claude-opus-5-5", "effort": "high" },
+            "filled": [[
+                { "kind": "part", "part": "task" },
+                { "kind": "whole", "block": "request", "version": 3 },
+            ]],
+        }])
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn what_the_agent_of_a_round_was_last_seen_doing_is_read_from_its_carrier() {
+    let seen = vec![
+        Doing::Tool {
+            name: "Bash".to_string(),
+            on: Some("cargo test".to_string()),
+        },
+        Doing::Said("The tests pass.".to_string()),
+        Doing::Compacting,
+        Doing::Tool {
+            name: "StructuredOutput".to_string(),
+            on: None,
+        },
+    ];
+    let seeing = keeping_all(BTreeMap::new(), 1, BTreeMap::from([((1, 1, 1), seen)]));
+    let router = &seeing.router;
+    greeted(router).await;
+    assert_eq!(
+        get_json(router, "/api/v1/works/1/runs/1/rounds/1/doing").await,
+        json!({
+            "doing": [
+                { "kind": "tool", "name": "Bash", "on": "cargo test" },
+                { "kind": "said", "text": "The tests pass." },
+                { "kind": "compacting" },
+                { "kind": "tool", "name": "StructuredOutput", "on": null },
+            ],
+        })
+    );
+    // A round the records lack is refused; one whose carrier keeps nothing of it is given nothing.
+    assert_eq!(
+        refused(router, "/api/v1/works/1/runs/1/rounds/7/doing").await,
+        (StatusCode::NOT_FOUND, "Work 1 has no round 7 of run 1.".to_string())
+    );
+    assert_eq!(
+        refused(router, "/api/v1/works/9/runs/1/rounds/1/doing").await,
+        (StatusCode::NOT_FOUND, "There is no work 9.".to_string())
+    );
+    let scripted = running();
+    greeted(&scripted.router).await;
+    assert_eq!(
+        get_json(&scripted.router, "/api/v1/works/1/runs/1/rounds/1/doing").await,
+        json!({ "doing": [] })
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_system_prompt_a_session_began_with_is_given_by_the_session_s_number_as_the_records_count_it() {
+    let running = keeping(BTreeMap::new());
+    let router = &running.router;
+    greeted(router).await;
+    assert_eq!(
+        get_json(router, "/api/v1/works/1/lines/engineer/sessions/0/system").await,
+        json!({ "line": "engineer", "session": 0, "text": SYSTEM })
+    );
+    let none = StatusCode::NOT_FOUND;
+    for (path, words) in [
+        (
+            "/api/v1/works/1/lines/engineer/sessions/1/system",
+            "Work 1 kept no system prompt of session 1 of engineer.",
+        ),
+        (
+            "/api/v1/works/1/lines/reviewer/sessions/0/system",
+            "Work 1 kept no system prompt of session 0 of reviewer.",
+        ),
+        (
+            "/api/v1/works/9/lines/engineer/sessions/0/system",
+            "There is no work 9.",
+        ),
+    ] {
+        assert_eq!(refused(router, path).await, (none, words.to_string()), "{path}");
+    }
 }

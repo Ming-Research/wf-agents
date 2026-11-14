@@ -30,8 +30,9 @@ import {
   sessionWords,
 } from './words';
 
-/// What the owner chose on the chart: a step by its place among the steps, a cell, or nothing.
-export type Chosen = { step: number } | { cell: string } | null;
+/// What the owner chose: on the chart, a step by its place among the steps or a cell; in the view's line, what the work
+/// used; or nothing.
+export type Chosen = { step: number } | { cell: string } | { usage: true } | null;
 
 /// The width of the column of times and words at first, and the least and most it is dragged to.
 const STEPS = { first: 260, min: 160, max: 520 };
