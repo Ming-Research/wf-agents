@@ -103,6 +103,7 @@ describe("a card that waits for the owner", () => {
     scene.show([card(1, { kind: 'waits', at: 'R2', on: [{ kind: 'answer', question: 'x' }] }, long, 1)]);
     const words = scene.drawnCard(1)?.where?.words ?? [];
     expect(words.slice(0, 3)).toEqual(['R2', 'Is there a better way', 'answer']);
-    expect(words[3]).toMatch(/^group-trigger.*…$/);
+    expect(words[3].endsWith('…')).toBe(true);
+    expect('group-trigger-cannot-be-dealt-with-at-all'.startsWith(words[3].slice(0, -1))).toBe(true);
   });
 });
