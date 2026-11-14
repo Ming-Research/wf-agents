@@ -16,6 +16,7 @@ fn rebuilt(work: &Work) -> Work {
         moments: work.moments.clone(),
         sessions: work.sessions.clone(),
         ran: work.ran.clone(),
+        observed: work.observed.clone(),
         why_cancelled: work.why_cancelled.clone(),
     }
 }
