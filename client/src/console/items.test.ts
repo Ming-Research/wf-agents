@@ -91,29 +91,38 @@ describe('the tree the console shows', () => {
   });
 });
 
-describe('what a card shows of an item', () => {
-  const waits: Now = {
-    kind: 'waits',
-    at: 'implement',
-    on: [
-      { kind: 'call', call: 1, who: 'owner', what: { kind: 'question', who: 'owner', question: 'Which?' } },
-      { kind: 'call', call: 2, who: 'architect', what: { kind: 'question', who: 'architect', question: 'Where?' } },
-      { kind: 'call', call: 3, who: null, what: { kind: 'tool', name: 'ci', input: '' } },
-      { kind: 'precondition', test: 'confirmed', words: 'The owner confirmed it', by: [{ kind: 'owner' }] },
-      {
-        kind: 'precondition',
-        test: 'may_start',
-        words: 'The items it depends on are merged',
-        by: [{ kind: 'outside', source: 'dependencies' }],
-      },
-      { kind: 'precondition', test: 'checked', words: 'The check before the merge passed', by: [{ kind: 'cell', cell: 'M1' }] },
-      { kind: 'limit', runs: 3 },
-    ],
-  };
+const waits: Now = {
+  kind: 'waits',
+  at: 'implement',
+  on: [
+    { kind: 'call', call: 1, who: 'owner', what: { kind: 'question', who: 'owner', question: 'Which?' } },
+    { kind: 'call', call: 2, who: 'architect', what: { kind: 'question', who: 'architect', question: 'Where?' } },
+    { kind: 'call', call: 3, who: null, what: { kind: 'tool', name: 'ci', input: '' } },
+    { kind: 'precondition', test: 'confirmed', words: 'The owner confirmed it', by: [{ kind: 'owner' }] },
+    {
+      kind: 'precondition',
+      test: 'may_start',
+      words: 'The items it depends on are merged',
+      by: [{ kind: 'outside', source: 'dependencies' }],
+    },
+    { kind: 'precondition', test: 'checked', words: 'The check before the merge passed', by: [{ kind: 'cell', cell: 'M1' }] },
+    { kind: 'limit', runs: 3 },
+  ],
+};
 
-  it('counts the things a work waits for that the owner gives, as the engine says: their questions, the preconditions they can make hold, a run let on', () => {
-    expect(asksOf(waits)).toBe(3);
-    expect(asksOf({ kind: 'paused', by: 'owner', why: null })).toBe(0);
+/// At the check before the merge, which waits for the owner's answers, as the engine says of them.
+const merge: Now = {
+  kind: 'waits',
+  at: 'merge',
+  on: [{ kind: 'precondition', test: 'asked = answered', words: 'asked = answered', by: [{ kind: 'outside', source: 'asked' }] }],
+};
+
+describe('what a card shows of an item', () => {
+  it('counts the questions to the owner that hold the work, and nothing else the owner gives', () => {
+    expect(asksOf({ now: waits })).toBe(1);
+    expect(asksOf({ now: { kind: 'paused', by: 'owner', why: null } })).toBe(0);
+    // At the merge's check, the questions the engine names as holding it.
+    expect(asksOf({ now: merge, holding: ['measure', 'read-the-time'] })).toBe(2);
   });
 
   it('shows the work of an item once it has begun, and while it goes on; until it has begun, the items it waits for', () => {
@@ -125,7 +134,7 @@ describe('what a card shows of an item', () => {
     expect(shown[0].blocked).toBe(1);
     const w = shown[0].children[0];
     expect(w.begun).toBe(true);
-    expect(w.asks).toBe(3);
+    expect(w.asks).toBe(1);
     expect(w.work).toMatchObject({ number: 20, usdMicros: 1_500_000 });
     expect(w.work?.cells.map((c) => c.state)).toEqual(['done', 'resting', 'notYet']);
   });
@@ -147,6 +156,51 @@ describe('what a card shows of an item', () => {
     ]);
     // Not begun, it still says how many items it waits for.
     expect(shown[0].blocked).toBe(1);
-    expect(shown[2].asks).toBe(1);
+    // A precondition the owner makes hold is no question: it marks the card, and counts nothing.
+    expect(shown[2].asks).toBe(0);
+    expect(shown[2].work?.where).toEqual({ cell: 'plan', title: null, says: [['requires', 'read']] });
+  });
+});
+
+describe('where a card says its work waits for the owner', () => {
+  const titles: Record<string, string> = { plan: 'Initial research', implement: 'Implement', merge: 'Check before the merge' };
+  const where = (now: Now, states?: CellNow['state'][]) => {
+    const i: Item = { ...item(1, 'open'), work: work(1, now, states) };
+    return shownTree({ items: [i] }, (flow, cell) => (flow === 'small' ? (titles[cell] ?? null) : null))[0].work?.where;
+  };
+
+  it('names the cell by its id and its title, and what it waits for as keys and values', () => {
+    const answer: Now = { kind: 'waits', at: 'plan', on: [{ kind: 'answer', question: 'scope' }] };
+    expect(where(answer)).toEqual({ cell: 'plan', title: 'Initial research', says: [['answer', 'scope']] });
+    expect(where(merge)).toEqual({
+      cell: 'merge',
+      title: 'Check before the merge',
+      says: [['requires', 'asked = answered']],
+    });
+    // Of what the work waits for, only what the owner gives.
+    expect(where(waits)?.says).toEqual([
+      ['question', 'Which?'],
+      ['requires', 'confirmed'],
+      ['limit', 'runs 3'],
+    ]);
+  });
+
+  it('says a work the owner paused as paused, at the cell it would go on at, apart from a question', () => {
+    expect(where({ kind: 'paused', by: 'owner', why: null }, ['done', 'again', 'notYet'])).toEqual({
+      cell: 'implement',
+      title: 'Implement',
+      says: [['paused', null]],
+    });
+  });
+
+  it('says nothing of a work that waits for anything else, runs, or that the engine stopped', () => {
+    const slot: Now = { kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] };
+    const items: Now = {
+      kind: 'waits',
+      at: 'plan',
+      on: [{ kind: 'precondition', test: 'deps', words: 'deps', by: [{ kind: 'outside', source: 'dependencies' }] }],
+    };
+    for (const now of [slot, items, { kind: 'next', cell: 'plan' } as Now, { kind: 'paused', by: 'engine', why: 'x' } as Now])
+      expect(where(now, ['resting', 'notYet', 'notYet'])).toBeNull();
   });
 });

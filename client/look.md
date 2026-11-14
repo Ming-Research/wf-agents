@@ -70,18 +70,22 @@ drawn line with an arrow.
 ## Parts
 
 - **Bar** (`Bar`): the page's name, the views as text tabs (the current one in the text colour over a 2px accent line,
-  the others muted), and at its right what belongs to the page as a whole: the switch of light and dark. The tabs are
+  the others muted), the Console's tab with the one count of what waits for the owner, the questions that hold a work
+  now, and at its right what belongs to the page as a whole: the switch of light and dark. The tabs are
   Console, Works and Flow, each a hash of the address (`#/console`, `#/works`, `#/flow`; a work is `#/works/<number>`,
   under the Works tab), so that back, forward, a reload and a link show the same view; nothing, or a hash the page does
   not know, shows the works.
 - **View's line** (`.view-line`): one thin row under the bar that belongs to the view: what it shows, one muted sentence
-  of the facts of the whole view (for the flow, its limits and its tools), its legend and its own switches. It wraps
-  to a second row where the window is too narrow, the facts giving way first.
+  of the facts of the whole view, its legend and its own switches. It wraps to a second row where the window is too
+  narrow, the facts giving way first. The flow's is two rows (`.view-lines`, `.view-row`), neither wrapping into the
+  other: its name, its limits and its tools, and at the right its switches (Matrix | Flowchart, and Data arrows with
+  the flowchart); under them the legend of the chart shown, alone.
 - **Button** (`Button`): words in a hairline box, 24px; `primary` filled with the accent, for the one action a view
   exists for; `submit` for the button that sends its form. A button that cannot be pressed yet, or whose act is on its
   way, is `disabled`: on the ground, muted, with no hover, so that nothing is sent twice.
-- **Segmented switch** (`Switch`): two or three choices side by side, the one chosen on the card. For a choice that is
-  always set, such as the theme.
+- **Segmented switch** (`Switch`): two or three choices side by side, the one chosen on the accent's tint. For a
+  choice that is always set, such as the theme. The one chosen does nothing when pressed, so it takes no hover's step
+  and no hand; only the others do.
 - **Tag** (`.tag`): a few words or a count of a state, filled in its colour, 16px high, monospace, 3px corners, as the
   console's count tags on a card.
 - **Label** (`Label`, `.label`): 11px, upper case, letter-spaced, muted: what a column or a value is.
@@ -139,10 +143,13 @@ drawn line with an arrow.
 
 What the owner reviews every work by, so that it says plainly why a work is where it is and what it waits for.
 
-- **State mark** (`StateMark`): how a cell stands for a work, as an 8px square with 2px corners: filled green when its
-  record knows everything (done), filled blue while a round of its run is under way, a blue ring while its run is at
-  rest, a red ring when its run's last round failed, an orange ring when it has a record and runs again, a hairline ring before its first run, a muted dash when
-  it is skipped. A square, so that it is not taken for the flow chart's ring and dot, which mean reads and writes.
+- **State mark** (`StateMark`): how a cell stands for a work, as an 8px square with 2px corners: filled in
+  `--mark-done` when its record knows everything (done), filled in `--mark-running` while a round of its run is under
+  way, the only bright mark, a ring of `--mark-running` while its run is at rest, a red ring when its run's last round
+  failed, a hollow ring of `--mark-done` when it ran and something it reads has a newer version since (runs again), a
+  muted hairline ring before its first run, a muted dash when it is skipped. A square, so that it is not taken for the
+  flow chart's ring and dot, which mean reads and writes. Orange marks no cell: it says that a work waits for the
+  owner, on the work's card.
 - **Strip** (`Strip`): a work's state marks, one per cell of its flow in the order of the walk, 2px apart; each says
   the cell, its state and how many runs it finished on the pointer's tip. The marks' look is said once
   (`src/works/state-marks.ts`), and the console's cards draw the same strip from it on their canvas.
@@ -271,12 +278,14 @@ there. The row or column chosen is tinted with the accent.
 ## The flowchart
 
 The same flow as the flow chart, drawn as how a work moves through it; a switch in the view's line ("Matrix |
-Flowchart", the matrix first) shows one or the other, the other kept as the owner left it, and the legend is the one
+Flowchart", the flowchart first) shows one or the other, the other kept as the owner left it, and the legend is the one
 of the view shown. Laid out by elkjs as the chart of `old-main` was (`src/graph/`): top to bottom in the order of the
 walk, arrows at right angles round the nodes, a small arch where an arrow crosses another, each arrow's label near where
-it leaves its node. It moves as `old-main`'s did: two fingers or the wheel move it, a pinch or Shift zooms, a drag moves
-it, Space shows it whole and Space again the zoom it had; a map of the whole chart over its top left corner, while some
-of it is out of view, with the zoom under it.
+it leaves its node. It opens on its top at its own size, 100%, across in the middle, or fitted to its width where it is
+wider than the view, never the whole chart fitted to the window, which made its cells and labels too small to read; the
+rest is scrolled to, and the zoom the owner gives it is kept. It moves as `old-main`'s did: two fingers or the wheel
+move it, a pinch or Shift zooms, a drag moves it, Space shows it whole and Space again the zoom it had; a map of the
+whole chart over its top left corner, while some of it is out of view, with the zoom under it.
 
 - A cell: a box on the card, 3px corners, its id in monospace, muted, its line as a tag at its right (the accent, or
   `engine` muted), its title in semibold under them, wrapped at 200px.
@@ -337,11 +346,19 @@ smoothly, and the panel at its right with the item selected. It is the console o
   corners: the canvas's own, as on `main`. Its number in monospace, in the colour of the item's standing (the
   console's faint grey `#9aa1ad` while open, `--green` when merged, paler when cancelled), its title in 14px, the
   canvas's own size, in Primer's sans-serif stack, which the console drew in (a canvas resolves a stack by its own
-  rules, so the page's `--font` could draw another face); at its right a tag of how many things its work waits for from the owner,
-  `--on-colour` on `--red`, and, while its work has not begun, a lock framed in muted with how many items it depends on
-  are not merged. A card whose work goes on, once it has begun or while it is paused, at fault or waits, is tinted with the colour of what the work does (`--blue` running,
+  rules, so the page's `--font` could draw another face); at its right a tag of how many questions to the owner hold
+  its work now, the one count of what waits for the owner, `--on-colour` on `--red`, and, while its work has not
+  begun, a lock framed in muted with how many items it depends on are not merged. A card whose work goes on, once it
+  has begun or while it is paused, at fault or waits, is drawn in the colour of what the work does (`--blue` running,
   `--orange` waiting for the owner, the console's pale yellow `#e8cc6a` waiting for anything else, muted paused,
-  `--red` halted, by a fault or by the engine's pause), and has a second row: the works page's strip of the work's cells, mark for mark, drawn on the
+  `--red` halted, by a fault or by the engine's pause): one running or halted is filled with it and glows; one that
+  waits for the owner, a question, a precondition the owner makes hold, a limit, stalled, or that is paused, is tinted
+  with it as the tokens' tints are (10% over the card), its edge a deeper shade, with no glow, as the console on
+  `old-main` marked a card in work; the rest have an edge of it alone. A card that waits for the owner, or that the
+  owner paused, has a third row that says where: the cell, its id in monospace, muted, and its title semibold, as the
+  page shows a cell, then what it waits for there as keys and values as the records and the cells' files write them
+  (`answer group-trigger-cannot-be-dealt-with`, `requires asked = answered`, `paused`), cut at the card's edge. Its
+  second row: the works page's strip of the work's cells, mark for mark, drawn on the
   canvas from the same definition and the same tokens as the page's marks (`src/works/state-marks.ts`), the mark of a
   cell running pulsing while its round is under way; what the work has taken, in dollars; and how long it has gone on,
   its colour by its age (muted, amber after half an hour, `--red` after an hour, violet after a day). The strip keeps
@@ -354,12 +371,14 @@ smoothly, and the panel at its right with the item selected. It is the console o
 - **Funnel.** A filled grey shape, Primer's neutral muted as the console drew it, joins each item to the first and the last of the items under it. The item under the
   pointer and those above it are ringed in light blue and joined by ribbons of it; the item selected and those above it
   in `--accent`, the item itself with a halo.
-- **Map.** At the top left, a bar for each column, moved as the column is, marked in `--red` where works wait for the
-  owner and in `--accent` where the item selected stands.
+- **Map.** At the top left, a bar for each column, moved as the column is, marked in `--red` where questions to the
+  owner hold works and in `--accent` where the item selected stands.
 - **Panel.** The page's panel, 560px until dragged, as the console's window was, drawn with the flow page's panel's
   parts so that the views read as one page. Its head (`.drawer-head`): the item's number, its title, which brings the
-  item into view, and the flow its work runs on. Two status lines (`.status-line`): where the item stands and what it
-  waits for to merge; what its work does, a link to the work's own page, and at the right the works page's **strip**
+  item into view, and its project's name alone, in monospace, muted. Two status lines (`.status-line`): where the item
+  stands and what it waits for to merge; what its work does, the cell it waits at as the page shows a cell (its id
+  in monospace, muted, and its title semibold), what else it waits for there in a few muted words (a question is
+  shown in the plan, where it arises, and not here), a link to the work's own page, and at the right the works page's **strip**
   (`Strip`) of the work's cells, and what it has taken. Their dot takes the five tones of a work, among them the pale
   yellow of a work waiting for anything but the owner, which the status line has no tone for. Under them the buttons of
   what the owner does to the work: let it on or pause it, and cancel it, each waiting while what it sent is under way.
@@ -370,7 +389,11 @@ smoothly, and the panel at its right with the item selected. It is the console o
   to, a box to write in, and under it "Goes to" the cells that read it, with the button that sends it. The work holds
   what the lines do not say of it, as label and value pairs (`.pairs`), and the works page's legend of the strip's
   marks (`StateLegend`). A choice of the plan stays the window's own: a frame in the accent on its tint, its options
-  buttons, the one picked ringed in the accent.
+  buttons, the one picked ringed in the accent. At the plan's end stands each question put to the owner that has not
+  been withdrawn, drawn as a choice: what it asks, its options (what each does, and what follows from it muted), the one
+  it recommends tagged; under what it asks, in red, that the work waits for its answer at its cell or that the merge
+  waits for it, or, muted, that it is still to confirm where the work has gone on past it; one answered stands with its
+  answer picked. The plan's Confirm sends each answer picked.
 
 The canvas follows light and dark: the colours the tokens came from it takes from the tokens, and those that have no
 token (the faint and pale greys, the ribbons, the map's bars) are worked out from the tokens in dark, keeping their

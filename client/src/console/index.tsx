@@ -7,8 +7,9 @@
 // screen, moves the tree only until the item is wholly within what the window leaves. Escape lets the item go while the
 // tree has the keys, and slides the window in while it has them. Each time the interface says something happened, the items are read again and
 // drawn where they stand, the item selected and the panel as they were; when the stream opens again after a cut,
-// everything is. An answer older than the one shown is dropped. An item the address names is selected once the tree
-// shows it, as from a notification of a question it waits on. The page's shell mounts it lazily (`lazy.tsx`).
+// everything is. An answer older than the one shown is dropped. The flow's definition is read once, so that a card names
+// the cell its work waits at by its title. An item the address names is selected once the tree shows it, as from a
+// notification of a question it waits on. The page's shell mounts it lazily (`lazy.tsx`).
 //
 // Brought over from the console of the engine on `old-main` (`client/src/pages/Console.tsx`): the window slides over
 // the tree, which keeps its whole width under it (`Drawer`, in the page's parts, which the flow view's panel is too).
@@ -38,6 +39,29 @@ export function ConsolePage({ source: given, named }: { source?: Source; named?:
   // The panel: whether it is out, and whether its handle brought it out, which keeps it out once the item is let go.
   const [win, setWin] = useState({ open: false, byHand: false });
   const open = win.open;
+
+  // The titles of the flow's cells, by the flow's name and the cell's id, read once, for the cards to name the cell a
+  // work waits at; none until they are read, or where they could not be.
+  const titles = useRef<(flow: string, cell: string) => string | null>(() => null);
+  const [titlesRead, setTitlesRead] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    source.loadFlow?.().then(
+      (d) => {
+        if (!alive || d.state !== 'compiled') return;
+        const of = new Map(d.flow.cells.map((c) => [c.id, c.title]));
+        titles.current = (flow, cell) => (flow === d.flow.name ? (of.get(cell) ?? null) : null);
+        setTitlesRead((n) => n + 1);
+      },
+      () => {
+        // The cards name the cell by its id alone.
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [source]);
+  const tree = (items: Items) => shownTree(items, titles.current);
 
   // The items, read at first and again each time something happened, an answer older than the one shown dropped.
   const heard = useRef<(h: Heard) => void>(() => undefined);
@@ -86,7 +110,7 @@ export function ConsolePage({ source: given, named }: { source?: Source; named?:
             return w.byHand ? w : { open: false, byHand: false };
           });
         };
-        if (latestData.current !== undefined) s.show(shownTree(latestData.current));
+        if (latestData.current !== undefined) s.show(tree(latestData.current));
         selectNamed();
         // To try the drawing from the browser's console: `consoleScene.show(consoleFake(2000))` draws a made-up tree.
         Object.assign(window, { consoleScene: s, consoleFake: fakeShown });
@@ -114,9 +138,9 @@ export function ConsolePage({ source: given, named }: { source?: Source; named?:
   };
   useEffect(() => {
     latestData.current = data;
-    if (data !== undefined) scene.current?.show(shownTree(data));
+    if (data !== undefined) scene.current?.show(tree(data));
     selectNamed();
-  }, [data]);
+  }, [data, titlesRead]);
   useEffect(() => {
     toSelect.current = named;
     selectNamed();
@@ -206,7 +230,7 @@ export function ConsolePage({ source: given, named }: { source?: Source; named?:
             waitsFor={waitsFor}
             goal={selected !== null && goalMock(selected.work !== null, selected.children.length)}
             open={open}
-            onRead={() => latestData.current !== undefined && scene.current?.show(shownTree(latestData.current))}
+            onRead={() => latestData.current !== undefined && scene.current?.show(tree(latestData.current))}
             onTitle={() => scene.current?.reveal(item.number, room(open))}
           />
         )}

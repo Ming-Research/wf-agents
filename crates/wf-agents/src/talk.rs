@@ -1555,6 +1555,7 @@ mod tests {
                 from: None,
                 bar: String::new(),
                 sent_back: 0,
+                holding: Vec::new(),
             },
         }
     }

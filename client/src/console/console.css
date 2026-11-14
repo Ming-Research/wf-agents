@@ -160,11 +160,20 @@
   font-weight: var(--weight-strong);
 }
 
-/* Under a question a cell asked, that it stops the work: one line in red, as a card stopped for the owner is. */
-.cw-choice-stops {
+/* Under a question a cell asked, that it stops the work or the merge: one line in red, as the count of the questions
+   that hold a work is; or, where the work has gone on past it, that it is still to confirm, muted. */
+.cw-choice-stops,
+.cw-choice-later {
   margin: calc(-1 * var(--space-4)) 0 var(--space-8);
-  color: var(--red-text);
   font-size: var(--size-small);
+}
+
+.cw-choice-stops {
+  color: var(--red-text);
+}
+
+.cw-choice-later {
+  color: var(--muted);
 }
 
 .cw-option {

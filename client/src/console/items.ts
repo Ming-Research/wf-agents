@@ -1,8 +1,9 @@
 // The items as the console shows them: a tree by their dependencies, each item under the item whose dependency on it is
 // its main one, at the top the items nothing depends on; under each other item that depends on it, after the items
 // standing there, a shadow of it that points to its place. Done and cancelled items are left out, unless something
-// under them is still open. Each item carries its own state, its work while it goes on, whether the work has begun, and
-// how many of the things its work waits for wait for the owner. Pure, so that it is tested on its own.
+// under them is still open. Each item carries its own state, its work while it goes on, whether the work has begun, how
+// many questions to the owner hold its work, and where its work waits for the owner. Pure, so that it is tested on its
+// own.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/items.ts`), reading the items as
 // `works-api.ts` gives them. The interface does not say which of an item's dependents is its main one: the first of
@@ -10,6 +11,8 @@
 
 import type { CellNow, Item, Items, Now, Summary, Waited } from '../works-api';
 import { mocksShown } from '../mock-data';
+import { questionsHolding } from '../notify';
+import { ownerMakes } from '../works/words';
 import { itemOf } from './real';
 
 /// What the item is to deliver: not yet, delivered, or given up.
@@ -32,13 +35,72 @@ export type ShownWork = {
   sentBack: number;
   usdMicros: number;
   last: number | null;
+  /// Where it waits for the owner, which its card says; none while it does not.
+  where: Where | null;
 };
+
+/// Where a work waits for the owner: the cell, by its id and its title in the work's flow (none where the page does not
+/// know the flow), and what it waits for there, each as a key and its value as the records and the cells' files write
+/// them (`answer scope`, `requires asked = answered`), a key alone where it has no value (`paused`).
+export type Where = { cell: string; title: string | null; says: [string, string | null][] };
+
+/// What a work waits for from the owner, as a key and its value, or none where the owner does not give it.
+function said(w: Waited): [string, string | null] | null {
+  if (whoGives(w) !== 'owner') return null;
+  switch (w.kind) {
+    case 'answer':
+      return ['answer', w.question];
+    case 'precondition':
+      return ['requires', w.test];
+    case 'limit':
+    case 'calls':
+      return [w.kind, `runs ${w.runs}`];
+    case 'agents':
+      return ['agents', w.outage.failure];
+    case 'slot':
+      return null;
+    case 'call':
+      if (w.what.kind === 'question') return ['question', w.what.question];
+      if (w.what.kind === 'atLimit')
+        return w.what.limit.of === 'returns'
+          ? ['atLimit', `returns ${w.what.limit.sentBack}`]
+          : ['atLimit', `calls ${w.what.limit.made}`];
+      return ['call', String(w.call)];
+  }
+}
+
+/// The cell a work the owner paused stands at: the first in the walk with something to do, a run open or something new
+/// to run it, where the walk stopped for the pause; none where every cell is done or skipped.
+const pausedAt = (cells: CellNow[]): string | null =>
+  cells.find((c) => c.state !== 'done' && c.state !== 'skipped')?.cell ?? null;
+
+/// Where a work waits for the owner, as its card says it: at a cell for what the owner gives, stalled at a cell for
+/// what no cell will write, or paused by the owner at the cell it would go on at; none otherwise. `title` gives a cell's
+/// title in the work's flow, or none.
+export function whereOf(w: Pick<Summary, 'now' | 'cells'>, title: (cell: string) => string | null): Where | null {
+  const now = w.now;
+  const at = (cell: string, says: [string, string | null][]): Where => ({ cell, title: title(cell), says });
+  if (now.kind === 'waits') {
+    const says = now.on.flatMap((x) => {
+      const pair = said(x);
+      return pair === null ? [] : [pair];
+    });
+    return says.length > 0 ? at(now.at, says) : null;
+  }
+  if (now.kind === 'stalled')
+    return at(now.at, now.on.length > 0 ? now.on.map((k): [string, string] => ['requires', k.test]) : [['stalled', null]]);
+  if (now.kind === 'paused' && now.by === 'owner') {
+    const cell = pausedAt(w.cells);
+    return cell === null ? null : at(cell, [['paused', null]]);
+  }
+  return null;
+}
 
 export type Shown = {
   id: number;
   title: string;
   standing: ItemStanding;
-  /// The things its work is stopped for that the owner gives: answers, preconditions they can make hold, a run let on.
+  /// The questions to the owner that hold its work now (principle one-count-of-what-waits).
   asks: number;
   /// The questions that wait for the owner's answer and do not stop its work yet (mock: `mock.ts`).
   questions: number;
@@ -68,10 +130,11 @@ export function standingOf(i: Item | undefined): ItemStanding {
 }
 
 /// Who gives what a work waits for: the person a call names, the owner for a run let on at its limit or a precondition
-/// the engine says the owner can make hold, none where the engine, a source outside the work or a cell gives it.
+/// the engine says the owner can make hold, the owner's answers among them, none where the engine, another source
+/// outside the work or a cell gives it.
 export function whoGives(w: Waited): 'owner' | 'architect' | null {
   if (w.kind === 'limit' || w.kind === 'calls') return 'owner';
-  if (w.kind === 'precondition') return w.by.some((m) => m.kind === 'owner') ? 'owner' : null;
+  if (w.kind === 'precondition') return w.by.some(ownerMakes) ? 'owner' : null;
   if (w.kind === 'slot') return null;
   if (w.kind === 'answer') return 'owner';
   // A wait every work shares is the owner's to end only where the command line cannot run.
@@ -79,9 +142,8 @@ export function whoGives(w: Waited): 'owner' | 'architect' | null {
   return w.who;
 }
 
-/// How many of the things a work waits for the owner gives.
-export const asksOf = (now: Now): number =>
-  now.kind === 'waits' ? now.on.filter((w) => whoGives(w) === 'owner').length : 0;
+/// How many questions to the owner hold a work now: what its card counts (principle one-count-of-what-waits).
+export const asksOf = (w: Pick<Summary, 'now' | 'holding'>): number => questionsHolding(w).length;
 
 /// Whether a work has begun: a round is under way, or a cell of it has run.
 export const started = (w: Summary): boolean =>
@@ -101,7 +163,12 @@ const drawn = (w: Summary) =>
     w.now.kind === 'waits' ||
     w.now.kind === 'stalled');
 
-export function shownTree(data: Items): Shown[] {
+/// The tree of the items; `title` gives the title of a cell of a flow by the flow's name, or none where the page does
+/// not know that flow.
+export function shownTree(
+  data: Items,
+  title: (flow: string, cell: string) => string | null = () => null,
+): Shown[] {
   const byId = new Map(data.items.map((i) => [i.number, i]));
   const standing = (id: number): ItemStanding => standingOf(byId.get(id));
   // Each item's main dependent: the first by number of the items that depend on it.
@@ -151,7 +218,7 @@ export function shownTree(data: Items): Shown[] {
       id,
       title: i?.title ?? '',
       standing: standing(id),
-      asks: w === undefined ? 0 : asksOf(w.now),
+      asks: w === undefined ? 0 : asksOf(w),
       questions: mock?.openQuestions ?? 0,
       deliver: deliverable || w?.flow === 'deliver',
       blocked: (i?.dependsOn ?? []).filter((d) => byId.has(d) && standing(d) !== 'done').length,
@@ -172,6 +239,7 @@ export function shownTree(data: Items): Shown[] {
               sentBack: w.sentBack ?? 0,
               usdMicros: w.spent.usdMicros,
               last: w.last,
+              where: whereOf(w, (cell) => title(w.flow, cell)),
             }
           : null,
       children: [
