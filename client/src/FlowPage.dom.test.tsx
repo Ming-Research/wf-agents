@@ -515,6 +515,17 @@ describe('what an agent is sent', () => {
     ]);
   });
 
+  it('says the file a task is written in beside the task', () => {
+    const flow = small();
+    flow.cells[0].taskFile = 'tasks/plan.md';
+    const page = draw({ state: 'compiled', flow }, given());
+    click(page.querySelectorAll('thead .cell-head .head-button')[0]);
+    const panel = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
+    expect(items(partOf(panel, 'Message'))[1]).toBe(
+      '5 task file tasks/plan.md cells/plan.toml 15 characters Show the text',
+    );
+  });
+
   it('draws the form of a return as a tree, the engine’s tools apart from the fields', () => {
     const page = draw({ state: 'compiled', flow: small() }, given());
     click(page.querySelectorAll('thead .cell-head .head-button')[0]);
@@ -589,6 +600,20 @@ describe('what an agent is sent', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe('a task written in a file of its own', () => {
+  it('is shown as written, with the file it comes from as a key', () => {
+    const flow = flowOf([cell('a', { taskFile: 'tasks/better_way.md', outputs: ['x'] })], { x: { shown: true } });
+    const page = draw({ state: 'compiled', flow });
+    click(page.querySelectorAll('thead .cell-head .head-button')[0]);
+    const panel = page.querySelector('aside[aria-label="Cell a"]') as HTMLElement;
+    const task = [...panel.querySelectorAll('.panel-part')].find(
+      (p) => p.querySelector('.panel-part-label')?.textContent === 'task',
+    );
+    expect(task?.textContent).toContain('file tasks/better_way.md');
+    expect(task?.querySelector('.content')?.textContent).toBe('Do the part of a.');
   });
 });
 

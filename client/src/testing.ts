@@ -31,6 +31,7 @@ export function cell(id: string, fields: Partial<Cell> = {}): Cell {
     kind,
     line: 'engineer',
     task: `Do the part of ${id}.`,
+    taskFile: null,
     act: null,
     effort: 'high',
     takesMain: false,

@@ -88,6 +88,12 @@ export function faultWords(fault: Fault): string {
       return `The line ${w.line} is not declared in flow.toml.`;
     case 'noTask':
       return "An agent's cell has no task, or one of no words: its agent would be told nothing to do.";
+    case 'noTaskFile':
+      return `The cell's task is written in ${w.file}, which is not in the flow's directory.`;
+    case 'taskFileEmpty':
+      return `The cell's task is written in ${w.file}, which has no words: its agent would be told nothing to do.`;
+    case 'taskFileOutside':
+      return `The cell's task is written in ${w.file}, a path that leaves the flow's directory or is not plain.`;
     case 'engineHasTask':
       return "An engine's cell has a task, which no agent reads.";
     case 'noAct':

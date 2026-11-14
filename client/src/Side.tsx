@@ -167,6 +167,7 @@ function AgentSent({
   cells,
   unknown,
   tools,
+  taskFile,
   onChoose,
 }: {
   parts: SentPart[];
@@ -175,6 +176,8 @@ function AgentSent({
   unknown: Unknown[];
   /// The flow's tools, which the form's tree draws apart from the fields.
   tools: string[];
+  /// The file the cell's task is written in, where it is not written in place.
+  taskFile: string | null;
   onChoose: (c: Chosen) => void;
 }) {
   const row = (part: SentPart) => {
@@ -191,6 +194,7 @@ function AgentSent({
           <span className="mono">{part.name}</span>
         )}
         {part.only && <Attr name="only" value={part.only} />}
+        {part.what === 'task' && taskFile && <Attr name="file" value={taskFile} />}
         {part.kind && <Attr name="kind" value={part.kind} />}
         <span className="muted mono">{part.source}</span>
         {part.pieces.length === 0 ? null : fold ? (
@@ -345,6 +349,7 @@ export function CellPanel(props: {
             cells={onLine}
             unknown={unknown ?? []}
             tools={tools ?? []}
+            taskFile={cell.taskFile}
             onChoose={onChoose}
           />
         </>
@@ -489,6 +494,11 @@ export function CellPanel(props: {
 
           {cell.task !== null && !(sent && sent.length > 0) && (
             <PanelPart label="task">
+              {cell.taskFile && (
+                <p>
+                  <Attr name="file" value={cell.taskFile} />
+                </p>
+              )}
               <p className="content">{cell.task}</p>
             </PanelPart>
           )}

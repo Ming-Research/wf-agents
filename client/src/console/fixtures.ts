@@ -50,6 +50,7 @@ function flowOf(
     kind: c.line === null ? 'engine' : 'agent',
     line: c.line === undefined ? 'engineer' : c.line,
     task: c.task ?? null,
+    taskFile: null,
     act: c.act ?? null,
     effort: c.line === null ? null : 'high',
     takesMain: false,

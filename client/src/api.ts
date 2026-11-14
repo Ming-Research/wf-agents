@@ -82,6 +82,8 @@ export interface Cell {
   line: string | null;
   /// What an agent's cell's agent is told to do, with its line breaks; an engine's cell has none.
   task: string | null;
+  /// The file the task is written in, from the flow's directory; none where it is written in place.
+  taskFile: string | null;
   /// The act of the engine's own that carries out an engine's cell; an agent's cell has none.
   act: string | null;
   /// The reasoning effort an agent's cell's rounds run at; an engine's cell has none.
@@ -169,6 +171,12 @@ export type What =
   | { kind: 'engineHasLine'; line: string }
   | { kind: 'noSuchLine'; line: string }
   | { kind: 'noTask' }
+  /// The cell's task is written in a file the flow's directory does not have.
+  | { kind: 'noTaskFile'; file: string }
+  /// The cell's task is written in a file of no words.
+  | { kind: 'taskFileEmpty'; file: string }
+  /// The cell's task is written in a file whose path leaves the flow's directory, or is not plain.
+  | { kind: 'taskFileOutside'; file: string }
   | { kind: 'engineHasTask' }
   | { kind: 'noAct' }
   | { kind: 'agentHasAct'; act: string }

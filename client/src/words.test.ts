@@ -186,6 +186,15 @@ describe('the words of the page', () => {
     expect(faultWords({ file: 'cells/D1.toml', field: 'when', what: { kind: 'emptyCondition' } })).toBe(
       "A cell's when or requires has no keys: it says nothing that must hold.",
     );
+    expect(
+      faultWords({ file: 'cells/R1.toml', field: 'task', what: { kind: 'noTaskFile', file: 'tasks/better_way.md' } }),
+    ).toBe("The cell's task is written in tasks/better_way.md, which is not in the flow's directory.");
+    expect(
+      faultWords({ file: 'cells/R1.toml', field: 'task', what: { kind: 'taskFileEmpty', file: 'tasks/better_way.md' } }),
+    ).toBe("The cell's task is written in tasks/better_way.md, which has no words: its agent would be told nothing to do.");
+    expect(faultWords({ file: 'cells/R1.toml', field: 'task', what: { kind: 'taskFileOutside', file: '../x.md' } })).toBe(
+      "The cell's task is written in ../x.md, a path that leaves the flow's directory or is not plain.",
+    );
     expect(faultWords({ file: 'plan.toml', field: 'task', what: { kind: 'noTask' } })).toBe(
       "An agent's cell has no task, or one of no words: its agent would be told nothing to do.",
     );
