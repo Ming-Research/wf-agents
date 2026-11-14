@@ -1,29 +1,50 @@
 // What the page's tests and the works page's fixtures build definitions from: cells written in short, and the flow they make as the interface would
 // give it, with who writes and reads each block worked out as the compiler does.
 
-import type { Block, Cell, Flow, Limits, Test, TestKind } from './api';
+import type { Block, Cell, Flow, Input, Limits, Test, TestKind } from './api';
 
 const LIMITS: Limits = { runs: 3, returns: 2, calls: 40 };
 
 /// A cell of an agent in the line `engineer`, told to do its part, that reads and writes nothing, with these fields over
-/// it.
+/// it. What runs it and what it is given are worked out as the compiler does: from `runsOn` and `given` where they are
+/// set, and otherwise from `inputs` as from a file in the old form, each block of it running the cell and given to an
+/// agent's cell; `inputs` and `input` follow from them, `input` with what `fields` says over it.
 export function cell(id: string, fields: Partial<Cell> = {}): Cell {
+  const kind = fields.kind ?? 'agent';
+  const named = fields.inputs ?? [];
+  const runsOn = fields.runsOn ?? (fields.given ? [] : named);
+  const given = fields.given ?? (fields.runsOn || kind !== 'agent' ? [] : named);
+  const inputs = [...new Set([...runsOn, ...given])];
+  const input: Record<string, Input> = Object.fromEntries(
+    inputs.map((b) => [
+      b,
+      {
+        runs: runsOn.includes(b) ? { why: null } : null,
+        given: given.includes(b) ? { kind: null, why: null } : null,
+      },
+    ]),
+  );
   return {
     id,
     title: id,
-    kind: 'agent',
+    kind,
     line: 'engineer',
     task: `Do the part of ${id}.`,
     act: null,
     effort: 'high',
+    takesMain: false,
+    tools: [],
+    triggers: runsOn.map((b) => ({ name: b, what: null, block: b, read: [], do: null })),
     condition: null,
     preconditions: [],
-    inputs: [],
-    input: {},
     outputs: [],
     mustWrite: [],
     limits: LIMITS,
     ...fields,
+    inputs,
+    runsOn,
+    given,
+    input: { ...input, ...fields.input },
   };
 }
 

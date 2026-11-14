@@ -163,6 +163,15 @@ pub enum OfTheReturn {
     HowYouReturn,
 }
 
+impl OfTheReturn {
+    /// Its name, as the files write it.
+    pub fn name(self) -> &'static str {
+        match self {
+            OfTheReturn::HowYouReturn => "how_you_return",
+        }
+    }
+}
+
 /// A set of rules for the agents as [`RULES_FILE`] names it, by its name.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

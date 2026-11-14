@@ -6,20 +6,19 @@
 
 import { type CSSProperties, type ReactNode, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 
-import { type Comparison, type Definition, type Flow, load } from './api';
+import { type Definition, type Flow, type Given, load } from './api';
 import { Chart, type Chosen, Legend } from './Chart';
 import { LazyConsolePage } from './console/lazy';
 import { type BarItems, Engine, useBarItems, waitsForOwner } from './Engine';
-import { type Version, changeBlock, changeCell, matrix } from './matrix';
-import { Bar, Edge, Panel, StatusLine, Switch } from './parts';
+import { type Version, matrix } from './matrix';
+import { Bar, Edge, Panel, Switch } from './parts';
 import { type Route, hashOf, tabOf, useRoute } from './route';
 import { type Serves, opensOnFlow, useServes } from './serves';
 import { PANEL, WIDTH_KEYS, useKeptWidth } from './sizes';
-import { BlockPanel, CellPanel, ChangesList, Faults, type Fold } from './Side';
+import { BlockPanel, CellPanel, Faults, type Fold } from './Side';
 import { type Theme, useTheme } from './theme';
 import { WorkView } from './works/WorkView';
 import { WorksList } from './works/WorksList';
-import { LIMIT_WORDS } from './words';
 
 export function App() {
   const named = useRoute();
@@ -38,7 +37,7 @@ export function App() {
   );
 }
 
-type Loaded = { definition: Definition; comparison: Comparison } | { failed: string };
+type Loaded = { definition: Definition; given?: Given } | { failed: string };
 
 /// The view a route names. The flow, once shown, stays as the owner left it (what is chosen, the version, the panel)
 /// while another tab is shown, and is not read again on coming back.
@@ -103,7 +102,9 @@ function FlowView({ active, loadFlow }: { active: boolean; loadFlow: () => Promi
   }, [loadFlow]);
   if (!loaded) return <p className="message muted">Reading the flow</p>;
   if ('failed' in loaded) return <p className="message">The page could not read the flow: {loaded.failed}</p>;
-  return <FlowPage definition={loaded.definition} comparison={loaded.comparison} active={active} />;
+  return (
+    <FlowPage definition={loaded.definition} given={loaded.given} active={active} />
+  );
 }
 
 /// The views, as the bar's tabs: the console first, which the page is centred on.
@@ -166,41 +167,28 @@ function BarEngine({ onRead }: { onRead: (bar: BarItems) => void }) {
   return <Engine items={items} failed={failed} />;
 }
 
-/// The limits of the flow as a whole, in one short muted sentence; the words of each in full on the pointer's tip.
+/// The limits of the flow as a whole, by their keys as `flow.toml` writes them.
 function limitsWords(flow: Flow): string {
   const { runs, returns, calls } = flow.limits;
-  return `Limits of a cell: ${runs} ways round in a row, ${returns} returns sent back, ${calls} calls`;
+  return `limits runs ${runs}, returns ${returns}, calls ${calls}`;
 }
 
-function limitsHint(flow: Flow): string {
-  const each = (['runs', 'returns', 'calls'] as const).map((l) => `${flow.limits[l]} ${LIMIT_WORDS[l]}`).join(', ');
-  return `Each cell, unless it says otherwise: ${each}`;
-}
-
-export function FlowPage({ definition, comparison, active = true }: {
+export function FlowPage({ definition, given, active = true }: {
   definition: Definition;
-  comparison: Comparison;
+  /// What an agent is sent as each cell of the definition shown is entered; none where the page was not given it.
+  given?: Given;
   /// Whether the flow is the view shown: a flow kept while another tab is shown takes no keys.
   active?: boolean;
 }) {
-  const [version, setVersion] = useState<Version>('after');
   const [chosen, setChosen] = useState<Chosen>(null);
-  // The panel is folded away at first, unless there are changes to read in it: where the two definitions are the
-  // same, or cannot be compared, its room stays the chart's.
-  const [folded, setFolded] = useState(() => comparison.state !== 'compared' || !comparison.changes?.length);
+  // The panel is folded away at first: its room stays the chart's until something is chosen.
+  const [folded, setFolded] = useState(true);
   const [panelWidth, setPanelWidth] = useKeptWidth(WIDTH_KEYS.panel, PANEL.min, PANEL.max);
 
   const after = definition.state === 'compiled' ? definition.flow : undefined;
-  const against = comparison.state === 'compared' ? comparison.against : undefined;
-  const before = against?.state === 'compiled' ? against.flow : undefined;
-  const changes = comparison.state === 'compared' ? (comparison.changes ?? undefined) : undefined;
-  const comparing = after !== undefined && before !== undefined && changes !== undefined;
 
-  const shownVersion: Version = comparing ? version : 'after';
-  const drawn = useMemo(
-    () => (after ? matrix(comparing ? { after, before, changes } : { after }, shownVersion) : undefined),
-    [after, before, changes, comparing, shownVersion],
-  );
+  const shownVersion: Version = 'after';
+  const drawn = useMemo(() => (after ? matrix({ after }, shownVersion) : undefined), [after, shownVersion]);
 
   // Choosing brings the panel back if it was folded away; Escape lets go of what is chosen.
   const choose = useCallback((c: Chosen) => {
@@ -235,10 +223,14 @@ export function FlowPage({ definition, comparison, active = true }: {
     );
   }
 
-  const shownFlow = shownVersion === 'before' && before ? before : after;
+  const shownFlow = after;
   const column = chosen && 'cell' in chosen ? drawn.cells.find((c) => c.id === chosen.cell) : undefined;
-  const row = chosen && 'block' in chosen ? drawn.blocks.find((b) => b.name === chosen.block) : undefined;
-  const flowOf = (inShown: boolean) => (inShown ? shownFlow : shownFlow === after ? (before ?? after) : after);
+  // A block chosen by its name: a datum's row, or else the row of a trigger that stands on it, which a block standing
+  // only for a trigger has alone.
+  const row =
+    chosen && 'block' in chosen
+      ? (drawn.blocks.find((b) => b.name === chosen.block) ?? drawn.blocks.find((b) => b.on === chosen.block))
+      : undefined;
   const edge = (
     <Edge
       side="left"
@@ -260,8 +252,12 @@ export function FlowPage({ definition, comparison, active = true }: {
       <CellPanel
         column={column}
         matrix={drawn}
-        flow={flowOf(column.cell !== undefined)}
-        changes={(changes ?? []).filter((c) => changeCell(c) === column.id)}
+        flow={shownFlow}
+        changes={[]}
+        sent={shownVersion === 'after' && given?.state === 'compiled' ? given.cells[column.id] : undefined}
+        tools={given?.state === 'compiled' ? given.tools : undefined}
+        act={given?.state === 'compiled' ? given.acts[column.id] : undefined}
+        unknown={given?.state === 'compiled' ? given.unknown : undefined}
         onChoose={choose}
         fold={fold}
       />
@@ -271,28 +267,11 @@ export function FlowPage({ definition, comparison, active = true }: {
       <BlockPanel
         row={row}
         matrix={drawn}
-        flow={flowOf(row.block !== undefined)}
-        changes={(changes ?? []).filter((c) => changeBlock(c) === row.name)}
+        flow={shownFlow}
+        changes={[]}
         onChoose={choose}
         fold={fold}
       />
-    );
-  } else if (comparing) {
-    panel = <ChangesList changes={changes} after={after} before={before} onChoose={choose} fold={fold} />;
-  } else if (against && against.state !== 'compiled') {
-    panel = (
-      <Panel
-        label="Nothing to compare"
-        title="Nothing to compare"
-        lines={
-          <StatusLine tone="removed" word={against.state === 'faults' ? 'Does not compile' : 'Cannot be read'}>
-            the definition compared against
-          </StatusLine>
-        }
-        {...fold}
-      >
-        {against.state === 'faults' ? <Faults faults={against.faults} /> : <p>{against.reason}</p>}
-      </Panel>
     );
   }
 
@@ -300,22 +279,11 @@ export function FlowPage({ definition, comparison, active = true }: {
     <>
       <div className="view-line">
         <span className="view-name">{shownFlow.name}</span>
-        {comparing && (
-          <Switch<Version>
-            label="Version of the flow"
-            value={shownVersion}
-            onChange={setVersion}
-            choices={[
-              { value: 'after', name: 'As it is' },
-              { value: 'before', name: 'As it was' },
-            ]}
-          />
-        )}
-        <span className="view-facts" title={limitsHint(shownFlow)}>
+        <span className="view-facts" title="flow.toml">
           {limitsWords(shownFlow)}
         </span>
         <span className="view-end">
-          <Legend waysBack={drawn.waysBack} comparing={comparing} />
+          <Legend waysBack={drawn.waysBack} comparing={false} />
         </span>
       </div>
       <main

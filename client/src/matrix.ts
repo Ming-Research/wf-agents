@@ -6,21 +6,30 @@
 // is shown in its order, each that only the other has standing after the one it followed there (of those that did not
 // move), so that switching between the two versions keeps every row and column that both have where the owner looks.
 
-import type { Block, Cell, Change, Flow } from './api';
+import type { Block, Cell, Change, Flow, InputKind } from './api';
 
-/// What a cell does with a block: reads it as an input, may write it as an output, reads its value in its condition
-/// (directly, or by the named test that is its condition), or reads its value in a named test that is one of its
-/// preconditions.
+/// What a cell does with a block: a new version of it runs the cell, the cell is given it, may write it as an output,
+/// reads its value in its condition (directly, or by the named test that is its condition), or reads its value in a
+/// named test that is one of its preconditions.
 export interface Mark {
-  read: boolean;
+  runs: boolean;
+  given: boolean;
   write: boolean;
   condition: boolean;
   precondition: boolean;
+  /// Of a datum the cell is given, the kind it is given in, where the cell says one.
+  kind?: InputKind | null;
 }
 
-export const NO_MARK: Mark = { read: false, write: false, condition: false, precondition: false };
+export const NO_MARK: Mark = {
+  runs: false,
+  given: false,
+  write: false,
+  condition: false,
+  precondition: false,
+};
 
-export const MARK_PARTS = ['read', 'write', 'condition', 'precondition'] as const;
+export const MARK_PARTS = ['runs', 'given', 'write', 'condition', 'precondition'] as const;
 export type MarkPart = (typeof MARK_PARTS)[number];
 
 /// The mark of a cell on a block.
@@ -28,22 +37,24 @@ export function markOf(cell: Cell | undefined, block: string): Mark {
   if (!cell) return NO_MARK;
   const condition = cell.condition;
   return {
-    read: cell.inputs.includes(block),
+    runs: cell.runsOn.includes(block),
+    given: cell.given.includes(block),
     write: cell.outputs.includes(block),
     condition:
-      condition !== null && (condition.on === 'block' ? condition.block === block : condition.test.reads.includes(block)),
+      condition !== null &&
+      (condition.on === 'block' ? condition.block === block : condition.test.reads.includes(block)),
     precondition: cell.preconditions.some((test) => test.reads.includes(block)),
   };
 }
 
 export function hasMark(mark: Mark): boolean {
-  return mark.read || mark.write || mark.condition || mark.precondition;
+  return mark.runs || mark.given || mark.write || mark.condition || mark.precondition;
 }
 
 /// The order of the blocks' rows. A block stands where it is first written in the walk, a cell's outputs together
 /// in the order the cell lists them; a block no cell writes (what people or the outside write) stands just before the
-/// first cell that reads it: the blocks its condition reads first, then those its preconditions read, then its inputs
-/// in their order; a block no cell writes or reads stands last. Ties go by name. The marks then step down to the right
+/// first cell that reads it: the blocks its condition reads first, then those its preconditions read, then those it
+/// names, that run it or that it is given, in their order; a block no cell writes or reads stands last. Ties go by name. The marks then step down to the right
 /// like a staircase, each cell's writes one under another and next to the reads that follow from them, and a write
 /// right of a read stands out as a way back.
 export function blockOrder(flow: Flow): string[] {
@@ -62,10 +73,14 @@ export function blockOrder(flow: Flow): string[] {
     }
     return [Infinity, 0, 0];
   };
+  // The rows of what stands only for a trigger come first, apart from the data's.
   return [...flow.blocks]
-    .map((block) => ({ name: block.name, key: key(block) }))
+    .map((block) => ({
+      name: block.name,
+      key: [block.trigger ? 0 : 1, ...key(block)],
+    }))
     .sort((a, b) => {
-      for (let i = 0; i < 3; i += 1) {
+      for (let i = 0; i < 4; i += 1) {
         if (a.key[i] !== b.key[i]) return a.key[i] < b.key[i] ? -1 : 1;
       }
       return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
@@ -114,7 +129,15 @@ export interface CellColumn {
 
 /// A row: a block.
 export interface BlockRow {
+  /// What the row is called: a trigger's name, or the block's where each cell has its own trigger of one name; a
+  /// datum's name.
   name: string;
+  /// Of a trigger's row, the trigger's name; none of a datum's.
+  trigger?: string;
+  /// Of a trigger's row, what the trigger is, as its file writes it.
+  what?: string;
+  /// The block the row is about: the one the trigger stands on, or the datum.
+  on?: string;
   block?: Block;
   other?: Block;
   status: Status;
@@ -134,14 +157,35 @@ export interface Spot {
   /// Those only the version compared against has: taken out by the change.
   removed: Mark;
   /// The row's line, which the eye follows along the cells: from the first mark that no way back reaches to the
-  /// last mark. A read left of every write is reached by the way back alone, so the line starts at the first cell
-  /// that writes the block, the way the block goes on from there; where no cell writes it, at the first mark.
+  /// last mark. A mark left of every write that a way back reaches is reached by the way back alone, so the line
+  /// starts at the first cell that writes the block, the way the block goes on from there; where no cell writes it, at
+  /// the first mark.
   line: Segment;
-  /// The way back: from a later cell's write leftwards to the reads of the same block by cells before it.
+  /// The way back: from a later cell's write leftwards to the cells before it that the same block runs, or whose
+  /// condition reads it. A block a cell is only given does not run it, so no way back reaches it.
   back: Segment;
-  /// A read that a write right of it sends the work back to.
+  /// A cell that a write right of it sends the work back to.
   backTo: boolean;
 }
+
+/// Where a tool's row crosses a cell's column: whether the cell may ask for the tool in the version shown, and
+/// whether the change put that in or took it out.
+export interface ToolSpot {
+  asks: boolean;
+  added: boolean;
+  removed: boolean;
+}
+
+/// A row of a tool of the engine's, which an agent's cell may ask for in its return.
+export interface ToolRow {
+  name: string;
+  /// By cell, in the order of the columns.
+  spots: ToolSpot[];
+}
+
+/// The tools of the engine's, in the order their rows stand; a tool a definition names that is not among them stands
+/// after them.
+export const TOOLS = ['query', 'run_tests'];
 
 export type Version = 'after' | 'before';
 
@@ -154,7 +198,10 @@ export interface Matrix {
   cells: CellColumn[];
   /// By block, then by cell.
   spots: Spot[][];
-  /// How many ways back the version shown has: pairs of a block's read and a later cell's write of it.
+  /// The rows of the tools that a cell of either version may ask for, over the blocks' rows.
+  tools: ToolRow[];
+  /// How many ways back the version shown has: pairs of a cell a block runs, or whose condition reads it, and a later
+  /// cell's write of it.
   waysBack: number;
 }
 
@@ -215,37 +262,71 @@ export function matrix(versions: Versions, version: Version): Matrix {
       changed,
     };
   });
-  const blocks: BlockRow[] = blockNames.map((name) => {
-    const changed = blockChanges.get(name) ?? new Set();
-    return {
-      name,
-      block: blockIn(shown, name),
-      other: blockIn(other, name),
-      status: status(blockIn(after, name), blockIn(before, name), changed),
-      changed,
-    };
+  // The triggers' rows first, each a trigger a cell names, by the block it stands on, in the order of those blocks;
+  // then the data's rows. A trigger stands for one event: one each cell has its own of is a row for each cell.
+  const order = blockOrder(shown);
+  const pairs: { name: string; block: string; what?: string }[] = [];
+  for (const cell of shown.cells) {
+    for (const t of cell.triggers ?? []) {
+      if (!pairs.some((p) => p.name === t.name && p.block === t.block)) {
+        pairs.push({ name: t.name, block: t.block, what: t.what ?? undefined });
+      }
+    }
+  }
+  pairs.sort((x, y) => order.indexOf(x.block) - order.indexOf(y.block));
+  const blocksOf = (name: string) => new Set(pairs.filter((p) => p.name === name).map((p) => p.block)).size;
+  const row = (name: string, on: string, trigger?: string, what?: string): BlockRow => ({
+    name,
+    trigger,
+    what,
+    on,
+    block: blockIn(shown, on),
+    other: blockIn(other, on),
+    status: 'same',
+    changed: blockChanges.get(on) ?? new Set(),
   });
+  const blocks: BlockRow[] = [
+    ...pairs.map((p) => row(blocksOf(p.name) > 1 ? p.block : p.name, p.block, p.name, p.what)),
+    ...blockNames.filter((name) => !blockIn(shown, name)?.trigger).map((name) => row(name, name)),
+  ];
 
-  const only = (x: Mark, y: Mark): Mark => ({
-    read: x.read && !y.read,
-    write: x.write && !y.write,
-    condition: x.condition && !y.condition,
-    precondition: x.precondition && !y.precondition,
-  });
-  const spots: Spot[][] = blocks.map((row) =>
-    cells.map((column) => {
-      const mark = column.cell && row.block ? markOf(column.cell, row.name) : NO_MARK;
-      const a = markOf(cellIn(after, column.id), row.name);
-      const b = before ? markOf(cellIn(before, column.id), row.name) : a;
-      return { mark, added: only(a, b), removed: only(b, a), line: 'none', back: 'none', backTo: false };
-    }),
+  // Of a trigger's row: whether the cell runs on the trigger, and whether it writes the block the trigger stands on.
+  // Of a datum's row: whether the cell is given it and in which kind, writes it, or reads its value in a condition.
+  const markIn = (cell: Cell | undefined, r: BlockRow): Mark => {
+    if (!cell) return NO_MARK;
+    const on = r.on ?? r.name;
+    if (r.trigger !== undefined) {
+      return {
+        ...NO_MARK,
+        runs: (cell.triggers ?? []).some((t) => t.name === r.trigger && t.block === on),
+        write: cell.outputs.includes(on),
+      };
+    }
+    const mark = markOf(cell, on);
+    return {
+      ...mark,
+      runs: false,
+      kind: mark.given ? (cell.input[on]?.given?.kind ?? null) : null,
+    };
+  };
+  const spots: Spot[][] = blocks.map((r) =>
+    cells.map((column) => ({
+      mark: column.cell ? markIn(column.cell, r) : NO_MARK,
+      added: NO_MARK,
+      removed: NO_MARK,
+      line: 'none',
+      back: 'none',
+      backTo: false,
+    })),
   );
 
+  // Lines and ways back only on the triggers' rows: a datum in a context runs no cell.
   let waysBack = 0;
-  for (const row of spots) {
+  spots.forEach((row, r) => {
+    if (blocks[r].trigger === undefined) return;
     const marks = row.map((spot) => spot.mark);
     const marked = marks.flatMap((m, c) => (hasMark(m) ? [c] : []));
-    const reads = marks.flatMap((m, c) => (m.read || m.condition ? [c] : []));
+    const reads = marks.flatMap((m, c) => (m.runs ? [c] : []));
     const writes = marks.flatMap((m, c) => (m.write ? [c] : []));
     const lastWrite = writes[writes.length - 1];
     const reached = reads.filter((c) => lastWrite !== undefined && c < lastWrite);
@@ -261,9 +342,27 @@ export function matrix(versions: Versions, version: Version): Matrix {
       const first = reached[0];
       paint(row, 'back', first, Math.max(...writes.filter((w) => w > first)));
     }
-  }
+  });
 
-  return { version, blocks, cells, spots, waysBack };
+  const asks = (flow: Flow | undefined, id: string, tool: string) => cellIn(flow, id)?.tools.includes(tool) ?? false;
+  const named = [...new Set([after, ...(before ? [before] : [])].flatMap((f) => f.cells.flatMap((c) => c.tools)))];
+  const place = (tool: string) => (TOOLS.includes(tool) ? TOOLS.indexOf(tool) : TOOLS.length);
+  const tools: ToolRow[] = named
+    .sort((a, b) => place(a) - place(b) || (a < b ? -1 : a > b ? 1 : 0))
+    .map((name) => ({
+      name,
+      spots: cells.map((column) => {
+        const a = asks(after, column.id, name);
+        const b = before ? asks(before, column.id, name) : a;
+        return {
+          asks: asks(shown, column.id, name),
+          added: a && !b,
+          removed: b && !a,
+        };
+      }),
+    }));
+
+  return { version, blocks, cells, spots, tools, waysBack };
 }
 
 /// Paints a line along a row from the middle of the crossing at `from` to the middle of the one at `to`.

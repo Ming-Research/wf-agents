@@ -114,58 +114,100 @@ pub struct Cell {
     pub act: Option<String>,
     /// The reasoning effort an agent's cell's rounds run at; an engine's cell has none.
     pub effort: Option<String>,
+    /// The work's branch takes the latest main in as each run of the cell starts.
+    pub takes_main: bool,
     /// When the cell runs at all; none is always.
     pub condition: Option<Condition>,
     /// What the work waits for before the cell.
     pub preconditions: Vec<Test>,
     /// The blocks it names: those that run it, in the order it names them, then those it is only given.
     pub inputs: Vec<String>,
-    /// How it takes the blocks it names, by the block's name, for each of them the definition says it of: how it is
-    /// given one and why, or why one it is not given runs it.
+    /// The blocks whose new version runs it, in the order it names them.
+    pub runs_on: Vec<String>,
+    /// The blocks it is given, its session kept supplied with their content, in the order it names them; none for an
+    /// engine's cell.
+    pub given: Vec<String>,
+    /// For each block it names, by the block's name, whether it runs the cell and whether the cell is given it, with
+    /// why and how where the definition says.
     pub input: BTreeMap<String, Input>,
     /// The blocks it may write, as the definition lists them.
     pub outputs: Vec<String>,
     /// The blocks among those that every hand-in of it includes, as the definition lists them.
     pub must_write: Vec<String>,
+    /// The tools of the engine's that an agent's cell may ask for in its return, by name, as the definition lists
+    /// them; none for an engine's cell.
+    pub tools: Vec<String>,
+    /// What runs it, each a trigger by its name, with the block it stands on, the data its agent reads for it and what
+    /// the cell does when it fires, as the definition writes them.
+    #[serde(default)]
+    pub triggers: Vec<TriggerView>,
     pub limits: Limits,
 }
 
-/// How a cell takes one of the blocks it names.
+/// A trigger of a cell, as the definition writes it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TriggerView {
+    pub name: String,
+    /// What it is, as its file writes it; none where it says nothing.
+    pub what: Option<String>,
+    pub block: String,
+    pub read: Vec<String>,
+    #[serde(rename = "do")]
+    pub does: Option<String>,
+}
+
+/// One of the blocks a cell names: whether it runs the cell, and whether the cell is given it. It does one or both.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Input {
-    /// What the context of the cell's session must hold of the block when the cell runs; none where the cell is not
-    /// given the block.
-    pub kind: Option<InputKind>,
-    /// Why the cell is given the block, or of one it is not given, why the block runs it; none where the definition
+    /// A new version of it runs the cell; none where it does not.
+    pub runs: Option<Runs>,
+    /// The cell is given it; none where it is not.
+    pub given: Option<GivenAs>,
+}
+
+/// Why a block runs a cell.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Runs {
+    /// None where the definition does not say.
+    pub why: Option<String>,
+}
+
+/// How a cell is given a block, and why.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GivenAs {
+    /// What the context of the cell's session must hold of the block when the cell runs; none where the definition
     /// does not say.
+    pub kind: Option<InputKind>,
+    /// Why the cell is given the block; none where the definition does not say.
     pub why: Option<String>,
 }
 
 impl Input {
-    /// How the cell takes each block it names, of those the definition says something of.
+    /// Of each block the cell names, by its name, whether it runs the cell and whether the cell is given it.
     fn of(spec: &flow::CellSpec) -> BTreeMap<String, Input> {
-        let given = (spec.given.iter()).map(|g| {
-            let input = Input {
+        let mut out: BTreeMap<String, Input> = BTreeMap::new();
+        for r in &spec.runs_on {
+            let input = out.entry(r.block.to_string()).or_insert(Input {
+                runs: None,
+                given: None,
+            });
+            input.runs = Some(Runs { why: r.why.clone() });
+        }
+        for g in &spec.given {
+            let input = out.entry(g.block.to_string()).or_insert(Input {
+                runs: None,
+                given: None,
+            });
+            input.given = Some(GivenAs {
                 kind: Some(InputKind::of(g.kind)),
                 why: g.why.clone(),
-            };
-            (g.block.to_string(), input)
-        });
-        let only_runs = (spec.runs_on.iter())
-            .filter(|r| !spec.given.iter().any(|g| g.block == r.block))
-            .map(|r| {
-                (
-                    r.block.to_string(),
-                    Input {
-                        kind: None,
-                        why: r.why.clone(),
-                    },
-                )
             });
-        (given.chain(only_runs))
-            .filter(|(_, input)| input.kind.is_some() || input.why.is_some())
-            .collect()
+        }
+        out
     }
 }
 
@@ -180,7 +222,7 @@ pub enum InputKind {
 }
 
 impl InputKind {
-    fn of(kind: flow::InputKind) -> InputKind {
+    pub(crate) fn of(kind: flow::InputKind) -> InputKind {
         match kind {
             flow::InputKind::Latest => InputKind::Latest,
             flow::InputKind::LastAndLatest => InputKind::LastAndLatest,
@@ -216,6 +258,12 @@ pub struct Block {
     pub values: Option<Vec<String>>,
     /// What the block is, in a sentence; none where the definition does not say.
     pub what: Option<String>,
+    /// It has no content and stands only for a trigger.
+    #[serde(default)]
+    pub trigger: bool,
+    /// Of a block a source of the engine's writes, what it writes, each text by its name as its file writes them.
+    #[serde(default)]
+    pub writes: Vec<(String, Vec<crate::given::Piece>)>,
     pub written_by: WrittenBy,
     pub read_by: ReadBy,
 }
@@ -787,12 +835,30 @@ impl Flow {
                 task: spec.task.clone(),
                 act: spec.act.clone(),
                 effort: spec.effort.map(|effort| effort.name().to_string()),
+                takes_main: spec.takes_main,
                 condition: cell.applies.as_ref().map(|c| Condition::of(c, compiled)),
                 preconditions: cell.requires.iter().map(|t| Test::of(t, compiled)).collect(),
-                inputs: names(&cell.runs_on),
+                inputs: (spec.runs_on.iter().map(|r| &r.block))
+                    .chain(
+                        (spec.given.iter().map(|g| &g.block)).filter(|b| !spec.runs_on.iter().any(|r| &r.block == *b)),
+                    )
+                    .map(BlockId::to_string)
+                    .collect(),
+                runs_on: names(&cell.runs_on),
+                given: spec.given.iter().map(|g| g.block.to_string()).collect(),
                 input: Input::of(spec),
                 outputs: names(&cell.outputs),
                 must_write: names(&spec.must_write),
+                tools: spec.tools.clone(),
+                triggers: (spec.triggers.iter())
+                    .map(|t| TriggerView {
+                        name: t.name.clone(),
+                        what: t.what.clone(),
+                        block: t.block.to_string(),
+                        read: names(&t.read),
+                        does: t.does.clone(),
+                    })
+                    .collect(),
                 limits: Limits {
                     runs: cell.limit,
                     returns: spec.returns,
@@ -807,6 +873,10 @@ impl Flow {
                 name: name.to_string(),
                 values: block.values.clone(),
                 what: block.what.clone(),
+                trigger: block.trigger,
+                writes: (block.writes.0.iter())
+                    .map(|(name, text)| (name.clone(), crate::given::with_slots(text)))
+                    .collect(),
                 written_by: WrittenBy {
                     cells: names(&block.writers.cells),
                     people: block.writers.people,

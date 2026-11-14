@@ -346,9 +346,9 @@ pub struct BlockFile {
     /// The field of a return that a cell writes the block through, where it writes it through one and not as a block
     /// under the block's name: a name of a field of the engine's.
     pub field: Option<String>,
-    /// What a source of the engine's writes into the block, as a file laid out one thing to a file says it; none in
-    /// `flow.toml`.
-    #[serde(skip)]
+    /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, a
+    /// `{name}` in it a place the engine fills in a run.
+    #[serde(default)]
     pub writes: Texts,
 }
 

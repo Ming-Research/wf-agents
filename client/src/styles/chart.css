@@ -268,6 +268,35 @@ tr.row.chosen > .block-head {
   white-space: nowrap;
 }
 
+/* The rows of the tools of the engine's, over the blocks: a tool's name muted, so that it is not read as a block's, and
+   a firmer line under the last of them. */
+.tool-head {
+  height: var(--row);
+  padding: 0 var(--space-8);
+  white-space: nowrap;
+}
+
+.tool-name,
+.tool-label {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--size-small);
+}
+
+.tool-label {
+  margin-left: var(--space-4);
+  font-family: inherit;
+}
+
+.matrix tbody.tools tr:last-child > * {
+  border-bottom-color: var(--muted);
+}
+
+.part.tool {
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
 .sign {
   flex: none;
   color: var(--accent);
@@ -391,10 +420,31 @@ svg.changed-field {
   margin: auto;
 }
 
+/* The marks on a datum's row, one for each thing, side by side. */
+.glyphs {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.glyphs .glyph {
+  margin: 0;
+}
+
 .part {
   fill: none;
   stroke: var(--text);
   stroke-width: 2;
+}
+
+/* The kind of a context, inside its ring. */
+.part.kind {
+  fill: var(--text);
+  stroke: none;
+  font-family: var(--mono);
+  font-size: 13px;
+  text-anchor: middle;
+  dominant-baseline: central;
 }
 
 .part.write {
@@ -506,7 +556,7 @@ svg.changed-field {
 }
 
 .edge::after {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   bottom: 0;

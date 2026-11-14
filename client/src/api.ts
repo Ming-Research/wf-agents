@@ -38,15 +38,26 @@ export interface Test {
 
 export type Kind = 'agent' | 'engine';
 
-/// What the context of a cell's session must hold of a block the cell reads when the cell runs: its latest version,
-/// the version the cell last consumed and the latest, or every version.
+/// A trigger of a cell, as the definition writes it.
+export interface TriggerView {
+  name: string;
+  /// What it is, as its file writes it.
+  what: string | null;
+  block: string;
+  read: string[];
+  do: string | null;
+}
+
+/// What the context of a cell's session must hold of a block the cell is given when the cell runs: its latest
+/// version, the version the cell last consumed and the latest, or every version.
 export type InputKind = 'latest' | 'lastAndLatest' | 'all';
 
-/// How a cell takes one of the blocks it reads; each none where the definition does not say.
+/// One of the blocks a cell names: whether a new version of it runs the cell, with why, and whether the cell is given
+/// it, its session kept supplied with its content, with how and why; it does one or both. Each why and kind is none
+/// where the definition does not say.
 export interface Input {
-  kind: InputKind | null;
-  /// Why the cell takes the block.
-  why: string | null;
+  runs: { why: string | null } | null;
+  given: { kind: InputKind | null; why: string | null } | null;
 }
 
 /// When a cell runs: when a block has a value, or when a named test holds.
@@ -64,16 +75,28 @@ export interface Cell {
   act: string | null;
   /// The reasoning effort an agent's cell's rounds run at; an engine's cell has none.
   effort: string | null;
+  /// The work's branch takes the latest main in as each run of the cell starts.
+  takesMain: boolean;
   /// None is always.
   condition: Condition | null;
   preconditions: Test[];
   /// The blocks it names: those that run it, in the order it names them, then those it is only given.
   inputs: string[];
-  /// How it takes the blocks it names, by the block's name, for each of them the definition says it of.
+  /// The blocks whose new version runs it, in the order it names them.
+  runsOn: string[];
+  /// The blocks it is given, in the order it names them; none for an engine's cell.
+  given: string[];
+  /// Of each block it names, by the block's name, whether it runs the cell and whether the cell is given it.
   input: Record<string, Input>;
   outputs: string[];
   /// The blocks among its outputs that every hand-in of it includes.
   mustWrite: string[];
+  /// The tools of the engine's that an agent's cell may ask for in its return, by name, in the order the definition
+  /// lists them; none for an engine's cell.
+  tools: string[];
+  /// What runs it, each a trigger by its name, with the block it stands on, the data its agent reads for it and what
+  /// the cell does when it fires, as the definition writes them.
+  triggers: TriggerView[];
   limits: Limits;
 }
 
@@ -83,11 +106,26 @@ export interface Block {
   values: string[] | null;
   /// What the block is, in a sentence; none where the definition does not say.
   what: string | null;
+  /// It has no content and stands only for a trigger.
+  trigger?: boolean;
+  /// Of a block a source of the engine's writes, what it writes, each text by its name as its file writes them.
+  writes?: [string, SentPiece[]][];
   /// `outside`: the source outside the work that writes it; none where the outside does not.
   /// `note`: what people write in it is a note, their words to the cells that read it.
-  writtenBy: { cells: string[]; people: boolean; note: boolean; outside: string | null };
-  /// `tests`: the named tests that read its value, by name. `shown`: the owner's page reads it.
-  readBy: { cells: string[]; conditions: string[]; tests: string[]; shown: boolean };
+  writtenBy: {
+    cells: string[];
+    people: boolean;
+    note: boolean;
+    outside: string | null;
+  };
+  /// `cells`: the cells that name it, that it runs or that are given it. `tests`: the named tests that read its value,
+  /// by name. `shown`: the owner's page reads it.
+  readBy: {
+    cells: string[];
+    conditions: string[];
+    tests: string[];
+    shown: boolean;
+  };
 }
 
 export interface Flow {
@@ -203,9 +241,7 @@ export interface Fault {
 }
 
 export type Definition =
-  | { state: 'compiled'; flow: Flow }
-  | { state: 'faults'; faults: Fault[] }
-  | { state: 'unreadable'; reason: string };
+  { state: 'compiled'; flow: Flow } | { state: 'faults'; faults: Fault[] } | { state: 'unreadable'; reason: string };
 
 /// One change from the definition compared against to the one shown. Places are counted from 0.
 export type Change =
@@ -230,7 +266,12 @@ export type Change =
   | { kind: 'takesMain'; cell: string; before: boolean; after: boolean }
   | { kind: 'task'; cell: string; before: string | null; after: string | null }
   | { kind: 'act'; cell: string; before: string | null; after: string | null }
-  | { kind: 'condition'; cell: string; before: Condition | null; after: Condition | null }
+  | {
+      kind: 'condition';
+      cell: string;
+      before: Condition | null;
+      after: Condition | null;
+    }
   | { kind: 'preconditionAdded'; cell: string; test: Test }
   | { kind: 'preconditionRemoved'; cell: string; test: Test }
   | { kind: 'runsOnAdded'; cell: string; block: string }
@@ -255,12 +296,27 @@ export type Change =
   | { kind: 'levelsAbove'; cell: string; before: number; after: number }
   | { kind: 'blockAdded'; block: string }
   | { kind: 'blockRemoved'; block: string }
-  | { kind: 'values'; block: string; before: string[] | null; after: string[] | null }
+  | {
+      kind: 'values';
+      block: string;
+      before: string[] | null;
+      after: string[] | null;
+    }
   | { kind: 'people'; block: string; before: boolean; after: boolean }
   | { kind: 'note'; block: string; before: boolean; after: boolean }
-  | { kind: 'outside'; block: string; before: string | null; after: string | null }
+  | {
+      kind: 'outside';
+      block: string;
+      before: string | null;
+      after: string | null;
+    }
   | { kind: 'shown'; block: string; before: boolean; after: boolean }
-  | { kind: 'what'; block: string; before: string | null; after: string | null };
+  | {
+      kind: 'what';
+      block: string;
+      before: string | null;
+      after: string | null;
+    };
 
 export type Comparison =
   | { state: 'nothingToCompare' }
@@ -271,20 +327,85 @@ export type Comparison =
       changes: Change[] | null;
     };
 
+/// What a part of what an agent is sent is, for the page to know what it may do with it: the program's own part; a
+/// part of the system prompt; the form of the return; a part of a message that is no content of a block, nor the task,
+/// nor the blocks the cell writes; the content of a block the cell is given; the blocks the cell writes; and its task.
+export type SentWhat = 'program' | 'system' | 'form' | 'message' | 'input' | 'outputs' | 'task';
+
+/// A piece of the text of a part: sent as written, or a place filled in a run, by its name.
+export type SentPiece = { piece: 'text'; text: string } | { piece: 'slot'; name: string };
+
+/// How a part reaches the agent: the program's own, which the engine does not send; in the system prompt of the
+/// session, taken once as the session begins; given with every call of the program; or in a message, as the cell is
+/// entered.
+export type SentCarried = 'program' | 'system' | 'call' | 'message';
+
+/// One part of what an agent is sent as the engine enters its cell, as the files say it: its key there, its attributes,
+/// the file its words come from, and its text.
+export interface SentPart {
+  what: SentWhat;
+  carried: SentCarried;
+  /// Its key in the files.
+  name: string;
+  /// Of a part written anew each time, when it is sent at all: its `only`.
+  only: string | null;
+  /// The file its words come from.
+  source: string;
+  /// The block, of the content of a block the cell is given.
+  block: string | null;
+  /// The kind the cell gives that block in, as its file writes it.
+  kind: string | null;
+  /// The text sent, where it is written already.
+  pieces: SentPiece[];
+  /// What is sent in its place where the session holds it already: its `held`.
+  held: SentPiece[];
+  /// Of the content of a block, what is sent in place of its text where the session lacks what the text needs.
+  whole: SentPiece[];
+}
+
+/// A name a text sent to an agent gives between backticks that nothing defines, and the file it is in.
+export interface Unknown {
+  name: string;
+  source: string;
+}
+
+/// For each agent's cell of a definition that compiles, by its id, the parts it is sent in the order sent. A draft of what is designed and not built: the engine does not send it so yet.
+export type Given =
+  | {
+      state: 'compiled';
+      cells: Record<string, SentPart[]>;
+      /// The names of the engine's tools, so that the page tells a tool in the form from a field.
+      tools: string[];
+      /// What each engine's cell's act writes, by the cell's id.
+      acts: Record<string, ActWords>;
+      unknown: Unknown[];
+    }
+  | { state: 'notCompiled' }
+  | { state: 'unread'; why: string };
+
+/// What an act of the engine writes, as its file says it: each key, dotted where it is in a table, with its text.
+export interface ActWords {
+  source: string;
+  words: [string, SentPiece[]][];
+}
+
 /// Reads a path of the interface.
 export async function read<T>(path: string): Promise<T> {
-  const response = await fetch(path, { headers: { accept: 'application/json' } });
+  const response = await fetch(path, {
+    headers: { accept: 'application/json' },
+  });
   if (!response.ok) {
     throw new Error(`${path} answered ${response.status}: ${await response.text()}`);
   }
   return (await response.json()) as T;
 }
 
-/// The definition shown and what changed from the one compared against, read together.
-export async function load(): Promise<{ definition: Definition; comparison: Comparison }> {
-  const [definition, comparison] = await Promise.all([
-    read<Definition>('/api/v1/flow'),
-    read<Comparison>('/api/v1/flow/changes'),
-  ]);
-  return { definition, comparison };
+/// The definition shown, what changed from the one compared against, and what an agent is sent as each of its cells
+/// is entered, read together.
+export async function load(): Promise<{
+  definition: Definition;
+  given: Given;
+}> {
+  const [definition, given] = await Promise.all([read<Definition>('/api/v1/flow'), read<Given>('/api/v1/flow/given')]);
+  return { definition, given };
 }

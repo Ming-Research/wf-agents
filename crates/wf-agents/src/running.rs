@@ -44,7 +44,8 @@ pub enum With {
 /// What carries the works out, read and checked: a script, or the settings.
 enum Read {
     Script(Script),
-    Settings(Box<carry::Settings>),
+    /// The settings, and what the acts write, from `agents/acts/` beside the flows.
+    Settings(Box<carry::Settings>, Box<carry::Writes>),
 }
 
 /// The address the works page is printed at.
@@ -104,7 +105,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         };
         let levels = match &with {
             Read::Script(_) => script_levels(),
-            Read::Settings(settings) => match settings.levels() {
+            Read::Settings(settings, _) => match settings.levels() {
                 Ok(levels) => levels,
                 Err(why) => {
                     eprintln!("{why}");
@@ -112,11 +113,24 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                 }
             },
         };
+        // The project's checkout, for the page's draft of what an agent is sent; a script has no project.
+        let project = match &with {
+            Read::Script(_) => None,
+            Read::Settings(settings, _) => Some(settings.project.repo.clone()),
+        };
+        // What the block of main says as the watch reads its head, in the words its definition gives: the same in
+        // every flow, whose triggers are shared. Filled with the main branch's name, which the settings give.
+        let main_says = (flows.iter().flat_map(|flow| flow.blocks.values()))
+            .find(|block| block.writers.outside.as_deref() == Some(carry::MAIN))
+            .and_then(|block| block.writes.get("text").map(str::to_string))
+            .unwrap_or_default();
+        let mut main_name = String::new();
         // The copies of the database are kept where the real carriers are, as the settings say; a script keeps none.
         let mut copies: Option<Keeping> = None;
         let (carriers, watch): (Carriers, Option<carry::Watch>) = match with {
             Read::Script(script) => (Scripted::new(script).carriers(), None),
-            Read::Settings(settings) => {
+            Read::Settings(settings, words) => {
+                main_name = settings.project.main.clone();
                 match keeping(data, settings.backup.as_ref()) {
                     Ok(keeping) => copies = Some(keeping),
                     Err(why) => {
@@ -124,7 +138,7 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
                         return ExitCode::FAILURE;
                     }
                 }
-                match carry::carry(*settings, data) {
+                match carry::carry(*settings, data, *words) {
                     Ok((carriers, watch)) => (carriers, Some(watch)),
                     Err(why) => {
                         eprintln!("The carriers cannot be made: {why}");
@@ -144,12 +158,22 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         // runs again when main has moved since it passed.
         if let Some(watch) = watch {
             let handle = service.handle();
-            tokio::spawn(watch.run(move |head| handle.outside(carry::MAIN, &head)));
+            tokio::spawn(watch.run(move |head| {
+                let says = flow::agents::fill(&main_says, &[("main", &main_name), ("head", &head)]);
+                handle.outside(carry::MAIN, &says);
+            }));
         }
         // The page compares the flow's files with the flow as it was committed, so that an edit of them shows there
         // as what changed.
         let mut flows_shown = web::Flows::dirs(shown.clone(), None, Box::new(has));
         flows_shown.against = crate::committed::reader(shown.clone());
+        // A draft: the page lays out what an agent is to be sent as a cell is entered, with these texts as they are.
+        // The rules for the agents are files beside the flow's definition, which names for each line those it takes.
+        flows_shown.alike = web::given::Alike {
+            root: shown.parent().map(Path::to_path_buf),
+            flow: Some(shown.clone()),
+            project,
+        };
         let router = match copies {
             Some(keeping) => {
                 // One task keeps the copies, a step at a time, with the time the loop reads from its clock.
@@ -332,23 +356,32 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
     }
     let read = match with {
         With::Script(script) => read_script(script, &flows, compiled_all, &mut wrong).map(Read::Script),
-        With::Settings(settings) => match carry::Settings::load(settings) {
-            Ok(settings) => {
-                // What the real acts need of a flow, checked once the flows compiled.
-                for fault in flows.iter().flat_map(carry::faults) {
-                    eprintln!("{fault}");
-                    wrong = true;
+        With::Settings(settings) => {
+            // What the acts write is beside the flows, in the directory that holds the first.
+            let root = dirs.first().and_then(|d| d.parent()).unwrap_or(Path::new("."));
+            match (carry::Settings::load(settings), flow::agents::writes(root)) {
+                (Ok(settings), Ok(words)) => {
+                    // What the real acts need of a flow, checked once the flows compiled.
+                    let faults = (flows.iter()).flat_map(|flow| {
+                        [carry::faults(flow, &words.acts.check.values), driver::faults(flow)].concat()
+                    });
+                    for fault in faults {
+                        eprintln!("{fault}");
+                        wrong = true;
+                    }
+                    for warning in settings.warnings() {
+                        eprintln!("{warning}");
+                    }
+                    Some(Read::Settings(Box::new(settings), Box::new(words)))
                 }
-                for warning in settings.warnings() {
-                    eprintln!("{warning}");
+                (settings, words) => {
+                    for why in [settings.err(), words.err()].into_iter().flatten() {
+                        eprintln!("{why}");
+                    }
+                    None
                 }
-                Some(Read::Settings(Box::new(settings)))
             }
-            Err(why) => {
-                eprintln!("{why}");
-                None
-            }
-        },
+        }
     };
     match read {
         Some(read) if !wrong && compiled_all => Some((flows, read)),

@@ -8,6 +8,8 @@
 //!
 //! - `GET /api/v1/flow`: the definition shown ([`view::Definition`]).
 //! - `GET /api/v1/flow/changes`: what changed from the definition compared against ([`view::Comparison`]).
+//! - `GET /api/v1/flow/given`: what an agent is sent as the engine enters each agent's cell of the definition shown,
+//!   part by part in the order sent ([`given::Given`]); a draft of what is designed and not built.
 //! - With the engine running, the items and the works ([`interface`], whose types are in [`works`]), and what needs
 //!   whoever plans the work since a mark ([`attention`]).
 //! - `GET /api/v1/backup`: how the copies of the database stand ([`copies`]).
@@ -18,6 +20,7 @@
 
 pub mod attention;
 pub mod copies;
+pub mod given;
 mod guard;
 pub mod interface;
 pub mod view;
@@ -57,6 +60,8 @@ pub struct Flows {
     pub against: Option<Read>,
     /// What each definition is compiled against.
     pub has: Has,
+    /// What every agent is sent alike, as the program that carries the rounds out has it.
+    pub alike: given::Alike,
 }
 
 impl Flows {
@@ -69,6 +74,7 @@ impl Flows {
             shown: reader(shown),
             against: against.map(reader),
             has,
+            alike: given::Alike::default(),
         }
     }
 
@@ -96,6 +102,13 @@ impl Flows {
 
     fn definition(&self) -> Definition {
         self.compile(&self.shown).0
+    }
+
+    fn given(&self) -> given::Given {
+        match self.compile(&self.shown).1 {
+            Some(compiled) => given::given(&compiled, &self.alike),
+            None => given::Given::NotCompiled,
+        }
     }
 
     fn comparison(&self) -> Comparison {
@@ -133,6 +146,7 @@ pub fn router(flows: Flows) -> Router {
     Router::new()
         .route("/api/v1/flow", get(definition))
         .route("/api/v1/flow/changes", get(changes))
+        .route("/api/v1/flow/given", get(given))
         .route("/api/{*rest}", any(no_such))
         .fallback(page)
         .with_state(Arc::new(flows))
@@ -155,6 +169,10 @@ async fn definition(State(flows): State<Arc<Flows>>) -> Response {
 
 async fn changes(State(flows): State<Arc<Flows>>) -> Response {
     off_the_server(move || flows.comparison()).await
+}
+
+async fn given(State(flows): State<Arc<Flows>>) -> Response {
+    off_the_server(move || flows.given()).await
 }
 
 /// Reads the disk on a thread of its own, off the threads that serve requests, and answers with what it made.

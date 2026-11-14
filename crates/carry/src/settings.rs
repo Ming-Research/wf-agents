@@ -131,6 +131,10 @@ pub struct Project {
     /// be, each a whole key or a beginning followed by `*`: `filter.lfs.*` for a repository that needs Git LFS.
     #[serde(default)]
     pub allowed_config: Vec<String>,
+    /// Who the engine's commits are by, and the words of each: not in the settings, but in `agents/commits.toml`
+    /// beside the flows, put here as the carriers are made ([`crate::carry`]).
+    #[serde(skip)]
+    pub commits: flow::agents::Commits,
 }
 
 /// The project's repository on GitHub: the works' branches are pushed there, checked by its CI through a pull request

@@ -40,7 +40,7 @@ const STEPS = { first: 260, min: 160, max: 520 };
 /// condition does.
 function spotOf(mark: RowMark): Spot {
   return {
-    mark: { ...NO_MARK, read: mark === 'read', condition: mark === 'condition' },
+    mark: { ...NO_MARK, runs: mark === 'read', given: mark === 'read', condition: mark === 'condition' },
     added: NO_MARK,
     removed: NO_MARK,
     line: 'none',

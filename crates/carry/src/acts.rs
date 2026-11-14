@@ -38,14 +38,23 @@ use crate::held::{Failing, Held, Stop};
 use crate::host::{Branch, Host};
 use crate::settings::Project;
 
-/// The values the check writes in its choice: that the work passed, and that it did not. They are written by name: a
-/// cell whose choice does not offer them has what it hands in sent back by the engine.
-pub const PASSED: &str = "yes";
-pub const FAILED: &str = "no";
+use flow::agents::fill;
 
-/// The first words of what the check writes in its choice, before the commit it checked; `merge` reads the commit
-/// back from there.
-const CHECKED: &str = "Checked commit ";
+/// The acts' words, and those of the check, as `flow::agents` reads them.
+pub use flow::agents::{Acts as Words, Check as CheckWords, CheckValues, Deliver};
+
+/// What the engine writes as the flows of this repository say it, for the tests.
+#[cfg(test)]
+pub(crate) fn writes() -> flow::agents::Writes {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    flow::agents::writes(&root).expect("what the engine writes is read")
+}
+
+/// The acts' words as the flows of this repository write them, for the tests.
+#[cfg(test)]
+pub(crate) fn words() -> Words {
+    writes().acts
+}
 
 /// What the check before the merge found.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -72,6 +81,8 @@ pub struct Acts<H> {
 struct Inner<H> {
     host: H,
     project: Project,
+    /// What the acts write, as `agents/acts/` beside the flows says.
+    words: Words,
     data: PathBuf,
     /// The installation's part of the names of the works' branches and worktrees.
     tag: String,
@@ -91,11 +102,12 @@ enum Done {
 impl<H: Host> Acts<H> {
     /// The acts on this host in this project, with this data directory, which is an absolute path, and the
     /// installation's tag.
-    pub fn new(host: H, project: Project, data: PathBuf, tag: String) -> Self {
+    pub fn new(host: H, project: Project, data: PathBuf, tag: String, words: Words) -> Self {
         Acts {
             inner: Arc::new(Inner {
                 host,
                 project,
+                words,
                 data,
                 tag,
                 repository: Mutex::new(()),
@@ -206,6 +218,7 @@ impl<H: Host> Inner<H> {
         let act = round.cell.act.as_deref().unwrap_or_default();
         let outputs = outputs(&round.flow, round);
         let project = &self.project;
+        let words = &self.words;
         let place = git::place(&self.data, &self.tag, round.work);
         let about = about(&round.flow, &round.kept);
         let branch = Branch {
@@ -217,33 +230,41 @@ impl<H: Host> Inner<H> {
         match act {
             "start" => {
                 let started = start(project, &self.host, &place, &self.repository).await?;
-                let content = format!(
-                    "The work is done on the branch {} in the worktree {}, which started from the commit {} of {}.",
-                    started.place.reference(),
-                    started.place.dir.display(),
-                    started.from,
-                    project.main
+                let content = fill(
+                    &words.start.text,
+                    &[
+                        ("branch", &started.place.reference()),
+                        ("worktree", &started.place.dir.display().to_string()),
+                        ("from", &started.from),
+                        ("main", &project.main),
+                    ],
                 );
                 Ok(Done::HandsIn(prose(&outputs, &content)))
             }
-            "check" => match check(project, &self.host, &branch, &self.repository, stop).await? {
-                Some(checked) => checked_in(&outputs, &checked, &project.main).map(Done::HandsIn),
+            "check" => match check(project, &self.host, &branch, &self.repository, stop, &words.check).await? {
+                Some(checked) => checked_in(&outputs, &checked, &project.main, &words.check).map(Done::HandsIn),
                 None => Ok(Done::Stopped),
             },
             "merge" => {
-                let checked = passed(&round.flow, &round.kept)?;
+                let checked = passed(&round.flow, &round.kept, &words.check)?;
                 let merged = merge(&self.host, &branch, checked.as_deref(), &self.repository).await;
                 // Merged or refused for a moved main, the watch looks at main at once.
                 self.merged.notify_one();
                 let merged = merged?;
-                let content = format!(
-                    "The branch {} is merged into {}, whose head is now {merged}.",
-                    place.reference(),
-                    project.main
+                let content = fill(
+                    &words.merge.text,
+                    &[
+                        ("branch", &place.reference()),
+                        ("main", &project.main),
+                        ("head", &merged),
+                    ],
                 );
                 Ok(Done::HandsIn(prose(&outputs, &content)))
             }
-            "deliver" => Ok(Done::HandsIn(prose(&outputs, &delivered(&round.item.depends_on)))),
+            "deliver" => Ok(Done::HandsIn(prose(
+                &outputs,
+                &delivered(&round.item.depends_on, &words.deliver),
+            ))),
             other => Err(format!("the engine has no act named {other}")),
         }
     }
@@ -281,7 +302,7 @@ impl<H: Host> Inner<H> {
             match head {
                 Ok(head) => {
                     failing = None;
-                    say(format!("The main branch {} is at {head}.", self.project.main));
+                    say(head);
                 }
                 Err(why) if failing.as_ref() != Some(&why) => {
                     eprintln!("The head of {} could not be read: {why}", self.project.main);
@@ -334,6 +355,7 @@ pub(crate) async fn check(
     branch: &Branch<'_>,
     repository: &Mutex<()>,
     stop: &mut Stop,
+    words: &CheckWords,
 ) -> Result<Option<Checked>, String> {
     let place = branch.place;
     let dir = git::worktree(place)?;
@@ -353,25 +375,25 @@ pub(crate) async fn check(
         };
         if git::merging(&dir).await? {
             let changes = git::uncommitted(&dir).await?;
-            let failed = format!(
-                "A merge is under way in the worktree and is not committed: finish it and commit it, or take it \
-                 back.\n{changes}"
-            );
-            return Ok(Some(found(failed)));
+            return Ok(Some(found(fill(&words.found.merging, &[("changes", &changes)]))));
         }
         let changes = git::uncommitted(&dir).await?;
         if !changes.is_empty() {
-            let failed = format!("The worktree has changes that are not committed:\n{changes}");
-            return Ok(Some(found(failed)));
+            return Ok(Some(found(fill(&words.found.uncommitted, &[("changes", &changes)]))));
         }
         if let Some(conflict) = git::conflicts(project, &main, &commit).await? {
-            let failed = format!(
-                "The branch does not merge into {} at {main} without a conflict:\n{}\n{}",
-                project.main, conflict.files, conflict.kinds
+            let failed = fill(
+                &words.found.conflict,
+                &[
+                    ("main", &project.main),
+                    ("head", &main),
+                    ("files", &conflict.files),
+                    ("kinds", &conflict.kinds),
+                ],
             );
             return Ok(Some(found(failed)));
         }
-        let (commit, took_in) = git::take_in(&dir, &main, &project.main).await?;
+        let (commit, took_in) = git::take_in(&dir, &main, project).await?;
         (commit, took_in, main)
     };
     let Some(verdict) = host.verdict(branch, &commit, stop).await? else {
@@ -387,12 +409,22 @@ pub(crate) async fn check(
     }))
 }
 
-/// What is wrong with the flow for the acts, each in words with the cell: the cell of `check` has one choice among
-/// its outputs, and it offers [`PASSED`] and [`FAILED`]; the cells of `start`, `merge` and `deliver` have no choice
+/// What is wrong with the flow for the acts, each in words with the cell or the block: the block of [`MAIN`] says what
+/// is written there; the cell of `check` has one choice among its outputs, and it offers the values the check writes; the cells of `start`, `merge` and `deliver` have no choice
 /// among their outputs, since they have no outcome to choose. A flow with any of these is not run with the real
 /// carriers.
-pub fn faults(flow: &Compiled) -> Vec<String> {
+pub fn faults(flow: &Compiled, values: &CheckValues) -> Vec<String> {
+    let (passed, failed) = (&values.passed, &values.failed);
     let mut faults = Vec::new();
+    // The block the watch of main writes says what the engine writes there, in its `writes`.
+    for (name, block) in &flow.blocks {
+        if block.writers.outside.as_deref() == Some(MAIN) && block.writes.get("text").is_none() {
+            faults.push(format!(
+                "the flow {}, block {name} (from {MAIN}): its writes must give text",
+                flow.name
+            ));
+        }
+    }
     for cell in &flow.cells {
         let Some(act) = cell.act.as_deref() else {
             continue;
@@ -407,12 +439,12 @@ pub fn faults(flow: &Compiled) -> Vec<String> {
         let at = format!("the flow {}, cell {} (act {act})", flow.name, cell.id);
         match act {
             "check" => match choices.as_slice() {
-                [(block, values)] if !(values.iter().any(|v| v == PASSED) && values.iter().any(|v| v == FAILED)) => {
-                    faults.push(format!("{at}: its choice {block} must offer {PASSED} and {FAILED}"));
+                [(block, values)] if !(values.iter().any(|v| v == passed) && values.iter().any(|v| v == failed)) => {
+                    faults.push(format!("{at}: its choice {block} must offer {passed} and {failed}"));
                 }
                 [_] => {}
                 _ => faults.push(format!(
-                    "{at}: it must have one choice among its outputs, offering {PASSED} and {FAILED}, and has {}",
+                    "{at}: it must have one choice among its outputs, offering {passed} and {failed}, and has {}",
                     choices.len()
                 )),
             },
@@ -430,12 +462,12 @@ pub fn faults(flow: &Compiled) -> Vec<String> {
 }
 
 /// What `deliver` writes: that the item is delivered, and the items it was made of, by their numbers in order.
-fn delivered(made_of: &[ItemNumber]) -> String {
+fn delivered(made_of: &[ItemNumber], words: &Deliver) -> String {
     let numbers: Vec<String> = made_of.iter().map(|item| item.0.to_string()).collect();
     match numbers.as_slice() {
-        [] => "Delivered, made of no other item.".to_string(),
-        [one] => format!("Delivered, made of the item {one}."),
-        [first @ .., last] => format!("Delivered, made of the items {} and {last}.", first.join(", ")),
+        [] => words.none.clone(),
+        [one] => fill(&words.one, &[("item", one)]),
+        [first @ .., last] => fill(&words.many, &[("items", &first.join(&words.between)), ("last", last)]),
     }
 }
 
@@ -464,41 +496,45 @@ fn prose(outputs: &[(BlockId, Option<Vec<String>>)], content: &str) -> Vec<Hande
         .collect()
 }
 
-/// What the check hands in: its choice, [`PASSED`] or [`FAILED`], with the commit it checked on the first line and
-/// against what; and, where it failed, each other output with what failed.
+/// What the check hands in, in the words `agents/acts/check.toml` gives: its choice, passed or failed, with the commit
+/// it checked on the first line and against what; and, where it failed, each other output with what failed.
 fn checked_in(
     outputs: &[(BlockId, Option<Vec<String>>)],
     checked: &Checked,
     main: &str,
+    words: &CheckWords,
 ) -> Result<Vec<Handed>, String> {
     let Some(choice) = outputs.iter().find_map(|(b, v)| v.as_ref().map(|_| b)) else {
         return Err("the check's cell has no choice to hand in whether the work passed".to_string());
     };
-    let by = (checked.by.as_ref()).map_or(String::new(), |by| format!(" by {by}"));
-    let what = format!("The work's branch was checked against {main} at {}{by}", checked.main);
-    let took = if checked.took_in {
-        format!(
-            "\n\nThe engine merged {main} at {} into the work's branch for the check, as the commit {}, which the \
-             worktree holds.",
-            checked.main, checked.commit
-        )
-    } else {
-        String::new()
-    };
-    let took = if checked.notes.is_empty() {
-        took
-    } else {
-        format!("{took}\n\nAlso:\n- {}", checked.notes.join("\n- "))
-    };
+    let slots = [
+        ("commit", checked.commit.as_str()),
+        ("main", main),
+        ("head", checked.main.as_str()),
+    ];
+    let by = (checked.by.as_ref()).map_or(String::new(), |by| fill(&words.by, &[("by", by)]));
+    let said = fill(&fill(&words.checked, &[("by", &by)]), &slots);
+    let first = fill(&words.first, &slots);
+    let mut after = Vec::new();
+    if checked.took_in {
+        after.push(fill(&words.took_in, &slots));
+    }
+    if !checked.notes.is_empty() {
+        let notes: String = (checked.notes.iter())
+            .map(|note| fill(&words.note, &[("note", note)]))
+            .collect();
+        after.push(fill(&words.notes, &[("notes", &notes)]));
+    }
+    let content = |line: String| [vec![first.clone(), line], after.clone()].concat().join("\n\n");
     let (value, outcome) = match checked.failed {
-        None => (PASSED, "it passed"),
-        Some(_) => (FAILED, "it did not pass"),
+        None => (&words.values.passed, &words.passed),
+        Some(_) => (&words.values.failed, &words.failed),
     };
     let mut handed = vec![Handed {
         block: choice.clone(),
-        content: format!("{CHECKED}{}\n\n{what}: {outcome}.{took}", checked.commit),
+        content: content(fill(outcome, &[("checked", &said)])),
         matters: true,
-        value: Some(value.to_string()),
+        value: Some(value.clone()),
     }];
     if let Some(why) = &checked.failed {
         let others = outputs
@@ -506,7 +542,7 @@ fn checked_in(
             .filter(|(block, values)| block != choice && values.is_none());
         handed.extend(others.map(|(block, _)| Handed {
             block: block.clone(),
-            content: format!("{CHECKED}{}\n\n{what}. {why}{took}", checked.commit),
+            content: content(fill(&words.why, &[("checked", &said), ("why", why)])),
             matters: true,
             value: None,
         }));
@@ -530,11 +566,13 @@ fn latest_check<'a>(flow: &Compiled, work: &'a Work) -> Option<&'a Finished> {
 }
 
 /// The commit the latest check wrote in its choice, where it wrote this value there.
-fn checked_with(work: &Work, check: &Finished, value: &str) -> Option<String> {
+fn checked_with(work: &Work, check: &Finished, words: &CheckWords) -> Option<String> {
+    let value = words.values.passed.as_str();
     let write = check.writes.iter().find(|w| w.value.as_deref() == Some(value))?;
     let content = work.contents.get(&(write.block.clone(), check.at))?;
     let line = content.lines().next()?;
-    line.strip_prefix(CHECKED).map(|commit| commit.trim().to_string())
+    let (before, _) = words.first.split_once("{commit}")?;
+    line.strip_prefix(before).map(|commit| commit.trim().to_string())
 }
 
 /// What the work says of itself where the host shows it: what it wrote in the blocks the flow's check names to
@@ -564,11 +602,11 @@ fn described(describes: &[BlockId], work: &Work) -> String {
 
 /// The commit the work's latest check passed, read from what it wrote in its choice; none where the flow has no
 /// check, so that what the branch holds is merged. Where the flow has one and no check passed, the work cannot merge.
-fn passed(flow: &Compiled, work: &Work) -> Result<Option<String>, String> {
+fn passed(flow: &Compiled, work: &Work, words: &CheckWords) -> Result<Option<String>, String> {
     if !flow.cells.iter().any(|cell| cell.act.as_deref() == Some("check")) {
         return Ok(None);
     }
-    let commit = latest_check(flow, work).and_then(|check| checked_with(work, check, PASSED));
+    let commit = latest_check(flow, work).and_then(|check| checked_with(work, check, words));
     match commit {
         Some(commit) => Ok(Some(commit)),
         None => Err(
@@ -607,7 +645,7 @@ mod tests {
     fn a_commit_the_engine_made_to_take_main_in_is_said() {
         let mut took = checked(Some("The check failed."));
         took.took_in = true;
-        let handed = checked_in(&outputs(), &took, "main").unwrap();
+        let handed = checked_in(&outputs(), &took, "main", &words().check).unwrap();
         let said = "\n\nThe engine merged main at beef into the work's branch for the check, as the commit c0ffee, \
                     which the worktree holds.";
         assert!(handed.iter().all(|h| h.content.ends_with(said)), "{handed:?}");
@@ -617,7 +655,7 @@ mod tests {
     fn what_judged_the_work_is_said_with_what_it_was_checked_against() {
         let mut by = checked(None);
         by.by = Some("the CI of the pull request https://example.com/pull/7".to_string());
-        let handed = checked_in(&outputs(), &by, "main").unwrap();
+        let handed = checked_in(&outputs(), &by, "main", &words().check).unwrap();
         assert_eq!(
             handed[0].content,
             "Checked commit c0ffee\n\nThe work's branch was checked against main at beef by the CI of the pull \
@@ -627,7 +665,7 @@ mod tests {
 
     #[test]
     fn a_work_that_passes_hands_in_yes_alone_with_the_commit_it_checked() {
-        let handed = checked_in(&outputs(), &checked(None), "main").unwrap();
+        let handed = checked_in(&outputs(), &checked(None), "main", &words().check).unwrap();
         assert_eq!(
             handed,
             [Handed {
@@ -642,7 +680,7 @@ mod tests {
 
     #[test]
     fn a_work_that_fails_hands_in_no_and_what_failed() {
-        let handed = checked_in(&outputs(), &checked(Some("The check failed.")), "main").unwrap();
+        let handed = checked_in(&outputs(), &checked(Some("The check failed.")), "main", &words().check).unwrap();
         assert_eq!(handed.len(), 2);
         assert_eq!(handed[0].value.as_deref(), Some("no"));
         assert_eq!(handed[1].block, BlockId::from("opinions"));
@@ -668,14 +706,14 @@ mod tests {
 
     #[test]
     fn a_flow_whose_acts_have_what_they_need_has_no_fault() {
-        assert_eq!(faults(&acts_flow()), Vec::<String>::new());
+        assert_eq!(faults(&acts_flow(), &words().check.values), Vec::<String>::new());
     }
 
     #[test]
     fn a_check_whose_choice_does_not_offer_yes_and_no_is_a_fault() {
         let mut flow = acts_flow();
         flow.blocks.get_mut(&BlockId::from("passed")).unwrap().values = Some(vec!["pass".into(), "fail".into()]);
-        let faults = faults(&flow);
+        let faults = faults(&flow, &words().check.values);
         assert_eq!(faults.len(), 1, "{faults:?}");
         assert!(
             faults[0].contains("cell check (act check)") && faults[0].contains("offer yes and no"),
@@ -688,7 +726,7 @@ mod tests {
         let mut flow = acts_flow();
         flow.blocks.get_mut(&BlockId::from("failures")).unwrap().values = Some(vec!["yes".into(), "no".into()]);
         flow.blocks.get_mut(&BlockId::from("merged")).unwrap().values = Some(vec!["done".into()]);
-        let faults = faults(&flow);
+        let faults = faults(&flow, &words().check.values);
         assert_eq!(faults.len(), 2, "{faults:?}");
         assert!(faults[0].contains("has 2"), "{faults:?}");
         assert!(
@@ -697,17 +735,26 @@ mod tests {
         );
         let mut none = acts_flow();
         none.blocks.get_mut(&BlockId::from("passed")).unwrap().values = None;
-        assert!(self::faults(&none)[0].contains("has 0"));
+        assert!(self::faults(&none, &words().check.values)[0].contains("has 0"));
     }
 
     #[test]
     fn a_deliverable_says_the_items_it_was_made_of_in_order() {
         let items = |numbers: &[u64]| numbers.iter().copied().map(ItemNumber).collect::<Vec<_>>();
-        assert_eq!(delivered(&items(&[])), "Delivered, made of no other item.");
-        assert_eq!(delivered(&items(&[4])), "Delivered, made of the item 4.");
-        assert_eq!(delivered(&items(&[2, 4])), "Delivered, made of the items 2 and 4.");
         assert_eq!(
-            delivered(&items(&[2, 4, 7])),
+            delivered(&items(&[]), &words().deliver),
+            "Delivered, made of no other item."
+        );
+        assert_eq!(
+            delivered(&items(&[4]), &words().deliver),
+            "Delivered, made of the item 4."
+        );
+        assert_eq!(
+            delivered(&items(&[2, 4]), &words().deliver),
+            "Delivered, made of the items 2 and 4."
+        );
+        assert_eq!(
+            delivered(&items(&[2, 4, 7]), &words().deliver),
             "Delivered, made of the items 2, 4 and 7."
         );
     }
@@ -715,7 +762,7 @@ mod tests {
     #[test]
     fn a_check_with_no_choice_fails() {
         let none = vec![("opinions".into(), None)];
-        assert!(checked_in(&none, &checked(None), "main").is_err());
+        assert!(checked_in(&none, &checked(None), "main", &words().check).is_err());
     }
 
     const WORK: WorkNumber = WorkNumber(1);
@@ -733,7 +780,15 @@ mod tests {
     /// Checks the work in the repository with the host.
     async fn check_with(repo: &Repo, host: &impl Host, stop: &mut Stop) -> Result<Option<Checked>, String> {
         let place = repo.place(WORK);
-        check(&repo.project, host, &branch(&place), &Mutex::new(()), stop).await
+        check(
+            &repo.project,
+            host,
+            &branch(&place),
+            &Mutex::new(()),
+            stop,
+            &words().check,
+        )
+        .await
     }
 
     /// Checks the work in the repository with the local host, which must give a verdict.
@@ -1084,6 +1139,7 @@ mod tests {
             repo.project.clone(),
             repo.data.clone(),
             "0a1b2c3d".to_string(),
+            words(),
         );
         let (said, mut heard) = tokio::sync::mpsc::unbounded_channel();
         let watching = tokio::spawn(acts.watch(Duration::from_secs(3600)).run(move |head| {
@@ -1104,6 +1160,7 @@ mod tests {
             repo.project.clone(),
             repo.data.clone(),
             "0a1b2c3d".to_string(),
+            words(),
         );
         let (said, mut heard) = tokio::sync::mpsc::unbounded_channel();
         let watching = tokio::spawn(acts.watch(Duration::from_secs(3600)).run(move |head| {
@@ -1111,7 +1168,7 @@ mod tests {
         }));
         let within = Duration::from_secs(10);
         let first = tokio::time::timeout(within, heard.recv()).await.expect("said at once");
-        assert_eq!(first, Some(format!("The main branch main is at {main}.")));
+        assert_eq!(first, Some(main.clone()));
         acts.inner.merged.notify_one();
         let again = tokio::time::timeout(within, heard.recv())
             .await

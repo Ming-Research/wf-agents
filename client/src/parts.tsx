@@ -195,6 +195,15 @@ export function ListRow({ children }: { children: ReactNode }) {
   return <li className="list-row">{children}</li>;
 }
 
+/// An attribute as the flow's files write it: its key, then its value (principle definitions-shown-as-written).
+export function Attr({ name, value }: { name: string; value: ReactNode }) {
+  return (
+    <span>
+      <span className="muted mono">{name}</span> <span className="mono">{value}</span>
+    </span>
+  );
+}
+
 /// A word that opens something on the page.
 export function LinkButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
   return (

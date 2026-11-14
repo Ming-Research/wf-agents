@@ -75,19 +75,23 @@ impl Why {
         !matches!(self, Why::Lost)
     }
 
-    /// Why, in words, for whoever reads it: an agent reading a block that says the session is new, or the owner.
-    pub fn words(&self, line: &str) -> String {
-        let why = match self {
-            Why::Limit { context, limit } => {
-                format!("its context was {context} tokens as its last round ended, past the limit of {limit}")
-            }
-            Why::Model { was } => format!("its rounds now run on another model than {was}, which it was begun on"),
-            Why::Account { .. } => "its rounds now run under another account than it was begun under".to_string(),
-            Why::Owner => "the owner asked for one".to_string(),
-            Why::Flagged => "the service's safety check flagged its last round".to_string(),
-            Why::Lost => "the agents' program no longer had the session it was in".to_string(),
-        };
-        format!("A new session of the line `{line}`: {why}.")
+    /// The names of its kinds, as [`Why::named`] gives them.
+    pub const KINDS: [&'static str; 6] = ["limit", "model", "account", "owner", "flagged", "lost"];
+
+    /// Its kind, by the name the words of it have where the flow says what the engine writes of a new session, and
+    /// the places those words fill in a run, each with its value.
+    pub fn named(&self) -> (&'static str, Vec<(&'static str, String)>) {
+        match self {
+            Why::Limit { context, limit } => (
+                "limit",
+                vec![("context", context.to_string()), ("limit", limit.to_string())],
+            ),
+            Why::Model { was } => ("model", vec![("was", was.clone())]),
+            Why::Account { .. } => ("account", Vec::new()),
+            Why::Owner => ("owner", Vec::new()),
+            Why::Flagged => ("flagged", Vec::new()),
+            Why::Lost => ("lost", Vec::new()),
+        }
     }
 }
 

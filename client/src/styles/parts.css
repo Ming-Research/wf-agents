@@ -541,7 +541,9 @@ textarea:disabled {
   border-top: var(--hairline) solid var(--line);
 }
 
-/* A section: a small semibold label over what it holds; a hairline where a group of sections ends. */
+/* A section: its name over what it holds, as the head of a section of the console's window: strong, in the head's
+   colour, with a line after it to the panel's edge, so that the sections stand apart; a hairline where a group of
+   sections ends. */
 .panel-part {
   margin-bottom: var(--space-16);
 }
@@ -552,9 +554,29 @@ textarea:disabled {
 }
 
 .panel-part-label {
-  margin-bottom: var(--space-4);
-  font-size: var(--size-small);
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  margin: var(--space-16) 0 var(--space-8);
+  color: var(--head);
+  font-size: var(--size-body);
   font-weight: var(--weight-strong);
+}
+
+.panel-part:first-child .panel-part-label {
+  margin-top: 0;
+}
+
+/* The line after the name, to the edge. */
+.panel-part-label::after {
+  content: '';
+  flex: 1;
+  height: var(--hairline);
+  background: var(--head);
+}
+
+.panel-part-label .muted {
+  font-weight: var(--weight);
 }
 
 /* Label and value pairs. */
@@ -667,4 +689,86 @@ ins {
   padding: 0 var(--space-12);
   border-radius: 6px;
   font-size: 14px;
+}
+
+/* The form of a return as a tree (FormTree.tsx): each property on a line, its type after it, muted, a required one
+   marked in red; a node that holds others folds at a press of its head, with the console's signs; where a return holds
+   one of several, each in a box with an `or` line between two. A kind of return is strong, a tool green, the blocks a
+   cell writes under their own names in the accent. */
+.form-tree {
+  font-family: var(--mono);
+  font-size: var(--size-small);
+  line-height: var(--line-height);
+}
+
+.form-tree summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.form-tree summary::-webkit-details-marker {
+  display: none;
+}
+
+.form-tree summary::before {
+  display: inline-block;
+  width: var(--space-12);
+  color: var(--muted);
+  content: '▸';
+}
+
+.form-tree details[open] > summary::before {
+  content: '▾';
+}
+
+.tree-leaf {
+  padding-left: var(--space-12);
+}
+
+.tree-children {
+  padding-left: var(--space-16);
+}
+
+.tree-box {
+  padding: var(--space-4) var(--space-8);
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--corner);
+}
+
+.tree-or {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  margin: var(--space-4) 0;
+  color: var(--muted);
+  font-family: var(--font);
+}
+
+.tree-or::before,
+.tree-or::after {
+  flex: 1;
+  border-top: var(--hairline) solid var(--line);
+  content: '';
+}
+
+.tree-kind {
+  font-weight: var(--weight-strong);
+}
+
+.tree-tool {
+  color: var(--green-text);
+}
+
+.tree-own {
+  color: var(--accent-text);
+}
+
+.tree-type {
+  margin-left: var(--space-8);
+  color: var(--muted);
+}
+
+.tree-required {
+  margin-left: var(--space-2);
+  color: var(--red-text);
 }
