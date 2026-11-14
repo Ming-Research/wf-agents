@@ -34,7 +34,7 @@ A check that ran and failed is not run again either: see the host's decision a-r
 
 ### decision a-query-is-refused-writes-by-the-connection
 The engine runs an agent's `query` on a connection to the store that refuses every write itself: opened read-only, with `query_only` on, and with an authorizer that allows only a select, the reading of the tables not hidden from agents, and functions; nothing may be attached, and a query is bounded in rows, time and bytes. The result is kept whole in the records, and a message gives a long one cut, with its size and the query that reads the rest.
-Why: A check of the SQL's text for writes was turned down: it is a list of dangerous words an agent writes one more past (principle no-dangerous-names-listed). The whole is kept because what ran is kept whole (principle the-past-as-it-ran) while an agent's context holds only what it can use.
+Why: A check of the SQL's text for writes was turned down: it lists dangerous words, and an agent writes one more past the list (principle agent-writing-is-data). The whole is kept because what ran is kept whole (principle the-past-as-it-ran) while an agent's context holds only what it can use.
 
 ### decision the-stores-comments-are-what-agents-are-told
 What `{store}` in the words of `query` is filled with is made from the comments of `db/schema.sql`, each table's and each column's, and a table whose comment says "hidden from agents" is left out of it and cannot be read by a query. The tool is off until the settings open it (`query.open`): which tables agents see, and under which names, is not settled, and with it off a request is answered from the tool's file that the store is not open.
