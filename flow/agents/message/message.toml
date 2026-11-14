@@ -35,7 +35,8 @@ part = "main"
 only = "takes_main"
 
 # Each datum of the cell's `context` that is new to it since it last worked from it, or that the session lacks: its
-# content as `given.toml` says for the cell's kind of it, or `held` there where the session holds it already.
+# content as `given.toml` says for the cell's kind of it, or `held` there where the session holds it already. A datum
+# with no version yet is left out.
 [[parts]]
 part = "context"
 
