@@ -1,5 +1,6 @@
 //! A work in memory, for the tests of the walk. It keeps the records as an engine would, only adding to them, and
-//! takes from each decision exactly what the decision gives: why a run starts and what it starts from.
+//! takes from each decision exactly what the decision gives: why a run starts and what it starts from. The
+//! exploration of the repository's own flow (crate `flow`, `tests/explored`) keeps its works with it too.
 
 use std::collections::BTreeMap;
 
@@ -76,6 +77,7 @@ pub enum Says {
     Value(&'static str),
 }
 
+#[derive(Clone)]
 pub struct World {
     pub flow: Flow,
     pub records: Records,
@@ -146,6 +148,20 @@ impl World {
         }
     }
 
+    /// A work on a flow made elsewhere, such as one compiled from a definition: its named tests and the writers of its
+    /// blocks are the flow's own, which [`World::install`] does not keep.
+    pub fn of(flow: Flow) -> Self {
+        Self {
+            flow,
+            records: Records::default(),
+            tests: BTreeMap::new(),
+            notes: Vec::new(),
+            outsiders: BTreeMap::new(),
+            seq: 0,
+            ids: 0,
+        }
+    }
+
     /// A work whose last cell is a merge that waits for the owner: when nothing else is to be done the work rests
     /// there, and the test can go on changing things.
     pub fn with_gate(mut cells: Vec<Cell>) -> Self {
@@ -199,7 +215,8 @@ impl World {
         Seq(self.seq)
     }
 
-    fn id(&mut self) -> u64 {
+    /// A name for a new run or call, none given before.
+    pub fn id(&mut self) -> u64 {
         self.ids += 1;
         self.ids
     }

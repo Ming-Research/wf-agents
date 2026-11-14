@@ -4,6 +4,8 @@
 //! what it tests; this file holds what the modules build their expectations from, and the works several of them start
 //! from.
 
+// The walk's tests use only part of the helper the tests of a flow compiled elsewhere share.
+#[allow(dead_code)]
 #[path = "../support/mod.rs"]
 mod support;
 
