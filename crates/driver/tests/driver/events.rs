@@ -142,10 +142,10 @@ fn what_cannot_have_happened_to_a_work_is_refused_and_leaves_the_driver_and_the_
         ),
         (
             wrote("verdict", Outsider::Person, Some("maybe")),
-            engine::Refused::Unmet(Unmet::NotAValue {
+            engine::Refused::NotAValue {
                 block: block("verdict"),
                 value: "maybe".into(),
-            }),
+            },
         ),
         (
             Event::LetGo { cell: "nowhere".into() },

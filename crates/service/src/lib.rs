@@ -63,7 +63,7 @@ pub use clock::{Clock, SystemClock, TokioClock};
 pub use levels::{Level, Levels, LevelsFault};
 pub use script::Script;
 pub use scripted::Scripted;
-pub use words::{record_fault_words, refused_words, store_fault_words, unmet_words};
+pub use words::{record_fault_words, refused_words, store_fault_words};
 
 /// The result of a wait the engine made before a round that failed in passing is tried again, once its time has come.
 pub const WAITED: &str = "The wait is over: the round is tried again.";

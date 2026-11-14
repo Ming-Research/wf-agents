@@ -1,7 +1,9 @@
 //! The agents' rounds, run with the `claude` command line: each round one run of the program, in the work's worktree,
-//! in the session of the cell's line, told its message on its standard input, with the same form of return for every
-//! round and the same system prompt for every round of a line, which says what the line may run as its permissions
-//! give it to the program (`permissions`). How many run at once is the engine's to bound: it gives at most as many
+//! in the session of the cell's line, told its message on its standard input, with the form of return of its flow,
+//! made of the flow and the files beside the flows and so the same for every round of every cell of the flow
+//! ([`flow::form`]), and the same system prompt for every round of a line, which says what the line may run as its
+//! permissions give it to the program (`permissions`). What came back is read against the cell the round was entered
+//! for ([`returns`](crate::returns)). How many run at once is the engine's to bound: it gives at most as many
 //! rounds at once as the settings give slots, and holds the others back in its own order.
 //!
 //! A round fails, handing in nothing, where the worktree is not there, the program cannot be started, or its stream
@@ -65,6 +67,10 @@ use crate::process::{self, Ran};
 use crate::settings::Settings;
 use crate::{acts, failure, git, kept, message, returns, session};
 
+/// What is written beside the flows, which every flow shares: the words the agents are sent, and the definitions the
+/// form of a return is made of.
+type Beside = flow::agents::Agents;
+
 /// The system prompt every round is given, before the owner's language and what the tool `check` does are put in.
 pub const PROTOCOL: &str = include_str!("protocol.md");
 
@@ -81,6 +87,8 @@ struct Inner {
     settings: Settings,
     data: PathBuf,
     installation: Uuid,
+    /// What is written beside the flows.
+    beside: Beside,
     /// The system prompt, the same for every round of a line once what the line may do is put in.
     protocol: String,
     held: Held<(WorkNumber, RunId, usize), RoundReply>,
@@ -104,10 +112,11 @@ const COMPACTED: &str = "Your session was compacted during this round. What the 
                          session that begins; carry on with the round's work.";
 
 impl Agents {
-    /// The agents of these settings, with this data directory, which is an absolute path, the installation's id, and
-    /// the reference of the project's repository that holds main's head as the host last gave it.
-    pub fn new(settings: Settings, data: PathBuf, installation: Uuid, main: String) -> Self {
-        Self::with_clock(settings, data, installation, main, Arc::new(SystemClock))
+    /// The agents of these settings, with this data directory, which is an absolute path, the installation's id, the
+    /// reference of the project's repository that holds main's head as the host last gave it, and what is written
+    /// beside the flows.
+    pub fn new(settings: Settings, data: PathBuf, installation: Uuid, main: String, beside: Beside) -> Self {
+        Self::with_clock(settings, data, installation, main, beside, Arc::new(SystemClock))
     }
 
     /// The agents as [`Agents::new`] gives them, reading the time by this clock.
@@ -116,6 +125,7 @@ impl Agents {
         data: PathBuf,
         installation: Uuid,
         main: String,
+        beside: Beside,
         clock: Arc<dyn Clock>,
     ) -> Self {
         let protocol = (PROTOCOL.replace("{owner_language}", &settings.agents.owner_language))
@@ -125,6 +135,7 @@ impl Agents {
                 settings,
                 data,
                 installation,
+                beside,
                 protocol,
                 held: Held::new(),
                 clock,
@@ -223,6 +234,8 @@ impl Inner {
         // program running unseen.
         process::stop_left(&group, &place.dir).await;
         let line = (round.cell.line.as_deref()).ok_or_else(|| format!("the cell {} names no line", round.cell.id))?;
+        // The form of the flow, the same bytes for every round of every cell of it.
+        let form = flow::form::form(flow, &self.beside)?;
         let on = self.settings.ran_on(round.item.level.as_deref(), &round.cell)?;
         let dir = git::worktree(&place)?;
         let main = if round.cell.takes_main {
@@ -267,12 +280,22 @@ impl Inner {
                 begins: begin == Begin::New || moved,
                 main: main.as_ref(),
             };
-            let told = message::message(flow, work, &round.cell, round.run, round.number, &round.given, &opening);
+            let (cell, beside) = (&round.cell, &self.beside);
+            let told = message::message(
+                flow,
+                work,
+                cell,
+                round.run,
+                round.number,
+                &round.given,
+                &opening,
+                beside,
+            );
             let whole = message::Opening {
                 begins: true,
                 ..opening
             };
-            let again = message::message(flow, work, &round.cell, round.run, round.number, &round.given, &whole);
+            let again = message::message(flow, work, cell, round.run, round.number, &round.given, &whole, beside);
             write(&compacted.again, format!("{COMPACTED}\n\n{again}").as_bytes()).await?;
             // The round takes what its last try took, so it counts that try's compactions alone: an earlier try's, or
             // a try's before the engine stopped, are not its.
@@ -281,7 +304,7 @@ impl Inner {
             // What the try runs on is said before its message is written, which makes the try one that was kept.
             teller.ran_on(n, on.clone());
             write(&told_at, told.as_bytes()).await?;
-            let command = self.command(&dir, &on, &permissions, &compacted, &words, session, begin);
+            let command = self.command(&dir, &on, &permissions, &form, &compacted, &words, session, begin);
             // The stream is kept as it comes, so that what the agent is doing can be read while it does it.
             let mut kept = Keeping::to(&stream_at)?;
             let mut each = |line: &[u8]| kept.line(line);
@@ -347,20 +370,22 @@ impl Inner {
                 return failed(format!("{command} exited with {status}: {why}"), no.spent);
             }
         };
-        match returns::came(&read.structured) {
+        match returns::came(&read.structured, flow, &round.cell, &self.beside) {
             Ok(came) => Ok(Carried::Came(came, read.spent)),
             Err(why) => Ok(Carried::Failed(why, Failure::Unread, read.spent)),
         }
     }
 
-    /// The program's command line for a round on what it runs on, of a line with these permissions, in the session,
-    /// begun or gone on in, in the worktree. The system prompt says what the line may do.
+    /// The program's command line for a round on what it runs on, of a line with these permissions, given the form of
+    /// return of its flow, in the session, begun or gone on in, in the worktree. The system prompt says what the line
+    /// may do.
     #[allow(clippy::too_many_arguments)]
     fn command(
         &self,
         dir: &Path,
         on: &RanOn,
         permissions: &Permissions,
+        form: &str,
         compacted: &Compacted,
         words: &Words,
         session: Uuid,
@@ -373,7 +398,7 @@ impl Inner {
             agents,
             on,
             &protocol,
-            returns::SCHEMA,
+            form,
             permissions,
             compacted,
             words,

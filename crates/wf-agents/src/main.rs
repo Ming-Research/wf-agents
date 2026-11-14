@@ -346,17 +346,9 @@ const TOOLS: [&str; 2] = ["query", "run_tests"];
 const SYSTEM: [&str; 4] = ["guide", "constitution", "tree_rules", "how_you_work_here"];
 
 /// The names of the fields of a return that are the engine's, as the design of data and context settles them: what a
-/// round has dealt with, the blocks it hands in with their meaning unchanged, its observations, its questions, its
-/// answer to the owner, and its summary. A datum may be written through `questions` or `reply`. The engine reads none
-/// of them by these names yet: a definition may name them, as it may the tools.
-const FIELDS: [&str; 6] = [
-    "dealt_with",
-    "meaning_unchanged",
-    "observations",
-    "questions",
-    "reply",
-    "summary",
-];
+/// round has dealt with, the blocks it hands in with their meaning unchanged, its observations, its questions and its
+/// answer to the owner. A datum may be written through `questions` or `reply`.
+const FIELDS: [&str; 5] = ["dealt_with", "meaning_unchanged", "observations", "questions", "reply"];
 
 /// The names of the places the engine fills in a run with what happened, which a trigger may say it happened by:
 /// `files`, the files of the design tree that changed. Not filled yet.

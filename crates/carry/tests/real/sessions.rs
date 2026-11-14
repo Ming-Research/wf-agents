@@ -101,6 +101,23 @@ async fn a_run_waiting_as_its_line_begins_a_new_session_is_told_its_task_and_its
     real.restart();
     let planned = |real: &Real| real.finished(work).iter().filter(|cell| *cell == "plan").count();
     real.until(|real| planned(real) == 2).await;
+    let waits = |real: &Real| {
+        let decision = real.decision(work);
+        let on_the_owner = |on: &[decide::Waited]| {
+            on.iter().any(|w| {
+                matches!(
+                    w,
+                    decide::Waited::Call {
+                        on: Some(decide::Who::Owner),
+                        ..
+                    }
+                )
+            })
+        };
+        matches!(&decision, decide::Decision::Wait { at, on } if at.as_str() == "build" && on_the_owner(on))
+    };
+    // The plan ran again in the new session, and the work is held at the build for the owner still.
+    assert!(waits(&real), "{:?}", real.decision(work));
     let call = real.owners_call(work).expect("the build still waits");
     let result = "By their first name.".to_string();
     real.act(work, Act::Answer { call, result });

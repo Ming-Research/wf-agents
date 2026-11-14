@@ -76,8 +76,9 @@ pub struct Seen {
 
 /// The first finished run of the records that lacks a write of a block its cell must write, read from the records of
 /// the finishes and the cells' definitions (property a-run-is-one-mechanism), said in words; none where there is none.
-/// A run is held to what its cell must write where its return asked for no call and dealt with everything that ran its
-/// round (plan, D8).
+/// A run is held to what its cell must write where its return asked for no call, however much of what ran its round it
+/// dealt with (decision a-return-hands-in-what-its-cell-must-every-time); a return with a question that waits asks the
+/// owner for its answer as a call, and is not held.
 pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String> {
     for finished in &records.finished {
         let started = (records.started.iter())
@@ -89,24 +90,7 @@ pub fn lacking_a_must_write(flow: &Compiled, records: &Records) -> Option<String
             .max();
         let asked = (records.called.iter())
             .any(|c| c.run == finished.run && c.at < finished.at && ended.is_none_or(|e| c.at > e));
-        let ran: Vec<&decide::BlockId> = (started.because.iter())
-            .filter_map(|c| match c {
-                Cause::Changed { block, .. } => Some(block),
-                _ => None,
-            })
-            .chain(
-                records
-                    .put_in
-                    .iter()
-                    .filter(|p| p.run == finished.run)
-                    .map(|p| &p.block),
-            )
-            .collect();
-        let everything = finished
-            .dealt_with
-            .as_ref()
-            .is_none_or(|dealt| ran.iter().all(|b| dealt.contains(b)));
-        if asked || !everything {
+        if asked {
             continue;
         }
         let spec = (flow.cells.iter())

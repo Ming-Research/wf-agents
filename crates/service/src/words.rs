@@ -3,7 +3,6 @@
 
 use std::fmt;
 
-use decide::run::Unmet;
 use decide::{End, Outsider, RecordFault};
 use driver::{Failed, Unchangeable};
 use engine::Refused;
@@ -122,7 +121,9 @@ pub fn refused_words(refused: &Refused) -> String {
             block,
             by: Outsider::Outside,
         } => format!("nothing outside the work writes the block {block}"),
-        Refused::Unmet(unmet) => unmet_words(unmet),
+        Refused::NoValue { block } => format!("the block {block} is a choice, and is written with no value"),
+        Refused::NotAValue { block, value } => format!("{value} is not one of the values of the block {block}"),
+        Refused::NotAChoice { block } => format!("the block {block} is no choice, and is written with a value"),
         Refused::NoSuchCell(cell) => format!("the flow has no cell {cell}"),
         Refused::NoRoundUnderWay(run) => format!("no round of run {} is under way", run.0),
         Refused::NoSuchCall(call) => format!("the work has no call {}", call.0),
@@ -130,43 +131,6 @@ pub fn refused_words(refused: &Refused) -> String {
         Refused::NoSuchLine(line) => format!("the flow has no cell on the line {line}"),
         Refused::NotToRelease => {
             "the work has not ended, or something of it is under way: it has nothing to let go".to_string()
-        }
-    }
-}
-
-/// Why what was handed in or written does not meet what the flow requires, as a clause.
-pub fn unmet_words(unmet: &Unmet) -> String {
-    match unmet {
-        Unmet::AsksNothing => "it asks for calls, and for none".to_string(),
-        Unmet::NotAnOutput { block } => format!("the block {block} is not one the cell may write"),
-        Unmet::WrittenTwice { block } => format!("the block {block} is written twice"),
-        Unmet::NoValue { block } => format!("the block {block} is a choice, and is written with no value"),
-        Unmet::NotAValue { block, value } => format!("{value} is not one of the values of the block {block}"),
-        Unmet::NotAChoice { block } => format!("the block {block} is no choice, and is written with a value"),
-        Unmet::NotHandedIn { block } => {
-            format!("the block {block} is not handed in, and the cell must hand it in every time")
-        }
-        Unmet::Unreadable { why } => format!(
-            "what came back could not be read as a return of its form, each quote and each line break inside a text \
-             needing to be escaped: {why}"
-        ),
-        Unmet::NotRunBy { block } => format!("{block} is named as dealt with, but it did not run the round"),
-        Unmet::DealtWithTwice { block } => format!("{block} is named twice as dealt with"),
-        Unmet::DealtWithNothing => {
-            "it deals with nothing of what ran the round and asks for no call, so the cell would run again at once"
-                .to_string()
-        }
-        Unmet::WrittenOver { block, version } => format!(
-            "the block {block} has version {} from another writer since the round was told of the one it writes over",
-            version.0
-        ),
-        Unmet::ChoiceChanged { block } => {
-            format!("the block {block} is a choice, said to change nothing in meaning with another value than it has")
-        }
-        Unmet::AsksAndWorks => {
-            "it asks for calls and also deals with something or writes a block: a return that asks for calls asks for \
-             nothing else"
-                .to_string()
         }
     }
 }

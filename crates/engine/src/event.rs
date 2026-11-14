@@ -3,7 +3,7 @@
 use decide::run::{Failure, Unmet};
 use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId};
 
-use work::{Ask, Call, Given, Handed, RanOn, Spent, Time, Why};
+use work::{Ask, Call, Given, Handed, RanOn, Said, Spent, Time, Why};
 
 /// One thing that happened to a work.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -58,16 +58,21 @@ pub enum Event {
 
 /// What came back at the end of a round: the return of the agent, or of the engine's act. A return either asks for
 /// calls, and for nothing else, or does the cell's work (design document `data-and-context`, 30).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Came {
     /// Which of what ran the round the return dealt with, in the order it names them; `None` where it does not say, as
-    /// no return read in the form before a return named it does: such a return dealt with everything that ran the
-    /// round, and the engine records that.
+    /// the engine's acts and no return read in the form before a return named it do: such a return dealt with
+    /// everything that ran the round, and the engine records that.
     pub dealt_with: Option<Vec<BlockId>>,
     /// The blocks it writes.
     pub writes: Vec<Handed>,
     /// The calls it asks for.
     pub asks: Vec<Ask>,
+    /// What was found wrong with it as it was read against the cell it was entered for, which only its reading can
+    /// see, in the order found: the run's check names these first, with everything else wrong with it.
+    pub found: Vec<Unmet>,
+    /// What it says beside its work.
+    pub said: Said,
 }
 
 impl Came {
@@ -75,9 +80,8 @@ impl Came {
     /// everything that ran its round, as the engine's acts and a return of the form before a return named it do.
     pub fn hands_in(writes: Vec<Handed>) -> Came {
         Came {
-            dealt_with: None,
             writes,
-            asks: Vec::new(),
+            ..Came::default()
         }
     }
 
@@ -85,8 +89,8 @@ impl Came {
     pub fn asks(asks: Vec<Ask>) -> Came {
         Came {
             dealt_with: Some(Vec::new()),
-            writes: Vec::new(),
             asks,
+            ..Came::default()
         }
     }
 
@@ -95,7 +99,7 @@ impl Came {
         Came {
             dealt_with: Some(dealt_with),
             writes,
-            asks: Vec::new(),
+            ..Came::default()
         }
     }
 }
@@ -148,8 +152,12 @@ pub enum Refused {
     NoSuchBlock(BlockId),
     /// The flow does not let this writer write the block.
     NotTheirs { block: BlockId, by: Outsider },
-    /// The block was written with a value it cannot have, or without the value it must have.
-    Unmet(Unmet),
+    /// The block is a choice, and was written with no value.
+    NoValue { block: BlockId },
+    /// The block is a choice, and this is not one of its values.
+    NotAValue { block: BlockId, value: String },
+    /// The block is no choice, and was written with a value.
+    NotAChoice { block: BlockId },
     /// The flow has no such cell.
     NoSuchCell(CellId),
     /// No round of the run is under way.

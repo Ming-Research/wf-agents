@@ -8,7 +8,8 @@
 //!
 //! Every word sent is read from the files of the flow and from those beside it, and what the page is given of each part
 //! is its key and attributes there, as written; this code holds no word, only how they are put together: which part
-//! comes from which file, and the shape of the form as JSON.
+//! comes from which file. The form of a return is the one the engine gives the agents' program, made by the generator
+//! both use (`flow::form`).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -16,8 +17,8 @@ use std::path::{Path, PathBuf};
 use decide::BlockId;
 use flow::agents::Piece as Words;
 use flow::agents::{
-    Agents, Group, InForm, MessagePart, OUTPUTS, Only, Part as PartIs, ProjectPart, ReturnKind, ReturnsPart,
-    SessionPart, ToldAs, WordsPart,
+    Agents, InForm, MessagePart, OUTPUTS, Only, Part as PartIs, ProjectPart, ReturnKind, ReturnsPart, SessionPart,
+    ToldAs, WordsPart,
 };
 use flow::{CellSpec, Compiled, Given as GivenBlock, Kind};
 use serde::{Deserialize, Serialize};
@@ -305,12 +306,6 @@ impl<'a> Build<'a> {
             .collect()
     }
 
-    /// The engine's tools this cell may ask for, in the order written: those its flow names for every agent cell,
-    /// where it names any, else the cell's own.
-    fn tools(cell: &CellSpec) -> Vec<&str> {
-        cell.tools.iter().map(String::as_str).collect()
-    }
-
     /// The names of the fields of a kind of return, in the order of the form.
     fn fields_of(&self, kind: ReturnKind) -> Vec<&'a String> {
         let agents = self.agents;
@@ -349,7 +344,8 @@ impl<'a> Build<'a> {
         let mut out = vec![self.part(What::Program, Carried::Program, "program", session, Vec::new())];
         // The form goes with the program's own tools, as a tool the program makes of it, which comes before the system
         // prompt in every request.
-        let form = written(&self.form(cell));
+        // The form, as the engine gives it to the program: made by the one generator both use.
+        let form = written(&flow::form::form(self.flow, agents)?);
         out.push(self.part(
             What::Form,
             Carried::Call,
@@ -389,7 +385,7 @@ impl<'a> Build<'a> {
                 }
                 SessionPart::Returns(ReturnsPart { returns }) => {
                     let source = self.source("agents/return/return.toml");
-                    out.push(self.part(What::System, Carried::System, returns.name(), source, self.told(cell)));
+                    out.push(self.part(What::System, Carried::System, returns.name(), source, self.told()));
                 }
             }
         }
@@ -520,9 +516,9 @@ impl<'a> Build<'a> {
         }
     }
 
-    /// The part on returning of a line's system prompt: each field and each tool the cell may ask for with its words,
-    /// in the order `how_you_return` sets; the same for every cell of a flow that names its tools for all of them.
-    fn told(&self, cell: &CellSpec) -> Vec<Piece> {
+    /// The part on returning of a line's system prompt: each field and each tool of the flow's form with its words, in
+    /// the order `how_you_return` sets; the same for every cell of the flow (design statement 31).
+    fn told(&self) -> Vec<Piece> {
         let agents = self.agents;
         let told = &agents.returns.how_you_return;
         let item = |words: &str| told.item.replace("{text}", words.trim_end());
@@ -575,7 +571,7 @@ impl<'a> Build<'a> {
         if !reads.is_empty() {
             paragraphs.push(told.owner_reads.replace("{fields}", &and(&reads, &told.and)));
         }
-        let tools = Self::tools(cell);
+        let tools = flow::form::tools(self.flow);
         if !tools.is_empty() {
             paragraphs.push(told.calls.trim_end().to_string());
             paragraphs.push(told.tools.trim_end().to_string());
@@ -609,61 +605,6 @@ impl<'a> Build<'a> {
             lines.join("\n")
         };
         with_slots(&[told.heading.clone(), list].join("\n\n"))
-    }
-
-    /// The form of a cell's return: the engine's fields and the tools the cell may ask for, in the order `form` sets;
-    /// the same for every cell of a flow that names its tools for all of them, so on every call of a session. The
-    /// blocks a cell writes go in `outputs`, whose names the form does not list: the engine checks them once the return
-    /// is read.
-    fn form(&self, cell: &CellSpec) -> String {
-        let agents = self.agents;
-        let form = &agents.returns.form;
-        let tools = Self::tools(cell);
-        let kind = |order: &[InForm], kind: ReturnKind| {
-            let mut properties = toml::Table::new();
-            let mut required = Vec::new();
-            let fields = self.fields_of(kind);
-            for place in order {
-                match place {
-                    InForm::Group(Group::Tools) => {
-                        for tool in &tools {
-                            let Some(of) = agents.tools.get(*tool) else { continue };
-                            let request = of.request.clone();
-                            properties.insert((*tool).into(), table([("type", "array".into()), ("items", request)]));
-                        }
-                    }
-                    InForm::Field(name) if fields.contains(&name) => {
-                        properties.insert(name.into(), agents.fields[name].shape.clone());
-                        if agents.fields[name].required {
-                            required.push(toml::Value::String(name.into()));
-                        }
-                    }
-                    InForm::Field(_) => {}
-                }
-            }
-            let mut object = toml::Table::new();
-            object.insert("type".into(), "object".into());
-            object.insert("properties".into(), toml::Value::Table(properties));
-            if !required.is_empty() {
-                object.insert("required".into(), toml::Value::Array(required));
-            }
-            object.insert("additionalProperties".into(), false.into());
-            toml::Value::Table(object)
-        };
-        let mut kinds = toml::Table::new();
-        if !tools.is_empty() {
-            kinds.insert("calls".into(), kind(&form.calls, ReturnKind::Calls));
-        }
-        kinds.insert("outcome".into(), kind(&form.outcome, ReturnKind::Outcome));
-        // One of the two kinds, never both nor neither.
-        let top = table([
-            ("type", "object".into()),
-            ("properties", toml::Value::Table(kinds)),
-            ("minProperties", 1.into()),
-            ("maxProperties", 1.into()),
-            ("additionalProperties", false.into()),
-        ]);
-        json(&top, 0)
     }
 }
 
@@ -704,38 +645,6 @@ fn kind_name(kind: InputKind) -> &'static str {
         InputKind::Latest => "latest",
         InputKind::LastAndLatest => "last_and_latest",
         InputKind::All => "all",
-    }
-}
-
-fn table<const N: usize>(entries: [(&str, toml::Value); N]) -> toml::Value {
-    toml::Value::Table(entries.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
-}
-
-/// A value as JSON, written out with its members in the order they hold, two spaces to a level.
-fn json(value: &toml::Value, depth: usize) -> String {
-    let pad = "  ".repeat(depth + 1);
-    let end = "  ".repeat(depth);
-    match value {
-        toml::Value::String(s) => serde_json::to_string(s).unwrap_or_default(),
-        toml::Value::Integer(n) => n.to_string(),
-        toml::Value::Float(f) => f.to_string(),
-        toml::Value::Boolean(b) => b.to_string(),
-        toml::Value::Datetime(d) => serde_json::to_string(&d.to_string()).unwrap_or_default(),
-        toml::Value::Array(items) if items.is_empty() => "[]".to_string(),
-        toml::Value::Array(items) => {
-            let inner: Vec<String> = items.iter().map(|v| format!("{pad}{}", json(v, depth + 1))).collect();
-            format!("[\n{}\n{end}]", inner.join(",\n"))
-        }
-        toml::Value::Table(t) if t.is_empty() => "{}".to_string(),
-        toml::Value::Table(t) => {
-            let inner: Vec<String> = (t.iter())
-                .map(|(k, v)| {
-                    let key = serde_json::to_string(k).unwrap_or_default();
-                    format!("{pad}{key}: {}", json(v, depth + 1))
-                })
-                .collect();
-            format!("{{\n{}\n{end}}}", inner.join(",\n"))
-        }
     }
 }
 

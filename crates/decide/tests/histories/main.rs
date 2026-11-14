@@ -596,6 +596,8 @@ impl History {
                         dealt_with: dealt_with.clone(),
                         writes: writes.clone(),
                         calls: calls.len(),
+                        found: Vec::new(),
+                        waits: false,
                     },
                     Back::Failed(failure) => Return::Failed {
                         failure: *failure,

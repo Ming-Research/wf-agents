@@ -162,9 +162,9 @@ fn hooks(compacted: &Compacted, words: &Words) -> String {
 /// The arguments of a round's command line, after the program: the engine's own, then the installation's, then the
 /// line's permissions, then the session. The message goes in, and the stream comes out, as stream-json; the stream
 /// carries each message in pieces as it is written, which rebuild an attempt at a return the command line refused. The
-/// schema is the same for every round, and the system prompt for every round of a line, so that they open every
-/// request of a session alike and the prompt cache keeps them. The round runs on the model and at the effort it was
-/// given.
+/// schema is the form of return of the round's flow, the same for every round of every cell of it, and the system
+/// prompt is the same for every round of a line, so that they open every request of a session alike and the prompt
+/// cache keeps them. The round runs on the model and at the effort it was given.
 #[allow(clippy::too_many_arguments)]
 pub fn arguments(
     agents: &Agents,

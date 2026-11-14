@@ -37,9 +37,9 @@ fn a_choice_written_without_a_value_is_refused() {
     let why = w.refused(wrote("verdict", Outsider::Person, true, None));
     assert_eq!(
         why,
-        Refused::Unmet(Unmet::NoValue {
+        Refused::NoValue {
             block: "verdict".into()
-        })
+        }
     );
 }
 
@@ -47,11 +47,11 @@ fn a_choice_written_without_a_value_is_refused() {
 fn a_choice_written_with_a_value_it_does_not_offer_is_refused() {
     let (mut w, ..) = W::requested();
     let why = w.refused(wrote("verdict", Outsider::Person, true, Some("maybe")));
-    let unmet = Unmet::NotAValue {
+    let refused = Refused::NotAValue {
         block: "verdict".into(),
         value: "maybe".into(),
     };
-    assert_eq!(why, Refused::Unmet(unmet));
+    assert_eq!(why, refused);
 }
 
 #[test]
@@ -60,9 +60,9 @@ fn prose_written_with_a_value_is_refused() {
     let why = w.refused(wrote("request", Outsider::Person, true, Some("yes")));
     assert_eq!(
         why,
-        Refused::Unmet(Unmet::NotAChoice {
+        Refused::NotAChoice {
             block: "request".into()
-        })
+        }
     );
 }
 

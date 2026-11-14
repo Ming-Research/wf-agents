@@ -227,12 +227,12 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
                 return Err(Refused::NotTheirs { block, by });
             }
             match (&declared.values, &value) {
-                (Some(_), None) => return Err(Refused::Unmet(Unmet::NoValue { block })),
+                (Some(_), None) => return Err(Refused::NoValue { block }),
                 (Some(values), Some(v)) if !values.contains(v) => {
                     let value = v.clone();
-                    return Err(Refused::Unmet(Unmet::NotAValue { block, value }));
+                    return Err(Refused::NotAValue { block, value });
                 }
-                (None, Some(_)) => return Err(Refused::Unmet(Unmet::NotAChoice { block })),
+                (None, Some(_)) => return Err(Refused::NotAChoice { block }),
                 _ => {}
             }
             let at = work.tick();
@@ -302,6 +302,8 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
                     dealt_with,
                     handed: came.writes,
                     asks: came.asks,
+                    found: came.found,
+                    said: came.said,
                 };
                 work.back.insert((run, number), back);
             }
@@ -674,20 +676,30 @@ pub(crate) fn log(work: &Work, run: RunId, told: &Told) -> run::Log {
             dealt_with,
             handed,
             asks,
+            found,
+            said,
         } => run::Return::Came {
             dealt_with: dealt_with.clone(),
             writes: writes(handed),
-            calls: asks.len(),
+            // Each question that waits is put to the owner as a call beside the cell's work: only the other calls,
+            // as a return that asks the owner for nothing else, make a return one that asks for calls.
+            calls: asks.len().saturating_sub(said.waiting()),
+            found: found.clone(),
+            waits: said.waits(),
         },
         Back::Asked(asks) => run::Return::Came {
             dealt_with: Vec::new(),
             writes: Vec::new(),
             calls: asks.len(),
+            found: Vec::new(),
+            waits: false,
         },
         Back::HandedIn(handed) => run::Return::Came {
             dealt_with: told.ran_by.clone(),
             writes: writes(handed),
             calls: 0,
+            found: Vec::new(),
+            waits: false,
         },
         Back::Failed { why, failure, .. } => run::Return::Failed {
             failure: *failure,

@@ -1,0 +1,29 @@
+# What a round of the tests is told of a return sent back.
+heading = "## Sent back"
+earlier = "## Round {round}: sent back"
+item = "- {text}"
+between = ", "
+again = "Return again."
+
+[faults]
+asks_nothing = "No call is asked for."
+not_an_output = "`{block}` is not written here."
+written_twice = "`{block}` is written twice."
+no_value = "`{block}` is one of {values}, with `why`."
+not_a_value = "`{value}` is not one of {values} of `{block}`."
+not_a_choice = "`{block}` is a string."
+not_handed_in = "`{block}` is missing."
+unreadable = "Not read: {why}"
+not_run_by = "`{name}` did not run this round."
+dealt_with_twice = "`{name}` is named twice."
+dealt_with_nothing = "Nothing is dealt with."
+written_over = "`{block}` has version {version} since."
+choice_changed = "`{block}` changed its value."
+asks_and_works = "Calls and work at once."
+not_a_trigger = "`{name}` does not run this cell."
+not_a_tool = "`{name}` is no tool here."
+unchanged_not_written = "`{block}` is not written."
+
+[unread]
+not_of_its_form = "Not of its form: {error}"
+requests_not_a_list = "`{name}` has no list"

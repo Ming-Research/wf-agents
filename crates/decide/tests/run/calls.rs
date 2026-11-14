@@ -21,6 +21,8 @@ fn a_return_that_asks_for_calls_and_deals_with_something_or_writes_a_block_is_se
             dealt_with: vec!["request".into()],
             writes: vec![],
             calls: 1,
+            found: vec![],
+            waits: false,
         }),
     };
     assert_eq!(step(vec![dealing], &spec()), send_back(vec![Unmet::AsksAndWorks]));
@@ -29,6 +31,8 @@ fn a_return_that_asks_for_calls_and_deals_with_something_or_writes_a_block_is_se
             dealt_with: vec![],
             writes: vec![prose("plan")],
             calls: 2,
+            found: vec![],
+            waits: false,
         }),
     };
     assert_eq!(step(vec![writing], &spec()), send_back(vec![Unmet::AsksAndWorks]));
@@ -48,4 +52,18 @@ fn a_run_rests_at_the_waits_the_engine_made_that_have_no_result_in_the_order_the
         calls: vec![CallId(9), CallId(3)],
     };
     assert_eq!(step(rounds, &spec()), rest);
+}
+
+#[test]
+fn a_return_found_of_both_kinds_as_it_was_read_is_said_so_once() {
+    let both = Round {
+        returned: Some(Return::Came {
+            dealt_with: vec!["request".into()],
+            writes: vec![],
+            calls: 1,
+            found: vec![Unmet::AsksAndWorks],
+            waits: false,
+        }),
+    };
+    assert_eq!(step(vec![both], &spec()), send_back(vec![Unmet::AsksAndWorks]));
 }

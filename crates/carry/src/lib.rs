@@ -10,7 +10,7 @@
 //! - `acts`: the engine's acts, as the rounds of the cells they carry out on the host.
 //! - [`message`]: what an agent is told at the start of a round, a function of the records alone.
 //! - [`read`]: the tool `read`, the blocks of a work as an agent reads them.
-//! - [`returns`]: the one form of every agent's return, and what came back read from it.
+//! - [`returns`]: what came back, read in the form of return of its flow against the cell it was entered for.
 //! - [`cli`]: the command line of a round, and what it printed read into what came back and what it took.
 //! - [`permissions`]: what the agents of a line may run, and what they are told of it.
 //! - [`failure`]: the kind of cause of a round that failed, told apart by what the command line reported, and the look
@@ -51,27 +51,27 @@ use tools::Tools;
 
 pub use acts::{MAIN, WATCH, Watch, Words, faults, main_faults, word_faults};
 pub use agents::{Agents, PROTOCOL, ROUNDS};
-pub use flow::agents::Writes;
 pub use host::github::{GhOffsite, UPLOAD_RATE};
 pub use process::{STOP_WAIT, TAIL};
 pub use settings::Settings;
 pub use tools::{CHECK, CHECK_BEFORE};
 
 /// The carriers of these settings, keeping what they keep in the data directory: the installation's id, the works'
-/// worktrees, and what each round was told and returned.
+/// worktrees, and what each round was told and returned. The agents' rounds are told, and given the form of return,
+/// as what is written beside the flows says.
 ///
 /// The acts and the tools are carried out on the host the settings say: GitHub where they have a table for it, with
 /// the engine's token from its environment, and the local repository where they have none.
-pub fn carriers(settings: Settings, data: &Path, words: Writes) -> Result<Carriers, String> {
-    carry(settings, data, words).map(|(carriers, _)| carriers)
+pub fn carriers(settings: Settings, data: &Path, beside: flow::agents::Agents) -> Result<Carriers, String> {
+    carry(settings, data, beside).map(|(carriers, _)| carriers)
 }
 
 /// The carriers of these settings, as [`carriers`] gives them, and the watch of main of their acts, which whoever
 /// runs the loop runs beside it, saying what it finds to the loop as the source [`MAIN`]. The acts and the commits the
-/// engine makes say what `words` says.
-pub fn carry(mut settings: Settings, data: &Path, words: Writes) -> Result<(Carriers, Watch), String> {
-    settings.project.commits = words.commits;
-    let words = words.acts;
+/// engine makes say what is written beside the flows says, as the agents' rounds do.
+pub fn carry(mut settings: Settings, data: &Path, beside: flow::agents::Agents) -> Result<(Carriers, Watch), String> {
+    settings.project.commits = beside.commits.clone();
+    let words = beside.acts.clone();
     // The worktrees are given to git by their path, which git would read against the repository's directory were it
     // relative.
     let data = std::path::absolute(data).map_err(|e| format!("{}: {e}", data.display()))?;
@@ -91,7 +91,7 @@ pub fn carry(mut settings: Settings, data: &Path, words: Writes) -> Result<(Carr
     let slots = settings.agents.slots;
     let carriers = Carriers {
         slots,
-        agents: Arc::new(Agents::new(settings, data.clone(), installation, main)),
+        agents: Arc::new(Agents::new(settings, data.clone(), installation, main, beside)),
         acts,
         tools,
         network: Arc::new(failure::Look),
