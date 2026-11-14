@@ -22,7 +22,7 @@ fn a_new_file_is_made_with_the_schema_its_version_and_a_write_ahead_log() {
     assert_eq!(store.works(), Ok(vec![]));
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, schema_tables());
-    assert_eq!(tables.len(), 35);
+    assert_eq!(tables.len(), 37);
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
     assert_eq!(version, SCHEMA_VERSION);
@@ -223,7 +223,7 @@ fn a_file_made_with_the_first_version_of_the_schema_is_migrated_and_its_pauses_r
 }
 
 /// The migrations, in order, each bringing a file one version further, as the store's own list holds them.
-pub(crate) const MIGRATIONS: [&str; 9] = [
+pub(crate) const MIGRATIONS: [&str; 10] = [
     include_str!("../../../../db/migrations/202611101530-say-who-paused-a-work-and-why.sql"),
     include_str!("../../../../db/migrations/202611102304-give-items-a-level.sql"),
     include_str!("../../../../db/migrations/202611111400-say-when-a-work-let-go-of-what-it-held.sql"),
@@ -235,6 +235,7 @@ pub(crate) const MIGRATIONS: [&str; 9] = [
     include_str!(
         "../../../../db/migrations/202611131500-keep-what-a-return-dealt-with-what-reached-a-round-and-what-filled-it.sql"
     ),
+    include_str!("../../../../db/migrations/202611141600-keep-the-observations-the-returns-taken-carry.sql"),
 ];
 
 #[test]
@@ -273,6 +274,50 @@ fn a_file_of_version_9_is_migrated_and_its_runs_read_as_dealing_with_everything_
 }
 
 #[test]
+fn a_file_of_version_10_is_migrated_with_the_observations_of_the_returns_its_runs_were_taken_on() {
+    // A work as one kept at version 10 holds it: a return of the writer's sent back and the one taken, and the judge's
+    // taken, each saying observations.
+    let mut d = Driver::new();
+    d.wrote("request", Outsider::Person, None);
+    d.end(Came {
+        said: super::observations::observing(&["Said in a return sent back."]),
+        ..wanting()
+    });
+    d.end(Came {
+        said: super::observations::observing(&["The writer's first.", "The writer's second."]),
+        ..hands_in(&[("text", None)])
+    });
+    d.end(Came {
+        said: super::observations::observing(&["The judge's."]),
+        ..hands_in(&[("opinions", None), ("verdict", Some("yes"))])
+    });
+    let (old, new) = kept_in(10, &d.work);
+    old.open();
+    assert_eq!(versions(&old.path), [SCHEMA_VERSION]);
+    assert_eq!(
+        columns(&old.path),
+        columns(&new.path),
+        "the migrated file has other tables than a new one"
+    );
+    // Its observations are kept as a file of this version keeps them as the runs finish: those of the returns taken,
+    // numbered in the order the runs finished, and unread.
+    let migrated = super::observations::kept(&old.path);
+    assert_eq!(migrated, super::observations::kept(&new.path));
+    let said: Vec<(u64, &str, &str)> = (migrated.iter())
+        .map(|o| (o.number, o.text.as_str(), o.cell.as_str()))
+        .collect();
+    assert_eq!(
+        said,
+        [
+            (3, "The judge's.", "judge"),
+            (2, "The writer's second.", "write"),
+            (1, "The writer's first.", "write")
+        ]
+    );
+    assert!(migrated.iter().all(|o| o.read.is_none()));
+}
+
+#[test]
 fn a_file_of_every_earlier_version_is_brought_to_this_one_as_it_is_opened() {
     assert_eq!(
         MIGRATIONS.len() as u32 + 1,
@@ -302,6 +347,12 @@ fn a_file_of_every_earlier_version_is_brought_to_this_one_as_it_is_opened() {
         assert_eq!(
             backups.records().expect("the records").copies.len(),
             1,
+            "from version {version}"
+        );
+        // And it has no observation, as a new one has none.
+        assert_eq!(
+            super::observations::kept(&old.path),
+            Vec::<store::Observation>::new(),
             "from version {version}"
         );
     }

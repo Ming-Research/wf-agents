@@ -536,7 +536,7 @@ export interface Changed {
 }
 
 /// Sends something to the interface; gives why where it is refused.
-async function send<T>(path: string, body: unknown): Promise<T | null> {
+export async function send<T>(path: string, body: unknown): Promise<T | null> {
   const response = await fetch(path, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },

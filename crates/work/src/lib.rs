@@ -11,9 +11,11 @@ use decide::{BlockId, CallId, Records, RunId, Seq, Who};
 use serde::{Deserialize, Serialize};
 
 pub mod filled;
+pub mod observations;
 pub mod sessions;
 
 pub use filled::{Fill, FillFault, Filled};
+pub use observations::Observed;
 pub use sessions::{Ran, RanOn, Session, Why};
 
 /// Everything kept of one work.
@@ -44,6 +46,8 @@ pub struct Work {
     pub sessions: Vec<Session>,
     /// Each try of an agent's round that began, with what it ran on, in order.
     pub ran: Vec<Ran>,
+    /// The observations its runs kept as each finished, in the order they were kept (module [`observations`]).
+    pub observed: Vec<Observed>,
     /// Why the work's item was cancelled, as whoever cancelled it said, once the records say it was; none where nothing
     /// was said, as by a cancel kept before a cancel said why.
     pub why_cancelled: Option<String>,

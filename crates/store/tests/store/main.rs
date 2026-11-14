@@ -8,6 +8,7 @@ mod everything;
 mod histories;
 mod incremental;
 mod items;
+mod observations;
 mod only_added;
 mod opening;
 mod round_trip;

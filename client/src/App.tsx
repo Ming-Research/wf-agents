@@ -18,6 +18,7 @@ import { Chart, type Chosen, Legend } from './Chart';
 import { LazyConsolePage } from './console/lazy';
 import { type BarItems, Engine, useBarItems, waitsForOwner } from './Engine';
 import { matrix } from './matrix';
+import { ObservationsView } from './observations/ObservationsView';
 import { Bar, Edge, Panel, Switch } from './parts';
 import { type Route, hashOf, tabOf, useRoute } from './route';
 import { type Serves, opensOnFlow, useServes } from './serves';
@@ -76,8 +77,11 @@ export function Views({
             </Suspense>
           )}
           {route.view === 'works' && <WorksList />}
-          {route.view === 'work' && <WorkView key={route.work} work={route.work} />}
-          {(route.view === 'observations' || route.view === 'system' || route.view === 'settings') && (
+          {route.view === 'work' && (
+            <WorkView key={`${route.work}/${route.run ?? ''}`} work={route.work} run={route.run} />
+          )}
+          {route.view === 'observations' && <ObservationsView />}
+          {(route.view === 'system' || route.view === 'settings') && (
             <p className="message muted">Nothing is shown here yet.</p>
           )}
         </div>
