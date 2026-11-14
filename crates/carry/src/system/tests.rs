@@ -404,3 +404,29 @@ fn the_project_files_are_looked_for_where_works_branch_from() {
     crate::git::tests::run(dir, &["update-ref", &fetched, "HEAD"]);
     assert_eq!(project_files(&settings, &beside()), Vec::<String>::new());
 }
+
+// The place `{store}` in the words of `query` is filled by `crate::store`: the file's words that the store is not open
+// where the settings leave it closed, which they do unless the owner opens it, and what is given as the description
+// where it is.
+#[test]
+fn the_store_the_words_of_query_name_is_what_the_settings_say_of_it() {
+    let (beside, flow) = (beside(), engineer());
+    let closed = &beside.tools["query"].texts["closed"];
+    let cell = cell(&flow, "engineer");
+    let prompt = |filling: &Filling| of_line(&beside, filling, &flow, cell, "", project).expect("it is made");
+    let settings = settings();
+    assert!(
+        !settings.query.open,
+        "the store is closed to agents unless the owner opens it"
+    );
+    assert_eq!(&crate::store(&settings, &beside).unwrap(), closed);
+    let shut = prompt(&filling(&settings, &beside));
+    assert!(shut.contains(&format!("{{\"sql\": \"...\"}}`. {closed}")), "{shut}");
+    assert!(!shut.contains("{store}"), "{shut}");
+    // What describes the store, as `crate::store` gives it where it is open, reaches the prompt in the same place.
+    let mut open = filling(&settings, &beside);
+    open.store = "### `things`\n- `id` INTEGER".to_string();
+    let told = prompt(&open);
+    assert!(told.contains("### `things`\n- `id` INTEGER"), "{told}");
+    assert!(!told.contains(closed.as_str()), "{told}");
+}

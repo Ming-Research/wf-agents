@@ -43,7 +43,7 @@ pub struct Settings {
 
 /// The agents' tool `query`: one read-only SQL query on the store. It is off until the owner has settled which tables
 /// the agents see and under which names.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Query {
     /// Whether the tool answers: with `false`, a request is answered that the store is not open to agents yet and the
