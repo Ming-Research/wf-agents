@@ -209,11 +209,15 @@ async fn each_agent_cell_of_the_repository_s_flow_is_sent_what_its_file_and_the_
                 "{id}: what it returns lacks {block}"
             );
         }
-        // What runs it names each trigger its file names.
-        let triggers = text_of(named("message", "triggers"));
+        // What runs it has a line for each trigger its file names, by the trigger's name, which names it.
+        let lines = named("message", "triggers")["items"]
+            .as_array()
+            .expect("the triggers' lines");
         for trigger in cell["triggers"].as_array().unwrap() {
             let name = trigger["name"].as_str().unwrap();
-            assert!(triggers.contains(name), "{id}: what runs it lacks {name}");
+            let line = lines.iter().find(|l| l[0] == json!(name));
+            let pieces = line.unwrap_or_else(|| panic!("{id}: what runs it lacks {name}"));
+            assert!(text_of(&json!({ "pieces": pieces[1] })).contains(name), "{id}: {name}");
         }
         // Each datum of its context, in the order it names them, in the kind it gives it in.
         let inputs: Vec<&serde_json::Value> = parts.iter().filter(|p| p["what"] == json!("input")).collect();

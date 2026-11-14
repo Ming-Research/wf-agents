@@ -672,7 +672,7 @@ impl Flow {
                 field: block.field.clone(),
                 trigger: block.trigger,
                 writes: (block.writes.0.iter())
-                    .map(|(name, text)| (name.clone(), crate::given::with_slots(text)))
+                    .map(|(name, text)| (name.clone(), flow::system::with_slots(text)))
                     .collect(),
                 written_by: WrittenBy {
                     cells: names(&block.writers.cells),

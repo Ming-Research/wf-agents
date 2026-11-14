@@ -327,6 +327,10 @@ export interface SentPart {
   held: SentPiece[];
   /// Of the content of a block, what is sent in place of its text where the session lacks what the text needs.
   whole: SentPiece[];
+  /// Of a part of a list, each item it may hold, by its key, in the order sent: of the triggers, the line of each
+  /// trigger of the cell, by the trigger's name, sent after `pieces` where the trigger ran the cell; and then `after`.
+  items: [string, SentPiece[]][];
+  after: SentPiece[];
 }
 
 /// A name a text sent to an agent gives between backticks that nothing defines, and the file it is in.
@@ -335,8 +339,8 @@ export interface Unknown {
   source: string;
 }
 
-/// For each agent's cell of a definition that compiles, by its id, the parts it is sent in the order sent, as the design
-/// lays them out: the engine does not send them so yet.
+/// For each agent's cell of a definition that compiles, by its id, the parts it is sent in the order sent: the system
+/// prompt and the message as the engine makes them, every form of each part.
 export type Given =
   | {
       state: 'compiled';

@@ -127,15 +127,28 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
     assert_eq!(
         message,
         [
+            (Part::Taken, None, Some(Only::AfterHandIn)),
             (Part::Heading, None, None),
-            (Part::Main, None, Some(Only::TakesMain)),
+            (Part::Main, Some(InputKind::Latest), Some(Only::TakesMain)),
             (Part::Context, None, None),
             (Part::Outputs, Some(InputKind::Latest), None),
             (Part::Task, Some(InputKind::Latest), None),
+            (Part::Results, None, None),
+            (Part::SentBack, None, None),
             (Part::Triggers, None, None),
         ]
     );
-    assert_eq!(read.message.parts[5].does.as_deref(), Some(": {do}"));
+    assert_eq!(read.message.parts[8].does.as_deref(), Some(": {do}"));
+    assert_eq!(read.message.parts[0].between.as_deref(), Some(", "));
+    assert_eq!(read.message.compacted, "Compacted: the round again.");
+    assert_eq!(read.results.none, "(none)");
+    let main = read
+        .message
+        .parts
+        .iter()
+        .find(|p| p.part == Part::Main)
+        .expect("the part main");
+    assert!(main.text.as_deref().is_some_and(|t| t.contains("{merge}")));
     assert_eq!(read.given.choice, ", with the value `{value}`");
     assert!(read.given.last_and_latest.text.contains("{diff}"));
     assert!(

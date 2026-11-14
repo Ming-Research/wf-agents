@@ -166,3 +166,73 @@ async fn a_version_that_is_not_the_trees_has_no_files() {
     let files = files_changed(&work, &block, Seq(1), Seq(2), &place.dir, "design/").await;
     assert!(files.unwrap().is_empty());
 }
+
+/// A flow of one cell, given the design tree and run by a request.
+fn given_the_tree() -> Compiled {
+    let flow = r#"
+name = "tiny"
+order = ["read"]
+
+[lines.engineer]
+
+[blocks.tree]
+outside = "tree"
+
+[blocks.request]
+people = true
+"#;
+    let cell = r#"
+title = "Read"
+kind = "agent"
+effort = "high"
+line = "engineer"
+task = "Read the tree."
+runs_on = ["request"]
+given = ["request", "tree"]
+outputs = []
+
+[give.request]
+kind = "latest"
+
+[give.tree]
+kind = "last_and_latest"
+"#;
+    let source = flow::Source {
+        flow: flow.to_string(),
+        cells: [("read".to_string(), cell.to_string())].into_iter().collect(),
+        ..Default::default()
+    };
+    let has = flow::Has {
+        sources: [TREE.to_string()].into_iter().collect(),
+        ..Default::default()
+    };
+    flow::compile(&source, &has).expect("the flow compiles")
+}
+
+#[tokio::test]
+async fn a_round_is_given_the_files_that_changed_from_each_earlier_version_of_the_tree_to_the_latest() {
+    let (_repo, place, _) = started().await;
+    let dir = &place.dir;
+    let first = write(dir, "design/a.md", "One.\n");
+    let second = write(dir, "design/b.md", "Two.\n");
+    let third = write(dir, "design/c.md", "Three.\n");
+    let mut work = versions(dir, &[&first, &second, &third]);
+    for at in 1..=3 {
+        work.records.written.push(decide::Written {
+            block: BlockId::from("tree"),
+            by: decide::Outsider::Outside,
+            matters: true,
+            value: None,
+            at: Seq(at),
+        });
+    }
+    let changes = changes(&given_the_tree(), &work, RunId(1), 1, dir, "design/")
+        .await
+        .unwrap();
+    let tree = BlockId::from("tree");
+    let expected = [
+        ((tree.clone(), Seq(1)), "design/b.md\ndesign/c.md".to_string()),
+        ((tree, Seq(2)), "design/c.md".to_string()),
+    ];
+    assert_eq!(changes, expected.into_iter().collect());
+}

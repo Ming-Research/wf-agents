@@ -31,7 +31,7 @@ async fn a_line_that_writes_and_one_that_only_reads_are_each_given_what_they_may
     real.until(|real| ended(&real.decision(work))).await;
     let calls = real.calls();
     let (plan, review) = (&calls[0], &calls[2]);
-    assert!(plan.stdin.contains("cell `plan`") && review.stdin.contains("cell `review`"));
+    assert!(plan.of("Plan") && review.of("Review"));
 
     // The engineer's line writes: it may update a lock file, and is refused the heavy commands and pushing.
     let refused = after(plan, "--disallowedTools");

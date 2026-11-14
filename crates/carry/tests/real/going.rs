@@ -15,11 +15,7 @@ async fn a_work_goes_to_its_merge_with_the_command_line() {
 
     let calls = real.calls();
     assert_eq!(calls.len(), 3, "one call for each agent's round");
-    assert!(
-        calls[0].stdin.starts_with("# Plan (cell `plan`), round 1\n"),
-        "{}",
-        calls[0].stdin
-    );
+    assert!(calls[0].stdin.starts_with("# Plan\n"), "{}", calls[0].stdin);
     let worktree = real.place(work).dir;
     assert!(
         calls.iter().all(|call| call.dir == worktree),

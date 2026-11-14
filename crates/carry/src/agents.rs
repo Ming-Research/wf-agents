@@ -22,13 +22,14 @@
 //! known, and is recorded as nothing.
 //!
 //! The program is given an environment of its own, not the engine's (`cli::environment`). Which of its line's sessions
-//! a round runs in, and whether it begins it, is counted from the work's records (`cli::in_session`); what it is told
-//! depends on whether it begins the session, or goes on in one that never saw its run's earlier rounds, which is told
-//! the same, and is built again where the program is tried the other way. A session
-//! the program no longer has is begun again under its id, and that is said to the loop at once, so that it is
-//! recorded with why. Where the program compacts the session during the round, a hook it is given marks the
-//! compaction, which the round counts among what it took and says to the loop as the session reopened, and gives the
-//! session the round's whole message again, as a session that begins is told it. After each use of a tool another hook gives the session what the owner said to the
+//! a round runs in, and whether it begins it, is counted from the work's records (`cli::in_session`); what it is sent
+//! is what the context manager fills into that session (crate `context`): what the session lacks, or, where the
+//! program begins the session under its id, everything from the top, and what each try's message fills is said to the
+//! loop before the program is given it, so that it is recorded. A session the program no longer has is begun again
+//! under its id, and that is said to the loop at once, so that it is recorded with why. Where the program compacts the
+//! session during the round, a hook it is given marks the compaction, which the round counts among what it took and
+//! says to the loop as the session reopened, and gives the session the round's whole message again, as a session that
+//! holds nothing is sent it. After each use of a tool another hook gives the session what the owner said to the
 //! round while it runs, where the runner put it in the round's files (`cli::Words`).
 //!
 //! Before the first round of each run of a cell that takes main in, the work's branch takes in main's head as the host
@@ -69,7 +70,7 @@ use crate::held::{Failing, Held, Stop};
 use crate::permissions::Permissions;
 use crate::process::{self, Ran};
 use crate::settings::Settings;
-use crate::{acts, failure, git, kept, message, returns, session, system, tree};
+use crate::{acts, failure, git, kept, returns, session, system, tools, tree};
 
 /// What is written beside the flows, which every flow shares: the words the agents are sent, and the definitions the
 /// form of a return is made of.
@@ -108,10 +109,6 @@ enum Carried {
     Failed(String, Failure, Spent),
     Stopped,
 }
-
-/// What a session that was compacted during a round is told, before the round's whole message is given again.
-const COMPACTED: &str = "Your session was compacted during this round. What the round was told, again, whole, as to a \
-                         session that begins; carry on with the round's work.";
 
 impl Agents {
     /// The agents of these settings, with this data directory, which is an absolute path, the installation's id, the
@@ -261,15 +258,39 @@ impl Inner {
             number,
             mut begin,
             before,
-            moved,
         } = cli::in_session(flow, work, line, round.run, round.number);
         let session = session::session(self.installation, round.work, line, number);
-        // A compaction within the round is marked, and the round's whole message, as a session that begins is told
-        // it, is given again.
+        // What the round is sent in the session as it stands, and in one that holds nothing: one begun under the round,
+        // or compacted during it.
+        let about = context::For {
+            work: round.work.0,
+            item: round.item.number.0,
+            title: &round.item.title,
+        };
+        // What changed in the design tree, which git compares: the files, from each earlier version to the latest.
+        let changes = tree::changes(flow, work, round.run, round.number, &dir, tree_dir).await?;
+        // The task as the message sends it, each setting it names with its value beside it; and a result of the tool
+        // `query` longer than its file says a message gives, cut as the tool cuts it, the records holding it whole.
+        let task = system::task(&self.filling.named, &round.cell)?;
+        let results = tools::given(work, &self.beside);
+        let told = main.as_ref().and_then(CaughtUp::told);
+        let carried = context::Carried {
+            about,
+            main: told.as_ref(),
+            changes: &changes,
+            task: task.as_deref(),
+            results: &results,
+        };
+        let enter = |anew| context::enter(flow, &self.beside, work, round.run, round.number, &carried, anew);
+        let (going_on, anew) = (enter(false)?, enter(true)?);
+        // A compaction within the round is marked, and the round's whole message, as a session that holds nothing is
+        // sent it, is given again.
         let compacted = Compacted {
             marks: base.with_extension("compacted"),
             again: base.with_extension("again.md"),
         };
+        let again = format!("{}\n\n{}", self.beside.message.compacted, anew.text);
+        write(&compacted.again, again.as_bytes()).await?;
         // What the owner says to the round while it runs waits beside it, for the hook after the next use of a tool.
         let words = Words {
             waiting: base.with_extension("words.json"),
@@ -280,39 +301,18 @@ impl Inner {
         let at = work::sessions::began_at(work, round.run, round.number);
         let recorded =
             (work::sessions::of_line(work, line)).any(|s| s.why == Why::Lost && at.is_some_and(|a| a < s.at));
-        // The task as the message sends it, each setting it names with its value beside it.
-        let task = system::task(&self.filling.named, &round.cell)?;
         let (status, stream, stderr, compactions) = loop {
-            // A round whose run ran in another session before is told what a session that begins is told: the
-            // session it goes on in never saw the run.
-            let opening = message::Opening {
-                begins: begin == Begin::New || moved,
-                main: main.as_ref(),
-                task: task.as_deref(),
-            };
-            let (cell, beside) = (&round.cell, &self.beside);
-            let told = message::message(
-                flow,
-                work,
-                cell,
-                round.run,
-                round.number,
-                &round.given,
-                &opening,
-                beside,
-            );
-            let whole = message::Opening {
-                begins: true,
-                ..opening
-            };
-            let again = message::message(flow, work, cell, round.run, round.number, &round.given, &whole, beside);
-            write(&compacted.again, format!("{COMPACTED}\n\n{again}").as_bytes()).await?;
+            // A session begun under its id holds nothing: it is sent everything from the top.
+            let entered = if begin == Begin::New { &anew } else { &going_on };
             // The round takes what its last try took, so it counts that try's compactions alone: an earlier try's, or
             // a try's before the engine stopped, are not its.
             let _ = tokio::fs::remove_file(&compacted.marks).await;
             let (n, told_at, stream_at) = attempt(&base).await;
-            // What the try runs on is said before its message is written, which makes the try one that was kept.
+            // What the try runs on is said before its message is written, which makes the try one that was kept, and
+            // what its message fills, before the program is given it.
             teller.ran_on(n, on.clone());
+            teller.filled(n, entered.fills.clone());
+            let told = &entered.text;
             write(&told_at, told.as_bytes()).await?;
             // The system prompt is the one the session began with: made from the worktree as it begins, and kept.
             let made = || {
@@ -338,7 +338,7 @@ impl Inner {
             let mut each = |line: &[u8]| kept.line(line);
             // A program that cannot be started printed no result: its words say whether it is missing, which holds
             // every work, and any other cause pauses the work.
-            let ran = process::streamed(command, Some(cli::stdin(&told)), Some(&group), stop, &mut each).await;
+            let ran = process::streamed(command, Some(cli::stdin(told)), Some(&group), stop, &mut each).await;
             // Each compaction of the try is a reopening of the session, told while the round is still under way,
             // however the try ended.
             let compactions = marked(&compacted.marks).await;

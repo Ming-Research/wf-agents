@@ -1,11 +1,22 @@
 # A message of the tests, its parts in this order: one written anew each time, one sent only to a cell that takes
-# main in, the data by the cell's kinds, what the cell writes and its task as the session keeps them, and the triggers.
+# main in, the data by the cell's kinds, what the cell writes and its task as the session keeps them, the results and
+# what was sent back, and the triggers.
+compacted = "Compacted: the round again."
+
+[[parts]]
+part = "taken"
+only = "after_hand_in"
+text = "Kept: {taken}"
+each = "`{block}` {number}"
+between = ", "
+
 [[parts]]
 part = "heading"
 text = "# {title}"
 
 [[parts]]
 part = "main"
+kind = "latest"
 only = "takes_main"
 text = "{name} at {main} was merged into the work's branch as the commit {merge}; `git diff --name-only {merge}^1 {merge}` shows what it changed."
 conflict = "{name} at {main} was not merged into the work's branch: it conflicts in {files}."
@@ -26,6 +37,12 @@ part = "task"
 kind = "latest"
 text = "{task}"
 held = "As given before in this session."
+
+[[parts]]
+part = "results"
+
+[[parts]]
+part = "sent_back"
 
 [[parts]]
 part = "triggers"

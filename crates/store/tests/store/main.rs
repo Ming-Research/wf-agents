@@ -474,7 +474,7 @@ fn of_the_new_form() -> Work {
     b.filled(
         writer,
         1,
-        vec![b.for_work(), Fill::task(WRITE), whole("request", first)],
+        vec![b.for_work(), Fill::part("task", WRITE), whole("request", first)],
     );
     let second = b.person_writes("request");
     b.put_in(writer, "request", second);
@@ -490,7 +490,11 @@ fn of_the_new_form() -> Work {
             ("verdict", None),
         ],
     );
-    b.filled(judge, 1, vec![b.for_work(), Fill::task(JUDGE), whole("text", text)]);
+    b.filled(
+        judge,
+        1,
+        vec![b.for_work(), Fill::part("task", JUDGE), whole("text", text)],
+    );
     b.returns(judge);
     let call = b.asks(judge, "check");
     b.finishes(judge, &[], &[]);
@@ -510,7 +514,7 @@ fn of_the_new_form() -> Work {
     b.anew("other");
     let refill = vec![
         b.for_work(),
-        Fill::task(JUDGE),
+        Fill::part("task", JUDGE),
         whole("text", text),
         Fill::Results(vec![call]),
     ];
@@ -597,7 +601,7 @@ impl Building {
     }
 
     fn for_work(&self) -> Fill {
-        Fill::For { work: 1, item: 1 }
+        Fill::part("work", "Work W1, on the item #1.")
     }
 
     /// The first try of the round is filled with these.

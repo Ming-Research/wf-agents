@@ -2,7 +2,7 @@
 # this order. In a text, `{title}` is the cell's title, `{task}` the cell's task, `{trigger}` a trigger's name. Any
 # other `{name}` is filled in a run:
 #   taken: each block and question the last return handed in, and the version it is kept as;
-#   work, item: the work's number, as W2, and the item's number and title;
+#   work, item, item_title: the work's number, the number of the item it is done for, and the item's title;
 #
 # What a part is, the engine knows by `part`. A part the session keeps, as data are kept, has a `kind`, as a datum a
 # cell is given has (`given.toml`): it is sent where the session lacks its latest version, and again when it changes;
@@ -13,10 +13,18 @@
 # may say in `held` what is sent in its place where the session holds it already. The data come before what the cell
 # is to do with them, and what ran it, with what to do for each, comes last.
 
+# What a session compacted during a round is told before the round's message is given to it again, whole: a
+# compaction counts as the session reopened.
+compacted = "Your session was compacted during this round. What the round was told, again, whole, as to a session that begins; carry on with the round's work."
+
+# `{taken}` is each block in `each`, `{block}` its name and `{number}` the version it is kept as, with `between`
+# between two of them.
 [[parts]]
 part = "taken"
 only = "after_hand_in"
 text = "What your last return handed in is kept as: {taken}"
+each = "`{block}`, version {number}"
+between = "; "
 
 [[parts]]
 part = "heading"
@@ -25,15 +33,17 @@ text = "# {title}"
 [[parts]]
 part = "work"
 kind = "latest"
-text = "Work {work}, on the item {item}."
+text = "Work W{work}, on the item #{item} \"{item_title}\"."
 
 # The engine writes it in one line, in these words: `text` where main was merged into the work's branch, `{main}` its head
 # merged in and `{merge}` the commit of the merge; `conflict` where it does not merge, `{files}` the files in conflict;
 # `uncommitted` where the worktree holds changes not committed, and `merging` where a merge is under way in it,
-# `{changes}` the files it holds changes of; `failed` for any other cause, which it does not say. In each, `{name}` is the main branch's name. Nothing
-# is said where the work's branch held main already. `between` stands between the items of a list.
+# `{changes}` the files it holds changes of; `failed` for any other cause, which it does not say. In each, `{name}` is
+# the main branch's name. Nothing is said where the work's branch held main already. `between` stands between the
+# items of a list. Kept as the session keeps a part, it is said once for the run in a session.
 [[parts]]
 part = "main"
+kind = "latest"
 only = "takes_main"
 text = "{name} at {main} was merged into the work's branch as the commit {merge}; `git diff --name-only {merge}^1 {merge}` shows what it changed."
 conflict = "{name} at {main} was not merged into the work's branch: it conflicts in {files}."
@@ -58,6 +68,15 @@ kind = "latest"
 text = "## Your task\n\n{task}"
 # Where the session holds the task already, its heading still comes, so that each message says what the cell is to do.
 held = "## Your task\n\nAs given before in this session, under `# {title}`."
+
+# The results of the calls the round is given, as `results.toml` words them, and why what a round of the run returned
+# was sent back, as `../return/sent_back.toml` words it, with the version its return would have written over of a
+# block the cell is not given, as a datum given `latest` is: each where the session lacks it.
+[[parts]]
+part = "results"
+
+[[parts]]
+part = "sent_back"
 
 # Each trigger new to the cell: its name, what happened where the engine says it (`detail`, the trigger's own place
 # filled), and what the cell does for it (`do`, from the cell or the trigger), the first time too; then `after`.

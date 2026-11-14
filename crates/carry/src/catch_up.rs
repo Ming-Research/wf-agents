@@ -26,6 +26,38 @@ pub struct CaughtUp {
     pub outcome: Outcome,
 }
 
+impl CaughtUp {
+    /// What the rounds of the run are told of it; nothing where the branch held main already.
+    pub fn told(&self) -> Option<context::Main> {
+        let name = self.name.clone();
+        Some(match &self.outcome {
+            Outcome::Holds { .. } => return None,
+            Outcome::TookIn { main, merge } => context::Main::TookIn {
+                name,
+                main: main.clone(),
+                merge: merge.clone(),
+            },
+            Outcome::Conflict { main, files } => context::Main::Conflict {
+                name,
+                main: main.clone(),
+                files: files.clone(),
+            },
+            // What the worktree holds is told as the files of its changes, each line of git's status short of the
+            // two letters of its state and the space after them.
+            Outcome::Uncommitted { main, changes, merging } => context::Main::Uncommitted {
+                name,
+                main: main.clone(),
+                files: (changes.lines())
+                    .map(|line| line.get(3..).unwrap_or(line).trim().to_string())
+                    .collect(),
+                merging: *merging,
+            },
+            // Why is for whoever runs the engine.
+            Outcome::Failed { .. } => context::Main::Failed { name },
+        })
+    }
+}
+
 /// What taking main in did.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
@@ -111,6 +143,38 @@ async fn tried(project: &Project, place: &Place, main: &str, run: RunId) -> Resu
 mod tests {
     use super::*;
     use crate::git::tests::{Repo, commit, run};
+
+    #[test]
+    fn changes_not_committed_are_told_as_their_files_and_a_failure_without_why() {
+        let caught = |outcome| CaughtUp {
+            name: "main".to_string(),
+            outcome,
+        };
+        let left = caught(Outcome::Uncommitted {
+            main: "beef".to_string(),
+            changes: " M a.rs\n?? b.rs".to_string(),
+            merging: false,
+        });
+        let told = context::Main::Uncommitted {
+            name: "main".to_string(),
+            main: "beef".to_string(),
+            files: vec!["a.rs".to_string(), "b.rs".to_string()],
+            merging: false,
+        };
+        assert_eq!(left.told(), Some(told));
+        let failed = caught(Outcome::Failed {
+            why: "the network is down".to_string(),
+        });
+        let name = "main".to_string();
+        assert_eq!(failed.told(), Some(context::Main::Failed { name }));
+        assert_eq!(
+            caught(Outcome::Holds {
+                main: "beef".to_string()
+            })
+            .told(),
+            None
+        );
+    }
 
     const WORK: WorkNumber = WorkNumber(1);
     const RUN: RunId = RunId(7);
