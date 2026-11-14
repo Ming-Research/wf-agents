@@ -99,8 +99,8 @@ use flow::{Compiled, Has, Kind, compile, read};
 use reading::{Reading, Writer};
 use support::{Driver, Part, Rng, lacking_a_must_write};
 
-/// How many histories are run: 200, where the flow before its groups ran 500 in the time it now takes to run these.
-const SEEDS: u64 = 200;
+/// How many histories are run.
+const SEEDS: u64 = 500;
 
 /// How many random steps, at most, a history takes before the content continuation.
 const RANDOM: usize = 200;
