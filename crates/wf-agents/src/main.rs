@@ -465,7 +465,7 @@ fn words(what: &FaultKind) -> String {
         F::TakenNotRead { block } => {
             format!("the cell says how it takes {block}, but {block} is not among the blocks it reads")
         }
-        F::TwoForms => "name them one way: inputs, runs_on and given, or triggers and context".to_string(),
+        F::TwoForms => "name them one way: inputs, runs_on and given, or triggered_by and context".to_string(),
         F::NoSuchData { name } => {
             format!("the flow names {name} among the engine's own data, but no file of ../data/ defines {name}")
         }
@@ -486,7 +486,7 @@ fn words(what: &FaultKind) -> String {
             format!("{block} stands only for a trigger and has no content: no cell is given it or writes it")
         }
         F::NotLaidOut => {
-            "the cell names triggers and context, which only a flow laid out one thing to a file has".to_string()
+            "the cell names triggered_by and context, which only a flow laid out one thing to a file has".to_string()
         }
         F::MissingPlaceholder { placeholder } => format!("this must hold {placeholder}"),
         F::UnknownReturnField { field } => format!("the engine's return has no field named \"{field}\""),

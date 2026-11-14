@@ -10,7 +10,7 @@ use flow::{CellSpec, Compiled, FLOW_FILE, FaultKind, InputKind, Source, Trigger}
 
 use crate::support::{at, compiled, edit, faults, laid_out, set, valid};
 
-const PLAN_TRIGGERS: &str = r#"triggers = ["on_request", "on_opinions"]"#;
+const PLAN_TRIGGERS: &str = r#"triggered_by = ["on_request", "on_opinions"]"#;
 const PLAN_CONTEXT: &str = r#"context = ["request", "opinions"]"#;
 const PLAN_KINDS: &str = "opinions = \"last_and_latest\"";
 
@@ -62,8 +62,8 @@ fn r1_spoken_to() -> Source {
     let source = edit(
         source,
         "cells/R1.toml",
-        r#"triggers = ["on_comments", "on_plan"]"#,
-        r#"triggers = ["on_comments", "on_plan", "on_spoken"]"#,
+        r#"triggered_by = ["on_comments", "on_plan"]"#,
+        r#"triggered_by = ["on_comments", "on_plan", "on_spoken"]"#,
     );
     let source = edit(
         source,
@@ -174,7 +174,7 @@ fn a_trigger_each_cell_has_its_own_of_gives_each_cell_that_names_it_its_own_bloc
         r1_spoken_to(),
         "cells/plan.toml",
         PLAN_TRIGGERS,
-        r#"triggers = ["on_request", "on_opinions", "on_spoken"]"#,
+        r#"triggered_by = ["on_request", "on_opinions", "on_spoken"]"#,
     );
     let source = edit(
         source,
@@ -223,7 +223,7 @@ fn a_trigger_each_cell_has_its_own_of_gives_each_cell_that_names_it_its_own_bloc
 
 #[test]
 fn the_name_of_a_cell_stands_in_all_a_trigger_each_cell_has_its_own_of_says() {
-    let source = plan_triggers(r#"triggers = ["on_request", "on_opinions", "noted"]"#);
+    let source = plan_triggers(r#"triggered_by = ["on_request", "on_opinions", "noted"]"#);
     let source = set(
         source,
         "../triggers/of_a_cell/noted.toml",
@@ -276,13 +276,13 @@ fn a_cell_names_its_triggers_only_in_a_flow_laid_out_one_thing_to_a_file() {
     );
     let plan = source.cells.get_mut("plan").expect("the planning cell");
     plan.push_str("\n[kinds]\nrequest = \"latest\"\nopinions = \"latest\"\n");
-    assert_eq!(faults(&source), [at("plan.toml", "triggers", NotLaidOut)]);
+    assert_eq!(faults(&source), [at("plan.toml", "triggered_by", NotLaidOut)]);
 }
 
 #[test]
 fn a_trigger_nothing_beside_the_flows_defines_or_named_twice_is_refused() {
     let source =
-        plan_triggers(r#"triggers = ["on_request", "on_opinions", "on_ghost", "nothing_happened", "on_request"]"#);
+        plan_triggers(r#"triggered_by = ["on_request", "on_opinions", "on_ghost", "nothing_happened", "on_request"]"#);
     let no_datum = |trigger: &str, datum: &str| NoSuchDatum {
         trigger: trigger.to_string(),
         datum: datum.to_string(),
@@ -290,17 +290,17 @@ fn a_trigger_nothing_beside_the_flows_defines_or_named_twice_is_refused() {
     assert_eq!(
         faults(&source),
         [
-            at("cells/plan.toml", "triggers[2]", no_datum("on_ghost", "ghost")),
+            at("cells/plan.toml", "triggered_by[2]", no_datum("on_ghost", "ghost")),
             at(
                 "cells/plan.toml",
-                "triggers[3]",
+                "triggered_by[3]",
                 NoSuchTrigger {
                     trigger: "nothing_happened".into()
                 }
             ),
             at(
                 "cells/plan.toml",
-                "triggers[4]",
+                "triggered_by[4]",
                 Twice {
                     name: "on_request".into()
                 }
@@ -312,14 +312,14 @@ fn a_trigger_nothing_beside_the_flows_defines_or_named_twice_is_refused() {
     let source = edit(
         laid_out(),
         "cells/check.toml",
-        r#"triggers = ["on_main", "on_design"]"#,
-        r#"triggers = ["on_main", "on_design", "on_answer", "on_check_answered"]"#,
+        r#"triggered_by = ["on_main", "on_design"]"#,
+        r#"triggered_by = ["on_main", "on_design", "on_answer", "on_check_answered"]"#,
     );
     assert_eq!(
         faults(&source),
         [at(
             "cells/check.toml",
-            "triggers[3]",
+            "triggered_by[3]",
             no_datum("on_check_answered", "check_answered")
         )]
     );
@@ -330,20 +330,20 @@ fn a_trigger_of_an_agent_cell_has_its_agent_read_only_what_the_cell_s_context_ho
     let source = edit(
         laid_out(),
         "cells/judge.toml",
-        r#"triggers = ["on_plan"]"#,
-        r#"triggers = ["on_plan", "on_request"]"#,
+        r#"triggered_by = ["on_plan"]"#,
+        r#"triggered_by = ["on_plan", "on_request"]"#,
     );
     let what = ReadNotInContext {
         trigger: "on_request".into(),
         block: "request".into(),
     };
-    assert_eq!(faults(&source), [at("cells/judge.toml", "triggers[1]", what)]);
+    assert_eq!(faults(&source), [at("cells/judge.toml", "triggered_by[1]", what)]);
     // An engine cell is given nothing, and its triggers have no agent to read for them.
     let source = edit(
         laid_out(),
         "cells/check.toml",
-        r#"triggers = ["on_main", "on_design"]"#,
-        r#"triggers = ["on_main", "on_design", "on_request"]"#,
+        r#"triggered_by = ["on_main", "on_design"]"#,
+        r#"triggered_by = ["on_main", "on_design", "on_request"]"#,
     );
     compiled(&source);
 }
@@ -444,8 +444,8 @@ fn a_block_that_stands_only_for_a_trigger_is_in_no_context_and_no_cell_writes_it
 #[test]
 fn an_agent_cell_that_no_trigger_runs_is_refused() {
     assert_eq!(
-        faults(&plan_triggers("triggers = []")),
-        [at("cells/plan.toml", "triggers", RunByNothing)]
+        faults(&plan_triggers("triggered_by = []")),
+        [at("cells/plan.toml", "triggered_by", RunByNothing)]
     );
 }
 
@@ -474,8 +474,8 @@ fn a_trigger_whose_block_the_flow_defines_as_well_is_refused_once_on_the_flow_s_
     let source = edit(
         source,
         "cells/merge.toml",
-        r#"triggers = ["on_ci"]"#,
-        r#"triggers = ["on_ci", "on_main"]"#,
+        r#"triggered_by = ["on_ci"]"#,
+        r#"triggered_by = ["on_ci", "on_main"]"#,
     );
     // With `main` a datum of the flow, the rule `on_{datum}` makes `on_main` of it as well.
     assert_eq!(
@@ -506,8 +506,8 @@ fn a_block_that_two_triggers_declare_is_refused_on_the_second() {
     let source = edit(
         source,
         "cells/merge.toml",
-        r#"triggers = ["on_ci"]"#,
-        r#"triggers = ["on_ci", "on_merged"]"#,
+        r#"triggered_by = ["on_ci"]"#,
+        r#"triggered_by = ["on_ci", "on_merged"]"#,
     );
     assert_eq!(
         faults(&source),
@@ -522,13 +522,13 @@ fn a_block_that_two_triggers_declare_is_refused_on_the_second() {
     let source = set(
         source,
         "cells/r1.toml",
-        "title = \"Look\"\nkind = \"engine\"\nact = \"check\"\ntriggers = [\"on_spoken\"]",
+        "title = \"Look\"\nkind = \"engine\"\nact = \"check\"\ntriggered_by = [\"on_spoken\"]",
     );
     assert_eq!(
         faults(&source),
         [at(
             "cells/r1.toml",
-            "triggers[0]",
+            "triggered_by[0]",
             defined_twice("r1_spoken_to", "cells/R1.toml")
         )]
     );

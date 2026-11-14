@@ -272,7 +272,7 @@ pub enum FaultKind {
     DescribedNotRunOn { block: String },
     /// In the old form, the cell says how or why it takes the block, and the block is not among its `inputs`.
     TakenNotRead { block: String },
-    /// The cell names what it takes in two forms of three: `inputs`; `runs_on` and `given`; `triggers` and `context`.
+    /// The cell names what it takes in two forms of three: `inputs`; `runs_on` and `given`; `triggered_by` and `context`.
     TwoForms,
     /// The flow names among the engine's own data one that no file of `../data/` defines.
     NoSuchData { name: String },
@@ -292,7 +292,7 @@ pub enum FaultKind {
     /// The block stands only for a trigger and has no content: no cell is given it, writes it or describes the work
     /// by it.
     TriggerOnly { block: String },
-    /// The cell names what it takes by triggers and context, which only a flow laid out one thing to a file has: the
+    /// The cell names what it takes by `triggered_by` and `context`, which only a flow laid out one thing to a file has: the
     /// triggers are beside the flows.
     NotLaidOut,
     /// A value of a file beside the flows that stands for each cell or each datum does not hold the name that stands
@@ -557,7 +557,7 @@ fn parse(source: &Source) -> Result<Parsed, Vec<Fault>> {
 }
 
 /// What each trigger each cell names is worked out to, by the cell's id: the trigger, or what is wrong with it, by its
-/// place in the cell's `triggers`. A name given a second time there is not worked out again.
+/// place in the cell's `triggered_by`. A name given a second time there is not worked out again.
 type Resolved = BTreeMap<String, Vec<(usize, Result<Trigger, FaultKind>)>>;
 
 /// What stands for the id of a cell, in small letters, in a trigger each cell has its own of.
@@ -769,7 +769,7 @@ impl LaidOut {
     /// Works out each trigger each cell names: a trigger of `../triggers/` by its name, which declares the block with
     /// no content it stands on; one of `of_a_cell/`, whose block each cell naming it has its own of; or one a rule of
     /// `of_a_datum/` makes of a datum of the flow, standing on the datum. Gives what each is worked out to, by its
-    /// place in the cell's `triggers`, and the blocks the triggers declare. The agent of an engine cell reads nothing.
+    /// place in the cell's `triggered_by`, and the blocks the triggers declare. The agent of an engine cell reads nothing.
     ///
     /// A fault is a trigger whose block the flow defines as well, once, on the block's file, naming the trigger's;
     /// a block that a second trigger's file declares, on that file, or that a second cell's trigger of one file
@@ -847,7 +847,7 @@ impl LaidOut {
                                     name: block.clone(),
                                     also: places.cell(first_cell),
                                 };
-                                Some(fault(&places.cell(id), format!("triggers[{i}]"), what))
+                                Some(fault(&places.cell(id), format!("triggered_by[{i}]"), what))
                             }
                             Some((first_path, _)) => {
                                 let what = FaultKind::DefinedTwice {
@@ -1360,7 +1360,7 @@ impl<'a> Definition<'a> {
             Form::RunsOn => found.extend(self.check_takes(file)),
             Form::Triggers if unread_triggers => {
                 let named = [
-                    ("triggers", file.triggers.is_empty()),
+                    ("triggered_by", file.triggers.is_empty()),
                     ("do", file.does.is_empty()),
                     ("context", file.context.is_empty()),
                     ("kinds", file.kinds.is_empty()),
@@ -1368,7 +1368,7 @@ impl<'a> Definition<'a> {
                 let key = named
                     .iter()
                     .find(|(_, empty)| !empty)
-                    .map_or("triggers", |(key, _)| key);
+                    .map_or("triggered_by", |(key, _)| key);
                 found.push((key.to_string(), FaultKind::NotLaidOut));
             }
             Form::Triggers => found.extend(self.check_triggers(id, file)),
@@ -1464,11 +1464,11 @@ impl<'a> Definition<'a> {
     fn check_triggers(&self, id: &str, file: &CellFile) -> Vec<(String, FaultKind)> {
         let mut found = Vec::new();
         if file.kind == Kind::Agent && file.triggers.is_empty() {
-            found.push(("triggers".to_string(), FaultKind::RunByNothing));
+            found.push(("triggered_by".to_string(), FaultKind::RunByNothing));
         }
         let worked = self.triggers.get(id).map_or(&[][..], Vec::as_slice);
         for (i, name) in file.triggers.iter().enumerate() {
-            let field = format!("triggers[{i}]");
+            let field = format!("triggered_by[{i}]");
             if file.triggers[..i].contains(name) {
                 found.push((field, FaultKind::Twice { name: name.clone() }));
                 continue;
@@ -1736,7 +1736,7 @@ enum Form {
     Inputs,
     /// The blocks that run it, `runs_on`, and those it is given, `given`.
     RunsOn,
-    /// What runs it, `triggers`, each an event worked out to a block, and the data it is given, `context`.
+    /// What runs it, `triggered_by`, each an event worked out to a block, and the data it is given, `context`.
     Triggers,
 }
 
@@ -1746,7 +1746,7 @@ enum Form {
 const OLD_FORM_KIND: InputKind = InputKind::LastAndLatest;
 
 /// What the cell of this file takes, with what its triggers are worked out to, those that are. A file that names any of
-/// `triggers`, `do`, `context` and `kinds` is in the form of triggers, whatever else it names: each trigger's block
+/// `triggered_by`, `do`, `context` and `kinds` is in the form of triggers, whatever else it names: each trigger's block
 /// runs the cell, once however many of its triggers stand on it, with what the cell does for the first of them as why;
 /// and an agent cell is given each datum of its context in its kind. Else a file that names any of `runs_on`, `run`,
 /// `given` and `give` is in the form of `runs_on`, and names the two lists itself. One that names none of them is in

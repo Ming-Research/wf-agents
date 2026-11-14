@@ -462,12 +462,12 @@ pub struct CellFile {
     /// The named tests that must hold before the cell.
     #[serde(default)]
     pub requires: Vec<String>,
-    /// What runs the cell, each a trigger by its name, in the order it names them: a trigger of `../triggers/` or of
-    /// its `of_a_cell/` by the name of its file, or one a rule of `../triggers/of_a_datum/` makes of a datum of the
-    /// flow. A file names these and its `context`, or one of the forms before them, not two.
-    #[serde(default)]
+    /// What runs the cell, written `triggered_by`: each a trigger by its name, in the order it names them, a trigger of
+    /// `../triggers/` or of its `of_a_cell/` by the name of its file, or one a rule of `../triggers/of_a_datum/` makes
+    /// of a datum of the flow. A file names these and its `context`, or one of the forms before them, not two.
+    #[serde(default, rename = "triggered_by")]
     pub triggers: Vec<String>,
-    /// What the cell does for a trigger, by the trigger's name: each among `triggers`.
+    /// What the cell does for a trigger, by the trigger's name: each among `triggered_by`.
     #[serde(default, rename = "do")]
     pub does: BTreeMap<String, String>,
     /// The data the cell's session must hold, its context, in the order it names them: each filled in by its kind.
@@ -493,7 +493,7 @@ pub struct CellFile {
     #[serde(default)]
     pub give: BTreeMap<String, GiveFile>,
     /// The old form of `runs_on` and `given`, one list for both: each block of it runs the cell, and an agent cell is
-    /// given it. A file names this list, the two, or `triggers` and `context`: one of the three forms.
+    /// given it. A file names this list, the two, or `triggered_by` and `context`: one of the three forms.
     #[serde(default)]
     pub inputs: Vec<String>,
     /// The old form of `give`, by the block's name: each a block among `inputs`. Of an engine cell, which is given

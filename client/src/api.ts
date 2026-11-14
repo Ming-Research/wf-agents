@@ -151,7 +151,7 @@ export type What =
   | { kind: 'noSuchDatum'; trigger: string; datum: string }
   /// The block stands only for a trigger: no cell is given it, writes it or describes the work by it.
   | { kind: 'triggerOnly'; block: string }
-  /// The cell names triggers and context in a flow not laid out one thing to a file.
+  /// The cell names `triggered_by` and `context` in a flow not laid out one thing to a file.
   | { kind: 'notLaidOut' }
   /// A value of a file beside the flows lacks the name that stands for each cell or each datum.
   | { kind: 'missingPlaceholder'; placeholder: string }

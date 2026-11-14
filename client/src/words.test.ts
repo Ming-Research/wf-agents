@@ -191,22 +191,22 @@ describe('the words of the page', () => {
       "An engine's cell says how it is given main, but it has no session.",
     );
     expect(faultWords({ file: 'plan.toml', field: 'inputs', what: { kind: 'twoForms' } })).toBe(
-      'Name them one way: inputs, runs_on and given, or triggers and context.',
+      'Name them one way: inputs, runs_on and given, or triggered_by and context.',
     );
     expect(
-      faultWords({ file: 'cells/plan.toml', field: 'triggers[3]', what: { kind: 'noSuchTrigger', trigger: 'nothing_happened' } }),
+      faultWords({ file: 'cells/plan.toml', field: 'triggered_by[3]', what: { kind: 'noSuchTrigger', trigger: 'nothing_happened' } }),
     ).toBe('The cell names the trigger nothing_happened, which nothing in ../triggers/ defines.');
     expect(
       faultWords({
         file: 'cells/judge.toml',
-        field: 'triggers[1]',
+        field: 'triggered_by[1]',
         what: { kind: 'readNotInContext', trigger: 'on_request', block: 'request' },
       }),
     ).toBe("The trigger on_request has the agent read request, but request is not in the cell's context.");
     expect(
       faultWords({
         file: 'cells/plan.toml',
-        field: 'triggers[2]',
+        field: 'triggered_by[2]',
         what: { kind: 'noSuchDatum', trigger: 'on_ghost', datum: 'ghost' },
       }),
     ).toBe('The cell names the trigger on_ghost, but the flow has no datum ghost.');

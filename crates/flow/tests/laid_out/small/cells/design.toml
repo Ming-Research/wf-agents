@@ -5,7 +5,7 @@ effort = "high"
 line = "engineer"
 task = "Design what the plan asks for."
 when = { block = "needs_design", is = "yes" }
-triggers = ["on_plan"]
+triggered_by = ["on_plan"]
 context = ["plan"]
 outputs = ["design"]
 

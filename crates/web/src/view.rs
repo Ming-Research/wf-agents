@@ -367,7 +367,7 @@ pub enum What {
     TriggerOnly {
         block: String,
     },
-    /// The cell names triggers and context in a flow not laid out one thing to a file.
+    /// The cell names `triggered_by` and `context` in a flow not laid out one thing to a file.
     NotLaidOut,
     /// A value of a file beside the flows lacks the name that stands for each cell or each datum.
     MissingPlaceholder {

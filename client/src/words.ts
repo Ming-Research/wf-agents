@@ -112,7 +112,7 @@ export function faultWords(fault: Fault): string {
     case 'takenNotRead':
       return `The cell says how it takes ${w.block}, but ${w.block} is not among the blocks it reads.`;
     case 'twoForms':
-      return 'Name them one way: inputs, runs_on and given, or triggers and context.';
+      return 'Name them one way: inputs, runs_on and given, or triggered_by and context.';
     case 'noSuchData':
       return `The flow names ${w.name} among the engine's own data, but no file of ../data/ defines ${w.name}.`;
     case 'definedTwice':
@@ -124,7 +124,7 @@ export function faultWords(fault: Fault): string {
     case 'triggerOnly':
       return `${w.block} stands only for a trigger and has no content: no cell is given it or writes it.`;
     case 'notLaidOut':
-      return 'The cell names triggers and context, which only a flow laid out one thing to a file has.';
+      return 'The cell names triggered_by and context, which only a flow laid out one thing to a file has.';
     case 'missingPlaceholder':
       return `This must hold ${w.placeholder}.`;
     case 'unknownReturnField':

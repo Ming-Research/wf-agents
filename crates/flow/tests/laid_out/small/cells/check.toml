@@ -2,5 +2,5 @@
 title = "Check with the latest main"
 kind = "engine"
 act = "check"
-triggers = ["on_main", "on_design"]
+triggered_by = ["on_main", "on_design"]
 outputs = ["ci"]
