@@ -165,11 +165,10 @@ run next all the same, and the note would be filled, since the new session lacks
     the cell is given its beginning, with word that it was cut for its size, how large it is, and the query that gets
     the rest.
 
-30. A return is of one of two kinds, and the form of the line's return holds both apart, so that the agent's program
-    refuses one that mixes them: a return that asks the engine for calls, which holds the calls and may hold a summary
-    (50), and nothing else; and a return that does the cell's work, which holds what it has dealt with (9), what it
-    writes, and what is said to the owner. A return that asks for calls has dealt with nothing, so the cell is entered
-    again with their results.
+30. A return is of one of two kinds, and the form of the flow's return holds both apart, so that the agent's program
+    refuses one that mixes them: a return that asks the engine for calls, which holds the calls and nothing else; and a
+    return that does the cell's work, which holds what it has dealt with (9), what it writes, and what is said to the
+    owner. A return that asks for calls has dealt with nothing, so the cell is entered again with their results.
 
 31. Each field of a return, each tool and each datum is defined once, its shape with its words: the engine's own
     fields and tools in the files beside the flows (51), a datum in the flow's definition where it is declared, what a
@@ -279,8 +278,9 @@ run next all the same, and the note would be filled, since the new session lacks
     the work, the cell and the round it came from, and shown as not yet read. Whether it is urgent, and whether it
     becomes an item, is judged by whoever reads it, not by the agent that wrote it.
 
-50. A return may also say, in a sentence or two, what its round did and found, and a round told to stop how far it
-    got. It is kept with the round for the owner to read, and like an observation it is no data of the work.
+50. A block that is a choice is handed in with its value and a line of why, in the owner's language, kept with the
+    version for the owner to read: why a review passed, why the deep research is or is not needed. A return holds no
+    account of its round besides; what lasts of the round is in the blocks it writes and the session it ran in.
 
 ## Where what is sent is written
 
