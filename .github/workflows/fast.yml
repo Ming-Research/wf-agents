@@ -1,20 +1,20 @@
 name: fast
 
-# The fast CI of a work: what an agent's `check` waits for while the code is being written, when it names tests or
-# checks. It runs only when the engine asks, by hand, on the commit it gives, and runs only what it is asked for: it
-# compiles and runs the tests named, and runs the lint only when it is named, as while what the full CI's lint found is
-# being fixed. Every other check, the whole set of tests among them, is the full CI's (ci.yml), which the check before a
-# merge waits for. It has no job named as a check the merge counts (`page`, `check`): a head that only this workflow
-# has run is not one that may merge. The installation's settings name this workflow and what it takes and gives
-# (`github.fast`: `workflow`, `commit_input`, `call_input`, `tests_input`, `checks_input`, `named_checks`, each the
-# name of its job here, `results`).
+# The project's fast workflow (`ci.fast` of flow/project.toml): what an agent's `run_tests` waits for while the code is
+# being written, when it names tests or checks. It runs only when the engine asks, by hand, on the commit it gives, and
+# runs only what it is asked for: it compiles and runs the tests named, and runs the lint only when it is named, as
+# while what the full CI's lint found is being fixed. Every other check, the whole set of tests among them, is the
+# full workflow's (ci.yml), which the check before a merge runs. It has no job named as a check the merge counts
+# (`page`, `check`): a head that only this workflow has run is not one that may merge.
 #
-# The engine's `check_before` runs it too, on the commits it pushes to its branches `wf-agents-before/...`, which hold
-# the code before a change with the tests of the change put on it. On those it runs exactly the tests listed, and names
-# no check.
+# A test is named by the name its JUnit result gives it: a Rust test by its name as nextest gives it, `tests::a_row`,
+# and a page test by its describes and its title joined by ` > `, as vitest lists it. The workflow takes each name as
+# it is, and runs exactly the tests that have it: a Rust test by nextest's exact name (`test(=name)`), for a name made
+# only of letters, digits, `_` and `::`, and a page test by vitest's own list of the page's tests, for any other.
 #
 # The tests job uploads what became of each test it ran as JUnit XML, in the artifact `test-results`, which the engine
-# reads by the conventions its reading of them holds to (crates/carry/src/host/github/results.rs). A unit of the Rust
+# reads (crates/carry/src/host/github/results.rs): each test with its name, its outcome, its time and what a failed one
+# said. A unit of the Rust
 # tests that did not compile is in it too, as a testsuite with no testcase and an error, and the tests of the other
 # units still run.
 #
@@ -117,25 +117,9 @@ jobs:
           persist-credentials: false
       - run: git clean -ffdxq -e target -e client/node_modules -e client/dist
       # The names given: one a line when the input holds a line break, as the engine gives them; else split at white
-      # space. Each is trimmed, as the engine trims a name, and listed in the log.
-      #
-      # The engine alone decides which test a name names (crates/carry/src/host/github/test_name.rs); this workflow runs
-      # at least every test a name names by that rule: more, never fewer. Each name is taken for a Rust test and for a
-      # page test both. The selection below holds for the separators `::` and ` > `, the installation's
-      # `github.fast.separators`: whoever changes that rule or the separators widens it in the same change.
-      #
-      # A Rust test is named by its name, by its unit (its test binary) and its name joined by a space, `::` or ` > `,
-      # or by what follows a separator in one of these. Neither the unit nor the name holds a space, nor the unit a
-      # ` > `, so what follows a name's last ` > ` holds at most one space, and what follows its last `::` or space is
-      # the test's name, or the end of it after a `::`, which `(^|::)…$` selects.
-      #
-      # A page test is named by its title, joined by ` > ` after the titles of the describes it is in and the file it is
-      # in, or by a space or `::` after the file. What follows a name's last ` > ` is the end of the test's own title,
-      # whole, or after the file and a space, or after the file and `::`: three candidates. Every page test is defined
-      # in a `*.test.*` or `*.spec.*` file with its title written there as a string, so the files that hold a
-      # candidate, as written or as a string in the code writes it, hold every test the name names; only those files are
-      # run, and in them only the tests whose name holds a candidate found. Whoever defines a test elsewhere, or with a
-      # title made when the tests run, widens this in the same change.
+      # space. Each is trimmed, as the engine trims a name, and listed in the log. A name made only of letters, digits,
+      # `_` and `::` is a Rust test's, selected by nextest's exact name; any other is a page test's, looked for in the
+      # list vitest gives of the page's tests, below.
       - name: Read the names
         id: names
         env:
@@ -145,30 +129,15 @@ jobs:
           names="$RUNNER_TEMP/names" results="$RUNNER_TEMP/test-results"
           mkdir -p "$names" "$results"
           if [[ $TESTS == *$'\n'* ]]; then mapfile -t given <<< "$TESTS"; else read -ra given <<< "$TESTS"; fi
-          sq="'" dq='"' bt='`'
-          rust=() titles=() files=()
+          rust=()
+          : > "$names/page"
           for n in "${given[@]}"; do
             n=$(sed 's/^[[:space:]]*//; s/[[:space:]]*$//' <<< "$n")
             [ -n "$n" ] || continue
             echo "Named: $n"
-            last=${n##* > }
-            if [[ $last != *' '*' '* ]]; then
-              end=${last##*::}
-              end=${end##* }
-              [ -z "$end" ] || rust+=("test(/(^|::)$(sed 's/[][\\.^$*+?(){}|/]/\\&/g' <<< "$end")\$/)")
-            fi
-            for title in "$last" "${last#* }" "${last#*::}"; do
-              [ -n "$title" ] || continue
-              # As written, and as a string in single quotes, double quotes or backquotes writes it.
-              escaped=${title//\\/\\\\}
-              found=$(git grep -l -F -e "$title" -e "${escaped//$sq/\\$sq}" -e "${escaped//$dq/\\$dq}" \
-                -e "${escaped//$bt/\\$bt}" -- ':(glob)client/**/*.test.*' ':(glob)client/**/*.spec.*' || true)
-              [ -n "$found" ] || continue
-              titles+=("$(sed 's/[][\\.^$*+?(){}|]/\\&/g' <<< "$title")")
-              mapfile -t -O "${#files[@]}" files < <(sed 's|^client/||' <<< "$found")
-            done
+            if [[ $n =~ ^[A-Za-z0-9_]+(::[A-Za-z0-9_]+)*$ ]]; then rust+=("test(=$n)"); else printf '%s\n' "$n" >> "$names/page"; fi
           done
-          rust_selected=false page_selected=false browser_selected=false
+          rust_selected=false
           if [ ${#rust[@]} -gt 0 ]; then
             mapfile -t rust < <(printf '%s\n' "${rust[@]}" | sort -u)
             filter=""
@@ -176,21 +145,12 @@ jobs:
             printf '%s' "$filter" > "$names/filter"
             rust_selected=true
           fi
-          if [ ${#titles[@]} -gt 0 ]; then
-            mapfile -t titles < <(printf '%s\n' "${titles[@]}" | sort -u)
-            (IFS='|'; printf '%s' "${titles[*]}") > "$names/pattern"
-            printf '%s\n' "${files[@]}" | sort -u > "$names/files"
-            echo "Page tests in: $(paste -sd ' ' "$names/files")"
-            page_selected=true
-            # The tests that run in a real browser are in the files named *.browser.test.tsx; only a run that selects
-            # one pays for installing and starting Chromium.
-            if grep -q '\.browser\.test\.' "$names/files"; then browser_selected=true; fi
-          fi
-          # A run that names no test it can run says so, and reports no test.
-          if [ $rust_selected = false ] && [ $page_selected = false ]; then echo '<testsuites/>' > "$results/none.xml"; fi
+          page_named=false
+          if [ -s "$names/page" ]; then page_named=true; fi
+          # A run that names no test says so, and reports no test.
+          if [ $rust_selected = false ] && [ $page_named = false ]; then echo '<testsuites/>' > "$results/none.xml"; fi
           echo "rust=$rust_selected" >> "$GITHUB_OUTPUT"
-          echo "page=$page_selected" >> "$GITHUB_OUTPUT"
-          echo "browser=$browser_selected" >> "$GITHUB_OUTPUT"
+          echo "page_named=$page_named" >> "$GITHUB_OUTPUT"
       # The project's machine has the tools: rustup installs the toolchain rust-toolchain.toml pins when it is missing,
       # and whoever changes a version here installs it there first (its runners share a home, and installing at once
       # they collide).
@@ -318,22 +278,60 @@ jobs:
             keep "rust-$n.xml"
           done
           exit 101
-      # The page's tests named, in the files Read the names found them in, writing vitest's JUnit beside its own report;
-      # also when the step before is red.
+      # The page's tests named, found by the name vitest lists for each: the exact name, as the JUnit gives it, which the
+      # file the test is in comes with. The tests that run in the browser are in the files named *.browser.test.tsx:
+      # a name no test of the Node project has is looked for among them, which is the one time Chromium is installed and
+      # started. A name no test has is said, and no test is reported for it.
       #
       # The page's tests are Vitest projects (client/vite.config.ts): `unit` always, and `browser`, which draws the page
-      # in a real Chromium, only when a file named is one of the browser tests, so that a run that names none neither
-      # installs Chromium nor starts it. Playwright installs the Chromium its version drives into the runner user's
-      # cache, once for each version; a workflow has no root on the owner's machine, so the libraries Chromium needs are
-      # installed there by hand, and a run that lacks one fails in the browser tests with the missing libraries named.
-      - name: Chromium for the page's browser tests
-        if: ${{ !cancelled() && steps.names.outputs.browser == 'true' }}
+      # in a real Chromium, only when a name is a browser test's. Playwright installs the Chromium its version drives
+      # into the runner user's cache, once for each version; a workflow has no root on the owner's machine, so the
+      # libraries Chromium needs are installed there by hand, and a run that lacks one fails in the browser tests with
+      # the missing libraries named.
+      - name: Find the page tests named
+        id: pages
+        if: ${{ !cancelled() && steps.names.outputs.page_named == 'true' }}
         working-directory: client
-        run: npx --no-install playwright install --only-shell chromium
-      - name: Test the page
-        if: ${{ !cancelled() && steps.names.outputs.page == 'true' }}
         env:
-          BROWSER: ${{ steps.names.outputs.browser }}
+          RUST: ${{ steps.names.outputs.rust }}
+        run: |
+          names="$RUNNER_TEMP/names" results="$RUNNER_TEMP/test-results"
+          # The tests of a project that hold a name asked for: `name<TAB>file` for each, the file from the client's root.
+          found() {
+            jq -r --rawfile want "$names/page" --arg root "$PWD/" '
+              ($want | split("\n") | map(select(length > 0))) as $w
+              | .[] | select(.name as $n | $w | index($n)) | "\(.name)\t\(.file | ltrimstr($root))"' "$1"
+          }
+          npx --no-install vitest list --project unit --json > "$names/unit.json"
+          found "$names/unit.json" > "$names/found"
+          browser=false
+          if [ "$(cut -f1 "$names/found" | sort -u | wc -l)" -lt "$(sort -u "$names/page" | wc -l)" ]; then
+            npx --no-install playwright install --only-shell chromium
+            npx --no-install vitest list --project browser --json > "$names/browser.json"
+            found "$names/browser.json" > "$names/found-browser"
+            if [ -s "$names/found-browser" ]; then browser=true; fi
+            cat "$names/found-browser" >> "$names/found"
+          fi
+          cut -f1 "$names/found" | sort -u > "$names/matched"
+          while IFS= read -r n; do
+            grep -qxF -- "$n" "$names/matched" || echo "No page test is named: $n"
+          done < "$names/page"
+          cut -f2 "$names/found" | sort -u > "$names/files"
+          # vitest matches the pattern against a test's name as its describes and its title joined by a space.
+          jq -R -s -r '
+            split("\n") | map(select(length > 0))
+            | map(gsub(" > "; " ") | gsub("(?<c>[\\.^$*+?(){}|\\[\\]/])"; "\\" + .c))
+            | "^(" + join("|") + ")$"' "$names/matched" > "$names/pattern"
+          page=false
+          if [ -s "$names/files" ]; then page=true; echo "Page tests in: $(paste -sd ' ' "$names/files")"; fi
+          # A run that names nothing it can run says so, and reports no test.
+          if [ "$RUST" != true ] && [ $page = false ]; then echo '<testsuites/>' > "$results/none.xml"; fi
+          echo "page=$page" >> "$GITHUB_OUTPUT"
+          echo "browser=$browser" >> "$GITHUB_OUTPUT"
+      - name: Test the page
+        if: ${{ !cancelled() && steps.pages.outputs.page == 'true' }}
+        env:
+          BROWSER: ${{ steps.pages.outputs.browser }}
         run: |
           mapfile -t files < "$RUNNER_TEMP/names/files"
           projects=(--project unit)

@@ -27,12 +27,10 @@ names = ["owner.language", "agents.subagents.most"]
 research = "research/"
 # How an agent names a test to `run_tests`, by the name the project's test runners give it.
 test_names = '''
-An agent the engine runs names to `run_tests` a test by the name its results give it, ending at
-the test's own name: a Rust test by its function's name, or with its module path and its test binary before it
-(`tests::a_row`, `carry tools::tests::a_row`); a page test by its own title, or with the titles of its describes
-before it, joined by ` > `, its file counted from `client/` (`src/x.test.ts > a describe > its title`). A binary, a
-module, a file or a describe alone names no test. The page's browser tests (`*.browser.test.tsx`) start Chromium
-only in a run that names one.'''
+An agent names to `run_tests` a test by the name its JUnit result gives it, as it is: a Rust test by its name as nextest
+gives it (`tests::a_row`: the test binary is no part of it), and a page test by its describes and its title joined by
+` > ` (`a describe > its title`), as vitest lists it. Only an exact name names a test: a binary, a module, a file or
+a describe alone names none.'''
 
 # Where the project's tests are, as git pathspecs, and the data its tests expect.
 [tests]

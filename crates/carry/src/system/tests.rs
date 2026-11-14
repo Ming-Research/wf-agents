@@ -110,7 +110,7 @@ fn a_lines_system_prompt_holds_its_parts_in_their_order_with_the_settings_they_n
         "`project.research` (research/)",
         "`owner.language` (Chinese)",
         "and checks among `lint`;",
-        "`project.test_names` (An agent the engine runs names to `run_tests`",
+        "`project.test_names` (An agent names to `run_tests` a test by the name its JUnit",
     ] {
         assert!(engineer.contains(named), "{named}:\n{engineer}");
     }
