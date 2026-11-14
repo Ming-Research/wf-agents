@@ -806,21 +806,24 @@ impl<'a> Walk<'a> {
 
     /// Why the cell at this place is entered, and what it waits for instead: what is new to it, and the results of the
     /// calls its runs asked for once all are in. While one of them has no result, the cell waits for it, and only the
-    /// owner turning to it since its last run began enters it meanwhile, its calls still waited for (design document
-    /// `data-and-context`, 42): a run so entered that asks for calls in turn leaves what the owner wrote for the run
-    /// their results begin.
+    /// owner turning to it enters it meanwhile, its calls still waited for (design document `data-and-context`, 42),
+    /// by a version no run of the cell has seen: none that finished was told it, and none still open holds it. A run so
+    /// entered that asks for calls in turn leaves what the owner wrote for the run their results begin; one abandoned
+    /// saw nothing, and the cell is entered for it again.
     fn entering(&self, i: usize) -> (Vec<Cause>, Vec<Waited>) {
         let mut because = self.needs(i);
         let (calls, open) = self.owed(i);
         if !open.is_empty() {
             let cell = &self.flow.cells()[i].id;
-            let last = (self.runs.values())
-                .filter(|r| &r.started.cell == cell)
-                .map(|r| r.started.at)
-                .max();
+            let seen = |block: &BlockId| {
+                (self.runs.values())
+                    .filter(|r| &r.started.cell == cell && !r.abandoned)
+                    .filter_map(|r| self.told(r, block))
+                    .max()
+            };
             because.retain(|cause| {
                 matches!(cause, Cause::Changed { block, .. }
-                    if self.flow.interrupts(block) && self.current(block).is_some_and(|v| Some(v.at) > last))
+                    if self.flow.interrupts(block) && self.current(block).is_some_and(|v| Some(v.at) > seen(block)))
             });
             let on = if because.is_empty() { open } else { Vec::new() };
             return (because, on);

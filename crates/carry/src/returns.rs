@@ -362,6 +362,7 @@ fn said(outcome: Outcome) -> Said {
                         follows: o.follows,
                     })
                     .collect(),
+                about: None,
             },
             QuestionIn::Withdrawn(q) => Question::Withdrawn {
                 name: q.name,

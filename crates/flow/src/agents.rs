@@ -150,8 +150,8 @@ pub struct Project {
 }
 
 /// The paths of the project's checkout that govern its agents, which the owner changes (principles
-/// `protected-files-are-the-owners`, `named-paths-wait-for-the-owner`): where a work's change against main touches one,
-/// the engine asks the owner whether the change stays, in the words of [`Asks`].
+/// `protected-files-are-the-owners`, `named-paths-wait-for-the-owner`): where a work's own change touches one, the
+/// check before the merge holds it until the owner lets it merge, asking in the words of [`Asks`].
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Protected {
@@ -400,11 +400,11 @@ pub struct Asks {
     pub protected: AskProtected,
 }
 
-/// The question the engine asks where a work's change against main touches a path the project protects
-/// ([`Protected`]): asked again under its name each time that change is another, withdrawn once the work touches none.
-/// It waits, and recommends none of its options. `ask` is what it asks, `{files}` the files the change touches, each
-/// as `file` says with `{path}` its path and `{change}` how it changes (`added`, `changed` or `deleted`), one to a
-/// line, and `{diff}` the change itself.
+/// The question the engine asks where a work's own change touches a path the project protects ([`Protected`]): asked
+/// again under its name where that change is another, or was answered with another option than `merges`, withdrawn
+/// once the work touches none. It waits, and recommends none of its options. `ask` is what it asks, `{files}` the files
+/// the change touches, each as `file` says with `{path}` its path and `{change}` how it changes (`added`, `changed` or
+/// `deleted`), one to a line, and `{diff}` the change itself.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AskProtected {
@@ -415,6 +415,9 @@ pub struct AskProtected {
     pub changed: String,
     pub deleted: String,
     pub options: Vec<AskOption>,
+    /// The number of the option, counted from 1, by which the owner lets the change merge: the check before the merge
+    /// passes a change under the protected paths only where its question was answered so.
+    pub merges: u64,
     /// Why it is withdrawn, once the work's change touches no path the project protects.
     pub withdrawn: String,
 }
@@ -969,6 +972,10 @@ pub struct Found {
     pub merging: String,
     pub uncommitted: String,
     pub conflict: String,
+    /// The work's own change touches paths the project protects, and the owner has not let it merge.
+    pub protected: String,
+    /// The change under the paths the project protects could not be looked at.
+    pub protected_unread: String,
 }
 
 /// A piece of a text of the engine's words: what is sent as written, or a place filled in a run, by its name.
@@ -1101,8 +1108,24 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         results: file(&at.join("message").join("results.toml"))?,
         acts: writes.acts,
         commits: writes.commits,
-        asks: file(&at.join(ASKS_FILE))?,
+        asks: asks(&at.join(ASKS_FILE))?,
     })
+}
+
+/// The questions the engine asks, read from their file, whose option that lets a change merge must be one of the
+/// question's options.
+fn asks(path: &Path) -> Result<Asks, String> {
+    let asks: Asks = file(path)?;
+    let protected = &asks.protected;
+    let count = protected.options.len() as u64;
+    if !(1..=count).contains(&protected.merges) {
+        let what = format!(
+            "[protected] merges is {}, which is not the number of one of its {count} options",
+            protected.merges
+        );
+        return Err(format!("{}: {what}", path.display()));
+    }
+    Ok(asks)
 }
 
 /// What the engine writes as it works, read from the directory that holds the flows, as [`read`] reads it.

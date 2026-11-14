@@ -84,6 +84,10 @@ pub const WORDS: &str = "words";
 /// engine writes it as the owner answers.
 pub const ANSWER: &str = "answer";
 
+/// The field of a return through which a cell asks the owner its questions, asks them anew or withdraws them (design
+/// document `data-and-context`, 32): a block written through it is the work's questions.
+pub const QUESTIONS: &str = "questions";
+
 /// The sources outside a work a new version of whose block is the owner turning to the cells it runs: the owner's words
 /// to a cell, and an answer ([`WORDS`], [`ANSWER`]). Such a block stops a round under way of a later cell
 /// ([`decide::Outsiders`]).
@@ -357,6 +361,9 @@ pub enum FaultKind {
     MissingPlaceholder { placeholder: String },
     /// The block is written through a field of a return that the engine does not have.
     UnknownReturnField { field: String },
+    /// The cell writes the block, which holds the work's questions ([`QUESTIONS`]), and no block of the source
+    /// [`ANSWER`] runs it: the owner's answer to a question it asks would run no cell.
+    AsksWithNoAnswer { block: String },
     /// The trigger says what happened by a place the engine does not fill.
     UnknownDetail { detail: String },
     /// An engine cell says how it is given the block: it has no session to keep supplied with it.
@@ -1605,6 +1612,18 @@ impl<'a> Definition<'a> {
             Form::Triggers => found.extend(self.check_triggers(id, file)),
         }
         found.extend(check_list(&file.outputs, "outputs", with_content));
+        // A cell that may ask the owner is run by the answer; where its triggers could not be read, what runs it is
+        // not known.
+        let source = |block: &str| self.flow.blocks.get(block).and_then(|b| b.outside.as_deref());
+        let answered = takes.runs_on.iter().any(|r| source(r.block.as_str()) == Some(ANSWER));
+        if !unread_triggers && !answered {
+            for (i, block) in file.outputs.iter().enumerate() {
+                if self.flow.blocks.get(block).and_then(|b| b.field.as_deref()) == Some(QUESTIONS) {
+                    let what = FaultKind::AsksWithNoAnswer { block: block.clone() };
+                    found.push((format!("outputs[{i}]"), what));
+                }
+            }
+        }
         // Whether a block is declared is said once, where the outputs name it.
         found.extend(check_list(&file.must_write, "must_write", |block| {
             let what = FaultKind::NotAnOutput {

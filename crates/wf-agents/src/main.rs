@@ -562,6 +562,11 @@ fn words(what: &FaultKind, field: &str) -> String {
         }
         F::MissingPlaceholder { placeholder } => format!("this must hold {placeholder}"),
         F::UnknownReturnField { field } => format!("the engine's return has no field named \"{field}\""),
+        F::AsksWithNoAnswer { block } => {
+            format!(
+                "the cell writes {block}, the work's questions, but no answer runs it: the owner's answer would run no cell"
+            )
+        }
         F::UnknownDetail { detail } => format!("the engine fills no place named \"{detail}\""),
         F::EngineIsGiven { block } => {
             format!("an engine's cell says how it is given {block}, but it has no session")

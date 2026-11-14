@@ -154,6 +154,16 @@ impl<'a> Reading<'a> {
         self.of(block).last()
     }
 
+    /// The latest version of the block the run was told of before this place: the one it started from, or one put in
+    /// to it.
+    pub fn told_before(&self, run: RunId, block: &BlockId, place: Seq) -> Option<Seq> {
+        let began = self.started[&run].basis.get(block).copied().flatten();
+        let put_in = (self.records.put_in.iter())
+            .filter(|p| p.run == run && &p.block == block && p.at < place)
+            .map(|p| p.version);
+        began.into_iter().chain(put_in).max()
+    }
+
     /// The latest version of the block the run was told of: the one it started from, or one put in to it.
     pub fn told(&self, run: RunId, block: &BlockId) -> Option<Seq> {
         let began = self.started[&run].basis.get(block).copied().flatten();
@@ -242,20 +252,24 @@ impl<'a> Reading<'a> {
     }
 
     /// Why the cell would be entered at this place: what is new to it, and the results it is owed once all are in.
-    /// While one has no result, only the owner turning to it (a block that interrupts) since its last run began enters
-    /// it (decision the-owner-turning-to-a-waiting-cell-enters-it-once).
+    /// While one has no result, only the owner turning to it (a block that interrupts) enters it, by a version no run of
+    /// the cell started before the place and not abandoned before it was told (decision
+    /// the-owner-turning-to-a-waiting-cell-enters-it-once).
     pub fn entering(&self, flow: &Flow, cell: &Cell, place: Seq) -> Vec<Reason> {
         let mut reasons = self.reasons(cell, place);
         let owed = self.owed(&cell.id, place);
         if owed.iter().any(|c| !self.done(*c, place)) {
-            let last = (self.started.values())
-                .filter(|s| s.cell == cell.id && s.at < place)
-                .map(|s| s.at)
-                .max();
+            let abandoned = |run: RunId| (self.records.abandoned.iter()).any(|a| a.run == run && a.at < place);
+            let seen = |block: &BlockId| {
+                (self.started.values())
+                    .filter(|s| s.cell == cell.id && s.at < place && !abandoned(s.run))
+                    .filter_map(|s| self.told_before(s.run, block, place))
+                    .max()
+            };
             reasons.retain(|r| {
                 matches!(r, Reason::Changed { block, .. }
                     if flow.interrupts(block)
-                        && self.current_before(block, place).is_some_and(|v| Some(v.at) > last))
+                        && self.current_before(block, place).is_some_and(|v| Some(v.at) > seen(block)))
             });
         } else if !owed.is_empty() {
             reasons.push(Reason::Results { calls: owed });

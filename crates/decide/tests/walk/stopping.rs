@@ -184,3 +184,32 @@ fn a_run_for_the_owner_that_asks_for_calls_in_turn_leaves_the_owners_words_for_t
     );
     assert!(because.contains(&results(&[first, second])), "{because:?}");
 }
+
+#[test]
+fn the_owners_words_told_to_a_run_that_was_abandoned_enter_the_waiting_cell_again() {
+    let mut w = World::with_gate(vec![cell("research", &["brief", "spoken to research"], &["plan"])]);
+    w.turning("spoken to research");
+    w.person_writes("brief");
+    w.start("research");
+    let call = w.asks("research", None);
+    w.outside_writes("spoken to research");
+    let answering = w.start("research");
+    // The run entered for the words is abandoned with its round under way, and nothing it returned is taken.
+    let at = w.tick();
+    w.records.abandoned.push(decide::Abandoned { run: answering, at });
+    w.stopped(answering);
+    let Decision::Run { because, .. } = w.decide() else {
+        panic!("nothing runs: {:?}", w.decide())
+    };
+    assert_eq!(because, [changed("spoken to research", None, false)]);
+    // Seen by a run that asked for calls in turn, they wait for the results.
+    w.start("research");
+    let second = w.asks("research", None);
+    assert_eq!(
+        w.decide(),
+        wait(
+            "research",
+            vec![Waited::Call { call, on: None }, Waited::Call { call: second, on: None }]
+        )
+    );
+}

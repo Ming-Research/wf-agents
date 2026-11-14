@@ -111,19 +111,40 @@ pub fn carry(
         project.tree = beside.project.tree.clone();
         let tool = beside.tools.get(tools::RUN_TESTS).cloned();
         let unread = unread(&beside);
+        // The check before the merge holds a change to what the project protects until the owner lets it merge.
+        let protecting = acts::Protecting {
+            paths: beside.project.protected.paths.clone(),
+            words: Some(beside.asks.protected.clone()),
+        };
         let (rounds, answers, watch, main) = match &project.github {
             None => {
                 let host = host::Local::new(project.clone())
                     .giving(settings.agents.env.clone())
                     .saying(tool.as_ref());
-                on(host, &project, &data, &tag, words.clone(), query.clone(), unread)
+                on(
+                    host,
+                    &project,
+                    &data,
+                    &tag,
+                    (words.clone(), protecting),
+                    query.clone(),
+                    unread,
+                )
             }
             Some(github) => {
                 let env = |name: &str| std::env::var(name).ok();
                 let ci = beside.project.ci.clone();
                 let host = host::GitHub::from_settings(github, &project, &data, env, ci, tool.clone())
                     .map_err(|why| format!("projects.{name}: {why}"))?;
-                on(host, &project, &data, &tag, words.clone(), query.clone(), unread)
+                on(
+                    host,
+                    &project,
+                    &data,
+                    &tag,
+                    (words.clone(), protecting),
+                    query.clone(),
+                    unread,
+                )
             }
         };
         acts.insert(name.clone(), rounds);
@@ -171,14 +192,14 @@ fn unread(beside: &flow::agents::Agents) -> Option<String> {
     beside.tools.get(tools::RUN_TESTS).and_then(|tool| tool.unread.clone())
 }
 
-/// The acts, the tools and the watch of main, on one host they share, and the reference that holds main's head as the
-/// host last gave it.
+/// The acts, with their words and what their check holds to the owner's yes, the tools and the watch of main, on one
+/// host they share, and the reference that holds main's head as the host last gave it.
 fn on<H: Host>(
     host: H,
     project: &Project,
     data: &Path,
     tag: &str,
-    words: Words,
+    (words, protecting): (Words, acts::Protecting),
     query: Querying,
     unread: Option<String>,
 ) -> (Arc<dyn Rounds>, Arc<dyn ToolsTrait>, Watch, String) {
@@ -190,7 +211,8 @@ fn on<H: Host>(
         data.to_path_buf(),
         tag.to_string(),
         words,
-    );
+    )
+    .protecting(protecting);
     let watch = acts.watch(WATCH);
     let tools = Tools::new(host, project.clone(), data.to_path_buf(), tag.to_string(), unread).querying(query);
     (Arc::new(acts), Arc::new(tools), watch, main)

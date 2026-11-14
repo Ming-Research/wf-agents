@@ -92,6 +92,7 @@ fn asked(name: &str, waits: bool) -> Question {
                 follows: "more to read".to_string(),
             },
         ],
+        about: None,
     }
 }
 
@@ -376,6 +377,29 @@ fn what_the_engine_asks_with_a_round_is_kept_as_the_round_ends_whatever_becomes_
     // Handed in rightly, the run finishes, and the work waits at the research for the owner's answer.
     w.returns(run, plans(Vec::new()));
     assert!(matches!(w.decision(), decide::Decision::Wait { at, .. } if at.as_str() == "research"));
+}
+
+#[test]
+fn an_answer_to_the_engine_s_question_runs_the_last_cell_that_takes_an_answer_whichever_round_it_was_asked_with() {
+    let (mut w, effects) = researched(Vec::new());
+    let (implementing, cell, ..) = round(&effects);
+    assert_eq!(cell, "implement");
+    let mut came = hands_in(&[("code", None)]);
+    let mut question = asked("protected_files", true);
+    if let Question::Asked { recommends, .. } = &mut question {
+        *recommends = None;
+    }
+    came.engine = vec![question];
+    w.returns(implementing, came);
+    let q = w.work.records.questions.last().expect("the question is kept");
+    assert_eq!((q.cell.as_str(), q.engine), ("implement", true));
+    let version = w.version("protected_files");
+    let before = w.written("answered");
+    let effects = w.answers("protected_files", version, 2);
+    // The implementation has no trigger of an answer: the research, the last cell that has one, runs for it.
+    assert_eq!(w.written("answered"), before + 1, "the research's answer is written");
+    let (_, cell, ..) = round(&effects);
+    assert_eq!(cell, "research");
 }
 
 #[test]

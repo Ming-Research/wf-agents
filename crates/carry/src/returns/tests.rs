@@ -203,6 +203,7 @@ fn what_a_return_says_beside_its_work_is_kept() {
                         does: "first name".to_string(),
                         follows: "warmer".to_string(),
                     }],
+                    about: None,
                 },
                 Question::Withdrawn {
                     name: "old".to_string(),

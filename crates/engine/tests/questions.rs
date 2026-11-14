@@ -8,9 +8,10 @@
 //! - a cell is never entered while a question of its own that it waits for stands with no answer to its latest version;
 //! - the merge never begins while `asked` is `waiting`, nor while any question stands unanswered;
 //! - `asked` says `waiting` exactly while a question stands unanswered, and is otherwise `answered` or never written;
-//! - an answer runs the asking cell again, by its block of an answer, exactly where it answers the question's latest
-//!   version with another option than the one the work went by and the cell has a trigger an answer runs; an answer
-//!   to an earlier version writes nothing.
+//! - an answer runs the cell it is said to again, by its block of an answer, exactly where it answers the question's
+//!   latest version with another option than the one the work went by and the cell has a trigger an answer runs: the
+//!   asking cell for a question of an agent's, the last cell of the walk that has such a trigger for one of the
+//!   engine's, whichever round it was asked with; an answer to an earlier version writes nothing.
 //!
 //! Once people stop, the work comes to rest within a bound, whatever its agents asked for: a cell entered for an answer
 //! that asks for a tool first is not entered again for the same answer before the tool's result.
@@ -127,6 +128,7 @@ fn asked(name: &str, waits: bool, recommends: Option<u64>, n: usize) -> Question
         recommends,
         ask: format!("Which way for {name}, the {n}th time?"),
         options: vec![way("the short way"), way("the long way")],
+        about: None,
     }
 }
 
@@ -323,16 +325,37 @@ fn check(work: &Work) {
         let standing = questions(&before);
         let asking = standing.get(answer.question.as_str());
         let latest = asking.is_some_and(|q| q.latest.at == answer.version);
-        // Only the research and the implementation have a trigger an answer runs; the review's question, which the
-        // engine asks, holds the work at the review until it is answered, and its answer runs nothing.
-        let answerable = asking.is_some_and(|q| matches!(q.latest.cell.as_str(), "research" | "implement"));
+        // Only the research and the implementation have a trigger an answer runs. The engine's question, asked
+        // beside the round of any cell, the review's too, holds the work at that cell until it is answered, and its
+        // answer runs the implementation, the last of them in the walk.
+        let answering = asking.map(|q| {
+            if q.latest.engine {
+                "implement"
+            } else {
+                q.latest.cell.as_str()
+            }
+        });
+        let answerable = answering.is_some_and(|cell| matches!(cell, "research" | "implement"));
+        let block = answering.map(|cell| format!("{cell}_answered"));
         let went_by = goes_by(work, &before, &answer.question);
         let next = Seq(answer.at.0 + 1);
         // What the answer wrote is at the place after it, in the same thing that happened: no later one begins there.
         let same = !work.moments.iter().any(|m| m.from == next);
+        let answered =
+            |w: &&decide::Written| w.at == next && w.by == Outsider::Outside && w.block.as_str().ends_with("_answered");
         let turned = same
             && (r.written.iter())
-                .any(|w| w.at == next && w.by == Outsider::Outside && w.block.as_str().ends_with("_answered"));
+                .filter(answered)
+                .any(|w| Some(w.block.as_str()) == block.as_deref());
+        assert!(
+            !(same
+                && (r.written.iter())
+                    .filter(answered)
+                    .any(|w| Some(w.block.as_str()) != block.as_deref())),
+            "the answer at {:?} to {} ran another cell than {answering:?}",
+            answer.at,
+            answer.question
+        );
         assert_eq!(
             turned,
             latest && answerable && went_by != Some(answer.option),

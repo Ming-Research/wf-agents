@@ -245,6 +245,8 @@ export type What =
   | { kind: 'missingPlaceholder'; placeholder: string }
   /// The block is written through a field of a return the engine does not have.
   | { kind: 'unknownReturnField'; field: string }
+  /// The cell writes the work's questions, and no answer of the owner's runs it.
+  | { kind: 'asksWithNoAnswer'; block: string }
   /// The trigger says what happened by a place the engine does not fill.
   | { kind: 'unknownDetail'; detail: string }
   /// A trigger of an agent's cell has its agent read a datum that the cell's context does not hold.

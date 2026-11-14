@@ -162,6 +162,8 @@ export function faultWords(fault: Fault): string {
       return `This must hold ${w.placeholder}.`;
     case 'unknownReturnField':
       return `The engine's return has no field named "${w.field}".`;
+    case 'asksWithNoAnswer':
+      return `The cell writes ${w.block}, the work's questions, but no answer runs it: the owner's answer would run no cell.`;
     case 'unknownDetail':
       return `The engine fills no place named "${w.detail}".`;
     case 'readNotInContext':

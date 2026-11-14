@@ -216,6 +216,7 @@ fn what_the_host_says_beside_its_verdict_is_written_with_the_check() {
         by: None,
         took_in: false,
         notes: vec!["test: its latest run on this commit passed; its earlier runs on it: failure.".to_string()],
+        asks: None,
     };
     let outputs = vec![
         ("passed".into(), Some(vec!["yes".to_string(), "no".to_string()])),

@@ -3,11 +3,14 @@
 //!
 //! A run's questions become versions of them as the run finishes, each under its name; what the engine itself asks
 //! with a round, as the round's end is taken. The owner answers a version of a question: the answer is kept, it is said
-//! in the data the asking cell's agent reads for its trigger of an answer (`answers`, written as the owner's), and,
+//! in the data the answering cell's agent reads for its trigger of an answer (`answers`, written as the owner's), and,
 //! where it takes another option than the one the work goes by, it gives the block of that trigger ([`flow::ANSWER`]) a
-//! new version, which runs the cell again. The work goes by the option last taken on
-//! the question's latest version, else by the one it recommends; by none while the cell waits for the answer, so that
-//! any answer to such a question runs the cell. An answer to an earlier version is kept and answers nothing.
+//! new version, which runs the cell again. The answering cell is the asking one, for a question of a run's; for one of
+//! the engine's, which is of the work and not of what a round did, the last cell of the walk that has a trigger of an
+//! answer, the one nearest the merge that can act on it, whichever cell's round it was asked with. The work goes by
+//! the option last taken on the question's latest version, else by the one it recommends; by none while the cell waits
+//! for the answer, so that any answer to such a question runs the cell. An answer to an earlier version is kept and
+//! answers nothing.
 //!
 //! The block of a flow whose source is [`ASKED`] says whether every question that stands has the owner's answer to its
 //! latest version: [`ANSWERED`] where each has, or none stands, [`WAITING`] while one has not. The engine writes it
@@ -48,8 +51,8 @@ pub(crate) fn record(work: &mut Work, run: RunId, cell: &CellId, engine: bool, a
 }
 
 /// Takes the owner's answer to the version of the question: kept, and, where it is to the question's latest version,
-/// said in the words of the data the asking cell's agent reads for its trigger of an answer ([`said`]), and, where it
-/// takes another option than the one the work goes by, the cell's block of that trigger written; or why it cannot be
+/// said in the words of the data the answering cell's agent reads for its trigger of an answer ([`said`]), and, where
+/// it takes another option than the one the work goes by, the cell's block of that trigger written; or why it cannot be
 /// one.
 pub(crate) fn answer(
     flow: &Compiled,
@@ -85,7 +88,7 @@ pub(crate) fn answer(
         },
         _ => None,
     };
-    let cell = asked.cell.clone();
+    let cell = answering(flow, asked);
     let at = work.tick();
     work.records.answers.push(Answered {
         question: question.clone(),
@@ -105,6 +108,23 @@ pub(crate) fn answer(
         said(flow, work, &cell, &answered, goes_by != Some(option));
     }
     Ok(())
+}
+
+/// The cell an answer to this version is said to: the asking cell, for a question a run asked; for one the engine
+/// asked, the last cell of the walk that has a trigger of an answer, and the asking cell where none has.
+fn answering(flow: &Compiled, asked: &Questioned) -> CellId {
+    if !asked.engine {
+        return asked.cell.clone();
+    }
+    (flow.cells.iter().rev())
+        .find(|spec| (spec.triggers.iter()).any(|t| answer_block(flow, &t.block)))
+        .map_or(&asked.cell, |spec| &spec.id)
+        .clone()
+}
+
+/// Whether the block is one the engine writes as the owner answers, a trigger's of an answer.
+fn answer_block(flow: &Compiled, block: &decide::BlockId) -> bool {
+    flow.blocks.get(block).and_then(|b| b.writers.outside.as_deref()) == Some(flow::ANSWER)
 }
 
 /// An answer, as the words that say it are filled.
@@ -145,8 +165,7 @@ fn said(flow: &Compiled, work: &mut Work, cell: &CellId, answered: &Said, turns:
     let Some(spec) = flow.cells.iter().find(|spec| spec.id == *cell) else {
         return;
     };
-    let trigger = (spec.triggers.iter())
-        .find(|t| flow.blocks.get(&t.block).and_then(|b| b.writers.outside.as_deref()) == Some(flow::ANSWER));
+    let trigger = spec.triggers.iter().find(|t| answer_block(flow, &t.block));
     let Some(trigger) = trigger else {
         return;
     };

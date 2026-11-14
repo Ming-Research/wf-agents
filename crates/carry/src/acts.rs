@@ -29,7 +29,7 @@ use flow::Compiled;
 use service::{Release, ReleaseReply, Round, RoundReply, Rounds, Teller};
 use store::{ItemNumber, WorkNumber};
 use tokio::sync::{Mutex, Notify};
-use work::{Handed, Spent, Work};
+use work::{Handed, Question, Spent, Work};
 
 #[cfg(test)]
 mod ends;
@@ -38,9 +38,9 @@ use crate::git::{self, Place, Started};
 use crate::held::{Failing, Held, Stop};
 use crate::host::{Branch, Host};
 use crate::settings::Project;
-use crate::tree;
+use crate::{protected, tree};
 
-use flow::agents::fill;
+use flow::agents::{AskProtected, fill};
 
 /// The acts' words, and those of the check, as `flow::agents` reads them.
 pub use flow::agents::{Acts as Words, Check as CheckWords, CheckValues, Deliver};
@@ -73,6 +73,17 @@ pub struct Checked {
     pub took_in: bool,
     /// What the host says of the checks beside its verdict.
     pub notes: Vec<String>,
+    /// What the engine asks the owner of the work's change under the paths the project protects, where it asks
+    /// anything ([`crate::protected`]).
+    pub asks: Option<Question>,
+}
+
+/// The paths the project protects, and the words of the question the engine asks of a change to them: none protected
+/// where the acts were not told of any.
+#[derive(Clone, Debug, Default)]
+pub struct Protecting {
+    pub paths: Vec<String>,
+    pub words: Option<AskProtected>,
 }
 
 /// The acts, done in the project's repository with the works' worktrees in the data directory, on this host.
@@ -93,11 +104,12 @@ struct Inner<H> {
     held: Held<(WorkNumber, RunId, usize), RoundReply>,
     /// Told after each merge, so that the watch of main looks at once.
     merged: Notify,
+    protecting: Protecting,
 }
 
-/// What came of an act.
+/// What came of an act: what it hands in, with what the engine asks the owner beside it.
 enum Done {
-    HandsIn(Vec<Handed>),
+    HandsIn(Vec<Handed>, Vec<Question>),
     Stopped,
 }
 
@@ -115,8 +127,16 @@ impl<H: Host> Acts<H> {
                 repository: Mutex::new(()),
                 held: Held::new(),
                 merged: Notify::new(),
+                protecting: Protecting::default(),
             }),
         }
+    }
+
+    /// The same acts, the check holding a change to these paths until the owner lets it merge.
+    pub fn protecting(self, protecting: Protecting) -> Self {
+        let mut inner = Arc::into_inner(self.inner).expect("the acts are not shared yet");
+        inner.protecting = protecting;
+        Acts { inner: Arc::new(inner) }
     }
 }
 
@@ -175,9 +195,13 @@ impl<H: Host> Rounds for Acts<H> {
         tokio::spawn(async move {
             let done = inner.act(&round, &teller, &mut stop).await;
             match done {
-                Ok(Done::HandsIn(handed)) => {
+                Ok(Done::HandsIn(handed, engine)) => {
                     if let Some(reply) = inner.held.take(key) {
-                        reply.ended(Came::hands_in(handed), Spent::default());
+                        let came = Came {
+                            engine,
+                            ..Came::hands_in(handed)
+                        };
+                        reply.ended(came, Spent::default());
                     }
                 }
                 Ok(Done::Stopped) => {
@@ -243,16 +267,33 @@ impl<H: Host> Inner<H> {
                         ("main", &project.main),
                     ],
                 );
-                Ok(Done::HandsIn(prose(&outputs, &content)))
+                Ok(Done::HandsIn(prose(&outputs, &content), Vec::new()))
             }
-            "check" => match check(project, &self.host, &branch, &self.repository, stop, &words.check).await? {
-                Some(checked) => {
-                    // The check may have taken main in.
-                    tree::look(&round.flow, &round.kept, &project.tree, &place, teller).await;
-                    checked_in(&outputs, &checked, &project.main, &words.check).map(Done::HandsIn)
+            "check" => {
+                let gate = Gate {
+                    protecting: &self.protecting,
+                    work: &round.kept,
+                };
+                match check(
+                    project,
+                    &self.host,
+                    &branch,
+                    &self.repository,
+                    stop,
+                    &words.check,
+                    &gate,
+                )
+                .await?
+                {
+                    Some(checked) => {
+                        // The check may have taken main in.
+                        tree::look(&round.flow, &round.kept, &project.tree, &place, teller).await;
+                        let asks = checked.asks.clone().into_iter().collect();
+                        checked_in(&outputs, &checked, &project.main, &words.check).map(|h| Done::HandsIn(h, asks))
+                    }
+                    None => Ok(Done::Stopped),
                 }
-                None => Ok(Done::Stopped),
-            },
+            }
             "merge" => {
                 let checked = passed(&round.flow, &round.kept, &words.check)?;
                 let merged = merge(&self.host, &branch, checked.as_deref(), &self.repository).await;
@@ -267,12 +308,12 @@ impl<H: Host> Inner<H> {
                         ("head", &merged),
                     ],
                 );
-                Ok(Done::HandsIn(prose(&outputs, &content)))
+                Ok(Done::HandsIn(prose(&outputs, &content), Vec::new()))
             }
-            "deliver" => Ok(Done::HandsIn(prose(
-                &outputs,
-                &delivered(&round.item.depends_on, &words.deliver),
-            ))),
+            "deliver" => Ok(Done::HandsIn(
+                prose(&outputs, &delivered(&round.item.depends_on, &words.deliver)),
+                Vec::new(),
+            )),
             other => Err(format!("the engine has no act named {other}")),
         }
     }
@@ -351,12 +392,21 @@ pub(crate) async fn start(
     git::start(project, place, &main).await
 }
 
+/// What the check holds a work's change under the protected paths to: the paths and the question's words, and the work
+/// as it is kept, which says what the owner answered.
+pub(crate) struct Gate<'a> {
+    pub(crate) protecting: &'a Protecting,
+    pub(crate) work: &'a Work,
+}
+
 /// Checks the work before its merge: that its worktree holds nothing uncommitted and that its branch merges into the
 /// head of main the host gives with no conflict (worked out without changing anything), both found holding the
 /// repository; then main's head is merged into the branch, where it does not hold it, as a commit of the engine's, so
-/// that what is judged is what a merge would land; then the host's verdict on the branch's head, waited for without
-/// the repository. Says why where it could not check, and gives none
-/// where it was stopped; what failed is what was found, not a reason to fail.
+/// that what is judged is what a merge would land; then that commit's own change under the paths the project protects
+/// is empty or one the owner let merge, which fails the check otherwise, with what the engine asks of it, and fails
+/// it too where it cannot be looked at ([`crate::protected`]); then the host's verdict on the commit, waited for
+/// without the repository. Says why where it could not check, and gives none where it was stopped; what failed is what
+/// was found, not a reason to fail.
 pub(crate) async fn check(
     project: &Project,
     host: &impl Host,
@@ -364,6 +414,7 @@ pub(crate) async fn check(
     repository: &Mutex<()>,
     stop: &mut Stop,
     words: &CheckWords,
+    gate: &Gate<'_>,
 ) -> Result<Option<Checked>, String> {
     let place = branch.place;
     let dir = git::worktree(place)?;
@@ -380,6 +431,7 @@ pub(crate) async fn check(
             by: None,
             took_in: false,
             notes: Vec::new(),
+            asks: None,
         };
         if git::merging(&dir).await? {
             let changes = git::uncommitted(&dir).await?;
@@ -404,17 +456,48 @@ pub(crate) async fn check(
         let (commit, took_in) = git::take_in(&dir, &main, project).await?;
         (commit, took_in, main)
     };
-    let Some(verdict) = host.verdict(branch, &commit, stop).await? else {
-        return Ok(None);
-    };
-    Ok(Some(Checked {
+    let mut checked = Checked {
         commit,
         main,
-        failed: verdict.failed,
-        by: verdict.by,
+        failed: None,
+        by: None,
         took_in,
-        notes: verdict.notes,
-    }))
+        notes: Vec::new(),
+        asks: None,
+    };
+    // The commit's own change under the protected paths waits for the owner's yes: the host is not asked while it
+    // does, nor where it cannot be looked at.
+    if let Some(ask) = &gate.protecting.words {
+        let paths = &gate.protecting.paths;
+        let change = {
+            let _held = repository.lock().await;
+            protected::change_at(project, place, &checked.main, &checked.commit, paths).await
+        };
+        let change = match change {
+            Ok(change) => change,
+            Err(why) => {
+                checked.failed = Some(fill(&words.found.protected_unread, &[("why", &why)]));
+                return Ok(Some(checked));
+            }
+        };
+        checked.asks = protected::asking(gate.work, ask, &change);
+        if !change.files.is_empty() && !protected::let_merge(gate.work, ask, &change) {
+            let files: Vec<String> = change.files.iter().map(|(_, path)| path.clone()).collect();
+            let failed = fill(
+                &words.found.protected,
+                &[("question", &ask.name), ("files", &files.join("\n"))],
+            );
+            checked.failed = Some(failed);
+            return Ok(Some(checked));
+        }
+    }
+    let Some(verdict) = host.verdict(branch, &checked.commit, stop).await? else {
+        return Ok(None);
+    };
+    checked.failed = verdict.failed;
+    checked.by = verdict.by;
+    checked.notes = verdict.notes;
+    Ok(Some(checked))
 }
 
 /// What is wrong with the flow for the watch of main, each in words with the file that says what is written there: the
@@ -676,6 +759,7 @@ mod tests {
             by: None,
             took_in: false,
             notes: Vec::new(),
+            asks: None,
         }
     }
 
@@ -872,6 +956,11 @@ mod tests {
     /// Checks the work in the repository with the host.
     async fn check_with(repo: &Repo, host: &impl Host, stop: &mut Stop) -> Result<Option<Checked>, String> {
         let place = repo.place(WORK);
+        let (protecting, work) = (Protecting::default(), Work::default());
+        let gate = Gate {
+            protecting: &protecting,
+            work: &work,
+        };
         check(
             &repo.project,
             host,
@@ -879,6 +968,7 @@ mod tests {
             &Mutex::new(()),
             stop,
             &words().check,
+            &gate,
         )
         .await
     }
@@ -890,6 +980,150 @@ mod tests {
             .await
             .expect("the work is checked")
             .expect("nothing stopped it")
+    }
+
+    /// The paths the tests' project protects, and the question the engine asks of a change to them, as this
+    /// repository's flows write it.
+    fn protecting(paths: &[&str]) -> Protecting {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+        let beside = flow::agents::read(&root).expect("what is written beside the flows is read");
+        Protecting {
+            paths: paths.iter().map(|p| p.to_string()).collect(),
+            words: Some(beside.asks.protected),
+        }
+    }
+
+    /// Checks the work with the host, which must give a verdict where it is asked, holding a change to the protected
+    /// paths to what the owner answered in the work.
+    async fn check_held(repo: &Repo, host: &impl Host, protecting: &Protecting, work: &Work) -> Checked {
+        let place = repo.place(WORK);
+        let gate = Gate { protecting, work };
+        let (repository, mut stop) = (Mutex::new(()), Stop::never());
+        check(
+            &repo.project,
+            host,
+            &branch(&place),
+            &repository,
+            &mut stop,
+            &words().check,
+            &gate,
+        )
+        .await
+        .expect("the work is checked")
+        .expect("nothing stopped it")
+    }
+
+    /// A verdict that passes.
+    fn passes() -> Verdict {
+        Verdict {
+            failed: None,
+            by: None,
+            notes: Vec::new(),
+        }
+    }
+
+    /// A work started in the repository whose branch changes `AGENTS.md`, which the tests' project protects, and
+    /// another file; and main's head it started from.
+    async fn changing_a_protected_file(repo: &Repo) -> (Place, String) {
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let started = start_with(repo, &Fake::new(&main)).await.unwrap();
+        commit(&started.place.dir, "AGENTS.md", "Rules.\n");
+        commit(&started.place.dir, "farewell.txt", "Bye.\n");
+        (started.place, main)
+    }
+
+    #[tokio::test]
+    async fn a_change_to_a_protected_path_fails_the_check_and_is_asked_before_the_host_is() {
+        let repo = Repo::new("true");
+        let (_, main) = changing_a_protected_file(&repo).await;
+        let host = Fake::new(&main).judges(Ok(Some(passes())));
+        let checked = check_held(&repo, &host, &protecting(&["AGENTS.md", "flow/"]), &Work::default()).await;
+        let failed = checked.failed.as_deref().unwrap_or_default();
+        assert!(
+            failed.contains("protects") && failed.contains("AGENTS.md"),
+            "{checked:?}"
+        );
+        assert!(!failed.contains("farewell.txt"), "{failed}");
+        assert!(
+            matches!(&checked.asks, Some(Question::Asked { name, waits: true, .. }) if name == "protected_files"),
+            "{checked:?}"
+        );
+        assert_eq!(host.asked(), [Asked::Main], "the host is not asked for a verdict");
+    }
+
+    #[tokio::test]
+    async fn a_change_the_owner_said_to_take_back_never_passes_the_check_while_it_is_there() {
+        let repo = Repo::new("true");
+        let (place, main) = changing_a_protected_file(&repo).await;
+        let protecting = protecting(&["AGENTS.md"]);
+        let words = protecting.words.clone().unwrap();
+        let first = check_held(&repo, &Fake::new(&main), &protecting, &Work::default()).await;
+        let take_back = (1..=words.options.len() as u64).find(|o| *o != words.merges).unwrap();
+        let work = crate::protected::tests::asked_with(first.asks.clone().unwrap(), Some(take_back));
+        // The owner's answer is no yes: the check fails again and asks anew of the same change.
+        let again = check_held(&repo, &Fake::new(&main), &protecting, &work).await;
+        assert!(again.failed.is_some(), "{again:?}");
+        assert!(matches!(&again.asks, Some(Question::Asked { .. })), "{again:?}");
+        // Nor once main moves on and is taken in, nor once the work commits elsewhere.
+        commit(&repo.project.repo, "greeting.txt", "Hello from main.\n");
+        let moved = run(&repo.project.repo, &["rev-parse", "main"]);
+        commit(&place.dir, "farewell.txt", "Goodbye.\n");
+        let host = Fake::new(&moved).judges(Ok(Some(passes())));
+        let later = check_held(&repo, &host, &protecting, &work).await;
+        assert!(later.took_in, "main was taken in");
+        assert!(later.failed.is_some(), "{later:?}");
+        assert_eq!(host.asked(), [Asked::Main], "the host is not asked for a verdict");
+    }
+
+    #[tokio::test]
+    async fn the_owners_yes_lets_that_very_change_pass_to_the_host_and_no_other() {
+        let repo = Repo::new("true");
+        let (place, main) = changing_a_protected_file(&repo).await;
+        let protecting = protecting(&["AGENTS.md"]);
+        let words = protecting.words.clone().unwrap();
+        let first = check_held(&repo, &Fake::new(&main), &protecting, &Work::default()).await;
+        let work = crate::protected::tests::asked_with(first.asks.clone().unwrap(), Some(words.merges));
+        let host = Fake::new(&main).judges(Ok(Some(passes())));
+        let checked = check_held(&repo, &host, &protecting, &work).await;
+        assert_eq!(
+            (checked.failed.as_deref(), checked.asks.as_ref()),
+            (None, None),
+            "{checked:?}"
+        );
+        assert_eq!(host.asked(), [Asked::Main, Asked::Verdict(checked.commit.clone())]);
+        // The change changed after the yes: asked anew, and it fails.
+        commit(&place.dir, "AGENTS.md", "Other rules.\n");
+        let changed = check_held(&repo, &Fake::new(&main), &protecting, &work).await;
+        assert!(changed.failed.is_some(), "{changed:?}");
+        assert!(matches!(&changed.asks, Some(Question::Asked { .. })), "{changed:?}");
+    }
+
+    #[tokio::test]
+    async fn a_change_taken_back_passes_to_the_host_and_withdraws_the_question() {
+        let repo = Repo::new("true");
+        let (place, main) = changing_a_protected_file(&repo).await;
+        let protecting = protecting(&["AGENTS.md"]);
+        let first = check_held(&repo, &Fake::new(&main), &protecting, &Work::default()).await;
+        let work = crate::protected::tests::asked_with(first.asks.clone().unwrap(), None);
+        run(&place.dir, &["rm", "-q", "AGENTS.md"]);
+        run(&place.dir, &["commit", "-q", "-m", "Take the rules back"]);
+        let host = Fake::new(&main).judges(Ok(Some(passes())));
+        let checked = check_held(&repo, &host, &protecting, &work).await;
+        assert_eq!(checked.failed, None, "{checked:?}");
+        assert!(matches!(&checked.asks, Some(Question::Withdrawn { .. })), "{checked:?}");
+    }
+
+    #[tokio::test]
+    async fn a_look_at_the_protected_paths_that_fails_fails_the_check() {
+        let repo = Repo::new("true");
+        let (_, main) = changing_a_protected_file(&repo).await;
+        let host = Fake::new(&main).judges(Ok(Some(passes())));
+        // A path git cannot read as one.
+        let checked = check_held(&repo, &host, &protecting(&[":(nonsense)AGENTS.md"]), &Work::default()).await;
+        let failed = checked.failed.as_deref().unwrap_or_default();
+        assert!(failed.contains("could not be looked at"), "{checked:?}");
+        assert_eq!(checked.asks, None);
+        assert_eq!(host.asked(), [Asked::Main], "the host is not asked for a verdict");
     }
 
     /// Starts the work in the repository with the host.
@@ -939,6 +1173,7 @@ mod tests {
                 by: Some("the CI of the pull request 7".to_string()),
                 took_in: false,
                 notes: Vec::new(),
+                asks: None,
             }
         );
         assert_eq!(host.asked(), [Asked::Main, Asked::Verdict(head)]);

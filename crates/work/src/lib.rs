@@ -244,13 +244,17 @@ impl Work {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Question {
     /// The question asked, or asked anew: whether its cell waits for the answer, the option it recommends, counted
-    /// from one, where it recommends one (the engine's own questions recommend none), what it asks, and its options.
+    /// from one, where it recommends one (the engine's own questions recommend none), what it asks, and its options;
+    /// and, of a question of the engine's, what it found that the question is of, told apart from what any other
+    /// version is of.
     Asked {
         name: String,
         waits: bool,
         recommends: Option<u64>,
         ask: String,
         options: Vec<Way>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        about: Option<String>,
     },
     /// The question withdrawn, for this reason.
     Withdrawn { name: String, why: String },

@@ -6,6 +6,7 @@ added = "added"
 changed = "changed"
 deleted = "deleted"
 withdrawn = "No longer touched."
+merges = 1
 
 [[protected.options]]
 does = "Yes"

@@ -383,6 +383,7 @@ fn history(d: &mut Driver) {
                 follows: "more to read".to_string(),
             },
         ],
+        about: None,
     }];
     d.end(came);
     let version = d.work.records.questions.last().expect("the question is kept").at;

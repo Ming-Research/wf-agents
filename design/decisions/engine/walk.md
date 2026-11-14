@@ -53,8 +53,10 @@ what is new stays new for the round the answer begins (a judgment, with no case 
 
 ### decision the-owner-turning-to-a-waiting-cell-enters-it-once
 While a cell waits for the results of its calls, the owner turning to it, by words or by an answer, enters it only for
-a version written since its last run began: a run so entered that asks for calls in turn leaves what the owner wrote
-new, for the run their results begin, which deals with both.
+a version no run of the cell has seen: none that finished was told it, and none still open holds it. A run so entered
+that asks for calls in turn leaves what the owner wrote new, for the run their results begin, which deals with both; a
+run abandoned, its round stopped or its return unread, saw nothing, and the cell is entered for the version again.
 Why: Entered again for the same version each time such a run asked, the cell went round without end, a call asked at
 each turn, and no limit counted it, since the limit of calls counts only the runs entered for their results: a build
-entered for an answer that asked for a tool first did so in the real carriers' tests.
+entered for an answer that asked for a tool first did so in the real carriers' tests. Counted from the cell's last run
+begun instead, a version told to a run that was then abandoned waited for every result before any run answered it.

@@ -25,15 +25,27 @@ it runs no cell and leaves `asked` as it was. It is not refused.
 Why: The owner answered what the page showed, which a round may have asked anew in the meantime; the record keeps what
 the owner did (principle the-past-as-it-ran), and the question asked anew waits for an answer of its own.
 
-### decision protected-paths-are-looked-at-as-each-round-ends
-The engine looks at what the work's branch changes under the paths the project protects, against where it left main,
-as each round of a line that may change the work ends with a return, and asks the owner by itself, as a question of
-that round's cell that waits: once for each content of the change, again under its name where the change is another,
-and withdrawn once the work touches none of the paths. A look that fails asks nothing, and the next round's look finds
-what it missed.
-Why: Asked at the check before the merge, the owner's "take it back" reached no cell that could take the change back;
-asked of the round that made it, the answer runs that cell by its trigger of an answer. Asking at every round that
-touches the paths was turned down: the owner would answer the same change again and again.
+### decision the-check-holds-a-protected-change-until-the-owner-lets-it-merge
+The check before the merge looks at the work's own change under the paths the project protects, in the commit it
+checks, against where that commit left main: each file by its path and the content it ends with. It does not pass while
+that change is not empty and the owner has not let that very change merge, by the option of the engine's question that
+says so, and it asks, or asks anew, where the question does not stand unanswered of that change; it is withdrawn once
+the change is empty. A look the check cannot make fails it. As each round of a line that may change the work ends, the
+engine looks too and asks early; a look that fails there asks nothing.
+Why: Asked only as rounds ended, a change could merge unasked: a round stopped, a return unread, a run abandoned or a
+look that failed left it unseen, and an answer to take the change back, no yes, let the merge go on. The check judges
+the commit that merges, so nothing between the rounds and the merge escapes it. Told apart by content and not by the
+text of the diff, the change asks nothing again as main moves on; asking at every round that touches the paths was
+turned down, as the owner would answer the same change again and again.
+
+### decision an-answer-to-the-engines-question-runs-the-last-cell-that-takes-one
+The owner's answer to a question the engine asked is said to the last cell of the walk that has a trigger of an
+answer, whichever cell's round it was asked with; the answer to an agent's question, to the asking cell. A cell that
+writes the work's questions and that no answer runs is refused as its flow is compiled.
+Why: The engine's question is of the work, not of what a round did: asked beside a round of the tester's or of the
+check, its answer reached no cell that could act on it, and an answer to take a change back ran nothing. The last cell
+that takes an answer is the one nearest the merge that changes the work. A cell that asks and takes no answer would
+leave the owner's answer reaching no one, which would show only once a work waited on it.
 
 ### decision an-answer-is-an-entry-of-what-its-cell-reads
 The owner's answer to a question's latest version is written, in the words of the datum's own file, as the owner's

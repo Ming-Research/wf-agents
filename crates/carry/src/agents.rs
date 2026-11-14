@@ -446,14 +446,15 @@ impl Inner {
     }
 
     /// What the engine asks the owner of the work's change under the paths the project protects, as the round ends,
-    /// where its line may change the work ([`protected`]). A look that fails is said on the standard error and asks
-    /// nothing: the next round's look finds what it missed.
+    /// where its line may change the work ([`protected`]): the early notice of what the check before the merge holds
+    /// the work to. A look that fails is said on the standard error and asks nothing, the check being what holds the
+    /// merge.
     async fn protected(&self, round: &Round, place: &git::Place, of: &Of) -> Option<work::Question> {
         if round.cell.reads_only {
             return None;
         }
         let (paths, words) = (&of.beside.project.protected.paths, &of.beside.asks.protected);
-        match protected::look(place, &of.main, paths, words, &round.kept).await {
+        match protected::look(&of.project, place, &of.main, paths, words, &round.kept).await {
             Ok(question) => question,
             Err(why) => {
                 eprintln!(
