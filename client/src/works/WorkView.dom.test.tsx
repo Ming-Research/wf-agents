@@ -145,6 +145,15 @@ function pick(select: Element | null, value: string) {
   });
 }
 
+/// Types into a field as the browser would, so that React hears it.
+function type(field: Element | null, words: string) {
+  const f = field as HTMLInputElement;
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(f, words);
+    f.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
 /// The works the list shows, by their numbers, in its order.
 const listed = (page: HTMLElement) =>
   [...page.querySelectorAll<HTMLElement>('tbody tr.work-row')].map((r) => Number(r.dataset.work));
@@ -515,13 +524,39 @@ describe('what the owner does', () => {
     expect(page.querySelector('.acts [role="alert"]')?.textContent).toBe('Refused: the work has ended');
   });
 
-  it('pauses, and cancels only once asked again', async () => {
+  it('pauses, and cancels only once asked again and told why', async () => {
     const { page, source } = drawWork(42);
     await click(button(page, 'Pause'));
     await click(button(page, 'Cancel'));
     expect(source.acts.map((a) => a.what.kind)).toEqual(['pause']);
-    expect(page.textContent).toContain('Cancel the work? It cannot be taken back');
+    expect(page.textContent).toContain('Cancel the work? Nothing of it goes on until its item is reopened');
+    // A cancel says why: until it does, it is not made.
+    expect(button(page, 'Yes, cancel it')?.disabled).toBe(true);
+    type(page.querySelector('input[aria-label="Why it is cancelled"]'), '  ');
+    expect(button(page, 'Yes, cancel it')?.disabled).toBe(true);
+    type(page.querySelector('input[aria-label="Why it is cancelled"]'), ' Joined into #3 ');
     await click(button(page, 'Yes, cancel it'));
-    expect(source.acts.map((a) => a.what.kind)).toEqual(['pause', 'cancel']);
+    expect(source.acts.map((a) => a.what)).toEqual([{ kind: 'pause' }, { kind: 'cancel', why: 'Joined into #3' }]);
+  });
+
+  it('tries letting go of what an ended work held again, where it failed, and offers nothing else', async () => {
+    const merged = fixtureWork(47);
+    const last = merged.steps.reduce((at, s) => Math.max(at, 'at' in s ? s.at : 0), 0);
+    const why = 'GitHub did not close the pull request: HTTP 502';
+    const failed: WorkPage = {
+      ...merged,
+      summary: { ...merged.summary, paused: true },
+      steps: [...merged.steps, { kind: 'paused', at: last + 1, time: Date.now(), by: 'engine', why }],
+    };
+    const source = fixtureSource();
+    const page = draw(<WorkScreen page={failed} onActed={() => undefined} />, source);
+    expect(page.textContent).toContain(`Letting go of what it held failed: ${why}`);
+    expect(button(page, 'Pause')).toBeUndefined();
+    expect(button(page, 'Cancel')).toBeUndefined();
+    await click(button(page, 'Try again'));
+    expect(source.acts.map((a) => a.what)).toEqual([{ kind: 'resume' }]);
+    // A merged work that let go of what it held has no act at all.
+    const done = drawWork(47).page;
+    expect(button(done, 'Try again')).toBeUndefined();
   });
 });

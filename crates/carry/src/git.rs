@@ -33,11 +33,13 @@ impl Place {
     }
 }
 
-/// Where the work is done, and the commit of the main branch it started from.
+/// Where the work is done, the commit of the main branch it started from, and whether its branch was there already, as
+/// a work's that was cancelled and reopened, whose cancel kept its branch, or one whose start was cut off.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Started {
     pub place: Place,
     pub from: String,
+    pub kept: bool,
 }
 
 /// The installation's part of the names of its branches and worktrees: the first eight characters of its id.
@@ -158,6 +160,7 @@ pub async fn start(project: &Project, place: &Place, from: &str) -> Result<Start
     configuration(project, place).await?;
     let repo = &project.repo;
     let branch = place.reference();
+    let kept = said(repo, &["rev-parse", "--verify", "--quiet", &branch]).await?.ok;
     if place.dir.exists() {
         let on = git(&place.dir, &["symbolic-ref", "--quiet", "HEAD"]).await?;
         if on != branch {
@@ -175,9 +178,8 @@ pub async fn start(project: &Project, place: &Place, from: &str) -> Result<Start
         // A worktree whose directory was taken away is still named by the repository until it is pruned.
         git(repo, &["worktree", "prune"]).await?;
         let dir = text(&place.dir);
-        let exists = said(repo, &["rev-parse", "--verify", "--quiet", &branch]).await?.ok;
         // `worktree add` checks a branch out by its short name; given the full reference it would detach HEAD.
-        if exists {
+        if kept {
             git(repo, &["worktree", "add", &dir, &place.branch]).await?;
         } else {
             git(repo, &["worktree", "add", "-b", &place.branch, &dir, from]).await?;
@@ -187,6 +189,7 @@ pub async fn start(project: &Project, place: &Place, from: &str) -> Result<Start
     Ok(Started {
         place: place.clone(),
         from,
+        kept,
     })
 }
 

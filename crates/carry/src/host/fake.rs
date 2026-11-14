@@ -32,6 +32,8 @@ pub(crate) enum Asked {
     Merge(Option<String>),
     /// To let go of what it holds for the branch, the work having merged or not.
     End(String, bool),
+    /// To take up again what it held for the branch, the work having been reopened.
+    Reopen(String),
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -104,6 +106,11 @@ impl Host for Fake {
         let refused = lock(&self.ending).clone();
         lock(&self.asked).push(Asked::End(branch.place.branch.clone(), merged));
         refused.map_or(Ok(()), Err)
+    }
+
+    async fn reopen(&self, branch: &Branch<'_>) -> Result<(), String> {
+        lock(&self.asked).push(Asked::Reopen(branch.place.branch.clone()));
+        Ok(())
     }
 }
 

@@ -526,7 +526,7 @@ impl World {
 
     pub fn cancel(&mut self) {
         let at = self.tick();
-        self.records.cancelled = Some(at);
+        self.records.cancels.push(at);
     }
 
     /// The cell's latest run asks the owner the question of this name, which its cell waits for or not: a version of

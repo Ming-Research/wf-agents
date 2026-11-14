@@ -48,9 +48,11 @@ pub struct Work {
     pub ran: Vec<Ran>,
     /// The observations its runs kept as each finished, in the order they were kept (module [`observations`]).
     pub observed: Vec<Observed>,
-    /// Why the work's item was cancelled, as whoever cancelled it said, once the records say it was; none where nothing
-    /// was said, as by a cancel kept before a cancel said why.
-    pub why_cancelled: Option<String>,
+    /// Why the work's item was cancelled, by the place of each cancel, as whoever cancelled it said; none for a cancel
+    /// where nothing was said, as one kept before a cancel said why.
+    pub why_cancelled: BTreeMap<Seq, String>,
+    /// Why the work's item was reopened, by the place of each reopen, as whoever reopened it said.
+    pub why_reopened: BTreeMap<Seq, String>,
 }
 
 impl Work {
@@ -71,8 +73,9 @@ impl Work {
             .chain(r.answers.iter().map(|e| e.at))
             .chain(r.let_go.iter().map(|e| e.at))
             .chain(r.pauses.iter().map(|e| e.at))
-            .chain(r.cancelled)
-            .chain(r.released)
+            .chain(r.cancels.iter().copied())
+            .chain(r.reopens.iter().copied())
+            .chain(r.releases.iter().copied())
             .chain(self.sessions.iter().map(|s| s.at))
             .chain(self.filled.iter().map(|f| f.at))
             .chain(self.ran.iter().map(|r| r.at));

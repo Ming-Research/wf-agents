@@ -53,7 +53,7 @@ pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 13;
+pub const SCHEMA_VERSION: u32 = 14;
 
 /// The migrations, in order: the first brings a database of version 1 of the schema to version 2, and each after it
 /// one version further, replacing the version's one row last. Each file is named by the minute it was written and
@@ -73,6 +73,9 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../db/migrations/202611141600-keep-the-observations-the-returns-taken-carry.sql"),
     include_str!("../../../db/migrations/202611141700-give-items-a-project.sql"),
     include_str!("../../../db/migrations/202611141900-keep-the-questions-put-to-the-owner-and-the-answers.sql"),
+    include_str!(
+        "../../../db/migrations/202611142000-say-why-each-change-of-an-item-was-made-tag-items-and-reopen-them.sql"
+    ),
 ];
 
 // The migrations bring a database of every earlier version to this one.
@@ -148,26 +151,24 @@ impl From<rusqlite::Error> for Fault {
 
 /// The store, as whatever drives the engine reaches it.
 pub trait Storage {
-    /// Adds an item at this level, of the project of this name, depending on these items, which must all be in the
-    /// store already, of any project, together with the work done for it on the flow of this name and what is kept of
-    /// that work from its start, and gives their numbers. The item, the work and what is kept of it are added in one
-    /// transaction: all of them or none. Only the flow's name is kept: which version of the flow the work runs on is
-    /// not kept yet.
-    #[allow(clippy::too_many_arguments)]
-    fn add(
-        &mut self,
-        title: &str,
-        level: &str,
-        project: &str,
-        depends_on: &[ItemNumber],
-        flow: &str,
-        at: Time,
-        first: &Work,
-    ) -> Result<(ItemNumber, WorkNumber), Fault>;
+    /// Adds an item as it is to be added, at its level, of its project, depending on items which must all be in the
+    /// store already, of any project, and carrying its tags, together with the work done for it on the flow of this
+    /// name and what is kept of that work from its start, and gives their numbers. The item, the work and what is kept
+    /// of it are added in one transaction: all of them or none. Only the flow's name is kept: which version of the flow
+    /// the work runs on is not kept yet.
+    fn add(&mut self, item: &First, flow: &str, at: Time, first: &Work) -> Result<(ItemNumber, WorkNumber), Fault>;
 
-    /// Keeps a change of the item, with its time, after the item's earlier changes: the item and any item it comes to
-    /// depend on must be in the store. Whether the change may be made is not the store's to judge.
-    fn change(&mut self, item: ItemNumber, change: &ItemChange, at: Time) -> Result<(), Fault>;
+    /// Keeps changes of items made together, at one time and for one reason, each after its item's earlier changes and
+    /// in the order given, with what each of these works has that the store does not hold yet, in one transaction: all
+    /// of it or none. Each item, and any item one comes to depend on, must be in the store, and each work saved as
+    /// [`Storage::save`] saves it. Whether the changes may be made is not the store's to judge.
+    fn change(
+        &mut self,
+        at: Time,
+        why: Option<&str>,
+        changes: &[(ItemNumber, ItemChange)],
+        works: &[(WorkNumber, &Work)],
+    ) -> Result<(), Fault>;
 
     /// Every item, in the order of their numbers, each as it stands after its changes.
     fn items(&self) -> Result<Vec<Item>, Fault>;
@@ -262,27 +263,28 @@ fn version(db: &Connection) -> Result<Option<u32>, Fault> {
 }
 
 impl Storage for Store {
-    fn add(
-        &mut self,
-        title: &str,
-        level: &str,
-        project: &str,
-        depends_on: &[ItemNumber],
-        flow: &str,
-        at: Time,
-        first: &Work,
-    ) -> Result<(ItemNumber, WorkNumber), Fault> {
+    fn add(&mut self, item: &First, flow: &str, at: Time, first: &Work) -> Result<(ItemNumber, WorkNumber), Fault> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let item = items::add_item(&tx, title, level, project, depends_on, at)?;
+        let item = items::add_item(&tx, item, at)?;
         let work = items::add_work(&tx, item, flow, at)?;
         tables::save(&tx, work, first)?;
         tx.commit()?;
         Ok((item, work))
     }
 
-    fn change(&mut self, item: ItemNumber, change: &ItemChange, at: Time) -> Result<(), Fault> {
+    fn change(
+        &mut self,
+        at: Time,
+        why: Option<&str>,
+        changes: &[(ItemNumber, ItemChange)],
+        works: &[(WorkNumber, &Work)],
+    ) -> Result<(), Fault> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        items::change(&tx, item, change, at)?;
+        items::change(&tx, at, why, changes)?;
+        for (work, given) in works {
+            items::known(&tx, *work)?;
+            tables::save(&tx, *work, given)?;
+        }
         tx.commit()?;
         Ok(())
     }

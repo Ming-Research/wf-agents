@@ -74,6 +74,8 @@ export function stepWords(step: Step, flow?: Flow): string {
       return 'the owner let the work on';
     case 'cancelled':
       return 'the owner cancelled the work';
+    case 'reopened':
+      return 'the work was reopened';
     case 'session':
       return step.why.kind === 'compacted'
         ? `the session of the line ${step.line} was compacted: ${sessionWords(step.why)}`

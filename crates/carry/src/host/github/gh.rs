@@ -306,6 +306,17 @@ impl Api for Gh {
         self.want(method, &path, Some(said), &[201]).await?;
         self.want(closing, &at, Some(closed), &[200]).await.map(|_| ())
     }
+
+    async fn reopen(&self, number: u64) -> Result<(), String> {
+        let (method, path, asked) = reopening(&self.repository, number);
+        self.want(method, &path, Some(asked), &[200]).await.map(|_| ())
+    }
+}
+
+/// The request that opens the closed pull request again.
+pub(crate) fn reopening(repository: &str, number: u64) -> Request {
+    let path = format!("repos/{repository}/pulls/{number}");
+    ("PATCH", path, json!({ "state": "open" }))
 }
 
 /// A request of GitHub's API: its method, its path and its body.

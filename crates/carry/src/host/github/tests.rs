@@ -107,7 +107,8 @@ impl Hub {
 
     /// Starts the work and commits a file on its branch, giving the commit.
     async fn committed(&self) -> String {
-        let started = crate::acts::start(&self.repo.project, &self.host, &self.place(), &Mutex::new(()))
+        let place = self.place();
+        let started = crate::acts::start(&self.repo.project, &self.host, &branch(&place), &Mutex::new(()))
             .await
             .expect("the work starts");
         commit(&started.place.dir, "farewell.txt", "Bye.\n")

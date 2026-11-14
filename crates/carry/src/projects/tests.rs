@@ -86,6 +86,7 @@ fn item(number: u64, project: Option<&str>) -> Item {
         level: None,
         project: project.map(str::to_string),
         depends_on: Vec::new(),
+        tags: Vec::new(),
     };
     Item::new(ItemNumber(number), work::Time(0), first, Vec::new())
 }

@@ -9,17 +9,21 @@
 //!
 //! What happens to one work reaches another only as a write of a block of the other. The driver is itself what writes
 //! one such block: the block of a flow whose source is [`DEPENDENCIES`] says whether the items the work's item
-//! depends on have merged. The driver writes it as the item is added, whenever one of those items merges or is
-//! cancelled, and, on opening, wherever the block and what it stands for have come apart; it writes no block of a
-//! work that has ended. A work whose flow has no such block waits for no item. An item that depends on a cancelled
-//! one waits for good, its block saying which: the owner cancels it, takes that dependency away, or leaves it.
+//! depends on have merged. The driver writes it as the item is added, whenever one of those items merges, is cancelled
+//! or is reopened, and, on opening, wherever the block and what it stands for have come apart; it writes no block of a
+//! work that has ended. A work whose flow has no such block waits for no item. No item is cancelled while an item
+//! that has not ended depends on it, and none comes to depend on a cancelled one; an item that depends on a cancelled
+//! one, as one kept before that held, waits for good, its block saying which.
 //!
-//! Whoever plans the work changes an item after it was added: its title, its level, and, while its work has started no
-//! run, what it depends on ([`Driver::change`], module [`changes`]). Each change is kept as a record of the item's own;
-//! a change of what it depends on writes the work's block of [`DEPENDENCIES`] anew, as an add does.
+//! Whoever plans the work changes items after they were added, several at once all or none, each change saying why:
+//! an item's title, level and tags, and, while its work has started no run, what it depends on; its cancel; and the
+//! reopening of a cancelled item ([`Driver::change`], module [`changes`]). A change of an item is kept as a record of
+//! the item's own, a cancel and a reopen as the work's; a change of what an item depends on writes the work's block of
+//! [`DEPENDENCIES`] anew, as an add does.
 //!
 //! The driver writes the block of a flow whose source is [`START`] as the owner starts the work: as the work, added
-//! paused, is first let on with nothing of it started, so that the cell it runs, the work's start, is entered.
+//! paused, is first let on with nothing of it started, or, reopened, is first let on since, so that the cell it runs,
+//! the work's start, is entered and makes the place the work is done in again.
 //!
 //! The driver writes one more block of a work: the block of a flow whose source is [`SESSION`], which a cell reads that
 //! loads into a line's session what the line's other cells work from. As a line of a work begins a new session, the
@@ -80,7 +84,7 @@ pub use outage::{Outage, Service, Until};
 use store::{Change, EverythingPaused, First, Item, ItemChange, ItemNumber, Storage, WorkHead, WorkNumber};
 use work::{Time, Work};
 
-pub use changes::{Gone, Unchangeable};
+pub use changes::{Asked, Gone, NotMade, Planned, Unchangeable};
 pub use sessions::{Policy, SESSION};
 
 /// The source of the blocks the driver writes: whether the items the work's item depends on have merged. Such a block
@@ -180,6 +184,7 @@ pub struct Slots {
 }
 
 /// A work as the driver holds it: what the store holds of it, with its item and its flow at hand.
+#[derive(Clone)]
 struct Held {
     head: WorkHead,
     item: Item,
@@ -236,6 +241,8 @@ pub struct NewItem {
     pub project: String,
     /// The items it depends on, of its own project or another.
     pub depends_on: Vec<ItemNumber>,
+    /// The tags it carries.
+    pub tags: Vec<String>,
     /// The name of the flow its work runs on.
     pub flow: String,
     /// What people write for it as it is added, in order.
@@ -276,10 +283,15 @@ pub enum Fault {
 pub enum Failed {
     /// The driver has no such item. Nothing was changed.
     NoSuchItem(ItemNumber),
-    /// An item was to be added, or given a title, with a title of no words. Nothing was changed.
+    /// An item was to be added with a title of no words. Nothing was changed.
     BlankTitle,
-    /// The item may not be changed so, for this reason. Nothing was changed.
-    Unchangeable { item: ItemNumber, why: Unchangeable },
+    /// An item was to be added carrying a tag that is no name an item may carry. Nothing was changed.
+    BadTag(String),
+    /// An item was to be added depending on these items, which are cancelled: it would wait for them for good.
+    /// Nothing was changed.
+    OnCancelled(Vec<ItemNumber>),
+    /// Changes asked together were refused, each of these for its reason. None of them was made.
+    NotChanged { asked: usize, refused: Vec<NotMade> },
     /// The driver has no such work. Nothing was changed.
     NoSuchWork(WorkNumber),
     /// The driver was given no flow of this name. Nothing was changed.
@@ -439,12 +451,24 @@ impl Driver {
         if let Some(on) = new.depends_on.iter().find(|on| !self.of_item.contains_key(*on)) {
             return Err(Failed::NoSuchItem(*on));
         }
+        if let Some(tag) = new.tags.iter().find(|tag| changes::tag_fault(tag).is_some()) {
+            return Err(Failed::BadTag(tag.clone()));
+        }
         let Some(flow) = self.flows.get(&new.flow).cloned() else {
             return Err(Failed::NoSuchFlow(new.flow));
         };
         let mut depends_on = new.depends_on;
         depends_on.sort();
         depends_on.dedup();
+        let cancelled: Vec<ItemNumber> = (depends_on.iter().copied())
+            .filter(|on| self.standing_of_item(*on) == Some(Standing::Ended(End::Cancelled)))
+            .collect();
+        if !cancelled.is_empty() {
+            return Err(Failed::OnCancelled(cancelled));
+        }
+        let mut tags = new.tags;
+        tags.sort();
+        tags.dedup();
         let mut work = Work::default();
         let mut first = vec![Event::Paused {
             by: Pauser::Owner,
@@ -472,8 +496,15 @@ impl Driver {
         }
         let room = self.room(None, true);
         effects.extend(handle_held(&flow, &mut work, now, Event::Look, room, gate).map_err(Failed::Refused)?);
+        let first = First {
+            title: new.title,
+            level: Some(new.level),
+            project: Some(new.project),
+            depends_on,
+            tags,
+        };
         let (item, number) = (self.store)
-            .add(&new.title, &new.level, &new.project, &depends_on, &new.flow, now, &work)
+            .add(&first, &new.flow, now, &work)
             .map_err(|fault| self.stop(Fault::Store(fault), false))?;
         let held = Held {
             head: WorkHead {
@@ -482,17 +513,7 @@ impl Driver {
                 flow: new.flow,
                 added: now,
             },
-            item: Item::new(
-                item,
-                now,
-                First {
-                    title: new.title,
-                    level: Some(new.level),
-                    project: Some(new.project),
-                    depends_on,
-                },
-                Vec::new(),
-            ),
+            item: Item::new(item, now, first, Vec::new()),
             standing: standing_of(&flow, &work),
             flow,
             work,
@@ -503,52 +524,132 @@ impl Driver {
         Ok((item, number, todos))
     }
 
-    /// Changes an item, as whoever plans the work asks, and says whether that changed it, with what is to be done: a
-    /// change that leaves the item as it is keeps nothing. A change is refused where [`changes::judge`] refuses it,
-    /// and a level is one whoever asks has checked against the installation's levels. The change is kept as the item's
-    /// own record before anything follows from it. Where the item comes to depend on another or no longer does, its
-    /// work's block of [`DEPENDENCIES`] is written to say what it now waits for, and the work is looked at; a level or
-    /// a title decides nothing now: the work's rounds handed out from now on run on the new level, and where it gives a
-    /// line another model, the line begins a new session as the next thing that happens to the work is taken.
-    pub fn change(&mut self, now: Time, item: ItemNumber, change: ItemChange) -> Result<(bool, Vec<Todo>), Failed> {
+    /// Makes changes of items asked together, for one reason, as whoever plans the work asks, all of them or none, and
+    /// says whether each changed its item, with what is to be done: a change that leaves its item as it is keeps
+    /// nothing. The changes are refused where [`changes::judge`] refuses any, and a level is one whoever asks has
+    /// checked against the installation's levels. Everything the changes keep is kept in one transaction before
+    /// anything follows from it: the changes of the items, as their own records, and each cancel and reopen, as the
+    /// records of the item's work, the work cancelled ending and abandoning what it had under way, the work reopened
+    /// being paused by the owner, as a work added is. Then each work whose item came to depend on another or no longer
+    /// does, or that was reopened, and each that waits for an item that was cancelled or reopened, has its block of
+    /// [`DEPENDENCIES`] written to say what it now waits for, and is looked at; a level, a title or a tag decides
+    /// nothing now: the work's rounds handed out from now on run on the new level, and where it gives a line another
+    /// model, the line begins a new session as the next thing that happens to the work is taken.
+    pub fn change(
+        &mut self,
+        now: Time,
+        why: Option<&str>,
+        asked: Vec<(ItemNumber, Asked)>,
+    ) -> Result<(Vec<bool>, Vec<Todo>), Failed> {
         self.going()?;
-        let Some(work) = self.of_item.get(&item).copied() else {
-            return Err(Failed::NoSuchItem(item));
-        };
-        let held = self.works.get(&work).ok_or(Failed::NoSuchItem(item))?;
-        let gone = match held.standing {
-            Standing::Ended(end) => Gone::Ended(end),
-            _ if held.work.records.started.is_empty() => Gone::NotStarted,
-            _ => Gone::Started,
-        };
-        let depends_on = |on: ItemNumber| {
-            let work = self.of_item.get(&on)?;
-            self.works.get(work).map(|held| held.item.depends_on.clone())
-        };
-        let changes = changes::judge(&held.item, gone, &change, depends_on).map_err(|refused| match refused {
-            changes::Refused::NoSuchItem(on) => Failed::NoSuchItem(on),
-            changes::Refused::BlankTitle => Failed::BlankTitle,
-            changes::Refused::Unchangeable(why) => Failed::Unchangeable { item, why },
+        let planned: BTreeMap<ItemNumber, Planned> = (self.works.values())
+            .map(|held| {
+                let planned = Planned {
+                    item: held.item.clone(),
+                    started: !held.work.records.started.is_empty(),
+                    ended: match held.standing {
+                        Standing::Ended(end) => Some(end),
+                        _ => None,
+                    },
+                    letting_go: engine::letting_go(&held.flow, &held.work),
+                };
+                (held.item.number, planned)
+            })
+            .collect();
+        let changed = (changes::judge(&planned, &asked)).map_err(|refused| Failed::NotChanged {
+            asked: asked.len(),
+            refused,
         })?;
-        if !changes {
-            return Ok((false, Vec::new()));
+        // What the changes make, worked out on copies of what is held before anything is kept: the changes of the
+        // items, and each work as its cancels and reopens leave it, with what is to be done for it.
+        let mut items: Vec<(ItemNumber, ItemChange)> = Vec::new();
+        let mut works: BTreeMap<WorkNumber, Held> = BTreeMap::new();
+        let mut effects: Vec<Todo> = Vec::new();
+        let gate = self.gate(now);
+        for ((item, asked), changes) in asked.into_iter().zip(&changed) {
+            if !changes {
+                continue;
+            }
+            let work = self.of_item[&item];
+            let event = match asked {
+                Asked::Item(change) => {
+                    items.push((item, change));
+                    continue;
+                }
+                Asked::Cancel => Event::Cancelled {
+                    why: why.map(str::to_string),
+                },
+                Asked::Reopen => Event::Reopened {
+                    why: why.unwrap_or_default().to_string(),
+                },
+            };
+            let room = self.room(Some(work), true);
+            let held = works.entry(work).or_insert_with(|| self.works[&work].clone());
+            let (item, policy) = (&held.item, self.policy.as_ref());
+            let then = |flow: &Compiled, work: &Work| {
+                let mut events = sessions::follow(flow, work, item, policy);
+                events.extend(start(flow, work));
+                events
+            };
+            let done =
+                handle_then(&held.flow, &mut held.work, now, event, room, gate, &then).map_err(Failed::Refused)?;
+            held.standing = standing_of(&held.flow, &held.work);
+            effects.extend(done.into_iter().map(|effect| held.todo(effect)));
         }
-        if let Err(fault) = self.store.change(item, &change, now) {
+        if items.is_empty() && works.is_empty() {
+            return Ok((changed, Vec::new()));
+        }
+        let saved: Vec<(WorkNumber, &Work)> = works.iter().map(|(number, held)| (*number, &held.work)).collect();
+        if let Err(fault) = self.store.change(now, why, &items, &saved) {
             return Err(self.stop(Fault::Store(fault), false));
         }
-        let dependencies = matches!(change, ItemChange::DependsOn(_) | ItemChange::NoLongerDependsOn(_));
-        let Some(held) = self.works.get_mut(&work) else {
-            return Err(Failed::NoSuchItem(item));
-        };
-        held.item.changed(Change { at: now, what: change });
-        let mut todos = Vec::new();
-        if dependencies && let Some(event) = self.wanted(&self.works[&work]) {
-            // The change is kept by now, whatever becomes of what follows from it.
-            if let Err(fault) = self.step_one(now, work, event, false, &mut todos) {
+        // Kept: what is held is made what was kept.
+        let mut touched: BTreeSet<ItemNumber> = BTreeSet::new();
+        let mut dependencies: BTreeSet<WorkNumber> = BTreeSet::new();
+        for (number, held) in works {
+            touched.insert(held.item.number);
+            dependencies.insert(number);
+            self.works.insert(number, held);
+        }
+        for (item, change) in items {
+            let work = self.of_item[&item];
+            if matches!(change, ItemChange::DependsOn(_) | ItemChange::NoLongerDependsOn(_)) {
+                dependencies.insert(work);
+            }
+            let why = why.map(str::to_string);
+            if let Some(held) = self.works.get_mut(&work) {
+                held.item.changed(Change {
+                    at: now,
+                    what: change,
+                    why,
+                });
+            }
+        }
+        // What follows, the changes being kept by now whatever becomes of it: each work whose item depends on an item
+        // cancelled or reopened, and each whose own dependencies changed or that was reopened, has its block written
+        // where it says otherwise.
+        let mut todos = effects;
+        let waiting: Vec<WorkNumber> = (self.works.iter())
+            .filter(|(number, held)| {
+                dependencies.contains(number) || held.item.depends_on.iter().any(|on| touched.contains(on))
+            })
+            .map(|(number, _)| *number)
+            .collect();
+        for number in waiting {
+            let Some(event) = self.works.get(&number).and_then(|held| self.wanted(held)) else {
+                continue;
+            };
+            if let Err(fault) = self.step_one(now, number, event, false, &mut todos) {
                 return Err(self.stop(fault, true));
             }
         }
-        self.filled_after(now, todos).map(|todos| (true, todos))
+        self.filled_after(now, todos).map(|todos| (changed, todos))
+    }
+
+    /// How the work of this item stands, where the driver has the item.
+    fn standing_of_item(&self, item: ItemNumber) -> Option<Standing> {
+        let work = self.of_item.get(&item)?;
+        self.works.get(work).map(|held| held.standing)
     }
 
     /// Takes one thing that happened to a work, at the time the caller's clock gives, and gives what is to be done:
@@ -1222,13 +1323,18 @@ fn runs_on(held: &Held, policy: Option<&Policy>, model: &str) -> bool {
 }
 
 /// The write of the work's block of [`START`], where its flow has one and the owner has just started the work: the work
-/// is not paused, was let on since it was added paused, has started no run and has no version of the block. What it
-/// writes is the block's `text`, as the flow says it ([`faults`]).
+/// is not paused, was let on since it was added paused, and holds no place to be done in: it has started no run and
+/// has no version of the block, or it was reopened since the block's latest version, its cancel having let go of
+/// that place. What it writes is the block's `text`, as the flow says it ([`faults`]).
 fn start(flow: &Compiled, work: &Work) -> Option<Event> {
     let (block, declared) = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(START))?;
     let r = &work.records;
     let started = !decide::paused(r) && r.pauses.iter().any(|p| !p.paused);
-    let fresh = r.started.is_empty() && !r.written.iter().any(|w| w.block == *block);
+    let last = (r.written.iter()).filter(|w| w.block == *block).map(|w| w.at).max();
+    let fresh = match last {
+        None => r.started.is_empty(),
+        Some(last) => r.reopens.iter().any(|at| *at > last),
+    };
     (started && fresh).then(|| Event::Wrote {
         block: block.clone(),
         by: Outsider::Outside,

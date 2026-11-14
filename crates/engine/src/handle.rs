@@ -178,20 +178,27 @@ fn unwanted(flow: &Compiled, work: &Work) -> Vec<CallId> {
         .collect()
 }
 
+/// Whether what the work holds outside is being let go: it has ended, and the letting go is to be done or under way,
+/// and has not been said to be done or to have failed.
+pub fn letting_go(flow: &Compiled, work: &Work) -> bool {
+    release(flow, work).is_some()
+}
+
 /// How the work ended, where it has and what it holds outside is to be let go: nothing of it is under way, no round
-/// and no call, since a round or a tool may be working in its worktree; it is not let go already; and no failure to
-/// let go waits for the owner, as the engine's pause of the work after its end that the owner has not let on from.
+/// and no call, since a round or a tool may be working in its worktree; it is not let go already since the work was
+/// last reopened; and no failure to let go waits for the owner, as the engine's pause of the work after its end that
+/// the owner has not let on from.
 fn release(flow: &Compiled, work: &Work) -> Option<End> {
     let r = &work.records;
-    if r.released.is_some() {
+    if r.released().is_some() {
         return None;
     }
     let Decision::Ended(end) = decide(&flow.flow, r) else {
         return None;
     };
-    // Where the work ended: its cancel, or its merge's finish, the last of all.
+    // Where the work ended: its cancel that stands, or its merge's finish, the last of all.
     let end_at = match end {
-        End::Cancelled => r.cancelled,
+        End::Cancelled => r.cancelled(),
         End::Merged => r.finished.last().map(|f| f.at),
     };
     let failed =
@@ -305,10 +312,29 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
             });
         }
         Event::Cancelled { why } => {
-            if work.records.cancelled.is_none() {
-                work.records.cancelled = Some(work.tick());
-                work.why_cancelled = why;
+            if work.records.cancelled().is_none() {
+                let at = work.tick();
+                work.records.cancels.push(at);
+                if let Some(why) = why {
+                    work.why_cancelled.insert(at, why);
+                }
             }
+        }
+        Event::Reopened { why } => {
+            if work.records.cancelled().is_none() {
+                return Err(Refused::NotCancelled);
+            }
+            // Reopened, the work is paused by the owner, as a work added is: nothing of it begins until it is let on.
+            let at = work.tick();
+            work.records.reopens.push(at);
+            work.why_reopened.insert(at, why);
+            let at = work.tick();
+            work.records.pauses.push(Pause {
+                paused: true,
+                at,
+                by: Pauser::Owner,
+                why: None,
+            });
         }
         Event::Returned { run, came, spent } => {
             if began(work, run) == ended(work, run) {
@@ -452,7 +478,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
             // The engine's pause of the ended work, with why: the owner sees it where the engine's other reasons are,
             // and letting the work on tries again.
             if release(flow, work).is_none() {
-                return Err(Refused::NotToRelease);
+                return reopened_since(work);
             }
             let at = work.tick();
             work.records.pauses.push(Pause {
@@ -464,16 +490,26 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
         }
         Event::Released => {
             // Said twice, as by a carrier that let go again after the engine started again, it was let go once.
-            if work.records.released.is_some() {
+            if work.records.released().is_some() {
                 return Ok(());
             }
             if release(flow, work).is_none() {
-                return Err(Refused::NotToRelease);
+                return reopened_since(work);
             }
-            work.records.released = Some(work.tick());
+            let at = work.tick();
+            work.records.releases.push(at);
         }
     }
     Ok(())
+}
+
+/// What a carrier's word about letting go comes to where the work has nothing to let go: nothing, where the work was
+/// reopened since it last ended, as a word about the letting go of that end; the work makes its place again as it is
+/// let on. Otherwise it cannot have happened.
+fn reopened_since(work: &Work) -> Result<(), Refused> {
+    let r = &work.records;
+    let reopened = (r.reopens.iter().max()).is_some_and(|reopen| r.cancels.iter().all(|cancel| cancel < reopen));
+    if reopened { Ok(()) } else { Err(Refused::NotToRelease) }
 }
 
 /// When something that happened is taken: the first place given to its entries, the time, the room the engine leaves

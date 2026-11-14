@@ -49,10 +49,10 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
 use decide::{BlockId, CallId, CellId, Outsider, Pauser, RunId};
-use driver::{Driver, Failed, NewItem, Todo, Wake};
+use driver::{Asked, Driver, Failed, NewItem, Todo, Wake};
 use engine::{Effect, Event};
 use flow::{CellSpec, Compiled, Kind};
-use store::{ItemChange, ItemNumber, Storage, WorkNumber};
+use store::{ItemNumber, Storage, WorkNumber};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use work::{Ask, Call, RanOn, Time, Why};
 
@@ -112,12 +112,12 @@ pub enum Message {
         item: NewItem,
         reply: oneshot::Sender<Result<(ItemNumber, WorkNumber), Refusal>>,
     },
-    /// Whoever plans the work changes an item: a level is one whoever asks has checked; the reply says whether that
-    /// changed it.
+    /// Whoever plans the work changes items, for one reason, all of the changes or none: a level is one whoever asks
+    /// has checked; the reply says whether each changed its item.
     Change {
-        item: ItemNumber,
-        change: ItemChange,
-        reply: oneshot::Sender<Result<bool, Refusal>>,
+        why: String,
+        changes: Vec<(ItemNumber, Asked)>,
+        reply: oneshot::Sender<Result<Vec<bool>, Refusal>>,
     },
     /// A source outside the works says this now of the project of this name: the head of the project's main branch,
     /// for one.
@@ -416,11 +416,11 @@ impl Service {
                     }
                 }
             }
-            Message::Change { item, change, reply } => {
+            Message::Change { why, changes, reply } => {
                 let now = self.now()?;
-                match self.driver.change(now, item, change) {
+                match self.driver.change(now, Some(&why), changes) {
                     Ok((changed, todos)) => {
-                        items = changed;
+                        items = changed.iter().any(|changed| *changed);
                         let _ = reply.send(Ok(changed));
                         self.hand(now, todos)?;
                     }
@@ -512,7 +512,14 @@ impl Service {
                 why: None,
             },
             Act::Resume => Event::Resumed,
-            Act::Cancel { why } => Event::Cancelled { why },
+            Act::Cancel { why } => {
+                // A cancel is a change of the item, judged as every change is: none while an item depends on it.
+                let item = (self.driver.work(work).map(|kept| kept.item.number))
+                    .ok_or(Refusal::Failed(Failed::NoSuchWork(work)))?;
+                let asked = vec![(item, Asked::Cancel)];
+                let (_, todos) = (self.driver.change(now, why.as_deref(), asked)).map_err(Refusal::Failed)?;
+                return Ok(todos);
+            }
             Act::NewSession { line } => Event::Anew { line, why: Why::Owner },
             Act::Answer {
                 question,
@@ -775,11 +782,11 @@ impl Handle {
         answer.await.map_err(|_| Refusal::Gone)?
     }
 
-    /// Changes an item, and says whether that changed it: a level is one the caller has checked against the
-    /// installation's levels.
-    pub async fn change(&self, item: ItemNumber, change: ItemChange) -> Result<bool, Refusal> {
+    /// Changes items, for this reason, all of the changes or none, and says whether each changed its item: a level is
+    /// one the caller has checked against the installation's levels.
+    pub async fn change(&self, why: String, changes: Vec<(ItemNumber, Asked)>) -> Result<Vec<bool>, Refusal> {
         let (reply, answer) = oneshot::channel();
-        (self.to.send(Message::Change { item, change, reply })).map_err(|_| Refusal::Gone)?;
+        (self.to.send(Message::Change { why, changes, reply })).map_err(|_| Refusal::Gone)?;
         answer.await.map_err(|_| Refusal::Gone)?
     }
 

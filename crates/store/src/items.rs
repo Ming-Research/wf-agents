@@ -35,6 +35,9 @@ pub struct Item {
     /// The items it depends on, in the order of their numbers: those it was added depending on, with each it came to
     /// depend on since, but those it no longer depends on.
     pub depends_on: Vec<ItemNumber>,
+    /// The tags it carries, in the order of their names: those it was added with, with each it came to carry since,
+    /// but those it no longer carries.
+    pub tags: Vec<String>,
     /// What it was as it was added.
     pub first: First,
     /// Each change made to it since it was added, in the order they were made.
@@ -51,13 +54,17 @@ pub struct First {
     pub project: Option<String>,
     /// Each added before it, in the order of their numbers.
     pub depends_on: Vec<ItemNumber>,
+    /// In the order of their names; none for an item kept before items carried tags.
+    pub tags: Vec<String>,
 }
 
-/// A change made to an item, at this time.
+/// A change made to an item, at this time, and why, as whoever made it said; none for a change kept before changes
+/// said why.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Change {
     pub at: Time,
     pub what: ItemChange,
+    pub why: Option<String>,
 }
 
 /// What a change of an item does to it.
@@ -71,6 +78,10 @@ pub enum ItemChange {
     DependsOn(ItemNumber),
     /// It no longer depends on this item.
     NoLongerDependsOn(ItemNumber),
+    /// It comes to carry this tag.
+    Tagged(String),
+    /// It no longer carries this tag.
+    Untagged(String),
 }
 
 impl Item {
@@ -83,6 +94,7 @@ impl Item {
             project: first.project.clone(),
             added,
             depends_on: first.depends_on.clone(),
+            tags: first.tags.clone(),
             first,
             changes: Vec::new(),
         };
@@ -94,7 +106,13 @@ impl Item {
 
     /// Makes this change to the item, after those made before it.
     pub fn changed(&mut self, change: Change) {
-        match &change.what {
+        self.is(&change.what);
+        self.changes.push(change);
+    }
+
+    /// Makes what the change does to the item, keeping no change: what it would stand as, were the change made.
+    pub fn is(&mut self, what: &ItemChange) {
+        match what {
             ItemChange::Title(title) => self.title.clone_from(title),
             ItemChange::Level(level) => self.level = Some(level.clone()),
             ItemChange::DependsOn(on) => {
@@ -103,8 +121,13 @@ impl Item {
                 }
             }
             ItemChange::NoLongerDependsOn(on) => self.depends_on.retain(|kept| kept != on),
+            ItemChange::Tagged(tag) => {
+                if let Err(at) = self.tags.binary_search(tag) {
+                    self.tags.insert(at, tag.clone());
+                }
+            }
+            ItemChange::Untagged(tag) => self.tags.retain(|kept| kept != tag),
         }
-        self.changes.push(change);
     }
 }
 
@@ -120,16 +143,9 @@ pub struct WorkHead {
     pub added: Time,
 }
 
-pub(crate) fn add_item(
-    db: &Connection,
-    title: &str,
-    level: &str,
-    project: &str,
-    depends_on: &[ItemNumber],
-    at: Time,
-) -> Result<ItemNumber, Fault> {
+pub(crate) fn add_item(db: &Connection, new: &First, at: Time) -> Result<ItemNumber, Fault> {
     // Every item the store has was added before the new one, so an item it has is one the new one may depend on.
-    let depends_on: BTreeSet<ItemNumber> = depends_on.iter().copied().collect();
+    let depends_on: BTreeSet<ItemNumber> = new.depends_on.iter().copied().collect();
     for &on in &depends_on {
         if !exists(db, "SELECT 1 FROM items WHERE number = ?1", on.0)? {
             return Err(Fault::NoSuchDependency(on));
@@ -137,7 +153,7 @@ pub(crate) fn add_item(
     }
     db.execute(
         "INSERT INTO items (title, added, level, project) VALUES (?1, ?2, ?3, ?4)",
-        params![title, at.0, level, project],
+        params![new.title, at.0, new.level, new.project],
     )?;
     let number = ItemNumber(db.last_insert_rowid().cast_unsigned());
     for on in depends_on {
@@ -146,52 +162,79 @@ pub(crate) fn add_item(
             params![number.0, on.0],
         )?;
     }
+    let tags: BTreeSet<&String> = new.tags.iter().collect();
+    for tag in tags {
+        db.execute("INSERT INTO tagged (item, tag) VALUES (?1, ?2)", params![number.0, tag])?;
+    }
     Ok(number)
 }
 
-/// Keeps a change of the item, after its earlier changes. An item it comes to depend on must be one the store has.
-pub(crate) fn change(db: &Connection, item: ItemNumber, change: &ItemChange, at: Time) -> Result<(), Fault> {
-    if !exists(db, "SELECT 1 FROM items WHERE number = ?1", item.0)? {
-        return Err(Fault::NoSuchItem(item));
+/// Keeps each change of an item, after its earlier changes and in the order given, all at one time and for one reason.
+/// An item it comes to depend on must be one the store has.
+pub(crate) fn change(
+    db: &Connection,
+    at: Time,
+    why: Option<&str>,
+    changes: &[(ItemNumber, ItemChange)],
+) -> Result<(), Fault> {
+    for (item, change) in changes {
+        if !exists(db, "SELECT 1 FROM items WHERE number = ?1", item.0)? {
+            return Err(Fault::NoSuchItem(*item));
+        }
+        if let ItemChange::DependsOn(on) = change
+            && !exists(db, "SELECT 1 FROM items WHERE number = ?1", on.0)?
+        {
+            return Err(Fault::NoSuchDependency(*on));
+        }
+        let what = serde_json::to_string(change).map_err(|e| Fault::Value {
+            table: "item_changes",
+            message: e.to_string(),
+        })?;
+        let n: u64 = db.query_row("SELECT count(*) FROM item_changes WHERE item = ?1", [item.0], |row| {
+            row.get(0)
+        })?;
+        db.execute(
+            "INSERT INTO item_changes (item, n, at, change, why) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![item.0, n + 1, at.0, what, why],
+        )?;
     }
-    if let ItemChange::DependsOn(on) = change
-        && !exists(db, "SELECT 1 FROM items WHERE number = ?1", on.0)?
-    {
-        return Err(Fault::NoSuchDependency(*on));
-    }
-    let what = serde_json::to_string(change).map_err(|e| Fault::Value {
-        table: "item_changes",
-        message: e.to_string(),
-    })?;
-    let n: u64 = db.query_row("SELECT count(*) FROM item_changes WHERE item = ?1", [item.0], |row| {
-        row.get(0)
-    })?;
-    db.execute(
-        "INSERT INTO item_changes (item, n, at, change) VALUES (?1, ?2, ?3, ?4)",
-        params![item.0, n + 1, at.0, what],
-    )?;
     Ok(())
 }
 
 pub(crate) fn items(db: &Connection) -> Result<Vec<Item>, Fault> {
     let mut changes: BTreeMap<u64, Vec<Change>> = BTreeMap::new();
-    let mut query = db.prepare("SELECT item, at, change FROM item_changes ORDER BY item, n")?;
+    let mut query = db.prepare("SELECT item, at, change, why FROM item_changes ORDER BY item, n")?;
     let rows = query.query_map([], |row| {
-        Ok((row.get::<_, u64>(0)?, row.get::<_, u64>(1)?, row.get::<_, String>(2)?))
+        Ok((
+            row.get::<_, u64>(0)?,
+            row.get::<_, u64>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, Option<String>>(3)?,
+        ))
     })?;
     for row in rows {
-        let (item, at, what) = row?;
+        let (item, at, what, why) = row?;
         let what = serde_json::from_str(&what).map_err(|e| Fault::Value {
             table: "item_changes",
             message: e.to_string(),
         })?;
-        changes.entry(item).or_default().push(Change { at: Time(at), what });
+        changes.entry(item).or_default().push(Change {
+            at: Time(at),
+            what,
+            why,
+        });
     }
     let mut depends: BTreeMap<u64, Vec<ItemNumber>> = BTreeMap::new();
     let mut query = db.prepare("SELECT item, on_item FROM depends ORDER BY item, on_item")?;
     for row in query.query_map([], |row| Ok((row.get::<_, u64>(0)?, row.get::<_, u64>(1)?)))? {
         let (item, on) = row?;
         depends.entry(item).or_default().push(ItemNumber(on));
+    }
+    let mut tagged: BTreeMap<u64, Vec<String>> = BTreeMap::new();
+    let mut query = db.prepare("SELECT item, tag FROM tagged ORDER BY item, tag")?;
+    for row in query.query_map([], |row| Ok((row.get::<_, u64>(0)?, row.get::<_, String>(1)?)))? {
+        let (item, tag) = row?;
+        tagged.entry(item).or_default().push(tag);
     }
     let mut query = db.prepare("SELECT number, title, added, level, project FROM items ORDER BY number")?;
     let rows = query.query_map([], |row| {
@@ -211,6 +254,7 @@ pub(crate) fn items(db: &Connection) -> Result<Vec<Item>, Fault> {
             level,
             project,
             depends_on: depends.remove(&number).unwrap_or_default(),
+            tags: tagged.remove(&number).unwrap_or_default(),
         };
         let changes = changes.remove(&number).unwrap_or_default();
         items.push(Item::new(ItemNumber(number), Time(added), first, changes));

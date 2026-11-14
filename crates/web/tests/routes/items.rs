@@ -21,8 +21,9 @@ async fn the_items_are_given_each_with_its_work_in_brief() {
                 "project": "trial",
                 "added": START,
                 "dependsOn": [],
+                "tags": [],
                 "history": {
-                    "first": { "title": "Greet the user", "level": "2", "dependsOn": [] },
+                    "first": { "title": "Greet the user", "level": "2", "dependsOn": [], "tags": [] },
                     "changes": [],
                 },
                 "work": summary,
@@ -159,26 +160,27 @@ async fn an_item_is_put_at_another_level_and_refused_as_an_added_one_is() {
     let router = &running.router;
     let item = json!({ "title": "Greet", "dependsOn": [], "project": "trial", "flow": "trial", "writes": [] });
     assert_eq!(post(router, "/api/v1/items", &item).await.0, StatusCode::OK);
-    let set = |level: &str| json!({ "level": level });
+    let set = |item: u64, level: &str| json!({ "why": "It is easier than it looked.", "changes": [{ "kind": "level", "item": item, "level": level }] });
+    let changes = "/api/v1/items/changes";
     assert_eq!(
-        post(router, "/api/v1/items/1/level", &set("1")).await,
-        (StatusCode::OK, json!({ "changed": true }))
+        post(router, changes, &set(1, "1")).await,
+        (StatusCode::OK, json!({ "changed": [true] }))
     );
     assert_eq!(
-        post(router, "/api/v1/items/1/level", &set("1")).await,
-        (StatusCode::OK, json!({ "changed": false }))
+        post(router, changes, &set(1, "1")).await,
+        (StatusCode::OK, json!({ "changed": [false] }))
     );
     let unprocessable = StatusCode::UNPROCESSABLE_ENTITY;
     assert_eq!(
-        post(router, "/api/v1/items/1/level", &set("3")).await,
+        post(router, changes, &set(1, "3")).await,
         (
             unprocessable,
             json!({ "error": "The item's level: 3 is above 2, the highest level an item may be at (items.highest_level)." })
         )
     );
     assert_eq!(
-        post(router, "/api/v1/items/7/level", &set("1")).await,
-        (unprocessable, json!({ "error": "There is no item 7." }))
+        post(router, changes, &set(7, "1")).await,
+        (unprocessable, json!({ "error": "There is no item #7." }))
     );
     assert_eq!(get_json(router, "/api/v1/items").await["items"][0]["level"], json!("1"));
 }
@@ -221,7 +223,7 @@ async fn an_item_that_cannot_be_added_is_refused_with_why() {
     );
     assert_eq!(
         post(router, "/api/v1/items", &item("trial", json!([5]), "request")).await,
-        (unprocessable, error("There is no item 5."))
+        (unprocessable, error("There is no item #5."))
     );
     assert_eq!(
         post(router, "/api/v1/items", &item("trial", json!([]), "plan")).await,

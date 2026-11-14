@@ -84,6 +84,7 @@ pub(crate) enum Asked {
         number: u64,
         comment: String,
     },
+    Reopen(u64),
 }
 
 impl Fake {
@@ -410,6 +411,19 @@ impl Api for Fake {
             .find(|(_, p)| p.number == number)
             .ok_or("HTTP 404: Not Found")?;
         pull.state = State::Closed;
+        Ok(())
+    }
+
+    async fn reopen(&self, number: u64) -> Result<(), String> {
+        let mut kept = self.kept();
+        kept.asked.push(Asked::Reopen(number));
+        let (_, pull) = (kept.pulls.iter_mut())
+            .find(|(_, p)| p.number == number)
+            .ok_or("HTTP 404: Not Found")?;
+        if pull.state != State::Closed {
+            return Err("HTTP 422: Unprocessable Entity: the pull request is not closed".to_string());
+        }
+        pull.state = State::Open;
         Ok(())
     }
 }

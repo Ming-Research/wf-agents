@@ -7,12 +7,8 @@
 // - `GET  /api/v1/backup`: how the copies of the database stand (`Copies`).
 // - `GET  /api/v1/items`: every item with its work in brief (`Items`).
 // - `POST /api/v1/items`: adds an item with its work (`NewItem`), and gives their numbers (`Added`).
-// - `POST /api/v1/items/{item}/level`: puts an item at another level (`{ level }`), and says whether that changed it
-//   (`ItemChanged`).
-// - `POST /api/v1/items/{item}/title`: gives an item another title (`{ title }`), and says whether that changed it
-//   (`ItemChanged`).
-// - `POST /api/v1/items/{item}/dependencies`: makes an item depend on another or no longer (`DependencyChange`), while
-//   its work has started no run, and says whether that changed it (`ItemChanged`).
+// - `POST /api/v1/items/changes`: changes items, several at once for one reason, all or none (`ItemChanges`), and says
+//   whether each changed its item (`ItemsChanged`).
 // - `GET  /api/v1/levels`: the levels an item may be given, with what each is for (`Levels`).
 // - `GET  /api/v1/projects`: the projects the installation names, in order of their names (`Projects`).
 // - `GET  /api/v1/works/{work}`: one work, as it is now and step by step from its start (`WorkPage`).
@@ -198,6 +194,8 @@ export interface Item {
   project: string | null;
   added: number;
   dependsOn: number[];
+  /// The tags it carries, which classify it; absent from an engine that does not give them yet.
+  tags?: string[];
   /// What it was as it was added, and each change made to it since: what it said before, and when it changed.
   history: ItemHistory;
   /// The one work done for it, which was added with it.
@@ -206,16 +204,26 @@ export interface Item {
 
 /// An item as it was added, and each change made to it since, in the order they were made.
 export interface ItemHistory {
-  first: { title: string; level: string | null; dependsOn: number[] };
+  first: { title: string; level: string | null; dependsOn: number[]; tags?: string[] };
   changes: ItemChange[];
 }
 
-/// A change made to an item, at this time.
-export type ItemChange =
-  | { kind: 'title'; time: number; title: string }
-  | { kind: 'level'; time: number; level: string }
-  | { kind: 'dependsOn'; time: number; item: number }
-  | { kind: 'noLongerDependsOn'; time: number; item: number };
+/// A change made to an item, at this time, and why, as whoever made it said; none for a change kept before changes
+/// said why.
+export interface ItemChange {
+  time: number;
+  why: string | null;
+  what: ItemChanged;
+}
+
+/// What a change made to an item did.
+export type ItemChanged =
+  | { kind: 'title'; title: string }
+  | { kind: 'level'; level: string }
+  | { kind: 'dependsOn'; item: number }
+  | { kind: 'noLongerDependsOn'; item: number }
+  | { kind: 'tagged'; tag: string }
+  | { kind: 'untagged'; tag: string };
 
 export interface Items {
   items: Item[];
@@ -406,6 +414,8 @@ export type Step =
   | { kind: 'resumed'; at: number; time: number }
   /// The work's item was cancelled, for this reason where whoever cancelled it gave one.
   | { kind: 'cancelled'; at: number; time: number; why: string | null }
+  /// The work's item, cancelled, was reopened, for this reason: the work is paused until it is let on.
+  | { kind: 'reopened'; at: number; time: number; why: string }
   /// A new session of the line began, or begins with the line's next round.
   | { kind: 'session'; at: number; time: number; line: string; why: SessionWhy };
 
@@ -430,6 +440,8 @@ export interface WorkPage {
   level: string | null;
   /// The project of its item, as `Item` has it.
   project: string | null;
+  /// The tags of its item, as `Item` has them; absent from an engine that does not give them yet.
+  tags?: string[];
   /// What its item was as it was added, and each change made to it since, as `Item` has them.
   history: ItemHistory;
   /// The flow it runs on.
@@ -515,13 +527,28 @@ export interface Projects {
   names: string[];
 }
 
-/// Whether a change of an item changed it: it was so already where not, as when it was at that level already.
-export interface ItemChanged {
-  changed: boolean;
+/// Changes of items asked together, for one reason: made in the order given, each judged against what those before it
+/// make, all of them or none.
+export interface ItemChanges {
+  why: string;
+  changes: ChangeAsked[];
 }
 
-/// A change of what an item depends on.
-export type DependencyChange = { kind: 'add'; item: number } | { kind: 'remove'; item: number };
+/// A change of an item, as whoever plans the work asks for it.
+export type ChangeAsked =
+  | { kind: 'title'; item: number; title: string }
+  | { kind: 'level'; item: number; level: string }
+  | { kind: 'dependsOn'; item: number; on: number }
+  | { kind: 'noLongerDependsOn'; item: number; on: number }
+  | { kind: 'tag'; item: number; tag: string }
+  | { kind: 'untag'; item: number; tag: string }
+  | { kind: 'cancel'; item: number }
+  | { kind: 'reopen'; item: number };
+
+/// Whether each change asked together changed its item, in the order asked.
+export interface ItemsChanged {
+  changed: boolean[];
+}
 
 /// What a round was told and what came back of it, each try in order, as its carrier kept them; no try where it kept
 /// nothing, as of a round of the engine's own acts or of a script. Tries past what is read of a round are left out,
@@ -572,6 +599,8 @@ export interface NewItem {
   /// The project it belongs to, one the installation names.
   project: string;
   dependsOn: number[];
+  /// The tags it carries; none where none is given.
+  tags?: string[];
   /// The flow its work runs on.
   flow: string;
   /// What is written for it as it is added, each a block people write.
@@ -672,9 +701,6 @@ export const loadLevels = () => read<Levels>('/api/v1/levels');
 export const loadProjects = () => read<Projects>('/api/v1/projects');
 export const act = (work: number, what: Act) => send<null>(`/api/v1/works/${work}/acts`, what);
 export const addItem = (item: NewItem) => send<Added>('/api/v1/items', item);
-export const setLevel = (item: number, level: string) => send<ItemChanged>(`/api/v1/items/${item}/level`, { level });
-export const setTitle = (item: number, title: string) => send<ItemChanged>(`/api/v1/items/${item}/title`, { title });
-export const changeDependencies = (item: number, change: DependencyChange) =>
-  send<ItemChanged>(`/api/v1/items/${item}/dependencies`, change);
+export const changeItems = (changes: ItemChanges) => send<ItemsChanged>('/api/v1/items/changes', changes);
 export const loadEngine = () => read<Engine>('/api/v1/engine');
 export const actOnEngine = (what: EngineAct) => send<null>('/api/v1/engine/acts', what);

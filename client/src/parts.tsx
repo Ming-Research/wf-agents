@@ -58,11 +58,13 @@ export function Button({ primary, submit, disabled, title, onClick, children }: 
 
 /// The page's own question before a command whose effect reaches past what it names: the question as its title,
 /// what follows as its body, and two buttons, the one that goes on named by the command's verb. It is laid over the
-/// page and nothing under it can be reached until it is answered; Escape answers no.
-export function Confirm({ title, children, verb, onAnswer }: {
+/// page and nothing under it can be reached until it is answered; Escape answers no. Where `ready` is false, what the
+/// body asks for is not given yet, and the verb cannot be pressed.
+export function Confirm({ title, children, verb, ready, onAnswer }: {
   title: string;
   children: ReactNode;
   verb: string;
+  ready?: boolean;
   onAnswer: (yes: boolean) => void;
 }) {
   const box = useRef<HTMLDialogElement>(null);
@@ -90,7 +92,7 @@ export function Confirm({ title, children, verb, onAnswer }: {
         <div className="confirm-body">{children}</div>
         <div className="confirm-buttons">
           <Button onClick={() => onAnswer(false)}>Cancel</Button>
-          <Button primary onClick={() => onAnswer(true)}>
+          <Button primary disabled={ready === false} onClick={() => onAnswer(true)}>
             {verb}
           </Button>
         </div>

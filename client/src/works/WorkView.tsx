@@ -146,7 +146,7 @@ export function WorkScreen({ page, failed = null, onActed, run }: {
           >
             {spentWords(summary.spent)}
           </button>
-          <ActButtons summary={summary} lines={page.flow.lines.map((l) => l.name)} send={send} />
+          <ActButtons summary={summary} steps={page.steps} lines={page.flow.lines.map((l) => l.name)} send={send} />
         </span>
       </div>
       {failed !== null && (

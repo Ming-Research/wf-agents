@@ -435,6 +435,7 @@ const ACT_WORDS = {
   paused: 'Paused',
   resumed: 'Started',
   cancelled: 'Cancelled',
+  reopened: 'Reopened',
   session: 'A session',
 } as const;
 
@@ -448,6 +449,10 @@ export function ActPanel({ step, fold }: PanelProps & { step: Step & { kind: key
         : 'The owner paused the work: only a note to a cell is answered, and a round under way goes on',
     resumed: 'The owner let the work on: its rounds begin again',
     cancelled: 'The owner cancelled the work: its round under way was stopped, its calls withdrawn, and its runs abandoned',
+    reopened:
+      step.kind === 'reopened'
+        ? `The work was reopened, paused until it is let on, when it makes its place again and goes on from its records. Why: ${step.why}`
+        : '',
     session:
       step.kind === 'session'
         ? step.why.kind === 'compacted'

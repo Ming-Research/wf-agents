@@ -10,7 +10,7 @@ use super::*;
 fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry_of_every_kind() {
     let mut d = Driver::saved();
     // The driver saves and loads back after each event, and compares.
-    history(&mut d);
+    reopened_after(&mut d);
     let w = &d.work;
     let r = &w.records;
 
@@ -91,11 +91,13 @@ fn a_work_saved_after_each_thing_that_happens_loads_back_as_it_was_with_an_entry
     // A run is abandoned only as its cell is skipped, a round is stopped, or the work is cancelled: here once.
     assert!(!r.abandoned.is_empty(), "no run abandoned: {:?}", r.abandoned);
     assert_eq!(r.let_go.len(), 1);
+    // The last pause is the reopen's: a work reopened is paused until it is let on.
     assert_eq!(
         r.pauses.iter().map(|p| p.paused).collect::<Vec<_>>(),
-        [true, false, true, false]
+        [true, false, true, false, true]
     );
-    assert!(r.cancelled.is_some());
+    assert!(r.cancelled().is_some());
+    assert_eq!((r.cancels.len(), r.reopens.len(), r.releases.len()), (2, 1, 2));
     assert_eq!(
         (r.questions.len(), r.answers.len()),
         (1, 1),
@@ -136,7 +138,7 @@ fn runs_of_the_new_form_load_back_with_what_they_dealt_with_what_was_put_in_and_
     let mut store = db.open();
     let before = first_work(&mut store);
     let (_, work) = store
-        .add("second", "2", "one", &[], "judged", Time(START), &Work::default())
+        .add(&first("second", "2", &[]), "judged", Time(START), &Work::default())
         .expect("the item is added");
     store.save(before, &d.work).expect("the work is saved");
     store.save(work, &new).expect("the work is saved");

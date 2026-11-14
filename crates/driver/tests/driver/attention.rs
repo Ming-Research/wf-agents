@@ -333,8 +333,9 @@ fn a_work_left_idle_by_the_merge_of_one_item_it_waited_for_is_a_line_when_the_ot
     let mut h = H::new();
     let (a, wa) = h.add(new_item("a", &[], "short"));
     let (b, wb) = h.add(new_item("b", &[], "short"));
-    h.on(wb, Event::Cancelled { why: None });
+    // As a store kept before an item could not be cancelled under one that depends on it: b is cancelled anyway.
     let (_, ww) = h.add(new_item("w", &[a, b], "judged"));
+    h.on(wb, Event::Cancelled { why: None });
     h.let_on(wa);
     h.let_on(ww);
     let mark = since(&h, None).mark;

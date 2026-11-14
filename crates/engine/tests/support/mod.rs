@@ -246,7 +246,7 @@ impl Driver {
                 for a in &r.abandoned[before.records.abandoned.len()..] {
                     let ended = r.returned.iter().filter(|e| e.run == a.run).count();
                     let last = self.work.back.get(&(a.run, ended));
-                    if r.cancelled.is_none() && matches!(last, Some(Back::Failed { .. })) {
+                    if r.cancelled().is_none() && matches!(last, Some(Back::Failed { .. })) {
                         self.seen.failed_abandoned += 1;
                     }
                 }
@@ -404,7 +404,7 @@ impl Driver {
         }
         // A work that ended with nothing under way has let go of what it holds, or is to.
         let ended = matches!(decide(&self.flow.flow, r), Decision::Ended(_));
-        if ended && r.released.is_none() && (self.held.iter()).all(|e| matches!(e, Effect::Release { .. })) {
+        if ended && r.released().is_none() && (self.held.iter()).all(|e| matches!(e, Effect::Release { .. })) {
             assert_eq!(
                 self.held.len(),
                 1,

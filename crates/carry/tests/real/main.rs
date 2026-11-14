@@ -674,6 +674,7 @@ impl Real {
             level: self.level.clone(),
             project: self.project.clone(),
             depends_on: depends_on.to_vec(),
+            tags: Vec::new(),
             flow: self.flow.name.clone(),
             writes: request.into_iter().collect(),
         };

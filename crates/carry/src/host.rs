@@ -116,6 +116,11 @@ pub trait Host: Send + Sync + 'static {
     /// where it did not merge, closed with a word that its work ended ([`CLOSED`]). What is gone, closed or merged
     /// already is left as it is, and the work's own branch stays.
     fn end(&self, branch: &Branch<'_>, merged: bool) -> impl Future<Output = Result<(), String>> + Send;
+
+    /// Takes up again what the host held for a work that was cancelled and reopened, as the work makes its place
+    /// again on the branch it kept: its pull request into main, which its cancel closed, is opened again, where it has
+    /// one closed and not merged and none open.
+    fn reopen(&self, branch: &Branch<'_>) -> impl Future<Output = Result<(), String>> + Send;
 }
 
 /// The tests and the checks an agent names to `run_tests`, each as it wrote it.
@@ -170,5 +175,9 @@ impl<H: Host> Host for Arc<H> {
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {
         (**self).end(branch, merged).await
+    }
+
+    async fn reopen(&self, branch: &Branch<'_>) -> Result<(), String> {
+        (**self).reopen(branch).await
     }
 }

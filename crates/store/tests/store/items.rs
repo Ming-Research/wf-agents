@@ -12,6 +12,7 @@ fn item(number: u64, title: &str, added: u64, depends_on: &[u64]) -> Item {
         level: Some("2".to_string()),
         project: Some("one".to_string()),
         depends_on: depends_on.iter().map(|n| ItemNumber(*n)).collect(),
+        tags: Vec::new(),
     };
     Item::new(ItemNumber(number), Time(added), first, Vec::new())
 }
@@ -32,17 +33,17 @@ fn items_and_their_works_are_numbered_from_one_in_the_order_they_are_added_with_
     assert_eq!(store.items(), Ok(vec![]));
     assert_eq!(store.works(), Ok(vec![]));
     assert_eq!(
-        store.add("first", "2", "one", &[], "judged", Time(10), &nothing),
+        store.add(&first("first", "2", &[]), "judged", Time(10), &nothing),
         Ok((ItemNumber(1), WorkNumber(1)))
     );
     assert_eq!(
-        store.add("second", "2", "one", &[ItemNumber(1)], "other", Time(20), &nothing),
+        store.add(&first("second", "2", &[ItemNumber(1)]), "other", Time(20), &nothing),
         Ok((ItemNumber(2), WorkNumber(2)))
     );
     // What it depends on is kept in the order of the numbers, each once.
     let on = [ItemNumber(2), ItemNumber(1), ItemNumber(2)];
     assert_eq!(
-        store.add("third", "2", "one", &on, "judged", Time(30), &nothing),
+        store.add(&first("third", "2", &on), "judged", Time(30), &nothing),
         Ok((ItemNumber(3), WorkNumber(3)))
     );
     assert_eq!(
@@ -68,24 +69,21 @@ fn each_item_keeps_the_level_it_was_added_at() {
     let mut store = Store::in_memory().expect("the store opens");
     let nothing = Work::default();
     store
-        .add("easy", "1", "one", &[], "judged", Time(10), &nothing)
+        .add(&first("easy", "1", &[]), "judged", Time(10), &nothing)
         .unwrap();
     store
-        .add("hard", "3", "one", &[], "judged", Time(20), &nothing)
+        .add(&first("hard", "3", &[]), "judged", Time(20), &nothing)
         .unwrap();
     let levels =
         |store: &Store| -> Vec<Option<String>> { store.items().unwrap().into_iter().map(|i| i.level).collect() };
     assert_eq!(levels(&store), [Some("1".to_string()), Some("3".to_string())]);
     // The owner puts an item at another level, and again: the latest holds, and each change is kept.
-    store
-        .change(ItemNumber(1), &ItemChange::Level("2".into()), Time(30))
-        .unwrap();
-    store
-        .change(ItemNumber(1), &ItemChange::Level("3".into()), Time(40))
-        .unwrap();
+    let level = |item: u64, level: &str| [(ItemNumber(item), ItemChange::Level(level.into()))];
+    store.change(Time(30), Some("easier"), &level(1, "2"), &[]).unwrap();
+    store.change(Time(40), Some("harder"), &level(1, "3"), &[]).unwrap();
     assert_eq!(levels(&store), [Some("3".to_string()), Some("3".to_string())]);
     assert_eq!(
-        store.change(ItemNumber(5), &ItemChange::Level("2".into()), Time(50)),
+        store.change(Time(50), Some("x"), &level(5, "2"), &[]),
         Err(Fault::NoSuchItem(ItemNumber(5)))
     );
 }
@@ -95,15 +93,12 @@ fn an_item_depending_on_one_the_store_does_not_have_is_refused_and_nothing_is_ad
     let mut store = Store::in_memory().expect("the store opens");
     let nothing = Work::default();
     store
-        .add("first", "2", "one", &[], "judged", Time(10), &nothing)
+        .add(&first("first", "2", &[]), "judged", Time(10), &nothing)
         .expect("the item is added");
     // Its own number: the item would depend on itself.
     assert_eq!(
         store.add(
-            "second",
-            "2",
-            "one",
-            &[ItemNumber(1), ItemNumber(2)],
+            &first("second", "2", &[ItemNumber(1), ItemNumber(2)]),
             "judged",
             Time(20),
             &nothing
@@ -112,36 +107,36 @@ fn an_item_depending_on_one_the_store_does_not_have_is_refused_and_nothing_is_ad
     );
     // A number no item has yet: one added later.
     assert_eq!(
-        store.add("second", "2", "one", &[ItemNumber(3)], "judged", Time(20), &nothing),
+        store.add(&first("second", "2", &[ItemNumber(3)]), "judged", Time(20), &nothing),
         Err(Fault::NoSuchDependency(ItemNumber(3)))
     );
     assert_eq!(store.items(), Ok(vec![item(1, "first", 10, &[])]));
     assert_eq!(store.works(), Ok(vec![head(1, 1, "judged", 10)]));
     // The numbers of the next item and its work are not taken by those refused.
     assert_eq!(
-        store.add("second", "2", "one", &[], "judged", Time(30), &nothing),
+        store.add(&first("second", "2", &[]), "judged", Time(30), &nothing),
         Ok((ItemNumber(2), WorkNumber(2)))
     );
 }
 
 #[test]
 fn what_is_kept_of_a_work_from_its_start_is_added_with_its_item() {
-    let mut first = Driver::new();
-    first.wrote("request", Outsider::Person, None);
+    let mut started = Driver::new();
+    started.wrote("request", Outsider::Person, None);
     let db = Db::new();
     let work = {
         let mut store = db.open();
         let (_, work) = store
-            .add("the item", "2", "one", &[], "judged", Time(START), &first.work)
+            .add(&first("the item", "2", &[]), "judged", Time(START), &started.work)
             .expect("the item is added");
         work
     };
     // A store opened anew on the file holds the work as it was given.
     let mut store = db.open();
-    assert_eq!(store.load(work), Ok(first.work.clone()));
+    assert_eq!(store.load(work), Ok(started.work.clone()));
     // What was added with the item is where the work begins: saving it again keeps nothing.
     let before = dump(&db.path);
-    store.save(work, &first.work).expect("the work is saved");
+    store.save(work, &started.work).expect("the work is saved");
     assert_eq!(dump(&db.path), before);
 }
 
@@ -167,7 +162,7 @@ fn an_item_whose_work_cannot_be_kept_is_not_added() {
         },
     ];
     assert!(matches!(
-        store.add("the item", "2", "one", &[], "judged", Time(START), &wrong),
+        store.add(&first("the item", "2", &[]), "judged", Time(START), &wrong),
         Err(Fault::Database(_))
     ));
     // Neither the item nor its work was kept.
@@ -176,7 +171,7 @@ fn an_item_whose_work_cannot_be_kept_is_not_added() {
     assert_eq!(store.works(), Ok(vec![]));
     // The numbers they would have had are given to the next.
     assert_eq!(
-        store.add("the item", "2", "one", &[], "judged", Time(START), &Work::default()),
+        store.add(&first("the item", "2", &[]), "judged", Time(START), &Work::default()),
         Ok((ItemNumber(1), WorkNumber(1)))
     );
 }

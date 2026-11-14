@@ -33,7 +33,7 @@ fn as_the_merge_finishes_what_the_work_holds_is_let_go_and_nothing_more_is_given
         "it is to be done until it is said done"
     );
     assert_eq!(w.on(Event::Released), vec![]);
-    assert!(w.work.records.released.is_some());
+    assert!(w.work.records.released().is_some());
     assert_eq!(pending(&w.flow, &w.work), vec![]);
 }
 
@@ -68,7 +68,7 @@ fn what_could_not_be_let_go_pauses_the_ended_work_saying_why_and_letting_it_on_t
     assert_eq!(w.on(Event::Look), vec![]);
     assert_eq!(w.on(Event::Resumed), vec![MERGED], "let on, it is tried again");
     assert_eq!(w.on(Event::Released), vec![]);
-    assert!(w.work.records.released.is_some());
+    assert!(w.work.records.released().is_some());
 }
 
 #[test]

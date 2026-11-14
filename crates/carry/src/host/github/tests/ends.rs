@@ -173,6 +173,30 @@ async fn a_work_that_ended_without_merging_has_its_pull_request_closed_saying_so
 }
 
 #[tokio::test]
+async fn a_reopened_work_has_the_pull_request_its_cancel_closed_opened_again_once_however_often_it_starts() {
+    let hub = Hub::new();
+    let head = hub.committed().await;
+    hub.green(&head);
+    hub.verdict(&head).await.unwrap().unwrap();
+    let place = hub.place();
+    // Nothing was closed: nothing is opened.
+    hub.host.reopen(&branch(&place)).await.expect("nothing to open");
+    hub.host.end(&branch(&place), false).await.expect("it closes");
+    hub.host.reopen(&branch(&place)).await.expect("it opens again");
+    assert_eq!(hub.github().pull_requests()[0].state, State::Open);
+    // Asked again, as at a start given again, the open one is left as it is.
+    hub.host.reopen(&branch(&place)).await.expect("nothing to open");
+    let reopened: Vec<Asked> = (hub.github().asked().into_iter())
+        .filter(|a| matches!(a, Asked::Reopen(_)))
+        .collect();
+    assert_eq!(reopened, [Asked::Reopen(1)]);
+    // One merged is never opened again.
+    hub.github().merged_by_a_person(1, &head);
+    hub.host.reopen(&branch(&place)).await.expect("nothing to open");
+    assert_eq!(hub.github().pull_requests()[0].state, State::Merged);
+}
+
+#[tokio::test]
 async fn only_the_works_pull_request_into_main_is_closed() {
     let hub = Hub::new();
     let checked = hub.pushed_and_checked_after(hub.committed().await).await;

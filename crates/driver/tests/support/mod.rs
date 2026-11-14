@@ -28,12 +28,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use decide::{BlockId, CallId, Cause, Decision, End, Holder, Maker, Outsider, Pauser, RunId, Seq, Waited, Who};
-use driver::{DEPENDENCIES, Driver, Failed, Fault, FirstWrite, MERGED, NewItem, Todo, WAITING};
+use driver::{Asked, DEPENDENCIES, Driver, Failed, Fault, FirstWrite, MERGED, NewItem, Todo, WAITING};
 use engine::{Ask, Back, Came, Effect, Event, Given, Handed, Moment, Spent, Time, Work};
 use flow::{Compiled, Has, Kind, Source, compile};
 use rusqlite::Connection;
 use rusqlite::types::Value;
-use store::{EverythingPaused, Item, ItemChange, ItemNumber, Storage, Store, WorkHead, WorkNumber};
+use store::{EverythingPaused, First, Item, ItemChange, ItemNumber, Storage, Store, WorkHead, WorkNumber};
 use tempfile::TempDir;
 
 /// The time of the first thing a test does.
@@ -393,21 +393,24 @@ impl Failing {
 impl Storage for Failing {
     fn add(
         &mut self,
-        title: &str,
-        level: &str,
-        project: &str,
-        depends_on: &[ItemNumber],
+        item: &First,
         flow: &str,
         at: Time,
         first: &Work,
     ) -> Result<(ItemNumber, WorkNumber), store::Fault> {
         self.call(Op::Add)?;
-        self.store.add(title, level, project, depends_on, flow, at, first)
+        self.store.add(item, flow, at, first)
     }
 
-    fn change(&mut self, item: ItemNumber, change: &ItemChange, at: Time) -> Result<(), store::Fault> {
+    fn change(
+        &mut self,
+        at: Time,
+        why: Option<&str>,
+        changes: &[(ItemNumber, ItemChange)],
+        works: &[(WorkNumber, &Work)],
+    ) -> Result<(), store::Fault> {
         self.call(Op::Change)?;
-        self.store.change(item, change, at)
+        self.store.change(at, why, changes, works)
     }
 
     fn items(&self) -> Result<Vec<Item>, store::Fault> {
@@ -508,6 +511,7 @@ pub fn new_item(title: &str, depends_on: &[ItemNumber], flow: &str) -> NewItem {
         level: "1".to_string(),
         project: PROJECT.to_string(),
         depends_on: depends_on.to_vec(),
+        tags: Vec::new(),
         flow: flow.to_string(),
         writes: Vec::new(),
     }
@@ -728,10 +732,17 @@ impl H {
 
     /// Whoever plans the work changes an item at this time, which the driver takes, or refuses leaving everything as it
     /// was, unless its store stops it; a refusal gives nothing to be done.
-    pub fn try_change(&mut self, now: Time, item: ItemNumber, change: ItemChange) -> Outcome<Vec<Todo>> {
+    pub fn try_change(&mut self, now: Time, asked: Vec<(ItemNumber, Asked)>) -> Outcome<Vec<Todo>> {
         let before = self.state();
         let items = self.reader.items().expect("the items are read");
-        match self.dm().change(now, item, change) {
+        let works: Vec<Work> = self
+            .reader
+            .works()
+            .expect("the works are read")
+            .iter()
+            .map(|head| self.reader.load(head.number).expect("the work loads"))
+            .collect();
+        match self.dm().change(now, Some("the planner says why"), asked) {
             Ok((_, todos)) => {
                 self.given(&todos);
                 if self.checking {
@@ -741,15 +752,26 @@ impl H {
             }
             Err(Failed::Stopped { fault, kept }) => {
                 self.stopped(&fault);
+                // What is kept of changes asked together is their items' records and their works' cancels and reopens,
+                // all at once: kept means either is, and not kept that neither is.
                 let after = self.reader.items().expect("the items are read");
+                let works_after: Vec<Work> = (self.reader.works().expect("the works are read").iter())
+                    .map(|head| self.reader.load(head.number).expect("the work loads"))
+                    .collect();
+                let ends = |works: &[Work]| -> Vec<(usize, usize)> {
+                    works
+                        .iter()
+                        .map(|w| (w.records.cancels.len(), w.records.reopens.len()))
+                        .collect()
+                };
+                let changed = after != items || ends(&works_after) != ends(&works);
                 assert_eq!(
-                    kept,
-                    after != items,
+                    kept, changed,
                     "the driver said kept: {kept} of a change, and the store says otherwise"
                 );
                 Outcome::Stopped { kept }
             }
-            Err(Failed::Unchangeable { .. } | Failed::NoSuchItem(_)) => {
+            Err(Failed::NotChanged { .. } | Failed::NoSuchItem(_)) => {
                 assert_eq!(self.state(), before, "a refused change changed the driver or the store");
                 Outcome::Done(Vec::new())
             }
@@ -912,11 +934,13 @@ impl H {
         }
         for todo in &todos {
             assert!(
-                !self.answered.contains(&key(todo)),
+                !self.answered.contains(&self.once(todo)),
                 "opened again, the driver gives what was answered: {todo:?}"
             );
             match todo.effect {
-                Effect::Round { .. } | Effect::Call { .. } | Effect::Release { .. } => self.ever.insert(key(todo)),
+                Effect::Round { .. } | Effect::Call { .. } | Effect::Release { .. } => {
+                    self.ever.insert(self.once(todo))
+                }
                 Effect::Stop { .. } | Effect::Withdraw { .. } => self.undone.insert(key(todo)),
             };
             assert!(
@@ -961,7 +985,21 @@ impl H {
         };
         let (done, left): (Vec<Todo>, Vec<Todo>) = self.outstanding.drain(..).partition(answers);
         self.outstanding = left;
-        self.answered.extend(done.iter().map(key));
+        let done: Vec<String> = done.iter().map(|todo| self.once(todo)).collect();
+        self.answered.extend(done);
+    }
+
+    /// What is given once, as it is kept among what was given and what was answered: a round and a call by what they
+    /// are, and the letting go of what a work held by what it is and how often the work was reopened, since a work lets
+    /// go once each time it ends.
+    fn once(&self, todo: &Todo) -> String {
+        match todo.effect {
+            Effect::Release { .. } => {
+                let reopens = (self.d().work(todo.work)).map_or(0, |kept| kept.work.records.reopens.len());
+                format!("{} after {reopens} reopens", key(todo))
+            }
+            _ => key(todo),
+        }
     }
 
     /// Takes what the driver gave to be done. A round or a call is given once; a stop replaces the round it stops, and
@@ -970,7 +1008,8 @@ impl H {
         for todo in todos {
             match &todo.effect {
                 Effect::Round { .. } | Effect::Call { .. } | Effect::Release { .. } => {
-                    assert!(self.ever.insert(key(todo)), "given twice: {todo:?}");
+                    let once = self.once(todo);
+                    assert!(self.ever.insert(once), "given twice: {todo:?}");
                 }
                 Effect::Stop { run } => {
                     self.undone.insert(key(todo));
@@ -1341,13 +1380,22 @@ impl H {
     /// Whoever plans the work changes an item, which the driver must take; gives whether that changed it, and what is
     /// to be done.
     pub fn change(&mut self, item: ItemNumber, change: ItemChange) -> (bool, Vec<Todo>) {
+        let (changed, todos) = self
+            .changes(vec![(item, Asked::Item(change))])
+            .expect("the change is taken");
+        (changed[0], todos)
+    }
+
+    /// Whoever plans the work makes changes together, for one reason; gives whether each changed its item, and what is
+    /// to be done, or why they were refused.
+    pub fn changes(&mut self, asked: Vec<(ItemNumber, Asked)>) -> Result<(Vec<bool>, Vec<Todo>), Failed> {
         let now = self.now();
-        let (changed, todos) = (self.dm().change(now, item, change)).expect("the change is taken");
+        let (changed, todos) = self.dm().change(now, Some("the planner says why"), asked)?;
         self.given(&todos);
         if self.checking {
             self.check();
         }
-        (changed, todos)
+        Ok((changed, todos))
     }
 
     /// What the work does next, as its view says.
@@ -1396,8 +1444,8 @@ impl H {
 pub enum Act {
     Add(NewItem),
     On(WorkNumber, Event),
-    /// Whoever plans the work changes an item, which the driver may refuse.
-    Change(ItemNumber, ItemChange),
+    /// Whoever plans the work changes items together, which the driver may refuse.
+    Change(Vec<(ItemNumber, Asked)>),
     /// The owner sets the pause of everything, or lifts it.
     Everything(bool),
 }
@@ -1434,7 +1482,7 @@ pub fn perform(h: &mut H, now: Time, act: &Act, stops: &mut Stops) -> Option<Vec
                 Outcome::Done(todos) => (None, Some(todos)),
                 Outcome::Stopped { kept } => (Some(kept), None),
             },
-            Act::Change(item, change) => match h.try_change(now, *item, change.clone()) {
+            Act::Change(asked) => match h.try_change(now, asked.clone()) {
                 Outcome::Done(todos) => (None, Some(todos)),
                 Outcome::Stopped { kept } => (Some(kept), None),
             },
@@ -1521,7 +1569,7 @@ pub fn end_at(flow: &Compiled, work: &Work) -> Option<Seq> {
         })
         .map(|f| f.at)
         .min();
-    [merged, r.cancelled].into_iter().flatten().min()
+    [merged, r.cancelled()].into_iter().flatten().min()
 }
 
 /// Whether the cell is the engine's own.

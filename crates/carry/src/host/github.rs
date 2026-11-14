@@ -462,6 +462,20 @@ impl<A: Api> Host for GitHub<A> {
         }
         Ok(())
     }
+
+    async fn reopen(&self, branch: &Branch<'_>) -> Result<(), String> {
+        let pulls = self.api.pulls(&branch.place.branch).await?;
+        if pulls.iter().any(|p| p.state == State::Open) {
+            return Ok(());
+        }
+        // The newest of the work's pull requests into main, as GitHub lists them, the newest first.
+        let latest = (pulls.iter()).find(|p| p.base == self.project.main);
+        match latest {
+            Some(closed) if closed.state == State::Closed => (self.api.reopen(closed.number).await)
+                .map_err(|why| format!("GitHub did not open the pull request {} again: {why}", closed.url)),
+            _ => Ok(()),
+        }
+    }
 }
 
 /// The reference that holds main's head as GitHub last gave it, fetched there from the remote of this name, main of

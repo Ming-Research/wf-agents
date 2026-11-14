@@ -125,6 +125,11 @@ impl Host for Local {
     async fn end(&self, _: &Branch<'_>, _: bool) -> Result<(), String> {
         Ok(())
     }
+
+    /// A local host holds nothing for a work but its branch, which the work keeps.
+    async fn reopen(&self, _: &Branch<'_>) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// The reference that holds main's head as the local repository gives it, main of this name: the branch itself.

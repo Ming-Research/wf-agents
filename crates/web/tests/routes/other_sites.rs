@@ -204,10 +204,10 @@ async fn every_route_of_the_works_refuses_another_site_and_a_post_that_is_not_js
     assert_eq!(status(port, "POST", "/api/v1/works/1/acts", &headers, &act).await, 403);
     let headers = [host.clone(), ("Content-Type", "text/plain".to_string())];
     assert_eq!(status(port, "POST", "/api/v1/works/1/acts", &headers, &act).await, 415);
-    let level = json!({ "level": 1 }).to_string();
+    let level = json!({ "why": "x", "changes": [{ "kind": "level", "item": 1, "level": "1" }] }).to_string();
     let headers = [host.clone(), json.clone(), evil.clone()];
     assert_eq!(
-        status(port, "POST", "/api/v1/items/1/level", &headers, &level).await,
+        status(port, "POST", "/api/v1/items/changes", &headers, &level).await,
         403
     );
     // None of those was taken: the item the owner's own page adds is the first.

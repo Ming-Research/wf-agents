@@ -361,7 +361,7 @@ fn on_items(waited: &Waited) -> bool {
 fn ended_at(records: &Records, end: End) -> Option<Seq> {
     match end {
         End::Merged => records.finished.iter().map(|finished| finished.at).max(),
-        End::Cancelled => records.cancelled,
+        End::Cancelled => records.cancelled(),
     }
 }
 

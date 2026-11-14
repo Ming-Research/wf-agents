@@ -37,7 +37,7 @@ mod failing;
 
 use failing::Failed;
 
-use crate::git::{self, Place, Started};
+use crate::git::{self, Started};
 use crate::held::{Failing, Held, Stop};
 use crate::host::{Branch, Host, NotMerged};
 use crate::settings::Project;
@@ -289,7 +289,7 @@ impl<H: Host> Inner<H> {
         };
         match act {
             "start" => {
-                let started = start(project, &self.host, &place, &self.repository).await?;
+                let started = start(project, &self.host, &branch, &self.repository).await?;
                 tree::look(&round.flow, &round.kept, &project.tree, &started.place, teller).await;
                 let content = fill(
                     &words.start.text,
@@ -531,17 +531,25 @@ pub(crate) async fn merge(
     host.merge(branch, checked).await
 }
 
-/// Makes the work's branch from the head of main the host gives, and its worktree, holding the repository.
+/// Makes the work's branch from the head of main the host gives, and its worktree, holding the repository. Where the
+/// branch was there already, as a work's that was cancelled and reopened, what the host held for it that the cancel let
+/// go is taken up again ([`Host::reopen`]), on every start, worktree or not: a start that failed after the branch was
+/// made, or a cancel whose letting go failed after the pull request was closed, leaves it to the next.
 pub(crate) async fn start(
     project: &Project,
     host: &impl Host,
-    place: &Place,
+    branch: &Branch<'_>,
     repository: &Mutex<()>,
 ) -> Result<Started, String> {
     let _held = repository.lock().await;
+    let place = branch.place;
     git::configuration(project, place).await?;
     let main = host.main().await?;
-    git::start(project, place, &main).await
+    let started = git::start(project, place, &main).await?;
+    if started.kept {
+        host.reopen(branch).await?;
+    }
+    Ok(started)
 }
 
 /// What the check holds a work to: what it wrote in the blocks in which it names the commit it hands in; and for its
@@ -935,6 +943,7 @@ fn passed(flow: &Compiled, work: &Work, words: &CheckWords) -> Result<Option<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::git::Place;
     use crate::git::tests::{Repo, commit, marking, run};
     use crate::host::fake::{Asked, Fake};
     use crate::host::{Local, Verdict};
@@ -1140,7 +1149,7 @@ mod tests {
     const WORK: WorkNumber = WorkNumber(1);
 
     /// The work's branch in the repository, as a host is given it.
-    fn branch(place: &Place) -> Branch<'_> {
+    fn branch(place: &git::Place) -> Branch<'_> {
         Branch {
             work: WORK,
             title: "Greet the user",
@@ -1471,7 +1480,8 @@ mod tests {
 
     /// Starts the work in the repository with the host.
     async fn start_with(repo: &Repo, host: &impl Host) -> Result<git::Started, String> {
-        start(&repo.project, host, &repo.place(WORK), &Mutex::new(())).await
+        let place = repo.place(WORK);
+        start(&repo.project, host, &branch(&place), &Mutex::new(())).await
     }
 
     /// Commits a file on a branch of its own in the repository, leaving its checkout on main, and gives the commit.
@@ -1492,6 +1502,27 @@ mod tests {
         assert_eq!(started.from, main);
         assert!(started.place.dir.join("elsewhere.txt").is_file());
         assert_eq!(host.asked(), [Asked::Main]);
+    }
+
+    #[tokio::test]
+    async fn a_start_on_a_branch_there_already_takes_up_what_the_host_held_for_it_every_time() {
+        let repo = Repo::new("true");
+        let main = run(&repo.project.repo, &["rev-parse", "main"]);
+        let host = Fake::new(&main);
+        let started = start_with(&repo, &host).await.expect("the work starts");
+        assert!(!started.kept);
+        // Given again with its worktree there, and again with it taken away as a cancel takes it: each time.
+        assert!(start_with(&repo, &host).await.expect("it starts again").kept);
+        git::remove(&repo.project, &started.place)
+            .await
+            .expect("the worktree is taken away");
+        let again = start_with(&repo, &host).await.expect("it starts again");
+        assert!(again.kept && again.place.dir.is_dir());
+        let name = started.place.branch.clone();
+        let reopened: Vec<Asked> = (host.asked().into_iter())
+            .filter(|a| matches!(a, Asked::Reopen(_)))
+            .collect();
+        assert_eq!(reopened, [Asked::Reopen(name.clone()), Asked::Reopen(name)]);
     }
 
     #[tokio::test]
