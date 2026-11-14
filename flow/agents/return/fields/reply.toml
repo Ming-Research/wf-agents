@@ -3,7 +3,8 @@
 in = ["outcome"]
 told = "listed"
 words = '''
-`reply`: your answer to what the owner said to the cell, only where the owner said something to it.'''
+`reply`: your answer to what the owner said to the cell, only where the owner said something to it; an answer to
+  a review, a test, a check or doubts is a block of its own, as the cell's list names it.'''
 
 [shape]
 type = "string"

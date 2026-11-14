@@ -14,8 +14,8 @@ file of decisions whose topic the plan or `tree_edits` touches, where this sessi
 Judge it by the tree's rules, on each of these points:
 1. Each entry of `tree_edits`, as one that must earn its place: whether the tree holds such a thing at all, or a
    principle already says it; whether its reason is the real one; a decision it contradicts or repeats; a file or a
-   document it belongs in instead; its form; and what the code says by itself, its reason too, or only this work
-   does, which stays out of the tree.
+   document it belongs in instead; its form; and whether all it says, its reason too, is what the code says by
+   itself, or what only this work does: such an entry stays out of the tree.
 2. A decision the plan goes against, or a rule later works must follow, that no entry covers.
 3. An entry that changes a principle or the constitution, with no question in `questions` that asks the owner.
 

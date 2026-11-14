@@ -1,1 +1,1 @@
-what = "Each test the testing wrote, with what it checks, its reference, its kind, its results after and before, how long it runs alone and what it catches that no other test does; and the commit that holds them."
+what = "Each test the testing wrote, with what it checks, its reference, its kind, why it would fail without the change where its kind needs it, how long it runs alone and what it catches that no other test does; and the commit that holds them."

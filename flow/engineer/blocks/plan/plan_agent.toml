@@ -1,1 +1,1 @@
-what = "The plan for the implementation, in English: what changes where, and how each part is verified, with the tests red before the change and green after; each claim it rests on marked verified, with where, or inferred, with how to confirm it."
+what = "The plan for the implementation, in English: what changes where, and how each part is verified, with the tests that fail without the change and pass with it; each claim it rests on marked verified, with where, or inferred, with how to confirm it."

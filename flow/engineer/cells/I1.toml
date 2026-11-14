@@ -8,9 +8,9 @@ takes_main = true
 task = '''
 Implement `plan_agent`, changing only what this work needs. Follow for each of `questions` the option the owner took
 in `answers`, or else the one it recommends, and write into `design/` what `tree_edits` holds: an entry may follow
-main's tree in wording and place, not in meaning. Start from a test that shows what the change is for, red on the code
-before it: the research's, where it left one. Run each test you add or extend on the change and on the code before it;
-a test removed, skipped or weakened needs a technical reason. Where cost per operation or request can change, measure
+main's tree in wording and place, not in meaning. Start from a test that shows what the change is for, one that fails
+without it: the research's, where it left one. Run each test you add or extend on the change; a test removed, skipped
+or weakened needs a technical reason. Where cost per operation or request can change, measure
 what it can make slower as well as what it is for.
 
 Where the plan does not hold (its direction is wrong, or it needs a tree decision changed or a choice the owner has
@@ -70,6 +70,7 @@ on_answer = """The owner has answered one of your questions in `answers` with an
 on_review = """Answer each point of `review` in `reply_review`: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
 on_testing = """Answer each point of `testing` in `reply_testing`: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
 on_check = """Answer each point of `check` in `reply_check`: fixed, with its commit, or why not, a dispute over a fact settled by a run."""
+on_reply_plan_doubts = """Judge the answer in `reply_plan_doubts`: where it holds, go on with the plan as it now stands; where it does not, say why in `plan_doubts` again."""
 
 # `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]
