@@ -536,3 +536,32 @@ fn with_the_switch_off_the_request_is_answered_in_the_files_words_and_the_store_
     assert_eq!(off.words(), format!("Words. {said}"));
     assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0, "nothing was made");
 }
+
+#[test]
+fn a_query_of_the_real_store_naming_a_column_its_schema_hides_is_refused_and_one_of_the_others_is_answered() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store::Store::open(dir.path().join(store::FILE)).unwrap();
+    let querying = Querying::new(&on(), Some(&tool("Words.")), dir.path(), store::SCHEMA).unwrap();
+    for (table, column) in [
+        ("ran", "account"),
+        ("backup_failures", "why"),
+        ("results", "result"),
+        ("back", "back"),
+        ("calls", "what"),
+    ] {
+        for sql in [
+            format!("SELECT {column} FROM {table}"),
+            format!("SELECT * FROM {table}"),
+            format!("SELECT count(*) FROM {table} WHERE {column} IS NOT NULL"),
+        ] {
+            let said = ask(&querying, &sql);
+            assert!(said.starts_with("The query failed: "), "{sql}: {said}");
+        }
+    }
+    assert_eq!(rows(&ask(&querying, "SELECT work, run FROM ran")), Vec::<Value>::new());
+    assert_eq!(
+        rows(&ask(&querying, "SELECT count(*) AS n FROM results")),
+        [json!({"n": 0})]
+    );
+    drop(store);
+}
