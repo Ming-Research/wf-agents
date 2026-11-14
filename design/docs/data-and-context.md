@@ -3,7 +3,7 @@
 What decides which cell runs next, and what decides what a round is given, are two things, and they are kept apart.
 Which cell runs depends only on the data: on which of it is new and not yet consumed. What a round is given depends
 only on what the context of its session already has. Neither reads what the other keeps. So a cell says the two
-apart: the data that run it, and the data it is given (5).
+apart: its triggers, what runs it, and its context, the data its session must hold (5).
 
 Whatever a cell needs is brought under this as data with versions, and no second way is made where this one serves.
 The document speaks of the data and of the context only. What else the flow has stays as it is and is not said again
@@ -25,16 +25,20 @@ here: the conditions a cell runs under, the limits, the owner's pauses, when a w
 
 ## Which cell runs
 
-5. A cell names the data that run it, the data it is given, and the data it produces, its outputs. The first two are
-   named apart, each for one of the two things this design keeps apart. Most of what a cell takes is on both sides: a
-   new version of it runs the cell, and its content is given. Some data only run a cell: the design tree, which the
-   agent reads by itself (25), and data that only say that something happened, as that a session was reopened or that
-   the owner spoke to the cell (39). Some are only given: what the cell must hold and what asks nothing of it, as the
-   record of what is said (38) and an output of its own that it brings up to date (21).
+5. A cell names its triggers, what runs it; its context, the data it is given; and the data it produces, its outputs.
+   The first two are named apart, each for one of the two things this design keeps apart. A trigger is an event,
+   named as one, never by a datum's name: that a datum has a new version (`background_changed`, one rule for every
+   datum), or that something happened that holds no content of its own, as the design tree changing, which the agent
+   reads by itself (25), a session reopened, main moving, or the owner speaking to the cell or answering it (39, 35).
+   These last are triggers only, defined apart from the data, and never in a context. A trigger says the data its
+   agent reads for it, which the cell's context holds: the owner speaking runs the cell, and what was said is in
+   `discussion`. Some data are only in a context: what the cell must hold and what asks nothing of it, as the record
+   of what is said (38) and an output of its own that it brings up to date (21).
 
-6. Of each of the data that run it, a cell has consumed the versions up to one of them. Such a datum is new to the
-   cell while its latest version is later than that one. At a cell's first round nothing is consumed yet, and each of
-   them that has a version is new.
+6. A trigger stands on a datum, or, of one with no content, on a version kept only to count what happened. Of each, a
+   cell has consumed the versions up to one of them, and the trigger is new to the cell while a later version stands.
+   The trigger itself has no version: to the agent it is only that it happened. At a cell's first round nothing is
+   consumed yet, and each trigger whose datum has a version is new.
 
 7. The engine chooses by this. Going through the flow from its start, it takes the first cell that something new runs
    and that the flow lets run, and runs it for one round. Entering a cell means this: each round is one entering.
@@ -42,9 +46,9 @@ here: the conditions a cell runs under, the limits, the owner's pauses, when a w
 8. The engine knows nothing of sessions. A session that is reopened reaches it only as a new version of data (25),
    and it chooses as always.
 
-9. A round ends by saying which of the data that ran it it has dealt with. Those versions are consumed, and are old
-   to this cell from then on. What it has not dealt with is still new, so the cell is entered again, until nothing
-   new runs it. A round that fails, or that is told to stop, has dealt with nothing. Data become old in no other way.
+9. A round ends by naming, in `dealt_with`, the triggers that ran it which it has dealt with. Their versions are
+   consumed, and are old to this cell from then on. A trigger it leaves out is still new, so the cell is entered
+   again, until nothing new runs it: the round is told so. A round that fails, or that is told to stop, has dealt with nothing. Data become old in no other way.
 
 10. What the round hands in becomes new versions of the cell's outputs. They are new to the other cells that they run,
     and not to the cell that wrote them. A round that hands in nothing new makes nothing new, and no cell runs because
@@ -55,10 +59,12 @@ here: the conditions a cell runs under, the limits, the owner's pauses, when a w
     forth, or people wrote more than once. What a cell last worked from is therefore the version it consumed, which
     need not be the one before the latest.
 
-12. The engine tells each round which of the data that run its cell are new, and for each of them the version the cell
-    last consumed and the latest. It tells this of data that have no content too, as the design tree and a session
-    reopened: a round that is not told what ran it does not know what to do. The cell's task says, for each of the
-    data that run it, what the agent does when it is new, and how it brings its outputs up to date.
+12. The engine tells each round, last in its message, which of the cell's triggers are new: each by its name, with what
+    happened where the engine has more to say of it (the files of the tree that changed), and what the cell does for
+    it, written on the cell for each trigger (`do`), or on the trigger for every cell. A round that is not told what
+    ran it does not know what to do: the cell's task says what the cell is for, its triggers what to do now. Versions
+    are no part of a trigger's line; what changed of a datum, and from which version, is the context's to say (17). A
+    trigger the cell has never dealt with is told without its `do`: the first time, the task says what to do.
 
 ## The context manager
 
@@ -67,8 +73,10 @@ here: the conditions a cell runs under, the limits, the owner's pauses, when a w
     What a round hands in counts: it is in the context of the session the round ran in.
 
 14. The context manager chooses no cell. Each time the engine runs a cell for a round, the manager compares the data
-    the cell is given with what the session has and fills in what is missing, each by its kind (17), in the order the
-    cell names them. It fills what the cell is given whether or not that is what ran the cell. A cell's task is
+    of the cell's context with what the session has and fills in what is missing, each by its kind (17), in the order
+    the cell names them; of a datum new to the cell that the session holds already, it says only that, with the
+    version the cell last worked from. It fills the context whether or not a datum of it ran the cell, and a trigger
+    with no content fills nothing. A cell's task is
     among what it is given, the latest of it, last, after what it works from: so it is filled once in a session, and
     again only when the session is reopened or the flow changes the task. So is which work and which item the session
     is for, filled where the session lacks it.
@@ -103,13 +111,13 @@ run next all the same, and the note would be filled, since the new session lacks
 
 19. Where several data are new in one round, each is filled by its own kind, and none changes how another is filled.
 
-20. The kind says what is filled. What the agent does with what is new is said by the cell's task (12): to make an
-    output anew, or to bring the last one up to date. An output brought up to date may be handed in whole.
+20. The kind says what is filled. What the agent does with what is new is said by the cell's task and its triggers
+    (12): to make an output anew, or to bring the last one up to date. An output brought up to date may be handed in whole.
 
-21. A cell that brings an output up to date is given that output, and the flow says so as of anything a cell is given:
+21. A cell that brings an output up to date has that output in its context, and the flow says so as of any datum:
     the manager fills it by its kind where the session lacks it, as in a session reopened since. Nothing is filled
-    into a session that its cell is not given, its own outputs included. Being given an output does not have the
-    output run the cell: what runs it is named apart (5).
+    into a session that is not in its cell's context, its own outputs included. Having an output in its context does
+    not have the output run the cell: its triggers are named apart (5).
 
 22. How far a change travels follows from this. An output made anew is a new version each time, so the change reaches
     the cells after. A round that brings its outputs up to date may find that they stand as they are and hand in
