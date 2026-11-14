@@ -7,7 +7,8 @@
 //!
 //! - `GET /api/v1/flow`: the definition shown ([`view::Definition`]).
 //! - `GET /api/v1/flow/given`: what an agent is sent as the engine enters each agent's cell of the definition shown,
-//!   part by part in the order sent ([`given::Given`]), as the design lays it out; the engine does not send it so yet.
+//!   part by part in the order sent ([`given::Given`]): the system prompt and the message as the engine makes them,
+//!   every form of each part.
 //! - With the engine running, the items and the works ([`interface`], whose types are in [`works`]), and what needs
 //!   whoever plans the work since a mark ([`attention`]).
 //! - `GET /api/v1/backup`: how the copies of the database stand ([`copies`]).

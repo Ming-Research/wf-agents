@@ -26,24 +26,26 @@ pub struct Filled {
 /// `data-and-context`, 14).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Fill {
-    /// Which work, and which item it is done for, the session is for, by their numbers.
-    For { work: u64, item: u64 },
-    /// The cell's task, as the flow the round ran on has it, by the digest of its text ([`Fill::task`]), by which a
-    /// task the flow changed since is told apart.
-    Task { digest: String },
+    /// A part of the message that the session keeps, as data are kept, by its `part` in the flow's message and the
+    /// digest of its text as it was sent ([`Fill::part`]), by which a text that changed since is told apart: which work
+    /// and item the session is for, what the cell returns, the cell's task.
+    Part { part: String, digest: String },
     /// A version of a block, whole: the version is named by the place of the entry that wrote it.
     Whole { block: BlockId, version: Seq },
     /// A version of a block, as what changed in it since an earlier version, which the session held.
     Change { block: BlockId, version: Seq, since: Seq },
     /// The results of these calls: those the cell's last round asked for (design document `data-and-context`, 28).
     Results(Vec<CallId>),
+    /// Why what the round of this number of the same run returned was sent back.
+    SentBack { round: usize },
 }
 
 impl Fill {
-    /// The task of this text filled: its digest is the SHA-1 of the text, in hexadecimal. It tells two texts apart,
-    /// and keeps no text of its own (principle `stored-content-is-kept-small`).
-    pub fn task(text: &str) -> Fill {
-        Fill::Task {
+    /// The part of the message of this name, filled with this text: its digest is the SHA-1 of the text, in
+    /// hexadecimal. It tells two texts apart, and keeps no text of its own (principle `stored-content-is-kept-small`).
+    pub fn part(part: &str, text: &str) -> Fill {
+        Fill::Part {
+            part: part.to_string(),
             digest: sha1_smol::Sha1::from(text).digest().to_string(),
         }
     }
@@ -58,10 +60,13 @@ pub enum FillFault {
     NoVersion(Seq),
     /// The filling fills a block as what changed since a version that is not earlier than the one filled.
     NotSince(Seq),
+    /// The filling fills why a round was sent back that is not of its run's rounds up to its own.
+    NotEarlier(Seq),
 }
 
-/// Whether what the work says was filled can be: each filling names a try its records hold, and each version it fills
-/// is a version of its block, a change filled since an earlier one.
+/// Whether what the work says was filled can be: each filling names a try its records hold, each version it fills is a
+/// version of its block, a change filled since an earlier one, and each round sent back it fills is one of its run's
+/// rounds up to its own.
 pub fn check(work: &Work) -> Result<(), FillFault> {
     let records = &work.records;
     for f in &work.filled {
@@ -73,7 +78,10 @@ pub fn check(work: &Work) -> Result<(), FillFault> {
             let (block, version, since) = match fill {
                 Fill::Whole { block, version } => (block, *version, None),
                 Fill::Change { block, version, since } => (block, *version, Some(*since)),
-                Fill::For { .. } | Fill::Task { .. } | Fill::Results(_) => continue,
+                Fill::SentBack { round } if *round == 0 || *round > f.round => {
+                    return Err(FillFault::NotEarlier(f.at));
+                }
+                Fill::Part { .. } | Fill::Results(_) | Fill::SentBack { .. } => continue,
             };
             if !std::iter::once(version).chain(since).all(|v| records.wrote(block, v)) {
                 return Err(FillFault::NoVersion(f.at));
@@ -155,11 +163,12 @@ mod tests {
     #[test]
     fn what_a_try_can_have_been_filled_with_is_no_fault() {
         let fills = vec![
-            Fill::For { work: 1, item: 1 },
-            Fill::task("Write the text."),
+            Fill::part("work", "Work W1, on the item #1."),
+            Fill::part("task", "Write the text."),
             whole(1),
             change(2, 1),
             Fill::Results(vec![]),
+            Fill::SentBack { round: 1 },
         ];
         assert_eq!(check(&work(fills)), Ok(()));
         assert_eq!(check(&work(vec![])), Ok(()));
@@ -194,15 +203,29 @@ mod tests {
     }
 
     #[test]
-    fn a_task_is_filled_by_the_digest_of_its_text() {
+    fn a_round_sent_back_filled_that_is_not_of_its_run_s_rounds_up_to_its_own_is_a_fault() {
+        for round in [0, 2] {
+            let sent_back = Fill::SentBack { round };
+            assert_eq!(
+                check(&work(vec![sent_back])),
+                Err(FillFault::NotEarlier(Seq(6))),
+                "{round}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_part_is_filled_by_the_digest_of_its_text() {
         // The SHA-1 of "abc", as its standard gives it.
         assert_eq!(
-            Fill::task("abc"),
-            Fill::Task {
+            Fill::part("task", "abc"),
+            Fill::Part {
+                part: "task".into(),
                 digest: "a9993e364706816aba3e25717850c26c9cd0d89d".into()
             }
         );
-        assert_eq!(Fill::task("Write the text."), Fill::task("Write the text."));
-        assert_ne!(Fill::task("Write the text."), Fill::task("Write the text again."));
+        assert_eq!(Fill::part("task", "Write."), Fill::part("task", "Write."));
+        assert_ne!(Fill::part("task", "Write."), Fill::part("task", "Write again."));
+        assert_ne!(Fill::part("task", "Write."), Fill::part("work", "Write."));
     }
 }

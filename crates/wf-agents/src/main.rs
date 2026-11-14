@@ -2,8 +2,10 @@
 //!
 //! - `running`: `wf-agents run`, the engine as a process.
 //! - `talk`: the commands that talk to a running engine.
+//! - `situations`: `wf-agents flow situations`, what each agent's cell is sent in every situation it can be in.
 
 mod running;
+mod situations;
 mod talk;
 
 use std::net::{Ipv4Addr, SocketAddr};
@@ -235,12 +237,52 @@ enum FlowCommand {
         #[arg(long, default_value_t = 7490)]
         port: u16,
     },
+    /// Writes what each agent's cell of the definition in a directory is sent in every situation an entry of it can be
+    /// in, a file for each situation in a directory for the cell: the situation, the system prompt of its line, the
+    /// message and the form of a return, what a run fills left open as `{name}`. It reads nothing of an installation
+    /// or a work, and prints for each cell how many situations it wrote.
+    Situations {
+        /// The definition's directory.
+        dir: PathBuf,
+        /// The directory each cell's directory is made in; a cell's that holds files already is refused.
+        #[arg(long)]
+        out: PathBuf,
+        /// Only this cell, by its id.
+        #[arg(long)]
+        cell: Option<String>,
+        /// The project's checkout, whose files the system prompt holds; they are left out where none is given.
+        #[arg(long)]
+        project: Option<PathBuf>,
+    },
 }
 
 fn main() -> ExitCode {
     match Cli::parse().command {
         Command::Flow(FlowCommand::Check { dir }) => check(&dir),
         Command::Flow(FlowCommand::Page { dir, port }) => page(dir, port),
+        Command::Flow(FlowCommand::Situations {
+            dir,
+            out,
+            cell,
+            project,
+        }) => {
+            let asked = situations::Asked {
+                dir: &dir,
+                out: &out,
+                cell: cell.as_deref(),
+                project: project.as_deref(),
+            };
+            match situations::write(&asked, &has(&dir)) {
+                Ok(said) => {
+                    said.iter().for_each(|line| println!("{line}"));
+                    ExitCode::SUCCESS
+                }
+                Err(why) => {
+                    eprintln!("{why}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
         Command::Run {
             data,
             flows,

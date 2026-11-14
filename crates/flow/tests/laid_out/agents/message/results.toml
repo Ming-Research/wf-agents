@@ -1,0 +1,9 @@
+# What a round of the tests is told of the results of its calls.
+heading = "## Results"
+tool = "### `{name}` on {input}"
+tool_alone = "### `{name}`"
+question = "### Asked: {question}"
+at_limit = "### Let go on"
+unknown = "### Call {call}: none such"
+none = "(none)"
+after = "Go on."

@@ -54,18 +54,14 @@ async fn a_compaction_within_a_round_is_counted_and_given_the_rounds_whole_messa
     real.act(work, Act::Resume);
     real.until(|real| ended(&real.decision(work))).await;
     let calls = real.calls();
-    assert!(
-        calls[1].stdin.starts_with("# Build (cell `build`), round 1\n"),
-        "{}",
-        calls[1].stdin
-    );
+    assert!(calls[1].of("Build"), "{}", calls[1].stdin);
     // What the hook gave the build's session again is the whole message, as a session that begins is told it.
     let again = std::fs::read_to_string(real.calls_dir().join("2.again")).expect("the hook ran");
     assert!(
         again.starts_with("Your session was compacted during this round."),
         "{again}"
     );
-    for part in ["# Build (cell `build`), round 1", "## Your task", "## What it reads"] {
+    for part in ["\n# Build\n", "## Your task\n\nBuild", "## What this cell returns"] {
         assert!(again.contains(part), "{part} is missing from:\n{again}");
     }
     let kept = real.work(work);
@@ -128,12 +124,10 @@ async fn a_run_waiting_as_its_line_begins_a_new_session_is_told_its_task_and_its
     real.act(work, Act::Answer { call, result });
     real.until(|real| ended(&real.decision(work))).await;
     let calls = real.calls();
-    let builds: Vec<&Call> = (calls.iter())
-        .filter(|c| c.stdin.starts_with("# Build (cell `build`), round 1\n"))
-        .collect();
+    let builds: Vec<&Call> = (calls.iter()).filter(|c| c.of("Build")).collect();
     let first = builds[0];
     let again = (calls.iter())
-        .filter(|c| c.stdin.starts_with("# Plan (cell `plan`), round 1\n"))
+        .filter(|c| c.of("Plan"))
         .nth(1)
         .expect("the plan ran again");
     let second = builds[1];
@@ -142,11 +136,20 @@ async fn a_run_waiting_as_its_line_begins_a_new_session_is_told_its_task_and_its
     // The build, entered again for the answer, goes on in the session the plan began, which never saw the build: it
     // is told its task and what it is answered, as a round that begins a session is.
     assert_eq!(second.session(), ("--resume", again.session().1));
-    for part in ["## Your task", "## What it reads", "By their first name."] {
+    for part in [
+        "## Your task\n\nBuild",
+        "## What this cell returns",
+        "By their first name.",
+    ] {
         assert!(second.stdin.contains(part), "{part} is missing from:\n{}", second.stdin);
     }
-    // Entered again for the check, it goes on in the same session, which saw its last run: it is told only its results.
+    // Entered again for the check, it goes on in the same session, which saw its last run: it is told its task by its
+    // held line.
     let third = builds[2];
     assert_eq!(third.session(), ("--resume", again.session().1));
-    assert!(!third.stdin.contains("## Your task"), "{}", third.stdin);
+    assert!(
+        third.stdin.contains("As given before in this session"),
+        "{}",
+        third.stdin
+    );
 }

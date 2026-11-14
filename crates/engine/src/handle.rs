@@ -11,7 +11,7 @@ use decide::{
 use flow::{Compiled, Kind};
 
 use crate::event::{Effect, Event, Gate, Refused};
-use work::{Ask, Back, Call, Given, Moment, Ran, Session, Time, Work};
+use work::{Ask, Back, Call, Filled, Given, Moment, Ran, Session, Time, Work};
 
 /// Takes one thing that happened to the work, at the time the driver's clock gives, and gives what is to be done for
 /// it outside the engine, were nothing outside the work to hold it back ([`Room::FREE`], [`Gate::Open`]). Where the
@@ -410,6 +410,20 @@ fn take(flow: &Compiled, work: &mut Work, event: Event) -> Result<(), Refused> {
                 round: number,
                 attempt,
                 on,
+            });
+        }
+        Event::Filled { run, attempt, fills } => {
+            let number = began(work, run);
+            if number == ended(work, run) {
+                return Err(Refused::NoRoundUnderWay(run));
+            }
+            let at = work.tick();
+            work.filled.push(Filled {
+                at,
+                run,
+                round: number,
+                attempt,
+                fills,
             });
         }
         Event::NotReleased { why } => {

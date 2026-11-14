@@ -29,3 +29,10 @@ a-run-that-changes-the-code-takes-main-in). The merge only merges.
 Why: The check is a cell of its own because a work ends when the merge has a record: nothing the merge wrote could
 send the work back. Main as an input of every cell was turned down, which would run a whole work again at each merge
 of another.
+
+### decision the-tree-runs-no-cell
+The design tree is a datum each cell that reads the tree is given `last_and_latest`, the files that changed since the
+version its session read, and runs no cell; of what comes from outside the work, only main runs a cell, the check before
+the merge.
+Why: A changed tree run as a trigger would run the reading cell again, and every cell after it, for each commit that
+touches the tree; given as a datum, it is read where the line goes on, by the cell that next enters the session.

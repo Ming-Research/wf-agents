@@ -1,10 +1,11 @@
 //! What an agent is sent as the engine enters a cell, as the owner's page shows it for the flow as it is written:
 //! every part, in the order it is sent, with the text of each part that is written already, and where it comes from.
 //!
-//! It lays the parts out as the design of data and context has them (`design/docs/data-and-context.md`), out of the
-//! definition and of what the engine says to every agent (`flow::agents`); the engine's rounds are not told so yet.
-//! Nothing here reads what a session holds, which is known only in a run: a session is sent what it lacks, so the page
-//! shows one list for a cell.
+//! The system prompt is the engine's, made as the engine makes it (`flow::system`), and the message is built by the
+//! builder the engine sends it with (crate `context`), as the files define it: every form of each part, with the
+//! places of a run open. Nothing here reads what a session holds, which is known only in a run: a session is sent what
+//! it lacks, so the page shows one list for a cell, and which form of each part an entry sends is the builder's, tried
+//! by its tests.
 //!
 //! Every word sent is read from the files of the flow and from those beside it, and what the page is given of each part
 //! is its key and attributes there, as written; this code holds no word, only how they are put together: which part
@@ -14,10 +15,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use decide::BlockId;
-use flow::agents::Piece as Words;
-use flow::agents::{Agents, MessagePart, Only, Part as PartIs};
-use flow::{CellSpec, Compiled, Given as GivenBlock, Kind};
+use flow::agents::{Agents, Part as PartIs};
+use flow::system::{with_slots, written};
+use flow::{CellSpec, Compiled, Kind};
 use serde::Serialize;
 
 use crate::view::InputKind;
@@ -96,6 +96,10 @@ pub struct Part {
     pub held: Vec<Piece>,
     /// Of the content of a block, what is sent in place of its text where the session lacks what the text needs.
     pub whole: Vec<Piece>,
+    /// Of the triggers' part, the line of each trigger of the cell, by the trigger's name, in the order the cell names
+    /// them, which come after `pieces` for each trigger that ran the cell; and then `after`.
+    pub items: Vec<(String, Vec<Piece>)>,
+    pub after: Vec<Piece>,
 }
 
 /// What the page is given of it.
@@ -155,8 +159,8 @@ pub fn given(flow: &Compiled, alike: &Alike) -> Given {
         alike,
     };
     let mut cells = BTreeMap::new();
-    for (place, cell) in flow.cells.iter().enumerate().filter(|(_, c)| c.kind == Kind::Agent) {
-        match build.parts(place, cell) {
+    for cell in flow.cells.iter().filter(|c| c.kind == Kind::Agent) {
+        match build.parts(cell) {
             Ok(parts) => cells.insert(cell.id.as_str().to_string(), parts),
             Err(why) => return Given::Unread { why },
         };
@@ -289,13 +293,6 @@ impl<'a> Build<'a> {
         }
     }
 
-    /// The blocks a cell writes as blocks, leaving out a datum it writes through a field of the return.
-    fn blocks(&self, place: usize) -> Vec<&'a BlockId> {
-        (self.flow.flow.cells()[place].outputs.iter())
-            .filter(|b| self.flow.blocks.get(*b).is_none_or(|d| d.field.is_none()))
-            .collect()
-    }
-
     fn part(&self, what: What, carried: Carried, name: &str, source: String, pieces: Vec<Piece>) -> Part {
         Part {
             what,
@@ -308,10 +305,12 @@ impl<'a> Build<'a> {
             pieces,
             held: Vec::new(),
             whole: Vec::new(),
+            items: Vec::new(),
+            after: Vec::new(),
         }
     }
 
-    fn parts(&self, place: usize, cell: &CellSpec) -> Result<Vec<Part>, String> {
+    fn parts(&self, cell: &CellSpec) -> Result<Vec<Part>, String> {
         let agents = self.agents;
         let session = self.source("agents/session.toml");
         let mut out = vec![self.part(What::Program, Carried::Program, "program", session, Vec::new())];
@@ -334,179 +333,39 @@ impl<'a> Build<'a> {
         for part in flow::system::parts(agents, self.flow, cell, read).map_err(|wrong| wrong.join("; "))? {
             out.push(self.part(What::System, Carried::System, &part.name, part.source, part.pieces));
         }
-        let message = self.source("agents/message/message.toml");
-        for part in &agents.message.parts {
-            // What stands in a part's place where the session holds it, with the places the flow fills in filled.
-            let held = (part.held.as_deref()).map_or_else(Vec::new, |held| fill(held, &[("title", &cell.title)]));
-            let kind = part.kind.map(|k| kind_name(InputKind::of(k)).to_string());
-            let made = |what: What, source: String, pieces: Vec<Piece>| Part {
+        // The message as the engine's builder defines it, each form of each part with the places of a run open.
+        for part in context::defined(self.flow, agents, cell) {
+            let (what, source) = self.of_part(cell, part.part);
+            out.push(Part {
+                what,
+                carried: Carried::Message,
+                name: part.block.as_ref().map_or(part.part.name(), |b| b.as_str()).to_string(),
                 only: part.only.map(|o| o.name().to_string()),
-                kind: kind.clone(),
-                held: held.clone(),
-                ..self.part(what, Carried::Message, part.part.name(), source, pieces)
-            };
-            match part.part {
-                PartIs::Taken | PartIs::Work => out.push(made(What::Message, message.clone(), self.text(part, &[]))),
-                PartIs::Heading => {
-                    let pieces = self.text(part, &[("title", &cell.title)]);
-                    out.push(made(What::Message, message.clone(), pieces));
-                }
-                PartIs::Main => {
-                    if part.only != Some(Only::TakesMain) || cell.takes_main {
-                        out.push(made(What::Message, message.clone(), self.main(part)));
-                    }
-                }
-                PartIs::Context => {
-                    for given in &cell.given {
-                        out.push(self.input(given));
-                    }
-                }
-                PartIs::Triggers => out.push(made(What::Message, message.clone(), self.triggers(part, cell))),
-                PartIs::Outputs => {
-                    let source = self.source("agents/return/return.toml");
-                    out.push(made(What::Outputs, source, self.outputs(place, cell)));
-                }
-                PartIs::Task => {
-                    let task = cell.task.as_deref().unwrap_or_default().trim_end();
-                    let pieces = self.text(part, &[("task", task)]);
-                    out.push(made(What::Task, self.task_source(cell), pieces));
-                }
-            }
+                source,
+                block: part.block.map(|b| b.as_str().to_string()),
+                kind: part.kind.map(|k| kind_name(InputKind::of(k)).to_string()),
+                pieces: part.pieces,
+                held: part.held,
+                whole: part.whole,
+                items: part.items,
+                after: part.after,
+            });
         }
         Ok(out)
     }
 
-    /// A part's own text, with the places the flow fills in filled.
-    fn text(&self, part: &MessagePart, known: &[(&str, &str)]) -> Vec<Piece> {
-        part.text.as_deref().map_or_else(Vec::new, |text| fill(text, known))
-    }
-
-    /// The part about taking main in: each text of its definition as the file writes it, by its key, with the places
-    /// the engine fills in a run left as places.
-    fn main(&self, part: &MessagePart) -> Vec<Piece> {
-        let texts = [
-            ("text", &part.text),
-            ("conflict", &part.conflict),
-            ("uncommitted", &part.uncommitted),
-            ("merging", &part.merging),
-            ("failed", &part.failed),
-            ("between", &part.between),
-        ];
-        let mut pieces = Vec::new();
-        for (key, text) in texts {
-            let Some(text) = text else { continue };
-            if !pieces.is_empty() {
-                pieces.push(Piece::Text { text: "\n".to_string() });
+    /// What a part of the message is, for the page, and the file its words come from.
+    fn of_part(&self, cell: &CellSpec, part: PartIs) -> (What, String) {
+        match part {
+            PartIs::Context => (What::Input, self.source("agents/message/given.toml")),
+            PartIs::Outputs => (What::Outputs, self.source("agents/return/return.toml")),
+            PartIs::Task => (What::Task, self.task_source(cell)),
+            PartIs::Results => (What::Message, self.source("agents/message/results.toml")),
+            PartIs::SentBack => (What::Message, self.source("agents/return/sent_back.toml")),
+            PartIs::Taken | PartIs::Heading | PartIs::Work | PartIs::Main | PartIs::Triggers => {
+                (What::Message, self.source("agents/message/message.toml"))
             }
-            pieces.push(Piece::Text {
-                text: format!("{key} = "),
-            });
-            pieces.extend(with_slots(text));
         }
-        join(pieces)
-    }
-
-    /// The triggers' part: its text, then its `each` for every trigger of the cell, with what happened where the
-    /// trigger has a place for it and what the cell does where it says, then `after`.
-    fn triggers(&self, part: &MessagePart, cell: &CellSpec) -> Vec<Piece> {
-        let mut pieces = self.text(part, &[]);
-        let each = part.each.as_deref().unwrap_or_default();
-        for trigger in &cell.triggers {
-            // What happened is a place filled in a run, under the trigger's own name for it.
-            let detail = match (&trigger.detail, &part.detail) {
-                (Some(place), Some(detail)) => detail.replace("{detail}", &format!("{{{place}}}")),
-                _ => String::new(),
-            };
-            let line = each.replace("{detail}", &detail);
-            let does = match (&trigger.does, &part.does) {
-                (Some(words), Some(does)) => does.replace("{do}", words.trim()),
-                _ => String::new(),
-            };
-            // The words of what the cell does are sent as they are, after the line's places are found.
-            let (line, rest) = line.split_once("{do}").unwrap_or((&line, ""));
-            pieces.extend(fill(line, &[("trigger", &trigger.name)]));
-            pieces.push(Piece::Text { text: does });
-            pieces.extend(with_slots(rest));
-        }
-        if let Some(after) = &part.after {
-            pieces.extend(with_slots(after));
-        }
-        join(pieces)
-    }
-
-    /// What fills the places of the line of a block in what a cell returns that say what it is, each where it holds
-    /// and nothing where it does not: `{choice}`, that it is a choice, with its values; `{shown}`, that the owner reads
-    /// it; `{must_write}`, that the cell must hand it in every time. Each fills its place wherever the line has it.
-    fn marks(&self, cell: &CellSpec, block: &str) -> [(&'static str, String); 3] {
-        let told = &self.agents.returns.outputs;
-        let declared = self.flow.blocks.get(&BlockId::from(block));
-        let choice = (declared.and_then(|b| b.values.as_ref()))
-            .map_or_else(String::new, |values| told.choice.replace("{values}", &ticked(values)));
-        let shown = if declared.is_some_and(|b| b.readers.shown) {
-            told.shown.clone()
-        } else {
-            String::new()
-        };
-        let must_write = if cell.must_write.iter().any(|b| b.as_str() == block) {
-            told.must_write.clone()
-        } else {
-            String::new()
-        };
-        [("choice", choice), ("shown", shown), ("must_write", must_write)]
-    }
-
-    /// The content of a block the cell is given, by the kind it is given in.
-    fn input(&self, given_block: &GivenBlock) -> Part {
-        let given = &self.agents.given;
-        let block = &given_block.block;
-        let words = match given_block.kind {
-            flow::InputKind::Latest => &given.latest,
-            flow::InputKind::LastAndLatest => &given.last_and_latest,
-            flow::InputKind::All => &given.all,
-        };
-        let choice = match self.flow.blocks.get(block) {
-            Some(declared) if declared.values.is_some() => given.choice.as_str(),
-            _ => "",
-        };
-        let pieces = fill(&words.text.replace("{choice}", choice), &[("block", block.as_str())]);
-        Part {
-            block: Some(block.as_str().to_string()),
-            kind: Some(kind_name(InputKind::of(given_block.kind)).to_string()),
-            held: fill(&given.held, &[("block", block.as_str())]),
-            whole: (words.whole.as_deref()).map_or_else(Vec::new, |w| {
-                fill(&w.replace("{choice}", choice), &[("block", block.as_str())])
-            }),
-            ..self.part(
-                What::Input,
-                Carried::Message,
-                block.as_str(),
-                self.source("agents/message/given.toml"),
-                pieces,
-            )
-        }
-    }
-
-    /// What a cell is told it writes, with its task: its blocks, each on a line with its marks and its words; that it
-    /// writes none, where it writes none.
-    fn outputs(&self, place: usize, cell: &CellSpec) -> Vec<Piece> {
-        let told = &self.agents.returns.outputs;
-        let lines: Vec<String> = (self.blocks(place).iter())
-            .map(|b| {
-                let what = (self.flow.blocks.get(*b))
-                    .and_then(|d| d.what.clone())
-                    .unwrap_or_default();
-                let marks = self.marks(cell, b.as_str());
-                let mut known: Vec<(&str, &str)> = vec![("block", b.as_str()), ("what", &what)];
-                known.extend(marks.iter().map(|(name, words)| (*name, words.as_str())));
-                flow::agents::fill(&told.block, &known)
-            })
-            .collect();
-        let list = if lines.is_empty() {
-            told.none.clone()
-        } else {
-            lines.join("\n")
-        };
-        with_slots(&[told.heading.clone(), list].join("\n\n"))
     }
 }
 
@@ -547,91 +406,5 @@ fn kind_name(kind: InputKind) -> &'static str {
         InputKind::Latest => "latest",
         InputKind::LastAndLatest => "last_and_latest",
         InputKind::All => "all",
-    }
-}
-
-/// Names, each between backticks, joined by commas.
-fn ticked(names: &[String]) -> String {
-    names.iter().map(|n| format!("`{n}`")).collect::<Vec<_>>().join(", ")
-}
-
-/// A text sent as written, or nothing where there is none.
-fn written(text: &str) -> Vec<Piece> {
-    if text.is_empty() {
-        return Vec::new();
-    }
-    vec![Piece::Text { text: text.to_string() }]
-}
-
-/// A text with the places the flow fills in filled, each by its name; a place filled in a run stays one. What fills a
-/// place is sent as it is: a place in it is not filled again. The places are found as the engine finds them
-/// ([`flow::agents::pieces`]).
-fn fill(text: &str, known: &[(&str, &str)]) -> Vec<Piece> {
-    let pieces = (flow::agents::pieces(text).into_iter())
-        .map(|piece| match piece {
-            Words::Place(name) => match known.iter().find(|(k, _)| *k == name) {
-                Some((_, value)) => Piece::Text {
-                    text: value.to_string(),
-                },
-                None => Piece::Slot { name: name.to_string() },
-            },
-            Words::Text(text) => Piece::Text { text: text.to_string() },
-        })
-        .collect();
-    join(pieces)
-}
-
-/// Pieces with each run of text made one, and no empty text.
-fn join(pieces: Vec<Piece>) -> Vec<Piece> {
-    let mut out: Vec<Piece> = Vec::new();
-    for piece in pieces {
-        match (out.last_mut(), piece) {
-            (Some(Piece::Text { text }), Piece::Text { text: more }) => text.push_str(&more),
-            (_, piece) => out.push(piece),
-        }
-    }
-    out.retain(|p| !matches!(p, Piece::Text { text } if text.is_empty()));
-    out
-}
-
-/// A text with its places to fill in apart from what is sent as written, found as the engine finds them.
-pub(crate) fn with_slots(text: &str) -> Vec<Piece> {
-    fill(text, &[])
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn text(text: &str) -> Piece {
-        Piece::Text { text: text.into() }
-    }
-
-    #[test]
-    fn a_place_to_fill_in_is_told_apart_from_what_is_sent_as_written_and_a_lone_brace_is_sent() {
-        assert_eq!(
-            with_slots("Work here. {your_line} Write in {owner_language}."),
-            vec![
-                text("Work here. "),
-                Piece::Slot {
-                    name: "your_line".into()
-                },
-                text(" Write in "),
-                Piece::Slot {
-                    name: "owner_language".into()
-                },
-                text(".")
-            ]
-        );
-        assert_eq!(with_slots("a {\"type\": 1} b {x"), vec![text("a {\"type\": 1} b {x")]);
-        assert_eq!(with_slots(""), Vec::<Piece>::new());
-    }
-
-    #[test]
-    fn what_fills_a_place_is_not_filled_again() {
-        assert_eq!(
-            fill("## {task}", &[("task", "say {{q}} and {x}")]),
-            vec![text("## say {{q}} and {x}")]
-        );
     }
 }

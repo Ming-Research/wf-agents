@@ -94,7 +94,7 @@ async fn a_round_the_safety_check_flagged_is_given_again_at_once_in_a_new_sessio
     assert_ne!(calls[0].session().1, calls[1].session().1);
     assert!(calls[1].stdin.contains("## Your task"), "{}", calls[1].stdin);
     // The rounds of the line after it go on in the new session, charged only what they cost more.
-    let later = (calls.iter().skip(2)).find(|c| c.stdin.contains("cell `plan`"));
+    let later = (calls.iter().skip(2)).find(|c| c.of("Plan"));
     if let Some(later) = later {
         assert_eq!(later.session(), ("--resume", calls[1].session().1));
     }
@@ -117,8 +117,9 @@ async fn a_session_not_found_is_begun_again_with_the_task_and_the_list() {
     let (refused, again) = (&calls[2], &calls[3]);
     assert_eq!(refused.session().0, "--resume");
     assert!(
-        !refused.stdin.contains("## Your task"),
-        "a round that goes on is told only its results"
+        refused.stdin.contains("As given before in this session"),
+        "a round that goes on is told its task by its held line: {}",
+        refused.stdin
     );
     assert_eq!(again.session(), ("--session-id", refused.session().1));
     let lost = (real.work(work).sessions.iter())
@@ -126,8 +127,8 @@ async fn a_session_not_found_is_begun_again_with_the_task_and_the_list() {
         .count();
     assert_eq!(lost, 1, "the session begun again is recorded once, with why");
     for part in [
-        "## Your task",
-        "## What it reads",
+        "## Your task\n\nBuild",
+        "## What this cell returns",
         "## The results of what you asked for",
     ] {
         assert!(again.stdin.contains(part), "{part} is missing from:\n{}", again.stdin);
@@ -168,11 +169,7 @@ async fn a_session_lost_on_a_later_run_is_begun_again_with_the_task_and_the_runs
     assert_eq!(calls.len(), 6);
     let again = &calls[4];
     assert_eq!(again.session().0, "--session-id");
-    assert!(
-        again.stdin.starts_with("# Build (cell `build`), round 1\n"),
-        "{}",
-        again.stdin
-    );
+    assert!(again.stdin.starts_with("# Build\n"), "{}", again.stdin);
     let checked = rows(r#"{"sql":"select the check"}"#);
     for part in ["## Your task", "## The results of what you asked for", &checked] {
         assert!(again.stdin.contains(part), "{part} is missing from:\n{}", again.stdin);

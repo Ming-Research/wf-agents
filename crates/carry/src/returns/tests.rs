@@ -96,10 +96,16 @@ pub(crate) fn cell(flow: &Compiled) -> &CellSpec {
         .expect("the cell")
 }
 
+/// What is written beside the flows, as the flow crate's tests have it.
+fn words() -> flow::agents::Agents {
+    let beside = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../flow/tests/laid_out");
+    flow::agents::read(&beside).expect("the words beside the flows of the tests are read")
+}
+
 /// What came back, read against the cell `write`.
 fn read(r: &Value) -> Result<Came, String> {
     let flow = flow();
-    came(r, &flow, cell(&flow), &crate::message::tests::words())
+    came(r, &flow, cell(&flow), &words())
 }
 
 fn handed(block: &str, content: &str, matters: bool, value: Option<&str>) -> Handed {

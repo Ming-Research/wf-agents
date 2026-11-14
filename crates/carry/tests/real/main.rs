@@ -174,6 +174,14 @@ pub struct Call {
     pub overlapped: bool,
 }
 
+impl Call {
+    /// Whether it was given the message of the cell of this title: its heading is a line of it.
+    pub fn of(&self, title: &str) -> bool {
+        let heading = format!("# {title}");
+        self.stdin.lines().any(|line| line == heading)
+    }
+}
+
 /// The tools of the real carriers, but `query`, which the tests answer at once, with the rows of what it was asked.
 struct Queries {
     real: Arc<dyn Tools>,
@@ -311,14 +319,15 @@ if [ '{fail}' = yes ] && [ "$n" = 1 ]; then
     echo 'Prompt is too long: the fake fails its first call.' >&2
     exit 1
 fi
-first=$(head -n 1 "$log/$n.stdin" | sed 's/^.*"text":"\([^\\]*\)\\n.*$/\1/')
-dealt=$(awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin" | sed -n '/^## Why you are run$/,$p' | sed -n 's/^- `\([^`]*\)`.*$/"\1"/p' | paste -sd, -)
+text=$(awk '{{gsub(/\\n/, "\n"); print}}' "$log/$n.stdin")
+first=$(printf '%s\n' "$text" | grep -m 1 -E '(^|"text":")# (Plan|Build|Review)$' | sed 's/^.*# //')
+dealt=$(printf '%s\n' "$text" | sed -n '/^## Why you are run$/,$p' | sed -n 's/^- `\([^`]*\)`.*$/"\1"/p' | paste -sd, -)
 calls=''
 out=''
 unchanged=''
 asked=''
 case "$first" in
-    *'cell `plan`'*)
+    Plan)
         if [ '{sleeps}' != 0 ] && [ ! -f "$log/slept" ]; then
             touch "$log/slept"
             sleep '{sleeps}'
@@ -331,7 +340,7 @@ case "$first" in
             printf 'A line the work added.\n' >> '{guide}'
         fi
         out='"plan":"Greet by name."' ;;
-    *'cell `build`'*)
+    Build)
         results=no
         grep -q 'The results of what you asked for' "$log/$n.stdin" && results=yes
         checked=no
@@ -364,7 +373,7 @@ case "$first" in
             git -c user.name=Fake -c user.email=fake@example.com commit -q --allow-empty -m 'Build the greeting'
             out='"code":"A greeting."'
         fi ;;
-    *'cell `review`'*) out='"verdict":{{"value":"yes","why":"Fine."}}' ;;
+    Review) out='"verdict":{{"value":"yes","why":"Fine."}}' ;;
 esac
 if [ -n "$calls" ]; then
     structured="{{\"calls\":{{$calls}}}}"

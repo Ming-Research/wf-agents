@@ -3,7 +3,8 @@
 # since the version the cell last worked from, or the whole where the session lacks that one or the change would be
 # longer; `all`, each version the session lacks, whole. `{choice}` in a text is `choice` below for a datum that is a
 # choice, and nothing for another. Filled in a run: `number`, `last_number`, `first_number`, `value`, `content`;
-# `diff`, each changed line with two on each side; `each_version`, each later version as the first.
+# `diff`, each changed line with two on each side, or, of a datum whose versions the engine compares itself, as the
+# design tree's, what it says changed: the files, one to a line; `each_version`, each later version as the first.
 choice = ", with the value `{value}`"
 # What stands in place of a datum's content where the session holds its latest version already: `{number}` its latest
 # version, `{last_number}` the one the cell last worked from.

@@ -102,8 +102,10 @@ run next all the same, and the note would be filled, since the new session lacks
 
 ## What an agent reads by itself
 
-22. Not everything in a context is data. What an agent reads on its own account, the design tree and the code, is in
-    the context of the session that read it and nowhere else, and the context manager cannot fill it in.
+22. Not everything in a context is data. What an agent reads on its own account, the files of the design tree and
+    the code, is in the context of the session that read it and nowhere else, and the context manager cannot fill it
+    in. Of the tree it fills in the version, the commit and the id of the tree, and what changed since the version the
+    session read, as the files that changed, so that the agent reads those again.
 
 23. `AGENTS.md` can be put into a context as it is. So it is data, which the cell of every agent takes: the context
     manager fills it into each new session, and a cell runs again because of it only when its content changed.
@@ -111,8 +113,9 @@ run next all the same, and the note would be filled, since the new session lacks
 24. The design tree is read by the agent, which chooses what bears on the problem. One cell does this reading for the
     cells that follow it in its session. So that the reading is done again in a session reopened, this cell takes
     `session`: data that stand for the session of a line, one for each line, and get a new version each time that
-    session is reopened. The cell also takes the design tree, so that a change of the tree has it read again. No data
-    stand for the reading itself. What the cell finds for other cells it hands in as any cell does; run again for a
+    session is reopened. The tree runs no cell: it is a datum the cells that read it are given, so that a changed tree
+    is read where the line goes on, by the next cell that enters the session, and not by running the reading again
+    (22). No data stand for the reading itself. What the cell finds for other cells it hands in as any cell does; run again for a
     new session alone, it finds nothing changed and hands in nothing new, so that no cell runs because of it (9).
 
 25. A session reopened while a round is under way is no case of its own. `session` has a new version; the round did

@@ -3,7 +3,7 @@
 use decide::run::{Failure, Unmet};
 use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId};
 
-use work::{Ask, Call, Given, Handed, RanOn, Said, Spent, Time, Why};
+use work::{Ask, Call, Fill, Given, Handed, RanOn, Said, Spent, Time, Why};
 
 /// One thing that happened to a work.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,6 +57,13 @@ pub enum Event {
     /// A try of the round of the run that is under way began, on this: the try of this number in the round, the first
     /// being one.
     Ran { run: RunId, attempt: usize, on: RanOn },
+    /// The message of the try of this number of the round of the run that is under way filled this into its session,
+    /// as the context manager worked it out (crate `context`).
+    Filled {
+        run: RunId,
+        attempt: usize,
+        fills: Vec<Fill>,
+    },
     /// What the work held outside the engine was let go, as [`Effect::Release`] asked.
     Released,
     /// What the work held outside the engine could not be let go, for this reason, as whatever carried out

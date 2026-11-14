@@ -181,8 +181,10 @@ function sizeOf(part: SentPart): number {
 }
 
 /// Everything an agent's cell is sent, numbered in the order sent, in three sections by the way it reaches the agent:
-/// the program's own with the form, which the program makes a tool of; the system prompt; the message. Each part shows its key in the files, its attributes, the file its words
-/// come from, and its text; a text every cell of the line is sent alike, or a long one, is folded.
+/// the program's own with the form, which the program makes a tool of; the system prompt; the message. Each part shows
+/// its key in the files, its attributes, the file its words come from, and its text in each form it is sent in: as
+/// written, `whole`, `held`, and each item of a list by its key; a text every cell of the line is sent alike, or a long
+/// one, is folded.
 function AgentSent({
   parts,
   line,
@@ -245,6 +247,18 @@ function AgentSent({
           <div className="row-note">
             <Attr name="held" value="" />
             <SentText pieces={part.held} />
+          </div>
+        )}
+        {part.items.map(([key, pieces]) => (
+          <div className="row-note" key={key}>
+            <Attr name={key} value="" />
+            <SentText pieces={pieces} />
+          </div>
+        ))}
+        {part.after.length > 0 && (
+          <div className="row-note">
+            <Attr name="after" value="" />
+            <SentText pieces={part.after} />
           </div>
         )}
       </ListRow>

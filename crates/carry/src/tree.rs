@@ -2,11 +2,12 @@
 //! differs from the last version, looked at where the branch may have changed: after the branch took main in and after
 //! a round of the work ended. The version is the branch's commit and the id of the git tree of the design tree at it, so
 //! that the files of the tree that changed between the version a cell last worked from and the latest are one
-//! `git diff --name-only` of the two commits ([`changed`]).
+//! `git diff --name-only` of the two commits ([`files_changed`]), which a round is given as what changed in the datum
+//! ([`changes`]).
 
 use std::path::Path;
 
-use decide::{BlockId, Seq};
+use decide::{BlockId, RunId, Seq};
 use flow::Compiled;
 use service::Teller;
 use work::Work;
@@ -158,6 +159,34 @@ pub async fn files_changed(
     )
     .await?;
     Ok(names.lines().map(str::to_string).collect())
+}
+
+/// What changed in the design tree as the round of this number of the run began, as the context manager is given it
+/// (`context::Changes`): from each earlier version of its block to the latest, the files that changed, one to a line.
+/// None where the flow has no block of the source [`TREE`].
+pub(crate) async fn changes(
+    flow: &Compiled,
+    work: &Work,
+    run: RunId,
+    number: usize,
+    dir: &Path,
+    tree: &str,
+) -> Result<context::Changes, String> {
+    let mut changes = context::Changes::new();
+    let Some((block, _)) = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(TREE)) else {
+        return Ok(changes);
+    };
+    // The versions as the round began, which the manager reads the records at.
+    let began = work::sessions::began_at(work, run, number).unwrap_or_else(|| work.tick());
+    let versions = decide::versions(&work.records.before(began));
+    let Some((latest, earlier)) = versions.get(block).and_then(|all| all.split_last()) else {
+        return Ok(changes);
+    };
+    for version in earlier {
+        let files = files_changed(work, block, version.at, latest.at, dir, tree).await?;
+        changes.insert((block.clone(), version.at), files.join("\n"));
+    }
+    Ok(changes)
 }
 
 #[cfg(test)]

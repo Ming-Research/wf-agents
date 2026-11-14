@@ -25,7 +25,7 @@ use engine::{Came, Event};
 use flow::{CellSpec, Compiled, Kind};
 use store::{Item, WorkNumber};
 use tokio::sync::mpsc;
-use work::{Given, RanOn, Spent, Time, Why, Work};
+use work::{Fill, Given, RanOn, Spent, Time, Why, Work};
 
 use crate::Message;
 
@@ -382,6 +382,16 @@ impl Teller {
             run: self.run,
             attempt,
             on,
+        });
+    }
+
+    /// The message of the try of this number of the round, the first being one, fills this into its session: said
+    /// after the try's beginning and before its message is given, so that what a session holds is in the records.
+    pub fn filled(&self, attempt: usize, fills: Vec<Fill>) {
+        self.tell(Event::Filled {
+            run: self.run,
+            attempt,
+            fills,
         });
     }
 

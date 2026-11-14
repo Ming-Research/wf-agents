@@ -1,21 +1,22 @@
-//! The tools an agent may ask for: `read`, which answers with the blocks of the work as it is kept (the module
-//! `read`); `query`, one read-only SQL query on the store, run in a thread of its own and interrupted where it is
-//! withdrawn (the module `query`); and `run_tests`, which runs the tests and checks the request names, or the whole CI
-//! where it names none, as the host runs them ([`Host::run_tests`]): the project's check command in the work's worktree
-//! where the local repository is the host, the CI of the last commit of the work's branch where GitHub is. A tool's
-//! result is all an agent learns of it, so what goes wrong in running it is said in its result, once: it is not tried
-//! again here, and the agent may ask again. Withdrawn, what runs it is stopped. A `run_tests` of a branch that does not
-//! merge into main's head is answered at once with the files in conflict (the module `conflict`). The result is kept
-//! whole in the records; what is given to the agent of it is cut where the message is made (module `message`).
+//! The tools an agent may ask for: `query`, one read-only SQL query on the store, run in a thread of its own and
+//! interrupted where it is withdrawn (the module `query`); and `run_tests`, which runs the tests and checks the request
+//! names, or the whole CI where it names none, as the host runs them ([`Host::run_tests`]): the project's check command
+//! in the work's worktree where the local repository is the host, the CI of the last commit of the work's branch where
+//! GitHub is. A tool's result is all an agent learns of it, so what goes wrong in running it is said in its result,
+//! once: it is not tried again here, and the agent may ask again. Withdrawn, what runs it is stopped. A `run_tests` of
+//! a branch that does not merge into main's head is answered at once with the files in conflict (the module
+//! `conflict`). The result is kept whole in the records; what a message gives of it is cut as the tool's words say
+//! ([`given`]).
 
 mod conflict;
 mod query;
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use decide::CallId;
-use flow::agents::fill;
+use flow::agents::{Agents, ResultGiven, fill};
 use serde::Deserialize;
 use service::{CallReply, ToolCall, Tools as ToolsTrait, WITHDRAWN};
 use store::WorkNumber;
@@ -23,7 +24,6 @@ use store::WorkNumber;
 use crate::git;
 use crate::held::{Held, Stop};
 use crate::host::{Branch, Host, Named};
-use crate::read::{self, READ};
 use crate::settings::Project;
 
 pub use query::{QUERY, Querying};
@@ -91,9 +91,7 @@ impl<H: Host> ToolsTrait for Tools<H> {
         };
         let inner = self.inner.clone();
         tokio::spawn(async move {
-            let answered = if call.name == READ {
-                Answer::Result(read::answer(&call.flow, &call.kept, &call.input))
-            } else if call.name == QUERY {
+            let answered = if call.name == QUERY {
                 // The query runs in a thread of its own, within its time limit; withdrawn, it is interrupted.
                 let asked = inner.clone();
                 let input = call.input.clone();
@@ -160,6 +158,42 @@ impl<H> Tools<H> {
     }
 }
 
+/// Each result of the work a message gives otherwise than the records hold it, the records holding each whole: a
+/// result of the tool `query` longer than its file says a message gives, cut as the tool cuts it; one of a tool whose
+/// file gives a bound, cut at it, with the words that follow a cut one; and any, its end of whitespace left off.
+pub fn given(work: &work::Work, words: &Agents) -> BTreeMap<CallId, String> {
+    (work.calls.iter())
+        .filter_map(|(call, asked)| {
+            let work::Call::Asked(work::Ask::Tool { name, input }) = asked else {
+                return None;
+            };
+            let result = work.results.get(call)?;
+            let tool = words.tools.get(name);
+            let given = match tool.and_then(|t| t.given_bytes) {
+                Some(bytes) if name == QUERY => Querying::cut(result.trim_end(), input, bytes),
+                _ => cut(result, tool.and_then(|t| t.given.as_ref())),
+            };
+            Some((*call, given))
+        })
+        .collect()
+}
+
+/// A result as it is given: its end of whitespace left off, and cut at the most bytes the tool's words allow, at a
+/// whole character, with the words that follow a cut one saying how much was given and how many bytes the record
+/// holds; as it is where they allow it all.
+fn cut(result: &str, given: Option<&ResultGiven>) -> String {
+    let Some(given) = given.filter(|g| result.len() > g.bound) else {
+        return result.trim_end().to_string();
+    };
+    let mut at = given.bound;
+    while !result.is_char_boundary(at) {
+        at -= 1;
+    }
+    let (kept, size) = (at.to_string(), result.len().to_string());
+    let words = fill(&given.cut, &[("given", &kept), ("size", &size)]);
+    format!("{}\n\n{words}", &result[..at])
+}
+
 /// What a result of `answer` says that is the flow's: the words an unreadable request is told in, and the tools the
 /// flow gives its agents.
 struct Told<'a> {
@@ -167,7 +201,7 @@ struct Told<'a> {
     tools: &'a [&'a str],
 }
 
-/// Runs the tool named, other than `read` and `query`, on the work's branch, with this input, and gives its result.
+/// Runs the tool named, other than `query`, on the work's branch, with this input, and gives its result.
 async fn answer(
     host: &impl Host,
     project: &Project,
@@ -286,6 +320,29 @@ mod tests {
             Answer::Result(result) => result,
             Answer::Withdrawn => panic!("nothing withdrew it"),
         }
+    }
+
+    #[test]
+    fn a_result_longer_than_its_tool_s_words_allow_is_given_cut_with_its_size_and_one_within_it_whole() {
+        let words = ResultGiven {
+            bound: 40,
+            cut: "(Cut: {given} of {size} bytes.)".to_string(),
+        };
+        let long = format!("{}é{}", "a".repeat(39), "b".repeat(60));
+        // The 40th byte is inside a character, so the cut is before it.
+        let size = long.len();
+        assert_eq!(
+            cut(&long, Some(&words)),
+            format!("{}\n\n(Cut: 39 of {size} bytes.)", "a".repeat(39))
+        );
+        let short = "b".repeat(40);
+        assert_eq!(cut(&short, Some(&words)), short);
+        // The size is the bytes the record holds, the whitespace at its end among them.
+        let padded = format!("{}\n\n\n", "c".repeat(41));
+        let said = format!("(Cut: 40 of {} bytes.)", padded.len());
+        assert!(cut(&padded, Some(&words)).ends_with(&said));
+        // A tool whose words give no bound is given whole, its end of whitespace left off.
+        assert_eq!(cut(&format!("{long}\n"), None), long);
     }
 
     /// The words an unreadable request is told in, as a file of the flow gives them.

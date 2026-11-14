@@ -79,6 +79,8 @@ pub struct Agents {
     pub tools: BTreeMap<String, Tool>,
     pub message: Message,
     pub given: Given,
+    /// What a round is told of the results of the calls it is given: `agents/message/results.toml`.
+    pub results: Results,
     pub acts: Acts,
     pub commits: Commits,
 }
@@ -650,6 +652,8 @@ pub struct ResultGiven {
 #[serde(deny_unknown_fields)]
 pub struct Message {
     pub parts: Vec<MessagePart>,
+    /// What a session compacted during a round is told before the round's message is given again, whole.
+    pub compacted: String,
 }
 
 /// A part of a message.
@@ -672,10 +676,10 @@ pub struct MessagePart {
     pub uncommitted: Option<String>,
     pub merging: Option<String>,
     pub failed: Option<String>,
-    /// What stands between the items of a list a line of the part names, as the files in conflict.
-    pub between: Option<String>,
     /// Of a part that is a list, each item of it.
     pub each: Option<String>,
+    /// Of a part that is a list, or that names one, as the files in conflict: what comes between two of its items.
+    pub between: Option<String>,
     /// What is sent in its place where the session holds it already.
     pub held: Option<String>,
     /// Of the triggers: what a trigger's line says of what happened, `{detail}` the trigger's own place.
@@ -705,6 +709,10 @@ pub enum Part {
     Outputs,
     /// The cell's task.
     Task,
+    /// The results of the calls the round is given, where its session lacks them.
+    Results,
+    /// Why what a round of the run returned was sent back, where its session lacks it.
+    SentBack,
     /// Each trigger new to the cell.
     Triggers,
 }
@@ -720,6 +728,8 @@ impl Part {
             Part::Context => "context",
             Part::Outputs => "outputs",
             Part::Task => "task",
+            Part::Results => "results",
+            Part::SentBack => "sent_back",
             Part::Triggers => "triggers",
         }
     }
@@ -765,6 +775,27 @@ pub struct GivenKind {
     pub text: String,
     /// What is sent in place of `text` where the session lacks what it needs, or `text` would be longer.
     pub whole: Option<String>,
+}
+
+/// `agents/message/results.toml`: what a round is told of the results of the calls it is given. In a text, `{name}` is
+/// a tool's name, `{input}` what it was run on, `{question}` a question as it was put, `{call}` a call's number.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Results {
+    pub heading: String,
+    /// A tool run on an input.
+    pub tool: String,
+    /// A tool run on nothing.
+    pub tool_alone: String,
+    pub question: String,
+    /// The owner's word at a limit.
+    pub at_limit: String,
+    /// A call the work does not hold.
+    pub unknown: String,
+    /// What stands in place of a result where a call has none.
+    pub none: String,
+    /// What follows the results.
+    pub after: String,
 }
 
 /// What the engine writes as it works: into the blocks its acts write, and in the commits it makes.
@@ -981,6 +1012,7 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         tools,
         message: file(&at.join("message").join("message.toml"))?,
         given: file(&at.join("message").join("given.toml"))?,
+        results: file(&at.join("message").join("results.toml"))?,
         acts: writes.acts,
         commits: writes.commits,
     })

@@ -427,6 +427,8 @@ describe('what an agent is sent', () => {
     pieces: [],
     held: [],
     whole: [],
+    items: [],
+    after: [],
     ...fields,
   });
   /// The form of a return: a kind of it that asks for the engine's tool `query`, beside a field of its own.
@@ -513,6 +515,31 @@ describe('what an agent is sent', () => {
       '4 request kind latest blocks/request.toml The request: {request} held The request is as before.',
       '5 task cells/plan.toml 15 characters Show the text',
     ]);
+  });
+
+  it('shows each trigger’s line by the trigger’s name, and what follows the lines', () => {
+    const shown = given();
+    if (shown.state !== 'compiled') throw new Error('compiled');
+    shown.cells.plan.push(
+      part({
+        what: 'message',
+        carried: 'message',
+        name: 'triggers',
+        source: 'agents/message/message.toml',
+        pieces: [text('Why:')],
+        items: [
+          ['on_request', [text(' on_request')]],
+          ['on_opinions', [text(' on_opinions')]],
+        ],
+        after: [text(' Name them.')],
+      }),
+    );
+    const page = draw({ state: 'compiled', flow: small() }, shown);
+    click(page.querySelectorAll('thead .cell-head .head-button')[0]);
+    const panel = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
+    expect(items(partOf(panel, 'Message'))[2]).toBe(
+      '6 triggers agents/message/message.toml Why: on_request on_request on_opinions on_opinions after Name them.',
+    );
   });
 
   it('says the file a task is written in beside the task', () => {

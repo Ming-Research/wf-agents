@@ -8,7 +8,7 @@
 //! What each try of a round ran on is recorded as the try begins ([`RanOn`]), so that what a session was begun on is
 //! the records' too ([`began_on`]).
 
-use decide::{Cause, RunId, Seq};
+use decide::{RunId, Seq};
 use serde::{Deserialize, Serialize};
 
 use crate::{Spent, Work};
@@ -160,74 +160,6 @@ pub fn of_round(work: &Work, line: &str, on_line: impl Fn(RunId) -> bool, run: R
     (session, !went_on)
 }
 
-/// Whether the session the round runs in holds none of what the round goes on from: its run's earlier rounds, and, of
-/// the first round of a run entered for the results of calls, the rounds of the runs of its cell that asked for them;
-/// there are some, and none of them ran in this session and reached the model. The session never saw what the round
-/// goes on from, so the round is told its task and what each earlier round of the run was given, as a round that
-/// begins a session is, even where it goes on in a session another cell's round began; once a round of the run has
-/// been told so in the session, the session holds the run. A session the program lost and a round began again under
-/// its id holds nothing from before: an earlier round holds it only where it reached it after the line's latest loss
-/// of it before the round, as the round that found it lost did in its try after that.
-pub fn moved(work: &Work, line: &str, run: RunId, number: usize) -> bool {
-    let at = start(work, run, number);
-    let session = number_at(work, line, at);
-    let latest = |why: Why| {
-        (of_line(work, line))
-            .filter(|s| s.why == why && s.at < at && number_at(work, line, s.at) == session)
-            .map(|s| s.at)
-            .last()
-    };
-    let (lost, compacted) = (latest(Why::Lost), latest(Why::Compacted));
-    let mut before: Vec<(RunId, usize)> = (1..number).map(|earlier| (run, earlier)).collect();
-    if number == 1 {
-        let results = (work.records.started.iter())
-            .filter(|s| s.run == run)
-            .flat_map(|s| &s.because)
-            .flat_map(|cause| match cause {
-                Cause::Results { calls } => calls.as_slice(),
-                _ => &[],
-            });
-        for call in results {
-            let Some(asked) = work.records.called.iter().find(|c| c.call == *call).map(|c| c.run) else {
-                continue;
-            };
-            let rounds = work.records.rounds.iter().filter(|r| r.run == asked).count();
-            for n in 1..=rounds {
-                if !before.contains(&(asked, n)) {
-                    before.push((asked, n));
-                }
-            }
-        }
-    }
-    let held = before.iter().any(|&(r, earlier)| {
-        let here = number_at(work, line, start(work, r, earlier)) == session;
-        let since = lost.is_none_or(|lost| last_try(work, r, earlier) > lost);
-        // A compaction leaves the session the summary of what it held: only a round that was under way as it came, and
-        // so was given its message again whole, or began after it, is held by the session.
-        let after = compacted
-            .is_none_or(|c| began_at(work, r, earlier).is_none_or(|b| b > c) || ended_at(work, r, earlier) > c);
-        here && since && after && work.spent.get(&(r, earlier)).is_some_and(spent)
-    });
-    !before.is_empty() && !held
-}
-
-/// Where the round of this number of the run ended; the place after every entry where it has not.
-fn ended_at(work: &Work, run: RunId, number: usize) -> Seq {
-    let mut ended = work.records.returned.iter().filter(|r| r.run == run);
-    ended
-        .nth(number.saturating_sub(1))
-        .map_or_else(|| work.tick(), |r| r.at)
-}
-
-/// Where the round of this number of the run last reached its session: where its last try began, as its record says,
-/// or, where none is recorded, where the round began.
-fn last_try(work: &Work, run: RunId, number: usize) -> Seq {
-    let last = (work.ran.iter().rev()).find(|r| r.run == run && r.round == number);
-    (last.map(|r| r.at))
-        .or_else(|| began_at(work, run, number))
-        .unwrap_or_else(|| work.tick())
-}
-
 /// What the line's session of this number was begun on: what the first try of its first round recorded ran on; none
 /// where none of its rounds recorded it.
 pub fn began_on<'a>(work: &'a Work, line: &str, on_line: impl Fn(RunId) -> bool, session: u32) -> Option<&'a RanOn> {
@@ -345,37 +277,9 @@ mod tests {
     }
 
     #[test]
-    fn a_round_whose_run_ran_in_another_session_before_is_told_what_the_run_was_doing() {
-        let limit = Why::Limit { context: 9, limit: 5 };
-        let w = work(&[(1, 10), (3, 10), (6, 10), (8, 10)], &[(5, limit)]);
-        assert!(!moved(&w, "engineer", RunId(1), 1), "a run's first round");
-        assert!(
-            !moved(&w, "engineer", RunId(1), 2),
-            "in the same session as the round before"
-        );
-        assert!(
-            moved(&w, "engineer", RunId(1), 3),
-            "the round before ran in the session before"
-        );
-        assert!(
-            !moved(&w, "engineer", RunId(1), 4),
-            "the round before was told the run in this session"
-        );
-        // The run's round 2 found the session lost as its first try began, and began it again under its id in its
-        // second try, told the run.
-        let mut lost = work(&[(1, 10), (3, 10), (8, 10)], &[(5, Why::Lost)]);
-        lost.records.returned[1].at = Seq(7);
-        lost.ran.extend([4, 6].map(|at| ran(at, RunId(1), 2)));
-        assert!(
-            !moved(&lost, "engineer", RunId(1), 3),
-            "a session begun again under its id is the same"
-        );
-    }
-
-    #[test]
-    fn a_round_whose_session_another_run_found_lost_since_the_run_was_told_in_it_is_told_again() {
-        // Run 1 moves to session 1 at its round 2 and is told its run there; while it waits, run 2 of the line finds
-        // session 1 lost as its first try begins, and begins it again under its id in its second try.
+    fn a_round_goes_on_in_a_session_another_run_found_lost_and_began_again_under_its_id() {
+        // Run 1 moves to session 1 at its round 2; while it waits, run 2 of the line finds session 1 lost as its first
+        // try begins, and begins it again under its id in its second try.
         let (one, two) = (RunId(1), RunId(2));
         let mut w = Work::default();
         for (at, run) in [(1, one), (5, one), (9, two), (15, one)] {
@@ -399,23 +303,10 @@ mod tests {
             why,
         };
         w.sessions.extend([session(4, Why::Owner), session(11, Why::Lost)]);
-        assert!(
-            moved(&w, "engineer", one, 3),
-            "the session begun again holds run 2's round and nothing of run 1"
-        );
-        assert!(
-            !moved(&w, "engineer", two, 2),
-            "the round that found it lost told it its run"
-        );
         assert_eq!(
             of_round(&w, "engineer", |_| true, one, 3),
             (1, false),
             "it goes on in that session"
-        );
-        w.sessions.pop();
-        assert!(
-            !moved(&w, "engineer", one, 3),
-            "not lost, the session holds run 1's round 2"
         );
     }
 
@@ -446,29 +337,8 @@ mod tests {
     }
 
     #[test]
-    fn a_session_compacted_holds_only_the_rounds_under_way_as_it_came_or_begun_after_it() {
-        // The compaction at 5 comes between the second round's end at 4 and the third's beginning at 6.
+    fn a_session_compacted_goes_on_under_its_id() {
         let w = work(&[(1, 10), (3, 10), (6, 10), (8, 10)], &[(5, Why::Compacted)]);
-        assert!(
-            !moved(&w, "engineer", RunId(1), 2),
-            "the first round was held by the session before"
-        );
-        assert!(
-            moved(&w, "engineer", RunId(1), 3),
-            "the summary holds nothing of the rounds before"
-        );
-        assert!(
-            !moved(&w, "engineer", RunId(1), 4),
-            "the round before it began after the compaction"
-        );
-        // The second round was under way as it came, and was given its message again whole.
-        let mut inside = work(&[(1, 10), (3, 10), (8, 10)], &[(5, Why::Compacted)]);
-        inside.records.returned[1].at = Seq(7);
-        assert!(
-            !moved(&inside, "engineer", RunId(1), 3),
-            "a round under way as it came holds the run"
-        );
-        // The session goes on under its id.
         assert_eq!(of(&w, 3), (0, false));
     }
 }
