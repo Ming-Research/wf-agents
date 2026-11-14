@@ -750,6 +750,7 @@ mod tests {
             line: Some("deep_research".to_string()),
             reads_only: false,
             task: Some("Research.".to_string()),
+            task_file: None,
             act: None,
             must_write: Vec::new(),
             describes: Vec::new(),
