@@ -13,6 +13,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
     let may_merge = json!({
         "name": "may_merge",
         "words": "The owner let the work merge",
+        "file": "flow.toml",
         "kind": "all",
         "reads": ["go"],
         "is": "yes",
@@ -33,8 +34,17 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
             "flow": {
                 "name": "tiny",
                 "limits": limits(3),
-                "lines": [{ "name": "engineer", "cells": ["plan", "review"], "levelsAbove": 0 }],
+                "lines": [{
+                    "name": "engineer",
+                    "cells": ["plan", "review"],
+                    "levelsAbove": 0,
+                    "file": "flow.toml",
+                    "readsOnly": false,
+                    "system": [],
+                    "rules": [],
+                }],
                 "tests": [may_merge],
+                "tools": [],
                 "cells": [
                     {
                         "id": "plan",
@@ -178,6 +188,7 @@ async fn a_condition_is_given_with_its_block_and_value_or_with_its_test_as_decla
             "test": {
                 "name": "may_merge",
                 "words": "The owner let the work merge",
+                "file": "flow.toml",
                 "kind": "all",
                 "reads": ["go"],
                 "is": "yes",

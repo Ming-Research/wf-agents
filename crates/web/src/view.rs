@@ -32,6 +32,9 @@ pub struct Flow {
     pub lines: Vec<Line>,
     /// The named tests, by name.
     pub tests: Vec<Test>,
+    /// The engine's tools every agent's cell of the flow may ask for, in the order the flow names them; none where it
+    /// names none.
+    pub tools: Vec<String>,
     /// The cells, in the order of the walk.
     pub cells: Vec<Cell>,
     /// The blocks, by name.
@@ -50,14 +53,23 @@ pub struct Limits {
     pub calls: u32,
 }
 
-/// A line: the cells that share one session.
+/// A line: the cells that share one session, and what its file writes of it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Line {
     pub name: String,
+    /// In the order of the walk.
     pub cells: Vec<String>,
     /// How many levels above its item's its rounds run at, never above the highest an item may be at.
     pub levels_above: u32,
+    /// The file it is written in, from the flow's directory.
+    pub file: String,
+    /// Its agents only read.
+    pub reads_only: bool,
+    /// Of a flow written before it was laid out one thing to a file, its `system`, as written.
+    pub system: Vec<String>,
+    /// Its `rules`, as written.
+    pub rules: Vec<String>,
 }
 
 /// A named test: the words shown for it, and what it holds on.
@@ -65,7 +77,10 @@ pub struct Line {
 #[serde(rename_all = "camelCase")]
 pub struct Test {
     pub name: String,
+    /// Its `says`.
     pub words: String,
+    /// The file it is written in, from the flow's directory.
+    pub file: String,
     /// How the blocks it reads make it hold.
     pub kind: TestKind,
     /// The blocks it reads, as the definition lists them.
@@ -532,11 +547,18 @@ impl Flow {
             let Some(name) = &spec.line else { continue };
             match lines.iter_mut().find(|l| &l.name == name) {
                 Some(line) => line.cells.push(spec.id.to_string()),
-                None => lines.push(Line {
-                    name: name.clone(),
-                    cells: vec![spec.id.to_string()],
-                    levels_above: spec.levels_above,
-                }),
+                None => {
+                    let written = compiled.lines.get(name);
+                    lines.push(Line {
+                        name: name.clone(),
+                        cells: vec![spec.id.to_string()],
+                        levels_above: spec.levels_above,
+                        file: written.map(|l| l.file.clone()).unwrap_or_default(),
+                        reads_only: written.is_some_and(|l| l.reads_only),
+                        system: written.map(|l| l.system.clone()).unwrap_or_default(),
+                        rules: written.map(|l| l.rules.clone()).unwrap_or_default(),
+                    });
+                }
             }
         }
         lines.sort_by(|a, b| a.name.cmp(&b.name));
@@ -614,6 +636,7 @@ impl Flow {
             limits,
             lines,
             tests: compiled.tests.keys().map(|name| Test::of(name, compiled)).collect(),
+            tools: compiled.tools.clone(),
             cells,
             blocks,
         }
@@ -635,15 +658,12 @@ impl Kind {
 
 impl Test {
     /// The test of this name as the definition declares it: a compiled definition declares every test its cells use.
-    fn of(test: &TestName, compiled: &Compiled) -> Self {
-        Test::declared(test, &compiled.tests[test], &compiled.flow.tests()[test])
-    }
-
-    /// The test of this name, with these words, testing this.
-    fn declared(name: &TestName, words: &str, test: &flow::Test) -> Self {
+    fn of(name: &TestName, compiled: &Compiled) -> Self {
+        let test = &compiled.flow.tests()[name];
         Test {
             name: name.to_string(),
-            words: words.to_string(),
+            words: compiled.tests[name].clone(),
+            file: compiled.test_files.get(name).cloned().unwrap_or_default(),
             kind: match test.kind {
                 KindOfTest::All => TestKind::All,
                 KindOfTest::Any => TestKind::Any,

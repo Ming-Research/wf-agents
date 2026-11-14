@@ -31,10 +31,33 @@ pub struct Compiled {
     pub blocks: BTreeMap<BlockId, Block>,
     /// The words shown for each named test the cells use, by name; what each tests is in `flow`.
     pub tests: BTreeMap<TestName, String>,
+    /// The file each named test is written in, from the flow's directory, by name.
+    pub test_files: BTreeMap<TestName, String>,
+    /// The lines, by name, as their files write them.
+    pub lines: BTreeMap<String, Line>,
+    /// The engine's tools every agent cell of the flow may ask for, in the order `flow.toml` names them; none where it
+    /// names none, and each agent cell names its own.
+    pub tools: Vec<String>,
     /// The limits of the flow as a whole.
     pub limits: Limits,
     /// The text of each of the flow's sets of rules for the agents, by name: each one a line names.
     pub rules: BTreeMap<String, String>,
+}
+
+/// A line: the cells of a work that share one session, as its file writes it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Line {
+    /// The file it is written in, from the flow's directory: `lines/<name>.toml`, or `flow.toml` of a flow written
+    /// before it was laid out one thing to a file.
+    pub file: String,
+    /// Its agents only read.
+    pub reads_only: bool,
+    /// How many levels above its item's its rounds run at.
+    pub levels_above: u32,
+    /// Of a flow written before it was laid out, its `system`, as written; none of a flow laid out.
+    pub system: Vec<String>,
+    /// Of a flow laid out one thing to a file, its `rules`, as written; none of a flow written before.
+    pub rules: Vec<String>,
 }
 
 /// The limits of everything that repeats, for a cell that sets none of its own.
@@ -445,6 +468,23 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
         tests: (flow_file.tests.iter())
             .map(|(name, test)| (TestName(name.clone()), test.says.clone()))
             .collect(),
+        test_files: (flow_file.tests.keys())
+            .map(|name| (TestName(name.clone()), parsed.places.file("tests", name)))
+            .collect(),
+        lines: (flow_file.lines.iter())
+            .map(|(name, line)| {
+                let laid_out = parsed.places.laid_out;
+                let line = Line {
+                    file: parsed.places.file("lines", name),
+                    reads_only: line.reads_only,
+                    levels_above: line.levels_above,
+                    system: if laid_out { Vec::new() } else { line.system.clone() },
+                    rules: if laid_out { line.system.clone() } else { Vec::new() },
+                };
+                (name.clone(), line)
+            })
+            .collect(),
+        tools: parsed.tools.clone(),
         limits,
         // Every set of rules is one a line names, or it would have been a fault.
         rules: source.rules.clone(),
@@ -486,6 +526,12 @@ struct Places {
 }
 
 impl Places {
+    /// The file a line, block or named test of this name is written in, by the table that holds that kind of thing in
+    /// the `flow.toml` of a flow written before it was laid out: its own, or `flow.toml`.
+    fn file(&self, table: &'static str, name: &str) -> String {
+        (self.files.get(&(table, name.to_string()))).map_or_else(|| FLOW_FILE.to_string(), String::clone)
+    }
+
     /// The file of the cell of this id.
     fn cell(&self, id: &str) -> String {
         if self.laid_out {

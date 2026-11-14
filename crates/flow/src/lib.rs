@@ -20,7 +20,7 @@ pub mod compile;
 pub mod source;
 
 pub use compile::{
-    Block, CellSpec, Compiled, Fault, FaultKind, Given, Has, Limits, Readers, RunsOn, TURNING, Trigger, Writers,
+    Block, CellSpec, Compiled, Fault, FaultKind, Given, Has, Limits, Line, Readers, RunsOn, TURNING, Trigger, Writers,
     compile,
 };
 pub use decide::{Test, TestKind};
