@@ -1,0 +1,5 @@
+# What the owner says and the cells answer, which a cell writes through the return's field `reply`.
+what = "What the owner says to the work and what its cells answer."
+from = "owner"
+shown = true
+field = "reply"

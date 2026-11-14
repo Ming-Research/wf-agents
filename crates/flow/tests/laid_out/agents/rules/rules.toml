@@ -1,0 +1,6 @@
+# The sets of rules for the agents of the tests, which a line names in its `rules`.
+[general]
+file = "general.md"
+
+[engineering]
+file = "engineering.md"

@@ -191,8 +191,32 @@ describe('the words of the page', () => {
       "An engine's cell says how it is given main, but it has no session.",
     );
     expect(faultWords({ file: 'plan.toml', field: 'inputs', what: { kind: 'twoForms' } })).toBe(
-      'Name them one way: either inputs, or runs_on and given.',
+      'Name them one way: inputs, runs_on and given, or triggered_by and context.',
     );
+    expect(
+      faultWords({ file: 'cells/plan.toml', field: 'triggered_by[3]', what: { kind: 'noSuchTrigger', trigger: 'nothing_happened' } }),
+    ).toBe('The cell names the trigger nothing_happened, which nothing in ../triggers/ defines.');
+    expect(
+      faultWords({
+        file: 'cells/judge.toml',
+        field: 'triggered_by[1]',
+        what: { kind: 'readNotInContext', trigger: 'on_request', block: 'request' },
+      }),
+    ).toBe("The trigger on_request has the agent read request, but request is not in the cell's context.");
+    expect(
+      faultWords({
+        file: 'cells/plan.toml',
+        field: 'triggered_by[2]',
+        what: { kind: 'noSuchDatum', trigger: 'on_ghost', datum: 'ghost' },
+      }),
+    ).toBe('The cell names the trigger on_ghost, but the flow has no datum ghost.');
+    expect(
+      faultWords({
+        file: 'blocks/plan.toml',
+        field: '',
+        what: { kind: 'definedTwice', name: 'plan', also: 'blocks/other/plan.toml' },
+      }),
+    ).toBe('plan is defined here and again in blocks/other/plan.toml.');
     expect(faultWords({ file: 'judge.toml', field: 'input.opinions', what: { kind: 'takenNotRead', block: 'opinions' } })).toBe(
       'The cell says how it takes opinions, but opinions is not among the blocks it reads.',
     );

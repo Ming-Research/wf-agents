@@ -1,0 +1,4 @@
+says = "The work may merge"
+kind = "none"
+reads = ["ci"]
+is = "red"

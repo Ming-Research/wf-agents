@@ -1,0 +1,8 @@
+# One read-only query on the engine's records.
+words = "`query`: one read-only query on the engine's records."
+
+[request]
+type = "object"
+properties = { sql = { type = "string" } }
+required = ["sql"]
+additionalProperties = false

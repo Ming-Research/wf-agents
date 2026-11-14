@@ -1,0 +1,23 @@
+# The return of the tests: its form, and what holds together what a cell is told it returns.
+[form]
+calls = ["tools", "summary"]
+outcome = ["dealt_with", "choices", "summary", "reply", "texts"]
+choice = { type = "string" }
+text = { type = "string" }
+
+[told]
+heading = "## What this cell returns"
+blocks = "Each block you write is a field of the return under its name."
+block = "- `{block}`{choice}{shown}{must_write}: {what}"
+choice = ", a choice, one of {values}"
+shown = " (the owner reads it)"
+must_write = " (hand it in every time)"
+item = "- {text}"
+listed = ["reply", "summary"]
+every_time = "A block marked so you always hand in."
+fields = "Fields that are not blocks of the work:"
+owner_reads = "The owner reads {fields}."
+reads = ["reply", "summary"]
+and = " and "
+calls = "A tool is asked for under its name."
+tools = "## What you may ask the engine for"

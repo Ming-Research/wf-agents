@@ -349,6 +349,23 @@ const TOOLS: [&str; 2] = ["query", "run_tests"];
 /// system prompt is built of them yet.
 const SYSTEM: [&str; 4] = ["guide", "constitution", "tree_rules", "how_you_work_here"];
 
+/// The names of the fields of a return that are the engine's, as the design of data and context settles them: what a
+/// round has dealt with, the blocks it hands in with their meaning unchanged, its observations, its questions, its
+/// answer to the owner, and its summary. A datum may be written through `questions` or `reply`. The engine reads none
+/// of them by these names yet: a definition may name them, as it may the tools.
+const FIELDS: [&str; 6] = [
+    "dealt_with",
+    "meaning_unchanged",
+    "observations",
+    "questions",
+    "reply",
+    "summary",
+];
+
+/// The names of the places the engine fills in a run with what happened, which a trigger may say it happened by:
+/// `files`, the files of the design tree that changed. Not filled yet.
+const DETAILS: [&str; 1] = ["files"];
+
 /// What the engine has, by name, for any definition.
 fn has(_: &Source) -> Has {
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
@@ -357,6 +374,8 @@ fn has(_: &Source) -> Has {
         acts: names(&ACTS),
         tools: names(&TOOLS),
         system: names(&SYSTEM),
+        fields: names(&FIELDS),
+        details: names(&DETAILS),
     }
 }
 
@@ -446,7 +465,32 @@ fn words(what: &FaultKind) -> String {
         F::TakenNotRead { block } => {
             format!("the cell says how it takes {block}, but {block} is not among the blocks it reads")
         }
-        F::TwoForms => "name them one way: either inputs, or runs_on and given".to_string(),
+        F::TwoForms => "name them one way: inputs, runs_on and given, or triggered_by and context".to_string(),
+        F::NoSuchData { name } => {
+            format!("the flow names {name} among the engine's own data, but no file of ../data/ defines {name}")
+        }
+        F::DefinedTwice { name, also } => format!("{name} is defined here and again in {also}"),
+        F::NoSuchTrigger { trigger } => {
+            format!("the cell names the trigger {trigger}, which nothing in ../triggers/ defines")
+        }
+        F::NoSuchDatum { trigger, datum } => {
+            format!("the cell names the trigger {trigger}, but the flow has no datum {datum}")
+        }
+        F::ReadNotInContext { trigger, block } => {
+            format!("the trigger {trigger} has the agent read {block}, but {block} is not in the cell's context")
+        }
+        F::NotATrigger { trigger } => {
+            format!("the cell says what it does for {trigger}, but {trigger} is not among its triggers")
+        }
+        F::TriggerOnly { block } => {
+            format!("{block} stands only for a trigger and has no content: no cell is given it or writes it")
+        }
+        F::NotLaidOut => {
+            "the cell names triggered_by and context, which only a flow laid out one thing to a file has".to_string()
+        }
+        F::MissingPlaceholder { placeholder } => format!("this must hold {placeholder}"),
+        F::UnknownReturnField { field } => format!("the engine's return has no field named \"{field}\""),
+        F::UnknownDetail { detail } => format!("the engine fills no place named \"{detail}\""),
         F::EngineIsGiven { block } => {
             format!("an engine's cell says how it is given {block}, but it has no session")
         }

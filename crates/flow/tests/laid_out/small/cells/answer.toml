@@ -1,0 +1,19 @@
+# A cell that runs when a test holds, waits on another and sets a limit of its own; its task has more than one line.
+title = "Answer comments"
+kind = "agent"
+effort = "high"
+line = "engineer"
+task = """
+Answer the comments on the plan.
+Say what you changed for each.
+"""
+when = { test = "has_comment" }
+requires = ["plan_confirmed"]
+triggered_by = ["on_comments", "on_plan"]
+context = ["comments", "plan"]
+outputs = ["reply"]
+limit = 5
+
+[kinds]
+comments = "last_and_latest"
+plan = "last_and_latest"

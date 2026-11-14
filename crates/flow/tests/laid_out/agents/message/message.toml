@@ -1,0 +1,24 @@
+# A message of the tests, its parts in this order.
+[[parts]]
+part = "heading"
+sent = "every_time"
+text = "# {title}"
+
+[[parts]]
+part = "context"
+sent = "by_kind"
+
+[[parts]]
+part = "task"
+sent = "once_a_session"
+text = "{task}"
+held = "As given before in this session."
+
+[[parts]]
+part = "triggers"
+sent = "every_time"
+text = "## Why you are run\n"
+each = "\n- `{trigger}`{detail}{do}"
+detail = " ({detail})"
+do = ": {do}"
+after = "\n\nName in `dealt_with` each of these you have dealt with."

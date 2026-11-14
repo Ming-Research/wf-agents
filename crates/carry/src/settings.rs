@@ -758,6 +758,7 @@ mod tests {
             effort,
             levels_above,
             takes_main: false,
+            triggers: Vec::new(),
         }
     }
 

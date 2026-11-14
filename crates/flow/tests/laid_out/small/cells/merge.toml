@@ -1,0 +1,6 @@
+# The last cell, which the engine carries out by its act `merge`.
+title = "Merge"
+kind = "engine"
+act = "merge"
+requires = ["may_merge"]
+triggered_by = ["on_ci"]

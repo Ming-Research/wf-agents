@@ -343,8 +343,53 @@ pub enum What {
     TakenNotRead {
         block: String,
     },
-    /// The cell names what it takes both in the old form and in the new.
+    /// The cell names what it takes in two forms of three.
     TwoForms,
+    /// The flow names among the engine's own data one that no file beside the flows defines.
+    NoSuchData {
+        name: String,
+    },
+    /// The thing is defined in this file and again in another.
+    DefinedTwice {
+        name: String,
+        also: String,
+    },
+    /// The cell names a trigger that nothing beside the flows defines.
+    NoSuchTrigger {
+        trigger: String,
+    },
+    /// The cell names a trigger a rule makes of a datum the flow does not have.
+    NoSuchDatum {
+        trigger: String,
+        datum: String,
+    },
+    /// The block stands only for a trigger: no cell is given it, writes it or describes the work by it.
+    TriggerOnly {
+        block: String,
+    },
+    /// The cell names `triggered_by` and `context` in a flow not laid out one thing to a file.
+    NotLaidOut,
+    /// A value of a file beside the flows lacks the name that stands for each cell or each datum.
+    MissingPlaceholder {
+        placeholder: String,
+    },
+    /// The block is written through a field of a return the engine does not have.
+    UnknownReturnField {
+        field: String,
+    },
+    /// The trigger says what happened by a place the engine does not fill.
+    UnknownDetail {
+        detail: String,
+    },
+    /// A trigger of an agent cell has its agent read a datum that the cell's context does not hold.
+    ReadNotInContext {
+        trigger: String,
+        block: String,
+    },
+    /// The cell says what it does for a trigger that is not among its triggers.
+    NotATrigger {
+        trigger: String,
+    },
     /// An engine cell says how it is given the block, and it has no session.
     EngineIsGiven {
         block: String,
@@ -893,6 +938,17 @@ impl What {
             F::DescribedNotRunOn { block } => What::DescribedNotRunOn { block },
             F::TakenNotRead { block } => What::TakenNotRead { block },
             F::TwoForms => What::TwoForms,
+            F::NoSuchData { name } => What::NoSuchData { name },
+            F::DefinedTwice { name, also } => What::DefinedTwice { name, also },
+            F::NoSuchTrigger { trigger } => What::NoSuchTrigger { trigger },
+            F::NoSuchDatum { trigger, datum } => What::NoSuchDatum { trigger, datum },
+            F::TriggerOnly { block } => What::TriggerOnly { block },
+            F::NotLaidOut => What::NotLaidOut,
+            F::MissingPlaceholder { placeholder } => What::MissingPlaceholder { placeholder },
+            F::UnknownReturnField { field } => What::UnknownReturnField { field },
+            F::UnknownDetail { detail } => What::UnknownDetail { detail },
+            F::ReadNotInContext { trigger, block } => What::ReadNotInContext { trigger, block },
+            F::NotATrigger { trigger } => What::NotATrigger { trigger },
             F::EngineIsGiven { block } => What::EngineIsGiven { block },
             F::RunByNothing => What::RunByNothing,
             F::NoKind { block } => What::NoKind { block },
