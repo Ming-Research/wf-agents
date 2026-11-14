@@ -103,9 +103,45 @@ fn strings(list: &serde_json::Value) -> Vec<String> {
 async fn the_page_served_alone_reads_what_an_agent_is_sent_from_beside_the_flow_it_shows() {
     let given = get_json(&the_engineer_s_flow(), "/api/v1/flow/given").await;
     assert_eq!(given["state"], json!("compiled"), "{given}");
-    // Every name a text sent to an agent gives between backticks is one the flow, the return, the tools or the
-    // settings define.
-    assert_eq!(given["unknown"], json!([]));
+}
+
+/// The repository's flows and what is beside them, copied into a directory of the test's own.
+fn copied() -> tempfile::TempDir {
+    fn copy(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap() {
+            let path = entry.unwrap().path();
+            let to = to.join(path.file_name().unwrap());
+            if path.is_dir() {
+                copy(&path, &to);
+            } else {
+                std::fs::copy(&path, &to).unwrap();
+            }
+        }
+    }
+    let dir = tempfile::TempDir::new().unwrap();
+    copy(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow"), dir.path());
+    dir
+}
+
+#[tokio::test]
+async fn a_name_a_text_sent_gives_between_backticks_that_nothing_defines_is_said_with_its_file() {
+    let dir = copied();
+    let rules = dir.path().join("agents/rules/general.md");
+    let text = std::fs::read_to_string(&rules).unwrap();
+    std::fs::write(&rules, format!("{text}\nMind `no_such_thing`.\n")).unwrap();
+    let router = web::router(Flows::dirs(dir.path().join("engineer"), Box::new(the_engine_s)));
+    let given = get_json(&router, "/api/v1/flow/given").await;
+    let unknown = given["unknown"].as_array().expect("the unknown names");
+    let said = (unknown.iter())
+        .find(|u| u["name"] == json!("no_such_thing"))
+        .expect("the name is said");
+    let source = said["source"].as_str().unwrap();
+    assert!(source.ends_with("/agents/rules/general.md"), "{source}");
+    // A name the flow defines is not said: each block and each tool of the flow.
+    for known in ["background", "query"] {
+        assert!(!unknown.iter().any(|u| u["name"] == json!(known)), "{known}");
+    }
 }
 
 #[tokio::test]
