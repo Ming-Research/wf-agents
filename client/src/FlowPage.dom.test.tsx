@@ -214,7 +214,7 @@ describe('the chart', () => {
     const heads = page.querySelectorAll('thead .cell-head .head-button');
     click(heads[0]);
     const plan = page.querySelector('aside[aria-label="Cell plan"]') as HTMLElement;
-    expect(texts(plan, '.panel-part-label')).toEqual(['triggered_by 2', 'context 3', 'outputs 1', 'tools 0', 'task', 'line']);
+    expect(texts(plan, '.panel-part-label')).toEqual(['triggered_by 2', 'context 3', 'outputs 1', 'task', 'line']);
     expect(plan.querySelector('.content')?.textContent).toBe('Write the plan from the request.\nSay what it leaves out.');
     click(heads[4]);
     const check = page.querySelector('aside[aria-label="Cell check"]') as HTMLElement;
@@ -401,6 +401,18 @@ describe('the panel and the widths', () => {
     click(drawer.querySelector('.drawer-tab'));
     expect(drawer.textContent).toContain("Choose a cell's head or a row's name");
     expect(page.querySelector('.view-body')?.className).not.toContain('panel-folded');
+  });
+
+  it('names the flow’s tools once, in the view’s line after the limits, each opening its panel, and draws no row of them', () => {
+    const page = draw({ state: 'compiled', flow: flowOf([cell('a', { tools: ['query', 'run_tests'] })], {}) });
+    expect(page.querySelector('.view-facts')?.textContent).toBe('limits runs 3, returns 2, calls 40 · tools query, run_tests');
+    expect(texts(page, 'tbody .row-label')).not.toContain('tool');
+    click([...page.querySelectorAll('.view-facts button')].find((b) => b.textContent === 'query'));
+    expect(page.querySelector('aside[aria-label="Tool query"]')).not.toBeNull();
+    // A cell of a flow that names the tools of every agent's cell names none of its own.
+    click(page.querySelectorAll('thead .cell-head .head-button')[0]);
+    const panel = page.querySelector('aside[aria-label="Cell a"]') as HTMLElement;
+    expect(texts(panel, '.panel-part-label').some((label) => label.startsWith('tools'))).toBe(false);
   });
 
   it('says the flow’s limits once, in the view’s line, and a cell’s own limit in its panel, by their keys', () => {

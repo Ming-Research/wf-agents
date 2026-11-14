@@ -66,7 +66,7 @@ export type Declared = Partial<{
 }>;
 
 /// The flow of these cells in this order, with these blocks, and the named tests the cells use; each line in a file of
-/// its own, with what `lines` writes of it.
+/// its own, with what `lines` writes of it; the flow's tools those its cells may ask for.
 export function flowOf(
   cells: Cell[],
   blocks: Record<string, Declared>,
@@ -107,7 +107,8 @@ export function flowOf(
       ...lines[l],
     }),
   );
-  return { name, limits: LIMITS, lines: declared, tests, cells, blocks: all };
+  const tools = [...new Set(cells.flatMap((c) => c.tools))];
+  return { name, limits: LIMITS, lines: declared, tests, tools, cells, blocks: all };
 }
 
 /// The small flow of `crates/web/tests/flows/small`: a plan a review can send back, a design when the review asks for

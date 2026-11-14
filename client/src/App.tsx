@@ -1,8 +1,17 @@
 // The page: the bar with its tabs, and under it the view the address's hash names (route.ts): the console, the works
-// (works/), the flow, the observations, the system or the settings. The flow view is the view's line (the flow's name, its limits, the legend), the chart under it,
-// and the panel docked at its right with what the owner chose.
+// (works/), the flow, the observations, the system or the settings. The flow view is the view's line (the flow's name,
+// its limits, its tools, the legend), the chart under it, and the panel docked at its right with what the owner chose.
 
-import { type CSSProperties, type ReactNode, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  type CSSProperties,
+  Fragment,
+  type ReactNode,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 
 import { type Definition, type Flow, type Given, load } from './api';
 import { Chart, type Chosen, Legend } from './Chart';
@@ -13,7 +22,7 @@ import { Bar, Edge, Panel, Switch } from './parts';
 import { type Route, hashOf, tabOf, useRoute } from './route';
 import { type Serves, opensOnFlow, useServes } from './serves';
 import { PANEL, WIDTH_KEYS, useKeptWidth } from './sizes';
-import { BlockPanel, CellPanel, Faults, type Fold, LinePanel, TestPanel } from './Side';
+import { BlockPanel, CellPanel, Faults, type Fold, LinePanel, TestPanel, ToolPanel } from './Side';
 import { type Theme, useTheme } from './theme';
 import { WorkView } from './works/WorkView';
 import { WorksList } from './works/WorksList';
@@ -229,6 +238,7 @@ export function FlowPage({ definition, given, active = true }: {
   const lineRow = chosen && 'line' in chosen ? drawn.lines.find((l) => l.name === chosen.line) : undefined;
   const testRow =
     chosen && 'test' in chosen ? drawn.conditions.find((c) => c.test && c.name === chosen.test) : undefined;
+  const tool = chosen && 'tool' in chosen ? chosen.tool : undefined;
   const edge = (
     <Edge
       side="left"
@@ -273,6 +283,10 @@ export function FlowPage({ definition, given, active = true }: {
     panel = <LinePanel row={lineRow} flow={flow} onChoose={choose} fold={fold} />;
   } else if (testRow) {
     panel = <TestPanel row={testRow} flow={flow} onChoose={choose} fold={fold} />;
+  } else if (tool !== undefined) {
+    panel = (
+      <ToolPanel name={tool} words={given?.state === 'compiled' ? given.toolFiles[tool] : undefined} fold={fold} />
+    );
   }
 
   return (
@@ -281,6 +295,24 @@ export function FlowPage({ definition, given, active = true }: {
         <span className="view-name">{flow.name}</span>
         <span className="view-facts" title="flow.toml">
           {limitsWords(flow)}
+          {flow.tools.length > 0 && (
+            <>
+              {' · tools '}
+              {flow.tools.map((t, i) => (
+                <Fragment key={t}>
+                  {i > 0 && ', '}
+                  <button
+                    type="button"
+                    className="link mono"
+                    aria-pressed={tool === t}
+                    onClick={() => choose(tool === t ? null : { tool: t })}
+                  >
+                    {t}
+                  </button>
+                </Fragment>
+              ))}
+            </>
+          )}
         </span>
         <span className="view-end">
           <Legend waysBack={drawn.waysBack} />

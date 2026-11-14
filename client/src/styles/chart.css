@@ -263,23 +263,6 @@ tr.row.chosen > .block-head {
   border-bottom-color: var(--muted);
 }
 
-/* The rows of the tools of the engine's, over the blocks: a tool's name muted, so that it is not read as a block's. */
-.tool-head {
-  height: var(--row);
-  padding: 0 var(--space-8);
-  white-space: nowrap;
-}
-
-.tool-name {
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: var(--size-small);
-}
-
-.part.tool {
-  stroke-width: 1.5;
-  stroke-linejoin: round;
-}
 
 .sign {
   flex: none;

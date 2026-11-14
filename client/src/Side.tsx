@@ -243,9 +243,9 @@ function AgentSent({
 }
 
 /// Everything about a cell: what its agent is told to do or the engine's act that carries it out, what runs it and
-/// what it is given and who writes each, what it may write and who reads each, the tools it may ask the engine for,
-/// what its agent is sent as it is entered, when it runs, what it waits for, its limits and the cells it shares a
-/// session with.
+/// what it is given and who writes each, what it may write and who reads each, the tools of its own it may ask the
+/// engine for where the flow names none for every agent's cell, what its agent is sent as it is entered, when it runs,
+/// what it waits for, its limits and the cells it shares a session with.
 export function CellPanel(props: {
   cell: Cell;
   matrix: Matrix;
@@ -443,7 +443,7 @@ export function CellPanel(props: {
             </ul>
           </PanelPart>
 
-          {cell.kind === 'agent' && (
+          {cell.kind === 'agent' && flow.tools.length === 0 && cell.tools.length > 0 && (
             <PanelPart label="tools" count={cell.tools.length}>
               <ul className="uses">
                 {cell.tools.map((tool) => (
@@ -747,6 +747,40 @@ export function TestPanel(props: { row: ConditionRow; flow: Flow; onChoose: (c: 
         <PanelPart label="requires" count={requires.length}>
           <CellRows flow={flow} ids={requires} onChoose={onChoose} />
         </PanelPart>
+      )}
+    </Panel>
+  );
+}
+
+/// One of the engine's tools, which every agent's cell of the flow may ask for: the file it is written in, and each of
+/// its keys with its text as that file writes it.
+export function ToolPanel(props: {
+  name: string;
+  /// The tool's file; none where the page was not given it.
+  words?: ActWords;
+  fold: Fold;
+}) {
+  const { name, words, fold } = props;
+  return (
+    <Panel
+      label={`Tool ${name}`}
+      title={<span className="mono">{name}</span>}
+      belongs={words && <span className="mono">{words.source}</span>}
+      {...fold}
+    >
+      {words ? (
+        <ul className="uses">
+          {words.words.map(([key, pieces]) => (
+            <ListRow key={key}>
+              <span className="mono">{key}</span>
+              <div className="row-note">
+                <SentText pieces={pieces} />
+              </div>
+            </ListRow>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted">The page was not given the tool's file</p>
       )}
     </Panel>
   );

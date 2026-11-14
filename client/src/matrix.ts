@@ -158,22 +158,6 @@ export interface ConditionRow {
   spots: ConditionSpot[];
 }
 
-/// Where a tool's row crosses a cell's column: whether the cell may ask for the tool.
-export interface ToolSpot {
-  asks: boolean;
-}
-
-/// A row of a tool of the engine's, which an agent's cell may ask for in its return.
-export interface ToolRow {
-  name: string;
-  /// By cell, in the order of the columns.
-  spots: ToolSpot[];
-}
-
-/// The tools of the engine's, in the order their rows stand; a tool a definition names that is not among them stands
-/// after them.
-export const TOOLS = ['query', 'run_tests'];
-
 /// The matrix of a flow.
 export interface Matrix {
   /// The rows, top to bottom.
@@ -186,8 +170,6 @@ export interface Matrix {
   lines: LineRow[];
   /// The rows of the conditions the cells name, under the lines', each where the first cell that names it stands.
   conditions: ConditionRow[];
-  /// The rows of the tools that a cell may ask for, over the blocks' rows.
-  tools: ToolRow[];
   /// How many ways back the flow has: pairs of a cell a trigger runs and a later cell's write of the block the trigger
   /// stands on.
   waysBack: number;
@@ -328,16 +310,7 @@ export function matrix(flow: Flow): Matrix {
     }),
   }));
 
-  const tooled = [...new Set(cells.flatMap((c) => c.tools))];
-  const place = (tool: string) => (TOOLS.includes(tool) ? TOOLS.indexOf(tool) : TOOLS.length);
-  const tools: ToolRow[] = tooled
-    .sort((a, b) => place(a) - place(b) || (a < b ? -1 : a > b ? 1 : 0))
-    .map((name) => ({
-      name,
-      spots: cells.map((cell) => ({ asks: cell.tools.includes(name) })),
-    }));
-
-  return { blocks, cells, spots, lines, conditions, tools, waysBack };
+  return { blocks, cells, spots, lines, conditions, waysBack };
 }
 
 /// How a line runs along a row of `n` crossings from the middle of the one at `from` to the middle of the one at `to`.

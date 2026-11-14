@@ -16,7 +16,8 @@
 // the conditions, one to a named test or a block a cell's condition names: under a cell whose `when` it is, a tick
 // where the cell runs when the test holds or the block is yes, a cross where it runs when the block is no, and the
 // value itself where it waits for another; and a square under each cell that `requires` the test, which the work waits
-// before until it holds.
+// before until it holds. The engine's tools are the flow's, alike for every agent's cell, and are named once, in the
+// view's line.
 
 import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, useState } from 'react';
 
@@ -33,23 +34,23 @@ import {
   type Matrix,
   NO_MARK,
   type Spot,
-  type ToolRow,
-  type ToolSpot,
   hasMark,
 } from './matrix';
 import { Edge, Sign } from './parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from './sizes';
 import { cellSays, headFacts, inputKindWords, keysWords, lineKeys } from './words';
 
-/// What the owner chose: a cell, a block, a line, a named test, or nothing.
-export type Chosen = { cell: string } | { block: string } | { line: string } | { test: string } | null;
+/// What the owner chose: a cell, a block, a line, a named test, one of the engine's tools, or nothing.
+export type Chosen =
+  { cell: string } | { block: string } | { line: string } | { test: string } | { tool: string } | null;
 
-/// The key a chosen thing's head is found by on the chart.
-function keyOf(chosen: NonNullable<Chosen>): string {
+/// The key a chosen thing's head is found by on the chart; none for a tool, which has no row.
+function keyOf(chosen: NonNullable<Chosen>): string | null {
   if ('cell' in chosen) return `cell:${chosen.cell}`;
   if ('block' in chosen) return `block:${chosen.block}`;
   if ('line' in chosen) return `line:${chosen.line}`;
-  return `test:${chosen.test}`;
+  if ('test' in chosen) return `test:${chosen.test}`;
+  return null;
 }
 
 const PART_WORDS: Record<MarkPart, string> = {
@@ -223,9 +224,6 @@ export function Legend({ waysBack }: { waysBack: number }) {
         <DataGlyphs spot={spot({ given: true, kind: 'all' })} /> context all
       </li>
       <li>
-        <ToolGlyph spot={{ asks: true }} /> tools
-      </li>
-      <li>
         <Sign name="people" /> people
       </li>
       <li>
@@ -235,16 +233,6 @@ export function Legend({ waysBack }: { waysBack: number }) {
         <Sign name="shown" /> shown
       </li>
     </ul>
-  );
-}
-
-/// The mark of a tool a cell may ask for: a small triangle.
-function ToolGlyph({ spot }: { spot: ToolSpot }) {
-  if (!spot.asks) return null;
-  return (
-    <svg className="glyph" viewBox="0 0 24 24" aria-hidden="true">
-      <path className="part tool" d="M8.5 7 L17 12 L8.5 17 Z" />
-    </svg>
   );
 }
 
@@ -325,7 +313,7 @@ interface ChartProps {
 }
 
 export function Chart({ matrix, chosen, onChoose }: ChartProps) {
-  const { blocks, cells, spots, lines, conditions, tools } = matrix;
+  const { blocks, cells, spots, lines, conditions } = matrix;
   const isTrigger = (row: BlockRow) => row.trigger !== undefined;
   const [pointed, setPointed] = useState<number | null>(null);
   const frame = useRef<HTMLDivElement>(null);
@@ -340,8 +328,9 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
 
   // What is chosen elsewhere (a panel) is brought into view in the frame.
   useEffect(() => {
-    if (!chosen) return;
-    const target = frame.current?.querySelector(`[data-key="${CSS.escape(keyOf(chosen))}"]`);
+    const key = chosen && keyOf(chosen);
+    if (!key) return;
+    const target = frame.current?.querySelector(`[data-key="${CSS.escape(key)}"]`);
     target?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [chosen]);
 
@@ -437,21 +426,6 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
                 />
               );
             })}
-          </tbody>
-        )}
-        {tools.length > 0 && (
-          <tbody className="band">
-            {tools.map((row) => (
-              <ToolLine
-                key={row.name}
-                row={row}
-                cells={cells}
-                chosenCell={chosenCell}
-                saying={saying}
-                pointed={pointed}
-                onPoint={setPointed}
-              />
-            ))}
           </tbody>
         )}
         {[true, false].map((trigger) => (
@@ -782,52 +756,6 @@ function ConditionLine(props: {
         onMouseEnter={() => onPoint(null)}
       >
         {says || what}
-      </td>
-    </tr>
-  );
-}
-
-/// The row of a tool of the engine's, over the blocks: its name, a mark under each cell that may ask for it, and what
-/// the tool does; on the row of a tool the chosen cell may ask for, that it may.
-function ToolLine(props: {
-  row: ToolRow;
-  cells: Cell[];
-  chosenCell: string | null;
-  saying: Cell | null;
-  pointed: number | null;
-  onPoint: (c: number | null) => void;
-}) {
-  const { row, cells, chosenCell, saying, pointed, onPoint } = props;
-  const says = saying?.tools.includes(row.name) ? 'tools' : '';
-  return (
-    <tr className="row tool-row">
-      <th scope="row" className="lead tool-head" onMouseEnter={() => onPoint(null)}>
-        <span className="tool-name" title={`Tool ${row.name}`}>
-          {row.name}
-        </span>
-        <span className="row-label">tool</span>
-      </th>
-      {cells.map((cell, c) => {
-        const spot = row.spots[c];
-        const words = spot.asks ? `${cell.id} may ask for ${row.name}` : '';
-        return (
-          <td
-            key={cell.id}
-            className={`spot ${chosenCell === cell.id ? 'chosen' : ''} ${pointed === c ? 'pointed' : ''}`}
-            title={words || undefined}
-            onMouseEnter={() => onPoint(c)}
-          >
-            <ToolGlyph spot={spot} />
-            {words && <span className="visually-hidden">{words}</span>}
-          </td>
-        );
-      })}
-      <td
-        className={`words ${says ? 'said' : saying ? 'beside' : ''}`}
-        title={says || undefined}
-        onMouseEnter={() => onPoint(null)}
-      >
-        {says}
       </td>
     </tr>
   );

@@ -102,8 +102,8 @@ export interface Cell {
   outputs: string[];
   /// The blocks among its outputs that every hand-in of it includes.
   mustWrite: string[];
-  /// The tools of the engine's that an agent's cell may ask for in its return, by name, in the order the definition
-  /// lists them; none for an engine's cell.
+  /// The tools of the engine's that an agent's cell may ask for in its return, by name, in the order written: the
+  /// flow's, where it names any, else the cell's own; none for an engine's cell.
   tools: string[];
   /// What runs it, each a trigger by its name, with the block it stands on, the data its agent reads for it and what
   /// the cell does when it fires, as the definition writes them.
@@ -146,6 +146,8 @@ export interface Flow {
   limits: Limits;
   lines: Line[];
   tests: Test[];
+  /// The engine's tools every agent's cell of the flow may ask for, in the order `flow.toml` writes them.
+  tools: string[];
   /// In the order of the walk.
   cells: Cell[];
   /// By name.
@@ -303,8 +305,10 @@ export type Given =
   | {
       state: 'compiled';
       cells: Record<string, SentPart[]>;
-      /// The names of the engine's tools, so that the page tells a tool in the form from a field.
+      /// The flow's tools, so that the page tells a tool in the form from a field.
       tools: string[];
+      /// Each of the engine's tools as its file in `agents/tools/` writes it, by the tool's name.
+      toolFiles: Record<string, ActWords>;
       /// What each engine's cell's act writes, by the cell's id.
       acts: Record<string, ActWords>;
       unknown: Unknown[];
