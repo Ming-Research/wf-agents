@@ -411,17 +411,22 @@ fn line(fault: &Fault) -> String {
     } else {
         format!("{} {}", fault.file, fault.field)
     };
-    format!("{at}: {}", words(&fault.what))
+    format!("{at}: {}", words(&fault.what, &fault.field))
 }
 
-/// What is wrong, in words.
-fn words(what: &FaultKind) -> String {
+/// What is wrong, in words. Where it is wrong is told too, since a name given twice is one of two things: a name in a
+/// list that stands in it again, and, at the field `tools` itself, a cell naming tools of its own where the flow's file
+/// already gives them to every agent cell.
+fn words(what: &FaultKind, field: &str) -> String {
     use FaultKind as F;
     match what {
         F::Unreadable { message } => format!("cannot be read: {}", message.trim_end()),
         F::OrderEmpty => "the order names no cell".to_string(),
         F::NoCellFile { cell } => format!("the order names {cell}, which has no file"),
         F::NotInOrder { cell } => format!("the cell {cell} has a file but is not named in the order"),
+        F::Twice { name } if field == "tools" => {
+            format!("the cell names {name} of its own, and the flow already gives its agent cells theirs")
+        }
         F::Twice { name } => format!("{name} is named a second time in the same list"),
         F::LimitOutOfRange { value } => {
             format!("the limit {value} is not a whole number from 1 to the largest count the engine keeps")
@@ -542,6 +547,19 @@ fn words(what: &FaultKind) -> String {
 /// the flow alone.
 fn flow_page(address: SocketAddr) -> String {
     format!("http://{address}/#/flow")
+}
+
+#[test]
+fn a_name_given_twice_says_where_it_was_given_twice() {
+    let twice = |name: &str, field: &str| words(&FaultKind::Twice { name: name.to_string() }, field);
+    assert_eq!(
+        twice("query", "tools[2]"),
+        "query is named a second time in the same list"
+    );
+    assert_eq!(
+        twice("tools", "tools"),
+        "the cell names tools of its own, and the flow already gives its agent cells theirs"
+    );
 }
 
 #[test]

@@ -53,7 +53,10 @@ export function faultWords(fault: Fault): string {
     case 'notInOrder':
       return `The cell ${w.cell} has a file but is not named in the order.`;
     case 'twice':
-      return `${w.name} is named a second time in the same list.`;
+      // At the field `tools` itself, a cell names tools of its own where the flow already gives them to every agent cell.
+      return fault.field === 'tools'
+        ? `The cell names ${w.name} of its own, and the flow already gives its agent cells theirs.`
+        : `${w.name} is named a second time in the same list.`;
     case 'limitOutOfRange':
       return `The limit ${w.value} is not a whole number from 1 to the largest count the engine keeps.`;
     case 'noLine':

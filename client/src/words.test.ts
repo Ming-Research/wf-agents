@@ -180,6 +180,12 @@ describe('the words of the page', () => {
     expect(
       faultWords({ file: 'flow.toml', field: 'order', what: { kind: 'flowRefused', reason: 'twice', cell: 'a' } }),
     ).toBe('Two cells have the same name. (a)');
+    expect(faultWords({ file: 'cells/a.toml', field: 'tools[2]', what: { kind: 'twice', name: 'query' } })).toBe(
+      'query is named a second time in the same list.',
+    );
+    expect(faultWords({ file: 'cells/a.toml', field: 'tools', what: { kind: 'twice', name: 'tools' } })).toBe(
+      'The cell names tools of its own, and the flow already gives its agent cells theirs.',
+    );
     expect(
       faultWords({
         file: 'flow.toml',
