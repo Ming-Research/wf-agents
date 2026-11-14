@@ -314,7 +314,7 @@ pub(crate) fn befores(place: &Place) -> Vec<PathBuf> {
 }
 
 /// Whether there is a symbolic link at the path itself, read by the link's own metadata and not its target's.
-fn a_link(path: &Path) -> bool {
+pub(crate) fn a_link(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
 }
 

@@ -1,7 +1,7 @@
 # Runs tests and checks in the project's CI, run by the engine (design statement 27).
 words = '''
 `run_tests`: runs the project's CI on the last commit of the work's branch; what is not committed is not run. Ask as
-  `{"tests": [...], "checks": [...]}`, naming tests as `project.test_names` says and checks among `github.checks`; name
+  `{"tests": [...], "checks": [...]}`, naming tests as `project.test_names` says and checks among {named_checks}; name
   none to run the whole CI. It gives each test and check, green or red, with the time it took, and the output of what
   is red.'''
 
@@ -9,3 +9,14 @@ words = '''
 type = "object"
 properties = { tests = { type = "array", items = { type = "string" } }, checks = { type = "array", items = { type = "string" } } }
 additionalProperties = false
+
+# What fills `{named_checks}`, the checks an agent may name, as the installation runs the project's CI. A check is run
+# by name only by the project's fast CI (`[github.fast]`), and only one it runs by name: `named`, `{checks}` those
+# checks, each between backticks and joined by commas; `none_named`, where it runs none by name. Without a fast CI,
+# every run is the whole CI and nothing named is run apart: `whole`.
+[places.named_checks]
+named = "{checks}"
+none_named = "none, since the project's fast CI runs no check by name"
+whole = """
+none, since the project has no fast CI: every run is the whole CI, and the tests and checks you name are not run \
+apart"""

@@ -1,8 +1,58 @@
 use super::*;
 
-/// The permissions of a line for the installation's arguments, with nothing added by its settings.
+/// What the place `{your_line}` says, as the files beside the repository's flows write it.
+fn words() -> YourLine {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/agents/your_line.toml");
+    toml::from_str(&std::fs::read_to_string(&path).expect("the file is read")).expect("it reads")
+}
+
+/// The lock commands of a project on Cargo and npm, as its installation's settings name them: `cargo update` and
+/// `cargo add` resolve the dependencies and write Cargo.lock without compiling anything; `npm install
+/// --package-lock-only` writes package-lock.json and leaves node_modules alone, and with `--ignore-scripts` runs none of
+/// the package's own scripts, which it runs when it is given no package.
+const LOCKS: [&str; 3] = [
+    "cargo update",
+    "cargo add",
+    "npm install --package-lock-only --ignore-scripts",
+];
+
+/// The uses of those lock commands the settings refuse all the same: npm's options that would undo
+/// `--package-lock-only` or `--ignore-scripts` or install elsewhere, as a later npm option overrides an earlier one.
+/// They are a negated option, which npm reads in any case (`--no-ignore-scripts`, `--NO-ignore-scripts`); any option
+/// given a value after `=`, which turns a flag off with `false`, `null`, `0` or nothing and sets `--location=global` or
+/// `--prefix=<dir>`; a flag turned off by a separate `false`; and `-g`, `--global`, `--location`, `--prefix` and `-C`,
+/// written out or shortened, and the short ones with two dashes, which npm takes as well. A short option in a cluster
+/// of them, as the `g` of `-Dg`, cannot be named in the command line's patterns without refusing the lock command
+/// itself, and is a risk left.
+const LOCKS_EXCEPT: [&str; 12] = [
+    "npm install *-no-*",
+    "npm install *-NO-*",
+    "npm install *-No-*",
+    "npm install *-nO-*",
+    "npm install *=*",
+    "npm install * false*",
+    "npm install * -g*",
+    "npm install *--g*",
+    "npm install *--loc*",
+    "npm install *--pref*",
+    "npm install * -C*",
+    "npm install *--C*",
+];
+
+/// What the settings of an installation whose project is on Cargo and npm add: those lock commands and their
+/// exceptions.
+fn cargo_and_npm() -> PermissionsAdded {
+    let list = |l: &[&str]| l.iter().map(|c| c.to_string()).collect();
+    PermissionsAdded {
+        heavy: Vec::new(),
+        locks: list(&LOCKS),
+        locks_except: list(&LOCKS_EXCEPT),
+    }
+}
+
+/// The permissions of a line for the installation's arguments, with the lock commands of a project on Cargo and npm.
 fn of(reads_only: bool, args: &[String]) -> Permissions {
-    Permissions::of(reads_only, args, &PermissionsAdded::default())
+    Permissions::of(reads_only, args, &cargo_and_npm())
 }
 
 fn args(args: &[&str]) -> Vec<String> {
@@ -27,8 +77,8 @@ fn a_line_that_only_reads_edits_nothing_and_changes_no_repository() {
     assert!(!writes.iter().any(|r| r == "Edit" || r == "Bash(git commit *)"));
 }
 
-// Every line is refused the heavy commands and pushing. A line that writes may update a lock file with the package
-// manager, and no heavy rule refuses that: the heavy commands the lock commands fall under are left out there, every
+// Every line is refused the heavy commands and pushing. A line that writes may update a lock file with the lock
+// commands the settings name, and no heavy rule refuses that: the heavy commands the lock commands fall under are left out there, every
 // other stays, and the npm options that would undo a lock command are refused. A line that only reads is allowed none
 // of them, and refused every heavy command whole.
 #[test]
@@ -65,6 +115,19 @@ fn only_a_line_that_writes_may_update_a_lock_file() {
         assert!(reads.refused.contains(&format!("Bash({heavy} *)")), "{heavy}");
     }
     assert!(!reads.refused.iter().any(|r| r.contains("-no-")));
+}
+
+// The engine knows no lock command of its own: where the settings name none, a line that writes may update no lock
+// file, and is refused every heavy command whole.
+#[test]
+fn a_lock_command_is_the_settings_alone() {
+    let writes = Permissions::of(false, &[], &PermissionsAdded::default());
+    assert!(writes.allowed.is_empty() && writes.locks.is_empty());
+    assert_eq!(writes.refused.len(), HEAVY.len());
+    for heavy in HEAVY {
+        assert!(writes.refused.contains(&format!("Bash({heavy} *)")), "{heavy}");
+    }
+    assert_eq!(writes.told(&words()), "Make your changes there and commit them there.");
 }
 
 // A heavy command left out for a lock command stays refused in every other use the installation's arguments allow:
@@ -207,22 +270,22 @@ fn the_permissions_are_given_as_the_command_line_s_lists_of_rules() {
 // it commits there and with which commands it updates a lock file; nothing of a lock command its line is not allowed.
 #[test]
 fn an_agent_is_told_what_its_line_may_do() {
-    let reads = of(true, &[]).told();
+    let reads = of(true, &[]).told(&words());
     assert_eq!(reads, "You only read it, and change no file.");
 
-    let writes = of(false, &[]).told();
+    let writes = of(false, &[]).told(&words());
     assert_eq!(
         writes,
         "Make your changes there and commit them there. Update a lock file with `cargo update`, `cargo add` or \
          `npm install --package-lock-only --ignore-scripts`, your arguments after it."
     );
-    let open = of(false, &args(&["--allowedTools", "Bash(cargo:*)"])).told();
+    let open = of(false, &args(&["--allowedTools", "Bash(cargo:*)"])).told(&words());
     assert_eq!(
         open,
         "Make your changes there and commit them there. Update a lock file with \
          `npm install --package-lock-only --ignore-scripts`, your arguments after it."
     );
-    let none = of(false, &args(&["--dangerously-skip-permissions"])).told();
+    let none = of(false, &args(&["--dangerously-skip-permissions"])).told(&words());
     assert_eq!(none, "Make your changes there and commit them there.");
 }
 
@@ -311,8 +374,9 @@ fn every_use_of_npm_but_its_lock_command_is_refused() {
     }
 }
 
-// The installation adds to the engine's lists: a heavy command of its toolchain is refused, its lock command is
-// allowed though a heavy command covers it, and the uses of it it names are refused; nothing of the engine's goes.
+// The installation adds to the engine's list of heavy commands and names the lock commands: a heavy command of its
+// toolchain is refused, its lock command is allowed though a heavy command covers it, and the uses of it it names are
+// refused; nothing of the engine's goes.
 #[test]
 fn the_installation_adds_heavy_and_lock_commands_of_its_own() {
     let added = PermissionsAdded {
@@ -336,8 +400,8 @@ fn the_installation_adds_heavy_and_lock_commands_of_its_own() {
         assert!(!writes.refused.iter().any(|r| r == gone), "{gone}");
     }
     assert!(writes.refused.iter().any(|r| r == "Bash(pnpm install *--global*)"));
-    // The engine's heavy commands and `uv`, less the four the lock commands fall under; the exceptions, and one more.
-    assert_eq!(writes.refused.len(), HEAVY.len() + 1 - 4 + LOCKS_EXCEPT.len() + 1);
+    // The engine's heavy commands and `uv`, less the two the lock commands fall under, and the one exception.
+    assert_eq!(writes.refused.len(), HEAVY.len() + 1 - 2 + 1);
     let reads = Permissions::of(true, &[], &added);
     for rule in ["Bash(uv *)", "Bash(pnpm *)", "Bash(cargo *)"] {
         assert!(reads.refused.iter().any(|r| r == rule), "{rule}");
@@ -345,7 +409,7 @@ fn the_installation_adds_heavy_and_lock_commands_of_its_own() {
     // A heavy command narrower than a lock command still refuses what it names.
     let narrower = PermissionsAdded {
         heavy: vec!["cargo update --precise".to_string()],
-        ..PermissionsAdded::default()
+        ..cargo_and_npm()
     };
     let refused = Permissions::of(false, &[], &narrower).refused;
     assert!(refused.iter().any(|r| r == "Bash(cargo update --precise *)"));

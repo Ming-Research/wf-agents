@@ -17,12 +17,12 @@ path = "design/README.md"
 # The installation's settings a text sent to an agent may name, whose values the engine fills in from the
 # installation: not the project's, so they are named here and kept there.
 [installation]
-names = ["owner.language", "github.checks"]
+names = ["owner.language", "agents.subagents.most"]
 
 [project]
 # Where an agent keeps what it makes for research, committed.
 research = "research/"
-# How an agent names a test to `run_tests`: moved out of AGENTS.md, which holds only what is about the project.
+# How an agent names a test to `run_tests`, by the name the project's test runners give it.
 test_names = '''
 An agent the engine runs names to `run_tests` a test by the name its results give it, ending at
 the test's own name: a Rust test by its function's name, or with its module path and its test binary before it

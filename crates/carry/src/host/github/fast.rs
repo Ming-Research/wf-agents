@@ -194,7 +194,7 @@ impl<A: Api> GitHub<A> {
             match self.api.log(id).await {
                 Ok(text) => said.push_str(&format!(
                     "\nWhat its log says of the failure, as the CI printed it:\n{}",
-                    log::fenced(&log::what_failed(&text, budget))
+                    log::fenced(&log::what_failed(&text, budget, &self.config.log))
                 )),
                 Err(why) => said.push_str(&format!("\nIts log could not be read: {why}")),
             }

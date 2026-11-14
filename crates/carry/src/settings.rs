@@ -1,23 +1,29 @@
-//! The installation's settings: the project the works are done in, where its repository is hosted, and how its
-//! agents are run. They are read from a TOML file, `install.toml` in the data directory unless another is named; `install.sample.toml` beside this crate's
-//! manifest says what each key is. A key the file does not know is refused, as the flow's files refuse one, so that a
-//! misspelt key is not silently left at nothing.
+//! The installation's settings: the owner, the project the works are done in, where its repository is hosted, and how
+//! its agents are run. They are read from a TOML file, `install.toml` in the data directory unless another is named;
+//! `install.sample.toml` beside this crate's manifest says what each key is. A key the file does not know is refused,
+//! as the flow's files refuse one, so that a misspelt key is not silently left at nothing.
+//!
+//! A text the agents are given names a setting by its key between backticks, as `` `owner.language` ``, and is given
+//! with the setting's value written beside the name: the files beside the flows name, in `project.toml`, the
+//! installation's settings their texts may name, and the installation holds each one's value ([`Settings::value`]).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use driver::Policy;
 use flow::CellSpec;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use service::{Levels, LevelsFault};
 use work::RanOn;
 
 use crate::permissions::{HEAVY, NEVER_A_LOCK, falls_under};
 
 /// The settings as their file is written.
-#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
+    /// The owner, for whom the agents write what the owner reads.
+    pub owner: Owner,
     pub project: Project,
     pub agents: Agents,
     pub items: Items,
@@ -32,8 +38,16 @@ pub struct Settings {
     pub sessions: Sessions,
 }
 
+/// The owner of the installation.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Owner {
+    /// The language the agents write in what the owner reads.
+    pub language: String,
+}
+
 /// The copies of the database kept off the machine: in a private repository on GitHub, as assets of a release.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Backup {
     /// The private repository on github.com, as `owner/name`. It is not the project's repository nor the data
@@ -96,7 +110,7 @@ impl Backup {
 }
 
 /// When a line of a work begins a new session, beyond its first, a lost one, and one the owner asks for.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sessions {
     /// The context in tokens past which a line's session is replaced by a new one: once a round of the line ends with
@@ -118,7 +132,7 @@ fn context_limit() -> u64 {
 }
 
 /// The project whose works are done: a local git repository, its main branch and the command that checks it.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Project {
     /// The repository's own checkout: works branch from its main branch, and are merged into it here.
@@ -139,7 +153,7 @@ pub struct Project {
 
 /// The project's repository on GitHub: the works' branches are pushed there, checked by its CI through a pull request
 /// each, and merged by GitHub.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GitHub {
     /// The repository on github.com, as `owner/name`; `project.repo` is a clone of it.
@@ -175,13 +189,51 @@ pub struct GitHub {
     /// The project's fast CI, which runs only the tests and checks an agent names; with none, an agent's check is the
     /// whole CI of its commit.
     pub fast: Option<Fast>,
+    /// How the lines of a red job's log are told apart, as the project's tools print them; with none, only by what
+    /// GitHub itself writes there.
+    #[serde(default)]
+    pub log: Log,
+}
+
+/// How the lines of a red job's log are told apart, as the project's tools print them, each kind a list of patterns: a
+/// line is of a kind where it is the whole of one of its patterns, the spaces it begins with included, so that a word
+/// the tools align is written aligned, `*` standing for any text. What GitHub itself writes in a log (a step's command,
+/// its errors, the runner's clean-up) the engine knows without them.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Log {
+    /// The lines that only show progress, such as a dependency fetched or built and a test started or passed: left
+    /// out.
+    #[serde(default)]
+    pub progress: Vec<String>,
+    /// The lines that say a test did not pass: each kept with the lines under it, its output, up to the next line of
+    /// one of these kinds.
+    #[serde(default)]
+    pub failures: Vec<String>,
+    /// The lines that say a test was still running: kept, as they say which test held a job cancelled at its time
+    /// limit.
+    #[serde(default)]
+    pub running: Vec<String>,
+    /// The lines that begin an error or a warning: each kept with the lines under it up to a blank line.
+    #[serde(default)]
+    pub errors: Vec<String>,
+    /// The line that begins the summary of a run of the tests: the last of them kept with everything after it.
+    #[serde(default)]
+    pub summary: Vec<String>,
+    /// The lines of no other kind that end a failed test's output, such as a line that says the next unit of tests
+    /// runs.
+    #[serde(default)]
+    pub ends_output: Vec<String>,
+    /// Where the tools begin a line that says what it is with one word right-aligned to this many columns and followed
+    /// by a space, as cargo and nextest align theirs to twelve: each such line ends a failed test's output as well.
+    pub status_width: Option<usize>,
 }
 
 /// A project's fast CI: a workflow GitHub runs by hand, always by its file on the main branch, which checks out the
 /// commit it is given, runs only the tests and the checks it is given and reports what became of each test. The engine
 /// reads its results by the conventions its reading of them holds to (JUnit XML, a unit not built as a testsuite with
 /// no testcase and an error, and at least every test a name names run).
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Fast {
     /// The workflow, by its file's name, such as `fast.yml`.
@@ -259,7 +311,7 @@ fn gh() -> String {
 const MERGE_METHODS: [&str; 3] = ["squash", "merge", "rebase"];
 
 /// How the agents are run.
-#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Agents {
     /// The command line program that runs an agent's round: `claude`, or a path to it.
@@ -286,8 +338,9 @@ pub struct Agents {
     /// The program's own directory of settings and sign-in, as `CLAUDE_CONFIG_DIR`; with none, the program's own
     /// default.
     pub config_dir: Option<PathBuf>,
-    /// The language the blocks the owner reads are written in.
-    pub owner_language: String,
+    /// The subagents an agent may start within its round; given where a text names `agents.subagents.most`.
+    #[serde(default)]
+    pub subagents: Subagents,
     /// What a work's rounds may spend in all, in dollars, before the work waits for the owner; with none, no limit.
     pub work_budget_usd: Option<f64>,
 }
@@ -296,10 +349,30 @@ fn user() -> String {
     "user".to_string()
 }
 
+/// The subagents an agent may start within its round for chores, such as reading documents or searching code, which
+/// the agent is told.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Subagents {
+    /// How many at most in one round; 3 where none is given, as the engine on `old-main` had it.
+    #[serde(default = "most_subagents")]
+    pub most: u32,
+}
+
+impl Default for Subagents {
+    fn default() -> Subagents {
+        Subagents { most: most_subagents() }
+    }
+}
+
+fn most_subagents() -> u32 {
+    3
+}
+
 /// What an installation adds to the engine's lists of what the agents may run (`permissions`): what its project's
 /// toolchain counts as heavy, and the commands that update its lock files, with the uses of them that would build,
 /// run or install after all. It takes nothing away from the engine's lists.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PermissionsAdded {
     /// Heavy commands no agent runs, each a command with the start of its arguments.
@@ -437,7 +510,7 @@ impl Agents {
 }
 
 /// A level of work: what work it is for, and the model its rounds are run with.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Level {
     /// What work the level is for, in words for whoever gives an item its level.
@@ -447,7 +520,7 @@ pub struct Level {
 }
 
 /// How items are given their level.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Items {
     /// The level an item is added at where it is given none, by its name among the levels.
@@ -462,6 +535,10 @@ const ONE_MODEL: &str = "agents.model: rounds no longer run on one model: each i
      its model. Take out agents.model; add a table [agents.levels.<name>] with desc and model for each level, and a \
      table [items] with default_level, the level an item is added at where it is given none, and, if you like, \
      highest_level. install.sample.toml shows them.";
+
+/// What the settings are told where they name `agents.owner_language`, where the owner's language once was.
+const OWNER_LANGUAGE: &str = "agents.owner_language: the owner's language is the owner's, not the agents': take it \
+     out of [agents] and write it as language in a table [owner], as install.sample.toml shows.";
 
 /// The settings file's name in the data directory.
 pub const FILE: &str = "install.toml";
@@ -538,6 +615,9 @@ impl Settings {
         if agents.is_some_and(|agents| agents.contains_key("model")) {
             return Err(ONE_MODEL.to_string());
         }
+        if agents.is_some_and(|agents| agents.contains_key("owner_language")) {
+            return Err(OWNER_LANGUAGE.to_string());
+        }
         let settings: Settings = toml::from_str(text).map_err(|e| e.to_string().trim_end().to_string())?;
         let mut wrong = Vec::new();
         wrong.extend(settings.agents.wrong());
@@ -556,6 +636,9 @@ impl Settings {
         }
         if settings.project.main.is_empty() {
             wrong.push("project.main: the main branch has a name".to_string());
+        }
+        if settings.owner.language.trim().is_empty() {
+            wrong.push("owner.language: the owner's language has a name".to_string());
         }
         if let Err(why) = settings.levels() {
             wrong.push(why);
@@ -590,14 +673,33 @@ impl Settings {
     /// What the owner is to be told of the settings as the engine starts, each a sentence: where an agent's sign-in
     /// and settings are not the installation's own.
     pub fn warnings(&self) -> Vec<String> {
-        match self.agents.config_dir {
-            Some(_) => Vec::new(),
-            None => vec![format!(
+        let mut warned = Vec::new();
+        if self.agents.config_dir.is_none() {
+            warned.push(format!(
                 "The agents use the default sign-in and settings directory of {}, which an agent can write to; \
                  agents.config_dir gives them one of their own.",
                 self.agents.command
-            )],
+            ));
         }
+        // The engine knows no lock command and no line of a project's tools of its own: where the settings name none,
+        // what they would do is not done, and that is said rather than left unseen.
+        if self.agents.permissions.locks.is_empty() {
+            warned.push(
+                "agents.permissions.locks: no command that updates a lock file is named, so an agent that writes may \
+                 update none."
+                    .to_string(),
+            );
+        }
+        if let Some(github) = &self.github
+            && github.log == Log::default()
+        {
+            warned.push(
+                "github.log: no pattern of the project's tools is named, so the log of a red job is cut only by what \
+                 GitHub writes in it: the agents are given the steps that failed, up to their last error."
+                    .to_string(),
+            );
+        }
+        warned
     }
 
     /// The levels items are given, as these settings name them; or what is wrong with them, in words with their keys.
@@ -640,6 +742,22 @@ impl Settings {
         Policy {
             limit: self.sessions.context_limit,
             on: Box::new(move |item, cell| settings.ran_on(item.level.as_deref(), cell).ok()),
+        }
+    }
+
+    /// The value of the setting this key names, its parts joined by dots, as an agent is given it beside the key: a
+    /// text as it is, any other value as JSON writes it; none where these settings have none, as a key they do not
+    /// have, a value left out or a table left out. `owner.language` gives `Chinese`; `github.checks`, `["check"]`.
+    pub fn value(&self, key: &str) -> Option<String> {
+        let all = serde_json::to_value(self).ok()?;
+        let mut value = &all;
+        for part in key.split('.') {
+            value = value.get(part)?;
+        }
+        match value {
+            serde_json::Value::Null => None,
+            serde_json::Value::String(text) => Some(text.clone()),
+            other => Some(other.to_string()),
         }
     }
 
@@ -711,6 +829,25 @@ mod tests {
         let blank = format!("{SAMPLE}{}", github.replace("\"fast.yml\"", "\" \""));
         let refused = Settings::read(&blank).expect_err("refused");
         assert!(refused.contains("github.fast"), "{refused}");
+    }
+
+    // The settings that name no lock command, or on GitHub no line of the project's tools in a log, are said as the
+    // engine starts: the engine knows none of its own.
+    #[test]
+    fn the_owner_is_told_when_no_lock_command_or_log_pattern_is_named() {
+        let mut settings = Settings::read(SAMPLE).unwrap();
+        settings.agents.config_dir = Some("agents".into());
+        assert!(settings.warnings().is_empty());
+        settings.agents.permissions.locks.clear();
+        settings.github = Settings::read(&on_github()).unwrap().github;
+        assert_eq!(settings.warnings().len(), 1, "the sample's log names patterns");
+        settings.github.as_mut().unwrap().log = Log::default();
+        let warned = settings.warnings();
+        assert_eq!(warned.len(), 2, "{warned:?}");
+        assert!(warned[0].starts_with("agents.permissions.locks:"), "{}", warned[0]);
+        assert!(warned[1].starts_with("github.log:"), "{}", warned[1]);
+        settings.github.as_mut().unwrap().log.status_width = Some(12);
+        assert_eq!(settings.warnings().len(), 1);
     }
 
     #[test]
@@ -821,16 +958,16 @@ mod tests {
 
     #[test]
     fn the_samples_permissions_read_and_add_to_the_engines() {
-        let text = SAMPLE.replace("# permissions = {", "permissions = {");
-        let added = Settings::read(&text).expect("it reads").agents.permissions;
+        let added = Settings::read(SAMPLE).expect("it reads").agents.permissions;
         assert_eq!(added.heavy, ["uv"]);
         assert_eq!(added.locks, ["uv lock"]);
         assert_eq!(added.locks_except, ["uv lock *--script*"]);
+        let none = SAMPLE.replace("permissions = {", "# permissions = {");
         assert_eq!(
-            Settings::read(SAMPLE).unwrap().agents.permissions,
+            Settings::read(&none).unwrap().agents.permissions,
             PermissionsAdded::default()
         );
-        let empty = SAMPLE.replace("# permissions = {", "permissions = { heavy = [\" \"] } #");
+        let empty = SAMPLE.replace("permissions = {", "permissions = { heavy = [\" \"] } #");
         let refused = Settings::read(&empty).expect_err("refused");
         assert!(refused.contains("agents.permissions.heavy"), "{refused}");
     }
@@ -890,7 +1027,7 @@ mod tests {
 
     #[test]
     fn an_added_command_cannot_take_an_engine_refusal_away() {
-        let with = |permissions: &str| SAMPLE.replace("# permissions = {", &format!("permissions = {permissions} #"));
+        let with = |permissions: &str| SAMPLE.replace("permissions = {", &format!("permissions = {permissions} #"));
         for (permissions, says) in [
             (
                 "{ locks = [\"git push\"] }",
@@ -1059,5 +1196,47 @@ mod tests {
             (SAMPLE.replace("slots = 2", "slots = 0")).replace("work_budget_usd = 5.0", "work_budget_usd = -1.0");
         let refused = Settings::read(&text).expect_err("both are refused");
         assert_eq!(refused.lines().count(), 2, "{refused}");
+    }
+
+    // A setting's value is what an agent is given beside its key: a text as it is, any other value as JSON writes it;
+    // a key the settings do not have, a value left out and a table left out have none.
+    #[test]
+    fn a_settings_value_is_given_as_an_agent_is_told_it() {
+        let settings = Settings::read(SAMPLE).unwrap();
+        assert_eq!(settings.value("owner.language").as_deref(), Some("Chinese"));
+        assert_eq!(settings.value("agents.slots").as_deref(), Some("2"));
+        assert_eq!(
+            settings.value("agents.levels.2.model").as_deref(),
+            Some("claude-sonnet-5-5")
+        );
+        for none in ["github.checks", "agents.config_dir", "owner.voice", "agents.slots.more"] {
+            assert_eq!(settings.value(none), None, "{none}");
+        }
+        let listed = Settings::read(&on_github()).unwrap();
+        assert_eq!(listed.value("github.checks").as_deref(), Some("[\"check\"]"));
+    }
+
+    // The subagents an agent may start are three where the settings give none, as on `old-main`, or as they say.
+    #[test]
+    fn the_subagents_are_three_where_the_settings_give_none() {
+        let settings = Settings::read(SAMPLE).unwrap();
+        assert_eq!(settings.value("agents.subagents.most").as_deref(), Some("3"));
+        let given = SAMPLE.replace(
+            "work_budget_usd = 5.0",
+            "work_budget_usd = 5.0\nsubagents = { most = 1 }",
+        );
+        assert_eq!(Settings::read(&given).unwrap().agents.subagents.most, 1);
+    }
+
+    // The owner's language was once a setting of the agents: settings that still say it there are told where it went.
+    #[test]
+    fn the_owners_language_where_it_once_was_is_told_where_it_moved() {
+        let old = SAMPLE.replace(
+            "work_budget_usd = 5.0",
+            "work_budget_usd = 5.0\nowner_language = \"Chinese\"",
+        );
+        let refused = Settings::read(&old).expect_err("refused");
+        assert!(refused.contains("agents.owner_language"), "{refused}");
+        assert!(refused.contains("[owner]"), "{refused}");
     }
 }

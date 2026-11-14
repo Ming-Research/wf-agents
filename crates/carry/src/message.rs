@@ -17,7 +17,8 @@
 //! what a round returned was sent back, are told in the words of the files beside the flows
 //! (`agents/message/message.toml` and `agents/return/sent_back.toml`); every other fixed word an agent is told is in the
 //! constants below, in the order they come in a message, so that each sentence is found and changed in one place; how
-//! to return is in `protocol.md`, which every round is given as its system prompt.
+//! to return is the part on returning of the system prompt of every line, made from the files beside the flows
+//! ([`crate::system`]).
 
 use std::collections::BTreeMap;
 
@@ -158,6 +159,9 @@ pub struct Opening<'a> {
     pub begins: bool,
     /// What came of taking main in as the run started, where the work's branch was to take it in.
     pub main: Option<&'a CaughtUp>,
+    /// The cell's task as it is sent, each setting it names with its value beside it; the cell's own, as written,
+    /// where none is given.
+    pub task: Option<&'a str>,
 }
 
 /// What the agent is told at the start of the round of this number of the run of the cell, which is given this, and
@@ -177,7 +181,7 @@ pub fn message(
     let told = &words.sent_back;
     let mut parts = vec![heading(cell, number)];
     if begins || *given == Given::Task {
-        task(flow, work, cell, run, &mut parts);
+        task(flow, work, cell, run, opening.task, &mut parts);
         parts.extend(opening.main.and_then(caught_up));
     }
     // A new session holds nothing of the run: it is given what the run's earlier rounds were, in their order.
@@ -215,10 +219,11 @@ pub fn message(
     text
 }
 
-/// The task, and the list of what the cell reads and may write.
-fn task(flow: &Compiled, work: &Work, cell: &CellSpec, run: RunId, parts: &mut Vec<String>) {
+/// The task, as it is sent where it is given, and the list of what the cell reads and may write.
+fn task(flow: &Compiled, work: &Work, cell: &CellSpec, run: RunId, sent: Option<&str>, parts: &mut Vec<String>) {
     parts.push(TASK.to_string());
-    parts.push(cell.task.clone().unwrap_or_default().trim_end().to_string());
+    let task = sent.or(cell.task.as_deref()).unwrap_or_default();
+    parts.push(task.trim_end().to_string());
     let started = work.records.started.iter().find(|s| s.run == run);
     let current = |block: &BlockId| started.and_then(|s| s.basis.get(block).copied().flatten());
     let place = flow.flow.place(&cell.id);

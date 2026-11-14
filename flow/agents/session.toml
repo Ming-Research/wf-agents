@@ -2,9 +2,11 @@
 # takes it once, as the session begins, and keeps it: a change of a part reaches a session only when it is reopened.
 #
 # A part is one of: `project`, a file of the project that `../project.toml` names; `line = "rules"`, the sets of rules
-# the line takes (`rules/`), in the order its file names them; `words`, a text of the engine's in this directory;
-# `returns = "how_you_return"`, how a cell returns, made from `return/` (`[how_you_return]` in `return.toml`) for the
-# tools the flow names.
+# the line takes (`rules/`), in the order its file names them; `words`, a text of the engine's in this directory, its
+# place `{your_line}` filled from `your_line.toml`; `returns = "how_you_return"`, how a cell returns, made from
+# `return/` (`[how_you_return]` in `return.toml`) for the tools the flow names, the place `{store}` in the words of
+# `query` filled with what the engine's records hold. The engine gives each setting these texts name, but for a file of
+# the project, its value beside its name: the project's in `../project.toml`, and the installation's it names there.
 parts = [
   { project = "guide" },
   { project = "constitution" },

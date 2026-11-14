@@ -335,15 +335,9 @@ const ACTS: [&str; 4] = ["start", "check", "merge", "deliver"];
 
 /// The names of the tools an agent may ask the engine for in its return: `query`, one read-only query on the engine's
 /// records, and `run_tests`, which runs named tests and checks, or all of them, where the host checks the work. Neither
-/// is built yet: a cell may name them, and its agent is not told of them until they are.
+/// is built yet: a cell may name them, and the system prompt of its line tells of those its flow names, with their
+/// words beside the flows (`agents/tools/`), while the form of the return does not hold them yet.
 const TOOLS: [&str; 2] = ["query", "run_tests"];
-
-/// The names of the parts the engine places in the system prompt of every line's session itself, in their order around
-/// the line's own sets of rules: `guide`, the project's guide for its agents; `constitution`, the constitution of the
-/// project's design tree; `tree_rules`, the rules of that tree; the line's sets of rules; and `how_you_work_here`, the
-/// engine's own words on working in it. A line names none of them, and no set of a flow's rules takes one's name. No
-/// system prompt is built of them yet.
-const SYSTEM: [&str; 4] = ["guide", "constitution", "tree_rules", "how_you_work_here"];
 
 /// The names of the fields of a return that are the engine's, as the design of data and context settles them: what a
 /// round has dealt with, the blocks it hands in with their meaning unchanged, its observations, its questions and its
@@ -354,14 +348,19 @@ const FIELDS: [&str; 5] = ["dealt_with", "meaning_unchanged", "observations", "q
 /// `files`, the files of the design tree that changed. Not filled yet.
 const DETAILS: [&str; 1] = ["files"];
 
-/// What the engine has, by name, for any definition.
-fn has(_: &Source) -> Has {
+/// What the engine has, by name, for the definition in this directory. Of the parts of a line's system prompt, the
+/// names of those that are not the line's own sets of rules, which no line names and no set of rules takes, are those
+/// `agents/session.toml` beside the flows gives them (`flow::system::reserved`); where the files beside the flows
+/// cannot be read, none, and what would read them says why.
+fn has(dir: &Path) -> Has {
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
+    let beside = dir.parent().map(flow::agents::read);
+    let system = (beside.and_then(Result::ok)).map(|beside| flow::system::reserved(&beside));
     Has {
         sources: names(&SOURCES),
         acts: names(&ACTS),
         tools: names(&TOOLS),
-        system: names(&SYSTEM),
+        system: system.into_iter().flatten().collect(),
         fields: names(&FIELDS),
         details: names(&DETAILS),
     }
@@ -375,7 +374,7 @@ fn check(dir: &Path) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    match flow::compile(&source, &has(&source)) {
+    match flow::compile(&source, &has(dir)) {
         Ok(compiled) => {
             let count = |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
             println!(
@@ -577,7 +576,8 @@ fn the_flow_page_is_printed_at_the_flow_view() {
 
 fn page(dir: PathBuf, port: u16) -> ExitCode {
     let shown = dir.display().to_string();
-    let flows = web::Flows::dirs(dir, Box::new(has));
+    let in_dir = dir.clone();
+    let flows = web::Flows::dirs(dir, Box::new(move |_: &Source| has(&in_dir)));
     let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(runtime) => runtime,
         Err(e) => {

@@ -1,0 +1,5 @@
+# What the place `{your_line}` in the engine's words of the tests says.
+reads_only = "You only read."
+writes = "You commit."
+locks = " Lock with {commands}."
+or = " or "

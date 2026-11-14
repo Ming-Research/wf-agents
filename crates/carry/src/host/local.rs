@@ -85,7 +85,7 @@ impl Host for Local {
     }
 
     fn kept_main(&self) -> String {
-        format!("refs/heads/{}", self.project.main)
+        kept_main(&self.project.main)
     }
 
     async fn check(&self, branch: &Branch<'_>, named: &Named, stop: &mut Stop) -> Result<Option<String>, String> {
@@ -135,4 +135,9 @@ fn whole(named: &Named, said: String) -> String {
     } else {
         format!("{WHOLE}\n\n{said}")
     }
+}
+
+/// The reference that holds main's head as the local repository gives it, main of this name: the branch itself.
+pub(crate) fn kept_main(main: &str) -> String {
+    format!("refs/heads/{main}")
 }

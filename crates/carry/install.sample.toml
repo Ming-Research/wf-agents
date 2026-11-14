@@ -1,6 +1,15 @@
 # The settings of an installation of wf-agents: `install.toml` in the data directory, or the file
 # `wf-agents run --settings <file>` names. `wf-agents run` without `--script` reads it. A key not written here is
 # refused.
+#
+# A text the agents are given (the engine's own words, the rules for the agents, the words of the return's fields and
+# of the tools, all beside the flows) may name by its key between backticks, as `owner.language`, a setting of these
+# that `[installation] names` in the flows' `project.toml` lists: the agent is given its value beside the name. A flow
+# whose texts given to a line name one these settings have no value for is refused as the engine starts.
+
+[owner]
+# The language the agents write in what the owner reads, technical terms in their English original.
+language = "Chinese"
 
 [project]
 # The local git repository the works are done in: its own checkout, which stays on the main branch. Each work has a
@@ -13,7 +22,7 @@ main = "main"
 # work's worktree by the check before the merge and by the agents' tool `check`, and by their `check_before` in a
 # worktree of its own holding the code before the change with the agent's tests. With [github] below, the CI is run
 # instead, and this command is not.
-check = "cargo test"
+check = "./test.sh"
 # The acts refuse a repository whose own configuration could make git run a program (a filter, a merge driver, a
 # hooks directory, an included file and the like). A key the repository needs is allowed here, whole or as a beginning
 # followed by `*`.
@@ -26,14 +35,15 @@ command = "claude"
 slots = 2
 # What the program is given on every round after what the engine gives it.
 args = ["--permission-mode", "acceptEdits", "--tools", "Bash,Read,Edit,Write,Grep,Glob", "--strict-mcp-config", "--disable-slash-commands"]
-# The engine refuses every agent its heavy commands (builds, test suites, git push and the like) and lets an agent that
-# writes update a lock file with Cargo's and npm's commands that build nothing. Here the installation adds what its
-# toolchain counts as heavy, its own lock commands, which an agent that writes may run though a heavy command covers
-# them, and the uses of those that are refused all the same (`*` for any text). A lock command that a heavy command
-# falls under or that pushes, and a `*` or a parenthesis in a heavy or lock command, are refused. In `args`,
-# `--settings`, `--setting-sources`, `--permission-prompt-tool`, `--` and a last flag not known to take no value are
-# refused, since they would undo the engine's rules or take its own arguments after them.
-# permissions = { heavy = ["uv"], locks = ["uv lock"], locks_except = ["uv lock *--script*"] }
+# The engine refuses every agent its heavy commands (builds, test suites, git push and the like). Here the installation
+# adds what its project's toolchain counts as heavy, the commands that update the project's lock files and build, run
+# and install nothing, which an agent that writes may run though a heavy command covers them, and the uses of those
+# that are refused all the same (`*` for any text): the engine knows no lock command of its own. A lock command that a
+# heavy command falls under or that pushes, and a `*` or a parenthesis in a heavy or lock command, are refused. In
+# `args`, `--settings`, `--setting-sources`, `--permission-prompt-tool`, `--` and a last flag not known to take no
+# value are refused, since they would undo the engine's rules or take its own arguments after them. With no lock
+# command named, an agent may update no lock file, and `wf-agents run` says so as it starts.
+permissions = { heavy = ["uv"], locks = ["uv lock"], locks_except = ["uv lock *--script*"] }
 # Which settings files the program reads, given as --setting-sources on every round. Left out, it is `user`, so that a
 # settings file the worktree holds, which an agent may write, is not read; `project` and `local`, which are such files,
 # are refused.
@@ -44,11 +54,12 @@ args = ["--permission-mode", "acceptEdits", "--tools", "Bash,Read,Edit,Write,Gre
 # The program's own directory of settings and sign-in, given as CLAUDE_CONFIG_DIR. Left out, the program uses its own
 # default, which an agent can write to: `wf-agents run` says so as it starts.
 # config_dir = "/path/to/a/config/dir"
-# The language of the blocks the owner reads; everything in the repository is written in English.
-owner_language = "Chinese"
 # What a work's rounds may spend in all, in dollars: once a round ends with the work over it, the work is paused for
 # the owner, who may let it on. Left out, there is no budget.
 work_budget_usd = 5.0
+# How many subagents an agent may start within its round at most, for chores such as reading documents or searching
+# code: the agents are given it where a text names `agents.subagents.most`. Left out, it is 3.
+# subagents = { most = 3 }
 
 # The levels of work, each a table named by the level: what work it is for and the model its rounds are run with, as
 # --model takes it. An item's level chooses the model of its agents' rounds; a line of the flow may run some levels
@@ -140,6 +151,27 @@ context_limit = 500000
 # results = "test-results"
 # # What the project's test runners put between the parts of a test's name.
 # separators = ["::", " > "]
+# # How the lines of a red job's log are told apart, as the project's tools print them, so that the agent is given
+# # what failed and not the rest. Each kind is a list of patterns; a line is of a kind where it is the whole of one of
+# # its patterns, the spaces it begins with included, `*` standing for any text. Without this table, a log is cut only
+# # by what GitHub itself writes in it: the steps that failed, up to their last error; `wf-agents run` says so as it
+# # starts.
+# [github.log]
+# # Lines that only show progress, left out.
+# progress = ["Downloading *", "Building *", "PASSED *"]
+# # Lines that say a test did not pass, each kept with its output, up to the next line of any of these kinds.
+# failures = ["FAILED *"]
+# # Lines that say a test was still running, kept.
+# running = ["* still running after *"]
+# # Lines that begin an error or a warning, each kept with the lines under it up to a blank line.
+# errors = ["error:*", "warning:*"]
+# # The line that begins the summary of the tests, kept with everything after it.
+# summary = ["Summary: *"]
+# # Lines of no other kind that end a failed test's output.
+# ends_output = ["Running *"]
+# # Where the tools begin a line with one word right-aligned to this many columns and a space, each such line ends a
+# # failed test's output as well.
+# status_width = 12
 
 # The copies of the engine's database. Every day while the engine runs, it copies the database whole into
 # `backups/` in the data directory and keeps the newest `keep` there. Without this table, that is all: the copies share

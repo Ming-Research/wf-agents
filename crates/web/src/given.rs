@@ -16,12 +16,9 @@ use std::path::{Path, PathBuf};
 
 use decide::BlockId;
 use flow::agents::Piece as Words;
-use flow::agents::{
-    Agents, InForm, MessagePart, OUTPUTS, Only, Part as PartIs, ProjectPart, ReturnKind, ReturnsPart, SessionPart,
-    ToldAs, WordsPart,
-};
+use flow::agents::{Agents, MessagePart, Only, Part as PartIs};
 use flow::{CellSpec, Compiled, Given as GivenBlock, Kind};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::view::InputKind;
 
@@ -71,15 +68,8 @@ pub enum Carried {
     Message,
 }
 
-/// A piece of the text of a part.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "piece", rename_all = "camelCase")]
-pub enum Piece {
-    /// Sent as written.
-    Text { text: String },
-    /// A place filled in a run, by its name.
-    Slot { name: String },
-}
+/// A piece of the text of a part: the system prompt's builder's, which the page shows as it is sent.
+pub use flow::system::Piece;
 
 /// One part of what an agent is sent, as the files say it: the key it has there, its attributes, the file its words
 /// come from, and its text.
@@ -306,23 +296,6 @@ impl<'a> Build<'a> {
             .collect()
     }
 
-    /// The names of the fields of a kind of return, in the order of the form.
-    fn fields_of(&self, kind: ReturnKind) -> Vec<&'a String> {
-        let agents = self.agents;
-        let form = &agents.returns.form;
-        let order = match kind {
-            ReturnKind::Calls => &form.calls,
-            ReturnKind::Outcome => &form.outcome,
-        };
-        (order.iter())
-            .filter_map(|f| match f {
-                InForm::Field(name) => Some(name),
-                InForm::Group(_) => None,
-            })
-            .filter(|n| agents.fields.get(*n).is_some_and(|f| f.kinds.contains(&kind)))
-            .collect()
-    }
-
     fn part(&self, what: What, carried: Carried, name: &str, source: String, pieces: Vec<Piece>) -> Part {
         Part {
             what,
@@ -353,41 +326,13 @@ impl<'a> Build<'a> {
             self.source("agents/return/return.toml"),
             form,
         ));
-        for part in &agents.session.parts {
-            match part {
-                SessionPart::Project(ProjectPart { project }) => {
-                    let file = (agents.project.files.get(project))
-                        .ok_or_else(|| format!("project.toml has no file `{project}`, which session.toml names"))?;
-                    let text = (self.alike.project.as_ref())
-                        .and_then(|checkout| std::fs::read_to_string(checkout.join(&file.path)).ok());
-                    let pieces = text.map_or_else(Vec::new, |text| {
-                        fill(
-                            &agents.session.heading,
-                            &[("path", &file.path), ("text", text.trim_end())],
-                        )
-                    });
-                    out.push(self.part(What::System, Carried::System, project, file.path.clone(), pieces));
-                }
-                SessionPart::Line(_) => {
-                    for name in &cell.system {
-                        let set = (agents.rules.get(name))
-                            .ok_or_else(|| format!("rules.toml has no set `{name}`, which a line names"))?;
-                        let pieces = written(set.text.trim_end());
-                        let source = self.source(&format!("agents/rules/{}", set.file));
-                        out.push(self.part(What::System, Carried::System, name, source, pieces));
-                    }
-                }
-                SessionPart::Words(WordsPart { words }) => {
-                    let text = agents.words.get(words).map(String::as_str).unwrap_or_default();
-                    let source = self.source(&format!("agents/{words}"));
-                    let pieces = with_slots(text.trim_end());
-                    out.push(self.part(What::System, Carried::System, words, source, pieces));
-                }
-                SessionPart::Returns(ReturnsPart { returns }) => {
-                    let source = self.source("agents/return/return.toml");
-                    out.push(self.part(What::System, Carried::System, returns.name(), source, self.told()));
-                }
-            }
+        // The system prompt, as the engine makes it (`flow::system`), the project's files as they are in its checkout.
+        let read = |path: &str| {
+            let checkout = self.alike.project.as_ref();
+            Ok(checkout.and_then(|checkout| std::fs::read_to_string(checkout.join(path)).ok()))
+        };
+        for part in flow::system::parts(agents, self.flow, cell, read).map_err(|wrong| wrong.join("; "))? {
+            out.push(self.part(What::System, Carried::System, &part.name, part.source, part.pieces));
         }
         let message = self.source("agents/message/message.toml");
         for part in &agents.message.parts {
@@ -516,74 +461,6 @@ impl<'a> Build<'a> {
         }
     }
 
-    /// The part on returning of a line's system prompt: each field and each tool of the flow's form with its words, in
-    /// the order `how_you_return` sets; the same for every cell of the flow (design statement 31).
-    fn told(&self) -> Vec<Piece> {
-        let agents = self.agents;
-        let told = &agents.returns.how_you_return;
-        let item = |words: &str| told.item.replace("{text}", words.trim_end());
-        let in_order: Vec<&String> = {
-            let mut names = self.fields_of(ReturnKind::Outcome);
-            names.extend(
-                self.fields_of(ReturnKind::Calls)
-                    .into_iter()
-                    .filter(|n| !names.contains(n))
-                    .collect::<Vec<_>>(),
-            );
-            names
-        };
-        let told_as = |as_: ToldAs| {
-            (in_order.iter())
-                .filter(move |n| agents.fields[n.as_str()].told == as_)
-                .map(|n| (n.as_str(), &agents.fields[n.as_str()]))
-        };
-        let mut paragraphs: Vec<String> = vec![
-            told.heading.clone(),
-            told.first.clone(),
-            told.kinds.trim_end().to_string(),
-        ];
-        for (name, field) in told_as(ToldAs::Alone) {
-            let mut words = field.words.trim_end().to_string();
-            if name == OUTPUTS {
-                for (_, with) in told_as(ToldAs::WithOutputs) {
-                    words.push(' ');
-                    words.push_str(with.words.trim_end());
-                }
-            }
-            paragraphs.push(words);
-        }
-        paragraphs.push(told.every_time.trim_end().to_string());
-        let listed: Vec<_> = (told.listed.iter()).filter_map(|n| agents.fields.get(n)).collect();
-        if !listed.is_empty() {
-            paragraphs.push(told.fields.trim_end().to_string());
-            paragraphs.push(listed.iter().map(|f| item(&f.words)).collect::<Vec<_>>().join("\n"));
-            paragraphs.extend(
-                listed
-                    .iter()
-                    .filter_map(|f| f.also.as_deref())
-                    .map(|a| a.trim_end().to_string()),
-            );
-        }
-        let reads: Vec<String> = (told.reads.iter())
-            .filter(|n| agents.fields.contains_key(n.as_str()))
-            .map(|n| format!("`{n}`"))
-            .collect();
-        if !reads.is_empty() {
-            paragraphs.push(told.owner_reads.replace("{fields}", &and(&reads, &told.and)));
-        }
-        let tools = flow::form::tools(self.flow);
-        if !tools.is_empty() {
-            paragraphs.push(told.calls.trim_end().to_string());
-            paragraphs.push(told.tools.trim_end().to_string());
-            let items: Vec<String> = (tools.iter())
-                .filter_map(|t| agents.tools.get(*t))
-                .map(|t| item(&t.words))
-                .collect();
-            paragraphs.push(items.join("\n"));
-        }
-        with_slots(&paragraphs.join("\n\n"))
-    }
-
     /// What a cell is told it writes, with its task: its blocks, each on a line with its marks and its words; that it
     /// writes none, where it writes none.
     fn outputs(&self, place: usize, cell: &CellSpec) -> Vec<Piece> {
@@ -651,15 +528,6 @@ fn kind_name(kind: InputKind) -> &'static str {
 /// Names, each between backticks, joined by commas.
 fn ticked(names: &[String]) -> String {
     names.iter().map(|n| format!("`{n}`")).collect::<Vec<_>>().join(", ")
-}
-
-/// Names joined by commas, the last by `and`.
-fn and(names: &[String], and: &str) -> String {
-    match names.split_last() {
-        Some((last, [])) => last.clone(),
-        Some((last, rest)) => format!("{}{and}{last}", rest.join(", ")),
-        None => String::new(),
-    }
 }
 
 /// A text sent as written, or nothing where there is none.

@@ -23,3 +23,11 @@ engines on one data directory (decision one-engine-on-a-data-directory).
 ### decision tool-inputs-are-checked-before-they-stream
 The agents' program is run with the service checking each tool's input as JSON before it streams the input.
 Why: An input the service did not check could come cut off, and a return cut off is no return.
+
+### decision the-programs-own-memory-is-off
+The agents' program is run with its own memory off, by the setting `autoMemoryEnabled` in the settings the engine
+gives it.
+Why: A session holds what the engine gives it and what its agent reads; the program's own memory would hold what the
+engine never sees, and the program's own system prompt tells the agent to write there, against the rule the agents are
+given to keep nothing there. Its minimal mode, `--bare`, which turns the memory off as well, was turned down: it turns
+off the hooks the engine gives too.

@@ -148,15 +148,19 @@ fn quote(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', "'\\''"))
 }
 
-/// The settings that give the program its hooks, as JSON: at the start of a session it compacted, and after each use
-/// of a tool, the program adds what the hook's command prints to the session.
-fn hooks(compacted: &Compacted, words: &Words) -> String {
+/// The settings the engine gives the program, as JSON. Its hooks: at the start of a session it compacted, and after
+/// each use of a tool, the program adds what the hook's command prints to the session. And its own memory off
+/// (`autoMemoryEnabled`, which its settings' schema says keeps it from reading or writing its auto-memory directory):
+/// a session holds what the engine gives it and what its agent reads, and the program's own memory, which its own
+/// system prompt would tell the agent to write, would hold what the engine never sees, against the rule the agents are
+/// given that they keep nothing there.
+fn settings(compacted: &Compacted, words: &Words) -> String {
     let hook = |command: String| json!([{ "type": "command", "command": command }]);
     let hooks = json!({
         "SessionStart": [{ "matcher": "compact", "hooks": hook(compacted.command()) }],
         "PostToolUse": [{ "matcher": "*", "hooks": hook(words.command()) }],
     });
-    json!({ "hooks": hooks }).to_string()
+    json!({ "autoMemoryEnabled": false, "hooks": hooks }).to_string()
 }
 
 /// The arguments of a round's command line, after the program: the engine's own, then the installation's, then the
@@ -169,7 +173,7 @@ fn hooks(compacted: &Compacted, words: &Words) -> String {
 pub fn arguments(
     agents: &Agents,
     ran: &RanOn,
-    protocol: &str,
+    system: &str,
     schema: &str,
     permissions: &Permissions,
     compacted: &Compacted,
@@ -194,10 +198,10 @@ pub fn arguments(
     if let Some(effort) = &ran.effort {
         args.extend(["--effort".to_string(), effort.clone()]);
     }
-    args.extend(["--append-system-prompt".to_string(), protocol.to_string()]);
+    args.extend(["--append-system-prompt".to_string(), system.to_string()]);
     args.extend(["--json-schema".to_string(), schema.to_string()]);
     args.extend(["--setting-sources".to_string(), agents.setting_sources.clone()]);
-    args.extend(["--settings".to_string(), hooks(compacted, words)]);
+    args.extend(["--settings".to_string(), settings(compacted, words)]);
     args.extend(agents.args.iter().cloned());
     args.extend(permissions.arguments());
     let flag = match begin {
@@ -649,7 +653,7 @@ mod tests {
             setting_sources: "user".to_string(),
             config_dir: None,
             permissions: Default::default(),
-            owner_language: "Chinese".to_string(),
+            subagents: Default::default(),
             work_budget_usd: None,
         }
     }
@@ -961,7 +965,7 @@ mod tests {
             arguments(
                 &agents(),
                 &ran,
-                "PROTOCOL",
+                "SYSTEM",
                 "SCHEMA",
                 &permissions,
                 &compacted,
@@ -970,7 +974,7 @@ mod tests {
                 begin,
             )
         };
-        let hooks = json!({ "hooks": {
+        let hooks = json!({ "autoMemoryEnabled": false, "hooks": {
             "SessionStart": [{ "matcher": "compact", "hooks": [{ "type": "command",
                 "command": "printf x >> 'rounds/1/2-3.compacted' && cat 'rounds/1/2-3.again.md'" }] }],
             "PostToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": words().command() }] }],
@@ -987,7 +991,7 @@ mod tests {
             "--model",
             "claude-haiku-5-5",
             "--append-system-prompt",
-            "PROTOCOL",
+            "SYSTEM",
             "--json-schema",
             "SCHEMA",
             "--setting-sources",
@@ -1024,7 +1028,7 @@ mod tests {
         let args = arguments(
             &agents(),
             &ran,
-            "PROTOCOL",
+            "SYSTEM",
             "SCHEMA",
             &permissions,
             &compacted,

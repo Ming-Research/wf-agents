@@ -27,7 +27,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use carry::git::{self, Place};
-use carry::settings::{Agents, Items, Level, Project};
+use carry::settings::{Agents, Items, Level, Owner, PermissionsAdded, Project};
 use carry::{Settings, session};
 use decide::{CallId, Decision, Pauser, RunId, Who};
 use driver::{FirstWrite, NewItem};
@@ -70,6 +70,8 @@ pub struct Fake {
     /// Whether its first call prints a stream in which it refused every attempt at the return, the last writing the
     /// plan's hand-ins as a string, gave up on the return, and exits with 1.
     pub refuses_first: bool,
+    /// Whether the plan adds a line to the project's guide in the worktree, as a work's own change of it would.
+    pub plan_edits_guide: bool,
 }
 
 impl Default for Fake {
@@ -86,6 +88,7 @@ impl Default for Fake {
             compacts: false,
             plan_again_unchanged: false,
             refuses_first: false,
+            plan_edits_guide: false,
         }
     }
 }
@@ -225,8 +228,8 @@ pub fn git_in(dir: &Path, args: &[&str]) -> String {
 }
 
 /// What is written beside the flows of this repository: what the acts write, what the agents are told, and what the
-/// form of a return is made of.
-fn beside() -> flow::agents::Agents {
+/// form of a return and their system prompts are made of.
+pub fn beside() -> flow::agents::Agents {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
     flow::agents::read(&root).expect("what is written beside the flows is read")
 }
@@ -316,6 +319,9 @@ case "$first" in
             unchanged='"plan"'
         fi
         touch "$log/planned"
+        if [ '{edits_guide}' = yes ]; then
+            printf 'A line the work added.\n' >> '{guide}'
+        fi
         out='"plan":"Greet by name."' ;;
     *'cell `build`'*)
         results=no
@@ -357,6 +363,8 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         compacts = yes(fake.compacts),
         unchanged = yes(fake.plan_again_unchanged),
         refuses = yes(fake.refuses_first),
+        edits_guide = yes(fake.plan_edits_guide),
+        guide = PROJECT_FILES[0].0,
         gave_up = GAVE_UP,
         refused = refused.display(),
         iterations = fake.context.map_or_else(String::new, |context| {
@@ -393,6 +401,14 @@ fn open(settings: &Settings, data: &Path, flow: &Compiled, deaf: bool) -> (Servi
     Service::open(Box::new(store), vec![flow.clone()], carriers, Arc::new(SystemClock)).expect("the loop opens")
 }
 
+/// The project's guide, constitution and tree rules, by their paths in the test repository, which `project.toml`
+/// beside the repository's flows names, with their texts.
+pub const PROJECT_FILES: [(&str, &str); 3] = [
+    ("AGENTS.md", "# The test project\n\nWhat its agents need to know.\n"),
+    ("design/constitution.md", "# Its constitution\n"),
+    ("design/README.md", "# The rules of its tree\n"),
+];
+
 impl Real {
     /// The loop on an empty store of the flow, with the fake answering as given and the budget given, the project's
     /// check being `check`.
@@ -408,10 +424,18 @@ impl Real {
         git_in(&repo, &["config", "user.email", "tester@example.com"]);
         git_in(&repo, &["config", "commit.gpgsign", "false"]);
         std::fs::write(repo.join("greeting.txt"), "Hello.\n").unwrap();
-        git_in(&repo, &["add", "greeting.txt"]);
+        // The project's files every line's system prompt holds, where `project.toml` names them.
+        std::fs::create_dir_all(repo.join("design")).unwrap();
+        for (path, text) in PROJECT_FILES {
+            std::fs::write(repo.join(path), text).unwrap();
+        }
+        git_in(&repo, &["add", "."]);
         git_in(&repo, &["commit", "-q", "-m", "Greet"]);
         let command = fake(&root, &calls, &answers);
         let settings = Settings {
+            owner: Owner {
+                language: "Chinese".to_string(),
+            },
             project: Project {
                 repo: repo.clone(),
                 main: "main".to_string(),
@@ -435,8 +459,12 @@ impl Real {
                 env: Vec::new(),
                 setting_sources: "user".to_string(),
                 config_dir: None,
-                permissions: Default::default(),
-                owner_language: "Chinese".to_string(),
+                // The lock command of a project on Cargo.
+                permissions: PermissionsAdded {
+                    locks: vec!["cargo update".to_string()],
+                    ..Default::default()
+                },
+                subagents: Default::default(),
                 work_budget_usd: budget,
             },
             items: Items {

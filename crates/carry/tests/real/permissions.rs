@@ -62,6 +62,51 @@ async fn a_line_that_writes_and_one_that_only_reads_are_each_given_what_they_may
     assert!(after(review, "--allowedTools").is_empty());
     assert!(told(review, "You only read it"));
     assert!(!told(review, "Make your changes there"));
-    // Every line is told how it builds and tests.
-    assert!(told(plan, "To build and test, ask for `check`.") && told(review, "To build and test, ask for `check`."));
+    // Every line's system prompt holds the project's files `project.toml` names, each headed by its path, the engine's
+    // words, and how a cell returns, with each field's words and the owner's language beside its name.
+    for call in [plan, review] {
+        for (path, text) in crate::PROJECT_FILES {
+            let first = text.lines().next().unwrap_or_default();
+            assert!(told(call, &format!("# `{path}`")) && told(call, first), "{path}");
+        }
+        assert!(told(call, "# How you work here"));
+        assert!(told(call, "## How you return") && told(call, "`dealt_with`"));
+        assert!(told(call, "`owner.language` (Chinese)"));
+    }
+}
+
+/// The lines of the system prompt the call was given.
+fn system(call: &Call) -> &[String] {
+    let from = call
+        .args
+        .iter()
+        .position(|a| a == "--append-system-prompt")
+        .expect("a system prompt")
+        + 1;
+    let to = call.args.iter().position(|a| a == "--json-schema").expect("a schema");
+    &call.args[from..to]
+}
+
+// A session keeps the system prompt it began with: a change of the project's guide in the worktree after its first
+// round, as the work's own commit or main taken in makes, does not reach its later rounds.
+#[tokio::test]
+async fn a_session_keeps_the_system_prompt_it_began_with() {
+    let mut real = Real::trial(Fake {
+        plan_edits_guide: true,
+        ..Fake::default()
+    });
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| ended(&real.decision(work))).await;
+    let calls = real.calls();
+    let (plan, build) = (&calls[0], &calls[1]);
+    assert!(plan.stdin.contains("cell `plan`") && build.stdin.contains("cell `build`"));
+    assert!(
+        build.args.iter().any(|a| a == "--resume"),
+        "the build goes on in the plan's session"
+    );
+    let guide = std::fs::read_to_string(build.dir.join(crate::PROJECT_FILES[0].0)).expect("the guide");
+    assert!(guide.contains("A line the work added."), "the plan changed the guide");
+    assert_eq!(system(build), system(plan));
+    assert!(!system(build).iter().any(|l| l.contains("A line the work added.")));
 }

@@ -1,0 +1,8 @@
+# What the place `{your_line}` in `how_you_work_here.md` says: what the line may do in the worktree, which no rule says
+# by itself. A line that only reads (`reads_only` in its file) is told `reads_only`; a line that writes is told
+# `writes`, and, where the installation lets it update a lock file, `locks` after it, `{commands}` the commands it may
+# update one with, each between backticks, joined by commas and the last by `or`.
+reads_only = "You only read it, and change no file."
+writes = "Make your changes there and commit them there."
+locks = " Update a lock file with {commands}, your arguments after it."
+or = " or "

@@ -20,54 +20,13 @@ use crate::git::{self, Before};
 use crate::held::{Held, Stop};
 use crate::host::{Branch, Host, Named};
 use crate::read::{self, READ};
-use crate::settings::{Project, Settings};
+use crate::settings::Project;
 
 /// The name of the tool that checks the work.
 pub const CHECK: &str = "check";
 
 /// The name of the tool that checks the code before the work's change with some of its files put on it.
 pub const CHECK_BEFORE: &str = "check_before";
-
-/// What the agents are told `check` does where the local repository is the host.
-const CHECK_HERE: &str = "which runs the project's check in the worktree and says whether it passed, with the end of \
-                          what it said.";
-
-/// What the agents are told `check` does where GitHub is the host.
-const CHECK_ON_GITHUB: &str = "which pushes your last commit to the work's pull request and gives the CI's verdict on \
-                               it: each check's result, and what the log of a red one says of the failure. Only what \
-                               is committed is checked: with changes not committed, nothing is pushed.";
-
-/// What the agents are told `check` does where GitHub is the host and the project has a fast CI, before how a test is
-/// named.
-const CHECK_FAST: &str = "which pushes your last commit to the work's pull request; with tests or checks named, the \
-                          project's fast CI runs only those on it and says each test's own result, how long it ran \
-                          and what a failed one said, and with none named, the whole CI gives its verdict. Only what \
-                          is committed is checked: with changes not committed, nothing is pushed.";
-
-/// What the agents are told `check` does, on the host the settings say: put into their system prompt.
-pub(crate) fn told(settings: &Settings) -> String {
-    let Some(github) = &settings.github else {
-        return CHECK_HERE.to_string();
-    };
-    let Some(fast) = &github.fast else {
-        return CHECK_ON_GITHUB.to_string();
-    };
-    let joined: Vec<String> = fast.separators.iter().map(|s| format!("`{s}`")).collect();
-    let by = if joined.is_empty() {
-        "a space".to_string()
-    } else {
-        format!("a space or {}", joined.join(" or "))
-    };
-    let checks = if fast.named_checks.is_empty() {
-        String::new()
-    } else {
-        format!(" The checks it runs by name are {}.", fast.named_checks.join(", "))
-    };
-    format!(
-        "{CHECK_FAST} A test is named by its own name, or by its unit and its name joined by {by}, or by what follows \
-         such a separator in these.{checks}"
-    )
-}
 
 /// The tools, run on this host, with the works' worktrees in the data directory.
 pub struct Tools<H> {
@@ -560,22 +519,5 @@ mod tests {
         };
         let why = "the fake host checks nothing for the agents' tools";
         assert_eq!(said, format!("The check could not be run: {why}"));
-    }
-
-    #[test]
-    fn the_agents_are_told_how_the_check_runs_on_their_host() {
-        let mut settings = Settings::read(include_str!("../install.sample.toml")).expect("the sample reads");
-        assert_eq!(told(&settings), CHECK_HERE);
-        settings.github = Some(toml::from_str("repository = \"owner/name\"\nchecks = [\"check\"]\n").unwrap());
-        assert_eq!(told(&settings), CHECK_ON_GITHUB);
-        let fast = "workflow = \"fast.yml\"\nnamed_checks = [\"lint\"]\nseparators = [\"::\", \" > \"]\n";
-        settings.github.as_mut().unwrap().fast = Some(toml::from_str(fast).unwrap());
-        assert_eq!(
-            told(&settings),
-            format!(
-                "{CHECK_FAST} A test is named by its own name, or by its unit and its name joined by a space or `::` \
-                 or ` > `, or by what follows such a separator in these. The checks it runs by name are lint."
-            )
-        );
     }
 }

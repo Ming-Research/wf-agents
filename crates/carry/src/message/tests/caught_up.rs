@@ -11,6 +11,7 @@ fn told(small: &Small, begins: bool, caught: &CaughtUp) -> String {
     let opening = Opening {
         begins,
         main: Some(caught),
+        task: None,
     };
     message(&small.flow, &small.work, spec, run, number, &given, &opening, &words())
 }

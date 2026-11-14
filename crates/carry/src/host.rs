@@ -134,6 +134,16 @@ impl Named {
     }
 }
 
+/// The reference that holds main's head as the host the settings say last gave it, where works branch from: as the
+/// host's own [`Host::kept_main`] gives it.
+pub(crate) fn kept_main(settings: &crate::settings::Settings) -> String {
+    let main = &settings.project.main;
+    match &settings.github {
+        None => local::kept_main(main),
+        Some(github) => github::kept_main(&github.remote, main),
+    }
+}
+
 /// What a check that runs whole says before what it found, where the agent named tests or checks it does not run
 /// apart.
 pub(crate) const WHOLE: &str = "This check runs whole: the tests and checks you named are not run apart.";
