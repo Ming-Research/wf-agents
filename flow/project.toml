@@ -30,3 +30,27 @@ the test's own name: a Rust test by its function's name, or with its module path
 before it, joined by ` > `, its file counted from `client/` (`src/x.test.ts > a describe > its title`). A binary, a
 module, a file or a describe alone names no test. The page's browser tests (`*.browser.test.tsx`) start Chromium
 only in a run that names one.'''
+
+# Where the project's tests are, as git pathspecs, and the data its tests expect.
+[tests]
+paths = [
+  ":(glob)crates/**/tests/**",
+  ":(glob)crates/**/tests.rs",
+  ":(glob)client/**/*.test.ts",
+  ":(glob)client/**/*.test.tsx",
+]
+expected = ["crates/carry/tests/fixtures/", "crates/flow/tests/laid_out/"]
+
+# The project's two workflows, which the engine runs by hand on main's file with a commit given. Each reports every test
+# as JUnit XML, named as an agent asks for it, in the artifact `test-results`.
+[ci.fast]
+# Builds and runs only the tests and checks it is given.
+workflow = "fast.yml"
+runner = "14900k"
+checks = ["lint"]
+
+[ci.full]
+# Every job required to merge, run once before the merge.
+workflows = ["ci.yml"]
+runner = "github"
+too_long = "2h"

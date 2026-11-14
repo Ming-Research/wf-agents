@@ -1,12 +1,11 @@
 //! A host for the tests of the acts: it gives the head of main it is set to and the verdicts it is given, in order,
-//! merges by saying main is where it is, and keeps what it was asked. It checks nothing for the agents' tools, and
-//! keeps that their check asked it.
+//! merges by saying main is where it is, and keeps what it was asked. It runs no test for the agents' tool, and keeps
+//! what it was asked to run, giving the words it is set to.
 
 use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use super::{Branch, Host, Named, Verdict};
-use crate::git::Before;
 use crate::held::Stop;
 
 /// The host's answers, and what it was asked.
@@ -16,6 +15,8 @@ pub(crate) struct Fake {
     /// Why letting go fails, where it does.
     ending: Mutex<Option<String>>,
     asked: Mutex<Vec<Asked>>,
+    /// What it says of the tests it is asked to run; its reason for running none where there are none.
+    tests: Mutex<Option<String>>,
 }
 
 /// What the host was asked.
@@ -25,8 +26,8 @@ pub(crate) enum Asked {
     Main,
     /// The verdict on this commit.
     Verdict(String),
-    /// The agents' check of the work.
-    Check,
+    /// The agents' request to run these tests and checks, as they named them.
+    RunTests(Named),
     /// To merge, the check having passed this commit.
     Merge(Option<String>),
     /// To let go of what it holds for the branch, the work having merged or not.
@@ -45,6 +46,7 @@ impl Fake {
             verdicts: Mutex::new(VecDeque::new()),
             ending: Mutex::new(None),
             asked: Mutex::new(Vec::new()),
+            tests: Mutex::new(None),
         }
     }
 
@@ -56,6 +58,12 @@ impl Fake {
     /// Gives this verdict when it is next asked for one.
     pub(crate) fn judges(self, verdict: Result<Option<Verdict>, String>) -> Fake {
         lock(&self.verdicts).push_back(verdict);
+        self
+    }
+
+    /// Says these words of the tests it is asked to run.
+    pub(crate) fn runs(self, said: &str) -> Fake {
+        *lock(&self.tests) = Some(said.to_string());
         self
     }
 
@@ -86,19 +94,10 @@ impl Host for Fake {
         "refs/heads/main".to_string()
     }
 
-    async fn check(&self, _: &Branch<'_>, _: &Named, _: &mut Stop) -> Result<Option<String>, String> {
-        lock(&self.asked).push(Asked::Check);
-        Err(NO_TOOLS.to_string())
-    }
-
-    async fn check_before(
-        &self,
-        _: &Branch<'_>,
-        _: &Before,
-        _: &Named,
-        _: &mut Stop,
-    ) -> Result<Option<String>, String> {
-        Err(NO_TOOLS.to_string())
+    async fn run_tests(&self, _: &Branch<'_>, named: &Named, _: &mut Stop) -> Result<Option<String>, String> {
+        lock(&self.asked).push(Asked::RunTests(named.clone()));
+        let said = lock(&self.tests).clone();
+        said.map(Some).ok_or_else(|| NO_TOOLS.to_string())
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {
@@ -108,5 +107,5 @@ impl Host for Fake {
     }
 }
 
-/// What the fake host says where the agents' tools ask it to check.
-pub(crate) const NO_TOOLS: &str = "the fake host checks nothing for the agents' tools";
+/// What the fake host says where the agents' tool asks it to run tests and it is set to say nothing.
+pub(crate) const NO_TOOLS: &str = "the fake host runs no test for the agents' tool";

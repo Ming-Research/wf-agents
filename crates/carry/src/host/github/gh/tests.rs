@@ -2,115 +2,31 @@
 
 use super::*;
 
-fn run(id: u64, name: &str, status: &str, conclusion: Option<&str>) -> Value {
-    json!({
-        "id": id,
-        "name": name,
-        "status": status,
-        "conclusion": conclusion,
-        "html_url": format!("https://github.com/o/r/runs/{id}"),
-        "output": { "title": "Lint", "summary": "" },
-        "app": { "slug": "github-actions" },
-    })
-}
-
 #[test]
-fn the_latest_run_of_each_check_counts() {
-    let runs = [
-        run(7, "check", "completed", Some("failure")),
-        // Run again by a person, and passed.
-        run(9, "check", "completed", Some("success")),
-        run(8, "page", "in_progress", None),
-    ];
-    let checks = checks(&runs, &[]);
-    assert_eq!(checks.len(), 2);
+fn a_job_is_read_by_its_conclusion_and_one_that_did_not_run_is_none() {
+    let job = |status: &str, conclusion: Option<&str>| {
+        job(
+            &json!({ "name": "test", "status": status, "conclusion": conclusion, "html_url": "https://github.com/o/r/runs/1/job/2" }),
+        )
+    };
     assert_eq!(
-        (checks[0].name.as_str(), &checks[0].outcome),
-        ("check", &Outcome::Passed)
+        job("completed", Some("success")).map(|j| j.outcome),
+        Some(Outcome::Passed)
     );
-    assert_eq!(checks[0].job, Some(9));
-    assert_eq!(checks[0].url.as_deref(), Some("https://github.com/o/r/runs/9"));
-    assert_eq!(checks[0].summary.as_deref(), Some("Lint"));
     assert_eq!(
-        (checks[1].name.as_str(), &checks[1].outcome),
-        ("page", &Outcome::Pending)
+        job("completed", Some("failure")).map(|j| j.outcome),
+        Some(Outcome::Failed("failure".to_string()))
     );
-    // The earlier run is kept to be said as it is, beside the latest.
-    assert_eq!(checks[0].earlier, ["failure https://github.com/o/r/runs/7"]);
-    assert!(checks[1].earlier.is_empty());
-}
-
-// A job stopped at its time limit, or cancelled, judged the code as far as it ran: what it ran and what was still
-// running when it ended are what the agent needs, and a run of the same commit asked again gives the same.
-#[test]
-fn a_failure_a_timeout_or_a_cancel_judges_the_code() {
-    let outcome = |conclusion| check_run("c", &run(1, "c", "completed", conclusion)).outcome;
-    for passed in ["success", "neutral", "skipped"] {
-        assert_eq!(outcome(Some(passed)), Outcome::Passed, "{passed}");
-    }
-    for failed in ["failure", "timed_out", "cancelled"] {
-        assert_eq!(outcome(Some(failed)), Outcome::Failed(failed.to_string()));
-    }
-    for broken in ["action_required", "stale", "startup_failure"] {
-        assert_eq!(outcome(Some(broken)), Outcome::Broken(broken.to_string()));
-    }
-    assert_eq!(outcome(None), Outcome::Broken("no conclusion".to_string()));
-    let queued = check_run("c", &run(1, "c", "queued", None));
-    assert_eq!(queued.outcome, Outcome::Pending);
-    let mut other = run(1, "c", "completed", Some("failure"));
-    other["app"]["slug"] = json!("another-app");
     assert_eq!(
-        check_run("c", &other).job,
+        job("completed", Some("cancelled")).map(|j| j.outcome),
+        Some(Outcome::Broken("cancelled".to_string()))
+    );
+    assert_eq!(job("in_progress", None).map(|j| j.outcome), Some(Outcome::Pending));
+    assert_eq!(
+        job("completed", Some("skipped")),
         None,
-        "only a job of GitHub Actions has a log GitHub keeps"
+        "a job whose condition was false did not run"
     );
-}
-
-// The check run GitHub gave for a job of a work's CI that a hung test held until the job's time limit, as GitHub's
-// REST API answered it (`commits/<sha>/check-runs`), but for the fields the host does not read.
-#[test]
-fn a_job_cancelled_at_its_time_limit_is_a_failure_after_how_long_it_ran() {
-    let real = json!({
-        "id": 130395109590_u64,
-        "name": "check",
-        "status": "completed",
-        "conclusion": "cancelled",
-        "started_at": "2026-11-11T07:48:56Z",
-        "completed_at": "2026-11-11T08:04:11Z",
-        "html_url": "https://github.com/Ming-Research/wf-agents/actions/runs/42982244461/job/130395109590",
-        "output": { "title": null, "summary": null },
-        "app": { "slug": "github-actions" },
-    });
-    let check = check_run("check", &real);
-    assert_eq!(
-        check.outcome,
-        Outcome::Failed("cancelled after 15 minutes and 15 seconds".to_string())
-    );
-    assert_eq!(check.job, Some(130395109590));
-}
-
-#[test]
-fn a_commit_status_is_a_check_by_its_context() {
-    let statuses = [
-        json!({ "context": "ci/a", "state": "success", "target_url": "https://ci.example/a", "description": "" }),
-        json!({ "context": "ci/b", "state": "failure", "description": "Two tests failed" }),
-        json!({ "context": "ci/c", "state": "error" }),
-        json!({ "context": "ci/d", "state": "pending" }),
-    ];
-    let checks = checks(&[], &statuses);
-    let outcomes: Vec<(&str, &Outcome)> = checks.iter().map(|c| (c.name.as_str(), &c.outcome)).collect();
-    assert_eq!(
-        outcomes,
-        [
-            ("ci/a", &Outcome::Passed),
-            ("ci/b", &Outcome::Failed("failure".to_string())),
-            ("ci/c", &Outcome::Broken("error".to_string())),
-            ("ci/d", &Outcome::Pending),
-        ]
-    );
-    assert_eq!(checks[0].url.as_deref(), Some("https://ci.example/a"));
-    assert_eq!(checks[0].summary, None);
-    assert_eq!(checks[1].summary.as_deref(), Some("Two tests failed"));
 }
 
 #[test]
@@ -198,23 +114,6 @@ fn an_answer_is_read_with_its_status_and_a_refusal_in_githubs_words() {
         "HTTP 422: Validation Failed; A pull request already exists"
     );
     assert_eq!(included("gh: not logged in"), None);
-}
-
-#[tokio::test]
-async fn a_jobs_log_is_read_with_the_escapes_that_colour_it() {
-    // As gh does: a body with terminal escapes is printed only where it is allowed; else the status and headers are,
-    // and gh exits with an error.
-    let dir = tempfile::tempdir().unwrap();
-    let script = dir.path().join("gh");
-    std::fs::write(
-        &script,
-        "#!/bin/sh\nprintf 'HTTP/2.0 200 OK\\r\\n\\r\\n'\ncase \"$*\" in *--allow-escape-sequences*) printf '\\033[31merror\\033[0m: failed\\n' ;; *) echo 'the response contains terminal escape sequences' >&2; exit 1 ;; esac\n",
-    )
-    .unwrap();
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    let gh = Gh::new(&script.display().to_string(), "o/r", "the-token", dir.path());
-    assert_eq!(gh.log(7).await, Ok("\u{1b}[31merror\u{1b}[0m: failed\n".to_string()));
 }
 
 #[test]

@@ -106,8 +106,20 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
     assert!(!summary.required);
     assert_eq!(read.fields["meaning_unchanged"].told, ToldAs::WithOutputs);
 
-    assert_eq!(read.tools.keys().map(String::as_str).collect::<Vec<_>>(), ["query"]);
+    assert_eq!(
+        read.tools.keys().map(String::as_str).collect::<Vec<_>>(),
+        ["answers", "query"]
+    );
     assert_eq!(read.tools["query"].request["required"][0].as_str(), Some("sql"));
+    let given = read.tools["answers"]
+        .given
+        .as_ref()
+        .expect("how much of a result is given");
+    assert_eq!(
+        (given.bound, given.cut.as_str()),
+        (40, "(Cut: {given} of {size} bytes.)")
+    );
+    assert_eq!(read.tools["answers"].unread, None);
 
     let message: Vec<(Part, Option<InputKind>, Option<Only>)> = (read.message.parts.iter())
         .map(|part| (part.part, part.kind, part.only))

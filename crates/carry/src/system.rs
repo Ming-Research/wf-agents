@@ -96,15 +96,15 @@ const NAMED_CHECKS: &str = "named_checks";
 
 /// What the engine puts into the texts, as these settings and the files beside the flows say. `{named_checks}` is
 /// filled with the words its tool's file gives for how the installation runs the project's CI, as the host takes a
-/// check named: by the fast CI alone, and only one it runs by name (`github.fast.named_checks`), each between
-/// backticks for `{checks}` in `named`, or `none_named` where it runs none by name; with no fast CI, nothing named is
-/// run apart, `whole`.
+/// check named: by the project's fast workflow alone (`ci.fast` of its declaration), and only one it runs by name
+/// (`checks`), each between backticks for `{checks}` in `named`, or `none_named` where it runs none by name; where the
+/// project declares no fast workflow, nothing is run alone, `whole`.
 pub fn filling(settings: &Settings, beside: &Agents) -> Filling {
     let ways = beside.tools.values().find_map(|tool| tool.places.get(NAMED_CHECKS));
-    let fast = settings.github.as_ref().and_then(|github| github.fast.as_ref());
+    let fast = beside.project.ci.as_ref().and_then(|ci| ci.fast.as_ref());
     let named_checks = ways.and_then(|ways| match fast {
-        Some(fast) if !fast.named_checks.is_empty() => {
-            let checks: Vec<String> = fast.named_checks.iter().map(|c| format!("`{c}`")).collect();
+        Some(fast) if !fast.checks.is_empty() => {
+            let checks: Vec<String> = fast.checks.iter().map(|c| format!("`{c}`")).collect();
             (ways.get("named")).map(|words| words.replace("{checks}", &checks.join(", ")))
         }
         Some(_) => ways.get("none_named").cloned(),

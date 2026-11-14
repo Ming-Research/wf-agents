@@ -1,8 +1,8 @@
 //! GitHub for the tests of the GitHub host: a bare repository on disk that the host pushes to and fetches from, and
-//! in memory the pull requests, the checks each commit is given, poll by poll, the jobs' logs, the merges and the
+//! in memory the pull requests, the jobs and results each commit's runs by hand are given, the merges and the
 //! closings. It keeps what it was asked.
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
@@ -19,9 +19,6 @@ pub(crate) struct Fake {
 struct Kept {
     /// The pull requests, each with its branch.
     pulls: Vec<(String, Pull)>,
-    /// What each commit's checks are at each ask: the first, then the next, the last staying.
-    checks: BTreeMap<String, VecDeque<Vec<Check>>>,
-    logs: BTreeMap<u64, String>,
     /// Why a merge is refused, where it is.
     refuses: Option<String>,
     /// How many of the next lists of pull requests leave out those opened already, as a list read just before another
@@ -66,8 +63,6 @@ pub(crate) enum Asked {
         base: String,
         title: String,
     },
-    Checks(String),
-    Log(u64),
     Merge {
         number: u64,
         head: String,
@@ -104,11 +99,6 @@ impl Fake {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Gives the commit these checks, one list at each ask, the last staying.
-    pub(crate) fn checks(&self, commit: &str, polls: Vec<Vec<Check>>) {
-        self.kept().checks.insert(commit.to_string(), polls.into());
-    }
-
     /// Gives a run by hand on the commit these jobs, and this artifact where one is given.
     pub(crate) fn fast(&self, commit: &str, jobs: Vec<Check>, artifact: Option<(&str, Vec<File>)>) {
         let artifact = artifact.map(|(name, files)| (name.to_string(), files));
@@ -128,11 +118,6 @@ impl Fake {
     /// Has another request run the workflow on the same branch and commit right after each one the host asks for.
     pub(crate) fn another_call_after_each(&self) {
         self.kept().another_call = true;
-    }
-
-    /// Keeps this log for the job.
-    pub(crate) fn log(&self, job: u64, log: &str) {
-        self.kept().logs.insert(job, log.to_string());
     }
 
     /// The pull requests, in the order they were opened.
@@ -290,34 +275,6 @@ impl Api for Fake {
         Ok(pull)
     }
 
-    async fn checks(&self, commit: &str) -> Result<Vec<Check>, String> {
-        // As GitHub, which answers so of a commit it has not been given.
-        let known = (std::process::Command::new("git").arg("-C").arg(&self.bare))
-            .args(["cat-file", "-e", &format!("{commit}^{{commit}}")])
-            .output()
-            .is_ok_and(|o| o.status.success());
-        let mut kept = self.kept();
-        kept.asked.push(Asked::Checks(commit.to_string()));
-        if !known {
-            return Err(format!("HTTP 422: No commit found for SHA: {commit}"));
-        }
-        let Some(polls) = kept.checks.get_mut(commit) else {
-            return Ok(Vec::new());
-        };
-        let now = if polls.len() > 1 {
-            polls.pop_front()
-        } else {
-            polls.front().cloned()
-        };
-        Ok(now.unwrap_or_default())
-    }
-
-    async fn log(&self, job: u64) -> Result<String, String> {
-        let mut kept = self.kept();
-        kept.asked.push(Asked::Log(job));
-        (kept.logs.get(&job).cloned()).ok_or_else(|| "HTTP 410: the log has expired".to_string())
-    }
-
     async fn merge(&self, number: u64, head: &str, method: &str) -> Result<String, String> {
         let mut kept = self.kept();
         kept.asked.push(Asked::Merge {
@@ -404,11 +361,8 @@ impl Api for Fake {
         if asked.another {
             return Ok(vec![Check {
                 name: "test".to_string(),
-                outcome: super::Outcome::Broken(ANOTHER_CALLS.to_string()),
+                outcome: super::api::Outcome::Broken(ANOTHER_CALLS.to_string()),
                 url: None,
-                summary: None,
-                job: None,
-                earlier: Vec::new(),
             }]);
         }
         Ok((kept.fast.get(&asked.commit)).map_or_else(Vec::new, |(jobs, _)| jobs.clone()))

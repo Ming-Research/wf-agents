@@ -500,6 +500,45 @@ Go on with the task.
     );
 }
 
+/// The build's second run asks for the tool, whose result is this, and the build is entered again for it.
+fn result_of(name: &str, result: &str) -> String {
+    let mut small = objected();
+    small.back(Came::asks(vec![Ask::Tool {
+        name: name.to_string(),
+        input: String::new(),
+    }]));
+    small.done(result);
+    small.told_as(false)
+}
+
+#[test]
+fn a_result_longer_than_its_tool_s_words_allow_is_given_cut_with_its_size_and_one_within_it_whole() {
+    // The words of the tool of the tests give 40 bytes, and a result is kept whole.
+    let long = format!("{}é{}", "a".repeat(39), "b".repeat(60));
+    let told = result_of("answers", &long);
+    let size = long.len();
+    // The 40th byte is inside a character, so the cut is before it.
+    let cut = format!(
+        "{}\n\n(Cut: 39 of {size} bytes.)\n\nGo on with the task.",
+        "a".repeat(39)
+    );
+    assert!(told.contains(&cut), "{told}");
+    assert!(!told.contains('é'), "{told}");
+    let short = "b".repeat(40);
+    let told = result_of("answers", &short);
+    assert!(told.contains(&format!("{short}\n\nGo on with the task.")), "{told}");
+    // The size is the bytes the record holds, the whitespace at its end among them.
+    let padded = format!("{}\n\n\n", "c".repeat(41));
+    let told = result_of("answers", &padded);
+    assert!(
+        told.contains(&format!("(Cut: 40 of {} bytes.)", padded.len())),
+        "{told}"
+    );
+    // A tool whose words give no bound is given whole.
+    let told = result_of("check", &long);
+    assert!(told.contains(&format!("{long}\n\nGo on with the task.")), "{told}");
+}
+
 #[test]
 fn a_read_an_earlier_run_asked_for_is_not_given_again() {
     let mut small = objected();

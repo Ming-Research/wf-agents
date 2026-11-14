@@ -20,6 +20,10 @@ pub const STOP_WAIT: Duration = Duration::from_secs(3);
 /// How much of the end of a command's output is kept to say what came of it, in bytes.
 pub const TAIL: usize = 4000;
 
+/// The bytes of what a tool's run said that are kept, which no run of one is near: its result is kept whole in the
+/// records, and cut only where it is given to an agent.
+pub const KEPT_WHOLE: usize = 1 << 30;
+
 /// What came of running a program.
 pub(crate) enum Ran {
     /// It ended by itself.

@@ -1,19 +1,33 @@
-//! What a run of a project's fast CI reports of its tests, read from the JUnit XML files of the artifact the
-//! installation's settings name (`github.fast.results`): each test it reported, with what became of it and what it
-//! said, and each unit it did not build; and what became of each test an agent named. Brought over from the old engine
-//! (`crates/engine/src/results.rs` on `old-main`). The fast workflow and the engine hold to three conventions:
+//! What a run of a project's workflow reports of its tests, read from the JUnit XML files of the artifact the project's
+//! declaration names (`ci.fast.results`, `ci.full.results`): each test it reported, with what became of it, how long
+//! it took and what it said, and each unit it did not build; and what became of each test an agent named. Brought over
+//! from the old engine (`crates/engine/src/results.rs` on `old-main`). The workflow and the engine hold to three
+//! conventions:
 //!
 //! - The results are JUnit XML: the artifact holds one or more files ending in `.xml`. Each `testsuite` is a unit (a
-//!   test binary, a test file), named by its `name`; each `testcase` in it is a test, named by its `name` within the
-//!   unit. A testcase with a `failure` or an `error` element in it failed; one with a `skipped` element and neither of
-//!   those did not run; any other passed. Its `time` is in seconds. A testcase in a testsuite inside another is of the
-//!   innermost one.
+//!   test binary, a test file), named by its `name`; each `testcase` in it is a test, named by its `name`. A testcase
+//!   with a `failure` or an `error` element in it failed; one with a `skipped` element and neither of those did not
+//!   run; any other passed. Its `time` is in seconds. A testcase in a testsuite inside another is of the innermost
+//!   one.
 //! - A unit that was not built, so that none of its tests could run, is a `testsuite` with no `testcase` and an
-//!   `error` element, named as the unit would be, whose text (or, when it has none, its `message`) says why.
-//! - The workflow runs at least every test a name it is given names (`test_name`): more, never fewer. The engine alone
-//!   decides which test a name names.
+//!   `error` element, whose text (or, when it has none, its `message`) says why.
+//! - A test's name is the `name` its results give it, and the one string an agent asks for it by and the project's fast
+//!   workflow takes to run it: the engine treats it as it is, and decides nothing by its parts.
 
-use super::test_name::{self, Reported};
+/// A test as a run reported it: the unit it is in (a test binary, a test file) and its name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reported {
+    pub unit: String,
+    pub name: String,
+}
+
+impl Reported {
+    /// The test as a reader of its unit sees it: its unit and its name, joined by a space.
+    #[cfg(test)]
+    pub fn whole(&self) -> String {
+        format!("{} {}", self.unit, self.name)
+    }
+}
 
 /// What became of a test in a run, as its results say.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,6 +39,7 @@ pub enum Outcome {
 
 impl Outcome {
     /// How a result gives it.
+    #[cfg(test)]
     pub fn as_str(self) -> &'static str {
         match self {
             Outcome::Passed => "passed",
@@ -157,81 +172,39 @@ fn first_line(text: &str) -> Option<&str> {
 pub enum Became {
     Passed,
     Failed,
-    /// Each test it names was skipped, or it names none of a run that built every unit.
+    /// Each test it names was skipped.
+    Skipped,
+    /// No test of the run has the name, and the run built every unit.
     NotRun,
-    /// It names no test, and the run did not build some unit, which the engine cannot tell the test is not in.
+    /// No test of the run has the name, and the run did not build some unit, which the engine cannot tell the test is
+    /// not in.
     NotBuilt,
-    /// The run's results could not be read.
-    Unread,
 }
 
-/// What became of one test an agent named: the tests it names, each with its own result, what they come to, and why
-/// where that is not a test's own result.
+/// What became of one test an agent named: the tests it names, each with its own result, and what they come to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Row<'a> {
     pub named: &'a str,
     pub matched: Vec<&'a Case>,
     pub became: Became,
-    pub why: Option<String>,
 }
 
-/// Why a name the run's results hold no test of is not run, when the run built every unit: a name cut before a test's
-/// own name, such as a unit or a module alone, names nothing, and neither does one of a test the run did not reach or
-/// that the code it ran does not hold. Said in the result, so that the same name is not asked again.
-pub const NAMES_NONE: &str = "no test the run reported is named so: a name ends at a test's own name, and a unit, a \
-                              module or a group of tests alone names none; or the run did not reach it; or no test so \
-                              named is in the code it ran";
-
-/// What became of each test named, from what the run reported, or unread with why when its results could not be read;
-/// `seps` are the project's separators. A name is failed when any test it names failed, not run when each was
-/// skipped, and passed otherwise.
-pub fn rows<'a>(tests: &'a [String], run: Result<&'a Run, &str>, seps: &[String]) -> Vec<Row<'a>> {
+/// What became of each test named, from what the run reported. A name names the tests whose name it is, as it is,
+/// trimmed. It is failed when any test it names failed, skipped when each was, and passed otherwise.
+pub fn rows<'a>(tests: &'a [String], run: &'a Run) -> Vec<Row<'a>> {
     (tests.iter())
         .map(|named| {
-            let run = match run {
-                Ok(run) => run,
-                Err(why) => {
-                    return Row {
-                        named,
-                        matched: Vec::new(),
-                        became: Became::Unread,
-                        why: Some(format!("the run's results could not be read: {why}")),
-                    };
-                }
-            };
-            let matched: Vec<&Case> = (run.cases.iter())
-                .filter(|c| test_name::names(named, &c.test, seps))
-                .collect();
+            let matched: Vec<&Case> = (run.cases.iter()).filter(|c| c.test.name == named.trim()).collect();
             let failed = matched.iter().any(|c| c.outcome == Outcome::Failed);
             let ran = matched.iter().any(|c| c.outcome == Outcome::Passed);
-            let (became, why) = match (matched.is_empty(), failed, ran) {
-                (false, true, _) => (Became::Failed, None),
-                (false, false, true) => (Became::Passed, None),
-                (false, false, false) => (Became::NotRun, Some("each test it names was skipped".to_string())),
-                (true, _, _) if !run.unbuilt.is_empty() => {
-                    let units: Vec<String> = (run.unbuilt.iter())
-                        .map(|u| {
-                            if u.why.is_empty() {
-                                u.unit.clone()
-                            } else {
-                                format!("{}: {}", u.unit, u.why)
-                            }
-                        })
-                        .collect();
-                    let why = format!(
-                        "no test the run reported is named so, and these units were not built: {}",
-                        units.join("; ")
-                    );
-                    (Became::NotBuilt, Some(why))
-                }
-                (true, _, _) => (Became::NotRun, Some(NAMES_NONE.to_string())),
+            let became = match (matched.is_empty(), failed, ran) {
+                (false, true, _) => Became::Failed,
+                (false, false, true) => Became::Passed,
+                (false, false, false) => Became::Skipped,
+                (true, _, _) if !run.unbuilt.is_empty() => Became::NotBuilt,
+                (true, _, _) => Became::NotRun,
             };
-            Row {
-                named,
-                matched,
-                became,
-                why,
-            }
+            Row { named, matched, became }
         })
         .collect()
 }
@@ -242,10 +215,6 @@ mod tests {
 
     fn file(path: &str, xml: &str) -> (String, Vec<u8>) {
         (path.to_string(), xml.as_bytes().to_vec())
-    }
-
-    fn seps() -> Vec<String> {
-        vec!["::".to_string(), " > ".to_string()]
     }
 
     fn names(xs: &[&str]) -> Vec<String> {
@@ -444,21 +413,22 @@ error[E0599]: no method named `rounds_mark` found
         assert!(read(&[]).is_err());
     }
 
-    // Each name is given the tests it names and a result from theirs. `a_row` names the passing `a_row` of the e2e
-    // binary and the erring unit test, and so failed, never the failing `a_row_into_the_asking_part`; one whose tests
-    // were all skipped is not run; one that names none is not built while a unit was not built, saying which and why,
-    // and not run otherwise; and a run whose results could not be read leaves each name unread.
+    // Each name is given the tests whose name it is, as it is, and a result from theirs: `a_row` is the passing `a_row` of
+    // the e2e binary only, never the failing `a_row_into_the_asking_part` nor the unit test whose name ends so; a
+    // name of tests all skipped is skipped; one that is no test's name is not built while a unit was not built, and
+    // not run otherwise.
     #[test]
-    fn each_name_is_given_the_tests_it_names_and_their_result() {
+    fn each_name_is_given_the_tests_whose_name_it_is_and_their_result() {
         let run = read(&two_files()).unwrap();
         let named = names(&[
-            "engine::e2e a_row",
             "a_row",
+            "tools::tests::a_row",
             "a page > shows the owner's list",
-            "later",
+            "tools::tests::later",
             "missing",
+            "  flaky_one ",
         ]);
-        let got = rows(&named, Ok(&run), &seps());
+        let got = rows(&named, &run);
         let became: Vec<Became> = got.iter().map(|r| r.became).collect();
         assert_eq!(
             became,
@@ -466,34 +436,18 @@ error[E0599]: no method named `rounds_mark` found
                 Became::Passed,
                 Became::Failed,
                 Became::Passed,
-                Became::NotRun,
-                Became::NotBuilt
+                Became::Skipped,
+                Became::NotBuilt,
+                Became::Passed
             ]
         );
-        let matched: Vec<String> = got[1].matched.iter().map(|c| c.test.whole()).collect();
-        assert_eq!(matched, ["engine::e2e a_row", "engine tools::tests::a_row"]);
-        assert_eq!(
-            got[4].why.as_deref(),
-            Some(
-                "no test the run reported is named so, and these units were not built: db::rounds: error[E0599]: no \
-                 method named `rounds_mark` found"
-            )
-        );
+        let matched: Vec<String> = got[0].matched.iter().map(|c| c.test.whole()).collect();
+        assert_eq!(matched, ["engine::e2e a_row"]);
         let built = Run {
             unbuilt: Vec::new(),
             ..run.clone()
         };
-        let none = rows(&named[4..], Ok(&built), &seps());
-        assert_eq!(
-            (none[0].became, none[0].why.as_deref()),
-            (Became::NotRun, Some(NAMES_NONE))
-        );
-        let unread = rows(&named[..1], Err("the run uploaded no artifact test-results"), &seps());
-        assert_eq!(unread[0].became, Became::Unread);
-        assert_eq!(
-            unread[0].why.as_deref(),
-            Some("the run's results could not be read: the run uploaded no artifact test-results")
-        );
+        assert_eq!(rows(&named[4..5], &built)[0].became, Became::NotRun);
     }
 
     // What a failed test said is the text of its failure, or its message, or what it wrote.
@@ -576,75 +530,30 @@ AssertionError: expected 1 to be 2 // Object.is equality
         let named = names(&[
             "each_character_is_counted_as_its_east_asian_width_class_says",
             "tests::a_project_merges_onto_what_it_extends",
-            "engine::e2e building_a_message_writes_nothing",
+            "building_a_message_writes_nothing",
             "the System view > sums the weeks and the merges",
-            "sums the weeks and the merges",
-            "fails on purpose in the probe",
-            "shows each hold with its source, its reason and a Release, and the owner's Hold new starts while they hold \
-             none",
-            "asks for the weeks of its period in the owner’s time zone",
+            "the probe > fails on purpose in the probe",
+            "the System view > asks for the weeks of its period in the owner’s time zone",
             "a_probe_that_does_not_compile",
+            "sums the weeks and the merges",
         ]);
-        let got = rows(&named, Ok(&run), &seps());
-        let results: Vec<(Became, Vec<String>)> = got
-            .iter()
-            .map(|r| (r.became, r.matched.iter().map(|c| c.test.whole()).collect()))
-            .collect();
+        let got = rows(&named, &run);
+        let became: Vec<Became> = got.iter().map(|r| r.became).collect();
         assert_eq!(
-            results,
+            became,
             [
-                (
-                    Became::Passed,
-                    vec![
-                        "config::title_width each_character_is_counted_as_its_east_asian_width_class_says".to_string()
-                    ]
-                ),
-                (
-                    Became::Passed,
-                    vec!["config tests::a_project_merges_onto_what_it_extends".to_string()]
-                ),
-                (
-                    Became::Passed,
-                    vec!["engine::e2e building_a_message_writes_nothing".to_string()]
-                ),
-                (
-                    Became::Passed,
-                    vec!["src/system.test.ts the System view > sums the weeks and the merges".to_string()]
-                ),
-                (
-                    Became::Passed,
-                    vec!["src/system.test.ts the System view > sums the weeks and the merges".to_string()]
-                ),
-                (
-                    Became::Failed,
-                    vec!["src/probe.test.ts the probe > fails on purpose in the probe".to_string()]
-                ),
-                (
-                    Became::Passed,
-                    vec![
-                        "src/side.test.tsx the head of the one-to-one with an architect > shows each hold with its \
-                         source, its reason and a Release, and the owner's Hold new starts while they hold none"
-                            .to_string()
-                    ]
-                ),
-                (
-                    Became::NotRun,
-                    vec![
-                        "src/system.test.ts the System view > asks for the weeks of its period in the owner’s time zone"
-                            .to_string()
-                    ]
-                ),
-                (Became::NotBuilt, vec![]),
+                Became::Passed,
+                Became::Passed,
+                Became::Passed,
+                Became::Passed,
+                Became::Failed,
+                Became::Skipped,
+                Became::NotBuilt,
+                Became::NotBuilt,
             ]
         );
         assert_eq!(got[2].matched[0].time.as_deref(), Some("4.887"));
-        assert_eq!(got[5].matched[0].ended.as_deref(), Some("failure"));
-        assert_eq!(
-            got[8].why.as_deref(),
-            Some(
-                "no test the run reported is named so, and these units were not built: config::probe_broken: \
-                 error[E0308]: mismatched types"
-            )
-        );
+        assert_eq!(got[4].matched[0].ended.as_deref(), Some("failure"));
+        assert_eq!(run.unbuilt[0].unit, "config::probe_broken");
     }
 }

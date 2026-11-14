@@ -1,5 +1,5 @@
 //! What the GitHub host asks of GitHub, apart from what `git` pushes and fetches: the pull requests of a branch and
-//! their text, the checks of a commit, a check's log, the merge and the closing of a pull request, and a workflow run by
+//! their text, the merge and the closing of a pull request, and a workflow run by
 //! hand with its runs, their jobs and what they uploaded. [`Gh`](super::gh::Gh) asks GitHub with the
 //! `gh` command line; the tests ask a fake.
 
@@ -35,20 +35,13 @@ pub enum State {
     Merged,
 }
 
-/// One check of a commit: a check run, or a commit status, by its name.
+/// One job of a run of a workflow, by its name.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Check {
     pub name: String,
     pub outcome: Outcome,
     /// Where a person sees it, where it says.
     pub url: Option<String>,
-    /// What it said of itself, its title and summary, where it said anything.
-    pub summary: Option<String>,
-    /// The job whose log GitHub keeps, for a check that is a job of GitHub Actions.
-    pub job: Option<u64>,
-    /// The earlier runs of the check on the same commit, oldest first, each as GitHub says how it ended and where a
-    /// person sees it.
-    pub earlier: Vec<String>,
 }
 
 /// What came of a check.
@@ -96,12 +89,6 @@ pub trait Api: Send + Sync + 'static {
         title: &str,
         body: &str,
     ) -> impl Future<Output = Result<Pull, String>> + Send;
-
-    /// The checks of the commit, the latest run of each.
-    fn checks(&self, commit: &str) -> impl Future<Output = Result<Vec<Check>, String>> + Send;
-
-    /// The log of the job of GitHub Actions.
-    fn log(&self, job: u64) -> impl Future<Output = Result<String, String>> + Send;
 
     /// Merges the pull request by the method (`squash`, `merge` or `rebase`), provided its head is the commit; gives
     /// the commit the merge made.

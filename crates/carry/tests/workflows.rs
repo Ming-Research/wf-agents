@@ -1,6 +1,6 @@
-//! The repository's two CI workflows as the engine relies on them. The engine reads the checks of a commit by the names
-//! of their jobs (`github.checks`, `page` and `check` in this repository), and runs the fast workflow by hand on the
-//! commit it gives (`github.fast`); so a job renamed, or added to the wrong workflow, or a trigger changed, changes what
+//! The repository's two CI workflows as the engine relies on them. The engine reads the jobs of a run by their names
+//! (`page` and `check` in this repository), and runs the workflows the project declares (`ci` in flow/project.toml) by
+//! hand on the commit it gives; so a job renamed, or added to the wrong workflow, or a trigger changed, changes what
 //! a green run means. GitHub is the reference for the workflow syntax; the comments at the head of each workflow say
 //! what it must and must not hold.
 
@@ -107,10 +107,8 @@ fn the_full_workflow_keeps_the_checks_a_merge_waits_for() {
     }
 }
 
-// The full workflow runs on each pull request into `main` and each push to `main`, and on no other push: a branch of
-// the code before a change (`wf-agents-before/`) is run by the fast workflow, by hand, with only the tests named, and a
-// whole run of this one beside it would take GitHub's machines for nothing. `next` is the name `main` had, kept while
-// a pull request targets it.
+// The full workflow runs on each pull request into `main` and each push to `main`, and on no other push. `next` is the
+// name `main` had, kept while a pull request targets it.
 #[test]
 fn the_full_workflow_runs_on_the_pull_requests_and_pushes_of_main() {
     let text = workflow("ci.yml");

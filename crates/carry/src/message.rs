@@ -24,7 +24,7 @@ use std::collections::BTreeMap;
 
 use decide::run::Unmet;
 use decide::{BlockId, CallId, Cause, RunId, Seq, Started, VersionView, Writer};
-use flow::agents::{self, Agents, Part, SentBack};
+use flow::agents::{self, Agents, Part, ResultGiven, SentBack, fill};
 use flow::{CellSpec, Compiled};
 use work::{Ask, Call, Given, Work};
 
@@ -309,7 +309,8 @@ fn task(flow: &Compiled, work: &Work, cell: &CellSpec, run: RunId, sent: Option<
     });
 }
 
-/// Each call with its result; of an earlier round, a `read` only named.
+/// Each call with its result, which is given as the tool's words say how much of it is; of an earlier round, a `read`
+/// only named.
 fn calls_and_results(work: &Work, calls: &[CallId], earlier: bool, words: &Agents, parts: &mut Vec<String>) {
     for call in calls {
         // What an earlier round read is named, not given again: the blocks may have changed since, and the agent reads
@@ -329,21 +330,40 @@ fn calls_and_results(work: &Work, calls: &[CallId], earlier: bool, words: &Agent
             Some(Call::Wait { .. }) | None => unknown_call(*call),
         };
         parts.push(head);
-        let result = work.results.get(call).map(|r| given(work, call, r.trim_end(), words));
+        let result = work.results.get(call).map(|r| given(work, call, r, words));
         parts.push(result.unwrap_or_else(|| NO_RESULT.to_string()));
     }
 }
 
 /// What a result is given as: a result of the tool `query` longer than its file says a message gives is cut as the tool
-/// cuts it, the records holding it whole.
+/// cuts it; one of a tool whose file gives a bound is cut at it, with the words that follow a cut one; the records
+/// hold each whole.
 fn given(work: &Work, call: &CallId, result: &str, words: &Agents) -> String {
-    if let Some(Call::Asked(Ask::Tool { name, input })) = work.calls.get(call)
-        && name == crate::tools::QUERY
+    let Some(Call::Asked(Ask::Tool { name, input })) = work.calls.get(call) else {
+        return result.trim_end().to_string();
+    };
+    if name == crate::tools::QUERY
         && let Some(bytes) = words.tools.get(name).and_then(|t| t.given_bytes)
     {
-        return crate::tools::Querying::cut(result, input, bytes);
+        return crate::tools::Querying::cut(result.trim_end(), input, bytes);
     }
-    result.to_string()
+    cut(result, words.tools.get(name).and_then(|t| t.given.as_ref()))
+}
+
+/// A result kept whole, as it is given: its end of whitespace left off, and cut at the most bytes the tool's words
+/// allow, at a whole character, with the words that follow a cut one saying how much was given and how many bytes the
+/// record holds; as it is where they allow it all.
+fn cut(result: &str, given: Option<&ResultGiven>) -> String {
+    let Some(given) = given.filter(|g| result.len() > g.bound) else {
+        return result.trim_end().to_string();
+    };
+    let mut at = given.bound;
+    while !result.is_char_boundary(at) {
+        at -= 1;
+    }
+    let (kept, size) = (at.to_string(), result.len().to_string());
+    let words = fill(&given.cut, &[("given", &kept), ("size", &size)]);
+    format!("{}\n\n{words}", &result[..at])
 }
 
 /// What ran the round: each trigger of the cell that is new to it, in the order the cell names them, with what the cell

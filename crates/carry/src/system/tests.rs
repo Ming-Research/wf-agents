@@ -42,8 +42,7 @@ fn engineer() -> Compiled {
 /// The sample's settings on GitHub with a fast CI, whose checks by name the words of `run_tests` name.
 fn settings() -> Settings {
     let mut settings = Settings::read(include_str!("../../install.sample.toml")).expect("the sample reads");
-    let github = "repository = \"owner/name\"\nchecks = [\"lint\", \"test\"]\n[fast]\nworkflow = \"fast.yml\"\n\
-                  named_checks = [\"lint\"]\n";
+    let github = "repository = \"owner/name\"\n";
     settings.github = Some(toml::from_str(github).unwrap());
     settings
 }
@@ -241,38 +240,40 @@ fn every_text_sent_naming_a_setting_with_no_value_is_refused_as_the_engine_start
     assert_eq!(faults(&settings(), &beside, &flow), expected);
 }
 
-// The checks an agent may name to `run_tests` are said as the installation runs the project's CI: with a fast CI, the
-// checks it runs by name, or that it runs none by name; with none, on GitHub or on the local repository, that every
-// run is the whole CI. No way of running it keeps the engine from starting.
+// The checks an agent may name to `run_tests` are said as the project declares its fast workflow: the checks it runs by
+// name, or that it runs none by name; with none declared, that nothing is run alone. No way of declaring it keeps the
+// engine from starting.
 #[test]
-fn the_checks_an_agent_may_name_are_said_as_the_installation_runs_its_ci() {
+fn the_checks_an_agent_may_name_are_said_as_the_project_declares_its_fast_workflow() {
     let (beside, flow) = (beside(), engineer());
     let ways = &beside.tools["run_tests"].places["named_checks"];
-    let told = |settings: &Settings| {
-        assert_eq!(faults(settings, &beside, &flow), Vec::<String>::new());
+    let told = |beside: &Agents| {
+        assert_eq!(faults(&settings(), beside, &flow), Vec::<String>::new());
         let cell = cell(&flow, "engineer");
-        of_line(&beside, &filling(settings, &beside), &flow, cell, "", project).expect("it is made")
+        of_line(beside, &filling(&settings(), beside), &flow, cell, "", project).expect("it is made")
     };
-    let fast = told(&settings());
+    let declared = |checks: &[&str]| {
+        let mut declared = beside.clone();
+        let ci = declared
+            .project
+            .ci
+            .as_mut()
+            .expect("the project declares its workflows");
+        ci.fast.as_mut().expect("a fast workflow").checks = checks.iter().map(|c| c.to_string()).collect();
+        declared
+    };
+    let fast = told(&beside);
     assert!(fast.contains("and checks among `lint`;"), "{fast}");
-    let mut two = settings();
-    two.github.as_mut().unwrap().fast.as_mut().unwrap().named_checks = vec!["lint".into(), "page".into()];
-    assert!(told(&two).contains("and checks among `lint`, `page`;"));
-    let mut none_named = settings();
-    none_named
-        .github
+    assert!(told(&declared(&["lint", "page"])).contains("and checks among `lint`, `page`;"));
+    assert!(told(&declared(&[])).contains(&format!("and checks among {};", ways["none_named"])));
+    // A project that declares no fast workflow, on GitHub or on the local repository alike.
+    let mut no_fast = beside.clone();
+    no_fast
+        .project
+        .ci
         .as_mut()
-        .unwrap()
-        .fast
-        .as_mut()
-        .unwrap()
-        .named_checks
-        .clear();
-    assert!(told(&none_named).contains(&format!("and checks among {};", ways["none_named"])));
-    // The owner's own installation: GitHub with checks that count, and no fast CI.
-    let mut no_fast = settings();
-    no_fast.github.as_mut().unwrap().fast = None;
-    no_fast.github.as_mut().unwrap().checks = vec!["page".into(), "check".into()];
+        .expect("the project declares its workflows")
+        .fast = None;
     let whole = told(&no_fast);
     assert!(
         whole.contains(&format!("and checks among {};", ways["whole"])),
@@ -281,7 +282,7 @@ fn the_checks_an_agent_may_name_are_said_as_the_installation_runs_its_ci() {
     assert!(!whole.contains("{named_checks}"), "{whole}");
     let mut local = settings();
     local.github = None;
-    assert!(told(&local).contains(&ways["whole"]));
+    assert_eq!(faults(&local, &beside, &flow), Vec::<String>::new());
 }
 
 // A place the engine does not fill, in the heading a file of the project stands under or in the engine's words, and a

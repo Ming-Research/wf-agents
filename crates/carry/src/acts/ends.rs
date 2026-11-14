@@ -72,17 +72,11 @@ async fn a_merged_work_has_its_worktrees_taken_away_its_branch_kept_and_the_host
     let repo = Repo::new("true");
     started(&repo).await;
     let place = repo.place(WORK);
-    // A check before the change left its worktree, as by an engine that ended while it ran.
     let main = run(&repo.project.repo, &["rev-parse", "main"]);
-    let left = git::check_out_before(&repo.project, &place, &main).await.unwrap();
     let head = run(&repo.project.repo, &["rev-parse", &place.reference()]);
     let acts = acts(&repo, Fake::new(&main));
     acts.inner.release(&release(End::Merged)).await.expect("it lets go");
     assert!(!place.dir.exists(), "the worktree is taken away");
-    assert!(
-        !left.exists(),
-        "the worktree a check before the change left is taken away"
-    );
     let listed = run(&repo.project.repo, &["worktree", "list", "--porcelain"]);
     assert!(!listed.contains(&place.dir.display().to_string()), "{listed}");
     assert_eq!(
@@ -161,22 +155,6 @@ async fn another(repo: &Repo) -> git::Place {
 fn intact(repo: &Repo, other: &git::Place) -> bool {
     let listed = run(&repo.project.repo, &["worktree", "list", "--porcelain"]);
     other.dir.join("draft.txt").is_file() && listed.contains(&other.dir.display().to_string())
-}
-
-#[tokio::test]
-async fn a_symbolic_link_among_a_works_worktrees_takes_away_no_other_works() {
-    let repo = Repo::new("true");
-    started(&repo).await;
-    let other = another(&repo).await;
-    let place = repo.place(WORK);
-    let link = git::before_dir(&place, "0123456789ab");
-    std::os::unix::fs::symlink(&other.dir, &link).unwrap();
-    let main = run(&repo.project.repo, &["rev-parse", "main"]);
-    let acts = acts(&repo, Fake::new(&main));
-    let done = tokio::time::timeout(Duration::from_secs(10), acts.inner.release(&release(End::Merged))).await;
-    assert!(done.is_ok());
-    assert!(intact(&repo, &other), "another work's worktree was taken away");
-    assert!(!place.dir.exists(), "the work's own worktree is taken away");
 }
 
 #[tokio::test]
