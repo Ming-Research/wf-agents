@@ -472,9 +472,21 @@ pub fn open_on_slots(
     slots: usize,
     now: Time,
 ) -> (Opened, Arc<Mutex<Calls>>) {
+    open_with_policy(db, plan, flows, slots, None, now)
+}
+
+/// Opens a driver as [`open_on_slots`] does, with this policy of the lines' sessions.
+pub fn open_with_policy(
+    db: &Db,
+    plan: Plan,
+    flows: Vec<Compiled>,
+    slots: usize,
+    policy: Option<driver::Policy>,
+    now: Time,
+) -> (Opened, Arc<Mutex<Calls>>) {
     let (store, calls) = Failing::new(db.open());
     calls.lock().expect("the calls are noted").plan = plan;
-    (Driver::open(Box::new(store), flows, slots, None, now), calls)
+    (Driver::open(Box::new(store), flows, slots, policy, now), calls)
 }
 
 /// The slots of the driver in the tests that do not count them: more than any of them has works.
@@ -558,6 +570,8 @@ pub struct H {
     pub flows: Vec<Compiled>,
     /// The slots the driver is opened with, each time.
     pub slots: usize,
+    /// What makes the policy of the lines' sessions the driver is opened with, each time; none for no policy.
+    pub policy: Option<fn() -> driver::Policy>,
 }
 
 /// What the driver answered to a call that the store of the tests may have stopped.
@@ -581,8 +595,15 @@ impl H {
 
     /// The driver opened on an empty store, with these flows and this many slots: it has nothing to do.
     pub fn with_slots(flows: Vec<Compiled>, slots: usize) -> Self {
+        Self::with_policy(flows, slots, None)
+    }
+
+    /// The driver opened on an empty store, with these flows, this many slots and the policy this makes, each time it
+    /// is opened: it has nothing to do.
+    pub fn with_policy(flows: Vec<Compiled>, slots: usize, policy: Option<fn() -> driver::Policy>) -> Self {
         let db = Db::new();
-        let (opened, calls) = open_on_slots(&db, Plan::Never, flows.clone(), slots, Time(START));
+        let made = policy.map(|make| make());
+        let (opened, calls) = open_with_policy(&db, Plan::Never, flows.clone(), slots, made, Time(START));
         let (driver, todos) = opened.expect("the driver opens");
         assert_eq!(todos, vec![], "the driver has something to do on an empty store");
         let reader = db.open();
@@ -602,6 +623,7 @@ impl H {
             faulty: BTreeSet::new(),
             flows,
             slots,
+            policy,
         }
     }
 
@@ -891,7 +913,15 @@ impl H {
             !matches!(decision, Decision::Ended(_) | Decision::Fault(_)) && !decide::paused(&work.records)
         });
         self.driver = None;
-        let (opened, calls) = open_on_slots(&self.db, Plan::Never, self.flows.clone(), self.slots, Time(self.clock));
+        let policy = self.policy.map(|make| make());
+        let (opened, calls) = open_with_policy(
+            &self.db,
+            Plan::Never,
+            self.flows.clone(),
+            self.slots,
+            policy,
+            Time(self.clock),
+        );
         let (driver, todos) = opened.expect("the driver opens again");
         self.driver = Some(driver);
         self.calls = calls;
@@ -917,6 +947,8 @@ impl H {
             expected,
             "opened again, the driver holds another pause of everything than it is to"
         );
+        // A ping under way is lost in a stop: the time gives it again where it is still due.
+        self.outstanding.retain(|t| !matches!(t.effect, Effect::Ping { .. }));
         for todo in &self.outstanding {
             // A round or a call given before may be to be stopped or withdrawn now, by what was kept as it stopped.
             let undone = todos.iter().any(|t| {
@@ -942,6 +974,7 @@ impl H {
                     self.ever.insert(self.once(todo))
                 }
                 Effect::Stop { .. } | Effect::Withdraw { .. } => self.undone.insert(key(todo)),
+                Effect::Ping { .. } => panic!("opened again, the driver gives a ping, which only the time gives"),
             };
             assert!(
                 self.kept_as_pending(todo),
@@ -980,6 +1013,7 @@ impl H {
                         c == call
                     }
                     (Event::Released | Event::NotReleased { .. }, Effect::Release { .. }) => true,
+                    (Event::Pinged { line, .. }, Effect::Ping { line: l, .. }) => l == line,
                     _ => false,
                 }
         };
@@ -1026,6 +1060,20 @@ impl H {
                     });
                     self.outstanding
                         .remove(at.expect("a call withdrawn was given and not yet answered"));
+                }
+                Effect::Ping { line, .. } => {
+                    // A ping is of the time, kept nowhere as to be done: given once at a time, and never beside a
+                    // round of its work.
+                    let twice = (self.outstanding.iter())
+                        .any(|t| t.work == todo.work && matches!(&t.effect, Effect::Ping { line: l, .. } if l == line));
+                    assert!(!twice, "a ping given while one of its line is under way: {todo:?}");
+                    let work = self.d().work(todo.work).expect("the work").work;
+                    assert!(
+                        work.records.rounds.len() == work.records.returned.len(),
+                        "a ping given beside a round of its work: {todo:?}"
+                    );
+                    self.outstanding.push(todo.clone());
+                    continue;
                 }
             }
             assert!(
@@ -1134,9 +1182,14 @@ impl H {
                 }
             }
         }
+        // A ping is of the time and is kept as nothing to be done: what is pending is the rest.
+        let outstanding: Vec<Todo> = (self.outstanding.iter())
+            .filter(|t| !matches!(t.effect, Effect::Ping { .. }))
+            .cloned()
+            .collect();
         assert_eq!(
             sorted(&d.pending()),
-            sorted(&self.outstanding),
+            sorted(&outstanding),
             "what is pending is not what was given and not yet answered"
         );
         // The rounds of agents given out and not yet answered, a round to be stopped among them until it has ended,
@@ -1203,9 +1256,9 @@ impl H {
 
     /// What the work does next agrees with what is to be done for it: after a call, no run is left to start and none
     /// left to be abandoned, and a run goes on with its round held only while the work is paused, unless a wait every
-    /// work shares holds the rounds of the cell's agent; a work is busy with a
-    /// run exactly when a round of that run is given to be done; and a work paused began no round after the pause but
-    /// of a run for a note a person wrote ([`for_a_note`]), and none given again after it failed.
+    /// work shares holds the rounds of the cell's agent, or a keep-warm ping of the work every round of it; a work is
+    /// busy with a run exactly when a round of that run is given to be done; and a work paused began no round after the
+    /// pause but of a run for a note a person wrote ([`for_a_note`]), and none given again after it failed.
     fn agrees_with_what_is_pending(&self, number: WorkNumber, flow: &Compiled, work: &Work, shown: &Decision) {
         let paused = decide::paused(&work.records);
         let rounds: Vec<RunId> = (self.d().pending().into_iter())
@@ -1216,10 +1269,11 @@ impl H {
             })
             .collect();
         // A wait every work shares, where it holds rounds now, leaves the run of a cell whose rounds it holds to start
-        // or go on: the agents' wait an agent's, and the acts' wait an act's.
+        // or go on: the agents' wait an agent's, and the acts' wait an act's; and a keep-warm ping of the work under way
+        // leaves every run of it so.
         let agents = |cell: &decide::CellId| {
             let kind = (flow.cells.iter()).find(|spec| spec.id == *cell).map(|spec| spec.kind);
-            match self.d().gate(Time(self.clock)) {
+            match self.d().gate_of(Time(self.clock), number) {
                 engine::Gate::Open => false,
                 engine::Gate::Agents => kind == Some(flow::Kind::Agent),
                 engine::Gate::Acts => kind == Some(flow::Kind::Engine),
@@ -1336,6 +1390,13 @@ impl H {
             self.check();
         }
         todos
+    }
+
+    /// The driver is told the time it asks to be told next, where it asks for one, each look it asks for reaching what
+    /// it looks at; gives what is to be done.
+    pub fn wake_up(&mut self) -> Option<Vec<Todo>> {
+        let wake = self.d().wake()?;
+        Some(self.ticked(wake.at, wake.look.then_some(true), wake.look_at_host.then_some(true)))
     }
 
     /// The driver is told the time, which the harness's clock takes on to, and what a look at the network found,

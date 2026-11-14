@@ -3,7 +3,7 @@
 use decide::run::{Failure, Unmet};
 use decide::{BlockId, CallId, CellId, End, Outsider, Pauser, RunId, Seq};
 
-use work::{Ask, Call, Fill, Given, Handed, Question, RanOn, Said, Spent, Time, Why};
+use work::{Ask, Call, Fill, Given, Handed, Measures, Question, RanOn, Said, Spent, Time, Why};
 
 /// One thing that happened to a work.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,6 +74,21 @@ pub enum Event {
         run: RunId,
         attempt: usize,
         fills: Vec<Fill>,
+    },
+    /// What the calls to the model of the try of this number of the round of the run that is under way came to, as
+    /// its carrier read them.
+    Measured {
+        run: RunId,
+        attempt: usize,
+        measures: Measures,
+    },
+    /// A keep-warm ping of the session of this number of the line ended, having taken this, or failed for this
+    /// reason, as [`Effect::Ping`] asked.
+    Pinged {
+        line: String,
+        session: u32,
+        spent: Spent,
+        failed: Option<String>,
     },
     /// What the work held outside the engine was let go, as [`Effect::Release`] asked.
     Released,
@@ -159,6 +174,10 @@ pub enum Effect {
     /// worktree, and its pull request where it did not merge; its branch stays). It is to be done until the work is
     /// said to have released it.
     Release { end: End },
+    /// The session of this number of the line, which waits for the line's next round, is sent a keep-warm ping, so that
+    /// the prompt cache does not let it go. Whatever drives the engine gives it, not the work's loop: it is to be done
+    /// until the ping is said to have ended or failed, and given again where it is still due after a stop.
+    Ping { line: String, session: u32 },
 }
 
 /// Which rounds may begin, of this work as of every other: a round that failed for a cause every work shares, such as

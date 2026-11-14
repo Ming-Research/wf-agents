@@ -379,6 +379,56 @@ CREATE TABLE ran (
     FOREIGN KEY (work, run) REFERENCES started (work, run)
 );
 
+-- What the calls to the model of a try of a round of a run came to, the round's first being one and the try's first in
+-- its round being one, as its carrier read them from the agents' program: the tokens of its prompts sent fresh, read
+-- from the prompt cache and written to it, those its model thought in (NULL where the program did not say) and its
+-- turns; how many calls the session's own agent made, what its first call read from the cache and its whole prompt
+-- (NULL where it made none), the tokens its context grew by over the calls, the characters of its message, what came
+-- before the session's messages in its prompt (`before`, JSON: each part by its name, with its value or digest), and,
+-- each 1 or 0, whether its program said it took the message in, whether its context went past the lines of a signal
+-- the run guard stops a round on, and whether what its round took was priced from its calls, no result saying it.
+CREATE TABLE measured (
+    work INTEGER NOT NULL,
+    at INTEGER NOT NULL,
+    run INTEGER NOT NULL,
+    round INTEGER NOT NULL,
+    attempt INTEGER NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    cache_read_tokens INTEGER NOT NULL,
+    cache_written_tokens INTEGER NOT NULL,
+    thinking_tokens INTEGER,
+    turns INTEGER NOT NULL,
+    calls INTEGER NOT NULL,
+    first_read INTEGER,
+    first_context INTEGER,
+    added INTEGER NOT NULL,
+    given INTEGER NOT NULL,
+    before TEXT NOT NULL,
+    received INTEGER NOT NULL,
+    crossed INTEGER NOT NULL,
+    priced INTEGER NOT NULL,
+    PRIMARY KEY (work, at),
+    FOREIGN KEY (work, run) REFERENCES started (work, run)
+);
+
+-- A keep-warm ping of the session of a line, its sessions counted from none, which keeps its prompt cache while the
+-- line waits: what it took, and why it failed where it did (NULL where it did not), which may name paths of the
+-- machine.
+CREATE TABLE pinged (
+    work INTEGER NOT NULL REFERENCES works (number),
+    at INTEGER NOT NULL,
+    line TEXT NOT NULL,
+    session INTEGER NOT NULL,
+    usd_micros INTEGER NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    cached_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    context_tokens INTEGER,
+    compactions INTEGER NOT NULL,
+    failed TEXT, -- Hidden from agents.
+    PRIMARY KEY (work, at)
+);
+
 -- A thing that happened to the work was taken at `time`, and its entries begin at the place `place`.
 CREATE TABLE moments (
     work INTEGER NOT NULL REFERENCES works (number),

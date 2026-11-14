@@ -203,6 +203,9 @@ export function UsagePanel({ page, fold }: PanelProps) {
       <div className="usage-totals">
         <Keys keys={spentKeys(u.spent)} />
         <Keys keys={whole} />
+        {page.summary.pinged && page.summary.pinged.rounds > 0 && (
+          <Keys keys={[['keep-warm pings', String(page.summary.pinged.rounds)], ...spentKeys(page.summary.pinged)]} />
+        )}
       </div>
       <PanelPart label="Where the time went">
         <TimeBar time={u.time} />

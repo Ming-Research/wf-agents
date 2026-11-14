@@ -57,8 +57,8 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use work::{Ask, Call, RanOn, Time, Why};
 
 pub use carriers::{
-    Back, CallReply, Carriers, Doing, Network, Release, ReleaseReply, Returned, Round, RoundReply, Rounds, Teller,
-    Told, ToolCall, Tools, Try, WITHDRAWN,
+    Back, CallReply, Carriers, Doing, Network, Ping, PingReply, Release, ReleaseReply, Returned, Round, RoundReply,
+    Rounds, Teller, Told, ToolCall, Tools, Try, WITHDRAWN,
 };
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use levels::{Level, Levels, LevelsFault};
@@ -87,6 +87,11 @@ pub struct Service {
     changed: broadcast::Sender<Changed>,
     /// When the driver is to be told the time next, with the timer that will tell the loop so.
     wake: Option<(Wake, tokio::task::AbortHandle)>,
+    /// The works a keep-warm ping of which is under way: how many are, and what else is to be done for the work, held
+    /// back until none is, so that nothing of the work runs beside its ping: no round, no call, and no letting go of
+    /// what it holds, as its worktree, under the program the ping runs. Lost in a stop, when the driver gives what is
+    /// to be done again.
+    pinging: BTreeMap<WorkNumber, (usize, Vec<Todo>)>,
 }
 
 /// A read of the works as the driver holds them, at the time the loop's clock gives.
@@ -268,6 +273,7 @@ impl Service {
             to,
             changed,
             wake: None,
+            pinging: BTreeMap::new(),
         };
         service.hand(now, todos)?;
         service.set_wake();
@@ -310,10 +316,19 @@ impl Service {
             }
             Message::Happened { work, event } => {
                 let now = self.now()?;
-                let todos = self
+                let pinged = matches!(event, Event::Pinged { .. });
+                let mut todos = self
                     .driver
                     .happened(now, work, event)
                     .map_err(|failed| answer(work, failed))?;
+                // What was held back for the work's pings goes on once the last of them has ended.
+                if pinged && let Some((under_way, held)) = self.pinging.get_mut(&work) {
+                    *under_way = under_way.saturating_sub(1);
+                    if *under_way == 0 {
+                        todos.extend(std::mem::take(held));
+                        self.pinging.remove(&work);
+                    }
+                }
                 self.hand(now, todos)?;
             }
             Message::Outside {
@@ -555,6 +570,22 @@ impl Service {
     fn hand(&mut self, now: Time, todos: Vec<Todo>) -> Result<(), Fault> {
         let mut queue = VecDeque::from(todos);
         while let Some(todo) = queue.pop_front() {
+            // A ping runs beside nothing else of its work: what else is to be done for the work waits for its pings to
+            // end, and a round stopped before it was given is not given.
+            match &todo.effect {
+                Effect::Ping { .. } => self.pinging.entry(todo.work).or_default().0 += 1,
+                Effect::Stop { run } => {
+                    if let Some((_, held)) = self.pinging.get_mut(&todo.work) {
+                        held.retain(|t| !matches!(t.effect, Effect::Round { run: r, .. } if r == *run));
+                    }
+                }
+                _ => {
+                    if let Some((_, held)) = self.pinging.get_mut(&todo.work) {
+                        held.push(todo);
+                        continue;
+                    }
+                }
+            }
             if let Some(event) = self.give(&todo)? {
                 let more = (self.driver.happened(now, todo.work, event)).map_err(|failed| answer(todo.work, failed))?;
                 queue.extend(more);
@@ -577,6 +608,7 @@ impl Service {
         let records = &kept.work.records;
         let round = |run, cell: &CellId, number, given| -> Result<(Round, Kind), Fault> {
             let spec = cell_spec(&flow, cell).ok_or_else(|| stray(Missing::Cell(cell.clone())))?;
+            let lines = self.driver.lines(work, spec);
             let round = Round {
                 work,
                 flow: flow.clone(),
@@ -586,6 +618,7 @@ impl Service {
                 given,
                 item: kept.item.clone(),
                 kept: Arc::new(kept.work.clone()),
+                lines,
             };
             Ok((round, spec.kind))
         };
@@ -599,6 +632,18 @@ impl Service {
                 let (round, kind) = round(*run, cell, *number, given.clone())?;
                 let reply = RoundReply::new(work, *run, self.to.clone());
                 self.rounds(kind).give(round, reply);
+            }
+            Effect::Ping { line, session } => {
+                let ping = Ping {
+                    work,
+                    flow,
+                    line: line.clone(),
+                    session: *session,
+                    item: kept.item.clone(),
+                    kept: Arc::new(kept.work.clone()),
+                };
+                let reply = PingReply::new(work, line.clone(), *session, self.to.clone());
+                self.carriers.agents.ping(ping, reply);
             }
             Effect::Stop { run } => {
                 let started =

@@ -63,12 +63,24 @@
 //! (principle `nothing-passes-for-normal`).
 //!
 //! What needs whoever plans the work since a mark they keep, read from the records of every work, is [`attention`].
+//!
+//! The driver alone sees every work, so it is also what judges by history (principle `judged-by-own-history`): it
+//! gathers what the rounds of every work on a flow came to ([`history`]), and gives each round the lines it is judged
+//! by as it runs, and each line of a work the context past which its session begins anew. It gives the keep-warm pings
+//! of the sessions of lines that wait as their time comes, the time being among what it asks to be told ([`warm`]);
+//! and it tells a round that missed its session's prompt cache from the records ([`cache`]).
 
 pub mod attention;
 
+pub mod cache;
+
 pub mod changes;
 
+pub mod history;
+
 pub mod sessions;
+
+pub mod warm;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -85,7 +97,7 @@ use store::{Change, EverythingPaused, First, Item, ItemChange, ItemNumber, Stora
 use work::{Time, Work};
 
 pub use changes::{Asked, Gone, NotMade, Planned, Unchangeable};
-pub use sessions::{Policy, SESSION};
+pub use sessions::{Limits, Policy, SESSION, Warm};
 
 /// The source of the blocks the driver writes: whether the items the work's item depends on have merged. Such a block
 /// is a choice of [`WAITING`] and [`MERGED`].
@@ -161,6 +173,9 @@ pub struct Driver {
     /// Each round, of a work and run by its number, that the agents' service answered while it was under way. What
     /// the outside says at a moment, kept only in memory: lost in a stop, the round is given again and answers again.
     answered: BTreeSet<(WorkNumber, decide::RunId, usize)>,
+    /// The keep-warm pings given and not yet said to have ended, by work and line ([`warm`]): while one of a work is,
+    /// no round of the work begins. Lost in a stop, when a ping still due is given again.
+    pinging: BTreeSet<(WorkNumber, String)>,
 }
 
 /// When the driver is to be told the time again: the rounds a wait holds may begin then, or, where `look`, the
@@ -192,6 +207,9 @@ struct Held {
     work: Work,
     /// How the work stands. Worked out again each time the work grows.
     standing: Standing,
+    /// The work's rounds that are history, which later rounds of every work on its flow are judged by. Worked out
+    /// again each time the work grows.
+    samples: Vec<history::Sample>,
 }
 
 /// How a work stands, for the driver: whether it is still to be written to and looked at.
@@ -360,6 +378,7 @@ impl Driver {
             looked_at_host: None,
             ticked: None,
             answered: BTreeSet::new(),
+            pinging: BTreeSet::new(),
         };
         let items = driver.store.items().map_err(Fault::Store)?;
         let heads = driver.store.works().map_err(Fault::Store)?;
@@ -378,12 +397,14 @@ impl Driver {
             }
             let work = driver.store.load(head.number).map_err(Fault::Store)?;
             let standing = standing_of(&flow, &work);
+            let samples = history::samples(&flow, &work);
             let held = Held {
                 head,
                 item,
                 flow,
                 work,
                 standing,
+                samples,
             };
             driver.works.insert(held.head.number, held);
         }
@@ -414,14 +435,18 @@ impl Driver {
             .collect();
         for (number, write) in wanted {
             for event in write.into_iter().chain([Event::Look]) {
-                let (room, gate) = (driver.room(Some(number), driver.trial(now)), driver.gate(now));
+                let (room, gate) = (
+                    driver.room(Some(number), driver.trial(now)),
+                    driver.gate_of(now, number),
+                );
+                let limits = driver.limits(number);
                 let Driver {
                     store, works, policy, ..
                 } = &mut driver;
                 let Some(held) = works.get_mut(&number).filter(|held| held.standing == Standing::Going) else {
                     continue;
                 };
-                match step(store.as_mut(), held, policy.as_ref(), now, event, room, gate) {
+                match step(store.as_mut(), held, policy.as_ref(), &limits, now, event, room, gate) {
                     Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
                     Err(Halt::Store(fault)) => return Err(Fault::Store(fault)),
                     Err(Halt::Refused(refused)) => return Err(Fault::Refused { work: number, refused }),
@@ -515,6 +540,7 @@ impl Driver {
             },
             item: Item::new(item, now, first, Vec::new()),
             standing: standing_of(&flow, &work),
+            samples: history::samples(&flow, &work),
             flow,
             work,
         };
@@ -565,7 +591,6 @@ impl Driver {
         let mut items: Vec<(ItemNumber, ItemChange)> = Vec::new();
         let mut works: BTreeMap<WorkNumber, Held> = BTreeMap::new();
         let mut effects: Vec<Todo> = Vec::new();
-        let gate = self.gate(now);
         for ((item, asked), changes) in asked.into_iter().zip(&changed) {
             if !changes {
                 continue;
@@ -583,17 +608,19 @@ impl Driver {
                     why: why.unwrap_or_default().to_string(),
                 },
             };
-            let room = self.room(Some(work), true);
+            let (room, gate) = (self.room(Some(work), true), self.gate_of(now, work));
+            let limits = self.limits(work);
             let held = works.entry(work).or_insert_with(|| self.works[&work].clone());
             let (item, policy) = (&held.item, self.policy.as_ref());
             let then = |flow: &Compiled, work: &Work| {
-                let mut events = sessions::follow(flow, work, item, policy);
+                let mut events = sessions::follow(flow, work, item, policy, &limits);
                 events.extend(start(flow, work));
                 events
             };
             let done =
                 handle_then(&held.flow, &mut held.work, now, event, room, gate, &then).map_err(Failed::Refused)?;
             held.standing = standing_of(&held.flow, &held.work);
+            held.samples = history::samples(&held.flow, &held.work);
             effects.extend(done.into_iter().map(|effect| held.todo(effect)));
         }
         if items.is_empty() && works.is_empty() {
@@ -693,17 +720,30 @@ impl Driver {
             _ => None,
         };
         let outages = self.outages();
+        if let Event::Pinged { line, .. } = &event {
+            self.pinging.remove(&(work, line.clone()));
+        }
         let gate = match begins_a_wait {
-            Some(held) => self.gate(now).and(held),
-            None => self.gate(now),
+            Some(held) => self.gate_of(now, work).and(held),
+            None => self.gate_of(now, work),
         };
+        let limits = self.limits(work);
         let Some(held) = self.works.get_mut(&work) else {
             return Err(Failed::NoSuchWork(work));
         };
         let was = held.standing;
         let item = held.head.item;
         let mut todos = Vec::new();
-        match step(self.store.as_mut(), held, self.policy.as_ref(), now, event, room, gate) {
+        match step(
+            self.store.as_mut(),
+            held,
+            self.policy.as_ref(),
+            &limits,
+            now,
+            event,
+            room,
+            gate,
+        ) {
             Ok(effects) => todos.extend(effects.into_iter().map(|effect| held.todo(effect))),
             Err(Halt::Refused(refused)) => return Err(Failed::Refused(refused)),
             Err(Halt::Store(fault)) => return Err(self.stop(Fault::Store(fault), false)),
@@ -792,6 +832,75 @@ impl Driver {
         }
     }
 
+    /// The history of the rounds of every work on the flow of this name ([`history`]).
+    pub fn history(&self, flow: &str) -> Vec<history::Sample> {
+        (self.works.values())
+            .filter(|held| held.head.flow == flow)
+            .flat_map(|held| held.samples.iter().cloned())
+            .collect()
+    }
+
+    /// The rounds of the work that missed their session's prompt cache ([`cache`]); none for a work the driver does not
+    /// hold, or where the agents' program keeps no cache.
+    pub fn misses(&self, work: WorkNumber) -> Vec<cache::Miss> {
+        let life = (self.policy.as_ref())
+            .and_then(|policy| policy.warm.as_ref())
+            .map(|warm| warm.life_ms);
+        match (life, self.works.get(&work)) {
+            (Some(life), Some(held)) => cache::misses(&held.flow, &held.work, life),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The lines a round of the cell of the work is judged by while it runs: from the history of the rounds of every
+    /// work on its flow, its cost among those on the model it runs on now ([`history::Lines`]). None are given without
+    /// a policy, as for rounds carried out in no session.
+    pub fn lines(&self, work: WorkNumber, cell: &flow::CellSpec) -> history::Lines {
+        let (Some(policy), Some(held)) = (&self.policy, self.works.get(&work)) else {
+            return history::Lines::default();
+        };
+        let model = (policy.on)(&held.item, cell).map(|on| on.model).unwrap_or_default();
+        let mut lines = history::Lines::of(&self.history(&held.head.flow), &cell.id, &model, policy.samples);
+        // What the flow's other works have come to in all, which a work is judged by as each of its rounds ends.
+        let others: Vec<(f64, f64)> = (self.works.iter())
+            .filter(|(number, other)| **number != work && other.head.flow == held.head.flow)
+            .map(|(_, other)| history::totals(&other.work))
+            .filter(|(spent, _)| *spent > 0.0)
+            .collect();
+        let spent: Vec<f64> = others.iter().map(|(spent, _)| *spent).collect();
+        let time: Vec<f64> = others.iter().map(|(_, ms)| *ms).collect();
+        lines.work_spent = history::works_line(&spent, policy.samples);
+        lines.work_time = history::works_line(&time, policy.samples);
+        lines
+    }
+
+    /// The line of the context each line of the work's flow ends its rounds with, where the history gives one: past it,
+    /// the line's session begins anew ([`sessions`]). The rounds of the session judged, the line's in the work now, are
+    /// no part of the history it is judged by, so that a session growing as it goes does not set its own line. None
+    /// for a work the driver does not hold.
+    fn limits(&self, work: WorkNumber) -> Limits {
+        let Some(held) = self.works.get(&work) else {
+            return Limits::new();
+        };
+        let (Some(policy), Some(compiled)) = (&self.policy, self.flows.get(&held.head.flow)) else {
+            return Limits::new();
+        };
+        let mut limits = Limits::new();
+        for line in compiled.cells.iter().filter_map(|cell| cell.line.as_deref()) {
+            let judged = work::sessions::number_at(&held.work, line, held.work.tick());
+            let others = (self.works.iter())
+                .filter(|(_, other)| other.head.flow == held.head.flow)
+                .flat_map(|(number, other)| {
+                    let own = *number == work;
+                    (other.samples.iter()).filter(move |s| !(own && s.session == Some(judged)))
+                });
+            if let Some(found) = history::context_line(others, line, policy.samples) {
+                limits.insert(line.to_string(), found);
+            }
+        }
+        limits
+    }
+
     /// The wait every work shares for the agents' service, if one stands: worked out from the records of every work
     /// and the rounds the service answered while under way ([`outage`]).
     pub fn outage(&self) -> Option<Outage> {
@@ -854,30 +963,26 @@ impl Driver {
     }
 
     /// When the driver is to be told the time next, as the waits every work shares say, whether or not it has come:
-    /// the earliest of each wait's, with each look that is due then.
+    /// the earliest of each wait's and of the next keep-warm ping's, with each look that is due then.
     fn next_wake(&self) -> Option<Wake> {
         let agents = self.outage().and_then(|outage| wake_of(&outage, self.looked));
         let host = self
             .host_outage()
             .and_then(|outage| wake_of(&outage, self.looked_at_host));
-        match (agents, host) {
-            (Some((a, look)), Some((h, look_at_host))) => Some(Wake {
-                at: a.min(h),
-                look: look && a <= h,
-                look_at_host: look_at_host && h <= a,
-            }),
-            (Some((at, look)), None) => Some(Wake {
-                at,
-                look,
-                look_at_host: false,
-            }),
-            (None, Some((at, look_at_host))) => Some(Wake {
-                at,
-                look: false,
-                look_at_host,
-            }),
-            (None, None) => None,
-        }
+        // A keep-warm ping waits as the agents' rounds do: while their wait stands, its own wakes serve.
+        let ping = match self.outage() {
+            None => self.next_ping(),
+            Some(_) => None,
+        };
+        let at = [agents.map(|(at, _)| at), host.map(|(at, _)| at), ping]
+            .into_iter()
+            .flatten()
+            .min()?;
+        Some(Wake {
+            at,
+            look: agents.is_some_and(|(a, look)| look && a == at),
+            look_at_host: host.is_some_and(|(h, look)| look && h == at),
+        })
     }
 
     /// Takes the time, at which the driver asked to be told it ([`Driver::wake`]), and, where it asked for a look at
@@ -895,11 +1000,90 @@ impl Driver {
         }
         self.ticked = Some(self.ticked.map_or(now, |at| at.max(now)));
         match self.look(now) {
-            Ok(todos) => self.filled(now, todos),
+            Ok(mut todos) => {
+                todos.extend(self.pings(now));
+                self.filled(now, todos)
+            }
             Err(fault) => {
                 self.stop(fault.clone(), true);
                 Err(fault)
             }
+        }
+    }
+
+    /// The keep-warm pings due at `now` and not under way, each given once: none while the wait every work shares
+    /// holds the agents' rounds, whose pings would fail as they do, nor while the engine holds everything as it
+    /// opened, until the owner has seen how things stand ([`warm`]).
+    fn pings(&mut self, now: Time) -> Vec<Todo> {
+        let Some(policy) = (self.policy.as_ref()).filter(|_| !self.gate(now).holds_agents() && self.warming()) else {
+            return Vec::new();
+        };
+        let mut todos = Vec::new();
+        for (number, held) in &self.works {
+            if held.standing != Standing::Going {
+                continue;
+            }
+            let limits = self.limits(*number);
+            for due in warm::due(&held.flow, &held.work, &held.item, policy, &limits, now) {
+                if self.pinging.contains(&(*number, due.line.clone())) {
+                    continue;
+                }
+                todos.push(held.todo(Effect::Ping {
+                    line: due.line,
+                    session: due.session,
+                }));
+            }
+        }
+        for todo in &todos {
+            if let Effect::Ping { line, .. } = &todo.effect {
+                self.pinging.insert((todo.work, line.clone()));
+            }
+        }
+        todos
+    }
+
+    /// Whether sessions are kept warm now: not while the engine holds everything as it opened on works going on, which
+    /// spends nothing before the owner has seen how things stand (principle `no-unseen-spending-loop`); while the owner
+    /// holds everything, as the settings say (`sessions.warm_while_paused`).
+    fn warming(&self) -> bool {
+        let keeps = (self.policy.as_ref())
+            .and_then(|p| p.warm.as_ref())
+            .is_some_and(|w| w.while_paused);
+        match &self.paused {
+            None => true,
+            Some(paused) => paused.by == Pauser::Owner && keeps,
+        }
+    }
+
+    /// When the next keep-warm ping not under way is due, of every work that has not ended, as of the time the driver
+    /// was last told: a ping due then and not given waits for no later time than the next moment, and one whose
+    /// session's cache will have let it go by then is due at no time, so that the driver is never woken for a ping it
+    /// will not give.
+    fn next_ping(&self) -> Option<Time> {
+        let policy = self.policy.as_ref().filter(|_| self.warming())?;
+        let now = self.ticked.unwrap_or(Time(0));
+        let soonest = Time(now.0.saturating_add(1));
+        (self.works.iter())
+            .filter(|(_, held)| held.standing == Standing::Going)
+            .flat_map(|(number, held)| {
+                let limits = self.limits(*number);
+                (warm::kept(&held.flow, &held.work, &held.item, policy, &limits, now).into_iter())
+                    .filter(|kept| !self.pinging.contains(&(*number, kept.due.line.clone())))
+                    .map(|kept| (kept.at.max(soonest), kept.life))
+                    .filter(|(at, life)| at < life)
+                    .map(|(at, _)| at)
+                    .collect::<Vec<_>>()
+            })
+            .min()
+    }
+
+    /// The gate a work is stepped with: the wait every work shares, and while a keep-warm ping of the work is under
+    /// way, every round of it, so that its next round begins once the ping has ended, after whatever the ping did to
+    /// its sessions, and is filled as they then stand.
+    pub fn gate_of(&self, now: Time, work: WorkNumber) -> Gate {
+        match self.pinging.iter().any(|(w, _)| *w == work) {
+            true => Gate::Every,
+            false => self.gate(now),
         }
     }
 
@@ -958,7 +1142,8 @@ impl Driver {
         slot: bool,
         todos: &mut Vec<Todo>,
     ) -> Result<(), Fault> {
-        let (room, gate) = (self.room(Some(number), slot), self.gate(now));
+        let (room, gate) = (self.room(Some(number), slot), self.gate_of(now, number));
+        let limits = self.limits(number);
         let Some(held) = self
             .works
             .get_mut(&number)
@@ -966,7 +1151,16 @@ impl Driver {
         else {
             return Ok(());
         };
-        match step(self.store.as_mut(), held, self.policy.as_ref(), now, event, room, gate) {
+        match step(
+            self.store.as_mut(),
+            held,
+            self.policy.as_ref(),
+            &limits,
+            now,
+            event,
+            room,
+            gate,
+        ) {
             Ok(effects) => {
                 todos.extend(effects.into_iter().map(|effect| held.todo(effect)));
                 Ok(())
@@ -991,11 +1185,15 @@ impl Driver {
         }
         let mut todos = Vec::new();
         let (mut failed, mut written) = (None, false);
-        let (room, gate) = (self.room(None, false), self.gate(now));
+        let room = self.room(None, false);
+        let gates: BTreeMap<WorkNumber, Gate> = (self.works.keys()).map(|n| (*n, self.gate_of(now, *n))).collect();
+        let limits: BTreeMap<WorkNumber, Limits> = (self.works.keys()).map(|n| (*n, self.limits(*n))).collect();
         for (number, held) in &mut self.works {
+            let gate = gates.get(number).copied().unwrap_or_default();
             if held.standing != Standing::Going || held.item.project.as_deref() != Some(project) {
                 continue;
             }
+            let limits = limits.get(number).cloned().unwrap_or_default();
             let ours = (held.flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(source));
             let Some((block, _)) = ours else {
                 continue;
@@ -1014,7 +1212,16 @@ impl Driver {
                 matters: true,
                 value: None,
             };
-            match step(self.store.as_mut(), held, self.policy.as_ref(), now, event, room, gate) {
+            match step(
+                self.store.as_mut(),
+                held,
+                self.policy.as_ref(),
+                &limits,
+                now,
+                event,
+                room,
+                gate,
+            ) {
                 Ok(effects) => {
                     written = true;
                     todos.extend(effects.into_iter().map(|effect| held.todo(effect)));
@@ -1175,7 +1382,8 @@ impl Driver {
                 break;
             };
             looked.insert(number);
-            let (room, gate) = (self.room(Some(number), true), self.gate(now));
+            let (room, gate) = (self.room(Some(number), true), self.gate_of(now, number));
+            let limits = self.limits(number);
             let Some(held) = self.works.get_mut(&number) else {
                 break;
             };
@@ -1183,6 +1391,7 @@ impl Driver {
                 self.store.as_mut(),
                 held,
                 self.policy.as_ref(),
+                &limits,
                 now,
                 Event::Look,
                 room,
@@ -1276,10 +1485,12 @@ impl Held {
 /// Gives one thing that happened to the engine's loop for the work, in the room the engine leaves it and with the gate
 /// of the wait every work shares, with what follows from it for the sessions of its lines, and keeps what the loop
 /// added before giving back what is to be done.
+#[allow(clippy::too_many_arguments)]
 fn step(
     store: &mut dyn Storage,
     held: &mut Held,
     policy: Option<&Policy>,
+    limits: &Limits,
     now: Time,
     event: Event,
     room: Room,
@@ -1288,7 +1499,7 @@ fn step(
     let before = held.work.tick();
     let item = &held.item;
     let then = |flow: &Compiled, work: &Work| {
-        let mut events = sessions::follow(flow, work, item, policy);
+        let mut events = sessions::follow(flow, work, item, policy, limits);
         events.extend(start(flow, work));
         events
     };
@@ -1306,6 +1517,7 @@ fn step(
     if held.work.tick() != before {
         store.save(held.head.number, &held.work).map_err(Halt::Store)?;
         held.standing = standing_of(&held.flow, &held.work);
+        held.samples = history::samples(&held.flow, &held.work);
     }
     Ok(effects)
 }

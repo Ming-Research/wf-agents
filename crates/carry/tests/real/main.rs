@@ -53,6 +53,9 @@ pub struct Fake {
     /// Whether its first call prints a result that is an error, as when it ran out of retries of its structured
     /// return, the session having cost eighty cents by then, and exits with 1.
     pub error_first: bool,
+    /// Whether its first call crashes after one call to Opus 5.5, of 100 tokens sent, 1,000 read from the cache and 10
+    /// back, printing no result, and exits with 1.
+    pub crashes_first: bool,
     /// Whether the build asks for the query of the check in its first run, and its run entered for the result, going
     /// on in the session, is told the first time that the session is not found.
     pub lose_session: bool,
@@ -79,6 +82,10 @@ pub struct Fake {
     pub design: bool,
     /// Whether the build, once, commits a file of the design tree to main.
     pub moves_main: bool,
+    /// The context each call ends with, in tokens, by the call's number, the first being one: each call then says, as
+    /// its stream begins, that it took its message in, and that its one call to the model was sent this; a call past
+    /// the last given ends with the last. None given, the calls say neither.
+    pub contexts: &'static [u64],
 }
 
 impl Default for Fake {
@@ -88,6 +95,7 @@ impl Default for Fake {
             fail_first: false,
             flag_first: false,
             error_first: false,
+            crashes_first: false,
             lose_session: false,
             question_first: false,
             plan_sleeps: 0,
@@ -98,6 +106,7 @@ impl Default for Fake {
             plan_edits_guide: false,
             design: false,
             moves_main: false,
+            contexts: &[],
         }
     }
 }
@@ -217,7 +226,7 @@ pub struct Real {
     pub repo: PathBuf,
     /// Where the fake keeps what it was given.
     calls: PathBuf,
-    settings: Settings,
+    pub settings: Settings,
     flow: Compiled,
     service: Service,
     inbox: Inbox,
@@ -320,6 +329,10 @@ if [ '{error}' = yes ] && [ "$n" = 1 ]; then
     printf '%s\n' '{{"type":"result","subtype":"error_max_structured_output_retries","is_error":true,"result":null,"errors":["{gave_up}"],"total_cost_usd":0.8,"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":300}}}}'
     exit 1
 fi
+if [ '{crash}' = yes ] && [ "$n" = 1 ]; then
+    printf '%s\n' '{{"type":"assistant","parent_tool_use_id":null,"message":{{"id":"msg_1","model":"claude-opus-5-5","usage":{{"input_tokens":100,"cache_creation_input_tokens":0,"cache_read_input_tokens":1000,"output_tokens":10}}}}}}'
+    exit 1
+fi
 if [ '{flag}' = yes ] && [ "$n" = 1 ]; then
     printf '%s\n' '{{"type":"result","subtype":"success","is_error":true,"result":"API Error: the safeguards flagged this message.","total_cost_usd":0.3,"usage":{{"input_tokens":1000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":30}}}}'
     exit 1
@@ -394,12 +407,22 @@ if [ -n "$calls" ]; then
 else
     structured="{{\"outcome\":{{\"dealt_with\":[$dealt],\"meaning_unchanged\":[$unchanged],\"questions\":[$asked],\"outputs\":{{$out}}}}}}"
 fi
-printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":{cost},"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20{iterations}}},"structured_output":%s}}\n' "$structured"
+contexts='{contexts}'
+iterations='{iterations}'
+if [ -n "$contexts" ]; then
+    ctx=$(printf '%s\n' $contexts | sed -n "${{n}}p")
+    [ -z "$ctx" ] && ctx=$(printf '%s\n' $contexts | tail -n 1)
+    printf '{{"type":"system","subtype":"init","claude_code_version":"9.9.9"}}\n'
+    printf '{{"type":"stream_event","event":{{"type":"message_start","message":{{"usage":{{"input_tokens":%s,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}}}},"parent_tool_use_id":null}}\n' "$ctx"
+    iterations=",\"iterations\":[{{\"input_tokens\":$ctx,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0}}]"
+fi
+printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":{cost},"usage":{{"input_tokens":10,"cache_creation_input_tokens":5,"cache_read_input_tokens":100,"output_tokens":20%s}},"structured_output":%s}}\n' "$iterations" "$structured"
 "#,
         calls = calls.display(),
         fail = yes(fake.fail_first),
         flag = yes(fake.flag_first),
         error = yes(fake.error_first),
+        crash = yes(fake.crashes_first),
         lose = yes(fake.lose_session),
         question = yes(fake.question_first),
         sleeps = fake.plan_sleeps,
@@ -413,6 +436,7 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         moves = yes(fake.moves_main),
         gave_up = GAVE_UP,
         refused = refused.display(),
+        contexts = (fake.contexts.iter().map(u64::to_string).collect::<Vec<_>>()).join(" "),
         iterations = fake.context.map_or_else(String::new, |context| {
             format!(r#","iterations":[{{"input_tokens":{context},"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}]"#)
         }),
@@ -544,6 +568,7 @@ impl Real {
             },
             backup: None,
             sessions: Default::default(),
+            history: Default::default(),
             query: Default::default(),
         };
         let flow = compiled(on);
