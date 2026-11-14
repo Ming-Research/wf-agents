@@ -1,6 +1,5 @@
 # A small flow to show on the page and to test the page's interface with: a plan a review can send back, a design
-# when the review asks for one, answers to comments, a check with the latest main and the merge. Its earlier version,
-# in ../small-earlier, is what it is compared against.
+# when the review asks for one, answers to comments, a check with the latest main and the merge.
 name = "small"
 order = ["plan", "judge", "design", "answer", "check", "merge"]
 

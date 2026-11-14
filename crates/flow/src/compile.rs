@@ -13,9 +13,10 @@ use serde::de::DeserializeOwned;
 
 use crate::agents::RuleSetFile;
 use crate::source::{
-    BLOCKS_DIR, BlockFile, CELLS_DIR, CellFile, DATA_DIR, Effort, FLOW_FILE, FlowFile, InputKind, Kind, LINES_DIR,
-    LaidOutBlockFile, LaidOutFlowFile, LaidOutLineFile, LineFile, OF_A_CELL, OF_A_DATUM, OfADatumFile, RULES_DIR,
-    Source, TESTS_DIR, TRIGGERS_DIR, TestFile, TriggerFile, When, WhenIs, WhenTest, rules_file, who_writes,
+    BLOCKS_DIR, BlockFile, CELLS_DIR, CellFile, DATA_DIR, Effort, FLOW_FILE, FlowFile, InputKind, Keys, Kind,
+    LINES_DIR, LaidOutBlockFile, LaidOutFlowFile, LaidOutLineFile, LineFile, OF_A_CELL, OF_A_DATUM, OF_A_GROUP,
+    OfADatumFile, RULES_DIR, Source, TESTS_DIR, TRIGGERS_DIR, Task, TestFile, Texts, TriggerFile, WHEN_TEST,
+    rules_file, who_writes,
 };
 
 /// A flow's definition compiled.
@@ -31,10 +32,35 @@ pub struct Compiled {
     pub blocks: BTreeMap<BlockId, Block>,
     /// The words shown for each named test the cells use, by name; what each tests is in `flow`.
     pub tests: BTreeMap<TestName, String>,
+    /// The file each named test is written in, from the flow's directory, by name.
+    pub test_files: BTreeMap<TestName, String>,
+    /// The lines, by name, as their files write them.
+    pub lines: BTreeMap<String, Line>,
+    /// The engine's tools every agent cell of the flow may ask for, in the order `flow.toml` names them; none where it
+    /// names none, and each agent cell names its own.
+    pub tools: Vec<String>,
+    /// The groups of the flow's blocks, by name, each with its blocks as `flow.toml` names them.
+    pub groups: BTreeMap<String, Vec<String>>,
     /// The limits of the flow as a whole.
     pub limits: Limits,
     /// The text of each of the flow's sets of rules for the agents, by name: each one a line names.
     pub rules: BTreeMap<String, String>,
+}
+
+/// A line: the cells of a work that share one session, as its file writes it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Line {
+    /// The file it is written in, from the flow's directory: `lines/<name>.toml`, or `flow.toml` of a flow written
+    /// before it was laid out one thing to a file.
+    pub file: String,
+    /// Its agents only read.
+    pub reads_only: bool,
+    /// How many levels above its item's its rounds run at.
+    pub levels_above: u32,
+    /// Of a flow written before it was laid out, its `system`, as written; none of a flow laid out.
+    pub system: Vec<String>,
+    /// Of a flow laid out one thing to a file, its `rules`, as written; none of a flow written before.
+    pub rules: Vec<String>,
 }
 
 /// The limits of everything that repeats, for a cell that sets none of its own.
@@ -86,6 +112,8 @@ pub struct CellSpec {
     pub reads_only: bool,
     /// What an agent cell's agent is told to do; an engine cell has none.
     pub task: Option<String>,
+    /// The file the task is written in, from the flow's directory, where it is not written in place.
+    pub task_file: Option<String>,
     /// The act of the engine's own that carries out an engine cell; an agent cell has none.
     pub act: Option<String>,
     /// The blocks among its outputs that every hand-in of the cell includes, in the order written: a hand-in that lacks
@@ -98,8 +126,8 @@ pub struct CellSpec {
     /// The blocks the cell is given, its session kept supplied with their content, in the order it names them; none
     /// for an engine cell, which has no session.
     pub given: Vec<Given>,
-    /// The tools of the engine's that the cell's agent may ask for in its return, in the order written; none for an
-    /// engine cell.
+    /// The tools of the engine's that the cell's agent may ask for in its return, in the order written: those its
+    /// flow names for every agent cell, where it names any, else the cell's own; none for an engine cell.
     pub tools: Vec<String>,
     /// The flow's sets of rules for the agents that the system prompt of the session of the cell's line holds, by
     /// name, in the order its line names them, between the engine's parts; none for an engine cell.
@@ -126,8 +154,13 @@ pub struct CellSpec {
 pub struct Trigger {
     /// Its name, as the cell names it.
     pub name: String,
-    /// The block whose new version is the event.
+    /// What it is, in a sentence, where the file beside the flows that defines it says: when it fires.
+    pub what: Option<String>,
+    /// The block whose new version is the event; of a group's trigger, the group's name, any of whose blocks' new
+    /// version is.
     pub block: BlockId,
+    /// Of a group's trigger, the group's blocks, each of which runs the cell; none of another.
+    pub group: Vec<BlockId>,
     /// The data the cell's agent reads for it, each among those the cell is given.
     pub read: Vec<BlockId>,
     /// What the engine says of what happened, where it says something: the name of a place it fills in a run.
@@ -157,14 +190,23 @@ pub struct Given {
 /// A block of a work's state, as the engine needs to know it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Block {
+    /// The file it is declared in, from the flow's directory: its own in `blocks/` or `../data/`, the trigger's that
+    /// declares a block that stands only for it, or `flow.toml` of a flow written before it was laid out one thing to a file.
+    pub file: String,
     /// The values of a block that is a choice; a block with none is not one.
     pub values: Option<Vec<String>>,
+    /// Of a choice, the value it counts as before anyone has written it; none where it has none.
+    pub default: Option<String>,
     /// What the block is, in a sentence, where the definition says it.
     pub what: Option<String>,
     /// The field of a return that a cell writes the block through, where it writes it through one.
     pub field: Option<String>,
-    /// The block has no content and stands only for a trigger, which declares it.
+    /// The block stands only for a trigger, which declares it: no cell is given it, writes it or describes the work by
+    /// it. A source of the engine's that fires the trigger may write words into it, as its `writes` give them.
     pub trigger: bool,
+    /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, as the
+    /// block's file or the trigger that declares it says; none where neither does.
+    pub writes: Texts,
     /// Who writes it.
     pub writers: Writers,
     /// Who reads it.
@@ -189,7 +231,7 @@ pub struct Writers {
 pub struct Readers {
     /// The cells that name it, that it runs or that are given it, in the order of the walk.
     pub cells: Vec<CellId>,
-    /// The cells whose condition reads its value, in the order of the walk.
+    /// The cells whose `when` or `requires` reads its value, in the order of the walk.
     pub conditions: Vec<CellId>,
     /// The named tests that read its value and that a cell uses, by name.
     pub tests: Vec<TestName>,
@@ -221,7 +263,8 @@ pub enum FaultKind {
     NoCellFile { cell: String },
     /// A cell's file is not named in the order.
     NotInOrder { cell: String },
-    /// The name is given a second time in the same list.
+    /// The name is given a second time in the same list; or, named `tools`, an agent cell names tools of its own in a
+    /// flow whose `flow.toml` names the tools of every agent cell of it.
     Twice { name: String },
     /// A limit is not a whole number from one to the largest count the engine keeps.
     LimitOutOfRange { value: i64 },
@@ -233,6 +276,12 @@ pub enum FaultKind {
     NoSuchLine { line: String },
     /// An agent cell has no task, or one of no words: its agent would be told nothing to do.
     NoTask,
+    /// The file a cell's task is written in is not among the flow's files.
+    NoTaskFile { file: String },
+    /// The file a cell's task is written in holds no words.
+    TaskFileEmpty { file: String },
+    /// The file a cell's task is written in is named by a path that leaves the flow's directory.
+    TaskFileOutside { file: String },
     /// An engine cell has a task: no agent reads it.
     EngineHasTask,
     /// An engine cell names no act to carry it out.
@@ -289,14 +338,13 @@ pub enum FaultKind {
     ReadNotInContext { trigger: String, block: String },
     /// The cell says what it does for a trigger, and the trigger is not among its triggers.
     NotATrigger { trigger: String },
-    /// The block stands only for a trigger and has no content: no cell is given it, writes it or describes the work
-    /// by it.
+    /// The block stands only for a trigger: no cell is given it, writes it or describes the work by it.
     TriggerOnly { block: String },
     /// The cell names what it takes by `triggered_by` and `context`, which only a flow laid out one thing to a file has: the
     /// triggers are beside the flows.
     NotLaidOut,
-    /// A value of a file beside the flows that stands for each cell or each datum does not hold the name that stands
-    /// for it, `{cell}` or `{datum}`.
+    /// A value of a file beside the flows that stands for each cell, each datum or each group does not hold the name
+    /// that stands for it, `{cell}`, `{datum}` or `{group}`.
     MissingPlaceholder { placeholder: String },
     /// The block is written through a field of a return that the engine does not have.
     UnknownReturnField { field: String },
@@ -325,6 +373,18 @@ pub enum FaultKind {
     NotAChoice { block: String },
     /// A condition or a named test waits for a value the choice does not offer.
     NotAValue { block: String, is: String },
+    /// The block says what it counts as before it is written, and it is not a choice.
+    DefaultNotAChoice { block: String },
+    /// The choice says what it counts as before it is written, and that is not one of its values.
+    DefaultNotAValue { block: String, default: String },
+    /// A block is named `test`, which a cell's `when` and `requires` take for a named test.
+    BlockNamedTest,
+    /// A cell's `when` or `requires` is a table of no keys: it says nothing that must hold.
+    EmptyCondition,
+    /// A group of blocks has the name of a block or a datum of the flow.
+    GroupNameTaken { group: String },
+    /// A group of blocks names no block.
+    GroupEmpty { group: String },
     /// A condition reads a block its own cell writes, and another writes it too: the cell would decide by what it
     /// writes itself, beside another, whether it runs. Where the cell is the block's only writer, the block says which
     /// of two cells is in charge, and is the cell's own to decide.
@@ -380,8 +440,15 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
         calls: limit("limits.calls", flow_file.limits.calls),
     };
     faults.extend(parsed.faults.iter().cloned());
+    for (field, what) in check_list(&parsed.tools, "tools", |tool| {
+        let what = FaultKind::UnknownTool { tool: tool.to_string() };
+        (!has.tools.contains(tool)).then_some(what)
+    }) {
+        faults.push(fault(FLOW_FILE, field, what));
+    }
     def.check_lines(&has.system, &source.rules, &mut faults);
     def.check_blocks(has, &mut faults);
+    def.check_groups(&mut faults);
     def.check_tests(&mut faults);
     for (path, trigger, _) in &parsed.trigger_files {
         if let Some(detail) = trigger.detail.as_ref().filter(|d| !has.details.contains(*d)) {
@@ -424,7 +491,12 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
             (BlockId(name.clone()), outsiders)
         })
         .collect();
-    let flow = Flow::new(cells, tests, outsiders).map_err(|f| vec![fault(FLOW_FILE, "order", FaultKind::Flow(f))])?;
+    let defaults = (flow_file.blocks.iter())
+        .filter_map(|(name, b)| Some((BlockId(name.clone()), b.default.clone()?)))
+        .collect();
+    let flow = Flow::new(cells, tests, outsiders)
+        .map_err(|f| vec![fault(FLOW_FILE, "order", FaultKind::Flow(f))])?
+        .with_defaults(defaults);
     Ok(Compiled {
         name: flow_file.name.clone(),
         flow,
@@ -433,6 +505,24 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
         tests: (flow_file.tests.iter())
             .map(|(name, test)| (TestName(name.clone()), test.says.clone()))
             .collect(),
+        test_files: (flow_file.tests.keys())
+            .map(|name| (TestName(name.clone()), parsed.places.file("tests", name)))
+            .collect(),
+        lines: (flow_file.lines.iter())
+            .map(|(name, line)| {
+                let laid_out = parsed.places.laid_out;
+                let line = Line {
+                    file: parsed.places.file("lines", name),
+                    reads_only: line.reads_only,
+                    levels_above: line.levels_above,
+                    system: if laid_out { Vec::new() } else { line.system.clone() },
+                    rules: if laid_out { line.system.clone() } else { Vec::new() },
+                };
+                (name.clone(), line)
+            })
+            .collect(),
+        tools: parsed.tools.clone(),
+        groups: flow_file.groups.clone(),
         limits,
         // Every set of rules is one a line names, or it would have been a fault.
         rules: source.rules.clone(),
@@ -443,10 +533,14 @@ pub fn compile(source: &Source, has: &Has) -> Result<Compiled, Vec<Fault>> {
 /// written before it, with where each thing is written and what each cell's triggers are worked out to.
 struct Parsed {
     flow: FlowFile,
+    /// The text of each cell's task written in a file of its own, by the cell's id.
+    tasks: BTreeMap<String, String>,
+    /// Of a flow laid out one thing to a file, the tools its `flow.toml` names for every agent cell of it.
+    tools: Vec<String>,
     cells: BTreeMap<String, CellFile>,
     places: Places,
     triggers: Resolved,
-    /// The blocks with no content that a trigger declares.
+    /// The blocks that stand only for the trigger that declares each.
     trigger_blocks: BTreeSet<String>,
     /// Of a flow laid out one thing to a file, the names of the sets of rules a line may take, as
     /// [`crate::agents::RULES_FILE`] names them.
@@ -472,6 +566,12 @@ struct Places {
 }
 
 impl Places {
+    /// The file a line, block or named test of this name is written in, by the table that holds that kind of thing in
+    /// the `flow.toml` of a flow written before it was laid out: its own, or `flow.toml`.
+    fn file(&self, table: &'static str, name: &str) -> String {
+        (self.files.get(&(table, name.to_string()))).map_or_else(|| FLOW_FILE.to_string(), String::clone)
+    }
+
     /// The file of the cell of this id.
     fn cell(&self, id: &str) -> String {
         if self.laid_out {
@@ -525,21 +625,24 @@ fn parse(source: &Source) -> Result<Parsed, Vec<Fault>> {
             cells.insert(id.clone(), cell);
         }
     }
+    let tasks = task_files(source, &cells, &places, &mut faults);
     let parsed = if source.laid_out {
         let flow = shape::<LaidOutFlowFile>(FLOW_FILE, &source.flow, &mut faults);
         let files = LaidOut::parse(&source.files, &mut faults);
-        flow.map(|flow| (flow.data.clone(), FlowFile::from(flow), files))
+        flow.map(|flow| (flow.data.clone(), flow.tools.clone(), FlowFile::from(flow), files))
     } else {
         let flow = shape::<FlowFile>(FLOW_FILE, &source.flow, &mut faults);
-        flow.map(|flow| (Vec::new(), flow, LaidOut::default()))
+        flow.map(|flow| (Vec::new(), Vec::new(), flow, LaidOut::default()))
     };
     match parsed {
-        Some((data, mut flow, files)) if faults.is_empty() => {
+        Some((data, tools, mut flow, files)) if faults.is_empty() => {
             let rule_sets = files.gather(&mut flow, &data, &mut places, &mut faults);
             let (triggers, trigger_blocks) = files.resolve(&cells, &mut flow, &mut places, &mut faults);
             Ok(Parsed {
                 flow,
+                tools,
                 cells,
+                tasks,
                 places,
                 triggers,
                 trigger_blocks,
@@ -549,11 +652,45 @@ fn parse(source: &Source) -> Result<Parsed, Vec<Fault>> {
             })
         }
         parsed => {
-            let place = (parsed.as_ref()).map(|(_, flow, _)| first_places(&flow.order, &source.cells));
+            let place = (parsed.as_ref()).map(|(_, _, flow, _)| first_places(&flow.order, &source.cells));
             sort(&mut faults, place.as_ref(), &places);
             Err(faults)
         }
     }
+}
+
+/// The text of each cell's task that is written in a file of its own, by the cell's id, read from the flow's files. A
+/// fault is a path that leaves the flow's directory, a file the flow does not have, and one that holds no words, each on
+/// the cell's `task.file`.
+fn task_files(
+    source: &Source,
+    cells: &BTreeMap<String, CellFile>,
+    places: &Places,
+    faults: &mut Vec<Fault>,
+) -> BTreeMap<String, String> {
+    use std::path::{Component, Path};
+    let mut tasks = BTreeMap::new();
+    for (id, cell) in cells {
+        let Some(file) = cell.task.as_ref().and_then(Task::file) else {
+            continue;
+        };
+        let inside = Path::new(file)
+            .components()
+            .all(|c| matches!(c, Component::Normal(_) | Component::CurDir));
+        let path: Vec<&str> = file.split('/').filter(|p| !p.is_empty() && *p != ".").collect();
+        let named = file.to_string();
+        let what = match source.files.get(&path.join("/")) {
+            _ if !inside => FaultKind::TaskFileOutside { file: named },
+            None => FaultKind::NoTaskFile { file: named },
+            Some(text) if text.trim().is_empty() => FaultKind::TaskFileEmpty { file: named },
+            Some(text) => {
+                tasks.insert(id.clone(), text.clone());
+                continue;
+            }
+        };
+        faults.push(fault(&places.cell(id), "task.file", what));
+    }
+    tasks
 }
 
 /// What each trigger each cell names is worked out to, by the cell's id: the trigger, or what is wrong with it, by its
@@ -565,6 +702,10 @@ const CELL: &str = "{cell}";
 
 /// What stands for the name of a datum in a rule that makes a trigger of each datum.
 const DATUM: &str = "{datum}";
+
+/// What stands for the name of a group of blocks in a rule that makes a trigger of each group; alone in its `read`, the
+/// group's blocks.
+const GROUP: &str = "{group}";
 
 /// The text of a file read into its shape, or none, with the fault that it cannot be read.
 fn shape<T: DeserializeOwned>(file: &str, text: &str, faults: &mut Vec<Fault>) -> Option<T> {
@@ -582,6 +723,7 @@ impl From<LaidOutFlowFile> for FlowFile {
             lines: BTreeMap::new(),
             blocks: BTreeMap::new(),
             tests: BTreeMap::new(),
+            groups: flow.groups,
         }
     }
 }
@@ -603,6 +745,8 @@ struct LaidOut {
     /// The triggers by their files, each with whether every cell naming it has its own of it.
     triggers: Vec<(String, TriggerFile, bool)>,
     of_a_datum: Vec<(String, OfADatumFile)>,
+    /// The rules that make a trigger of each group of the flow's blocks, by their files.
+    of_a_group: Vec<(String, OfADatumFile)>,
     rule_sets: Option<BTreeMap<String, RuleSetFile>>,
 }
 
@@ -624,6 +768,8 @@ impl LaidOut {
                 laid.data.extend(shape(&path, text, faults).map(|f| (path, f)));
             } else if under(&path, &format!("{TRIGGERS_DIR}/{OF_A_DATUM}")) {
                 laid.of_a_datum.extend(shape(&path, text, faults).map(|f| (path, f)));
+            } else if under(&path, &format!("{TRIGGERS_DIR}/{OF_A_GROUP}")) {
+                laid.of_a_group.extend(shape(&path, text, faults).map(|f| (path, f)));
             } else if under(&path, TRIGGERS_DIR) {
                 let own = under(&path, &format!("{TRIGGERS_DIR}/{OF_A_CELL}"));
                 laid.triggers.extend(shape(&path, text, faults).map(|f| (path, f, own)));
@@ -718,6 +864,14 @@ impl LaidOut {
                 faults.push(fault(path, "block", what));
             }
         }
+        for (path, rule) in &self.of_a_group {
+            if !rule.name.contains(GROUP) {
+                let what = FaultKind::MissingPlaceholder {
+                    placeholder: GROUP.to_string(),
+                };
+                faults.push(fault(path, "name", what));
+            }
+        }
         let mut made: BTreeMap<&str, &str> = BTreeMap::new();
         for (path, rule) in &self.of_a_datum {
             if !rule.name.contains(DATUM) {
@@ -766,9 +920,21 @@ impl LaidOut {
             .collect()
     }
 
-    /// Works out each trigger each cell names: a trigger of `../triggers/` by its name, which declares the block with
-    /// no content it stands on; one of `of_a_cell/`, whose block each cell naming it has its own of; or one a rule of
-    /// `of_a_datum/` makes of a datum of the flow, standing on the datum. Gives what each is worked out to, by its
+    /// The rule of `of_a_group/` that makes a trigger of this name of a group of the flow's blocks, with the group's
+    /// name. A group named as a block of the flow makes none: that is a fault of the group, and the block's own
+    /// trigger stands.
+    fn grouped(&self, name: &str, flow: &FlowFile) -> Option<(&OfADatumFile, String)> {
+        (self.of_a_group.iter()).find_map(|(_, rule)| {
+            let (before, after) = rule.name.split_once(GROUP)?;
+            let group = name.strip_prefix(before)?.strip_suffix(after)?;
+            (flow.groups.contains_key(group) && !flow.blocks.contains_key(group)).then(|| (rule, group.to_string()))
+        })
+    }
+
+    /// Works out each trigger each cell names: a trigger of `../triggers/` by its name, which declares the block that
+    /// stands only for it; one of `of_a_cell/`, whose block each cell naming it has its own of; one a rule of
+    /// `of_a_group/` makes of a group of the flow's blocks, standing on each of them; or one a rule of `of_a_datum/`
+    /// makes of a datum of the flow, standing on the datum. Gives what each is worked out to, by its
     /// place in the cell's `triggered_by`, and the blocks the triggers declare. The agent of an engine cell reads nothing.
     ///
     /// A fault is a trigger whose block the flow defines as well, once, on the block's file, naming the trigger's;
@@ -835,6 +1001,7 @@ impl LaidOut {
                                 let blank = BlockFile {
                                     people,
                                     outside,
+                                    writes: file.writes.clone(),
                                     ..BlockFile::default()
                                 };
                                 flow.blocks.insert(block.clone(), blank);
@@ -865,7 +1032,9 @@ impl LaidOut {
                     }
                     Ok(Trigger {
                         name: name.clone(),
+                        what: file.what.as_deref().map(fill),
                         block: BlockId(block),
+                        group: Vec::new(),
                         read: if engine {
                             Vec::new()
                         } else {
@@ -874,12 +1043,33 @@ impl LaidOut {
                         detail: file.detail.as_deref().map(fill),
                         does: does.or_else(|| file.does.as_deref().map(fill)),
                     })
+                } else if let Some((rule, group)) = self.grouped(name, flow) {
+                    // A group's trigger stands on each of its blocks; its agent reads them all where `read` names the
+                    // group alone.
+                    let members: Vec<BlockId> = flow.groups[&group].iter().map(|b| BlockId(b.clone())).collect();
+                    let read = (rule.read.iter())
+                        .flat_map(|r| match r.as_str() {
+                            GROUP => members.clone(),
+                            r => vec![BlockId(r.replace(GROUP, &group))],
+                        })
+                        .collect();
+                    Ok(Trigger {
+                        name: name.clone(),
+                        what: rule.what.as_ref().map(|w| w.replace(GROUP, &group)),
+                        block: BlockId(group.clone()),
+                        group: members,
+                        read: if engine { Vec::new() } else { read },
+                        detail: None,
+                        does: does.or_else(|| rule.does.as_ref().map(|d| d.replace(GROUP, &group))),
+                    })
                 } else {
                     let made = self.made(name);
                     match made.iter().find(|(.., datum)| data.contains(datum)) {
                         Some((_, rule, datum)) => Ok(Trigger {
                             name: name.clone(),
+                            what: rule.what.as_ref().map(|w| w.replace(DATUM, datum)),
                             block: BlockId(datum.clone()),
+                            group: Vec::new(),
                             read: if engine {
                                 Vec::new()
                             } else {
@@ -923,6 +1113,11 @@ fn fault(file: &str, field: impl Into<String>, what: FaultKind) -> Fault {
         field: field.into(),
         what,
     }
+}
+
+/// The keys of a cell's `when` and `requires`, in that order, each with its value.
+fn keys_of(file: &CellFile) -> impl Iterator<Item = (&str, &str)> {
+    (file.when.iter().chain(&file.requires)).flat_map(|keys| keys.0.iter().map(|(k, v)| (k.as_str(), v.as_str())))
 }
 
 /// The limit as a count, or why it is none.
@@ -1000,6 +1195,10 @@ enum NotBefore<'a> {
 /// The parsed files, with what the checks look up in them.
 struct Definition<'a> {
     flow: &'a FlowFile,
+    /// The text of each cell's task written in a file of its own, by the cell's id.
+    tasks: &'a BTreeMap<String, String>,
+    /// The tools the flow names for every agent cell of it.
+    tools: &'a [String],
     cells: &'a BTreeMap<String, CellFile>,
     places: &'a Places,
     triggers: &'a Resolved,
@@ -1018,6 +1217,8 @@ impl<'a> Definition<'a> {
         let (flow, cells) = (&parsed.flow, &parsed.cells);
         let mut def = Self {
             flow,
+            tasks: &parsed.tasks,
+            tools: &parsed.tools,
             cells,
             places: &parsed.places,
             triggers: &parsed.triggers,
@@ -1045,20 +1246,16 @@ impl<'a> Definition<'a> {
                     u.readers.push(id);
                 }
             }
-            if let Some(When::Is(WhenIs { block, .. })) = &file.when
-                && let Some(u) = uses.get_mut(block.as_str())
-            {
-                u.conditions.push(id);
+            for (block, _) in keys_of(file).filter(|(k, _)| *k != WHEN_TEST) {
+                if let Some(u) = uses.get_mut(block)
+                    && !u.conditions.contains(&id)
+                {
+                    u.conditions.push(id);
+                }
             }
         }
         let used: BTreeSet<&'a str> = (def.ordered())
-            .flat_map(|(_, _, file)| {
-                let when = match &file.when {
-                    Some(When::Test(WhenTest { test })) => Some(test.as_str()),
-                    _ => None,
-                };
-                file.requires.iter().map(String::as_str).chain(when)
-            })
+            .flat_map(|(_, _, file)| keys_of(file).filter(|(k, _)| *k == WHEN_TEST).map(|(_, test)| test))
             .collect();
         for (test, declared) in flow.tests.iter().filter(|(t, _)| used.contains(t.as_str())) {
             for block in &declared.reads {
@@ -1110,6 +1307,22 @@ impl<'a> Definition<'a> {
                     faults.push(at(&field, what));
                 }
             }
+            if let Some(default) = &block.default {
+                match &block.values {
+                    None => faults.push(at("default", FaultKind::DefaultNotAChoice { block: name.clone() })),
+                    Some(values) if !values.contains(default) => {
+                        let what = FaultKind::DefaultNotAValue {
+                            block: name.clone(),
+                            default: default.clone(),
+                        };
+                        faults.push(at("default", what));
+                    }
+                    Some(_) => {}
+                }
+            }
+            if name == WHEN_TEST {
+                faults.push(at("", FaultKind::BlockNamedTest));
+            }
             if block.note && !block.people {
                 faults.push(at("note", FaultKind::NoteNotByPeople { block: name.clone() }));
             } else if block.note && block.values.is_some() {
@@ -1135,6 +1348,36 @@ impl<'a> Definition<'a> {
             if !self.read(name) {
                 let what = FaultKind::NoReader { block: name.clone() };
                 faults.push(self.places.use_fault(name, what));
+            }
+        }
+    }
+
+    /// The faults of the groups of blocks: a group of no block, one with the name of a block or a datum of the flow,
+    /// and a block of one that is not declared, or named twice in it.
+    fn check_groups(&self, faults: &mut Vec<Fault>) {
+        for (group, blocks) in &self.flow.groups {
+            let field = format!("groups.{group}");
+            if blocks.is_empty() {
+                faults.push(fault(
+                    FLOW_FILE,
+                    field.clone(),
+                    FaultKind::GroupEmpty { group: group.clone() },
+                ));
+            }
+            if self.flow.blocks.contains_key(group) {
+                faults.push(fault(
+                    FLOW_FILE,
+                    field.clone(),
+                    FaultKind::GroupNameTaken { group: group.clone() },
+                ));
+            }
+            for (at, what) in check_list(blocks, &field, |block| {
+                let what = FaultKind::NoSuchBlock {
+                    block: block.to_string(),
+                };
+                (!self.flow.blocks.contains_key(block)).then_some(what)
+            }) {
+                faults.push(fault(FLOW_FILE, at, what));
             }
         }
     }
@@ -1271,7 +1514,7 @@ impl<'a> Definition<'a> {
         }
         match (file.kind, &file.task) {
             (Kind::Agent, None) => found.push(("task".to_string(), FaultKind::NoTask)),
-            (Kind::Agent, Some(task)) if task.trim().is_empty() => {
+            (Kind::Agent, Some(Task::Text(task))) if task.trim().is_empty() => {
                 found.push(("task".to_string(), FaultKind::NoTask));
             }
             (Kind::Engine, Some(_)) => found.push(("task".to_string(), FaultKind::EngineHasTask)),
@@ -1292,8 +1535,15 @@ impl<'a> Definition<'a> {
             (Kind::Agent, None) => found.push(("effort".to_string(), FaultKind::NoEffort)),
             _ => {}
         }
+        // The tools a flow names are every agent cell's: the form of a return is one for the whole flow.
+        let flow_tools = file.kind == Kind::Agent && !self.tools.is_empty();
         if file.kind == Kind::Engine && !file.tools.is_empty() {
             found.push(("tools".to_string(), FaultKind::EngineHasTools));
+        } else if flow_tools && !file.tools.is_empty() {
+            let what = FaultKind::Twice {
+                name: "tools".to_string(),
+            };
+            found.push(("tools".to_string(), what));
         } else {
             found.extend(check_list(&file.tools, "tools", |tool| {
                 let what = FaultKind::UnknownTool { tool: tool.to_string() };
@@ -1309,46 +1559,18 @@ impl<'a> Definition<'a> {
             }
         };
 
-        let applies = file.when.as_ref().map(|when| {
-            if place + 1 == self.flow.order.len() {
-                found.push(("when".to_string(), FaultKind::LastHasCondition));
-            }
-            match when {
-                When::Is(WhenIs { block, is }) => {
-                    found.extend(self.check_is(place, file, block, is));
-                    Condition::Is {
-                        block: BlockId(block.clone()),
-                        value: is.clone(),
-                    }
-                }
-                When::Test(WhenTest { test }) => {
-                    if self.flow.tests.contains_key(test) {
-                        found.extend(self.check_use(place, file, test, "when.test", true));
-                    } else {
-                        let what = FaultKind::UndeclaredTest { test: test.clone() };
-                        found.push(("when.test".to_string(), what));
-                    }
-                    Condition::Test(TestName(test.clone()))
-                }
-            }
-        });
-
-        found.extend(check_list(&file.requires, "requires", |test| {
-            let what = FaultKind::UndeclaredTest { test: test.to_string() };
-            (!self.flow.tests.contains_key(test)).then_some(what)
-        }));
-        for (i, test) in file.requires.iter().enumerate() {
-            if !file.requires[..i].contains(test) && self.flow.tests.contains_key(test) {
-                found.extend(self.check_use(place, file, test, &format!("requires[{i}]"), false));
-            }
+        if file.when.is_some() && place + 1 == self.flow.order.len() {
+            found.push(("when".to_string(), FaultKind::LastHasCondition));
         }
+        let applies = self.keys(place, file, "when", file.when.as_ref(), &mut found);
+        let requires = self.keys(place, file, "requires", file.requires.as_ref(), &mut found);
         let declared = |block: &str| {
             let what = FaultKind::NoSuchBlock {
                 block: block.to_string(),
             };
             (!self.flow.blocks.contains_key(block)).then_some(what)
         };
-        // A block that stands only for a trigger has no content to give, write or describe the work by.
+        // A block that stands only for a trigger is not given, written or the work described by it.
         let with_content = |block: &str| declared(block).or_else(|| self.trigger_only(block));
         let takes = self.takes(id, file);
         // A cell that names what it takes by triggers in a flow written before them has one fault of it, and what
@@ -1403,7 +1625,7 @@ impl<'a> Definition<'a> {
         let cell = Cell {
             id: CellId(id.to_string()),
             applies,
-            requires: file.requires.iter().map(|t| TestName(t.clone())).collect(),
+            requires,
             runs_on: takes.runs_on.iter().map(|r| r.block.clone()).collect(),
             outputs: file.outputs.iter().map(|b| BlockId(b.clone())).collect(),
             limit: runs,
@@ -1417,13 +1639,22 @@ impl<'a> Definition<'a> {
             line: file.line.clone(),
             reads_only: (file.line.as_ref())
                 .is_some_and(|line| self.flow.lines.get(line).is_some_and(|l| l.reads_only)),
-            task: file.task.clone(),
+            task: match &file.task {
+                Some(Task::Text(text)) => Some(text.clone()),
+                Some(Task::File(_)) => self.tasks.get(id).cloned(),
+                None => None,
+            },
+            task_file: file.task.as_ref().and_then(Task::file).map(str::to_string),
             act: file.act.clone(),
             must_write: file.must_write.iter().map(|b| BlockId(b.clone())).collect(),
             describes: file.describes.iter().map(|b| BlockId(b.clone())).collect(),
             runs_on: takes.runs_on,
             given: takes.given,
-            tools: file.tools.clone(),
+            tools: if flow_tools {
+                self.tools.to_vec()
+            } else {
+                file.tools.clone()
+            },
             system: (file.line.as_ref())
                 .and_then(|line| self.flow.lines.get(line))
                 .map_or_else(Vec::new, |line| line.system.clone()),
@@ -1587,8 +1818,56 @@ impl<'a> Definition<'a> {
 
     /// The faults of a condition on the value of a block, for the cell of this file at this place, each with its
     /// field.
-    fn check_is(&self, place: usize, file: &CellFile, block: &str, is: &str) -> Vec<(String, FaultKind)> {
-        let field = || "when.block".to_string();
+    /// A cell's `when` or `requires` (`field`) compiled, each key in the order written, with the faults of each: a
+    /// table of no keys; a named test not declared, or not decided before the cell, as [`Self::check_use`] says; a
+    /// block's value as [`Self::check_is`] says.
+    fn keys(
+        &self,
+        place: usize,
+        file: &CellFile,
+        field: &str,
+        keys: Option<&Keys>,
+        found: &mut Vec<(String, FaultKind)>,
+    ) -> Vec<Condition> {
+        let Some(keys) = keys else { return Vec::new() };
+        if keys.is_empty() {
+            found.push((field.to_string(), FaultKind::EmptyCondition));
+        }
+        let condition = field == "when";
+        (keys.0.iter())
+            .map(|(key, value)| {
+                let at = format!("{field}.{key}");
+                if key == WHEN_TEST {
+                    if self.flow.tests.contains_key(value) {
+                        found.extend(self.check_use(place, file, value, &at, condition));
+                    } else {
+                        found.push((at, FaultKind::UndeclaredTest { test: value.clone() }));
+                    }
+                    Condition::Test(TestName(value.clone()))
+                } else {
+                    found.extend(self.check_is(place, file, key, value, &at, condition));
+                    Condition::Is {
+                        block: BlockId(key.clone()),
+                        value: value.clone(),
+                    }
+                }
+            })
+            .collect()
+    }
+
+    /// The faults of a key on the value of a block, of the cell of this file at this place, at the key's field: a block
+    /// not declared, not a choice or without the value, or not decided before the cell, as [`Self::not_before`] says
+    /// of a key of its `when` (`condition`) or of its `requires`.
+    fn check_is(
+        &self,
+        place: usize,
+        file: &CellFile,
+        block: &str,
+        is: &str,
+        at: &str,
+        condition: bool,
+    ) -> Vec<(String, FaultKind)> {
+        let field = || at.to_string();
         let name = block.to_string();
         let Some(declared) = self.flow.blocks.get(block) else {
             return vec![(field(), FaultKind::NoSuchBlock { block: name })];
@@ -1601,11 +1880,11 @@ impl<'a> Definition<'a> {
                     block: name.clone(),
                     is: is.to_string(),
                 };
-                found.push(("when.is".to_string(), what));
+                found.push((field(), what));
             }
             Some(_) => {}
         }
-        match self.not_before(place, file, block, declared, true, true) {
+        match self.not_before(place, file, block, declared, true, condition) {
             Some(NotBefore::OwnOutput) => found.push((field(), FaultKind::ConditionOnOwnOutput { block: name })),
             Some(NotBefore::Later | NotBefore::After(_)) => {
                 found.push((field(), FaultKind::ConditionNotWrittenBefore { block: name }));
@@ -1697,10 +1976,13 @@ impl<'a> Definition<'a> {
                 let uses = &self.uses[name.as_str()];
                 let writers: Vec<&str> = uses.writers.iter().map(|&(_, id)| id).collect();
                 let block = Block {
+                    file: self.places.file("blocks", name),
                     values: declared.values.clone(),
+                    default: declared.default.clone(),
                     what: declared.what.clone(),
                     field: declared.field.clone(),
                     trigger: self.trigger_blocks.contains(name),
+                    writes: declared.writes.clone(),
                     writers: Writers {
                         cells: ids(&writers),
                         people: declared.people,
@@ -1759,11 +2041,19 @@ fn takes(file: &CellFile, triggers: Vec<Trigger>) -> Takes {
     if !(file.triggers.is_empty() && file.does.is_empty() && file.context.is_empty() && file.kinds.is_empty()) {
         let mut runs_on: Vec<RunsOn> = Vec::new();
         for trigger in &triggers {
-            if !runs_on.iter().any(|r| r.block == trigger.block) {
-                runs_on.push(RunsOn {
-                    block: trigger.block.clone(),
-                    why: trigger.does.clone(),
-                });
+            // A group's trigger runs the cell on each of the group's blocks.
+            let blocks = if trigger.group.is_empty() {
+                std::slice::from_ref(&trigger.block)
+            } else {
+                trigger.group.as_slice()
+            };
+            for block in blocks {
+                if !runs_on.iter().any(|r| &r.block == block) {
+                    runs_on.push(RunsOn {
+                        block: block.clone(),
+                        why: trigger.does.clone(),
+                    });
+                }
             }
         }
         let given = (file.context.iter())
@@ -1785,7 +2075,9 @@ fn takes(file: &CellFile, triggers: Vec<Trigger>) -> Takes {
     let triggers = (runs_on.iter())
         .map(|r| Trigger {
             name: r.block.to_string(),
+            what: None,
             block: r.block.clone(),
+            group: Vec::new(),
             read: if given.iter().any(|g| g.block == r.block) {
                 vec![r.block.clone()]
             } else {

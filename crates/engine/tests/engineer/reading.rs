@@ -148,6 +148,14 @@ impl<'a> Reading<'a> {
         self.current(block).and_then(|v| v.value.as_deref())
     }
 
+    /// The block's value now: its current version's, or, where it was never written, its default.
+    pub fn value_now(&self, block: &BlockId) -> Option<&str> {
+        match self.current(block) {
+            Some(v) => v.value.as_deref(),
+            None => self.flow.default_of(block),
+        }
+    }
+
     /// The run's start.
     pub fn started(&self, run: RunId) -> &Started {
         self.started[&run]
@@ -196,22 +204,28 @@ impl<'a> Reading<'a> {
         &self.finished
     }
 
-    /// Whether the condition of the cell at this place holds now: with none it always does.
+    /// Whether the condition of the cell at this place holds now: every key of it; with none it always does.
     pub fn applies(&self, i: usize) -> bool {
-        match &self.flow.cells()[i].applies {
-            None => true,
-            Some(Condition::Is { block, value }) => self.value(block) == Some(value.as_str()),
-            Some(Condition::Test(name)) => self.holds(name),
+        self.flow.cells()[i].applies.iter().all(|key| self.key_holds(key))
+    }
+
+    /// Whether one key of a condition or of preconditions holds now: its named test, or the block's value now.
+    pub fn key_holds(&self, key: &Condition) -> bool {
+        match key {
+            Condition::Is { block, value } => self.value_now(block) == Some(value.as_str()),
+            Condition::Test(name) => self.holds(name),
         }
     }
 
     /// Whether the named test holds now, by the values of the blocks it reads.
     pub fn holds(&self, name: &TestName) -> bool {
         let test = &self.flow.tests()[name];
-        let mut has = (test.reads.iter()).map(|block| {
-            self.current(block).is_some_and(|v| {
+        // A block never written has its default, which no cell wrote and so stands.
+        let mut has = (test.reads.iter()).map(|block| match self.current(block) {
+            Some(v) => {
                 v.value.as_deref() == Some(test.is.as_str()) && (test.kind != TestKind::NoneStanding || self.stands(v))
-            })
+            }
+            None => self.flow.default_of(block) == Some(test.is.as_str()),
         });
         match test.kind {
             TestKind::All => has.all(|h| h),

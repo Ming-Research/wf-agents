@@ -5,7 +5,7 @@
 
 use decide::BlockId;
 use flow::FaultKind::*;
-use flow::{FLOW_FILE, Fault, FaultKind};
+use flow::{FLOW_FILE, Fault, FaultKind, Texts};
 
 use crate::support::{at, compiled, edit, faults, laid_out, set, unreadable, valid};
 
@@ -41,6 +41,18 @@ fn a_flow_laid_out_one_thing_to_a_file_compiles_to_what_its_twin_written_before_
     let main = twin.blocks.get_mut(&BlockId::from("main")).expect("main is declared");
     assert!(main.trigger, "main stands only for a trigger");
     main.trigger = false;
+    // Each thing of the twin is in a file of its own, where the flow written before has them all in `flow.toml`; and
+    // a line laid out so names its `rules` where one written before names its `system`.
+    for block in twin.blocks.values_mut() {
+        block.file = FLOW_FILE.to_string();
+    }
+    for file in twin.test_files.values_mut() {
+        *file = FLOW_FILE.to_string();
+    }
+    for line in twin.lines.values_mut() {
+        line.file = FLOW_FILE.to_string();
+        line.system = std::mem::take(&mut line.rules);
+    }
     assert_eq!(twin, before);
 }
 
@@ -332,4 +344,54 @@ fn only_the_files_that_cannot_be_read_are_reported_when_one_cannot() {
     );
     let files: Vec<String> = faults(&source).into_iter().map(|f: Fault| f.file).collect();
     assert_eq!(files, ["tests/may_merge.toml"]);
+}
+
+#[test]
+fn what_a_source_of_the_engine_s_writes_into_a_block_is_compiled_text_by_text_in_the_order_written() {
+    let on_main = "block = \"main\"\nfrom = \"main\"\n\n[writes]\ntext = \"Main is at {head}.\"\nafter = \"then\"\n";
+    let source = set(laid_out(), "../triggers/on_main.toml", on_main);
+    let request = "from = \"owner\"\n\n[writes]\nz = \"last\"\na = \"first\"\n";
+    let source = set(source, "../data/request.toml", request);
+    let compiled = compiled(&source);
+    let texts = |pairs: &[(&str, &str)]| Texts(pairs.iter().map(|(n, t)| (n.to_string(), t.to_string())).collect());
+    assert_eq!(
+        compiled.blocks[&BlockId::from("main")].writes,
+        texts(&[("text", "Main is at {head}."), ("after", "then")])
+    );
+    // The order is the file's, not that of the names.
+    assert_eq!(
+        compiled.blocks[&BlockId::from("request")].writes,
+        texts(&[("z", "last"), ("a", "first")])
+    );
+    assert_eq!(compiled.blocks[&BlockId::from("plan")].writes, Texts::default());
+}
+
+#[test]
+fn what_a_trigger_is_is_compiled_with_each_cell_s_trigger_and_a_datum_s_with_its_name_filled() {
+    let on_main = "what = \"Fires when main has moved.\"\nblock = \"main\"\nfrom = \"main\"\n";
+    let source = set(laid_out(), "../triggers/on_main.toml", on_main);
+    let changed = "name = \"on_{datum}\"\nwhat = \"Fires when `{datum}` is new.\"\nread = [\"{datum}\"]\n";
+    let source = set(source, "../triggers/of_a_datum/changed.toml", changed);
+    let compiled = compiled(&source);
+    let trigger = |cell: &str, name: &str| {
+        let cell = (compiled.cells.iter())
+            .find(|c| c.id.as_str() == cell)
+            .expect("the cell");
+        let trigger = (cell.triggers.iter()).find(|t| t.name == name).expect("the trigger");
+        trigger.what.clone()
+    };
+    assert_eq!(
+        trigger("check", "on_main").as_deref(),
+        Some("Fires when main has moved.")
+    );
+    assert_eq!(
+        trigger("plan", "on_request").as_deref(),
+        Some("Fires when `request` is new.")
+    );
+    // What a trigger is, where its file says nothing, is none.
+    let compiled = crate::support::compiled(&laid_out());
+    let check = (compiled.cells.iter())
+        .find(|c| c.id.as_str() == "check")
+        .expect("the check");
+    assert!(check.triggers.iter().all(|t| t.what.is_none()));
 }

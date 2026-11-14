@@ -1,6 +1,5 @@
 # The cell's answer to what the owner said to it.
 in = ["outcome"]
-given_to = "writes_through"
 told = "listed"
 words = "`reply`: your answer to what the owner said to the cell."
 

@@ -1,6 +1,6 @@
 ### decision line-kind-in-the-flow
 Whether the agents of a line only read is said by that line in the flow's definition. A line says nothing and writes.
-Why: A list of line names kept by the engine or by the installation would name parts of the flow outside it, and would go wrong without anyone seeing when a line is added or renamed. The flow is what the owner reads and approves, and where the comparison of two flows shows a line changing kind. This rests on judgment, not on a case.
+Why: A list of line names kept by the engine or by the installation would name parts of the flow outside it, and would go wrong without anyone seeing when a line is added or renamed. The flow is what the owner reads and approves, and its line's file is where the owner sees the line's kind. This rests on judgment, not on a case.
 
 ### decision rules-are-the-engines
 The engine's heavy commands are refused on every installation. An installation's settings may add heavy commands, and lock commands that may run under a heavy command, but no lock command that is a heavy command whole or that pushes. Settings that would otherwise undo the engine's rules are refused when they are read.

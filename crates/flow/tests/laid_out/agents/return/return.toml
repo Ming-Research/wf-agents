@@ -1,17 +1,13 @@
-# The return of the tests: its form, and what holds together what a cell is told it returns.
+# The return of the tests: its form, the part on returning of a line's system prompt, and what a cell is told it
+# writes.
 [form]
 calls = ["tools", "summary"]
-outcome = ["dealt_with", "choices", "summary", "reply", "texts"]
-choice = { type = "string" }
-text = { type = "string" }
+outcome = ["dealt_with", "summary", "meaning_unchanged", "reply", "outputs"]
 
-[told]
-heading = "## What this cell returns"
-blocks = "Each block you write is a field of the return under its name."
-block = "- `{block}`{choice}{shown}{must_write}: {what}"
-choice = ", a choice, one of {values}"
-shown = " (the owner reads it)"
-must_write = " (hand it in every time)"
+[how_you_return]
+heading = "## How you return"
+first = "You end every round with one return."
+kinds = "A return is `outcome` or `calls`."
 item = "- {text}"
 listed = ["reply", "summary"]
 every_time = "A block marked so you always hand in."
@@ -21,3 +17,11 @@ reads = ["reply", "summary"]
 and = " and "
 calls = "A tool is asked for under its name."
 tools = "## What you may ask the engine for"
+
+[outputs]
+heading = "## What this cell returns"
+block = "- `{block}`{choice}{shown}{must_write}: {what}"
+none = "This cell writes no block."
+choice = ", a choice, one of {values}"
+shown = " (the owner reads it)"
+must_write = " (hand it in every time)"

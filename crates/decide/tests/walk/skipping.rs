@@ -58,6 +58,48 @@ fn a_condition_on_a_block_that_has_no_version_is_not_met() {
 }
 
 #[test]
+fn a_block_never_written_counts_as_its_default_in_a_condition() {
+    let mut w = World::with_gate(vec![
+        cell("ask", &["brief"], &[]),
+        when("more", "no", cell("plain", &["brief"], &[])),
+        when("more", "yes", cell("extra", &["brief"], &[])),
+    ]);
+    w.flow = (w.flow.clone()).with_defaults(BTreeMap::from([("more".into(), "no".to_string())]));
+    let brief = w.person_writes("brief");
+    w.run("ask", &[]);
+    // Counted as no: the cell that runs on no runs, and the one that runs on yes is skipped.
+    assert_eq!(w.decide(), runs("plain", first(&["brief"]), &[("brief", Some(brief))]));
+    w.run("plain", &[]);
+    assert_eq!(w.decide(), resting());
+    // Written, its value counts, and no longer its default.
+    w.person_sets("more", "yes");
+    assert_eq!(w.decide(), runs("extra", first(&["brief"]), &[("brief", Some(brief))]));
+}
+
+#[test]
+fn a_cell_runs_only_while_every_key_of_its_condition_holds() {
+    let mut c = cell("both", &["brief"], &[]);
+    c.applies = vec![
+        Condition::Is {
+            block: "more".into(),
+            value: "yes".into(),
+        },
+        Condition::Is {
+            block: "deep".into(),
+            value: "yes".into(),
+        },
+    ];
+    let mut w = World::with_gate(vec![cell("ask", &["brief"], &[]), c]);
+    let brief = w.person_writes("brief");
+    w.run("ask", &[]);
+    w.person_sets("more", "yes");
+    // One key holds and the other does not: the cell is skipped.
+    assert_eq!(w.decide(), resting());
+    w.person_sets("deep", "yes");
+    assert_eq!(w.decide(), runs("both", first(&["brief"]), &[("brief", Some(brief))]));
+}
+
+#[test]
 fn a_condition_that_is_a_named_test_lets_its_cell_run_while_the_test_holds() {
     let mut w = World::with_gate(vec![on_test("there is a remark", cell("remarks", &["remark"], &[]))]);
     w.says("there is a remark", false);

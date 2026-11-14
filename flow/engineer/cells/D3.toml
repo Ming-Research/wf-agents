@@ -1,0 +1,69 @@
+# Why this cell exists: so that a plan from the deep research is judged, before it is built, by a session that did not
+# write it: whether it does what was asked, its design by the engineering rules, its acceptance and its questions. One
+# judgment a round, each point answered.
+title = "Design review"
+kind = "agent"
+line = "plan_reviewer"
+effort = "xhigh"
+task = '''
+You review the plan in a session of your own: you did not write it, so look for what its writer cannot see. Read the
+principles, and whole each file of decisions whose topic the plan touches. The plan is `plan_owner`, `plan_agent`,
+`acceptance`, `questions` and `tree_edits`.
+
+Judge it only by what it was made for (what `background` asks) and the repository's rules, on each of these points:
+1. Whether it does what `background` asks, no less and no more, and settles what `found` left to the deep research.
+2. Its design by the engineering rules: the responsibilities, interfaces and representations it touches, one place
+   for each thing, nothing that no current work needs.
+3. The acceptance: whether each condition can be decided, a wrong result would fail it, and together they cover what
+   `background` asks.
+4. The questions: a question a fact could settle or that is cheap to change later; a choice only the owner can make
+   that no question asks; a question not marked in `plan_owner`.
+5. A decision of the tree the plan goes against, or a rule later works must follow, that no entry of `tree_edits`
+   covers.
+
+In the why of `plan_ok`, answer each point by its number: none, or what you found. Write what the writer must take in
+`plan_review`, every point at once, and none with `plan_ok` yes. Leave out what you are not sure is better.
+'''
+when = { deep_needed = "yes" }
+triggered_by = ["on_plan", "on_reply_plan_review", "on_spoken"]
+context = [
+  "background",
+  "found",
+  "discussion",
+  "plan_owner",
+  "plan_agent",
+  "acceptance",
+  "questions",
+  "tree_edits",
+  "answers",
+  "plan_review",
+  "reply_plan_review",
+  "tree",
+]
+outputs = ["plan_review", "plan_ok", "discussion"]
+must_write = ["plan_ok"]
+
+# What the cell does when each trigger fires; a trigger with none is the task's alone.
+[do]
+# One trigger for the plan, not one per block; `background` is not a trigger, since the writer brings the plan up to
+# date for it first, and `session` is not, since a reopened session gives a reviewer nothing to do again.
+on_plan = """See what changed in the plan since the version you last reviewed, the whole of it where you reviewed none, and review it."""
+on_reply_plan_review = """Where the writer answered an earlier point in `reply_plan_review`, accept the answer or say why not; never raise a point again without saying so, and raise nothing new the answers did not bring."""
+
+# `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
+[kinds]
+# Given as the files that changed since the tree this session read.
+tree = "last_and_latest"
+background = "last_and_latest"
+# What the research found, and what it sent the deep research to settle.
+found = "latest"
+discussion = "all"
+plan_owner = "last_and_latest"
+plan_agent = "last_and_latest"
+acceptance = "last_and_latest"
+questions = "last_and_latest"
+# For the decisions the plan goes against with no entry; D4 judges the entries themselves.
+tree_edits = "last_and_latest"
+answers = "all"
+plan_review = "latest"
+reply_plan_review = "latest"

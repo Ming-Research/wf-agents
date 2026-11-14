@@ -3,7 +3,6 @@
 //! - `running`: `wf-agents run`, the engine as a process.
 //! - `talk`: the commands that talk to a running engine.
 
-mod committed;
 mod running;
 mod talk;
 
@@ -227,14 +226,11 @@ enum FlowCommand {
         dir: PathBuf,
     },
     /// Serves the owner's flow page for the definition in a directory, on the loopback address: the flow as a chart,
-    /// or its faults when it does not compile, and what changed from another definition when one is given. Both
-    /// directories are read again for every request, so an edit shows when the page is loaded again.
+    /// or its faults when it does not compile. The directory is read again for every request, so an edit shows when
+    /// the page is loaded again.
     Page {
         /// The definition's directory.
         dir: PathBuf,
-        /// The directory of a definition to compare against: the page shows what changed from it to the one shown.
-        #[arg(long)]
-        against: Option<PathBuf>,
         /// The port of the page on the loopback address.
         #[arg(long, default_value_t = 7490)]
         port: u16,
@@ -244,7 +240,7 @@ enum FlowCommand {
 fn main() -> ExitCode {
     match Cli::parse().command {
         Command::Flow(FlowCommand::Check { dir }) => check(&dir),
-        Command::Flow(FlowCommand::Page { dir, against, port }) => page(dir, against, port),
+        Command::Flow(FlowCommand::Page { dir, port }) => page(dir, port),
         Command::Run {
             data,
             flows,
@@ -415,17 +411,22 @@ fn line(fault: &Fault) -> String {
     } else {
         format!("{} {}", fault.file, fault.field)
     };
-    format!("{at}: {}", words(&fault.what))
+    format!("{at}: {}", words(&fault.what, &fault.field))
 }
 
-/// What is wrong, in words.
-fn words(what: &FaultKind) -> String {
+/// What is wrong, in words. Where it is wrong is told too, since a name given twice is one of two things: a name in a
+/// list that stands in it again, and, at the field `tools` itself, a cell naming tools of its own where the flow's file
+/// already gives them to every agent cell.
+fn words(what: &FaultKind, field: &str) -> String {
     use FaultKind as F;
     match what {
         F::Unreadable { message } => format!("cannot be read: {}", message.trim_end()),
         F::OrderEmpty => "the order names no cell".to_string(),
         F::NoCellFile { cell } => format!("the order names {cell}, which has no file"),
         F::NotInOrder { cell } => format!("the cell {cell} has a file but is not named in the order"),
+        F::Twice { name } if field == "tools" => {
+            format!("the cell names {name} of its own, and the flow already gives its agent cells theirs")
+        }
         F::Twice { name } => format!("{name} is named a second time in the same list"),
         F::LimitOutOfRange { value } => {
             format!("the limit {value} is not a whole number from 1 to the largest count the engine keeps")
@@ -436,6 +437,9 @@ fn words(what: &FaultKind) -> String {
         F::NoTask => {
             "an agent's cell has no task, or one of no words: its agent would be told nothing to do".to_string()
         }
+        F::NoTaskFile { file } => format!("the task is written in {file}, which the flow's directory does not hold"),
+        F::TaskFileEmpty { file } => format!("the task is written in {file}, which holds no words"),
+        F::TaskFileOutside { file } => format!("the task is written in {file}, which is outside the flow's directory"),
         F::EngineHasTask => "an engine's cell has a task, which no agent reads".to_string(),
         F::NoAct => "an engine's cell names no act to carry it out".to_string(),
         F::AgentHasAct { act } => format!("an agent carries the cell out, but the cell names the act \"{act}\""),
@@ -510,6 +514,18 @@ fn words(what: &FaultKind) -> String {
         F::NotAValue { block, is } => {
             format!("a condition or a test waits for {block} to be {is}, which is not one of its values")
         }
+        F::DefaultNotAChoice { block } => {
+            format!("{block} says what it counts as before it is written, and it is not a choice")
+        }
+        F::DefaultNotAValue { block, default } => {
+            format!("{block} counts as {default} before it is written, which is not one of its values")
+        }
+        F::BlockNamedTest => {
+            "a block is named test, which a cell's when and requires take for a named test".to_string()
+        }
+        F::EmptyCondition => "a table of no keys says nothing that must hold".to_string(),
+        F::GroupNameTaken { group } => format!("the group {group} has the name of a block or a datum of the flow"),
+        F::GroupEmpty { group } => format!("the group {group} names no block"),
         F::ConditionOnOwnOutput { block } => format!(
             "the condition reads {block}, which the cell itself writes and another writes too: the cell would decide \
              by what it writes itself, beside another, whether it runs"
@@ -549,15 +565,27 @@ fn flow_page(address: SocketAddr) -> String {
 }
 
 #[test]
+fn a_name_given_twice_says_where_it_was_given_twice() {
+    let twice = |name: &str, field: &str| words(&FaultKind::Twice { name: name.to_string() }, field);
+    assert_eq!(
+        twice("query", "tools[2]"),
+        "query is named a second time in the same list"
+    );
+    assert_eq!(
+        twice("tools", "tools"),
+        "the cell names tools of its own, and the flow already gives its agent cells theirs"
+    );
+}
+
+#[test]
 fn the_flow_page_is_printed_at_the_flow_view() {
     let address = SocketAddr::from((Ipv4Addr::LOCALHOST, 7490));
     assert_eq!(flow_page(address), "http://127.0.0.1:7490/#/flow");
 }
 
-fn page(dir: PathBuf, against: Option<PathBuf>, port: u16) -> ExitCode {
+fn page(dir: PathBuf, port: u16) -> ExitCode {
     let shown = dir.display().to_string();
-    let compared = against.as_ref().map(|a| a.display().to_string());
-    let flows = web::Flows::dirs(dir, against, Box::new(has));
+    let flows = web::Flows::dirs(dir, Box::new(has));
     let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Ok(runtime) => runtime,
         Err(e) => {
@@ -574,8 +602,7 @@ fn page(dir: PathBuf, against: Option<PathBuf>, port: u16) -> ExitCode {
                 return ExitCode::FAILURE;
             }
         };
-        let against = compared.map(|c| format!(", compared against {c}")).unwrap_or_default();
-        println!("The flow page of {shown}{against} is at {}", flow_page(address));
+        println!("The flow page of {shown} is at {}", flow_page(address));
         match web::serve(listener, web::router(flows)).await {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {

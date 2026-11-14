@@ -123,7 +123,7 @@ fn block_name(b: &str) -> &'static str {
 fn merge(bound: bool) -> String {
     let must = if bound { "\"merged\"" } else { "" };
     format!(
-        "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nrequires = [\"may_merge\"]\n\
+        "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\nrequires = {{ test = \"may_merge\" }}\n\
          inputs = [\"plan\"]\noutputs = [\"merged\"]\nmust_write = [{must}]\n"
     )
 }
@@ -131,7 +131,7 @@ fn merge(bound: bool) -> String {
 /// One of the shapes of flow, each ending in the merge. Each cell that may be bound to write a block each time is,
 /// where `binds` draws it so, about one time in two.
 fn shape(n: usize, binds: &mut Rng) -> Compiled {
-    let choice = Some(r#"{ block = "choice", is = "yes" }"#);
+    let choice = Some(r#"{ choice = "yes" }"#);
     let mut bound =
         |blocks: &'static [&'static str]| -> &'static [&'static str] { if binds.chance(50) { blocks } else { &[] } };
     let cells: Vec<(&str, (String, Vec<&'static str>))> = match n {

@@ -1,0 +1,31 @@
+# What the engine's act `check` writes: into its choice, `first`, then `passed` or `failed`; into each other block it
+# writes, where the work did not pass, `first`, then `why`. After either, `took_in` where the engine took main in for
+# the check, and `notes` where the host said more. The parts are joined by a blank line. The act `merge` reads back the
+# commit it is to merge from the first line of the choice, after what `first` writes before `{commit}`.
+#
+# Filled in a run: `{commit}` the commit checked; `{main}` the main branch's name; `{head}` the head of main it was
+# checked against; `{checked}` what `checked` says, `{by}` in it what `by` says where the host says what judged it and
+# nothing where it does not; `{why}` what failed, as `found` says where it was found before the host was asked, or as
+# the host said it; `{notes}` each thing the host said, as `note` says.
+first = "Checked commit {commit}"
+checked = "The work's branch was checked against {main} at {head}{by}"
+by = " by {by}"
+passed = "{checked}: it passed."
+failed = "{checked}: it did not pass."
+why = "{checked}. {why}"
+took_in = "The engine merged {main} at {head} into the work's branch for the check, as the commit {commit}, which the worktree holds."
+notes = "Also:{notes}"
+note = "\n- {note}"
+
+# The values the check writes in its choice, by name: a flow whose cell of `check` has a choice that does not offer
+# both is not run with the real carriers.
+[values]
+passed = "yes"
+failed = "no"
+
+# What was found before the host was asked. Filled in a run: `{changes}` what git says the worktree holds uncommitted;
+# `{files}` the files in conflict, `{kinds}` the kinds of their conflicts.
+[found]
+merging = "A merge is under way in the worktree and is not committed: finish it and commit it, or take it back.\n{changes}"
+uncommitted = "The worktree has changes that are not committed:\n{changes}"
+conflict = "The branch does not merge into {main} at {head} without a conflict:\n{files}\n{kinds}"

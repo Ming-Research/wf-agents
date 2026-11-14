@@ -1,52 +1,64 @@
-// The page's words for what the interface gives as data: conditions, named tests, limits, faults and changes. Each is
-// worded here once, and every part of the page that shows one takes its words from here.
+// How the page writes what the interface gives as data: conditions, named tests and limits by their keys and values as
+// the flow's files write them (principle definitions-shown-as-written), and faults in a sentence each.
 
-import type { Block, Cell, Change, Condition, Fault, Flow, InputKind, Kind, LimitName, Test } from './api';
+import type { Block, Cell, Condition, Fault, Flow, InputKind, Line, Test } from './api';
 
-/// What a named test holds on, from the blocks it reads: "ci is not red", "any of needs_design, changes_tree is yes",
-/// "none of verdict, deep_verdict is no, not counting what a cell skipped now wrote".
+/// A name or a value as the files write it: a key of the interface in the files' own spelling.
+export function snake(name: string): string {
+  return name.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+}
+
+/// A list as the files write it.
+export function listed(names: string[]): string {
+  return `[${names.join(', ')}]`;
+}
+
+/// A named test by its attributes, as its file writes them.
 export function readsWords(test: Test): string {
-  const standing = test.kind === 'noneStanding' ? ', not counting what a cell skipped now wrote' : '';
-  if (test.reads.length === 1) {
-    const not = test.kind === 'none' || test.kind === 'noneStanding' ? 'not ' : '';
-    return `${test.reads[0]} is ${not}${test.is}${standing}`;
-  }
-  const list = test.reads.join(', ');
-  const words = {
-    all: `all of ${list} are`,
-    any: `any of ${list} is`,
-    none: `none of ${list} is`,
-    noneStanding: `none of ${list} is`,
-  };
-  return `${words[test.kind]} ${test.is}${standing}`;
+  return `kind ${snake(test.kind)}, reads ${listed(test.reads)}, is ${test.is}`;
 }
 
-/// A named test, wherever a cell's condition or precondition is said: its words, and what it reads.
+/// A line's keys as its file writes them, each with its value, in the order the files write them. A key it leaves out
+/// has no value of its own (`false`, `0`, none), and is not said.
+export function lineKeys(line: Line): [string, string][] {
+  const keys: [string, string][] = [];
+  if (line.levelsAbove !== 0) keys.push(['levels_above', `${line.levelsAbove}`]);
+  if (line.readsOnly) keys.push(['reads_only', 'true']);
+  if (line.system.length > 0) keys.push(['system', listed(line.system)]);
+  if (line.rules.length > 0) keys.push(['rules', listed(line.rules)]);
+  return keys;
+}
+
+/// Keys and their values on one line, as a row of the chart says a thing: `levels_above 1, reads_only true`.
+export function keysWords(keys: [string, string][]): string {
+  return keys.map(([key, value]) => `${key} ${value}`).join(', ');
+}
+
+/// A named test, wherever a key of a cell's `when` or `requires` names it: by its name.
 export function testWords(test: Test): string {
-  return `${test.words} (${readsWords(test)})`;
+  return test.name;
 }
 
-/// A condition, as the column "Runs when" and the cell's panel show it.
-export function conditionWords(condition: Condition | null): string {
-  if (!condition) return 'always';
-  return condition.on === 'block' ? `${condition.block} is ${condition.value}` : testWords(condition.test);
+/// One key of a cell's `when` or `requires` as its file writes it: a block with the value it waits for
+/// (`deep_needed = no`), or the named test (`test = settled`).
+export function keyWords(key: Condition): string {
+  return key.on === 'block' ? `${key.block} = ${key.value}` : `test = ${testWords(key.test)}`;
 }
 
-export const LIMIT_WORDS: Record<LimitName, string> = {
-  runs: 'runs in a row that are ways round',
-  returns: 'returns sent back within a run',
-  calls: 'calls within a run',
-};
-
-export function kindWords(kind: Kind): string {
-  return kind === 'agent' ? 'an agent' : 'the engine';
+/// A cell's `when` or `requires` as its file writes it, every key of it: `deep_needed = yes, edits_tree = yes`;
+/// nothing where it has none.
+export function conditionWords(keys: Condition[]): string {
+  return keys.map(keyWords).join(', ');
 }
 
-/// Who writes a block besides cells, in words, the outside by the source that writes it; empty when only cells do.
+/// Who writes a block besides cells, by the block's own keys: `people`, `note`, `outside` with its source.
 export function writersBesideCells(block: Block): string[] {
   const { people, note, outside } = block.writtenBy;
-  const byPeople = note ? 'people, as a note to the cells that read it' : 'people';
-  return [...(people ? [byPeople] : []), ...(outside !== null ? [`the outside (${outside})`] : [])];
+  return [
+    ...(people ? ['people'] : []),
+    ...(note ? ['note'] : []),
+    ...(outside !== null ? [`outside ${outside}`] : []),
+  ];
 }
 
 /// What is wrong, in a sentence.
@@ -62,7 +74,10 @@ export function faultWords(fault: Fault): string {
     case 'notInOrder':
       return `The cell ${w.cell} has a file but is not named in the order.`;
     case 'twice':
-      return `${w.name} is named a second time in the same list.`;
+      // At the field `tools` itself, a cell names tools of its own where the flow already gives them to every agent cell.
+      return fault.field === 'tools'
+        ? `The cell names ${w.name} of its own, and the flow already gives its agent cells theirs.`
+        : `${w.name} is named a second time in the same list.`;
     case 'limitOutOfRange':
       return `The limit ${w.value} is not a whole number from 1 to the largest count the engine keeps.`;
     case 'noLine':
@@ -73,6 +88,12 @@ export function faultWords(fault: Fault): string {
       return `The line ${w.line} is not declared in flow.toml.`;
     case 'noTask':
       return "An agent's cell has no task, or one of no words: its agent would be told nothing to do.";
+    case 'noTaskFile':
+      return `The cell's task is written in ${w.file}, which is not in the flow's directory.`;
+    case 'taskFileEmpty':
+      return `The cell's task is written in ${w.file}, which has no words: its agent would be told nothing to do.`;
+    case 'taskFileOutside':
+      return `The cell's task is written in ${w.file}, a path that leaves the flow's directory or is not plain.`;
     case 'engineHasTask':
       return "An engine's cell has a task, which no agent reads.";
     case 'noAct':
@@ -99,6 +120,18 @@ export function faultWords(fault: Fault): string {
       return `No line names the rules ${w.name}, so no agent would be given them.`;
     case 'valuesEmpty':
       return 'A choice has no values to choose from.';
+    case 'groupNameTaken':
+      return `The group ${w.group} has the name of a block or a datum of the flow.`;
+    case 'groupEmpty':
+      return `The group ${w.group} names no block.`;
+    case 'defaultNotAChoice':
+      return `${w.block} says what it counts as before it is written, but it is not a choice.`;
+    case 'defaultNotAValue':
+      return `${w.block} counts as ${w.default} before it is written, which is not one of its values.`;
+    case 'blockNamedTest':
+      return "A block is named test, which a cell's when takes for a named test.";
+    case 'emptyCondition':
+      return "A cell's when or requires has no keys: it says nothing that must hold.";
     case 'noteNotByPeople':
       return `${w.block} is a note, but people do not write it.`;
     case 'noteIsAChoice':
@@ -185,7 +218,7 @@ export function faultWords(fault: Fault): string {
         conditionOnOwnOutput: "A cell's condition reads a block the cell itself writes, and another writes it too.",
         lastHasCondition: 'The last cell has a condition.',
         noLimit: "A cell's limit is zero.",
-        noSuchTest: "A cell names a test the flow does not have.",
+        noSuchTest: 'A cell names a test the flow does not have.',
         unwritten: 'A test a cell uses reads a block that nothing writes.',
       }[w.reason];
       return `${why}${at}`;
@@ -193,172 +226,18 @@ export function faultWords(fault: Fault): string {
   }
 }
 
-/// Where a change is: the flow, a test, a cell or a block.
-export type Place = { on: 'flow' } | { on: 'test'; test: string } | { on: 'cell'; cell: string } | { on: 'block'; block: string };
-
-export function placeOf(change: Change): Place {
-  switch (change.kind) {
-    case 'name':
-    case 'flowLimit':
-    case 'rulesAdded':
-    case 'rulesRemoved':
-    case 'rulesChanged':
-      return { on: 'flow' };
-    case 'testAdded':
-    case 'testRemoved':
-      return { on: 'test', test: change.test.name };
-    case 'testReworded':
-    case 'testChanged':
-      return { on: 'test', test: change.test };
-    case 'blockAdded':
-    case 'blockRemoved':
-    case 'values':
-    case 'people':
-    case 'note':
-    case 'outside':
-    case 'shown':
-    case 'what':
-      return { on: 'block', block: change.block };
-    default:
-      return { on: 'cell', cell: change.cell };
-  }
-}
-
-/// A change in words: what changed, and how, from before to after. `before` is empty for what was only put in, and
-/// `after` for what was only taken out; both are empty when the words of `what` say it all.
-export interface ChangeWords {
-  what: string;
-  before: string;
-  after: string;
-}
-
-const yesNo = (b: boolean) => (b ? 'yes' : 'no');
-const values = (v: string[] | null) => (v ? v.join(', ') : 'not a choice');
-const names = (v: string[]) => (v.length > 0 ? v.join(', ') : 'none');
-const place = (p: number) => `place ${p + 1}`;
-
-export function changeWords(change: Change): ChangeWords {
-  const c = change;
-  switch (c.kind) {
-    case 'name':
-      return { what: 'Name', before: c.before, after: c.after };
-    case 'flowLimit':
-      return { what: `Limit of ${LIMIT_WORDS[c.limit]}`, before: `${c.before}`, after: `${c.after}` };
-    case 'testAdded':
-      return { what: 'Declared', before: '', after: testWords(c.test) };
-    case 'testRemoved':
-      return { what: 'No longer declared', before: testWords(c.test), after: '' };
-    case 'testReworded':
-      return { what: 'Words', before: c.before, after: c.after };
-    case 'testChanged':
-      return { what: 'Holds when', before: readsWords(c.before), after: readsWords(c.after) };
-    case 'rulesAdded':
-      return { what: `Rules ${c.name}`, before: '', after: c.text };
-    case 'rulesRemoved':
-      return { what: `Rules ${c.name}`, before: c.text, after: '' };
-    case 'rulesChanged':
-      return { what: `Rules ${c.name}`, before: c.before, after: c.after };
-    case 'cellAdded':
-      return { what: 'Put in', before: '', after: place(c.place) };
-    case 'cellRemoved':
-      return { what: 'Taken out', before: place(c.place), after: '' };
-    case 'cellMoved':
-      return { what: 'Moved', before: place(c.before), after: place(c.after) };
-    case 'title':
-      return { what: 'Title', before: c.before, after: c.after };
-    case 'kind':
-      return { what: 'Run by', before: kindWords(c.before), after: kindWords(c.after) };
-    case 'line':
-      return { what: 'Line', before: c.before ?? 'none', after: c.after ?? 'none' };
-    case 'readsOnly':
-      return { what: 'Only reads', before: yesNo(c.before), after: yesNo(c.after) };
-    case 'system':
-      return { what: 'Rules of its line', before: names(c.before), after: names(c.after) };
-    case 'takesMain':
-      return { what: 'Takes main in as it starts', before: yesNo(c.before), after: yesNo(c.after) };
-    case 'task':
-      return { what: 'Task', before: c.before ?? 'none', after: c.after ?? 'none' };
-    case 'act':
-      return { what: 'Act', before: c.before ?? 'none', after: c.after ?? 'none' };
-    case 'condition':
-      return { what: 'Runs when', before: conditionWords(c.before), after: conditionWords(c.after) };
-    case 'preconditionAdded':
-      return { what: 'Waits until', before: '', after: testWords(c.test) };
-    case 'preconditionRemoved':
-      return { what: 'Waits until', before: testWords(c.test), after: '' };
-    case 'runsOnAdded':
-      return { what: 'Runs it', before: '', after: c.block };
-    case 'runsOnRemoved':
-      return { what: 'Runs it', before: c.block, after: '' };
-    case 'givenAdded':
-      return { what: 'Is given', before: '', after: c.block };
-    case 'givenRemoved':
-      return { what: 'Is given', before: c.block, after: '' };
-    case 'outputAdded':
-      return { what: 'May write', before: '', after: c.block };
-    case 'outputRemoved':
-      return { what: 'May write', before: c.block, after: '' };
-    case 'mustWriteAdded':
-      return { what: 'Writes every time', before: '', after: c.block };
-    case 'mustWriteRemoved':
-      return { what: 'Writes every time', before: c.block, after: '' };
-    case 'describesAdded':
-      return { what: 'Says what the work is by', before: '', after: c.block };
-    case 'describesRemoved':
-      return { what: 'Says what the work is by', before: c.block, after: '' };
-    case 'toolAdded':
-      return { what: 'May ask the engine for', before: '', after: c.tool };
-    case 'toolRemoved':
-      return { what: 'May ask the engine for', before: c.tool, after: '' };
-    case 'runsWhy':
-      return { what: `${c.block} runs it because`, before: c.before ?? 'not said', after: c.after ?? 'not said' };
-    case 'givenKind':
-      return { what: `Is given ${c.block} as`, before: inputKindWords(c.before), after: inputKindWords(c.after) };
-    case 'givenOrder':
-      return { what: 'Is given, in the order', before: names(c.before), after: names(c.after) };
-    case 'givenWhy':
-      return { what: `Is given ${c.block} because`, before: c.before ?? 'not said', after: c.after ?? 'not said' };
-    case 'cellLimit':
-      return { what: `Limit of ${LIMIT_WORDS[c.limit]}`, before: `${c.before}`, after: `${c.after}` };
-    case 'effort':
-      return { what: 'Effort', before: c.before ?? 'none', after: c.after ?? 'none' };
-    case 'levelsAbove':
-      return { what: "Levels above the item's", before: `${c.before}`, after: `${c.after}` };
-    case 'blockAdded':
-      return { what: 'Declared', before: '', after: '' };
-    case 'blockRemoved':
-      return { what: 'No longer declared', before: '', after: '' };
-    case 'values':
-      return { what: 'Values', before: values(c.before), after: values(c.after) };
-    case 'people':
-      return { what: 'Written by people', before: yesNo(c.before), after: yesNo(c.after) };
-    case 'note':
-      return { what: 'A note', before: yesNo(c.before), after: yesNo(c.after) };
-    case 'outside':
-      return { what: 'Written by the outside', before: c.before ?? 'no', after: c.after ?? 'no' };
-    case 'shown':
-      return { what: 'Shown on the page', before: yesNo(c.before), after: yesNo(c.after) };
-    case 'what':
-      return { what: 'What it is', before: c.before ?? 'not said', after: c.after ?? 'not said' };
-  }
-}
-
-/// The words for what the context must hold of an input.
+/// A kind a cell gives a block in, as its file writes it; nothing where it says none.
 export function inputKindWords(kind: InputKind | null): string {
-  switch (kind) {
-    case 'latest':
-      return 'the latest';
-    case 'lastAndLatest':
-      return 'the last and the latest';
-    case 'all':
-      return 'all of it';
-    case null:
-      return 'not said';
-  }
+  return kind === null ? '' : kind.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 }
 
-/// When a block is there for a cell to read, where that is not plain from who writes it: a cell before the reader
-/// that runs only under a condition, or that need not write the block each time. Empty where there is nothing to add.
+/// How a cell is given a block: `given`, and its kind as the cell's file writes it.
+export function givenWords(kind: InputKind | null): string {
+  return kind ? `context ${inputKindWords(kind)}` : 'context';
+}
+
+/// Of each cell before the reader that writes a block, what decides whether it is there: the writer's `when`, or that
+/// it need not write it (`must_write` false). Empty where nothing does.
 export function thereWhen(flow: Flow, reader: string, block: Block): string {
   const at = flow.cells.findIndex((c) => c.id === reader);
   const parts: string[] = [];
@@ -366,52 +245,52 @@ export function thereWhen(flow: Flow, reader: string, block: Block): string {
     const i = flow.cells.findIndex((c) => c.id === id);
     if (i < 0 || i >= at) continue;
     const writer = flow.cells[i];
-    if (writer.condition !== null) parts.push(`only when ${id} runs (${conditionWords(writer.condition)})`);
-    else if (!writer.mustWrite.includes(block.name)) parts.push(`if ${id} writes it`);
+    if (writer.when.length > 0) parts.push(`${id} when ${conditionWords(writer.when)}`);
+    else if (!writer.mustWrite.includes(block.name)) parts.push(`${id} must_write false`);
   }
   return parts.join('; ');
 }
 
-/// What a cell says of a block, on one line, for the chart's column of words: of a block it reads, how it takes it and
-/// why; of one it may write, whether each time, and whether it brings up to date what it read; of one whose value says
-/// whether it runs or what it waits for, that. Empty where the cell has nothing to do with the block.
+/// What a cell's file says of a block, on one line, for the chart's column of words, each by its key: the `triggers`
+/// that stand on it; `context`, its kind and its `why`; `outputs` or `must_write`. Empty where the cell has nothing to
+/// do with the block. Its `when` and its `requires` are said on the rows of the conditions, once.
 export function cellSays(cell: Cell, block: string): string {
   const parts: string[] = [];
-  const reads = cell.inputs.includes(block);
-  if (reads) {
-    const taken = cell.input[block];
-    const how = taken?.kind ? `takes ${inputKindWords(taken.kind)}` : 'reads';
-    parts.push(taken?.why ? `${how}: ${taken.why}` : how);
+  const input = cell.input[block];
+  for (const trigger of cell.triggers.filter((t) => t.block === block)) {
+    parts.push(`triggered_by ${trigger.name}`);
+  }
+  if (cell.given.includes(block)) {
+    const how = givenWords(input?.given?.kind ?? null);
+    const why = input?.given?.why;
+    parts.push(why ? `${how}: ${why}` : how);
   }
   if (cell.outputs.includes(block)) {
-    const write = cell.mustWrite.includes(block) ? 'writes every time' : 'may write';
-    parts.push(reads ? `${write}, ${BROUGHT_UP_TO_DATE}` : write);
-  }
-  const condition = cell.condition;
-  if (condition !== null && (condition.on === 'block' ? condition.block === block : condition.test.reads.includes(block))) {
-    parts.push(`runs when ${conditionWords(condition)}`);
-  }
-  for (const test of cell.preconditions) {
-    if (test.reads.includes(block)) parts.push(`waits until ${testWords(test)}`);
+    parts.push(cell.mustWrite.includes(block) ? 'must_write' : 'outputs');
   }
   return parts.join('; ');
 }
 
-/// What is said of a block a cell both reads and may write: what it hands in is the block it read, brought up to
-/// date.
-export const BROUGHT_UP_TO_DATE = 'brought up to date';
-
-/// Who runs a cell: an agent in its line, named by the line, or the engine.
+/// Who runs a cell: its line, or the engine.
 export function runBy(cell: Cell): string {
   return cell.kind === 'agent' ? (cell.line ?? '') : 'engine';
 }
 
-/// What a cell's head on the chart has no room to say besides its title, each apart so that a change of one can be
-/// marked: who runs it, when it runs, and what it waits for; none of the last two where the cell has none.
-export function headFacts(cell: Cell): { by: string; when: string | null; waits: string | null } {
+/// What a cell's head on the chart has no room to say besides its title, each by its key: its line or `engine`, its
+/// `when`, its `requires`; none of the last two where the cell has none.
+export function headFacts(cell: Cell): {
+  by: string;
+  when: string | null;
+  waits: string | null;
+} {
   return {
-    by: cell.kind === 'agent' ? `${runBy(cell)} line` : runBy(cell),
-    when: cell.condition ? `runs when ${conditionWords(cell.condition)}` : null,
-    waits: cell.preconditions.length > 0 ? `waits until ${cell.preconditions.map(testWords).join('; ')}` : null,
+    by: runBy(cell),
+    when: cell.when.length > 0 ? `when ${conditionWords(cell.when)}` : null,
+    waits: cell.requires.length > 0 ? `requires ${conditionWords(cell.requires)}` : null,
   };
+}
+
+/// How long a text is, in characters, in words: `2,950 characters`.
+export function charactersWords(n: number): string {
+  return `${n.toLocaleString('en-US')} character${n === 1 ? '' : 's'}`;
 }

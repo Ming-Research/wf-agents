@@ -1,6 +1,6 @@
 /* The flow's chart: the blocks down the side, the cells across, a mark where they cross, each block's line along its
-   row, the ways back in the way-back colour, and what a change did in the change colours. The blocks' names stay in
-   place as the frame scrolls sideways, and the cells' heads as it scrolls down. */
+   row, and the ways back in the way-back colour. The blocks' names stay in place as the frame scrolls sideways, and the
+   cells' heads as it scrolls down. */
 
 /* The view under the view's line: the chart's frame, and the docked panel at its right while one is open. */
 .view-body {
@@ -131,12 +131,12 @@ tr.row.chosen > .block-head {
 }
 
 /* A cell's head. In the history of a work: its id, its title and how it stands. On the flow's chart, further down:
-   its id and the first word of its line. */
+   its id alone. */
 .cell-head {
   border-left: var(--hairline) solid var(--line);
 }
 
-/* A line's name stands out, so that the cells that share a session are seen at a glance; "engine" stays muted. */
+/* A line's name stands out wherever it stands, so that the cells that share a session are seen at a glance. */
 .line-name {
   color: var(--accent-text);
 }
@@ -159,14 +159,8 @@ tr.row.chosen > .block-head {
   overflow-wrap: break-word;
 }
 
-.cell-line {
-  color: var(--muted);
-  font-size: var(--size-label);
-  overflow-wrap: break-word;
-}
-
-/* The flow's chart. A cell's column is as wide as its marks, so its head holds the id and, under it, the first word of
-   its line, both in the middle. The corner's two labels stand on one line. */
+/* The flow's chart. A cell's column is as wide as its marks, so its head holds the id alone, in the middle. The
+   corner's two labels stand on one line. */
 .flow thead th {
   vertical-align: middle;
 }
@@ -177,8 +171,7 @@ tr.row.chosen > .block-head {
   padding: var(--space-4) var(--space-2);
 }
 
-.flow .cell-id,
-.flow .cell-line {
+.flow .cell-id {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -187,16 +180,6 @@ tr.row.chosen > .block-head {
 
 .flow .cell-id {
   color: var(--text);
-}
-
-/* A cell the version shown does not have: its id muted, and struck through when it was taken out. */
-.flow .absent .cell-id {
-  color: var(--muted);
-}
-
-.flow .cell-head.status-removed.absent .cell-id,
-.flow .words-about.taken-out.absent .cell-title {
-  text-decoration: line-through;
 }
 
 .flow .corner-blocks {
@@ -268,54 +251,22 @@ tr.row.chosen > .block-head {
   white-space: nowrap;
 }
 
+/* The bands of rows over the blocks, the lines', the conditions' and the triggers', each with a firmer line under its
+   last row, and what each row is after its name, muted: line, test, block, trigger. */
+.row-label {
+  margin-left: var(--space-4);
+  color: var(--muted);
+  font-size: var(--size-small);
+}
+
+.matrix tbody.band tr:last-child > * {
+  border-bottom-color: var(--muted);
+}
+
+
 .sign {
   flex: none;
   color: var(--accent);
-}
-
-/* What a change did: the cell's head and the block's name edged in its colour, a field it changed underlined. */
-.cell-head.status-added {
-  box-shadow: inset 0 var(--focus) var(--green);
-}
-
-.cell-head.status-removed {
-  box-shadow: inset 0 var(--focus) var(--red);
-}
-
-.cell-head.status-changed {
-  box-shadow: inset 0 var(--focus) var(--orange);
-}
-
-.status-added > .block-head {
-  box-shadow: inset var(--focus) 0 var(--green);
-}
-
-.status-removed > .block-head {
-  box-shadow: inset var(--focus) 0 var(--red);
-}
-
-.status-changed > .block-head {
-  box-shadow: inset var(--focus) 0 var(--orange);
-}
-
-.changed-field {
-  text-decoration: underline dotted var(--orange);
-  text-underline-offset: 3px;
-}
-
-svg.changed-field {
-  color: var(--orange);
-}
-
-/* What the version shown does not have: muted, and struck through when it was taken out. */
-.absent,
-.absent .head-button {
-  color: var(--muted);
-}
-
-.cell-head.status-removed.absent .cell-title,
-.status-removed.absent .block-name {
-  text-decoration: line-through;
 }
 
 /* A crossing: the row's line through it, the way back when there is one, and the mark. */
@@ -391,10 +342,31 @@ svg.changed-field {
   margin: auto;
 }
 
+/* The marks on a datum's row, one for each thing, side by side. */
+.glyphs {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.glyphs .glyph {
+  margin: 0;
+}
+
 .part {
   fill: none;
   stroke: var(--text);
   stroke-width: 2;
+}
+
+/* The kind of a context, inside its ring. */
+.part.kind {
+  fill: var(--text);
+  stroke: none;
+  font-family: var(--mono);
+  font-size: 13px;
+  text-anchor: middle;
+  dominant-baseline: central;
 }
 
 .part.write {
@@ -407,23 +379,22 @@ svg.changed-field {
   stroke-width: 1.5;
 }
 
-.part.added {
-  stroke: var(--green);
+/* The tick of a cell that runs when a test holds or a block is yes, and the cross of one that runs when it is no. */
+.part.holds {
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.part.write.added {
-  fill: var(--green);
+/* The value a cell's condition waits for, where it is neither yes nor no. */
+.spot-value {
+  font-family: var(--mono);
+  font-size: var(--size-small);
 }
 
-.part.removed {
-  stroke: var(--red);
-  stroke-dasharray: 3 2;
-}
-
-.part.write.removed {
-  fill: none;
-  stroke: var(--red);
-  stroke-width: 1.5;
+/* The dot of a cell on a line, in the accent as the lines' names are. */
+.part.on-line {
+  fill: var(--accent);
+  stroke: none;
 }
 
 /* The legend, in the view's line. */
@@ -451,24 +422,6 @@ svg.changed-field {
   width: var(--space-12);
   height: var(--chart-back);
   background: var(--violet);
-}
-
-.legend-status {
-  display: inline-block;
-  width: var(--focus);
-  height: var(--space-12);
-}
-
-.legend-status.status-added {
-  background: var(--green);
-}
-
-.legend-status.status-removed {
-  background: var(--red);
-}
-
-.legend-status.status-changed {
-  background: var(--orange);
 }
 
 /* The faults of a definition that does not compile, in place of the chart. */
@@ -506,7 +459,7 @@ svg.changed-field {
 }
 
 .edge::after {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   bottom: 0;

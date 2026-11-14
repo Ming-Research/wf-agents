@@ -1,12 +1,12 @@
 //! The flow as the page reads it: its own types, named for what the owner reads, made from what the flow crate
-//! compiles and compares. The page words everything it shows from these; nothing here is text written for the owner
+//! compiles. The page words everything it shows from these; nothing here is text written for the owner
 //! but what the definition itself holds (titles, the words of the tests) and what the parser said of a file it could
 //! not read.
 
 use std::collections::BTreeMap;
 
-use decide::{BlockId, CellId, Condition as Applies, FlowFault, TestName};
-use flow::{BlockChange, CellChange, Compiled, FaultKind, Kind as CellKind, Limit as LimitOf, TestKind as KindOfTest};
+use decide::{BlockId, Condition as Applies, FlowFault, TestName};
+use flow::{Compiled, FaultKind, Kind as CellKind, TestKind as KindOfTest};
 use serde::{Deserialize, Serialize};
 
 /// A definition as the page shows it: compiled, or why it is not.
@@ -21,20 +21,6 @@ pub enum Definition {
     Unreadable { reason: String },
 }
 
-/// What changed, as the page shows it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(tag = "state", rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum Comparison {
-    /// The page was started with no definition to compare against.
-    NothingToCompare,
-    /// The definition compared against, and the changes from it to the one shown; none when either does not compile,
-    /// since only compiled definitions are compared.
-    Compared {
-        against: Definition,
-        changes: Option<Vec<Change>>,
-    },
-}
-
 /// A compiled flow.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -46,6 +32,11 @@ pub struct Flow {
     pub lines: Vec<Line>,
     /// The named tests, by name.
     pub tests: Vec<Test>,
+    /// The engine's tools every agent's cell of the flow may ask for, in the order the flow names them; none where it
+    /// names none.
+    pub tools: Vec<String>,
+    /// The groups of the flow's blocks, by name, each with its blocks as the flow names them.
+    pub groups: Vec<Group>,
     /// The cells, in the order of the walk.
     pub cells: Vec<Cell>,
     /// The blocks, by name.
@@ -64,14 +55,23 @@ pub struct Limits {
     pub calls: u32,
 }
 
-/// A line: the cells that share one session.
+/// A line: the cells that share one session, and what its file writes of it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Line {
     pub name: String,
+    /// In the order of the walk.
     pub cells: Vec<String>,
     /// How many levels above its item's its rounds run at, never above the highest an item may be at.
     pub levels_above: u32,
+    /// The file it is written in, from the flow's directory.
+    pub file: String,
+    /// Its agents only read.
+    pub reads_only: bool,
+    /// Of a flow written before it was laid out one thing to a file, its `system`, as written.
+    pub system: Vec<String>,
+    /// Its `rules`, as written.
+    pub rules: Vec<String>,
 }
 
 /// A named test: the words shown for it, and what it holds on.
@@ -79,7 +79,10 @@ pub struct Line {
 #[serde(rename_all = "camelCase")]
 pub struct Test {
     pub name: String,
+    /// Its `says`.
     pub words: String,
+    /// The file it is written in, from the flow's directory.
+    pub file: String,
     /// How the blocks it reads make it hold.
     pub kind: TestKind,
     /// The blocks it reads, as the definition lists them.
@@ -110,62 +113,117 @@ pub struct Cell {
     pub line: Option<String>,
     /// What an agent's cell's agent is told to do, with its line breaks; an engine's cell has none.
     pub task: Option<String>,
+    /// The file the task is written in, from the flow's directory; none where it is written in place.
+    pub task_file: Option<String>,
     /// The act of the engine's own that carries out an engine's cell; an agent's cell has none.
     pub act: Option<String>,
     /// The reasoning effort an agent's cell's rounds run at; an engine's cell has none.
     pub effort: Option<String>,
-    /// When the cell runs at all; none is always.
-    pub condition: Option<Condition>,
-    /// What the work waits for before the cell.
-    pub preconditions: Vec<Test>,
+    /// The work's branch takes the latest main in as each run of the cell starts.
+    pub takes_main: bool,
+    /// When the cell runs at all: every key of its `when` holds, in the order written; none is always.
+    pub when: Vec<Condition>,
+    /// What the work waits for before the cell: every key of its `requires`, in the order written.
+    pub requires: Vec<Condition>,
     /// The blocks it names: those that run it, in the order it names them, then those it is only given.
     pub inputs: Vec<String>,
-    /// How it takes the blocks it names, by the block's name, for each of them the definition says it of: how it is
-    /// given one and why, or why one it is not given runs it.
+    /// The blocks whose new version runs it, in the order it names them.
+    pub runs_on: Vec<String>,
+    /// The blocks it is given, its session kept supplied with their content, in the order it names them; none for an
+    /// engine's cell.
+    pub given: Vec<String>,
+    /// For each block it names, by the block's name, whether it runs the cell and whether the cell is given it, with
+    /// why and how where the definition says.
     pub input: BTreeMap<String, Input>,
     /// The blocks it may write, as the definition lists them.
     pub outputs: Vec<String>,
     /// The blocks among those that every hand-in of it includes, as the definition lists them.
     pub must_write: Vec<String>,
+    /// The tools of the engine's that an agent's cell may ask for in its return, by name, as the definition lists
+    /// them; none for an engine's cell.
+    pub tools: Vec<String>,
+    /// What runs it, each a trigger by its name, with the block it stands on, the data its agent reads for it and what
+    /// the cell does when it fires, as the definition writes them.
+    #[serde(default)]
+    pub triggers: Vec<TriggerView>,
     pub limits: Limits,
 }
 
-/// How a cell takes one of the blocks it names.
+/// A group of the flow's blocks, whose trigger fires for a new version of any of them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Group {
+    pub name: String,
+    pub blocks: Vec<String>,
+}
+
+/// A trigger of a cell, as the definition writes it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TriggerView {
+    pub name: String,
+    /// What it is, as its file writes it; none where it says nothing.
+    pub what: Option<String>,
+    /// The block it stands on; of a group's trigger, the group's name.
+    pub block: String,
+    /// Of a group's trigger, the group's blocks, each of which runs the cell; none of another.
+    pub group: Vec<String>,
+    pub read: Vec<String>,
+    #[serde(rename = "do")]
+    pub does: Option<String>,
+}
+
+/// One of the blocks a cell names: whether it runs the cell, and whether the cell is given it. It does one or both.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Input {
-    /// What the context of the cell's session must hold of the block when the cell runs; none where the cell is not
-    /// given the block.
-    pub kind: Option<InputKind>,
-    /// Why the cell is given the block, or of one it is not given, why the block runs it; none where the definition
+    /// A new version of it runs the cell; none where it does not.
+    pub runs: Option<Runs>,
+    /// The cell is given it; none where it is not.
+    pub given: Option<GivenAs>,
+}
+
+/// Why a block runs a cell.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Runs {
+    /// None where the definition does not say.
+    pub why: Option<String>,
+}
+
+/// How a cell is given a block, and why.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GivenAs {
+    /// What the context of the cell's session must hold of the block when the cell runs; none where the definition
     /// does not say.
+    pub kind: Option<InputKind>,
+    /// Why the cell is given the block; none where the definition does not say.
     pub why: Option<String>,
 }
 
 impl Input {
-    /// How the cell takes each block it names, of those the definition says something of.
+    /// Of each block the cell names, by its name, whether it runs the cell and whether the cell is given it.
     fn of(spec: &flow::CellSpec) -> BTreeMap<String, Input> {
-        let given = (spec.given.iter()).map(|g| {
-            let input = Input {
+        let mut out: BTreeMap<String, Input> = BTreeMap::new();
+        for r in &spec.runs_on {
+            let input = out.entry(r.block.to_string()).or_insert(Input {
+                runs: None,
+                given: None,
+            });
+            input.runs = Some(Runs { why: r.why.clone() });
+        }
+        for g in &spec.given {
+            let input = out.entry(g.block.to_string()).or_insert(Input {
+                runs: None,
+                given: None,
+            });
+            input.given = Some(GivenAs {
                 kind: Some(InputKind::of(g.kind)),
                 why: g.why.clone(),
-            };
-            (g.block.to_string(), input)
-        });
-        let only_runs = (spec.runs_on.iter())
-            .filter(|r| !spec.given.iter().any(|g| g.block == r.block))
-            .map(|r| {
-                (
-                    r.block.to_string(),
-                    Input {
-                        kind: None,
-                        why: r.why.clone(),
-                    },
-                )
             });
-        (given.chain(only_runs))
-            .filter(|(_, input)| input.kind.is_some() || input.why.is_some())
-            .collect()
+        }
+        out
     }
 }
 
@@ -180,7 +238,7 @@ pub enum InputKind {
 }
 
 impl InputKind {
-    fn of(kind: flow::InputKind) -> InputKind {
+    pub(crate) fn of(kind: flow::InputKind) -> InputKind {
         match kind {
             flow::InputKind::Latest => InputKind::Latest,
             flow::InputKind::LastAndLatest => InputKind::LastAndLatest,
@@ -197,7 +255,7 @@ pub enum Kind {
     Engine,
 }
 
-/// When a cell runs.
+/// One key of a cell's `when` or `requires`: a block's value, or a named test.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "on", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Condition {
@@ -214,8 +272,19 @@ pub struct Block {
     pub name: String,
     /// The values of a choice; none for a block that is not one.
     pub values: Option<Vec<String>>,
+    /// Of a choice, the value it counts as before anyone has written it; none where it has none.
+    pub default: Option<String>,
     /// What the block is, in a sentence; none where the definition does not say.
     pub what: Option<String>,
+    /// The field of a return a cell writes it through, where it is not written as a block; none where it is.
+    #[serde(default)]
+    pub field: Option<String>,
+    /// It stands only for a trigger: no cell is given it, writes it or describes the work by it.
+    #[serde(default)]
+    pub trigger: bool,
+    /// Of a block a source of the engine's writes, what it writes, each text by its name as its file writes them.
+    #[serde(default)]
+    pub writes: Vec<(String, Vec<crate::given::Piece>)>,
     pub written_by: WrittenBy,
     pub read_by: ReadBy,
 }
@@ -429,6 +498,39 @@ pub enum What {
         block: String,
         is: String,
     },
+    /// The file a cell's task is written in is not among the flow's files.
+    NoTaskFile {
+        file: String,
+    },
+    /// The file a cell's task is written in holds no words.
+    TaskFileEmpty {
+        file: String,
+    },
+    /// The file a cell's task is written in is named by a path that leaves the flow's directory.
+    TaskFileOutside {
+        file: String,
+    },
+    /// The block says what it counts as before it is written, and it is not a choice.
+    DefaultNotAChoice {
+        block: String,
+    },
+    /// The choice says what it counts as before it is written, and that is not one of its values.
+    DefaultNotAValue {
+        block: String,
+        default: String,
+    },
+    /// A block is named `test`, which a cell's `when` and `requires` take for a named test.
+    BlockNamedTest,
+    /// A cell's `when` or `requires` is a table of no keys.
+    EmptyCondition,
+    /// A group of blocks has the name of a block or a datum of the flow.
+    GroupNameTaken {
+        group: String,
+    },
+    /// A group of blocks names no block.
+    GroupEmpty {
+        group: String,
+    },
     ConditionOnOwnOutput {
         block: String,
     },
@@ -485,274 +587,6 @@ pub enum FlowRefusal {
     Unwritten,
 }
 
-/// One change from the definition compared against to the one shown.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum Change {
-    Name {
-        before: String,
-        after: String,
-    },
-    FlowLimit {
-        limit: Limit,
-        before: u32,
-        after: u32,
-    },
-    TestAdded {
-        test: Test,
-    },
-    TestRemoved {
-        test: Test,
-    },
-    TestReworded {
-        test: String,
-        before: String,
-        after: String,
-    },
-    /// What the test holds on: its kind, the blocks it reads or the value it looks for.
-    TestChanged {
-        test: String,
-        before: Test,
-        after: Test,
-    },
-    /// A set of the flow's rules for the agents was added, with its text.
-    RulesAdded {
-        name: String,
-        text: String,
-    },
-    /// A set of the flow's rules for the agents is no longer there; its text was this.
-    RulesRemoved {
-        name: String,
-        text: String,
-    },
-    /// The text of a set of the flow's rules for the agents.
-    RulesChanged {
-        name: String,
-        before: String,
-        after: String,
-    },
-    /// At this place of the order, counted from 0.
-    CellAdded {
-        cell: String,
-        place: usize,
-    },
-    /// From this place of the order, counted from 0.
-    CellRemoved {
-        cell: String,
-        place: usize,
-    },
-    CellMoved {
-        cell: String,
-        before: usize,
-        after: usize,
-    },
-    Title {
-        cell: String,
-        before: String,
-        after: String,
-    },
-    Kind {
-        cell: String,
-        before: Kind,
-        after: Kind,
-    },
-    Line {
-        cell: String,
-        before: Option<String>,
-        after: Option<String>,
-    },
-    /// Whether the agents of the cell's line only read.
-    ReadsOnly {
-        cell: String,
-        before: bool,
-        after: bool,
-    },
-    /// The parts of the system prompt of the session of the cell's line, by name, in the order its line names them.
-    System {
-        cell: String,
-        before: Vec<String>,
-        after: Vec<String>,
-    },
-    /// Whether the work's branch takes the latest main in as each run of the cell starts.
-    TakesMain {
-        cell: String,
-        before: bool,
-        after: bool,
-    },
-    Task {
-        cell: String,
-        before: Option<String>,
-        after: Option<String>,
-    },
-    Act {
-        cell: String,
-        before: Option<String>,
-        after: Option<String>,
-    },
-    Condition {
-        cell: String,
-        before: Option<Condition>,
-        after: Option<Condition>,
-    },
-    PreconditionAdded {
-        cell: String,
-        test: Test,
-    },
-    PreconditionRemoved {
-        cell: String,
-        test: Test,
-    },
-    /// The block now runs the cell.
-    RunsOnAdded {
-        cell: String,
-        block: String,
-    },
-    /// The block no longer runs the cell.
-    RunsOnRemoved {
-        cell: String,
-        block: String,
-    },
-    /// The cell is now given the block.
-    GivenAdded {
-        cell: String,
-        block: String,
-    },
-    /// The cell is no longer given the block.
-    GivenRemoved {
-        cell: String,
-        block: String,
-    },
-    OutputAdded {
-        cell: String,
-        block: String,
-    },
-    OutputRemoved {
-        cell: String,
-        block: String,
-    },
-    /// Every hand-in of the cell must now include the block.
-    MustWriteAdded {
-        cell: String,
-        block: String,
-    },
-    /// Every hand-in of the cell no longer needs to include the block.
-    MustWriteRemoved {
-        cell: String,
-        block: String,
-    },
-    /// The cell now says what the work is by the block, where the host shows the work.
-    DescribesAdded {
-        cell: String,
-        block: String,
-    },
-    /// The cell no longer says what the work is by the block.
-    DescribesRemoved {
-        cell: String,
-        block: String,
-    },
-    /// A tool of the engine's the cell may now ask for, by name.
-    ToolAdded {
-        cell: String,
-        tool: String,
-    },
-    /// A tool of the engine's the cell may no longer ask for, by name.
-    ToolRemoved {
-        cell: String,
-        tool: String,
-    },
-    /// Why a block runs the cell; none where the definition does not say.
-    RunsWhy {
-        cell: String,
-        block: String,
-        before: Option<String>,
-        after: Option<String>,
-    },
-    /// What the context must hold of a block the cell is given.
-    GivenKind {
-        cell: String,
-        block: String,
-        before: InputKind,
-        after: InputKind,
-    },
-    /// The blocks the cell is given in both stand in another order; both lists whole.
-    GivenOrder {
-        cell: String,
-        before: Vec<String>,
-        after: Vec<String>,
-    },
-    /// Why the cell is given a block; none where the definition does not say.
-    GivenWhy {
-        cell: String,
-        block: String,
-        before: Option<String>,
-        after: Option<String>,
-    },
-    CellLimit {
-        cell: String,
-        limit: Limit,
-        before: u32,
-        after: u32,
-    },
-    /// The reasoning effort an agent cell's rounds run at; an engine cell has none.
-    Effort {
-        cell: String,
-        before: Option<String>,
-        after: Option<String>,
-    },
-    /// How many levels above its item's the cell's rounds run at, as its line says.
-    LevelsAbove {
-        cell: String,
-        before: u32,
-        after: u32,
-    },
-    BlockAdded {
-        block: String,
-    },
-    BlockRemoved {
-        block: String,
-    },
-    Values {
-        block: String,
-        before: Option<Vec<String>>,
-        after: Option<Vec<String>>,
-    },
-    People {
-        block: String,
-        before: bool,
-        after: bool,
-    },
-    Note {
-        block: String,
-        before: bool,
-        after: bool,
-    },
-    Outside {
-        block: String,
-        before: Option<String>,
-        after: Option<String>,
-    },
-    Shown {
-        block: String,
-        before: bool,
-        after: bool,
-    },
-    /// What the block is, in a sentence; none where the definition does not say.
-    What {
-        block: String,
-        before: Option<String>,
-        after: Option<String>,
-    },
-}
-
-/// Which limit.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum Limit {
-    Runs,
-    Returns,
-    Calls,
-}
-
 impl Flow {
     /// The compiled definition as the page reads it.
     pub fn of(compiled: &Compiled) -> Self {
@@ -766,11 +600,18 @@ impl Flow {
             let Some(name) = &spec.line else { continue };
             match lines.iter_mut().find(|l| &l.name == name) {
                 Some(line) => line.cells.push(spec.id.to_string()),
-                None => lines.push(Line {
-                    name: name.clone(),
-                    cells: vec![spec.id.to_string()],
-                    levels_above: spec.levels_above,
-                }),
+                None => {
+                    let written = compiled.lines.get(name);
+                    lines.push(Line {
+                        name: name.clone(),
+                        cells: vec![spec.id.to_string()],
+                        levels_above: spec.levels_above,
+                        file: written.map(|l| l.file.clone()).unwrap_or_default(),
+                        reads_only: written.is_some_and(|l| l.reads_only),
+                        system: written.map(|l| l.system.clone()).unwrap_or_default(),
+                        rules: written.map(|l| l.rules.clone()).unwrap_or_default(),
+                    });
+                }
             }
         }
         lines.sort_by(|a, b| a.name.cmp(&b.name));
@@ -785,14 +626,34 @@ impl Flow {
                 kind: Kind::of(spec.kind),
                 line: spec.line.clone(),
                 task: spec.task.clone(),
+                task_file: spec.task_file.clone(),
                 act: spec.act.clone(),
                 effort: spec.effort.map(|effort| effort.name().to_string()),
-                condition: cell.applies.as_ref().map(|c| Condition::of(c, compiled)),
-                preconditions: cell.requires.iter().map(|t| Test::of(t, compiled)).collect(),
-                inputs: names(&cell.runs_on),
+                takes_main: spec.takes_main,
+                when: cell.applies.iter().map(|c| Condition::of(c, compiled)).collect(),
+                requires: cell.requires.iter().map(|c| Condition::of(c, compiled)).collect(),
+                inputs: (spec.runs_on.iter().map(|r| &r.block))
+                    .chain(
+                        (spec.given.iter().map(|g| &g.block)).filter(|b| !spec.runs_on.iter().any(|r| &r.block == *b)),
+                    )
+                    .map(BlockId::to_string)
+                    .collect(),
+                runs_on: names(&cell.runs_on),
+                given: spec.given.iter().map(|g| g.block.to_string()).collect(),
                 input: Input::of(spec),
                 outputs: names(&cell.outputs),
                 must_write: names(&spec.must_write),
+                tools: spec.tools.clone(),
+                triggers: (spec.triggers.iter())
+                    .map(|t| TriggerView {
+                        name: t.name.clone(),
+                        what: t.what.clone(),
+                        block: t.block.to_string(),
+                        group: names(&t.group),
+                        read: names(&t.read),
+                        does: t.does.clone(),
+                    })
+                    .collect(),
                 limits: Limits {
                     runs: cell.limit,
                     returns: spec.returns,
@@ -806,7 +667,13 @@ impl Flow {
             .map(|(name, block)| Block {
                 name: name.to_string(),
                 values: block.values.clone(),
+                default: block.default.clone(),
                 what: block.what.clone(),
+                field: block.field.clone(),
+                trigger: block.trigger,
+                writes: (block.writes.0.iter())
+                    .map(|(name, text)| (name.clone(), crate::given::with_slots(text)))
+                    .collect(),
                 written_by: WrittenBy {
                     cells: names(&block.writers.cells),
                     people: block.writers.people,
@@ -826,6 +693,13 @@ impl Flow {
             limits,
             lines,
             tests: compiled.tests.keys().map(|name| Test::of(name, compiled)).collect(),
+            tools: compiled.tools.clone(),
+            groups: (compiled.groups.iter())
+                .map(|(name, blocks)| Group {
+                    name: name.clone(),
+                    blocks: blocks.clone(),
+                })
+                .collect(),
             cells,
             blocks,
         }
@@ -846,17 +720,13 @@ impl Kind {
 }
 
 impl Test {
-    /// The test of this name as the definition declares it: a compiled definition declares every test its cells use
-    /// and every test a comparison of it names.
-    fn of(test: &TestName, compiled: &Compiled) -> Self {
-        Test::declared(test, &compiled.tests[test], &compiled.flow.tests()[test])
-    }
-
-    /// The test of this name, with these words, testing this.
-    fn declared(name: &TestName, words: &str, test: &flow::Test) -> Self {
+    /// The test of this name as the definition declares it: a compiled definition declares every test its cells use.
+    fn of(name: &TestName, compiled: &Compiled) -> Self {
+        let test = &compiled.flow.tests()[name];
         Test {
             name: name.to_string(),
-            words: words.to_string(),
+            words: compiled.tests[name].clone(),
+            file: compiled.test_files.get(name).cloned().unwrap_or_default(),
             kind: match test.kind {
                 KindOfTest::All => TestKind::All,
                 KindOfTest::Any => TestKind::Any,
@@ -879,16 +749,6 @@ impl Condition {
             Applies::Test(test) => Condition::Test {
                 test: Test::of(test, compiled),
             },
-        }
-    }
-}
-
-impl Limit {
-    fn of(limit: LimitOf) -> Self {
-        match limit {
-            LimitOf::Runs => Limit::Runs,
-            LimitOf::Returns => Limit::Returns,
-            LimitOf::Calls => Limit::Calls,
         }
     }
 }
@@ -959,6 +819,15 @@ impl What {
             F::NoReader { block } => What::NoReader { block },
             F::UnknownSource { block, source } => What::UnknownSource { block, source },
             F::NotAChoice { block } => What::NotAChoice { block },
+            F::NoTaskFile { file } => What::NoTaskFile { file },
+            F::TaskFileEmpty { file } => What::TaskFileEmpty { file },
+            F::TaskFileOutside { file } => What::TaskFileOutside { file },
+            F::DefaultNotAChoice { block } => What::DefaultNotAChoice { block },
+            F::DefaultNotAValue { block, default } => What::DefaultNotAValue { block, default },
+            F::BlockNamedTest => What::BlockNamedTest,
+            F::EmptyCondition => What::EmptyCondition,
+            F::GroupNameTaken { group } => What::GroupNameTaken { group },
+            F::GroupEmpty { group } => What::GroupEmpty { group },
             F::NotAValue { block, is } => What::NotAValue { block, is },
             F::ConditionOnOwnOutput { block } => What::ConditionOnOwnOutput { block },
             F::ConditionNotWrittenBefore { block } => What::ConditionNotWrittenBefore { block },
@@ -985,253 +854,6 @@ impl What {
                     cell: cell.map(|c| c.to_string()),
                 }
             }
-        }
-    }
-}
-
-impl Change {
-    /// A change of the flow crate as the page reads it. A test is as the definition the change is in declares it: the
-    /// one compared against for what was taken out or held before, the one shown for what was put in.
-    pub fn of(change: &flow::Change, before: &Compiled, after: &Compiled) -> Self {
-        use flow::Change as C;
-        match change {
-            C::Name { before, after } => Change::Name {
-                before: before.clone(),
-                after: after.clone(),
-            },
-            C::Limit { limit, before, after } => Change::FlowLimit {
-                limit: Limit::of(*limit),
-                before: *before,
-                after: *after,
-            },
-            C::TestAdded { test, .. } => Change::TestAdded {
-                test: Test::of(test, after),
-            },
-            C::TestRemoved { test, .. } => Change::TestRemoved {
-                test: Test::of(test, before),
-            },
-            C::TestReworded { test, before, after } => Change::TestReworded {
-                test: test.to_string(),
-                before: before.clone(),
-                after: after.clone(),
-            },
-            C::TestChanged {
-                test,
-                before: from,
-                after: to,
-            } => Change::TestChanged {
-                test: test.to_string(),
-                before: Test::declared(test, &before.tests[test], from),
-                after: Test::declared(test, &after.tests[test], to),
-            },
-            C::RulesAdded { name, text } => Change::RulesAdded {
-                name: name.clone(),
-                text: text.clone(),
-            },
-            C::RulesRemoved { name, text } => Change::RulesRemoved {
-                name: name.clone(),
-                text: text.clone(),
-            },
-            C::RulesChanged {
-                name,
-                before: from,
-                after: to,
-            } => Change::RulesChanged {
-                name: name.clone(),
-                before: from.clone(),
-                after: to.clone(),
-            },
-            C::CellAdded { cell, place } => Change::CellAdded {
-                cell: cell.to_string(),
-                place: *place,
-            },
-            C::CellRemoved { cell, place } => Change::CellRemoved {
-                cell: cell.to_string(),
-                place: *place,
-            },
-            C::CellMoved {
-                cell,
-                before: from,
-                after: to,
-            } => Change::CellMoved {
-                cell: cell.to_string(),
-                before: *from,
-                after: *to,
-            },
-            C::Cell { cell, change } => Change::of_cell(cell, change, before, after),
-            C::BlockAdded { block } => Change::BlockAdded {
-                block: block.to_string(),
-            },
-            C::BlockRemoved { block } => Change::BlockRemoved {
-                block: block.to_string(),
-            },
-            C::Block { block, change } => Change::of_block(block, change),
-        }
-    }
-
-    fn of_cell(cell: &CellId, change: &CellChange, before: &Compiled, after: &Compiled) -> Self {
-        let cell = cell.to_string();
-        let block = |b: &BlockId| b.to_string();
-        match change {
-            CellChange::Title { before, after } => Change::Title {
-                cell,
-                before: before.clone(),
-                after: after.clone(),
-            },
-            CellChange::Kind {
-                before: from,
-                after: to,
-            } => Change::Kind {
-                cell,
-                before: Kind::of(*from),
-                after: Kind::of(*to),
-            },
-            CellChange::Line {
-                before: from,
-                after: to,
-            } => Change::Line {
-                cell,
-                before: from.clone(),
-                after: to.clone(),
-            },
-            &CellChange::ReadsOnly { before, after } => Change::ReadsOnly { cell, before, after },
-            CellChange::System {
-                before: from,
-                after: to,
-            } => Change::System {
-                cell,
-                before: from.clone(),
-                after: to.clone(),
-            },
-            &CellChange::TakesMain { before, after } => Change::TakesMain { cell, before, after },
-            CellChange::Task {
-                before: from,
-                after: to,
-            } => Change::Task {
-                cell,
-                before: from.clone(),
-                after: to.clone(),
-            },
-            CellChange::Act {
-                before: from,
-                after: to,
-            } => Change::Act {
-                cell,
-                before: from.clone(),
-                after: to.clone(),
-            },
-            CellChange::Condition {
-                before: from,
-                after: to,
-            } => Change::Condition {
-                cell,
-                before: from.as_ref().map(|c| Condition::of(c, before)),
-                after: to.as_ref().map(|c| Condition::of(c, after)),
-            },
-            CellChange::PreconditionAdded(test) => Change::PreconditionAdded {
-                cell,
-                test: Test::of(test, after),
-            },
-            CellChange::PreconditionRemoved(test) => Change::PreconditionRemoved {
-                cell,
-                test: Test::of(test, before),
-            },
-            CellChange::RunsOnAdded(b) => Change::RunsOnAdded { cell, block: block(b) },
-            CellChange::RunsOnRemoved(b) => Change::RunsOnRemoved { cell, block: block(b) },
-            CellChange::GivenAdded(b) => Change::GivenAdded { cell, block: block(b) },
-            CellChange::GivenRemoved(b) => Change::GivenRemoved { cell, block: block(b) },
-            CellChange::OutputAdded(b) => Change::OutputAdded { cell, block: block(b) },
-            CellChange::OutputRemoved(b) => Change::OutputRemoved { cell, block: block(b) },
-            CellChange::MustWriteAdded(b) => Change::MustWriteAdded { cell, block: block(b) },
-            CellChange::MustWriteRemoved(b) => Change::MustWriteRemoved { cell, block: block(b) },
-            CellChange::DescribesAdded(b) => Change::DescribesAdded { cell, block: block(b) },
-            CellChange::DescribesRemoved(b) => Change::DescribesRemoved { cell, block: block(b) },
-            CellChange::ToolAdded(tool) => Change::ToolAdded {
-                cell,
-                tool: tool.clone(),
-            },
-            CellChange::ToolRemoved(tool) => Change::ToolRemoved {
-                cell,
-                tool: tool.clone(),
-            },
-            CellChange::RunsWhy {
-                block: b,
-                before,
-                after,
-            } => Change::RunsWhy {
-                cell,
-                block: block(b),
-                before: before.clone(),
-                after: after.clone(),
-            },
-            CellChange::GivenKind {
-                block: b,
-                before,
-                after,
-            } => Change::GivenKind {
-                cell,
-                block: block(b),
-                before: InputKind::of(*before),
-                after: InputKind::of(*after),
-            },
-            CellChange::GivenOrder { before, after } => Change::GivenOrder {
-                cell,
-                before: names(before),
-                after: names(after),
-            },
-            CellChange::GivenWhy {
-                block: b,
-                before,
-                after,
-            } => Change::GivenWhy {
-                cell,
-                block: block(b),
-                before: before.clone(),
-                after: after.clone(),
-            },
-            CellChange::Limit {
-                limit,
-                before: from,
-                after: to,
-            } => Change::CellLimit {
-                cell,
-                limit: Limit::of(*limit),
-                before: *from,
-                after: *to,
-            },
-            CellChange::Effort {
-                before: from,
-                after: to,
-            } => Change::Effort {
-                cell,
-                before: from.map(|e| e.name().to_string()),
-                after: to.map(|e| e.name().to_string()),
-            },
-            &CellChange::LevelsAbove { before, after } => Change::LevelsAbove { cell, before, after },
-        }
-    }
-
-    fn of_block(block: &BlockId, change: &BlockChange) -> Self {
-        let block = block.to_string();
-        match change {
-            BlockChange::Values { before, after } => Change::Values {
-                block,
-                before: before.clone(),
-                after: after.clone(),
-            },
-            &BlockChange::People { before, after } => Change::People { block, before, after },
-            &BlockChange::Note { before, after } => Change::Note { block, before, after },
-            BlockChange::Outside { before, after } => Change::Outside {
-                block,
-                before: before.clone(),
-                after: after.clone(),
-            },
-            &BlockChange::Shown { before, after } => Change::Shown { block, before, after },
-            BlockChange::What { before, after } => Change::What {
-                block,
-                before: before.clone(),
-                after: after.clone(),
-            },
         }
     }
 }

@@ -69,7 +69,7 @@ fn a_precondition_by_a_named_test_holds_as_soon_as_what_it_reads_is_written_and_
     let judge = round(&w.returns(write, hands_in(&[("text", None)]))).0;
     assert_eq!(w.returns(judge, hands_in(&[("verdict", Some("yes"))])), vec![]);
     let word = decide::Waited::Precondition {
-        test: "may_merge".into(),
+        on: "may_merge".into(),
         by: vec![decide::Maker::Owner],
     };
     let waits = decide::Decision::Wait {

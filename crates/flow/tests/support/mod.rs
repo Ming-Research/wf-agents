@@ -99,7 +99,7 @@ kind = "agent"
 effort = "high"
 line = "engineer"
 task = "Design what the plan asks for."
-when = { block = "needs_design", is = "yes" }
+when = { needs_design = "yes" }
 inputs = ["plan"]
 outputs = ["design"]
 "#;
@@ -115,7 +115,7 @@ Answer the comments on the plan.
 Say what you changed for each.
 """
 when = { test = "has_comment" }
-requires = ["plan_confirmed"]
+requires = { test = "plan_confirmed" }
 inputs = ["comments", "plan"]
 outputs = ["reply"]
 limit = 5
@@ -135,7 +135,7 @@ const MERGE: &str = r#"
 title = "Merge"
 kind = "engine"
 act = "merge"
-requires = ["may_merge"]
+requires = { test = "may_merge" }
 inputs = ["ci"]
 "#;
 

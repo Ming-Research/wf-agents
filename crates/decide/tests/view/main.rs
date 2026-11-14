@@ -60,10 +60,10 @@ fn version(at: Seq, by: Writer, meaning: Seq, value: Option<&str>) -> VersionVie
 
 /// A cell that runs only when the block's current value is this one.
 fn when(block: &str, value: &str, mut c: Cell) -> Cell {
-    c.applies = Some(Condition::Is {
+    c.applies = vec![Condition::Is {
         block: block.into(),
         value: value.into(),
-    });
+    }];
     c
 }
 

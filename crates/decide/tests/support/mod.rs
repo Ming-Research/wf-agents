@@ -4,9 +4,9 @@
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoned, Abandoning, BlockId, CallId, Called, Cause, Cell, CellId, Condition, Decision, Done, Finished, Flow,
-    LetGo, Maker, Outsider, Outsiders, Pause, Pauser, Records, Returned, Round, RunId, Seq, Started, Test, TestKind,
-    TestName, Waited, Who, Write, Written, decide,
+    Abandoned, Abandoning, BlockId, CallId, Called, Cause, Cell, CellId, Decision, Done, Finished, Flow, LetGo, Maker,
+    Outsider, Outsiders, Pause, Pauser, Records, Returned, Round, RunId, Seq, Started, Test, TestKind, TestName,
+    Waited, Who, Write, Written, decide,
 };
 
 /// The owner's word of this name: a named test of the choice of the same name, which people write, that holds unless
@@ -37,11 +37,7 @@ pub const GATE: &str = "the merge may go";
 fn tests_for(cells: &[Cell], given: &BTreeMap<TestName, Test>) -> BTreeMap<TestName, Test> {
     let mut tests = given.clone();
     for c in cells {
-        let condition = match &c.applies {
-            Some(Condition::Test(t)) => Some(t),
-            _ => None,
-        };
-        for t in condition.into_iter().chain(&c.requires) {
+        for t in c.tests() {
             tests.entry(t.clone()).or_insert_with(|| word(t.as_str()));
         }
     }
@@ -106,7 +102,7 @@ pub fn gate() -> Cell {
 /// The owner's word at the merge, as the walk reports waiting for it.
 pub fn merge_word() -> Waited {
     Waited::Precondition {
-        test: GATE.into(),
+        on: GATE.into(),
         by: vec![Maker::Owner],
     }
 }

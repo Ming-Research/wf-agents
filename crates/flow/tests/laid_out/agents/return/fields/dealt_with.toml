@@ -1,9 +1,7 @@
 # What of what ran the round it has dealt with.
 in = ["outcome"]
 required = true
-given_to = "every"
 told = "alone"
-enum = "runs_on"
 words = "In `dealt_with`, name what you have dealt with of what ran you."
 
 [shape]

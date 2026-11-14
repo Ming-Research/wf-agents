@@ -1,0 +1,18 @@
+# What a line's session begins with: its system prompt, these parts in this order (design statement 24). The program
+# takes it once, as the session begins, and keeps it: a change of a part reaches a session only when it is reopened.
+#
+# A part is one of: `project`, a file of the project that `../project.toml` names; `line = "rules"`, the sets of rules
+# the line takes (`rules/`), in the order its file names them; `words`, a text of the engine's in this directory;
+# `returns = "how_you_return"`, how a cell returns, made from `return/` (`[how_you_return]` in `return.toml`) for the
+# tools the flow names.
+parts = [
+  { project = "guide" },
+  { project = "constitution" },
+  { project = "tree_rules" },
+  { line = "rules" },
+  { words = "how_you_work_here.md" },
+  { returns = "how_you_return" },
+]
+
+# How a file of the project stands in it: under its path, so that the agent knows the session holds it.
+heading = "# `{path}`\n\n{text}"

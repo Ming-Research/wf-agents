@@ -1,9 +1,10 @@
 //! What the engine says to every agent, whatever the flow, as it is written beside the flows: the project's files and
 //! settings (`project.toml`), and in `agents/` what a session begins with, the rules for the agents, the engine's own
-//! words, the return and its fields, the tools, and the message a cell is sent as it is entered (design document
-//! `data-and-context`, 51). Every word an agent is sent that is not a flow's is in these files; the code holds none of
-//! them, only how they are put together. A field a file does not know is refused, and what cannot be read is said with
-//! the path of its file.
+//! words, the return and its fields, the tools, the message a cell is sent as it is entered (design document
+//! `data-and-context`, 51), and what the engine writes as it works: into the blocks its acts write, and in the commits
+//! it makes. Every word an agent is sent that is not a flow's is in these files; the code holds none of them, only how
+//! they are put together. A field a file does not know is refused, and what cannot be read is said with the path of
+//! its file.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -11,6 +12,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
+
+use crate::InputKind;
 
 /// The directory beside the flows that holds what the engine says to every agent.
 pub const AGENTS_DIR: &str = "agents";
@@ -21,6 +24,17 @@ pub const PROJECT_FILE: &str = "project.toml";
 /// The file, from the directory that holds the flows, that names the sets of rules for the agents, each by its name
 /// with its file beside it. A line names those it takes.
 pub const RULES_FILE: &str = "agents/rules/rules.toml";
+
+/// The directory, in `agents/`, of what the engine's acts write into the blocks their cells write: a file to an act,
+/// named by it.
+pub const ACTS_DIR: &str = "acts";
+
+/// The file, in `agents/`, of who the engine's commits are by and the words of each.
+pub const COMMITS_FILE: &str = "commits.toml";
+
+/// The field of a return that holds the blocks a cell writes, each under its name. The form does not list them: the
+/// cell is told its own with its task, and the engine checks what it writes against them.
+pub const OUTPUTS: &str = "outputs";
 
 /// All of it, read from the directory that holds the flows.
 #[derive(Clone, Debug)]
@@ -40,6 +54,17 @@ pub struct Agents {
     pub tools: BTreeMap<String, Tool>,
     pub message: Message,
     pub given: Given,
+    pub acts: Acts,
+    pub commits: Commits,
+}
+
+impl Agents {
+    /// The path of a file of these, from the directory that holds the flows, with that directory's name before it, as
+    /// a part names the file it comes from.
+    pub fn source(&self, path: &str) -> String {
+        let root = self.root.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+        format!("{root}/{path}")
+    }
 }
 
 /// `project.toml`: the project's files the engine gives every agent, and the settings the words sent to the agents may
@@ -90,6 +115,7 @@ pub enum SessionPart {
     Project(ProjectPart),
     Line(LinePart),
     Words(WordsPart),
+    Returns(ReturnsPart),
 }
 
 /// A file of the project, by its name in `project.toml`.
@@ -121,6 +147,31 @@ pub struct WordsPart {
     pub words: String,
 }
 
+/// How a cell returns, made from `return/`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReturnsPart {
+    pub returns: OfTheReturn,
+}
+
+/// What of the return stands in the system prompt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OfTheReturn {
+    /// How a cell returns, the same for every cell of the flow: `[how_you_return]` of `return.toml`, with each field
+    /// and each tool the flow names.
+    HowYouReturn,
+}
+
+impl OfTheReturn {
+    /// Its name, as the files write it.
+    pub fn name(self) -> &'static str {
+        match self {
+            OfTheReturn::HowYouReturn => "how_you_return",
+        }
+    }
+}
+
 /// A set of rules for the agents as [`RULES_FILE`] names it, by its name.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -138,15 +189,18 @@ pub struct RuleSet {
     pub text: String,
 }
 
-/// `agents/return/return.toml`: the form of a return, and what holds together what a cell is told it returns.
+/// `agents/return/return.toml`: the form of a return, what the part on returning of a line's system prompt holds
+/// together, and what a cell is told it writes, with its task.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Return {
     pub form: Form,
-    pub told: Told,
+    pub how_you_return: Told,
+    pub outputs: Outputs,
 }
 
-/// The form: the order of the fields of each kind of return, and the shape of a block.
+/// The form: the order of the fields of each kind of return, the same for every cell of a flow. The blocks a cell
+/// writes go in the field [`OUTPUTS`], under their names, which the form does not list.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Form {
@@ -154,14 +208,10 @@ pub struct Form {
     pub calls: Vec<InForm>,
     /// What a return that does the cell's work holds, in order.
     pub outcome: Vec<InForm>,
-    /// The shape of a block that is a choice.
-    pub choice: toml::Value,
-    /// The shape of a block that is a text.
-    pub text: toml::Value,
 }
 
-/// What stands at a place of the form: a group the form makes of what the line's cells have, or a field of the
-/// engine's by its name.
+/// What stands at a place of the form: a group the form makes of what the flow has, or a field of the engine's by its
+/// name.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
 pub enum InForm {
@@ -169,30 +219,22 @@ pub enum InForm {
     Field(String),
 }
 
-/// A group the form makes of what the line's cells have.
+/// A group the form makes of what the flow has.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Group {
-    /// Each tool the line's cells may ask for.
+    /// Each tool the flow names.
     Tools,
-    /// The blocks of the line that are choices.
-    Choices,
-    /// The blocks of the line that are texts.
-    Texts,
 }
 
-/// What holds together what a cell is told it returns.
+/// What holds together the part on returning of a line's system prompt, the same for every cell of the flow.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Told {
     pub heading: String,
-    pub blocks: String,
-    pub block: String,
-    /// What a block's line says after its name: that it is a choice, `{values}` its values; that the owner reads it;
-    /// that the cell must hand it in every time.
-    pub choice: String,
-    pub shown: String,
-    pub must_write: String,
+    pub first: String,
+    /// The two kinds of return.
+    pub kinds: String,
     /// An item of a list of fields or tools, `{text}` its words.
     pub item: String,
     /// The fields told `listed`, in order.
@@ -207,7 +249,22 @@ pub struct Told {
     pub tools: String,
 }
 
-/// A field of a return that is the engine's: `agents/return/fields/<name>.toml`.
+/// What a cell is told it writes, with its task: its blocks, each on a line after the heading.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Outputs {
+    pub heading: String,
+    pub block: String,
+    /// What a block's line says after its name: that it is a choice, `{values}` its values; that the owner reads it;
+    /// that the cell must hand it in every time.
+    pub choice: String,
+    pub shown: String,
+    pub must_write: String,
+    /// What stands in place of the list where the cell writes no block.
+    pub none: String,
+}
+
+/// A field of a return that is the engine's, which every agent cell has: `agents/return/fields/<name>.toml`.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Field {
@@ -217,23 +274,11 @@ pub struct Field {
     /// Every return of those kinds holds it.
     #[serde(default)]
     pub required: bool,
-    pub given_to: GivenTo,
     pub told: ToldAs,
-    /// Of a list whose items are names, which names.
-    #[serde(rename = "enum")]
-    pub names: Option<Names>,
     pub words: String,
     /// What is told after the list of the fields, of a field told `listed`.
     pub also: Option<String>,
     pub shape: toml::Value,
-}
-
-/// The names the items of a field that is a list of names are among.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Names {
-    /// The names of what runs the line's cells.
-    RunsOn,
 }
 
 /// A kind of return.
@@ -246,26 +291,14 @@ pub enum ReturnKind {
     Outcome,
 }
 
-/// Which cells may use a field.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GivenTo {
-    /// Every agent cell.
-    Every,
-    /// A cell that may write a block.
-    Writing,
-    /// A cell that may write a datum declaring this field as the one it is written through.
-    WritesThrough,
-}
-
-/// Where a field's words go in what a cell is told it returns.
+/// Where a field's words go in the part on returning.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToldAs {
     /// A paragraph of its own.
     Alone,
-    /// After the words on blocks.
-    WithBlocks,
+    /// After the words of [`OUTPUTS`], in their paragraph.
+    WithOutputs,
     /// In the list of the fields that are not blocks.
     Listed,
 }
@@ -292,7 +325,11 @@ pub struct Message {
 pub struct MessagePart {
     /// What the part is.
     pub part: Part,
-    pub sent: Sent,
+    /// Of a part the session keeps, as data are kept, the kind it is kept in, as a datum's: it is sent where the
+    /// session lacks its latest version, and again when it changes. A part with none is written anew each time.
+    pub kind: Option<InputKind>,
+    /// Of a part written anew each time, when it is sent at all; each time where none.
+    pub only: Option<Only>,
     pub text: Option<String>,
     /// Of a part that is a list, each item of it.
     pub each: Option<String>,
@@ -321,28 +358,48 @@ pub enum Part {
     Main,
     /// Each datum of the cell's context the session lacks or that is new to the cell.
     Context,
-    /// What the cell returns.
-    Returns,
-    /// The heading of the cell's task.
-    TaskHeading,
+    /// The blocks the cell writes, as `[outputs]` of `return.toml` says.
+    Outputs,
     /// The cell's task.
     Task,
     /// Each trigger new to the cell.
     Triggers,
 }
 
-/// When a part of a message is sent.
+impl Part {
+    /// Its name, as the files write it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Part::Taken => "taken",
+            Part::Heading => "heading",
+            Part::Work => "work",
+            Part::Main => "main",
+            Part::Context => "context",
+            Part::Outputs => "outputs",
+            Part::Task => "task",
+            Part::Triggers => "triggers",
+        }
+    }
+}
+
+/// When a part written anew each time is sent at all.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Sent {
-    /// Each time the cell is entered.
-    EveryTime,
-    /// Where the session lacks it, and again when it changes.
-    OnceASession,
+pub enum Only {
     /// After a return that handed in blocks.
     AfterHandIn,
-    /// Each datum the cell is given, as its kind says.
-    ByKind,
+    /// To a cell that takes main in.
+    TakesMain,
+}
+
+impl Only {
+    /// Its name, as the files write it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Only::AfterHandIn => "after_hand_in",
+            Only::TakesMain => "takes_main",
+        }
+    }
 }
 
 /// `agents/message/given.toml`: how a datum a cell is given is put into its session, by its kind.
@@ -363,11 +420,156 @@ pub struct Given {
 #[serde(deny_unknown_fields)]
 pub struct GivenKind {
     pub text: String,
+    /// What is sent in place of `text` where the session lacks what it needs, or `text` would be longer.
+    pub whole: Option<String>,
+}
+
+/// What the engine writes as it works: into the blocks its acts write, and in the commits it makes.
+#[derive(Clone, Debug)]
+pub struct Writes {
+    pub acts: Acts,
+    pub commits: Commits,
+}
+
+/// `agents/commits.toml`: who the engine's commits are by, and the words of each.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Commits {
+    pub name: String,
+    pub email: String,
+    /// A run's merge of main into the work's branch.
+    pub run: String,
+    /// The check's merge of main into the work's branch.
+    pub check: String,
+    /// The code before the change.
+    pub before: String,
+    /// The merge of the work's branch into main.
+    pub merge: String,
+}
+
+/// What the engine's acts write into the blocks their cells write: `agents/acts/<act>.toml`.
+#[derive(Clone, Debug)]
+pub struct Acts {
+    pub start: Start,
+    pub check: Check,
+    pub merge: Merge,
+    pub deliver: Deliver,
+}
+
+/// `agents/acts/start.toml`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Start {
+    pub text: String,
+}
+
+/// `agents/acts/merge.toml`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Merge {
+    pub text: String,
+}
+
+/// `agents/acts/deliver.toml`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Deliver {
+    pub none: String,
+    pub one: String,
+    pub many: String,
+    pub between: String,
+}
+
+/// `agents/acts/check.toml`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Check {
+    pub first: String,
+    pub checked: String,
+    pub by: String,
+    pub passed: String,
+    pub failed: String,
+    pub why: String,
+    pub took_in: String,
+    pub notes: String,
+    pub note: String,
+    pub values: CheckValues,
+    pub found: Found,
+}
+
+/// The values the check writes in its choice.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckValues {
+    pub passed: String,
+    pub failed: String,
+}
+
+/// What the check finds before the host is asked.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Found {
+    pub merging: String,
+    pub uncommitted: String,
+    pub conflict: String,
+}
+
+/// A piece of a text of the engine's words: what is sent as written, or a place filled in a run, by its name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Piece<'a> {
+    Text(&'a str),
+    Place(&'a str),
+}
+
+/// A text cut into what is sent as written and its places. A place is `{name}`, its name small letters and
+/// underscores. `{{`, to what closes it with `}}`, is sent as written: it is how a text points to a question by its
+/// name. A brace that opens no place is sent as written. Every reader of the engine's words finds the places so.
+pub fn pieces(text: &str) -> Vec<Piece<'_>> {
+    let mut pieces = Vec::new();
+    // Where the text sent as written that is not yet a piece begins.
+    let mut from = 0;
+    let mut at = 0;
+    while let Some(open) = text[at..].find('{').map(|o| at + o) {
+        if text[open..].starts_with("{{") {
+            at = text[open..].find("}}").map_or(text.len(), |close| open + close + 2);
+            continue;
+        }
+        let after = &text[open + 1..];
+        match after.find('}').map(|close| &after[..close]) {
+            Some(name) if !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c == '_') => {
+                if open > from {
+                    pieces.push(Piece::Text(&text[from..open]));
+                }
+                pieces.push(Piece::Place(name));
+                from = open + name.len() + 2;
+                at = from;
+            }
+            _ => at = open + 1,
+        }
+    }
+    if text.len() > from {
+        pieces.push(Piece::Text(&text[from..]));
+    }
+    pieces
+}
+
+/// A text with each place these give filled by its value; a place they do not give stays as it is written. What fills
+/// a place is sent as it is: a place in it is not filled again.
+pub fn fill(text: &str, slots: &[(&str, &str)]) -> String {
+    (pieces(text).into_iter())
+        .map(|piece| match piece {
+            Piece::Text(text) => text.to_string(),
+            Piece::Place(name) => match slots.iter().find(|(n, _)| *n == name) {
+                Some((_, value)) => value.to_string(),
+                None => format!("{{{name}}}"),
+            },
+        })
+        .collect()
 }
 
 /// Reads it all from the directory that holds the flows, anew each time, so that an edit of a file shows; or says which
 /// file cannot be read, and why. A file the session names that `project.toml` does not have, and a name in the form
-/// or in `told` that is no field of `return/fields/`, are refused as well, on the file that names them.
+/// or in `how_you_return` that is no field of `return/fields/`, are refused as well, on the file that names them.
 pub fn read(root: &Path) -> Result<Agents, String> {
     let at = root.join(AGENTS_DIR);
     let session_file = at.join("session.toml");
@@ -402,14 +604,15 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         InForm::Field(name) => Some(name),
         InForm::Group(_) => None,
     }))
-    .chain(&returns.told.listed)
-    .chain(&returns.told.reads);
+    .chain(&returns.how_you_return.listed)
+    .chain(&returns.how_you_return.reads);
     for name in named {
         if !fields.contains_key(name) {
             let what = format!("names the field {name}, which return/fields/ does not have");
             return Err(format!("{}: {what}", return_file.display()));
         }
     }
+    let writes = writes(root)?;
     Ok(Agents {
         root: root.to_path_buf(),
         project,
@@ -421,6 +624,28 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         tools: each(&at.join("tools"))?,
         message: file(&at.join("message").join("message.toml"))?,
         given: file(&at.join("message").join("given.toml"))?,
+        acts: writes.acts,
+        commits: writes.commits,
+    })
+}
+
+/// What the engine writes as it works, read from the directory that holds the flows, as [`read`] reads it.
+pub fn writes(root: &Path) -> Result<Writes, String> {
+    let at = root.join(AGENTS_DIR);
+    Ok(Writes {
+        acts: acts(root)?,
+        commits: file(&at.join(COMMITS_FILE))?,
+    })
+}
+
+/// The acts' words alone, read from the directory that holds the flows, as [`read`] reads them.
+pub fn acts(root: &Path) -> Result<Acts, String> {
+    let at = root.join(AGENTS_DIR).join(ACTS_DIR);
+    Ok(Acts {
+        start: file(&at.join("start.toml"))?,
+        check: file(&at.join("check.toml"))?,
+        merge: file(&at.join("merge.toml"))?,
+        deliver: file(&at.join("deliver.toml"))?,
     })
 }
 

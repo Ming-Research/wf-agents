@@ -9,11 +9,3 @@ Why: A column holds only marks, so a head wide enough for the cell's title leave
 the words of each row nowhere to stand; the title is shown for the cell under the pointer and in the cell's panel.
 Drawing the cells in lanes, one for each session, was turned down, by judgment: with few lines most of the screen
 would be blank.
-
-### decision compared-with-the-flow-as-committed
-The page of a running engine compares the flow's files with the flow as the commit checked out in their repository
-has it, and a flow in no repository with nothing.
-Why: A change to the flow is first an edit of its files that is not committed, and the owner reviews it on the page
-(Article 7). Two other things to compare with were turned down, by judgment: what the engine read when it started,
-since the engine is started again for each change of the page and would then list nothing, and the remote's main
-branch, which would list backwards a change merged there that the clone does not have yet.

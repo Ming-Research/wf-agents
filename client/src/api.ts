@@ -11,14 +11,21 @@ export interface Limits {
   calls: number;
 }
 
-export type LimitName = keyof Limits;
-
-/// The cells that share one session.
+/// The cells that share one session, and what its file writes of it.
 export interface Line {
   name: string;
+  /// In the order of the walk.
   cells: string[];
   /// How many levels above its item's its rounds run at, never above the highest an item may be at.
   levelsAbove: number;
+  /// The file it is written in, from the flow's directory.
+  file: string;
+  /// Its agents only read.
+  readsOnly: boolean;
+  /// The parts of its system prompt, as written; none where it names only the rules it takes.
+  system: string[];
+  /// The sets of rules for its agents, as written.
+  rules: string[];
 }
 
 /// How the blocks a named test reads make it hold: when every one, at least one, or none has the value it looks for;
@@ -28,7 +35,10 @@ export type TestKind = 'all' | 'any' | 'none' | 'noneStanding';
 /// A named test: the words shown for it, and what it holds on.
 export interface Test {
   name: string;
+  /// Its `says`.
   words: string;
+  /// The file it is written in, from the flow's directory.
+  file: string;
   kind: TestKind;
   /// The blocks it reads, as the definition lists them.
   reads: string[];
@@ -38,18 +48,40 @@ export interface Test {
 
 export type Kind = 'agent' | 'engine';
 
-/// What the context of a cell's session must hold of a block the cell reads when the cell runs: its latest version,
-/// the version the cell last consumed and the latest, or every version.
-export type InputKind = 'latest' | 'lastAndLatest' | 'all';
-
-/// How a cell takes one of the blocks it reads; each none where the definition does not say.
-export interface Input {
-  kind: InputKind | null;
-  /// Why the cell takes the block.
-  why: string | null;
+/// A trigger of a cell, as the definition writes it.
+export interface TriggerView {
+  name: string;
+  /// What it is, as its file writes it.
+  what: string | null;
+  /// The block it stands on; of a group's trigger, the group's name.
+  block: string;
+  /// Of a group's trigger, the group's blocks, a new version of any of which fires it; empty otherwise.
+  group: string[];
+  read: string[];
+  do: string | null;
 }
 
-/// When a cell runs: when a block has a value, or when a named test holds.
+/// A group of the flow's blocks, as `flow.toml` names it under `[groups]`, whose trigger fires for a new version of
+/// any of them.
+export interface Group {
+  name: string;
+  blocks: string[];
+}
+
+/// What the context of a cell's session must hold of a block the cell is given when the cell runs: its latest
+/// version, the version the cell last consumed and the latest, or every version.
+export type InputKind = 'latest' | 'lastAndLatest' | 'all';
+
+/// One of the blocks a cell names: whether a new version of it runs the cell, with why, and whether the cell is given
+/// it, its session kept supplied with its content, with how and why; it does one or both. Each why and kind is none
+/// where the definition does not say.
+export interface Input {
+  runs: { why: string | null } | null;
+  given: { kind: InputKind | null; why: string | null } | null;
+}
+
+/// One key of a cell's `when` or `requires`: a block or a datum with the value it must have (`deep_needed = "yes"`),
+/// or a named test that holds (`test = "settled"`).
 export type Condition = { on: 'block'; block: string; value: string } | { on: 'test'; test: Test };
 
 export interface Cell {
@@ -60,20 +92,35 @@ export interface Cell {
   line: string | null;
   /// What an agent's cell's agent is told to do, with its line breaks; an engine's cell has none.
   task: string | null;
+  /// The file the task is written in, from the flow's directory; none where it is written in place.
+  taskFile: string | null;
   /// The act of the engine's own that carries out an engine's cell; an agent's cell has none.
   act: string | null;
   /// The reasoning effort an agent's cell's rounds run at; an engine's cell has none.
   effort: string | null;
-  /// None is always.
-  condition: Condition | null;
-  preconditions: Test[];
+  /// The work's branch takes the latest main in as each run of the cell starts.
+  takesMain: boolean;
+  /// When it runs: every key of its `when` holds, in the order written; none is always.
+  when: Condition[];
+  /// What the work waits for before it: every key of its `requires`, in the order written.
+  requires: Condition[];
   /// The blocks it names: those that run it, in the order it names them, then those it is only given.
   inputs: string[];
-  /// How it takes the blocks it names, by the block's name, for each of them the definition says it of.
+  /// The blocks whose new version runs it, in the order it names them.
+  runsOn: string[];
+  /// The blocks it is given, in the order it names them; none for an engine's cell.
+  given: string[];
+  /// Of each block it names, by the block's name, whether it runs the cell and whether the cell is given it.
   input: Record<string, Input>;
   outputs: string[];
   /// The blocks among its outputs that every hand-in of it includes.
   mustWrite: string[];
+  /// The tools of the engine's that an agent's cell may ask for in its return, by name, in the order written: the
+  /// flow's, where it names any, else the cell's own; none for an engine's cell.
+  tools: string[];
+  /// What runs it, each a trigger by its name, with the block it stands on, the data its agent reads for it and what
+  /// the cell does when it fires, as the definition writes them.
+  triggers: TriggerView[];
   limits: Limits;
 }
 
@@ -81,13 +128,32 @@ export interface Block {
   name: string;
   /// The values of a choice; none for a block that is not one.
   values: string[] | null;
+  /// Of a choice, the value it counts as before anyone has written it; none where it has none.
+  default: string | null;
   /// What the block is, in a sentence; none where the definition does not say.
   what: string | null;
+  /// The field of a return a cell writes it through, where it is not written as a block.
+  field?: string | null;
+  /// It has no content and stands only for a trigger.
+  trigger?: boolean;
+  /// Of a block a source of the engine's writes, what it writes, each text by its name as its file writes them.
+  writes?: [string, SentPiece[]][];
   /// `outside`: the source outside the work that writes it; none where the outside does not.
   /// `note`: what people write in it is a note, their words to the cells that read it.
-  writtenBy: { cells: string[]; people: boolean; note: boolean; outside: string | null };
-  /// `tests`: the named tests that read its value, by name. `shown`: the owner's page reads it.
-  readBy: { cells: string[]; conditions: string[]; tests: string[]; shown: boolean };
+  writtenBy: {
+    cells: string[];
+    people: boolean;
+    note: boolean;
+    outside: string | null;
+  };
+  /// `cells`: the cells that name it, that it runs or that are given it. `tests`: the named tests that read its value,
+  /// by name. `shown`: the owner's page reads it.
+  readBy: {
+    cells: string[];
+    conditions: string[];
+    tests: string[];
+    shown: boolean;
+  };
 }
 
 export interface Flow {
@@ -95,6 +161,10 @@ export interface Flow {
   limits: Limits;
   lines: Line[];
   tests: Test[];
+  /// The engine's tools every agent's cell of the flow may ask for, in the order `flow.toml` writes them.
+  tools: string[];
+  /// The groups of the flow's blocks, by name, each with its blocks as `flow.toml` names them.
+  groups: Group[];
   /// In the order of the walk.
   cells: Cell[];
   /// By name.
@@ -113,6 +183,12 @@ export type What =
   | { kind: 'engineHasLine'; line: string }
   | { kind: 'noSuchLine'; line: string }
   | { kind: 'noTask' }
+  /// The cell's task is written in a file the flow's directory does not have.
+  | { kind: 'noTaskFile'; file: string }
+  /// The cell's task is written in a file of no words.
+  | { kind: 'taskFileEmpty'; file: string }
+  /// The cell's task is written in a file whose path leaves the flow's directory, or is not plain.
+  | { kind: 'taskFileOutside'; file: string }
   | { kind: 'engineHasTask' }
   | { kind: 'noAct' }
   | { kind: 'agentHasAct'; act: string }
@@ -130,6 +206,18 @@ export type What =
   /// A set of the flow's rules that no line names.
   | { kind: 'unusedRules'; name: string }
   | { kind: 'valuesEmpty' }
+  /// A group of blocks has the name of a block or of a datum of the flow.
+  | { kind: 'groupNameTaken'; group: string }
+  /// A group names no block.
+  | { kind: 'groupEmpty'; group: string }
+  /// The block says what it counts as before anyone writes it, and it is not a choice.
+  | { kind: 'defaultNotAChoice'; block: string }
+  /// The block counts before anyone writes it as a value that is not one of its values.
+  | { kind: 'defaultNotAValue'; block: string; default: string }
+  /// A block is named `test`, which a cell's `when` reads as the name of a named test.
+  | { kind: 'blockNamedTest' }
+  /// A cell's `when` or `requires` has no keys.
+  | { kind: 'emptyCondition' }
   | { kind: 'noteNotByPeople'; block: string }
   | { kind: 'noteIsAChoice'; block: string }
   | { kind: 'noSuchBlock'; block: string }
@@ -203,88 +291,96 @@ export interface Fault {
 }
 
 export type Definition =
-  | { state: 'compiled'; flow: Flow }
-  | { state: 'faults'; faults: Fault[] }
-  | { state: 'unreadable'; reason: string };
+  { state: 'compiled'; flow: Flow } | { state: 'faults'; faults: Fault[] } | { state: 'unreadable'; reason: string };
 
-/// One change from the definition compared against to the one shown. Places are counted from 0.
-export type Change =
-  | { kind: 'name'; before: string; after: string }
-  | { kind: 'flowLimit'; limit: LimitName; before: number; after: number }
-  | { kind: 'testAdded'; test: Test }
-  | { kind: 'testRemoved'; test: Test }
-  | { kind: 'testReworded'; test: string; before: string; after: string }
-  | { kind: 'testChanged'; test: string; before: Test; after: Test }
-  | { kind: 'rulesAdded'; name: string; text: string }
-  | { kind: 'rulesRemoved'; name: string; text: string }
-  | { kind: 'rulesChanged'; name: string; before: string; after: string }
-  | { kind: 'cellAdded'; cell: string; place: number }
-  | { kind: 'cellRemoved'; cell: string; place: number }
-  | { kind: 'cellMoved'; cell: string; before: number; after: number }
-  | { kind: 'title'; cell: string; before: string; after: string }
-  | { kind: 'kind'; cell: string; before: Kind; after: Kind }
-  | { kind: 'line'; cell: string; before: string | null; after: string | null }
-  | { kind: 'readsOnly'; cell: string; before: boolean; after: boolean }
-  /// The parts of the system prompt of the session of the cell's line, by name.
-  | { kind: 'system'; cell: string; before: string[]; after: string[] }
-  | { kind: 'takesMain'; cell: string; before: boolean; after: boolean }
-  | { kind: 'task'; cell: string; before: string | null; after: string | null }
-  | { kind: 'act'; cell: string; before: string | null; after: string | null }
-  | { kind: 'condition'; cell: string; before: Condition | null; after: Condition | null }
-  | { kind: 'preconditionAdded'; cell: string; test: Test }
-  | { kind: 'preconditionRemoved'; cell: string; test: Test }
-  | { kind: 'runsOnAdded'; cell: string; block: string }
-  | { kind: 'runsOnRemoved'; cell: string; block: string }
-  | { kind: 'givenAdded'; cell: string; block: string }
-  | { kind: 'givenRemoved'; cell: string; block: string }
-  | { kind: 'outputAdded'; cell: string; block: string }
-  | { kind: 'outputRemoved'; cell: string; block: string }
-  | { kind: 'mustWriteAdded'; cell: string; block: string }
-  | { kind: 'mustWriteRemoved'; cell: string; block: string }
-  | { kind: 'describesAdded'; cell: string; block: string }
-  | { kind: 'describesRemoved'; cell: string; block: string }
-  | { kind: 'toolAdded'; cell: string; tool: string }
-  | { kind: 'toolRemoved'; cell: string; tool: string }
-  | { kind: 'runsWhy'; cell: string; block: string; before: string | null; after: string | null }
-  | { kind: 'givenKind'; cell: string; block: string; before: InputKind; after: InputKind }
-  /// The blocks the cell is given in both stand in another order; both lists whole.
-  | { kind: 'givenOrder'; cell: string; before: string[]; after: string[] }
-  | { kind: 'givenWhy'; cell: string; block: string; before: string | null; after: string | null }
-  | { kind: 'cellLimit'; cell: string; limit: LimitName; before: number; after: number }
-  | { kind: 'effort'; cell: string; before: string | null; after: string | null }
-  | { kind: 'levelsAbove'; cell: string; before: number; after: number }
-  | { kind: 'blockAdded'; block: string }
-  | { kind: 'blockRemoved'; block: string }
-  | { kind: 'values'; block: string; before: string[] | null; after: string[] | null }
-  | { kind: 'people'; block: string; before: boolean; after: boolean }
-  | { kind: 'note'; block: string; before: boolean; after: boolean }
-  | { kind: 'outside'; block: string; before: string | null; after: string | null }
-  | { kind: 'shown'; block: string; before: boolean; after: boolean }
-  | { kind: 'what'; block: string; before: string | null; after: string | null };
+/// What a part of what an agent is sent is, for the page to know what it may do with it: the program's own part; a
+/// part of the system prompt; the form of the return; a part of a message that is no content of a block, nor the task,
+/// nor the blocks the cell writes; the content of a block the cell is given; the blocks the cell writes; and its task.
+export type SentWhat = 'program' | 'system' | 'form' | 'message' | 'input' | 'outputs' | 'task';
 
-export type Comparison =
-  | { state: 'nothingToCompare' }
+/// A piece of the text of a part: sent as written, or a place filled in a run, by its name.
+export type SentPiece = { piece: 'text'; text: string } | { piece: 'slot'; name: string };
+
+/// How a part reaches the agent: the program's own, which the engine does not send; in the system prompt of the
+/// session, taken once as the session begins; given with every call of the program; or in a message, as the cell is
+/// entered.
+export type SentCarried = 'program' | 'system' | 'call' | 'message';
+
+/// One part of what an agent is sent as the engine enters its cell, as the files say it: its key there, its attributes,
+/// the file its words come from, and its text.
+export interface SentPart {
+  what: SentWhat;
+  carried: SentCarried;
+  /// Its key in the files.
+  name: string;
+  /// Of a part written anew each time, when it is sent at all: its `only`.
+  only: string | null;
+  /// The file its words come from.
+  source: string;
+  /// The block, of the content of a block the cell is given.
+  block: string | null;
+  /// The kind the cell gives that block in, as its file writes it.
+  kind: string | null;
+  /// The text sent, where it is written already.
+  pieces: SentPiece[];
+  /// What is sent in its place where the session holds it already: its `held`.
+  held: SentPiece[];
+  /// Of the content of a block, what is sent in place of its text where the session lacks what the text needs.
+  whole: SentPiece[];
+}
+
+/// A name a text sent to an agent gives between backticks that nothing defines, and the file it is in.
+export interface Unknown {
+  name: string;
+  source: string;
+}
+
+/// For each agent's cell of a definition that compiles, by its id, the parts it is sent in the order sent, as the design
+/// lays them out: the engine does not send them so yet.
+export type Given =
   | {
-      state: 'compared';
-      against: Definition;
-      /// None when either definition does not compile.
-      changes: Change[] | null;
-    };
+      state: 'compiled';
+      cells: Record<string, SentPart[]>;
+      /// The flow's tools, so that the page tells a tool in the form from a field.
+      tools: string[];
+      /// Each of the engine's tools as its file in `agents/tools/` writes it, by the tool's name.
+      toolFiles: Record<string, ActWords>;
+      /// What each engine's cell's act writes, by the cell's id.
+      acts: Record<string, ActWords>;
+      unknown: Unknown[];
+    }
+  | { state: 'notCompiled' }
+  | { state: 'unread'; why: string };
+
+/// What an act of the engine writes, as its file says it: each key, dotted where it is in a table, with its text.
+export interface ActWords {
+  source: string;
+  words: [string, SentPiece[]][];
+}
 
 /// Reads a path of the interface.
 export async function read<T>(path: string): Promise<T> {
-  const response = await fetch(path, { headers: { accept: 'application/json' } });
+  const response = await fetch(path, {
+    headers: { accept: 'application/json' },
+  });
   if (!response.ok) {
     throw new Error(`${path} answered ${response.status}: ${await response.text()}`);
   }
   return (await response.json()) as T;
 }
 
-/// The definition shown and what changed from the one compared against, read together.
-export async function load(): Promise<{ definition: Definition; comparison: Comparison }> {
-  const [definition, comparison] = await Promise.all([
+/// The definition shown, and what an agent is sent as each of its cells is entered, read together. What an agent is
+/// sent that could not be read is said with why, the route's own reason or the read's, and the flow is shown without
+/// it.
+export async function load(): Promise<{
+  definition: Definition;
+  given: Given;
+}> {
+  const [definition, given] = await Promise.all([
     read<Definition>('/api/v1/flow'),
-    read<Comparison>('/api/v1/flow/changes'),
+    read<Given>('/api/v1/flow/given').catch(
+      (e: unknown): Given => ({ state: 'unread', why: e instanceof Error ? e.message : String(e) }),
+    ),
   ]);
-  return { definition, comparison };
+  return { definition, given };
 }

@@ -21,7 +21,9 @@ fn cell<'a>(compiled: &'a Compiled, id: &str) -> &'a CellSpec {
 fn trigger(name: &str, block: &str, read: &[&str], does: Option<&str>) -> Trigger {
     Trigger {
         name: name.to_string(),
+        what: None,
         block: block.into(),
+        group: Vec::new(),
         read: read.iter().map(|&b| b.into()).collect(),
         detail: None,
         does: does.map(str::to_string),

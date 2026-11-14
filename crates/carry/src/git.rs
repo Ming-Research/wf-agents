@@ -10,6 +10,7 @@ use tokio::process::Command;
 use uuid::Uuid;
 
 use crate::settings::Project;
+use flow::agents::{Commits, fill};
 
 /// The directory in the data directory that holds the works' worktrees.
 pub const WORKTREES: &str = "worktrees";
@@ -264,15 +265,15 @@ pub(crate) async fn before(
     let date = git(repo, &["log", "-1", "--format=%cI", &base]).await?;
     let mut env = Vec::new();
     for who in ["AUTHOR", "COMMITTER"] {
-        env.push((format!("GIT_{who}_NAME"), "wf-agents".to_string()));
-        env.push((format!("GIT_{who}_EMAIL"), ENGINE_EMAIL.to_string()));
+        env.push((format!("GIT_{who}_NAME"), project.commits.name.clone()));
+        env.push((format!("GIT_{who}_EMAIL"), project.commits.email.clone()));
         env.push((format!("GIT_{who}_DATE"), date.clone()));
     }
     let made = With {
         settings: Vec::new(),
         env,
     };
-    let message = format!("The code before the change of {}, with its tests", place.branch);
+    let message = fill(&project.commits.before, &[("branch", &place.branch)]);
     let commit = git_with(repo, &made, &["commit-tree", &tree, "-p", &base, "-m", &message]).await?;
     Ok(Ok(Before {
         head,
@@ -395,36 +396,34 @@ pub(crate) async fn uncommitted(dir: &Path) -> Result<String, String> {
     git(dir, &["status", "--porcelain"]).await
 }
 
-/// Who the commits the engine makes are by: the merges of main into a work's branch that the check and a run that
-/// takes main in make.
-const ENGINE: [&str; 2] = ["user.name=wf-agents", "user.email=wf-agents@localhost"];
-
-/// The address of the engine's identity, by which a commit of its own is known.
-const ENGINE_EMAIL: &str = "wf-agents@localhost";
-
-/// The words the check's merge of main into a work's branch is made with: a run's merge has words of its own, so that
-/// neither takes the other's for its own.
-fn taking_in(name: &str, main: &str) -> String {
-    format!("Merge {name} at {main} into the work's branch")
+/// The words the check's merge of main into a work's branch is made with, as the project's `commits` says: a run's
+/// merge has words of its own, so that neither takes the other's for its own.
+fn taking_in(project: &Project, main: &str) -> String {
+    fill(&project.commits.check, &[("main", &project.main), ("head", main)])
 }
 
 /// Merges main's head into the branch checked out in the worktree, which merges it without a conflict, as a commit
 /// of the engine's, and gives the branch's head after it and whether the check made that commit; where the branch
 /// holds main's head already, its head as it is, so that a merge done before the engine stopped is not done again.
-/// `name` is the main branch's name.
-pub(crate) async fn take_in(dir: &Path, main: &str, name: &str) -> Result<(String, bool), String> {
-    let message = taking_in(name, main);
+pub(crate) async fn take_in(dir: &Path, main: &str, project: &Project) -> Result<(String, bool), String> {
+    let message = taking_in(project, main);
+    let commits = &project.commits;
     if said(dir, &["merge-base", "--is-ancestor", main, "HEAD"]).await?.ok {
         // The check's own merge of this main, made by a check that stopped before it was recorded, is still its own.
-        let ours = merged_as(dir, main, &message).await?.is_some();
+        let ours = merged_as(dir, main, &message, commits).await?.is_some();
         return Ok((git(dir, &["rev-parse", "HEAD"]).await?, ours));
     }
-    Ok((merge_as(dir, main, &message).await?, true))
+    Ok((merge_as(dir, main, &message, commits).await?, true))
 }
 
 /// The head of the branch checked out in the worktree and its first parent, where the head is the engine's merge of
-/// main's head at `main` made with these words; none where it is not.
-pub(crate) async fn merged_as(dir: &Path, main: &str, message: &str) -> Result<Option<(String, String)>, String> {
+/// main's head at `main` made with these words, by the address `commits` gives; none where it is not.
+pub(crate) async fn merged_as(
+    dir: &Path,
+    main: &str,
+    message: &str,
+    commits: &Commits,
+) -> Result<Option<(String, String)>, String> {
     let head = git(dir, &["log", "-1", "--format=%H%x00%ae%x00%P%x00%s", "HEAD"]).await?;
     let fields: Vec<&str> = head.split('\0').collect();
     let [commit, email, parents, subject] = fields.as_slice() else {
@@ -432,7 +431,7 @@ pub(crate) async fn merged_as(dir: &Path, main: &str, message: &str) -> Result<O
     };
     let parents: Vec<&str> = parents.split(' ').collect();
     Ok(match parents.as_slice() {
-        [first, merged] if *email == ENGINE_EMAIL && *merged == main && *subject == message => {
+        [first, merged] if *email == commits.email && *merged == main && *subject == message => {
             Some((commit.to_string(), first.to_string()))
         }
         _ => None,
@@ -440,11 +439,14 @@ pub(crate) async fn merged_as(dir: &Path, main: &str, message: &str) -> Result<O
 }
 
 /// Merges main's head at `main` into the branch checked out in the worktree, which merges it without a conflict, as a
-/// commit of the engine's made with these words, and gives the branch's head after it; a merge that fails is taken
-/// back.
-pub(crate) async fn merge_as(dir: &Path, main: &str, message: &str) -> Result<String, String> {
+/// commit of the engine's made with these words, by whom `commits` says, and gives the branch's head after it; a merge
+/// that fails is taken back.
+pub(crate) async fn merge_as(dir: &Path, main: &str, message: &str, commits: &Commits) -> Result<String, String> {
     let with = With {
-        settings: ENGINE.map(str::to_string).to_vec(),
+        settings: vec![
+            format!("user.name={}", commits.name),
+            format!("user.email={}", commits.email),
+        ],
         env: Vec::new(),
     };
     let args = ["merge", "--no-ff", "--no-edit", "-m", message, main];
@@ -569,7 +571,7 @@ pub async fn merge(project: &Project, place: &Place, checked: Option<&str>) -> R
         let main = git(repo, &["rev-parse", "HEAD"]).await?;
         return Err(crate::host::moved(&project.main, &main, &head));
     }
-    let message = format!("Merge {}", place.branch);
+    let message = fill(&project.commits.merge, &[("branch", &place.branch)]);
     let args = ["merge", "--no-ff", "-m", &message, &head];
     if let Err(why) = git(repo, &args).await {
         if merging().await? {

@@ -1,43 +1,78 @@
-// The panel docked at the chart's right: everything about the cell or block the owner chose, or, when nothing is chosen
-// and there is a definition to compare against, the list of what changed, each change as the owner approves it.
+// The panel docked at the chart's right: everything about the cell, block, line or named test the owner chose.
 
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode, useState } from 'react';
 
-import type { Block, Cell, Change, Fault, Flow } from './api';
+import type {
+  ActWords,
+  Block,
+  Cell,
+  Condition,
+  Fault,
+  Flow,
+  SentCarried,
+  SentPart,
+  SentPiece,
+  TriggerView,
+  Unknown,
+} from './api';
 import type { Chosen } from './Chart';
-import { markedChange } from './diff';
-import { type BlockRow, type CellColumn, type Matrix, markOf, where } from './matrix';
-import { ListRow, Panel, PanelPart, STATUS_WORDS, type Status, StatusLine } from './parts';
+import { FormTree } from './FormTree';
+import { type ConditionRow, type LineRow, type Matrix, exclusive, where } from './matrix';
+import { Attr, ListRow, Panel, PanelPart, StatusLine } from './parts';
+import {
+  charactersWords,
+  conditionWords,
+  faultWords,
+  inputKindWords,
+  lineKeys,
+  listed,
+  readsWords,
+  runBy,
+  snake,
+  thereWhen,
+  writersBesideCells,
+} from './words';
 
 /// Whether the panel is folded away, and the way to fold it or bring it back.
 export type Fold = { folded: boolean; onFold: () => void; edge?: ReactNode };
 
-/// The status line of what a change did to a thing, when it did anything.
-function ChangeStatus({ status, changes }: { status: Status; changes: number }) {
-  if (status === 'same') return null;
+/// What the named tests among these keys say, each as its file writes it; none where no key is a test.
+function testsSay(keys: Condition[]): string | undefined {
+  const says = keys.flatMap((k) => (k.on === 'test' ? [k.test.words] : []));
+  return says.length > 0 ? says.join('; ') : undefined;
+}
+
+/// The blocks a trigger fires for: the one it stands on, or each of its group's.
+const firesFor = (t: TriggerView) => (t.group.length > 0 ? t.group : [t.block]);
+
+/// Whether a write of the block fires the trigger: it stands on it, or the block is one of its group's.
+const fires = (t: TriggerView, block: string) => firesFor(t).includes(block);
+
+/// What a trigger stands on, by its key, chosen by its name: the block, or the group of a group's trigger.
+function StandsOn({ trigger, onChoose }: { trigger: TriggerView; onChoose: (c: Chosen) => void }) {
+  const group = trigger.group.length > 0;
   return (
-    <StatusLine tone={status} word={STATUS_WORDS[status].replace(/^./, (c) => c.toUpperCase())}>
-      {status === 'changed' ? `${changes} change${changes === 1 ? '' : 's'}, listed below` : undefined}
-    </StatusLine>
+    <Attr
+      name={group ? 'group' : 'block'}
+      value={
+        <Choose chosen={group ? { group: trigger.block } : { block: trigger.block }} onChoose={onChoose}>
+          {trigger.block}
+        </Choose>
+      }
+    />
   );
 }
-import {
-  BROUGHT_UP_TO_DATE,
-  changeWords,
-  conditionWords,
-  faultWords,
-  inputKindWords,
-  LIMIT_WORDS,
-  placeOf,
-  runBy,
-  testWords,
-  thereWhen,
-  type Place,
-  writersBesideCells,
-} from './words';
 
 /// A name the owner can choose to see it on the chart and in the panel.
-function Choose({ chosen, onChoose, children }: { chosen: Chosen; onChoose: (c: Chosen) => void; children: ReactNode }) {
+function Choose({
+  chosen,
+  onChoose,
+  children,
+}: {
+  chosen: Chosen;
+  onChoose: (c: Chosen) => void;
+  children: ReactNode;
+}) {
   return (
     <button type="button" className="link" onClick={() => onChoose(chosen)}>
       {children}
@@ -45,128 +80,7 @@ function Choose({ chosen, onChoose, children }: { chosen: Chosen; onChoose: (c: 
   );
 }
 
-/// What was taken out or put in of a text, each line break in it after a "↵", so that a change of a line break alone
-/// shows.
-const marked = (text: string) => text.replace(/\n/g, '↵\n');
-
-/// One change: what changed, what it was, and what it is. A task is what its agent is told, so a change of one keeps
-/// its line breaks: it stands as one text with the words taken out and put in marked, or, where most of its words
-/// changed or it had none or has none, what it was and what it is each as a block of their own, one under the other.
-export function ChangeLine({ change }: { change: Change }) {
-  const { what, before, after } = changeWords(change);
-  const parts = change.kind === 'task' && change.before && change.after ? markedChange(change.before, change.after) : null;
-  if (parts) {
-    return (
-      <span className="change">
-        <span className="change-what">{what}</span>
-        <span className="change-text">
-          {parts.map((part, i) =>
-            part.kind === 'same' ? (
-              part.text
-            ) : part.kind === 'del' ? (
-              <del key={i}>{marked(part.text)}</del>
-            ) : (
-              <ins key={i}>{marked(part.text)}</ins>
-            ),
-          )}
-        </span>
-      </span>
-    );
-  }
-  if (change.kind === 'task') {
-    return (
-      <span className="change">
-        <span className="change-what">{what}</span>
-        {before && <del className="change-text">{before}</del>}
-        {after && <ins className="change-text">{after}</ins>}
-      </span>
-    );
-  }
-  return (
-    <span className="change">
-      <span className="change-what">{what}</span>
-      {before && <del>{before}</del>}
-      {before && after && <span aria-hidden="true"> → </span>}
-      {after && <ins>{after}</ins>}
-    </span>
-  );
-}
-
-/// The list of what changed, in the order the interface gives, each run of changes at one place under its place.
-export function ChangesList(props: {
-  changes: Change[];
-  after: Flow;
-  before: Flow;
-  onChoose: (c: Chosen) => void;
-  fold: Fold;
-}) {
-  const { changes, after, before, onChoose, fold } = props;
-  const groups: { place: Place; changes: Change[] }[] = [];
-  for (const change of changes) {
-    const place = placeOf(change);
-    const last = groups[groups.length - 1];
-    if (last && JSON.stringify(last.place) === JSON.stringify(place)) last.changes.push(change);
-    else groups.push({ place, changes: [change] });
-  }
-  const title = (id: string) => (after.cells.find((c) => c.id === id) ?? before.cells.find((c) => c.id === id))?.title;
-  const head = (place: Place) => {
-    switch (place.on) {
-      case 'flow':
-        return 'The flow';
-      case 'test':
-        return (
-          <>
-            Test <span className="mono">{place.test}</span>
-          </>
-        );
-      case 'cell':
-        return (
-          <Choose chosen={{ cell: place.cell }} onChoose={onChoose}>
-            <span className="mono">{place.cell}</span> {title(place.cell)}
-          </Choose>
-        );
-      case 'block':
-        return (
-          <Choose chosen={{ block: place.block }} onChoose={onChoose}>
-            Block <span className="mono">{place.block}</span>
-          </Choose>
-        );
-    }
-  };
-  return (
-    <Panel
-      label="What changed"
-      title="What changed"
-      belongs={`${before.name} → ${after.name}`}
-      lines={
-        <StatusLine tone={changes.length > 0 ? 'changed' : 'quiet'} word={`${changes.length} changes`}>
-          each under the place it is in, to approve one by one
-        </StatusLine>
-      }
-      {...fold}
-    >
-      {changes.length === 0 && <p className="muted">Nothing: the two definitions compile to the same flow</p>}
-      <ol className="changes">
-        {groups.map((group, i) => (
-          <li key={i} className="change-group">
-            <PanelPart label={head(group.place)}>
-              <ul>
-                {group.changes.map((change, j) => (
-                  <ListRow key={j}>
-                    <ChangeLine change={change} />
-                  </ListRow>
-                ))}
-              </ul>
-            </PanelPart>
-          </li>
-        ))}
-      </ol>
-    </Panel>
-  );
-}
-
-/// The faults of a definition, each with its file and field: in place of the chart, or of the list of changes when
-/// it is the definition compared against that does not compile.
+/// The faults of a definition, each with its file and field, in place of the chart.
 export function Faults({ faults }: { faults: Fault[] }) {
   return (
     <table className="table faults">
@@ -187,7 +101,13 @@ export function Faults({ faults }: { faults: Fault[] }) {
         {faults.map((fault, i) => (
           <tr key={i}>
             <td className="mono">{fault.file}</td>
-            <td>{fault.field ? <span className="mono">{fault.field}</span> : <span className="muted">the whole file</span>}</td>
+            <td>
+              {fault.field ? (
+                <span className="mono">{fault.field}</span>
+              ) : (
+                <span className="muted">the whole file</span>
+              )}
+            </td>
             <td>{faultWords(fault)}</td>
           </tr>
         ))}
@@ -197,7 +117,17 @@ export function Faults({ faults }: { faults: Fault[] }) {
 }
 
 /// A list of cells, each chosen by its name, with where it stands from the cell `from`.
-function Cells({ flow, from, ids, onChoose }: { flow: Flow; from?: string; ids: string[]; onChoose: (c: Chosen) => void }) {
+function Cells({
+  flow,
+  from,
+  ids,
+  onChoose,
+}: {
+  flow: Flow;
+  from?: string;
+  ids: string[];
+  onChoose: (c: Chosen) => void;
+}) {
   return (
     <>
       {ids.map((id, i) => {
@@ -216,38 +146,172 @@ function Cells({ flow, from, ids, onChoose }: { flow: Flow; from?: string; ids: 
   );
 }
 
-/// The changes of one place of the flow, in the panel of that place.
-function ChangesHere({ changes }: { changes: Change[] }) {
-  if (changes.length === 0) return null;
+/// What the owner opens and folds away again where it stands.
+function Folded({ label, children }: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
   return (
-    <PanelPart label="What changed" count={changes.length}>
-      <ul className="changes-here">
-        {changes.map((change, i) => (
-          <ListRow key={i}>
-            <ChangeLine change={change} />
-          </ListRow>
-        ))}
-      </ul>
-    </PanelPart>
+    <div className="opener">
+      <button type="button" className="link" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {open ? 'Hide' : 'Show'} {label}
+      </button>
+      {open && children}
+    </div>
   );
 }
 
-/// Everything about a cell: what its agent is told to do or the engine's act that carries it out, what it reads and
-/// who writes each, what it may write and who reads each, when it runs, what it waits for, its limits and the cells it
-/// shares a session with.
+/// A text as it is sent: what is written as written, and each place filled in a run by its name, as `{name}`.
+function SentText({ pieces }: { pieces: SentPiece[] }) {
+  return (
+    <pre className="content">
+      {pieces.map((piece, i) =>
+        piece.piece === 'text' ? piece.text : <span key={i} className="muted">{`{${piece.name}}`}</span>,
+      )}
+    </pre>
+  );
+}
+
+/// The text of pieces sent as written, with each place filled in a run as `{name}`.
+function textOf(pieces: SentPiece[]): string {
+  return pieces.map((p) => (p.piece === 'text' ? p.text : `{${p.name}}`)).join('');
+}
+
+/// The size of a text sent as written, where all of it is.
+function sizeOf(part: SentPart): number {
+  return part.pieces.reduce((n, piece) => n + (piece.piece === 'text' ? piece.text.length : 0), 0);
+}
+
+/// Everything an agent's cell is sent, numbered in the order sent, in three sections by the way it reaches the agent:
+/// the program's own with the form, which the program makes a tool of; the system prompt; the message. Each part shows its key in the files, its attributes, the file its words
+/// come from, and its text; a text every cell of the line is sent alike, or a long one, is folded.
+function AgentSent({
+  parts,
+  line,
+  cells,
+  unknown,
+  tools,
+  taskFile,
+  onChoose,
+}: {
+  parts: SentPart[];
+  line: string;
+  cells: string[];
+  unknown: Unknown[];
+  /// The flow's tools, which the form's tree draws apart from the fields.
+  tools: string[];
+  /// The file the cell's task is written in, where it is not written in place.
+  taskFile: string | null;
+  onChoose: (c: Chosen) => void;
+}) {
+  const row = (part: SentPart) => {
+    const place = parts.indexOf(part);
+    const fold = part.carried !== 'message' || part.what === 'task' || part.what === 'outputs';
+    return (
+      <ListRow key={`${part.what} ${part.name}`}>
+        <span className="muted mono">{place + 1}</span>
+        {part.what === 'input' ? (
+          <Choose chosen={{ block: part.name }} onChoose={onChoose}>
+            <span className="mono">{part.name}</span>
+          </Choose>
+        ) : (
+          <span className="mono">{part.name}</span>
+        )}
+        {part.only && <Attr name="only" value={part.only} />}
+        {part.what === 'task' && taskFile && <Attr name="file" value={taskFile} />}
+        {part.kind && <Attr name="kind" value={part.kind} />}
+        <span className="muted mono">{part.source}</span>
+        {part.pieces.length === 0 ? null : fold ? (
+          <>
+            <span className="muted">{charactersWords(sizeOf(part))}</span>
+            <Folded label="the text">
+              {part.what === 'form' ? (
+                <FormTree text={textOf(part.pieces)} tools={tools} />
+              ) : (
+                <SentText pieces={part.pieces} />
+              )}
+            </Folded>
+          </>
+        ) : (
+          <div className="row-note">
+            <SentText pieces={part.pieces} />
+          </div>
+        )}
+        {part.whole.length > 0 && (
+          <div className="row-note">
+            <Attr name="whole" value="" />
+            <SentText pieces={part.whole} />
+          </div>
+        )}
+        {part.held.length > 0 && (
+          <div className="row-note">
+            <Attr name="held" value="" />
+            <SentText pieces={part.held} />
+          </div>
+        )}
+      </ListRow>
+    );
+  };
+  const of = (...carried: SentCarried[]) => parts.filter((p) => carried.includes(p.carried));
+  return (
+    <>
+      {unknown.length > 0 && (
+        <PanelPart label="Unknown names" count={unknown.length}>
+          <ul className="uses">
+            {unknown.map((u) => (
+              <ListRow key={`${u.name} ${u.source}`}>
+                <span className="mono">{u.name}</span>
+                <span className="muted mono">{u.source}</span>
+              </ListRow>
+            ))}
+          </ul>
+        </PanelPart>
+      )}
+      <PanelPart label="program" count={of('program', 'call').length}>
+        <ul className="uses">{of('program', 'call').map(row)}</ul>
+      </PanelPart>
+      <PanelPart label="System prompt" count={of('system').length}>
+        <ul className="uses">
+          <ListRow>
+            <Attr name="line" value={line} />
+            <Attr name="cells" value={cells.join(', ')} />
+          </ListRow>
+          {of('system').map(row)}
+        </ul>
+      </PanelPart>
+      <PanelPart label="Message" count={of('message').length}>
+        <ul className="uses">{of('message').map(row)}</ul>
+      </PanelPart>
+    </>
+  );
+}
+
+/// Everything about a cell: what its agent is told to do or the engine's act that carries it out, what runs it and
+/// what it is given and who writes each, what it may write and who reads each, the tools of its own it may ask the
+/// engine for where the flow names none for every agent's cell, what its agent is sent as it is entered, when it runs,
+/// what it waits for, its limits and the cells it shares a session with.
 export function CellPanel(props: {
-  column: CellColumn;
+  cell: Cell;
   matrix: Matrix;
   flow: Flow;
-  changes: Change[];
+  /// What the cell's agent is sent as the cell is entered, part by part in the order sent; none for an engine's
+  /// cell, and where the page was not given it.
+  sent?: SentPart[];
+  /// The flow's tools, as what an agent is sent names them; none where the page was not given them.
+  tools?: string[];
+  /// What an engine's cell's act writes; none for an agent's cell, and where the page was not given it.
+  act?: ActWords;
+  /// The names a text sent to an agent gives that nothing defines.
+  unknown?: Unknown[];
   onChoose: (c: Chosen) => void;
   fold: Fold;
 }) {
-  const { column, flow, changes, onChoose, fold } = props;
-  const cell = (column.cell ?? column.other) as Cell;
+  const { cell, flow, sent, tools, act, unknown, onChoose, fold } = props;
   const blocks = new Map(flow.blocks.map((b) => [b.name, b]));
-  const sharing = cell.line ? (flow.lines.find((l) => l.name === cell.line)?.cells ?? []).filter((c) => c !== cell.id) : [];
-  const later = (ids: string[]) => ids.filter((id) => where(flow, cell.id, id) === 'below');
+  const onLine = cell.line ? (flow.lines.find((l) => l.name === cell.line)?.cells ?? []) : [];
+  const sharing = onLine.filter((c) => c !== cell.id);
+  const cellOf = (id: string) => flow.cells.find((c) => c.id === id);
+  // The cells after this one that can run where it does: a write of theirs sends the work back to it.
+  const later = (ids: string[]) =>
+    ids.filter((id) => where(flow, cell.id, id) === 'below' && !exclusive(cell, cellOf(id)));
   return (
     <Panel
       label={`Cell ${cell.id}`}
@@ -264,115 +328,245 @@ export function CellPanel(props: {
       }
       lines={
         <>
-          <ChangeStatus status={column.status} changes={changes.length} />
-          <StatusLine word={cell.condition ? 'Runs when' : 'Runs always'}>
-            {cell.condition?.on === 'block' ? (
-              <>
-                <Choose chosen={{ block: cell.condition.block }} onChoose={onChoose}>
-                  <span className="mono">{cell.condition.block}</span>
-                </Choose>{' '}
-                is <span className="mono">{cell.condition.value}</span>
-              </>
-            ) : cell.condition ? (
-              conditionWords(cell.condition)
-            ) : undefined}
-          </StatusLine>
-          {cell.preconditions.length > 0 && (
-            <StatusLine word="Waits until">{cell.preconditions.map(testWords).join('; ')}</StatusLine>
+          {(['when', 'requires'] as const).map(
+            (key) =>
+              cell[key].length > 0 && (
+                <StatusLine key={key} word={<Attr name={key} value={conditionWords(cell[key])} />}>
+                  {testsSay(cell[key])}
+                </StatusLine>
+              ),
           )}
+          {cell.takesMain && <StatusLine word={<Attr name="takes_main" value="true" />} />}
           <OwnLimits cell={cell} flow={flow} />
         </>
       }
       {...fold}
     >
-      {!column.cell && <p className="muted">Not in the version shown: this is the cell as the other version has it</p>}
-      <PanelPart label="Reads" count={cell.inputs.length}>
-        <ul className="uses">
-          {cell.inputs.map((name, place) => {
-            const block = blocks.get(name) as Block;
-            const back = later(block.writtenBy.cells.filter((id) => id !== cell.id));
-            const besides = writersBesideCells(block);
-            const writers = block.writtenBy.cells;
-            const taken = cell.input[name];
-            return (
-              <ListRow key={name}>
-                <span className="muted mono" title="Its place among what the cell reads, in the order the cell is given them">
-                  {place + 1}
-                </span>
-                <Choose chosen={{ block: name }} onChoose={onChoose}>
-                  <span className="mono">{name}</span>
-                </Choose>
-                {taken?.kind && <span className="muted">{inputKindWords(taken.kind)}</span>}
-                <span>
-                  <span className="muted">written by </span>
-                  {writers.length > 0 && <Cells flow={flow} from={cell.id} ids={writers} onChoose={onChoose} />}
-                  {writers.length > 0 && besides.length > 0 && ', '}
-                  {besides.join(', ')}
-                </span>
-                {back.length > 0 && <span className="way-back">way back from {back.join(', ')}</span>}
-                {block.what !== null && <span className="row-note">{block.what}</span>}
-                {taken?.why && <span className="row-note">{taken.why}</span>}
-                {thereWhen(flow, cell.id, block) !== '' && (
-                  <span className="row-note muted">there {thereWhen(flow, cell.id, block)}</span>
-                )}
-              </ListRow>
-            );
-          })}
-        </ul>
-      </PanelPart>
+      {sent && sent.length > 0 ? (
+        <>
+          <PanelPart label="triggered_by" count={cell.triggers.length}>
+            <ul className="uses">
+              {cell.triggers.map((t) => (
+                <ListRow key={t.name}>
+                  <span className="mono">{t.name}</span>
+                  <StandsOn trigger={t} onChoose={onChoose} />
+                  {t.read.length > 0 && <Attr name="read" value={listed(t.read)} />}
+                  {t.do && (
+                    <div className="row-note">
+                      <Attr name="do" value="" />
+                      {t.do}
+                    </div>
+                  )}
+                </ListRow>
+              ))}
+            </ul>
+          </PanelPart>
+          <AgentSent
+            parts={sent}
+            line={cell.line ?? ''}
+            cells={onLine}
+            unknown={unknown ?? []}
+            tools={tools ?? []}
+            taskFile={cell.taskFile}
+            onChoose={onChoose}
+          />
+        </>
+      ) : (
+        <>
+          <PanelPart label="triggered_by" count={cell.triggers.length}>
+            <ul className="uses">
+              {cell.triggers.map((t, place) => {
+                // Of a group's trigger, there is no one block: its group is chosen by its name.
+                const block = t.group.length > 0 ? undefined : blocks.get(t.block);
+                // The later cells that write the block the trigger stands on, or one of its group's, send the work
+                // back to this one.
+                const writers = firesFor(t).flatMap((b) => blocks.get(b)?.writtenBy.cells ?? []);
+                const back = later([...new Set(writers)].filter((id) => id !== cell.id));
+                const why = cell.input[t.block]?.runs?.why;
+                return (
+                  <ListRow key={`${t.name} ${t.block}`}>
+                    <span
+                      className="muted mono"
+                      title="Its place among what runs the cell, in the order the cell names them"
+                    >
+                      {place + 1}
+                    </span>
+                    <span className="mono">{t.name}</span>
+                    <StandsOn trigger={t} onChoose={onChoose} />
+                    {block && <WrittenBy flow={flow} cell={cell} block={block} onChoose={onChoose} />}
+                    {back.length > 0 && (
+                      <span className="way-back">
+                        <Attr name="way_back" value={listed(back)} />
+                      </span>
+                    )}
+                    {t.read.length > 0 && <Attr name="read" value={listed(t.read)} />}
+                    {block && block.what !== null && <span className="row-note">{block.what}</span>}
+                    {why && (
+                      <span className="row-note">
+                        <Attr name="why" value={why} />
+                      </span>
+                    )}
+                    {t.do && (
+                      <div className="row-note">
+                        <Attr name="do" value="" />
+                        {t.do}
+                      </div>
+                    )}
+                  </ListRow>
+                );
+              })}
+            </ul>
+          </PanelPart>
 
-      <PanelPart label="May write" count={cell.outputs.length}>
-        <ul className="uses">
-          {cell.outputs.map((name) => {
-            const block = blocks.get(name) as Block;
-            const above = block.readBy.cells.filter((id) => where(flow, cell.id, id) === 'above');
-            const aboveConditions = block.readBy.conditions.filter((id) => where(flow, cell.id, id) === 'above');
-            const sendsBack = [...new Set([...above, ...aboveConditions])];
-            return (
-              <ListRow key={name}>
-                <Choose chosen={{ block: name }} onChoose={onChoose}>
-                  <span className="mono">{name}</span>
-                </Choose>
-                {cell.mustWrite.includes(name) && <span className="muted">written every time</span>}
-                {cell.inputs.includes(name) && <span className="muted">also read: {BROUGHT_UP_TO_DATE}</span>}
-                <span>
-                  <Readers flow={flow} from={cell.id} block={block} onChoose={onChoose} />
-                </span>
-                {sendsBack.length > 0 && <span className="way-back">way back to {sendsBack.join(', ')}</span>}
-                {block.what !== null && <span className="row-note">{block.what}</span>}
-              </ListRow>
-            );
-          })}
-        </ul>
-      </PanelPart>
+          {cell.kind === 'agent' && (
+            <PanelPart label="context" count={cell.given.length + 1}>
+              <ul className="uses">
+                <ListRow key="task">
+                  <span
+                    className="muted mono"
+                    title="Its place among what the cell is given, in the order it is given them"
+                  >
+                    1
+                  </span>
+                  <span className="mono">task</span>
+                </ListRow>
+                {cell.given.map((name, place) => {
+                  const block = blocks.get(name) as Block;
+                  const given = cell.input[name]?.given ?? null;
+                  return (
+                    <ListRow key={name}>
+                      <span
+                        className="muted mono"
+                        title="Its place among what the cell is given, in the order it is given them"
+                      >
+                        {place + 2}
+                      </span>
+                      <Choose chosen={{ block: name }} onChoose={onChoose}>
+                        <span className="mono">{name}</span>
+                      </Choose>
+                      <Attr name="kind" value={inputKindWords(given?.kind ?? null)} />
+                      <WrittenBy flow={flow} cell={cell} block={block} onChoose={onChoose} />
+                      {block.what !== null && <span className="row-note">{block.what}</span>}
+                      {given?.why && (
+                        <span className="row-note">
+                          <Attr name="why" value={given.why} />
+                        </span>
+                      )}
+                      {thereWhen(flow, cell.id, block) !== '' && (
+                        <span className="row-note">
+                          <Attr name="written_before" value={thereWhen(flow, cell.id, block)} />
+                        </span>
+                      )}
+                    </ListRow>
+                  );
+                })}
+              </ul>
+            </PanelPart>
+          )}
 
-      {cell.task !== null && (
-        <PanelPart label="Task">
-          <p className="content">{cell.task}</p>
-        </PanelPart>
-      )}
-      {cell.act !== null && (
-        <PanelPart label="Act" last>
-          <p className="mono">{cell.act}</p>
-        </PanelPart>
-      )}
-      {cell.kind === 'agent' && (
-        <PanelPart label="Session" last>
-          <p>
-            {sharing.length > 0 ? (
-              <>
-                <span className="muted">Shares its session with </span>
-                <Cells flow={flow} ids={sharing} onChoose={onChoose} />
-              </>
-            ) : (
-              <span className="muted">Alone in its session</span>
-            )}
-          </p>
-        </PanelPart>
-      )}
+          <PanelPart label="outputs" count={cell.outputs.length}>
+            <ul className="uses">
+              {cell.outputs.map((name) => {
+                const block = blocks.get(name) as Block;
+                // A write of it sends the work back to each cell before this one that a trigger on it, or on a group
+                // of it, runs, and that can run where this one does.
+                const sendsBack = flow.cells
+                  .filter(
+                    (c) =>
+                      where(flow, cell.id, c.id) === 'above' &&
+                      c.triggers.some((t) => fires(t, name)) &&
+                      !exclusive(c, cell),
+                  )
+                  .map((c) => c.id);
+                return (
+                  <ListRow key={name}>
+                    <Choose chosen={{ block: name }} onChoose={onChoose}>
+                      <span className="mono">{name}</span>
+                    </Choose>
+                    {cell.mustWrite.includes(name) && <Attr name="must_write" value="true" />}
+                    {cell.given.includes(name) && <Attr name="given" value="true" />}
+                    <span>
+                      <Readers flow={flow} from={cell.id} block={block} onChoose={onChoose} />
+                    </span>
+                    {sendsBack.length > 0 && (
+                      <span className="way-back">
+                        <Attr name="way_back" value={listed(sendsBack)} />
+                      </span>
+                    )}
+                    {block.what !== null && <span className="row-note">{block.what}</span>}
+                  </ListRow>
+                );
+              })}
+            </ul>
+          </PanelPart>
 
-      <ChangesHere changes={changes} />
+          {cell.kind === 'agent' && flow.tools.length === 0 && cell.tools.length > 0 && (
+            <PanelPart label="tools" count={cell.tools.length}>
+              <ul className="uses">
+                {cell.tools.map((tool) => (
+                  <ListRow key={tool}>
+                    <span className="mono">{tool}</span>
+                  </ListRow>
+                ))}
+              </ul>
+            </PanelPart>
+          )}
+
+          {cell.task !== null && !(sent && sent.length > 0) && (
+            <PanelPart label="task">
+              {cell.taskFile && (
+                <p>
+                  <Attr name="file" value={cell.taskFile} />
+                </p>
+              )}
+              <p className="content">{cell.task}</p>
+            </PanelPart>
+          )}
+          {cell.act !== null && (
+            <PanelPart label="act" last>
+              <p>
+                <span className="mono">{cell.act}</span> {act && <span className="muted mono">{act.source}</span>}
+              </p>
+              {act && (
+                <ul className="uses">
+                  {act.words.map(([key, pieces]) => (
+                    <ListRow key={key}>
+                      <span className="mono">{key}</span>
+                      <div className="row-note">
+                        <SentText pieces={pieces} />
+                      </div>
+                    </ListRow>
+                  ))}
+                </ul>
+              )}
+            </PanelPart>
+          )}
+          {cell.kind === 'agent' && (
+            <PanelPart label="line" last>
+              <p>
+                <Attr name="line" value={cell.line} /> <span className="muted mono">cells</span>{' '}
+                <Cells flow={flow} ids={[cell.id, ...sharing]} onChoose={onChoose} />
+              </p>
+            </PanelPart>
+          )}
+        </>
+      )}
     </Panel>
+  );
+}
+
+/// Who writes a block a cell names, the cells chosen by their names with where each stands from the cell.
+function WrittenBy(props: { flow: Flow; cell: Cell; block: Block; onChoose: (c: Chosen) => void }) {
+  const { flow, cell, block, onChoose } = props;
+  const besides = writersBesideCells(block);
+  const writers = block.writtenBy.cells;
+  return (
+    <span>
+      <span className="muted mono">written_by </span>
+      {writers.length > 0 && <Cells flow={flow} from={cell.id} ids={writers} onChoose={onChoose} />}
+      {writers.length > 0 && besides.length > 0 && ', '}
+      {besides.join(', ')}
+    </span>
   );
 }
 
@@ -381,8 +575,13 @@ function OwnLimits({ cell, flow }: { cell: Cell; flow: Flow }) {
   const own = (['runs', 'returns', 'calls'] as const).filter((l) => cell.limits[l] !== flow.limits[l]);
   if (own.length === 0) return null;
   return (
-    <StatusLine word="Limits of its own">
-      {own.map((l) => `${cell.limits[l]} ${LIMIT_WORDS[l]} (the flow's: ${flow.limits[l]})`).join(', ')}
+    <StatusLine word="limits">
+      {own.map((l) => (
+        <Fragment key={l}>
+          {' '}
+          <Attr name={l} value={`${cell.limits[l]}`} />
+        </Fragment>
+      ))}
     </StatusLine>
   );
 }
@@ -393,31 +592,28 @@ function Readers(props: { flow: Flow; from?: string; block: Block; alone?: boole
   const { flow, from, block, alone, onChoose } = props;
   const { cells, conditions, tests, shown } = block.readBy;
   if (cells.length === 0 && conditions.length === 0 && tests.length === 0 && !shown) return null;
-  const before = cells.length + conditions.length;
   const words = (name: string) => {
     const test = flow.tests.find((t) => t.name === name);
-    return test ? testWords(test) : undefined;
+    return test ? readsWords(test) : undefined;
   };
   return (
     <>
+      {!alone && <span className="muted mono">read_by </span>}
       {cells.length > 0 && (
         <>
-          {!alone && <span className="muted">read by </span>}
+          <span className="muted mono">cells </span>
           <Cells flow={flow} from={from} ids={cells} onChoose={onChoose} />
         </>
       )}
       {conditions.length > 0 && (
         <>
-          <span className="muted">{cells.length > 0 ? '; ' : ''}decides whether </span>
+          <span className="muted mono"> conditions </span>
           <Cells flow={flow} from={from} ids={conditions} onChoose={onChoose} />
-          <span className="muted"> run{conditions.length === 1 ? 's' : ''}</span>
         </>
       )}
       {tests.length > 0 && (
         <>
-          <span className="muted">
-            {before > 0 ? '; ' : !alone ? 'read by ' : ''}the test{tests.length === 1 ? '' : 's'}{' '}
-          </span>
+          <span className="muted mono"> tests </span>
           {tests.map((name, i) => (
             <span key={name}>
               {i > 0 && ', '}
@@ -428,71 +624,293 @@ function Readers(props: { flow: Flow; from?: string; block: Block; alone?: boole
           ))}
         </>
       )}
-      {shown && <span className="muted">{before + tests.length > 0 ? '; ' : ''}shown</span>}
+      {shown && (
+        <>
+          {' '}
+          <Attr name="shown" value="true" />
+        </>
+      )}
     </>
   );
 }
 
-/// Everything about a block: its values, who writes it, who reads it, and the ways back through it.
+/// Everything about a block: its values, who writes it, who reads it, and the ways back through it, as the chart draws
+/// them on its triggers' rows: each cell a trigger on it, or on a group of it, runs, with the later cells whose write
+/// of it runs that cell again, of those that can run where it does (`exclusive`). A cell given it, or whose condition
+/// reads it, is not run by it, and no way back reaches it.
 export function BlockPanel(props: {
-  row: BlockRow;
+  block: Block;
   matrix: Matrix;
   flow: Flow;
-  changes: Change[];
   onChoose: (c: Chosen) => void;
   fold: Fold;
 }) {
-  const { row, flow, changes, onChoose, fold } = props;
-  const block = (row.block ?? row.other) as Block;
+  const { block, flow, onChoose, fold } = props;
   const besides = writersBesideCells(block);
   const backs = flow.cells.flatMap((reader, r) => {
-    const mark = markOf(reader, block.name);
-    if (!mark.read && !mark.condition) return [];
-    const writers = flow.cells.filter((w, i) => i > r && markOf(w, block.name).write).map((w) => w.id);
-    return writers.length > 0 ? [{ reader: reader.id, writers, byCondition: !mark.read }] : [];
+    const triggers = reader.triggers.filter((t) => fires(t, block.name)).map((t) => t.name);
+    if (triggers.length === 0) return [];
+    const writers = flow.cells
+      .filter((w, i) => i > r && w.outputs.includes(block.name) && !exclusive(reader, w))
+      .map((w) => w.id);
+    return writers.length > 0 ? [{ reader: reader.id, writers, triggers }] : [];
   });
   return (
     <Panel
       label={`Block ${block.name}`}
       title={<span className="mono">{block.name}</span>}
-      belongs={block.values ? `a choice of ${block.values.join(', ')}` : 'block'}
+      belongs={
+        block.values ? (
+          <>
+            <Attr name="values" value={listed(block.values)} />
+            {block.default != null && (
+              <>
+                {' '}
+                <Attr name="default" value={block.default} />
+              </>
+            )}
+          </>
+        ) : undefined
+      }
       lines={
         <>
-          <ChangeStatus status={row.status} changes={changes.length} />
-          {block.what !== null && <StatusLine word="What it is">{block.what}</StatusLine>}
-          <StatusLine word="Written by">
+          {block.what !== null && <StatusLine word={<span className="mono">what</span>}>{block.what}</StatusLine>}
+          <StatusLine word={<span className="mono">written_by</span>}>
             {block.writtenBy.cells.length > 0 && <Cells flow={flow} ids={block.writtenBy.cells} onChoose={onChoose} />}
             {block.writtenBy.cells.length > 0 && besides.length > 0 && ', '}
             {besides.join(', ')}
           </StatusLine>
-          <StatusLine word="Read by">
+          <StatusLine word={<span className="mono">read_by</span>}>
             <Readers flow={flow} block={block} alone onChoose={onChoose} />
           </StatusLine>
         </>
       }
       {...fold}
     >
-      {!row.block && <p className="muted">Not in the version shown: this is the block as the other version has it</p>}
-      {backs.length === 0 && changes.length === 0 && <p className="muted">No way back runs through it</p>}
-      {backs.length > 0 && (
-        <PanelPart label="Ways back" count={backs.length} last={changes.length > 0}>
+      {block.writes && block.writes.length > 0 && (
+        <PanelPart label="writes" count={block.writes.length}>
           <ul className="uses">
-            {backs.map(({ reader, writers, byCondition }) => (
+            {block.writes.map(([key, pieces]) => (
+              <ListRow key={key}>
+                <span className="mono">{key}</span>
+                <div className="row-note">
+                  <SentText pieces={pieces} />
+                </div>
+              </ListRow>
+            ))}
+          </ul>
+        </PanelPart>
+      )}
+      {backs.length === 0 && <p className="muted">No way back runs through it</p>}
+      {backs.length > 0 && (
+        <PanelPart label="way_back" count={backs.length}>
+          <ul className="uses">
+            {backs.map(({ reader, writers, triggers }) => (
               <ListRow key={reader}>
                 <span className="way-back mono">
                   {writers.join(', ')} → {reader}
                 </span>
-                <span className="muted">
-                  {byCondition
-                    ? `a write by ${writers.join(' or ')} decides again whether ${reader} runs`
-                    : `a write by ${writers.join(' or ')} runs ${reader} again`}
+                <Attr name="triggered_by" value={listed(triggers)} />
+              </ListRow>
+            ))}
+          </ul>
+        </PanelPart>
+      )}
+    </Panel>
+  );
+}
+
+/// The cells of a list, each chosen by its id, with its title.
+function CellRows({ flow, ids, onChoose }: { flow: Flow; ids: string[]; onChoose: (c: Chosen) => void }) {
+  return (
+    <ul className="uses">
+      {ids.map((id) => (
+        <ListRow key={id}>
+          <Choose chosen={{ cell: id }} onChoose={onChoose}>
+            <span className="mono">{id}</span>
+          </Choose>
+          <span>{flow.cells.find((c) => c.id === id)?.title}</span>
+        </ListRow>
+      ))}
+    </ul>
+  );
+}
+
+/// Everything about a line: the file it is written in, its keys as that file writes them, and the cells on it, which
+/// share its session, in the order of the walk.
+export function LinePanel(props: { row: LineRow; flow: Flow; onChoose: (c: Chosen) => void; fold: Fold }) {
+  const { row, flow, onChoose, fold } = props;
+  const cells = flow.cells.filter((c) => c.kind === 'agent' && c.line === row.name).map((c) => c.id);
+  return (
+    <Panel
+      label={`Line ${row.name}`}
+      title={<span className="mono line-name">{row.name}</span>}
+      belongs={row.line && <span className="mono">{row.line.file}</span>}
+      lines={(row.line ? lineKeys(row.line) : []).map(([key, value]) => (
+        <StatusLine key={key} word={<Attr name={key} value={value} />} />
+      ))}
+      {...fold}
+    >
+      <PanelPart label="cells" count={cells.length}>
+        <CellRows flow={flow} ids={cells} onChoose={onChoose} />
+      </PanelPart>
+    </Panel>
+  );
+}
+
+/// Everything about a named test: the file it is written in, its keys as that file writes them, each block it reads
+/// chosen by its name, and the cells that name it, by the key that names it: those that run only when it holds, and
+/// those the work waits before until it holds.
+export function TestPanel(props: { row: ConditionRow; flow: Flow; onChoose: (c: Chosen) => void; fold: Fold }) {
+  const { row, flow, onChoose, fold } = props;
+  const test = row.test;
+  if (!test) return null;
+  const names = (keys: Condition[]) => keys.some((k) => k.on === 'test' && k.test.name === test.name);
+  const when = flow.cells.filter((c) => names(c.when)).map((c) => c.id);
+  const requires = flow.cells.filter((c) => names(c.requires)).map((c) => c.id);
+  return (
+    <Panel
+      label={`Test ${test.name}`}
+      title={<span className="mono">{test.name}</span>}
+      belongs={<span className="mono">{test.file}</span>}
+      lines={
+        <>
+          <StatusLine word={<span className="mono">says</span>}>{test.words}</StatusLine>
+          <StatusLine word={<Attr name="kind" value={snake(test.kind)} />} />
+          <StatusLine
+            word={
+              <Attr
+                name="reads"
+                value={
+                  <>
+                    [
+                    {test.reads.map((block, i) => (
+                      <Fragment key={block}>
+                        {i > 0 && ', '}
+                        <Choose chosen={{ block }} onChoose={onChoose}>
+                          {block}
+                        </Choose>
+                      </Fragment>
+                    ))}
+                    ]
+                  </>
+                }
+              />
+            }
+          />
+          <StatusLine word={<Attr name="is" value={test.is} />} />
+        </>
+      }
+      {...fold}
+    >
+      {when.length > 0 && (
+        <PanelPart label="when" count={when.length}>
+          <CellRows flow={flow} ids={when} onChoose={onChoose} />
+        </PanelPart>
+      )}
+      {requires.length > 0 && (
+        <PanelPart label="requires" count={requires.length}>
+          <CellRows flow={flow} ids={requires} onChoose={onChoose} />
+        </PanelPart>
+      )}
+    </Panel>
+  );
+}
+
+/// One of the engine's tools, which every agent's cell of the flow may ask for: the file it is written in, and each of
+/// its keys with its text as that file writes it.
+export function ToolPanel(props: {
+  name: string;
+  /// The tool's file; none where the page was not given it.
+  words?: ActWords;
+  /// Why what an agent is sent, the tools' files with it, could not be read.
+  unread?: string;
+  fold: Fold;
+}) {
+  const { name, words, unread, fold } = props;
+  return (
+    <Panel
+      label={`Tool ${name}`}
+      title={<span className="mono">{name}</span>}
+      belongs={words && <span className="mono">{words.source}</span>}
+      {...fold}
+    >
+      {words ? (
+        <ul className="uses">
+          {words.words.map(([key, pieces]) => (
+            <ListRow key={key}>
+              <span className="mono">{key}</span>
+              <div className="row-note">
+                <SentText pieces={pieces} />
+              </div>
+            </ListRow>
+          ))}
+        </ul>
+      ) : unread !== undefined ? (
+        <p className="read-failed" role="alert">
+          The tool's file could not be read: {unread}
+        </p>
+      ) : (
+        <p className="muted">The page was not given the tool's file</p>
+      )}
+    </Panel>
+  );
+}
+
+/// Everything about a group of the flow's blocks: the file that names it, its trigger, its blocks as that file names
+/// them, each chosen by its name, the cells its trigger runs, and the ways back through it.
+export function GroupPanel(props: { name: string; flow: Flow; onChoose: (c: Chosen) => void; fold: Fold }) {
+  const { name, flow, onChoose, fold } = props;
+  const blocks = flow.groups.find((g) => g.name === name)?.blocks ?? [];
+  const runs = flow.cells.filter((c) => c.triggers.some((t) => t.block === name && t.group.length > 0));
+  const trigger = runs[0]?.triggers.find((t) => t.block === name);
+  // Each cell the trigger runs, with the cells after it that write a block of the group and can run where it does.
+  const at = (id: string) => flow.cells.findIndex((c) => c.id === id);
+  const backs = runs.flatMap((reader) => {
+    const writers = flow.cells
+      .filter((w) => at(w.id) > at(reader.id) && blocks.some((b) => w.outputs.includes(b)) && !exclusive(reader, w))
+      .map((w) => w.id);
+    return writers.length > 0 ? [{ reader: reader.id, writers }] : [];
+  });
+  return (
+    <Panel
+      label={`Group ${name}`}
+      title={<span className="mono">{name}</span>}
+      belongs={<span className="mono">flow.toml</span>}
+      lines={
+        trigger && (
+          <StatusLine word={<span className="mono">{trigger.name}</span>}>{trigger.what ?? undefined}</StatusLine>
+        )
+      }
+      {...fold}
+    >
+      <PanelPart label="blocks" count={blocks.length}>
+        <ul className="uses">
+          {blocks.map((block) => (
+            <ListRow key={block}>
+              <Choose chosen={{ block }} onChoose={onChoose}>
+                <span className="mono">{block}</span>
+              </Choose>
+            </ListRow>
+          ))}
+        </ul>
+      </PanelPart>
+      <PanelPart label="triggered_by" count={runs.length}>
+        <CellRows flow={flow} ids={runs.map((c) => c.id)} onChoose={onChoose} />
+      </PanelPart>
+      {backs.length > 0 && (
+        <PanelPart label="way_back" count={backs.length}>
+          <ul className="uses">
+            {backs.map(({ reader, writers }) => (
+              <ListRow key={reader}>
+                <span className="way-back mono">
+                  {writers.join(', ')} → {reader}
                 </span>
               </ListRow>
             ))}
           </ul>
         </PanelPart>
       )}
-      <ChangesHere changes={changes} />
     </Panel>
   );
 }

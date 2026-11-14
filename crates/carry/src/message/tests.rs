@@ -88,7 +88,7 @@ must_write = ["verdict"]
 title = "Merge"
 kind = "engine"
 act = "merge"
-requires = ["content"]
+requires = { test = "content" }
 inputs = ["code"]
 outputs = ["merged"]
 "#,

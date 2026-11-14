@@ -1,0 +1,13 @@
+# What of what ran the round it has dealt with: the names of the triggers its message gives under "Why you are run",
+# which the engine checks against the cell's own.
+in = ["outcome"]
+required = true
+told = "alone"
+words = '''
+In `dealt_with` list, each by its name as "Why you are run" gives it, what you have dealt with
+of what ran you, and leave out what you have not: nothing else goes there. Where a question you wait for stops you,
+leave out what you could not finish, all of it if need be.'''
+
+[shape]
+type = "array"
+items = { type = "string" }

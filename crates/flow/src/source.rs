@@ -32,16 +32,22 @@ pub const LINES_DIR: &str = "lines";
 pub const BLOCKS_DIR: &str = "blocks";
 pub const TESTS_DIR: &str = "tests";
 
+/// The extension of a Markdown file in the directory of a flow laid out one thing to a file, as deep as is useful, which
+/// a cell's task may be written in (`tasks/<name>.md`).
+pub const TASK_EXTENSION: &str = "md";
+
 /// The directory beside the flows, from a flow's directory, that holds the engine's own data, as deep as is useful:
 /// each defined once for every flow, and used by a flow that names it.
 pub const DATA_DIR: &str = "../data";
 
 /// The directory beside the flows, from a flow's directory, that holds what runs a cell: in it, as deep as is useful,
-/// each a trigger standing on a block with no content, which it declares; in `of_a_cell/`, each a trigger that every
-/// cell naming it has its own of; in `of_a_datum/`, each a rule that makes a trigger of each datum of a flow.
+/// each a trigger standing on a block that stands only for it, which it declares; in `of_a_cell/`, each a trigger that every
+/// cell naming it has its own of; in `of_a_datum/`, each a rule that makes a trigger of each datum of a flow; in
+/// `of_a_group/`, each a rule that makes a trigger of each group of a flow's blocks.
 pub const TRIGGERS_DIR: &str = "../triggers";
 pub const OF_A_CELL: &str = "of_a_cell";
 pub const OF_A_DATUM: &str = "of_a_datum";
+pub const OF_A_GROUP: &str = "of_a_group";
 
 /// The path, from a flow's directory, of the file beside the flows that names the sets of rules for the agents a line
 /// may take: [`agents::RULES_FILE`].
@@ -98,6 +104,9 @@ pub fn read(dir: &Path) -> io::Result<Source> {
         let rules = dir.join(rules_file());
         if rules.is_file() {
             source.add(&rules_file(), fs::read_to_string(rules)?);
+        }
+        for (path, text) in files(dir, TASK_EXTENSION, true)? {
+            source.add(&path, text);
         }
         return Ok(source);
     }
@@ -197,6 +206,10 @@ enum Kept<'a> {
 /// What a file of a flow laid out one thing to a file is kept as, by its path from the flow's directory; none where it
 /// is none that the flow is made of.
 fn laid_out(path: &str) -> Option<Kept<'_>> {
+    // A Markdown file in the flow's directory, as deep as it is, which a task may be written in.
+    if !path.starts_with("../") && path.ends_with(&format!(".{TASK_EXTENSION}")) {
+        return Some(Kept::File);
+    }
     let (dir, name) = path.rsplit_once('/')?;
     let stem = name.strip_suffix(".toml")?;
     let under = |root: &str| dir == root || dir.starts_with(&format!("{root}/"));
@@ -241,6 +254,10 @@ pub struct FlowFile {
     /// The named tests the cells use, by name.
     #[serde(default)]
     pub tests: BTreeMap<String, TestFile>,
+    /// The groups of the flow's blocks, by name, each with its blocks: a cell names a group's trigger
+    /// (`../triggers/of_a_group/`), which fires for a new version of any of them.
+    #[serde(default)]
+    pub groups: BTreeMap<String, Vec<String>>,
 }
 
 /// `flow.toml` of a flow laid out one thing to a file: what is the flow's as a whole. Its lines, blocks and named tests
@@ -258,6 +275,16 @@ pub struct LaidOutFlowFile {
     /// the flow's own blocks has the name.
     #[serde(default)]
     pub data: Vec<String>,
+    /// The tools of the engine's that every agent cell of the flow may ask for in its return, by name, each a tool the
+    /// engine has: the form of a return is the same for every cell of the flow, so a cell of a flow that names them
+    /// names none of its own.
+    #[serde(default)]
+    pub tools: Vec<String>,
+    /// The groups of the flow's blocks, by a name no block, datum or other group has, each with its blocks as the flow
+    /// names them: a cell names a group's trigger (`../triggers/of_a_group/`), which fires for a new version of any of
+    /// them.
+    #[serde(default)]
+    pub groups: BTreeMap<String, Vec<String>>,
 }
 
 /// The limits as written. They are read as any whole number so that one that is not positive is a fault of the
@@ -335,12 +362,19 @@ pub struct BlockFile {
     /// The owner's page reads the block, so it needs no other reader.
     #[serde(default)]
     pub shown: bool,
+    /// Of a choice, the value it counts as before anyone has written it, wherever a cell's `when` or `requires` or a
+    /// named test reads it: one of its values. None where it has no value until it is written.
+    pub default: Option<String>,
     /// What the block is, in a sentence, for whoever reads the flow: the owner's page shows it with the block and with
     /// each cell that reads or writes it.
     pub what: Option<String>,
     /// The field of a return that a cell writes the block through, where it writes it through one and not as a block
     /// under the block's name: a name of a field of the engine's.
     pub field: Option<String>,
+    /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, a
+    /// `{name}` in it a place the engine fills in a run.
+    #[serde(default)]
+    pub writes: Texts,
 }
 
 /// A block as written in a file of a flow's `blocks/`, or, of the engine's own data, in a file of `../data/`: as in
@@ -360,12 +394,19 @@ pub struct LaidOutBlockFile {
     /// The owner's page reads the block, so it needs no other reader.
     #[serde(default)]
     pub shown: bool,
+    /// Of a choice, the value it counts as before anyone has written it, wherever a cell's `when` or `requires` or a
+    /// named test reads it: one of its values. None where it has no value until it is written.
+    pub default: Option<String>,
     /// What the block is, in a sentence, for whoever reads the flow: the owner's page shows it with the block and with
     /// each cell that reads or writes it.
     pub what: Option<String>,
     /// The field of a return that a cell writes the block through, where it writes it through one and not as a block
     /// under the block's name: a name of a field of the engine's.
     pub field: Option<String>,
+    /// Of a block a source of the engine's writes, what it writes: each text by its name, in the order written, a
+    /// `{name}` in it a place the engine fills in a run. The words are the flow's, so the code holds none of them.
+    #[serde(default)]
+    pub writes: Texts,
 }
 
 /// Who writes a block from outside the cells, as `from` says it: whether the owner does, and the source outside the
@@ -387,19 +428,23 @@ impl From<LaidOutBlockFile> for BlockFile {
             note: block.note,
             outside,
             shown: block.shown,
+            default: block.default,
             what: block.what,
             field: block.field,
+            writes: block.writes,
         }
     }
 }
 
-/// A trigger as written in a file of `../triggers/`, by the name of its file: one standing on a block with no content,
-/// which it declares, which the owner or a source outside the work writes; or, in `of_a_cell/`, one that every cell
+/// A trigger as written in a file of `../triggers/`, by the name of its file: one standing on a block that stands only for
+/// it, which it declares, which the owner or a source outside the work writes; or, in `of_a_cell/`, one that every cell
 /// naming it has its own of, `{cell}` standing for the id of the cell in small letters in `block`, which must hold it,
 /// and in `read`, `detail` and `do`.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TriggerFile {
+    /// What it is, in a sentence: when it fires. The owner's page shows it with each cell it runs.
+    pub what: Option<String>,
     /// The block it stands on.
     pub block: String,
     /// Who writes the block: [`OWNER`], or a name of a source outside the work that the engine has.
@@ -412,6 +457,9 @@ pub struct TriggerFile {
     /// What a cell does for it, where the cell says nothing of its own.
     #[serde(rename = "do")]
     pub does: Option<String>,
+    /// What the source writes into the block it stands on, where it is one of the engine's: as a block's `writes`.
+    #[serde(default)]
+    pub writes: Texts,
 }
 
 /// A rule as written in a file of `../triggers/of_a_datum/`, which makes a trigger of each datum of a flow: a cell names
@@ -421,6 +469,9 @@ pub struct TriggerFile {
 pub struct OfADatumFile {
     /// The name of a datum's trigger, which must hold `{datum}`, standing for the datum's name.
     pub name: String,
+    /// What a datum's trigger is, in a sentence, `{datum}` standing for the datum's name: when it fires. The owner's
+    /// page shows it with each cell it runs.
+    pub what: Option<String>,
     /// The data the agent reads for it, `{datum}` standing for the datum's name.
     #[serde(default)]
     pub read: Vec<String>,
@@ -453,15 +504,14 @@ pub struct CellFile {
     pub kind: Kind,
     /// The line whose session an agent cell runs in.
     pub line: Option<String>,
-    /// What an agent cell's agent is told to do: the cell's task.
-    pub task: Option<String>,
+    /// What an agent cell's agent is told to do: the cell's task, written in place or in a file of its own.
+    pub task: Option<Task>,
     /// The act of the engine's own that carries out an engine cell: a name of an act the engine has.
     pub act: Option<String>,
-    /// When the cell runs at all; with none it always may.
-    pub when: Option<When>,
-    /// The named tests that must hold before the cell.
-    #[serde(default)]
-    pub requires: Vec<String>,
+    /// When the cell runs at all: every key holds; with none it always may.
+    pub when: Option<Keys>,
+    /// What must hold before the cell: every key; the work waits before the cell while one does not.
+    pub requires: Option<Keys>,
     /// What runs the cell, written `triggered_by`: each a trigger by its name, in the order it names them, a trigger of
     /// `../triggers/` or of its `of_a_cell/` by the name of its file, or one a rule of `../triggers/of_a_datum/` makes
     /// of a datum of the flow. A file names these and its `context`, or one of the forms before them, not two.
@@ -598,25 +648,76 @@ pub enum Kind {
     Engine,
 }
 
-/// A cell's condition as written: on the value of a block, or on a named test.
+/// A cell's task as written: its text in place (`task = '''...'''`), or a Markdown file whose whole text it is
+/// (`task = { file = "tasks/better_way.md" }`, from the flow's directory), so that cells told the same are told it from
+/// one place.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(untagged)]
-pub enum When {
-    Is(WhenIs),
-    Test(WhenTest),
+pub enum Task {
+    Text(String),
+    File(TaskFile),
 }
 
-/// The cell runs when the block `block` has the value `is`.
+/// A task written in a file of its own.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct WhenIs {
-    pub block: String,
-    pub is: String,
+pub struct TaskFile {
+    /// The file, from the flow's directory, which it does not leave.
+    pub file: String,
 }
 
-/// The cell runs when the named test holds.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct WhenTest {
-    pub test: String,
+impl Task {
+    /// The file it is written in, where it is not written in place.
+    pub fn file(&self) -> Option<&str> {
+        match self {
+            Task::Text(_) => None,
+            Task::File(file) => Some(&file.file),
+        }
+    }
+}
+
+/// A cell's `when` or `requires` as written: a table of one key or more, every one of which holds, in the order
+/// written: a block's or a datum's name, with the value it must have (`when = { deep_needed = "yes" }`, `requires = {
+/// dependencies = "merged" }`); or [`WHEN_TEST`], a named test that holds (`requires = { test = "settled" }`). So no
+/// block is named `test`.
+pub type Keys = Texts;
+
+/// The key of a cell's `when` or `requires` that names a named test, which no block's name may be.
+pub const WHEN_TEST: &str = "test";
+
+/// Texts by their names, in the order the file writes them: a table of texts, read keeping its order, which this
+/// crate's `toml` keeps.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Texts(pub Vec<(String, String)>);
+
+impl Texts {
+    /// The text of this name, where there is one.
+    pub fn get(&self, name: &str) -> Option<&str> {
+        self.0.iter().find(|(n, _)| n == name).map(|(_, text)| text.as_str())
+    }
+
+    /// Whether it holds no text.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl<'de> Deserialize<'de> for Texts {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct InOrder;
+        impl<'de> serde::de::Visitor<'de> for InOrder {
+            type Value = Texts;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a table of texts")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Texts, A::Error> {
+                let mut texts = Vec::new();
+                while let Some(entry) = map.next_entry::<String, String>()? {
+                    texts.push(entry);
+                }
+                Ok(Texts(texts))
+            }
+        }
+        deserializer.deserialize_map(InOrder)
+    }
 }

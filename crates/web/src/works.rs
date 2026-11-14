@@ -20,8 +20,8 @@
 
 use decide::run::{Failure as FailureOf, Limit as LimitOf, Unmet as UnmetOf};
 use decide::{
-    BlockId, CallId, Cause as CauseOf, CellId, Decision, End, Holder, Maker as MakerOf, Pauser as PauserOf, RunId, Seq,
-    View, Waited as WaitedOf, Who, Writer as WriterOf,
+    BlockId, CallId, Cause as CauseOf, CellId, Condition as Applies, Decision, End, Holder, Maker as MakerOf,
+    Pauser as PauserOf, RunId, Seq, View, Waited as WaitedOf, Who, Writer as WriterOf,
 };
 use driver::{Driver, Kept, Until as UntilOf};
 use flow::Kind;
@@ -226,8 +226,9 @@ pub enum Now {
 pub enum Waited {
     /// The result of a call a run rests at: from this person, or from the engine where there is none.
     Call { call: u64, who: Option<Person>, what: Call },
-    /// A precondition of the cell does not hold: the named test, the words shown for it, and each who can make it
-    /// hold, by writing a block that keeps it from holding.
+    /// A key of the cell's `requires` does not hold: the named test, or the block's key as the cell's file writes it
+    /// (`dependencies = merged`); the words shown for it, the test's or the same key; and each who can make it hold, by
+    /// writing a block that keeps it from holding.
     Precondition {
         test: String,
         words: String,
@@ -1222,10 +1223,22 @@ impl Now {
                                 who: on.as_ref().map(Person::of),
                                 what: call_of(work, *call)?,
                             },
-                            WaitedOf::Precondition { test, by } => Waited::Precondition {
+                            WaitedOf::Precondition {
+                                on: Applies::Test(test),
+                                by,
+                            } => Waited::Precondition {
                                 test: test.to_string(),
                                 words: (kept.flow.tests.get(test).cloned())
                                     .ok_or_else(|| Broken(format!("the flow has no test {test}")))?,
+                                by: by.iter().map(Maker::of).collect(),
+                            },
+                            // A key on a block's value is said as the cell's file writes it.
+                            WaitedOf::Precondition {
+                                on: Applies::Is { block, value },
+                                by,
+                            } => Waited::Precondition {
+                                test: format!("{block} = {value}"),
+                                words: format!("{block} = {value}"),
                                 by: by.iter().map(Maker::of).collect(),
                             },
                             WaitedOf::Limit { runs } => Waited::Limit { runs: *runs },

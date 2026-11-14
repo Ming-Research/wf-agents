@@ -5,13 +5,13 @@
 
 mod acts;
 mod attention;
-mod changes;
 mod changing;
 mod copies;
 mod definition;
 mod directories;
 mod engine;
 mod failing;
+mod given;
 mod items;
 mod other_sites;
 mod page;
@@ -100,7 +100,7 @@ pub const MERGE: &str = r#"
 title = "Merge"
 kind = "engine"
 act = "merge"
-requires = ["may_merge"]
+requires = { test = "may_merge" }
 inputs = ["content"]
 "#;
 
@@ -157,12 +157,12 @@ pub fn has(_: &Source) -> flow::Has {
     }
 }
 
-/// The interface over a definition shown and, when given, one compared against, compiled against [`has`].
-pub fn serve(shown: &Shared, against: Option<&Shared>) -> Router {
+/// The interface over a definition shown, compiled against [`has`].
+pub fn serve(shown: &Shared) -> Router {
     web::router(Flows {
         shown: shown.read(),
-        against: against.map(Shared::read),
         has: Box::new(has),
+        alike: web::given::Alike::default(),
     })
 }
 
@@ -255,7 +255,7 @@ pub fn running_carried(
     let (service, inbox) = Service::open(store, vec![flow], carriers, clock).unwrap();
     let handle = service.handle();
     tokio::spawn(service.run(inbox));
-    let flows = Flows::dirs(trial_dir().join("flow"), None, Box::new(trial_has));
+    let flows = Flows::dirs(trial_dir().join("flow"), Box::new(trial_has));
     Running {
         router: web::with_works(flows, handle, levels()),
         _dir: dir,

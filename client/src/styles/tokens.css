@@ -64,13 +64,16 @@
   --accent: #8b5cf6;
   --accent-text: #7c4ddb;
   --accent-tint: #f1ecfe;
+  /* The head of a section of a panel, its name and the line after it: a deeper step of the accent than its text step,
+     so that the heads stand over the text. */
+  --head: #6a3fd0;
   /* The marks of a work's cells, in the accent's hue: a cell done a light step of it, the cell running a deep one. */
   --mark-done: #c4b5fd;
   --mark-running: #6d28d9;
   /* What a hover adds to the background under it: one step. */
   --step: rgb(0 0 0 / 4%);
 
-  /* The meanings, and only these: put in or done; waits for the owner or changed; running; taken out or failed; the way
+  /* The meanings, and only these: done; waits for the owner, or a change of a block's meaning; running; failed; the way
      back. A mark or a tag takes the colour itself; small text takes its text step, a darker step where the colour does
      not read on white; a fill takes its tint. */
   --green: #2f9e6e;
@@ -100,6 +103,8 @@
     --accent: #a78bfa;
     --accent-text: #a78bfa;
     --accent-tint: #2b2444;
+    /* On the dark ground the heads are as light as the accent, the panel's tab: a deeper step reads as too dark. */
+    --head: var(--accent);
     /* On the dark ground the cell done stands back and the cell running is the bright one. */
     --mark-done: #5f4fa6;
     --mark-running: #b9a3ff;
@@ -127,6 +132,7 @@
   --accent: #a78bfa;
   --accent-text: #a78bfa;
   --accent-tint: #2b2444;
+  --head: var(--accent);
   --mark-done: #5f4fa6;
   --mark-running: #b9a3ff;
   --step: rgb(255 255 255 / 5%);

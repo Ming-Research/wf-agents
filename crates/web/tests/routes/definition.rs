@@ -8,15 +8,25 @@ use crate::{Shared, edit, get_json, has, serve, tiny};
 
 #[tokio::test]
 async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
-    let router = serve(&Shared::new(Ok(tiny())), None);
+    let router = serve(&Shared::new(Ok(tiny())));
     let limits = |runs| json!({ "runs": runs, "returns": 2, "calls": 40 });
     let may_merge = json!({
         "name": "may_merge",
         "words": "The owner let the work merge",
+        "file": "flow.toml",
         "kind": "all",
         "reads": ["go"],
         "is": "yes",
     });
+    // A cell in the old form, with one list: each block of it runs the cell, and an agent's cell is given it, as the
+    // version it last worked from and the latest where it names no kind. Each block that runs it is a trigger of the
+    // block's name, which its agent reads for it where the cell is given the block.
+    let both = json!({ "runs": { "why": null }, "given": { "kind": "lastAndLatest", "why": null } });
+    let runs = json!({ "runs": { "why": null }, "given": null });
+    let trigger = |block: &str, read: bool| {
+        let read = if read { vec![block] } else { Vec::new() };
+        json!({ "name": block, "what": null, "block": block, "group": [], "read": read, "do": null })
+    };
     assert_eq!(
         get_json(&router, "/api/v1/flow").await,
         json!({
@@ -24,8 +34,18 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
             "flow": {
                 "name": "tiny",
                 "limits": limits(3),
-                "lines": [{ "name": "engineer", "cells": ["plan", "review"], "levelsAbove": 0 }],
+                "lines": [{
+                    "name": "engineer",
+                    "cells": ["plan", "review"],
+                    "levelsAbove": 0,
+                    "file": "flow.toml",
+                    "readsOnly": false,
+                    "system": [],
+                    "rules": [],
+                }],
                 "tests": [may_merge],
+                "tools": [],
+                "groups": [],
                 "cells": [
                     {
                         "id": "plan",
@@ -33,17 +53,20 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "kind": "agent",
                         "line": "engineer",
                         "task": "Write the plan from the request.",
+                        "taskFile": null,
                         "act": null,
                         "effort": "high",
-                        "condition": null,
-                        "preconditions": [],
+                        "takesMain": false,
+                        "when": [],
+                        "requires": [],
                         "inputs": ["request", "opinions"],
-                        "input": {
-                            "request": { "kind": "lastAndLatest", "why": null },
-                            "opinions": { "kind": "lastAndLatest", "why": null },
-                        },
+                        "runsOn": ["request", "opinions"],
+                        "given": ["request", "opinions"],
+                        "input": { "request": both, "opinions": both },
                         "outputs": ["plan"],
                         "mustWrite": [],
+                        "tools": [],
+                        "triggers": [trigger("request", true), trigger("opinions", true)],
                         "limits": limits(3),
                     },
                     {
@@ -52,14 +75,20 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "kind": "agent",
                         "line": "engineer",
                         "task": "Review the plan.\nSay whether it is content.",
+                        "taskFile": null,
                         "act": null,
                         "effort": "high",
-                        "condition": null,
-                        "preconditions": [],
+                        "takesMain": false,
+                        "when": [],
+                        "requires": [],
                         "inputs": ["plan"],
-                        "input": { "plan": { "kind": "lastAndLatest", "why": null } },
+                        "runsOn": ["plan"],
+                        "given": ["plan"],
+                        "input": { "plan": both },
                         "outputs": ["opinions", "content"],
                         "mustWrite": ["content"],
+                        "tools": [],
+                        "triggers": [trigger("plan", true)],
                         "limits": limits(5),
                     },
                     {
@@ -68,14 +97,20 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "kind": "engine",
                         "line": null,
                         "task": null,
+                        "taskFile": null,
                         "act": "merge",
                         "effort": null,
-                        "condition": null,
-                        "preconditions": [may_merge],
+                        "takesMain": false,
+                        "when": [],
+                        "requires": [{ "on": "test", "test": may_merge }],
                         "inputs": ["content"],
-                        "input": {},
+                        "runsOn": ["content"],
+                        "given": [],
+                        "input": { "content": runs },
                         "outputs": [],
                         "mustWrite": [],
+                        "tools": [],
+                        "triggers": [trigger("content", false)],
                         "limits": limits(3),
                     },
                 ],
@@ -83,35 +118,55 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                     {
                         "name": "content",
                         "values": ["yes", "no"],
+                        "default": null,
                         "what": null,
+                        "field": null,
+                        "trigger": false,
+                        "writes": [],
                         "writtenBy": { "cells": ["review"], "people": false, "note": false, "outside": null },
                         "readBy": { "cells": ["merge"], "conditions": [], "tests": [], "shown": false },
                     },
                     {
                         "name": "go",
                         "values": ["yes", "no"],
+                        "default": null,
                         "what": null,
+                        "field": null,
+                        "trigger": false,
+                        "writes": [],
                         "writtenBy": { "cells": [], "people": true, "note": false, "outside": null },
                         "readBy": { "cells": [], "conditions": [], "tests": ["may_merge"], "shown": false },
                     },
                     {
                         "name": "opinions",
                         "values": null,
+                        "default": null,
                         "what": null,
+                        "field": null,
+                        "trigger": false,
+                        "writes": [],
                         "writtenBy": { "cells": ["review"], "people": true, "note": false, "outside": null },
                         "readBy": { "cells": ["plan"], "conditions": [], "tests": [], "shown": false },
                     },
                     {
                         "name": "plan",
                         "values": null,
+                        "default": null,
                         "what": null,
+                        "field": null,
+                        "trigger": false,
+                        "writes": [],
                         "writtenBy": { "cells": ["plan"], "people": false, "note": false, "outside": null },
                         "readBy": { "cells": ["review"], "conditions": [], "tests": [], "shown": false },
                     },
                     {
                         "name": "request",
                         "values": null,
+                        "default": null,
                         "what": null,
+                        "field": null,
+                        "trigger": false,
+                        "writes": [],
                         "writtenBy": { "cells": [], "people": true, "note": false, "outside": null },
                         "readBy": { "cells": ["plan"], "conditions": [], "tests": [], "shown": false },
                     },
@@ -136,26 +191,27 @@ async fn a_condition_is_given_with_its_block_and_value_or_with_its_test_as_decla
         r#"order = ["plan", "review", "merge"]"#,
         r#"order = ["plan", "review", "redo", "merge"]"#,
     );
-    let redo = "title = \"Redo\"\nkind = \"engine\"\nact = \"check\"\nwhen = { block = \"content\", is = \"no\" }\n";
+    let redo = "title = \"Redo\"\nkind = \"engine\"\nact = \"check\"\nwhen = { content = \"no\" }\n";
     source.cells.insert("redo".to_string(), redo.to_string());
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     let answer = get_json(&router, "/api/v1/flow").await;
     assert_eq!(
-        answer["flow"]["cells"][1]["condition"],
-        json!({
+        answer["flow"]["cells"][1]["when"],
+        json!([{
             "on": "test",
             "test": {
                 "name": "may_merge",
                 "words": "The owner let the work merge",
+                "file": "flow.toml",
                 "kind": "all",
                 "reads": ["go"],
                 "is": "yes",
             },
-        })
+        }])
     );
     assert_eq!(
-        answer["flow"]["cells"][2]["condition"],
-        json!({ "on": "block", "block": "content", "value": "no" })
+        answer["flow"]["cells"][2]["when"],
+        json!([{ "on": "block", "block": "content", "value": "no" }])
     );
     assert_eq!(
         answer["flow"]["blocks"][0]["readBy"],
@@ -183,22 +239,26 @@ async fn how_a_cell_takes_a_block_and_what_a_block_is_are_given_as_written() {
         "outputs = [\"plan\"]",
         "outputs = [\"plan\"]\n\n[input.request]\nkind = \"all\"",
     );
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     let answer = get_json(&router, "/api/v1/flow").await;
+    let runs = json!({ "why": null });
     assert_eq!(
         answer["flow"]["cells"][1]["input"],
-        json!({ "plan": { "kind": "lastAndLatest", "why": "It is what to review." } })
+        json!({ "plan": { "runs": runs, "given": { "kind": "lastAndLatest", "why": "It is what to review." } } })
     );
     // Of a block an agent's cell names no kind of, it is given the version it last worked from and the latest; a why
     // it leaves unsaid is none; an engine's cell is given nothing.
     assert_eq!(
         answer["flow"]["cells"][0]["input"],
         json!({
-            "request": { "kind": "all", "why": null },
-            "opinions": { "kind": "lastAndLatest", "why": null },
+            "request": { "runs": runs, "given": { "kind": "all", "why": null } },
+            "opinions": { "runs": runs, "given": { "kind": "lastAndLatest", "why": null } },
         })
     );
-    assert_eq!(answer["flow"]["cells"][2]["input"], json!({}));
+    assert_eq!(
+        answer["flow"]["cells"][2]["input"],
+        json!({ "content": { "runs": runs, "given": null } })
+    );
     let plan = &answer["flow"]["blocks"][3];
     assert_eq!(
         (&plan["name"], &plan["what"]),
@@ -215,7 +275,7 @@ async fn a_block_the_outside_writes_is_given_with_the_name_of_its_source_and_a_b
         "[blocks.request]\noutside = \"main\"",
     );
     let source = edit(source, None, "reads = [\"go\"]", "reads = [\"go\", \"content\"]");
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     let answer = get_json(&router, "/api/v1/flow").await;
     let blocks = &answer["flow"]["blocks"];
     assert_eq!(
@@ -239,15 +299,15 @@ async fn the_faults_of_named_tests_and_of_sources_are_given_with_their_blocks() 
         source,
         Some("plan"),
         "kind = \"agent\"",
-        "kind = \"agent\"\nrequires = [\"may_merge\"]",
+        "kind = \"agent\"\nrequires = { test = \"may_merge\" }",
     );
     let source = edit(
         source,
         Some("review"),
         "kind = \"agent\"",
-        "kind = \"agent\"\nrequires = [\"may_merge\"]",
+        "kind = \"agent\"\nrequires = { test = \"may_merge\" }",
     );
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     let read = |block: &str| json!({ "test": "may_merge", "block": block });
     let mut not_before = read("content");
     not_before["kind"] = json!("testNotWrittenBefore");
@@ -264,8 +324,8 @@ async fn the_faults_of_named_tests_and_of_sources_are_given_with_their_blocks() 
                     "field": "blocks.request.outside",
                     "what": { "kind": "unknownSource", "block": "request", "source": "mirror" },
                 },
-                { "file": "plan.toml", "field": "requires[0]", "what": not_before },
-                { "file": "review.toml", "field": "requires[0]", "what": own },
+                { "file": "plan.toml", "field": "requires.test", "what": not_before },
+                { "file": "review.toml", "field": "requires.test", "what": own },
             ],
         })
     );
@@ -282,7 +342,7 @@ async fn the_faults_of_named_tests_and_of_sources_are_given_with_their_blocks() 
         "outputs = [\"plan\"]",
         "outputs = [\"plan\", \"content\"]",
     );
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     let faults = &get_json(&router, "/api/v1/flow").await["faults"];
     assert_eq!(
         faults[1],
@@ -294,7 +354,7 @@ async fn the_faults_of_named_tests_and_of_sources_are_given_with_their_blocks() 
     );
 
     let source = edit(tiny(), None, "reads = [\"go\"]", "reads = []");
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     let faults = &get_json(&router, "/api/v1/flow").await["faults"];
     assert_eq!(
         faults[1],
@@ -310,7 +370,7 @@ async fn a_block_a_cell_must_write_that_is_not_among_its_outputs_is_a_fault_give
         "must_write = [\"content\"]",
         "must_write = [\"content\", \"plan\"]",
     );
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     assert_eq!(
         get_json(&router, "/api/v1/flow").await,
         json!({
@@ -342,7 +402,7 @@ async fn the_faults_of_a_cell_s_task_and_act_are_given_with_the_act_it_names() {
         "act = \"merge\"",
         "act = \"deploy\"\ntask = \"Merge it.\"",
     );
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     assert_eq!(
         get_json(&router, "/api/v1/flow").await,
         json!({
@@ -357,7 +417,7 @@ async fn the_faults_of_a_cell_s_task_and_act_are_given_with_the_act_it_names() {
     );
 
     let source = edit(tiny(), Some("merge"), "act = \"merge\"\n", "");
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     assert_eq!(
         get_json(&router, "/api/v1/flow").await["faults"],
         json!([{ "file": "merge.toml", "field": "act", "what": { "kind": "noAct" } }])
@@ -373,13 +433,14 @@ async fn a_test_of_what_stands_is_given_with_its_kind() {
         "kind = \"none_standing\"\nreads = [\"go\", \"content\"]",
     );
     let source = edit(source, None, "is = \"yes\"", "is = \"no\"");
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     let answer = get_json(&router, "/api/v1/flow").await;
     assert_eq!(
         answer["flow"]["tests"][0],
         json!({
             "name": "may_merge",
             "words": "The owner let the work merge",
+            "file": "flow.toml",
             "kind": "noneStanding",
             "reads": ["go", "content"],
             "is": "no",
@@ -396,7 +457,7 @@ async fn a_definition_that_does_not_compile_is_given_as_its_faults_each_with_its
         "[\"request\", \"opinions\", \"ghost\"]",
     );
     let source = edit(source, None, "calls = 40", "calls = 0");
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     assert_eq!(
         get_json(&router, "/api/v1/flow").await,
         json!({
@@ -421,7 +482,7 @@ async fn a_definition_that_does_not_compile_is_given_as_its_faults_each_with_its
 async fn a_file_that_cannot_be_read_is_a_fault_of_the_whole_file_with_the_parser_s_words() {
     let mut source = tiny();
     source.cells.insert("review".to_string(), "title = ".to_string());
-    let router = serve(&Shared::new(Ok(source)), None);
+    let router = serve(&Shared::new(Ok(source)));
     let answer = get_json(&router, "/api/v1/flow").await;
     let fault = &answer["faults"][0];
     assert_eq!((&fault["file"], &fault["field"]), (&json!("review.toml"), &json!("")));
@@ -435,7 +496,7 @@ async fn a_file_that_cannot_be_read_is_a_fault_of_the_whole_file_with_the_parser
 #[tokio::test]
 async fn a_directory_that_cannot_be_read_is_said_so_with_its_path() {
     let missing = std::env::temp_dir().join(format!("web-no-flow-{}", std::process::id()));
-    let router = web::router(web::Flows::dirs(missing.clone(), None, Box::new(has)));
+    let router = web::router(web::Flows::dirs(missing.clone(), Box::new(has)));
     let answer = get_json(&router, "/api/v1/flow").await;
     assert_eq!(answer["state"], "unreadable");
     let reason = answer["reason"].as_str().unwrap();
@@ -453,7 +514,7 @@ async fn a_directory_is_read_again_for_each_request_so_that_an_edit_shows() {
         }
     };
     write(&tiny());
-    let router = web::router(web::Flows::dirs(PathBuf::from(&dir), None, Box::new(has)));
+    let router = web::router(web::Flows::dirs(PathBuf::from(&dir), Box::new(has)));
     assert_eq!(get_json(&router, "/api/v1/flow").await["flow"]["name"], "tiny");
     write(&edit(tiny(), None, "name = \"tiny\"", "name = \"small\""));
     let answer = get_json(&router, "/api/v1/flow").await;
@@ -464,7 +525,7 @@ async fn a_directory_is_read_again_for_each_request_so_that_an_edit_shows() {
 #[tokio::test]
 async fn what_the_reader_gives_is_read_again_for_each_request() {
     let shown = Shared::new(Ok(tiny()));
-    let router = serve(&shown, None);
+    let router = serve(&shown);
     assert_eq!(get_json(&router, "/api/v1/flow").await["state"], "compiled");
     shown.set(Err("gone".to_string()));
     assert_eq!(

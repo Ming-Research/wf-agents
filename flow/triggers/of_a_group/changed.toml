@@ -1,0 +1,6 @@
+# A trigger on a group of a flow's blocks, named in its `flow.toml`. A cell names it by the name below, `{group}` being
+# the group's name; it fires for any of the group's blocks, and its agent reads every one of them for it (`{group}` alone
+# in `read`), so the cell has them in its `context`. A run it starts takes in every new version it saw, once.
+name = "on_{group}"
+what = "Fires when one of the blocks of `{group}` has a new version, changing its meaning, that the cell did not write itself."
+read = ["{group}"]

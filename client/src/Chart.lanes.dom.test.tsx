@@ -40,14 +40,14 @@ function drawn(flow: Flow): HTMLElement {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
-  act(() => root.render(<Chart matrix={matrix({ after: flow }, 'after')} chosen={null} onChoose={() => undefined} />));
+  act(() => root.render(<Chart matrix={matrix(flow)} chosen={null} onChoose={() => undefined} />));
   unmount = () => act(() => root.unmount());
   return container;
 }
 
-/// What each crossing of the one row draws: its segments and its arrow, by their classes.
+/// What each crossing of the one trigger's row draws: its segments and its arrow, by their classes.
 const crossings = (page: HTMLElement) =>
-  [...page.querySelectorAll('tbody tr td.spot')].map((spot) =>
+  [...page.querySelectorAll('tbody.triggers tr td.spot')].map((spot) =>
     [...spot.querySelectorAll('.seg, .arrow')].map((part) => part.className.trim().replace(/\s+/g, ' ')),
   );
 

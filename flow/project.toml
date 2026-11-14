@@ -1,0 +1,32 @@
+# The project the flows work on: its own files, which the engine gives every agent as they are in the project's
+# checkout, and its settings, which the words sent to the agents name as `project.<name>`. A path is from the root of
+# the project's checkout.
+
+# The project's guide for its agents.
+[files.guide]
+path = "AGENTS.md"
+
+# The constitution of the project's design tree.
+[files.constitution]
+path = "design/constitution.md"
+
+# The rules of the project's design tree.
+[files.tree_rules]
+path = "design/README.md"
+
+# The installation's settings a text sent to an agent may name, whose values the engine fills in from the
+# installation: not the project's, so they are named here and kept there.
+[installation]
+names = ["owner.language", "github.checks"]
+
+[project]
+# Where an agent keeps what it makes for research, committed.
+research = "research/"
+# How an agent names a test to `run_tests`: moved out of AGENTS.md, which holds only what is about the project.
+test_names = '''
+An agent the engine runs names to `run_tests` a test by the name its results give it, ending at
+the test's own name: a Rust test by its function's name, or with its module path and its test binary before it
+(`tests::a_row`, `carry tools::tests::a_row`); a page test by its own title, or with the titles of its describes
+before it, joined by ` > `, its file counted from `client/` (`src/x.test.ts > a describe > its title`). A binary, a
+module, a file or a describe alone names no test. The page's browser tests (`*.browser.test.tsx`) start Chromium
+only in a run that names one.'''

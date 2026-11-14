@@ -1,0 +1,4 @@
+says = "No cell that judged the work says it is not settled"
+kind = "none_standing"
+reads = ["plan_ok", "tree_ok", "review_ok", "testing_ok"]
+is = "no"

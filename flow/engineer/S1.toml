@@ -1,6 +1,0 @@
-title = "Start"
-kind = "engine"
-act = "start"
-inputs = ["start"]
-requires = ["may_start"]
-outputs = ["place"]

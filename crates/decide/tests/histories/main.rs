@@ -161,15 +161,15 @@ impl Rng {
 }
 
 fn when_chosen(mut c: Cell) -> Cell {
-    c.applies = Some(Condition::Is {
+    c.applies = vec![Condition::Is {
         block: CHOICE.into(),
         value: "yes".into(),
-    });
+    }];
     c
 }
 
 fn when_flipped(mut c: Cell) -> Cell {
-    c.applies = Some(Condition::Test("flip".into()));
+    c.applies = vec![Condition::Test("flip".into())];
     c
 }
 
@@ -1001,9 +1001,10 @@ impl History {
                     self.w.let_go(at.as_str());
                     return;
                 }
-                Waited::Precondition { test, .. }
-                    if test.as_str() == UNREFUSED && self.judged.as_mut().is_some_and(|j| j.chance(50)) =>
-                {
+                Waited::Precondition {
+                    on: Condition::Test(test),
+                    ..
+                } if test.as_str() == UNREFUSED && self.judged.as_mut().is_some_and(|j| j.chance(50)) => {
                     self.note(format!("the owner writes {VERDICT} as yes"));
                     self.person_writes_now();
                     self.w.person_sets(VERDICT, "yes");

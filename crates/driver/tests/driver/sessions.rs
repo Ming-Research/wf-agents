@@ -39,6 +39,7 @@ fn flow() -> Compiled {
         shown = true
         [blocks.session]
         outside = "session"
+        writes = { text = "A new session of the line `{line}`: {why}.", limit = "its context was {context} tokens as its last round ended, past the limit of {limit}", model = "its rounds now run on another model than {was}, which it was begun on", account = "its rounds now run under another account than it was begun under", owner = "the owner asked for one", flagged = "the service's safety check flagged its last round", lost = "the agents' program no longer had the session it was in" }
         [blocks.context]
         [blocks.code]
         [blocks.verdict]

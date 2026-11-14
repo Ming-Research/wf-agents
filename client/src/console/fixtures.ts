@@ -34,7 +34,7 @@ type CellIn = {
   outputs: string[];
   /// The blocks among its outputs that every hand-in of it includes; none where it is left out.
   mustWrite?: string[];
-  condition?: Cell['condition'];
+  condition?: Cell['when'][number];
   preconditions?: Test[];
 };
 
@@ -50,22 +50,38 @@ function flowOf(
     kind: c.line === null ? 'engine' : 'agent',
     line: c.line === undefined ? 'engineer' : c.line,
     task: c.task ?? null,
+    taskFile: null,
     act: c.act ?? null,
     effort: c.line === null ? null : 'high',
-    condition: c.condition ?? null,
-    preconditions: c.preconditions ?? [],
+    takesMain: false,
+    triggers: [],
+    tools: [],
+    when: c.condition ? [c.condition] : [],
+    requires: (c.preconditions ?? []).map((test) => ({ on: 'test', test })),
     inputs: c.inputs,
-    input: {},
+    runsOn: c.inputs,
+    given: c.line === null ? [] : c.inputs,
+    input: Object.fromEntries(
+      c.inputs.map((b) => [
+        b,
+        { runs: { why: null }, given: c.line === null ? null : { kind: null, why: null } },
+      ]),
+    ),
     outputs: c.outputs,
     mustWrite: c.mustWrite ?? [],
     limits: LIMITS,
   }));
-  const tests = [...new Map(all.flatMap((c) => c.preconditions).map((t) => [t.name, t])).values()];
+  const tests = [
+    ...new Map(
+      all.flatMap((c) => c.requires.flatMap((k) => (k.on === 'test' ? [k.test] : []))).map((t) => [t.name, t]),
+    ).values(),
+  ];
   const named: Block[] = Object.keys(blocks)
     .sort()
     .map((b) => ({
       name: b,
       values: blocks[b].values ?? null,
+      default: null,
       what: null,
       writtenBy: {
         cells: all.filter((c) => c.outputs.includes(b)).map((c) => c.id),
@@ -75,7 +91,7 @@ function flowOf(
       },
       readBy: {
         cells: all.filter((c) => c.inputs.includes(b)).map((c) => c.id),
-        conditions: all.filter((c) => c.condition?.on === 'block' && c.condition.block === b).map((c) => c.id),
+        conditions: all.filter((c) => c.when.some((k) => k.on === 'block' && k.block === b)).map((c) => c.id),
         tests: tests.filter((t) => t.reads.includes(b)).map((t) => t.name),
         shown: blocks[b].shown ?? false,
       },
@@ -84,12 +100,23 @@ function flowOf(
     name: l,
     cells: all.filter((c) => c.line === l).map((c) => c.id),
     levelsAbove: 0,
+    file: `lines/${l}.toml`,
+    readsOnly: false,
+    system: [],
+    rules: [],
   }));
-  return { name, limits: LIMITS, lines, tests, cells: all, blocks: named };
+  return { name, limits: LIMITS, lines, tests, tools: [], groups: [], cells: all, blocks: named };
 }
 
 /// A named test that holds when each of these blocks, which the owner sets, says yes.
-const test = (name: string, words: string, reads: string[]): Test => ({ name, words, kind: 'all', reads, is: 'yes' });
+const test = (name: string, words: string, reads: string[]): Test => ({
+  name,
+  words,
+  file: `tests/${name}.toml`,
+  kind: 'all',
+  reads,
+  is: 'yes',
+});
 
 const PLAN_CONFIRMED = test('plan_confirmed', 'The owner confirmed the plan', ['plan_confirmed']);
 const REQUEST_READ = test('request_read', 'The owner read what the item asks for', ['request_read']);

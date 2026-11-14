@@ -1,0 +1,71 @@
+# Why this cell exists: so that the change is judged by a session that did not make it and knows no less than its
+# maker: whether the code does what the plan says, to the standard the tree sets.
+title = "Review"
+kind = "agent"
+line = "code_reviewer"
+effort = "high"
+task = '''
+Review the change in `code`, in a session of your own, and change no file. Read the diff from main to the last commit
+`code` or `tests` names, and whole each file of decisions whose topic it touches. Judge only by what the implementation
+was asked to do (`plan_owner`, `acceptance`) and the repository's rules.
+
+Does the code do what the plan says, to the standard the tree sets? The work is done once it does; old code that lagged
+behind a decision before this work is no point. A short cut, another method, more than the work needs or a change of
+direction is a point; so is code that breaks a decision of the tree, or a decision that neither the plan nor the tree
+records and `decisions` does not give a reason that holds for. Is it sound in structure and lines? Does the change reach
+every place where the same thing happens, not only the one the item names? Does `evidence` show each condition on that
+commit, each new test red before the change where its kind needs it and worth its time? Where cost per operation can
+change, is what it can slow measured? Do the entries written into `design/` say what `tree_edits` says, and no more?
+
+List every point at once in `review`. Leave out preferences: the engineer fixes nearly all a review raises, so a wrong
+point makes good code worse.
+
+With `review_ok` yes write no opinion. Having said yes to `needs_testing`, keep it while the part of the change that
+made you say so is still there.
+'''
+triggered_by = ["on_change", "on_reply_review", "on_spoken"]
+context = [
+  "code",
+  "decisions",
+  "evidence",
+  "tests",
+  "discussion",
+  "plan_owner",
+  "plan_agent",
+  "acceptance",
+  "tree_edits",
+  "reply_review",
+  "background",
+  "questions",
+  "answers",
+  "review",
+  "tree",
+]
+outputs = ["review", "review_ok", "needs_testing", "discussion"]
+must_write = ["review_ok", "needs_testing"]
+
+# What the cell does when each trigger fires; a trigger with none is the task's alone.
+[do]
+# One trigger for what the implementation and the testing hand in; the plan is no trigger, since the implementation
+# brings the code to it first, and `session` is none, since a reopened session gives a reviewer nothing to do again.
+on_change = """See what changed since the version you last reviewed, the whole of it where you reviewed none, and review it."""
+on_reply_review = """Look at what changed: accept each answer in `reply_review` or say why not; raise nothing new the fix did not bring."""
+
+# `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
+[kinds]
+# Given as the files that changed since the tree this session read.
+tree = "last_and_latest"
+review = "latest"
+code = "last_and_latest"
+decisions = "last_and_latest"
+evidence = "latest"
+plan_owner = "last_and_latest"
+plan_agent = "last_and_latest"
+acceptance = "last_and_latest"
+tree_edits = "last_and_latest"
+tests = "last_and_latest"
+discussion = "all"
+reply_review = "latest"
+background = "latest"
+questions = "latest"
+answers = "all"

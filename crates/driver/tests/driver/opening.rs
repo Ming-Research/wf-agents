@@ -56,7 +56,7 @@ fn a_block_the_driver_writes_that_is_no_choice_of_waiting_and_merged_is_refused(
             "#
         );
         let write = "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write the text.\"\n\
-                     requires = [\"ready\"]\noutputs = [\"text\"]\n";
+                     requires = { test = \"ready\" }\noutputs = [\"text\"]\n";
         let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"text\"]\n";
         let odd = compiled(&flow, &[("write", write), ("merge", merge)]);
         let db = Db::new();
@@ -241,9 +241,15 @@ fn with_blocks(blocks: &str, tests: &str, requires: &str, outputs: &str) -> flow
         {tests}
         "#
     );
+    // The named test it waits on, where it waits on one.
+    let requires = if requires.is_empty() {
+        String::new()
+    } else {
+        format!("requires = {{ test = {requires} }}\n")
+    };
     let write = format!(
         "title = \"Write\"\nkind = \"agent\"\neffort = \"high\"\nline = \"main\"\ntask = \"Write the text.\"\n\
-         requires = [{requires}]\ninputs = [\"deps\"]\noutputs = [{outputs}]\n"
+         {requires}inputs = [\"deps\"]\noutputs = [{outputs}]\n"
     );
     let merge = "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"text\"]\n";
     compiled(&flow, &[("write", write.as_str()), ("merge", merge)])

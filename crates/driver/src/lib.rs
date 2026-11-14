@@ -73,6 +73,7 @@ pub mod outage;
 use decide::{BlockId, Decision, End, Holder, Outsider, Pauser, Room, View, begun, decide, taking_slot};
 use engine::{Effect, Event, Gate, Refused, handle_held, handle_then, held};
 use flow::Compiled;
+use flow::agents::fill;
 pub use outage::{Outage, Until};
 use store::{Change, EverythingPaused, First, Item, ItemChange, ItemNumber, Storage, WorkHead, WorkNumber};
 use work::{Time, Work};
@@ -91,6 +92,41 @@ pub const MERGED: &str = "merged";
 /// The source of the block the driver writes as the owner starts a work: the work, added paused, is let on with nothing
 /// of it started. The block has no content to speak of; its version is what runs the cell that starts the work.
 pub const START: &str = "start";
+
+/// What is wrong with the flow for what the driver writes, each in words with the file that says what the driver writes
+/// into the block: a block of [`DEPENDENCIES`], of [`SESSION`] or of [`START`] gives in its `writes` each text the
+/// driver fills, so that none is written empty. A flow with any of these is not run.
+pub fn faults(flow: &Compiled) -> Vec<String> {
+    let session: Vec<&str> = ["text"].into_iter().chain(work::Why::KINDS).collect();
+    let needs: [(&str, &[&str]); 3] = [
+        (DEPENDENCIES, &[MERGED, WAITING, "cancelled", "between"]),
+        (SESSION, &session),
+        (START, &["text"]),
+    ];
+    let mut faults = Vec::new();
+    for (name, block) in &flow.blocks {
+        let Some((source, keys)) = needs
+            .iter()
+            .find(|(source, _)| block.writers.outside.as_deref() == Some(*source))
+        else {
+            continue;
+        };
+        let missing: Vec<&str> = keys
+            .iter()
+            .copied()
+            .filter(|key| block.writes.get(key).is_none())
+            .collect();
+        if !missing.is_empty() {
+            faults.push(format!(
+                "the flow {}, {}: the block {name} (from {source}): its writes must give {}",
+                flow.name,
+                block.file,
+                missing.join(", ")
+            ));
+        }
+    }
+    faults
+}
 
 /// Drives the engine for every work the store holds.
 pub struct Driver {
@@ -949,10 +985,12 @@ impl Driver {
     }
 
     /// The write of the flow's [`DEPENDENCIES`] block, for a work whose item depends on these items, that makes it
-    /// say whether they have all merged, and which it waits for; none where the flow has no such block, or the block
-    /// says so already.
+    /// say whether they have all merged, and which it waits for, in the words its definition gives (`writes`); none
+    /// where the flow has no such block, or the block says so already.
     fn block(&self, flow: &Compiled, depends_on: &[ItemNumber], work: &Work) -> Option<Event> {
-        let (block, _) = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(DEPENDENCIES))?;
+        let (block, declared) =
+            (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(DEPENDENCIES))?;
+        let says = |name: &str| declared.writes.get(name).unwrap_or_default();
         let standing = |on: &ItemNumber| {
             let work = self.of_item.get(on).and_then(|work| self.works.get(work));
             work.map_or(Standing::Going, |held| held.standing)
@@ -960,14 +998,17 @@ impl Driver {
         let waited: Vec<String> = (depends_on.iter())
             .filter_map(|on| match standing(on) {
                 Standing::Ended(End::Merged) => None,
-                Standing::Ended(End::Cancelled) => Some(format!("{} (cancelled)", on.0)),
+                Standing::Ended(End::Cancelled) => Some(fill(says("cancelled"), &[("item", &on.0.to_string())])),
                 Standing::Going | Standing::AtFault => Some(on.0.to_string()),
             })
             .collect();
         let (value, content) = if waited.is_empty() {
-            (MERGED, "Every item this one depends on has merged.".to_string())
+            (MERGED, says(MERGED).to_string())
         } else {
-            (WAITING, format!("Waits for the items {} to merge.", waited.join(", ")))
+            (
+                WAITING,
+                fill(says(WAITING), &[("items", &waited.join(says("between")))]),
+            )
         };
         let versions = decide::versions(&work.records);
         let current = versions.get(block).and_then(|versions| versions.last());
@@ -1037,16 +1078,17 @@ fn step(
 }
 
 /// The write of the work's block of [`START`], where its flow has one and the owner has just started the work: the work
-/// is not paused, was let on since it was added paused, has started no run and has no version of the block.
+/// is not paused, was let on since it was added paused, has started no run and has no version of the block. What it
+/// writes is the block's `text`, as the flow says it ([`faults`]).
 fn start(flow: &Compiled, work: &Work) -> Option<Event> {
-    let (block, _) = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(START))?;
+    let (block, declared) = (flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(START))?;
     let r = &work.records;
     let started = !decide::paused(r) && r.pauses.iter().any(|p| !p.paused);
     let fresh = r.started.is_empty() && !r.written.iter().any(|w| w.block == *block);
     (started && fresh).then(|| Event::Wrote {
         block: block.clone(),
         by: Outsider::Outside,
-        content: "The owner started the work.".to_string(),
+        content: declared.writes.get("text").unwrap_or_default().to_string(),
         matters: true,
         value: None,
     })

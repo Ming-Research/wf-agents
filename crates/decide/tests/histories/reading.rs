@@ -278,13 +278,23 @@ impl<'a> Reading<'a> {
         !changed.is_empty() && changed.iter().all(|b| self.behind(flow, i, b, place))
     }
 
-    /// Whether the condition of the cell at place `i` of the flow is met now: with none it always is.
+    /// Whether the condition of the cell at place `i` of the flow is met now: every key of it holds; with none it
+    /// always is.
     pub fn applies(&self, flow: &Flow, i: usize) -> bool {
-        match &flow.cells()[i].applies {
-            None => true,
-            Some(Condition::Test(name)) => self.holds(flow, name, i),
-            Some(Condition::Is { block, value }) => {
-                self.current(block).and_then(|v| v.value.as_deref()) == Some(value.as_str())
+        (flow.cells()[i].applies.iter()).all(|key| self.key_holds(flow, key, i))
+    }
+
+    /// Whether one key of the condition or of the preconditions of the cell at place `i` holds now: its named test, or
+    /// the block's value, which is its default where the flow gives one and it was never written.
+    pub fn key_holds(&self, flow: &Flow, key: &Condition, i: usize) -> bool {
+        match key {
+            Condition::Test(name) => self.holds(flow, name, i),
+            Condition::Is { block, value } => {
+                let now = match self.current(block) {
+                    Some(v) => v.value.as_deref(),
+                    None => flow.default_of(block),
+                };
+                now == Some(value.as_str())
             }
         }
     }

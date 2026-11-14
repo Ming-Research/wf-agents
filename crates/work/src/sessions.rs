@@ -75,19 +75,31 @@ impl Why {
         !matches!(self, Why::Lost)
     }
 
-    /// Why, in words, for whoever reads it: an agent reading a block that says the session is new, or the owner.
-    pub fn words(&self, line: &str) -> String {
-        let why = match self {
-            Why::Limit { context, limit } => {
-                format!("its context was {context} tokens as its last round ended, past the limit of {limit}")
-            }
-            Why::Model { was } => format!("its rounds now run on another model than {was}, which it was begun on"),
-            Why::Account { .. } => "its rounds now run under another account than it was begun under".to_string(),
-            Why::Owner => "the owner asked for one".to_string(),
-            Why::Flagged => "the service's safety check flagged its last round".to_string(),
-            Why::Lost => "the agents' program no longer had the session it was in".to_string(),
+    /// The names of its kinds, each the name of the words of it where the flow says what the engine writes of a new
+    /// session: [`Why::named`] gives a kind's name from here, by [`Why::kind`].
+    pub const KINDS: [&'static str; 6] = ["limit", "model", "account", "owner", "flagged", "lost"];
+
+    /// Its kind's place among [`Why::KINDS`]. The match names every kind, so that a kind added to `Why` is given a
+    /// name there before the engine builds.
+    fn kind(&self) -> usize {
+        match self {
+            Why::Limit { .. } => 0,
+            Why::Model { .. } => 1,
+            Why::Account { .. } => 2,
+            Why::Owner => 3,
+            Why::Flagged => 4,
+            Why::Lost => 5,
+        }
+    }
+
+    /// Its kind, by its name among [`Why::KINDS`], and the places the words of it fill in a run, each with its value.
+    pub fn named(&self) -> (&'static str, Vec<(&'static str, String)>) {
+        let places = match self {
+            Why::Limit { context, limit } => vec![("context", context.to_string()), ("limit", limit.to_string())],
+            Why::Model { was } => vec![("was", was.clone())],
+            Why::Account { .. } | Why::Owner | Why::Flagged | Why::Lost => Vec::new(),
         };
-        format!("A new session of the line `{line}`: {why}.")
+        (Self::KINDS[self.kind()], places)
     }
 }
 
@@ -215,6 +227,20 @@ mod tests {
     use decide::{Returned, Round};
 
     use super::*;
+
+    #[test]
+    fn each_kind_of_a_new_session_has_a_name_of_its_own_among_the_kinds() {
+        let every = [
+            Why::Limit { context: 2, limit: 1 },
+            Why::Model { was: "m".to_string() },
+            Why::Account { was: None },
+            Why::Owner,
+            Why::Flagged,
+            Why::Lost,
+        ];
+        let names: Vec<&str> = every.iter().map(|w| w.named().0).collect();
+        assert_eq!(names, Why::KINDS);
+    }
 
     /// A work whose one run has rounds begun at these places, each ended after it with these tokens, and these
     /// sessions recorded.

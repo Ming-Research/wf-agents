@@ -86,7 +86,7 @@ fn judged() -> Compiled {
         title = "Merge"
         kind = "engine"
         act = "merge"
-        requires = ["may_merge"]
+        requires = { test = "may_merge" }
         inputs = ["text", "verdict"]
         outputs = ["merged"]
     "#;

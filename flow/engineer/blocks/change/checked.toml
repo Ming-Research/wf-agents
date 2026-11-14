@@ -1,0 +1,3 @@
+what = "yes when the work's branch passed the check before the merge, against main as it was then; no otherwise."
+values = ["yes", "no"]
+shown = true

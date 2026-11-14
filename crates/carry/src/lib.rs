@@ -49,8 +49,9 @@ use service::{Carriers, Rounds, Tools as ToolsTrait};
 use settings::Project;
 use tools::Tools;
 
-pub use acts::{FAILED, MAIN, PASSED, WATCH, Watch, faults};
+pub use acts::{MAIN, WATCH, Watch, Words, faults, main_faults, word_faults};
 pub use agents::{Agents, PROTOCOL, ROUNDS};
+pub use flow::agents::Writes;
 pub use host::github::{GhOffsite, UPLOAD_RATE};
 pub use process::{STOP_WAIT, TAIL};
 pub use settings::Settings;
@@ -61,13 +62,16 @@ pub use tools::{CHECK, CHECK_BEFORE};
 ///
 /// The acts and the tools are carried out on the host the settings say: GitHub where they have a table for it, with
 /// the engine's token from its environment, and the local repository where they have none.
-pub fn carriers(settings: Settings, data: &Path) -> Result<Carriers, String> {
-    carry(settings, data).map(|(carriers, _)| carriers)
+pub fn carriers(settings: Settings, data: &Path, words: Writes) -> Result<Carriers, String> {
+    carry(settings, data, words).map(|(carriers, _)| carriers)
 }
 
 /// The carriers of these settings, as [`carriers`] gives them, and the watch of main of their acts, which whoever
-/// runs the loop runs beside it, saying what it finds to the loop as the source [`MAIN`].
-pub fn carry(settings: Settings, data: &Path) -> Result<(Carriers, Watch), String> {
+/// runs the loop runs beside it, saying what it finds to the loop as the source [`MAIN`]. The acts and the commits the
+/// engine makes say what `words` says.
+pub fn carry(mut settings: Settings, data: &Path, words: Writes) -> Result<(Carriers, Watch), String> {
+    settings.project.commits = words.commits;
+    let words = words.acts;
     // The worktrees are given to git by their path, which git would read against the repository's directory were it
     // relative.
     let data = std::path::absolute(data).map_err(|e| format!("{}: {e}", data.display()))?;
@@ -77,11 +81,11 @@ pub fn carry(settings: Settings, data: &Path) -> Result<(Carriers, Watch), Strin
     let (acts, tools, watch, main) = match &settings.github {
         None => {
             let host = host::Local::new(project.clone()).giving(settings.agents.env.clone());
-            on(host, &project, &data, &tag)
+            on(host, &project, &data, &tag, words)
         }
         Some(github) => {
             let host = host::GitHub::from_settings(github, &project, &data, |name| std::env::var(name).ok())?;
-            on(host, &project, &data, &tag)
+            on(host, &project, &data, &tag, words)
         }
     };
     let slots = settings.agents.slots;
@@ -102,10 +106,17 @@ fn on<H: Host>(
     project: &Project,
     data: &Path,
     tag: &str,
+    words: Words,
 ) -> (Arc<dyn Rounds>, Arc<dyn ToolsTrait>, Watch, String) {
     let main = host.kept_main();
     let host = Arc::new(host);
-    let acts = Acts::new(host.clone(), project.clone(), data.to_path_buf(), tag.to_string());
+    let acts = Acts::new(
+        host.clone(),
+        project.clone(),
+        data.to_path_buf(),
+        tag.to_string(),
+        words,
+    );
     let watch = acts.watch(WATCH);
     let tools = Tools::new(host, project.clone(), data.to_path_buf(), tag.to_string());
     (Arc::new(acts), Arc::new(tools), watch, main)

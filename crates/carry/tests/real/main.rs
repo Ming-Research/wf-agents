@@ -206,6 +206,9 @@ fn compiled(on: On) -> Compiled {
     let has = Has {
         sources: names(&[driver::DEPENDENCIES, driver::SESSION]),
         acts: names(&["start", "check", "merge", "deliver"]),
+        // The triggers beside the repository's flows are every flow's, and one says what happened by the files of
+        // the tree.
+        details: names(&["files"]),
         ..Default::default()
     };
     flow::compile(&source, &has).expect("the flow compiles")
@@ -321,10 +324,16 @@ impl Rounds for Deaf {
     fn stop(&self, _: Round, _: RoundReply) {}
 }
 
+/// The acts' words as the flows of this repository write them.
+fn words() -> carry::Writes {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    flow::agents::writes(&root).expect("what the engine writes is read")
+}
+
 /// The loop with the real carriers of the settings, on an empty store or the one in the data directory; with agents
 /// whose stops are dropped where `deaf`.
 fn open(settings: &Settings, data: &Path, flow: &Compiled, deaf: bool) -> (Service, Inbox) {
-    let mut carriers = carry::carriers(settings.clone(), data).expect("the carriers are made");
+    let mut carriers = carry::carriers(settings.clone(), data, words()).expect("the carriers are made");
     if deaf {
         carriers.agents = Arc::new(Deaf(carriers.agents));
     }
@@ -356,6 +365,7 @@ impl Real {
                 main: "main".to_string(),
                 check: check.to_string(),
                 allowed_config: Vec::new(),
+                commits: Default::default(),
             },
             agents: Agents {
                 command: command.display().to_string(),

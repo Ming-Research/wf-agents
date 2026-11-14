@@ -1,0 +1,2 @@
+what = "yes when the change is of a kind that goes wrong silently, which only tests written to break it find (a compiler, a checker, a runtime, a data format, concurrency, security, parsing), or as the project's standard for adversarial testing says where it gives one; no otherwise."
+values = ["yes", "no"]

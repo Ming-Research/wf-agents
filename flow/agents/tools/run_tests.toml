@@ -1,0 +1,11 @@
+# Runs tests and checks in the project's CI, run by the engine (design statement 27).
+words = '''
+`run_tests`: runs the project's CI on the last commit of the work's branch; what is not committed is not run. Ask as
+  `{"tests": [...], "checks": [...]}`, naming tests as `project.test_names` says and checks among `github.checks`; name
+  none to run the whole CI. It gives each test and check, green or red, with the time it took, and the output of what
+  is red.'''
+
+[request]
+type = "object"
+properties = { tests = { type = "array", items = { type = "string" } }, checks = { type = "array", items = { type = "string" } } }
+additionalProperties = false

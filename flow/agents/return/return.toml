@@ -1,0 +1,61 @@
+# A return: one of two kinds, which the form holds apart (design statements 30, 31). The form is the shape alone, the
+# same for every cell of a flow, so the same on every call of a session: the engine's fields, which every agent cell
+# has alike, and the tools the flow names (`tools` in its `flow.toml`). A cell's blocks go in the field `outputs`
+# under their names, which the form does not list: the cell is told its own with its task, and the engine checks each
+# return against its cell. Each field is a file in `fields/`, each tool one in `../tools/`.
+#
+# A field's `in` names the kinds it is a field of; `told` where its words go in the part on returning: `alone`, a
+# paragraph of its own; `with_outputs`, after the words of `outputs`, in their paragraph; `listed`, in the list of the
+# fields that are not blocks.
+
+# The form, given with every call. The program makes of it a tool it hands a return in with, which stands with its own
+# tools, before the system prompt. The order of its fields, short ones first and long texts last: `tools`, each tool the
+# flow names; any other name, that field.
+[form]
+calls = ["tools"]
+outcome = ["dealt_with", "meaning_unchanged", "questions", "observations", "reply", "outputs"]
+
+# The part on returning of a line's system prompt, after the engine's words (`../session.toml`): the same for every
+# cell of the flow. `heading`, `first` and `kinds`; each field told `alone`, in the order of the form, with those told
+# `with_outputs` after the words of `outputs`; `every_time`; `fields`, over the fields told `listed`, each field's
+# `also` after the list; `owner_reads`, `{fields}` the names in `reads` joined by `", "` and `and`; where the flow
+# names tools, `calls` and `tools`, then each tool's words.
+[how_you_return]
+heading = "## How you return"
+first = "You end every round with one return, in the form given to you."
+kinds = '''
+A return is one of two kinds, never both: `outcome`, which ends the round with the cell's work and holds the fields
+told below; or `calls`, which asks the engine for tools, as "What you may ask the engine for" says, and holds them
+alone.'''
+# An item of the list of the fields, and of the tools.
+item = "- {text}"
+# The fields told `listed`, in this order.
+listed = ["reply", "questions", "observations"]
+every_time = '''
+A block the list marks "hand it in every time" you always hand in, as it stands, and a choice with its value: handing
+it in again with its value unchanged runs no cell again. A return with a question you wait for may leave them out,
+since the work stops at this cell until the answer comes.'''
+fields = '''
+Fields that are not blocks of the work:'''
+owner_reads = "The owner reads {fields}: write them in `owner.language`, with technical terms in their English original."
+# The fields the owner reads, in the order `owner_reads` names them.
+reads = ["reply", "questions"]
+and = " and "
+calls = '''
+A tool of the engine is asked for under its name, and the cell is entered again once its results are there.'''
+tools = '''
+## What you may ask the engine for
+
+Each tool is a field of `calls` under the tool's name, holding a list of requests; those of one return are run
+together.'''
+
+# What a cell is told it writes, with its task, where the session lacks it: its blocks, each on a line, after the
+# heading; `none` where it writes none. A line says after the block's name each mark that holds: that it is a choice,
+# `{values}` its values; that the owner reads it; that the cell hands it in every time.
+[outputs]
+heading = "## What this cell returns"
+block = "- `{block}`{choice}{shown}{must_write}: {what}"
+none = "This cell writes no block."
+choice = ", a choice, one of {values}"
+shown = " (the owner reads it)"
+must_write = " (hand it in every time)"

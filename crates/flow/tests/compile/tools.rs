@@ -1,10 +1,11 @@
 //! The tools of the engine's a cell may ask for in its return: each a tool the engine has, named once, and only by an
-//! agent cell; compiled in the order written.
+//! agent cell; compiled in the order written. A flow laid out one thing to a file may name them once for every agent
+//! cell of it, since the form of a return is the same for the whole flow; a cell of it then names none of its own.
 
 use flow::FaultKind::*;
-use flow::Has;
+use flow::{FLOW_FILE, Has};
 
-use crate::support::{at, compiled, edit, faults, faults_with, has, valid};
+use crate::support::{at, compiled, edit, faults, faults_with, has, laid_out, valid};
 
 const JUDGE_INPUTS: &str = r#"inputs = ["plan"]"#;
 
@@ -73,4 +74,68 @@ fn an_engine_cell_asks_for_no_tool() {
         "act = \"check\"\ntools = [\"query\"]",
     );
     assert_eq!(faults(&source), [at("check.toml", "tools", EngineHasTools)]);
+}
+
+/// The small flow laid out one thing to a file, its `flow.toml` naming the tools of this list for every agent cell.
+fn flow_tools(list: &str) -> flow::Source {
+    edit(
+        laid_out(),
+        FLOW_FILE,
+        "data = [\"request\"]",
+        &format!("data = [\"request\"]\ntools = {list}"),
+    )
+}
+
+#[test]
+fn the_tools_a_flow_names_are_every_agent_cell_s_and_no_engine_cell_s() {
+    let compiled = compiled(&flow_tools(r#"["run_tests", "query"]"#));
+    for cell in ["plan", "judge", "design", "answer"] {
+        assert_eq!(tools(&compiled, cell), ["run_tests", "query"], "{cell}");
+    }
+    for cell in ["check", "merge"] {
+        assert_eq!(tools(&compiled, cell), Vec::<String>::new(), "{cell}");
+    }
+}
+
+#[test]
+fn a_cell_that_names_tools_of_its_own_beside_the_flow_s_names_them_twice() {
+    let source = edit(
+        flow_tools(r#"["query"]"#),
+        "cells/judge.toml",
+        "line = \"review\"",
+        "line = \"review\"\ntools = [\"query\"]",
+    );
+    assert_eq!(
+        faults(&source),
+        [at(
+            "cells/judge.toml",
+            "tools",
+            Twice {
+                name: "tools".to_string(),
+            },
+        )]
+    );
+}
+
+#[test]
+fn a_tool_the_flow_names_that_the_engine_does_not_have_or_names_twice_is_refused_in_flow_toml() {
+    assert_eq!(
+        faults(&flow_tools(r#"["query", "deploy", "query"]"#)),
+        [
+            at(
+                FLOW_FILE,
+                "tools[1]",
+                UnknownTool {
+                    tool: "deploy".to_string(),
+                },
+            ),
+            at(
+                FLOW_FILE,
+                "tools[2]",
+                Twice {
+                    name: "query".to_string(),
+                },
+            ),
+        ]
+    );
 }

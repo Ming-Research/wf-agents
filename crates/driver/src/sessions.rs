@@ -23,7 +23,8 @@ use decide::run::Failure;
 use decide::{Decision, Outsider, RunId, decide};
 use engine::Event;
 use flow::CellSpec;
-use flow::Compiled;
+use flow::agents::fill;
+use flow::{Compiled, Texts};
 use store::Item;
 use work::sessions::{began_on, number_at, of_line, start};
 use work::{Back, RanOn, Why, Work};
@@ -67,7 +68,7 @@ pub fn follow(flow: &Compiled, work: &Work, item: &Item, policy: Option<&Policy>
     // The latest new session of a line the block stands for: one about to be recorded, or else one recorded since the
     // block was last written.
     let coming = events.iter().rev().find_map(|event| match event {
-        Event::Anew { line, why } if read_on(line) => Some(why.words(line)),
+        Event::Anew { line, why } if read_on(line) => Some(said(why, line, &declared.writes)),
         _ => None,
     });
     let written = (work.records.written.iter())
@@ -77,7 +78,7 @@ pub fn follow(flow: &Compiled, work: &Work, item: &Item, policy: Option<&Policy>
     let recorded = (work.sessions.iter().rev())
         .find(|s| read_on(&s.line))
         .filter(|s| written.is_none_or(|w| w < s.at))
-        .map(|s| s.why.words(&s.line));
+        .map(|s| said(&s.why, &s.line, &declared.writes));
     if let Some(content) = coming.or(recorded) {
         events.push(Event::Wrote {
             block: block.clone(),
@@ -88,6 +89,16 @@ pub fn follow(flow: &Compiled, work: &Work, item: &Item, policy: Option<&Policy>
         });
     }
     events
+}
+
+/// What the block says of a new session of the line, in the words its definition gives (`writes`): `text`, with the
+/// line and the words of why it began one.
+fn said(why: &Why, line: &str, writes: &Texts) -> String {
+    let says = |name: &str| writes.get(name).unwrap_or_default();
+    let (kind, slots) = why.named();
+    let slots: Vec<(&str, &str)> = slots.iter().map(|(name, value)| (*name, value.as_str())).collect();
+    let why = fill(says(kind), &slots);
+    fill(says("text"), &[("line", line), ("why", &why)])
 }
 
 /// The lines of the flow's cells, each once, in the order of the walk.

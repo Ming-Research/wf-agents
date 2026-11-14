@@ -1,22 +1,28 @@
-# A message of the tests, its parts in this order.
+# A message of the tests, its parts in this order: one written anew each time, one sent only to a cell that takes
+# main in, the data by the cell's kinds, what the cell writes and its task as the session keeps them, and the triggers.
 [[parts]]
 part = "heading"
-sent = "every_time"
 text = "# {title}"
 
 [[parts]]
+part = "main"
+only = "takes_main"
+
+[[parts]]
 part = "context"
-sent = "by_kind"
+
+[[parts]]
+part = "outputs"
+kind = "latest"
 
 [[parts]]
 part = "task"
-sent = "once_a_session"
+kind = "latest"
 text = "{task}"
 held = "As given before in this session."
 
 [[parts]]
 part = "triggers"
-sent = "every_time"
 text = "## Why you are run\n"
 each = "\n- `{trigger}`{detail}{do}"
 detail = " ({detail})"

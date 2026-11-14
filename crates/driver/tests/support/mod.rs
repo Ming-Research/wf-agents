@@ -64,6 +64,7 @@ pub fn compiled(flow: &str, cells: &[(&str, &str)]) -> Compiled {
 const START_BLOCK: &str = r#"
         [blocks.start]
         outside = "start"
+        writes = { text = "The owner started the work." }
 "#;
 
 /// The dependencies block, which the driver writes, and the named test the first cell of a flow waits on: that every
@@ -72,6 +73,7 @@ const DEPENDENCIES_BLOCK: &str = r#"
         [blocks.deps]
         values = ["waiting", "merged"]
         outside = "dependencies"
+        writes = { merged = "Every item this one depends on has merged.", waiting = "Waits for the items {items} to merge.", cancelled = "{item} (cancelled)", between = ", " }
         [tests.ready]
         says = "Every item this one depends on has merged"
         kind = "all"
@@ -112,7 +114,7 @@ pub fn judged() -> Compiled {
         effort = "high"
         line = "main"
         task = "Write the text the request asks for."
-        requires = ["ready"]
+        requires = { test = "ready" }
         inputs = ["start", "request", "opinions"]
         outputs = ["text"]
     "#;
@@ -161,7 +163,7 @@ pub fn short() -> Compiled {
         effort = "high"
         line = "main"
         task = "Draft the plan from the request."
-        requires = ["ready"]
+        requires = { test = "ready" }
         inputs = ["start", "request"]
         outputs = ["plan"]
     "#;
@@ -226,6 +228,8 @@ pub fn deliver() -> Compiled {
     let has = Has {
         sources: [DEPENDENCIES.to_string()].into(),
         acts: ["deliver".to_string()].into(),
+        // The triggers beside the flows are every flow's, and one says what happened by the files of the tree.
+        details: ["files".to_string()].into(),
         ..Default::default()
     };
     compile(&source, &has).expect("the deliver flow compiles")
@@ -1596,7 +1600,7 @@ pub fn waits_for_dependencies(cell: &str) -> Decision {
     Decision::Wait {
         at: cell.into(),
         on: vec![Waited::Precondition {
-            test: "ready".into(),
+            on: "ready".into(),
             by: vec![dependencies()],
         }],
     }

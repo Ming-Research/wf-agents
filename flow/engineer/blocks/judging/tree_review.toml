@@ -1,0 +1,3 @@
+# What the review against the design tree says to the plan's writer. Only that review writes it, so that no one writes
+# over what it said; one block, which runs whichever cell writes the plan.
+what = "What the review against the design tree says to the plan's writer, in English: each point, where, what must change and why, what it rests on."

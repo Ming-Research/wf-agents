@@ -1,0 +1,45 @@
+# Why this cell exists: so that a change of a kind that goes wrong silently is tested by a session that did not make
+# it, against an independent reference, before it merges.
+title = "Adversarial testing"
+kind = "agent"
+line = "tester"
+effort = "high"
+task = '''
+Test the change in `code` in a session of your own, looking for where it is wrong. You only write tests, in the
+project's test files: where you think the implementation wrong, write a test that turns red, for the engineer to fix.
+Meet each condition of `acceptance` that a test can show by a test, the engineer's where it really tests it, else
+yours; then dig for corner cases. Each test of yours names the independent reference its verdict rests on, such as a
+specification or an established implementation; what you think should hold does not count. A new-behaviour test fails
+before the change; an old-behaviour test passes before and after. Run every test new in this work on the commit `code`
+names and on the code before the change; one of yours whose result before misfits its kind, fix and run again now,
+and one of the engineer's, say so in `testing`. One red
+after the change, check against its reference first; hand on only what stays red. Commit your tests on the work's
+branch.
+
+Hand in `tests`, and what stays red or stays suspect in `testing`.
+'''
+when = { needs_testing = "yes" }
+triggered_by = ["on_code", "on_acceptance", "on_reply_testing"]
+context = [
+  "background",
+  "plan_agent",
+  "code",
+  "acceptance",
+  "reply_testing",
+  "tests",
+]
+outputs = ["tests", "testing", "testing_ok"]
+must_write = ["testing_ok"]
+
+# What the cell does when each trigger fires; a trigger with none is the task's alone.
+[do]
+on_reply_testing = """Run your tests on the new commit: accept each answer in `reply_testing`, checking a test called wrong against its reference, or say why not."""
+
+# `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
+[kinds]
+tests = "latest"
+background = "latest"
+plan_agent = "latest"
+code = "last_and_latest"
+acceptance = "latest"
+reply_testing = "latest"

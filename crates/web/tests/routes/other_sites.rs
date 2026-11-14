@@ -23,7 +23,7 @@ async fn served(router: Router) -> u16 {
 
 /// The flow's routes and the page, served.
 async fn flow_page() -> u16 {
-    served(serve(&Shared::new(Ok(tiny())), None)).await
+    served(serve(&Shared::new(Ok(tiny())))).await
 }
 
 /// The engine's own address with this port, as a Host.

@@ -37,7 +37,7 @@ mod support;
 use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
 
-use decide::{BlockId, Cause, Decision, End, Maker, Outsider, Pauser, RunId, TestKind, Waited, decide};
+use decide::{BlockId, Cause, Decision, End, Maker, Outsider, Pauser, RunId, Waited, decide};
 use engine::{Call, Came, Effect, Event, Given, Handed, Spent, Time, Work, handle};
 use flow::{Compiled, Has, Kind, compile, read};
 use support::{Driver, Part, Rng};
@@ -60,6 +60,8 @@ fn deliver() -> Compiled {
     let has = Has {
         sources: ["dependencies".to_string()].into(),
         acts: ["deliver".to_string()].into(),
+        // The triggers beside the flows are every flow's, and one says what happened by the files of the tree.
+        details: ["files".to_string()].into(),
         ..Default::default()
     };
     compile(&source, &has).expect("the deliver flow compiles")
@@ -75,9 +77,10 @@ fn dependencies(flow: &Compiled) -> BlockId {
 
 /// The value the cell's precondition looks for in the dependencies block.
 fn wanted(flow: &Compiled) -> String {
-    let cell = &flow.flow.cells()[0];
-    let test = &flow.flow.tests()[&cell.requires[0]];
-    test.is.clone()
+    match &flow.flow.cells()[0].requires[..] {
+        [decide::Condition::Is { value, .. }] => value.clone(),
+        other => panic!("the cell waits on the value of the dependencies block alone, not {other:?}"),
+    }
 }
 
 fn wrote(block: &BlockId, by: Outsider, value: Option<&str>) -> Event {
@@ -110,18 +113,18 @@ fn the_deliver_flow_is_one_act_of_the_engines_held_until_the_items_it_is_made_of
         panic!("the deliver flow has more than its one cell: {:?}", flow.flow.cells());
     };
     assert_eq!(cell.id.as_str(), "V1");
-    assert_eq!(cell.applies, None, "the last cell has no condition");
+    assert_eq!(cell.applies, [], "the last cell has no condition");
     let spec = &flow.cells[0];
     assert_eq!((spec.title.as_str(), spec.kind), ("Deliver", Kind::Engine));
     assert_eq!(spec.act.as_deref(), Some("deliver"));
-    assert_eq!(cell.requires, ["all_delivered".into()]);
-    let test = &flow.flow.tests()[&cell.requires[0]];
+    // It waits until the dependencies block says the items have merged.
     assert_eq!(
-        (test.kind, test.reads.clone()),
-        (TestKind::All, vec![dependencies(&flow)])
+        cell.requires,
+        [decide::Condition::Is {
+            block: dependencies(&flow),
+            value: "merged".to_string(),
+        }]
     );
-    assert_eq!(test.is, "merged");
-    assert_eq!(flow.tests[&cell.requires[0]], "The items it is made of are merged");
     assert_eq!(cell.outputs, ["delivered".into()]);
     assert!(
         flow.blocks[&BlockId::from("delivered")].readers.shown,
@@ -153,7 +156,10 @@ fn a_work_waits_at_its_cell_until_its_items_have_merged_then_runs_it_once_and_ha
     let waits = Decision::Wait {
         at: "V1".into(),
         on: vec![Waited::Precondition {
-            test: "all_delivered".into(),
+            on: decide::Condition::Is {
+                block: deps.clone(),
+                value: "merged".to_string(),
+            },
             // The items it is made of merging is what makes it hold: no person can.
             by: vec![Maker::Outside {
                 source: "dependencies".to_string(),

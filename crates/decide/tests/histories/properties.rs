@@ -30,8 +30,8 @@
 use std::collections::BTreeMap;
 
 use decide::{
-    Abandoning, BlockId, Cause, Decision, End, Flow, Maker, Pause, Pauser, Records, Room, RunId, Seq, Started,
-    TestKind, Waited, decide, decide_in, view,
+    Abandoning, BlockId, Cause, Condition, Decision, End, Flow, Maker, Pause, Pauser, Records, Room, RunId, Seq,
+    Started, TestKind, Waited, decide, decide_in, view,
 };
 
 use crate::reading::{Reading, Reason, Writer};
@@ -500,9 +500,17 @@ pub fn decision(v: &mut Verdict, flow: &Flow, reading: &Reading, d: &Decision, r
                 match o {
                     Waited::Limit { runs } => limit(v, flow, reading, at, *runs),
                     Waited::Calls { runs } => calls_limit(v, flow, reading, at, *runs),
-                    Waited::Precondition { test, by } => {
+                    Waited::Precondition {
+                        on: Condition::Test(test),
+                        by,
+                    } => {
                         held(v, flow, reading, i, test);
                         made_by(v, flow, reading, at, test, by);
+                    }
+                    Waited::Precondition { on, .. } => {
+                        if reading.key_holds(flow, on, i) {
+                            v.fail(HELD, format!("the work waits at {at} on {on:?}, which holds"));
+                        }
                     }
                     Waited::Call { .. } | Waited::Slot => {}
                 }
@@ -568,7 +576,7 @@ fn first_entered(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize) {
         });
         let entering = reading.entering(flow, cell, now);
         let owed_open = reading.owed(&cell.id, now).iter().any(|c| !reading.done(*c, now));
-        let unmet = cell.requires.iter().any(|t| !reading.holds(flow, t, j));
+        let unmet = cell.requires.iter().any(|key| !reading.key_holds(flow, key, j));
         if at_rest || !entering.is_empty() || owed_open || unmet {
             v.fail(
                 FIRST,
@@ -690,9 +698,9 @@ fn settled(v: &mut Verdict, flow: &Flow, reading: &Reading) {
     let cells = flow.cells();
     let m = cells.len() - 1;
     let merge = &cells[m];
-    for test in &merge.requires {
-        if !reading.holds(flow, test, m) {
-            v.fail(SETTLED, format!("the merge begins a round while {test} does not hold"));
+    for key in &merge.requires {
+        if !reading.key_holds(flow, key, m) {
+            v.fail(SETTLED, format!("the merge begins a round while {key:?} does not hold"));
         }
     }
     // The merge begins over a no that a judge wrote last and that holds nothing, the judge being skipped.

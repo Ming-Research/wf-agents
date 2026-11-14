@@ -1,0 +1,11 @@
+# One read-only SQL query on the engine's records, run by the engine (design statement 27). `{store}` is filled with
+# what the records hold.
+words = '''
+`query`: one read-only SQL query on the engine's records, as `{"sql": "..."}`. {store} It gives the rows. A result too
+  large to give whole comes cut, with its size and the query that gets the rest.'''
+
+[request]
+type = "object"
+properties = { sql = { type = "string" } }
+required = ["sql"]
+additionalProperties = false

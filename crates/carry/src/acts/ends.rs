@@ -15,7 +15,13 @@ const WORK: WorkNumber = WorkNumber(1);
 
 /// The acts on the fake host in the repository.
 fn acts(repo: &Repo, host: Fake) -> Acts<Fake> {
-    Acts::new(host, repo.project.clone(), repo.data.clone(), TAG.to_string())
+    Acts::new(
+        host,
+        repo.project.clone(),
+        repo.data.clone(),
+        TAG.to_string(),
+        super::words(),
+    )
 }
 
 /// The work, which ended so, as its release is given.
@@ -236,7 +242,7 @@ fn what_the_host_says_beside_its_verdict_is_written_with_the_check() {
         ("passed".into(), Some(vec!["yes".to_string(), "no".to_string()])),
         ("failures".into(), None),
     ];
-    let handed = checked_in(&outputs, &checked, "main").unwrap();
+    let handed = checked_in(&outputs, &checked, "main", &super::words().check).unwrap();
     assert_eq!(
         handed[0].content,
         "Checked commit c0ffee\n\nThe work's branch was checked against main at beef: it passed.\n\nAlso:\n- test: \

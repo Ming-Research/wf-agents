@@ -5,31 +5,33 @@ use flow::{FLOW_FILE, FaultKind::*};
 
 use crate::support::{at, compiled, edit, faults, unreadable, valid};
 
-const REQUIRES: &str = r#"requires = ["may_merge"]"#;
+const REQUIRES: &str = r#"requires = { test = "may_merge" }"#;
 
 const MAY_MERGE_READS: &str = r#"reads = ["ci"]"#;
 
 #[test]
-fn every_test_a_cell_requires_is_declared_and_named_once() {
-    let source = edit(
-        valid(),
-        "merge.toml",
-        REQUIRES,
-        r#"requires = ["may_merge", "nobody", "may_merge"]"#,
-    );
+fn every_test_a_cell_requires_is_declared() {
+    let source = edit(valid(), "merge.toml", REQUIRES, r#"requires = { test = "nobody" }"#);
     let undeclared = UndeclaredTest {
         test: "nobody".to_string(),
     };
-    let twice = Twice {
-        name: "may_merge".to_string(),
+    // The test the merge named before is then used by no cell.
+    let unused = UnusedTest {
+        test: "may_merge".to_string(),
     };
     assert_eq!(
         faults(&source),
         [
-            at("merge.toml", "requires[1]", undeclared),
-            at("merge.toml", "requires[2]", twice),
+            at(FLOW_FILE, "tests.may_merge", unused),
+            at("merge.toml", "requires.test", undeclared),
         ]
     );
+}
+
+#[test]
+fn a_requires_written_as_a_list_is_a_file_the_parser_refuses() {
+    let source = edit(valid(), "merge.toml", REQUIRES, r#"requires = ["may_merge"]"#);
+    assert!(!unreadable(&source, "merge.toml").is_empty());
 }
 
 #[test]
@@ -106,13 +108,13 @@ fn a_cell_s_precondition_is_no_test_that_reads_what_the_cell_writes_and_its_cond
         test: "may_merge".into(),
         block: "ci".into(),
     };
-    assert_eq!(faults(&source), [at("check.toml", "requires[0]", what())]);
+    assert_eq!(faults(&source), [at("check.toml", "requires.test", what())]);
     let source = edit(source, FLOW_FILE, "[blocks.ci]\n", "[blocks.ci]\npeople = true\n");
     assert_eq!(
         faults(&source),
         [
             at("check.toml", "when.test", what()),
-            at("check.toml", "requires[0]", what()),
+            at("check.toml", "requires.test", what()),
         ]
     );
 }
@@ -138,7 +140,7 @@ fn a_cell_s_condition_or_precondition_is_no_test_that_reads_what_only_a_cell_aft
     assert_eq!(
         faults(&source),
         [
-            at("plan.toml", "requires[0]", what()),
+            at("plan.toml", "requires.test", what()),
             at("judge.toml", "when.test", what()),
         ]
     );
@@ -155,13 +157,11 @@ fn a_test_may_read_choices_people_or_the_outside_write_before_any_cell() {
         source,
         "plan.toml",
         "line = \"engineer\"",
-        "line = \"engineer\"\nrequires = [\"plan_confirmed\", \"checked\"]",
+        "line = \"engineer\"\nrequires = { test = \"checked\" }",
     );
+    // The answer still requires plan_confirmed.
     let compiled = compiled(&source);
-    assert_eq!(
-        compiled.flow.cells()[0].requires,
-        ["plan_confirmed".into(), "checked".into()]
-    );
+    assert_eq!(compiled.flow.cells()[0].requires, ["checked".into()]);
     assert_eq!(compiled.blocks[&"checks".into()].readers.tests, ["checked".into()]);
 }
 
@@ -195,7 +195,7 @@ fn a_test_of_what_stands_reads_no_block_a_cell_after_its_cell_writes_and_another
         faults(&source),
         [
             at(FLOW_FILE, "tests.plan_confirmed.reads[1]", two),
-            at("answer.toml", "requires[0]", after),
+            at("answer.toml", "requires.test", after),
         ]
     );
 }
@@ -253,7 +253,7 @@ fn a_test_without_a_writer_before_or_after_its_cell_is_not_written_before_it() {
         faults(&source),
         [
             at(FLOW_FILE, "blocks.never", not_written),
-            at("answer.toml", "requires[0]", not_before),
+            at("answer.toml", "requires.test", not_before),
         ]
     );
 }

@@ -1,0 +1,84 @@
+# Why this cell exists: so that the work starts from facts checked in the code: what the item says, found to hold, and
+# a plan the implementation can follow; or, where the facts cannot settle the direction in a round or two, the deep
+# research is called with what it must settle.
+title = "Initial research"
+kind = "agent"
+line = "engineer"
+effort = "high"
+task = '''
+Research how to do what the item asks with code, going on from the tree you read. First ask `query` whether the item
+was worked on before; where it was, see how far that got, and keep what still holds. Then check that what the item
+says holds, where it shows: a fault it reports, seen as it happens, such as on the page in a real browser or in the
+program on its own data, and its root cause (a cause read from the code, or a test in a stand-in such as a simulated
+page, has not seen it); what it asks for, not there already. Where it does not hold after looking as far as the tools
+reach, ask the owner how to go on, with a question that waits. A test goes with the project's tests, anything else you
+make in `project.research`, committed. If the design itself is at fault, say so.
+
+Decide `deep_needed`. With yes, write only `found`. With no, write the plan (`plan_owner`, `plan_agent`,
+`acceptance`, and `tree_edits` with `edits_tree`) and no `found`. Where the solution needs a decision changed,
+propose that in `tree_edits` rather than bend the solution; a principle or the constitution, ask the owner. Before
+handing in, ask yourself where the plan is most likely wrong, and check that point.
+'''
+when = { deep_needed = "no" }
+triggered_by = [
+  "on_background",
+  "on_spoken",
+  "on_answer",
+  "on_plan_review",
+  "on_tree_review",
+  "on_plan_doubts",
+]
+context = [
+  "background",
+  "discussion",
+  "answers",
+  "plan_review",
+  "tree_review",
+  "plan_doubts",
+  "plan_owner",
+  "plan_agent",
+  "questions",
+  "acceptance",
+  "tree_edits",
+  "tree",
+]
+outputs = [
+  "deep_needed",
+  "found",
+  "plan_owner",
+  "plan_agent",
+  "questions",
+  "acceptance",
+  "tree_edits",
+  "edits_tree",
+  "reply_plan_review",
+  "reply_tree_review",
+  "reply_plan_doubts",
+  "discussion",
+]
+must_write = ["deep_needed"]
+
+# What the cell does when each trigger fires; a trigger with none is the task's alone.
+[do]
+on_background = """See what changed from the version you last worked from, the whole of it where you worked from none, and bring the research and the plan up to date for it."""
+on_plan_review = """Take each point of `plan_review`: change the plan where it touches, only there, or say why not, and answer it in `reply_plan_review`."""
+on_tree_review = """Take each point of `tree_review`: change the plan where it touches, only there, or say why not, and answer it in `reply_tree_review`."""
+on_plan_doubts = """Take each point of `plan_doubts`: change the plan where it touches, only there, or say why not, and answer it in `reply_plan_doubts`."""
+on_answer = """The owner has answered one of your questions in `answers` with another option than yours, or one you wait for: bring the plan to it."""
+on_spoken = """The owner has said something to you in `discussion`: that comes first. Take each point of it: change the plan where it touches, only there, or say why not, and answer it in `reply`."""
+
+# `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
+[kinds]
+# Given as the files that changed since the tree this session read.
+tree = "last_and_latest"
+background = "last_and_latest"
+discussion = "all"
+answers = "all"
+plan_review = "latest"
+tree_review = "latest"
+plan_doubts = "latest"
+plan_owner = "latest"
+plan_agent = "latest"
+questions = "latest"
+acceptance = "latest"
+tree_edits = "latest"
