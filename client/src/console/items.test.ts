@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { CellNow, Item, Items, Now, Summary, Waited } from '../works-api';
-import { asksOf, shownTree, type Shown, whoGives } from './items';
+import type { CellNow, Item, Items, Now, Summary } from '../works-api';
+import { asksOf, shownTree, type Shown } from './items';
 import { indexTree } from './tree';
 
 const CELLS = ['plan', 'implement', 'merge'];
@@ -91,38 +91,36 @@ describe('the tree the console shows', () => {
   });
 });
 
-const waits: Now = {
-  kind: 'waits',
-  at: 'implement',
-  on: [
-    { kind: 'call', call: 1, who: 'owner', what: { kind: 'question', who: 'owner', question: 'Which?' } },
-    { kind: 'call', call: 2, who: 'architect', what: { kind: 'question', who: 'architect', question: 'Where?' } },
-    { kind: 'call', call: 3, who: null, what: { kind: 'tool', name: 'ci', input: '' } },
-    { kind: 'precondition', test: 'confirmed', words: 'The owner confirmed it', by: [{ kind: 'owner' }] },
-    {
-      kind: 'precondition',
-      test: 'may_start',
-      words: 'The items it depends on are merged',
-      by: [{ kind: 'outside', source: 'dependencies' }],
-    },
-    { kind: 'precondition', test: 'checked', words: 'The check before the merge passed', by: [{ kind: 'cell', cell: 'M1' }] },
-    { kind: 'limit', runs: 3 },
-  ],
-};
-
-/// At the check before the merge, which waits for the owner's answers, as the engine says of them.
-const merge: Now = {
-  kind: 'waits',
-  at: 'merge',
-  on: [{ kind: 'precondition', test: 'asked = answered', words: 'asked = answered', by: [{ kind: 'outside', source: 'asked' }] }],
-};
-
 describe('what a card shows of an item', () => {
-  it('counts the questions to the owner that hold the work, and nothing else the owner gives', () => {
-    expect(asksOf({ now: waits })).toBe(1);
-    expect(asksOf({ now: { kind: 'paused', by: 'owner', why: null } })).toBe(0);
-    // At the merge's check, the questions the engine names as holding it.
-    expect(asksOf({ now: merge, holding: ['measure', 'read-the-time'] })).toBe(2);
+  const waits: Now = {
+    kind: 'waits',
+    at: 'implement',
+    on: [
+      { kind: 'call', call: 1, who: 'owner', what: { kind: 'question', who: 'owner', question: 'Which?' } },
+      { kind: 'call', call: 2, who: 'architect', what: { kind: 'question', who: 'architect', question: 'Where?' } },
+      { kind: 'call', call: 3, who: null, what: { kind: 'tool', name: 'ci', input: '' } },
+      { kind: 'precondition', test: 'confirmed', words: 'The owner confirmed it', by: [{ kind: 'owner' }] },
+      {
+        kind: 'precondition',
+        test: 'may_start',
+        words: 'The items it depends on are merged',
+        by: [{ kind: 'outside', source: 'dependencies' }],
+      },
+      { kind: 'precondition', test: 'checked', words: 'The check before the merge passed', by: [{ kind: 'cell', cell: 'M1' }] },
+      { kind: 'limit', runs: 3 },
+    ],
+  };
+
+  it('counts the things a work waits for that the owner gives, as the engine says: their questions, the preconditions they can make hold, a run let on', () => {
+    expect(asksOf(waits)).toBe(3);
+    expect(asksOf({ kind: 'paused', by: 'owner', why: null })).toBe(0);
+    // The engine's word of whether every question has the owner's answer changes only as the owner answers.
+    const merge: Now = {
+      kind: 'waits',
+      at: 'merge',
+      on: [{ kind: 'precondition', test: 'asked = answered', words: 'asked = answered', by: [{ kind: 'outside', source: 'asked' }] }],
+    };
+    expect(asksOf(merge)).toBe(1);
   });
 
   it('shows the work of an item once it has begun, and while it goes on; until it has begun, the items it waits for', () => {
@@ -134,7 +132,7 @@ describe('what a card shows of an item', () => {
     expect(shown[0].blocked).toBe(1);
     const w = shown[0].children[0];
     expect(w.begun).toBe(true);
-    expect(w.asks).toBe(1);
+    expect(w.asks).toBe(3);
     expect(w.work).toMatchObject({ number: 20, usdMicros: 1_500_000 });
     expect(w.work?.cells.map((c) => c.state)).toEqual(['done', 'resting', 'notYet']);
   });
@@ -156,19 +154,6 @@ describe('what a card shows of an item', () => {
     ]);
     // Not begun, it still says how many items it waits for.
     expect(shown[0].blocked).toBe(1);
-    // A precondition the owner makes hold is no question: it counts nothing.
-    expect(shown[2].asks).toBe(0);
-  });
-
-  it("takes the engine's word of how the questions stand as the owner's to give, and its questions as the count", () => {
-    const asked: Waited = {
-      kind: 'precondition',
-      test: 'asked = answered',
-      words: 'asked = answered',
-      by: [{ kind: 'outside', source: 'asked' }],
-    };
-    expect(whoGives(asked)).toBe('owner');
-    const i: Item = { ...item(1, 'open'), work: { ...work(1, merge), holding: ['measure', 'read-the-time'] } };
-    expect(shownTree({ items: [i] })[0].asks).toBe(2);
+    expect(shown[2].asks).toBe(1);
   });
 });

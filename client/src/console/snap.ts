@@ -758,7 +758,7 @@ export class SnapScene {
 
   /// The node of an item: a card, white, or while a work goes on on it a faint tint of the colour of what the work does
   /// with an edge of a deeper shade of it; its edge the accent's tint above a work. On its first row its number in its
-  /// state's colour, its title, and at the right how many questions to the owner hold its work, white on red; on
+  /// state's colour, its title, and at the right how many things its work waits for from the owner, white on red; on
   /// the second row, for an item whose work goes on, the strip of the work's cells as the works page draws it, where
   /// its time went, and how long it has gone on.
   private node(item: Shown, k: number): Container {
@@ -828,7 +828,7 @@ export class SnapScene {
     });
     title.position.set(x + Math.max(26, number.width + 8), row1 - title.height / 2);
     view.addChild(number, title);
-    // At the right of the first row: how many questions to the owner hold its work, white on red, the strongest
+    // At the right of the first row: how many things its work waits for from the owner, white on red, the strongest
     // mark a card has, as what the owner looks for first; its messages unread, white on orange; its returns sent back,
     // framed in grey; and, while its work is not drawn, a lock framed in grey with
     // how many items it waits for to merge, which stand under it.

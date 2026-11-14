@@ -2,7 +2,7 @@
 // its main one, at the top the items nothing depends on; under each other item that depends on it, after the items
 // standing there, a shadow of it that points to its place. Done and cancelled items are left out, unless something
 // under them is still open. Each item carries its own state, its work while it goes on, whether the work has begun, and
-// how many questions to the owner hold its work. Pure, so that it is tested on its own.
+// how many of the things its work waits for wait for the owner. Pure, so that it is tested on its own.
 //
 // Brought over from the console of the engine on `old-main` (`client/src/console/items.ts`), reading the items as
 // `works-api.ts` gives them. The interface does not say which of an item's dependents is its main one: the first of
@@ -10,7 +10,6 @@
 
 import type { CellNow, Item, Items, Now, Summary, Waited } from '../works-api';
 import { mocksShown } from '../mock-data';
-import { questionsHolding } from '../notify';
 import { ownerMakes } from '../works/words';
 import { itemOf } from './real';
 
@@ -40,7 +39,7 @@ export type Shown = {
   id: number;
   title: string;
   standing: ItemStanding;
-  /// The questions to the owner that hold its work now (principle one-count-of-what-waits).
+  /// The things its work is stopped for that the owner gives: answers, preconditions they can make hold, a run let on.
   asks: number;
   /// The questions that wait for the owner's answer and do not stop its work yet (mock: `mock.ts`).
   questions: number;
@@ -82,8 +81,9 @@ export function whoGives(w: Waited): 'owner' | 'architect' | null {
   return w.who;
 }
 
-/// How many questions to the owner hold a work now: what its card counts (principle one-count-of-what-waits).
-export const asksOf = (w: Pick<Summary, 'now' | 'holding'>): number => questionsHolding(w).length;
+/// How many of the things a work waits for the owner gives.
+export const asksOf = (now: Now): number =>
+  now.kind === 'waits' ? now.on.filter((w) => whoGives(w) === 'owner').length : 0;
 
 /// Whether a work has begun: a round is under way, or a cell of it has run.
 export const started = (w: Summary): boolean =>
@@ -153,7 +153,7 @@ export function shownTree(data: Items): Shown[] {
       id,
       title: i?.title ?? '',
       standing: standing(id),
-      asks: w === undefined ? 0 : asksOf(w),
+      asks: w === undefined ? 0 : asksOf(w.now),
       questions: mock?.openQuestions ?? 0,
       deliver: deliverable || w?.flow === 'deliver',
       blocked: (i?.dependsOn ?? []).filter((d) => byId.has(d) && standing(d) !== 'done').length,

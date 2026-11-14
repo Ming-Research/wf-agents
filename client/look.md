@@ -346,7 +346,7 @@ smoothly, and the panel at its right with the item selected. It is the console o
   corners: the canvas's own, as on `main`. Its number in monospace, in the colour of the item's standing (the
   console's faint grey `#9aa1ad` while open, `--green` when merged, paler when cancelled), its title in 14px, the
   canvas's own size, in Primer's sans-serif stack, which the console drew in (a canvas resolves a stack by its own
-  rules, so the page's `--font` could draw another face); at its right a tag of how many questions to the owner hold its work,
+  rules, so the page's `--font` could draw another face); at its right a tag of how many things its work waits for from the owner,
   `--on-colour` on `--red`, and, while its work has not begun, a lock framed in muted with how many items it depends on
   are not merged. A card whose work goes on, once it has begun or while it is paused, at fault or waits, is tinted with the colour of what the work does (`--blue` running,
   `--orange` waiting for the owner, the console's pale yellow `#e8cc6a` waiting for anything else, muted paused,
@@ -363,8 +363,8 @@ smoothly, and the panel at its right with the item selected. It is the console o
 - **Funnel.** A filled grey shape, Primer's neutral muted as the console drew it, joins each item to the first and the last of the items under it. The item under the
   pointer and those above it are ringed in light blue and joined by ribbons of it; the item selected and those above it
   in `--accent`, the item itself with a halo.
-- **Map.** At the top left, a bar for each column, moved as the column is, marked in `--red` where questions to the
-  owner hold works and in `--accent` where the item selected stands.
+- **Map.** At the top left, a bar for each column, moved as the column is, marked in `--red` where works wait for the
+  owner and in `--accent` where the item selected stands.
 - **Panel.** The page's panel, 560px until dragged, as the console's window was, drawn with the flow page's panel's
   parts so that the views read as one page. Its head (`.drawer-head`): the item's number, its title, which brings the
   item into view, and its project's name alone, in monospace, muted. Two status lines (`.status-line`): where the item
