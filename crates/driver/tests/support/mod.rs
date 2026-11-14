@@ -241,9 +241,21 @@ pub struct Db {
     pub path: PathBuf,
 }
 
+/// Where the system keeps files in memory, where it has such a place: a store there waits on no disk.
+const IN_MEMORY: &str = "/dev/shm";
+
 impl Db {
+    /// A new file, in memory where the system keeps files there ([`IN_MEMORY`]): each history writes the store tens
+    /// of thousands of times, each write waiting for the disk to hold it, and with the tests beside it doing the same
+    /// a disk that gives no more stalls the writes of every test.
     pub fn new() -> Self {
-        let dir = tempfile::tempdir().expect("a directory for the database");
+        let in_memory = Path::new(IN_MEMORY);
+        let dir = if in_memory.is_dir() {
+            tempfile::tempdir_in(in_memory)
+        } else {
+            tempfile::tempdir()
+        };
+        let dir = dir.expect("a directory for the database");
         let path = dir.path().join("store.db");
         Self { _dir: dir, path }
     }
@@ -608,6 +620,11 @@ impl H {
         let mut calls = self.calls.lock().expect("the calls are noted");
         calls.plan = plan;
         calls.ops.clear();
+    }
+
+    /// How the store of the driver fails, as it was last armed.
+    pub fn plan(&self) -> Plan {
+        self.calls.lock().expect("the calls are noted").plan
     }
 
     /// The calls the store of the driver was asked since it was last armed.
@@ -1388,9 +1405,14 @@ pub struct Stops {
 /// Does the act at this time, which the driver must take unless its store stops it. Where the driver stops, or the
 /// process stops, it is opened anew, the owner lifting at once the pause of everything it made as it opened
 /// ([`H::restart`]), and what it said was not kept is told again; gives what the driver gave where it did what it was
-/// asked and the process went on.
+/// asked and the process went on. Opened anew, the driver's store fails no more: an act it does not keep a second time
+/// fails the test, with the act, the time, the plan the store failed by and why each stop was, rather than being told
+/// again without end.
 pub fn perform(h: &mut H, now: Time, act: &Act, stops: &mut Stops) -> Option<Vec<Todo>> {
     h.clock = now.0;
+    let plan = h.plan();
+    // Why the driver stopped, each time it did not keep the act.
+    let mut not_kept: Vec<Option<Fault>> = Vec::new();
     loop {
         let (stopped, todos) = match act {
             Act::Add(new) => match h.try_add(now, new.clone()) {
@@ -1428,6 +1450,12 @@ pub fn perform(h: &mut H, now: Time, act: &Act, stops: &mut Stops) -> Option<Vec
                     stops.kept += 1;
                 } else {
                     stops.not_kept += 1;
+                    not_kept.push(h.d().fault().cloned());
+                    assert!(
+                        not_kept.len() < 2,
+                        "{act:?} at {now:?} was not kept again by the driver opened anew, its store having failed as \
+                         {plan:?} says: {not_kept:?}"
+                    );
                 }
                 h.restart();
                 h.check();

@@ -90,6 +90,8 @@ fn way(
     let mut way = vec![from];
     // Each item on the way, with the items it depends on that are still to be tried.
     let mut left = vec![reversed(depends_on(from))];
+    // Each time round takes an item from the list at the end, and adds a list only for an item not seen before, or
+    // takes away an empty list: it ends, at the latest once every list of every item reached is empty.
     loop {
         if way.last() == Some(&to) {
             return Some(way);

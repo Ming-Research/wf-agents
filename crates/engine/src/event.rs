@@ -172,9 +172,12 @@ pub enum Gate {
     Every,
 }
 
-/// Why what happened was not taken: it cannot have happened to this work.
+/// Why what happened was not taken: it cannot have happened to this work, or nothing can be decided of it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Refused {
+    /// Doing what the deciding code decides on the work's records leads it to decide again without end: the loop
+    /// stopped at its bound, deciding this last. What the work was given meanwhile is let go with what happened.
+    WithoutEnd(decide::Decision),
     /// The flow has no such block.
     NoSuchBlock(BlockId),
     /// The flow does not let this writer write the block.
