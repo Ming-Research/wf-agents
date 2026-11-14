@@ -138,9 +138,9 @@ impl Of {
 /// What came of running a round's program.
 enum Carried {
     Came(Came, Spent),
-    /// It failed, for this reason, of this kind of cause, having taken this, as the result it printed says, or
-    /// nothing where it printed none.
-    Failed(String, Failure, Spent),
+    /// It failed, for this reason, of this kind of cause, with what its stream said of the service's errors, having
+    /// taken this, as the result it printed says, or nothing where it printed none.
+    Failed(String, Failure, failure::Said, Spent),
     Stopped,
 }
 
@@ -198,10 +198,10 @@ impl Rounds for Agents {
                         reply.ended(Came::hands_in(Vec::new()), Spent::default());
                     }
                 }
-                Ok(Carried::Failed(why, failure, spent)) => match inner.held.fail(key) {
+                Ok(Carried::Failed(why, failure, said, spent)) => match inner.held.fail(key) {
                     // Where the round took the work over its budget, the work is paused for that whatever the kind.
                     Some(Failing::Fail(reply)) => {
-                        let resets = resets(failure, &why, &*inner.clock);
+                        let resets = resets(failure, &why, &said, &*inner.clock);
                         match inner.over_budget(&round, &spent) {
                             Some(over) => {
                                 let pause = format!("{why}; and {over}");
@@ -368,7 +368,7 @@ impl Inner {
             let mut kept = Keeping::to(&stream_at)?;
             let mut each = |line: &[u8]| kept.line(line);
             // A program that cannot be started printed no result: its words say whether it is missing, which holds
-            // every work, and any other cause pauses the work.
+            // every work, and any other cause is tried again as a failure in passing.
             let ran = process::streamed(command, Some(cli::stdin(told)), Some(&group), stop, &mut each).await;
             // Each compaction of the try is a reopening of the session, told while the round is still under way,
             // however the try ended.
@@ -379,8 +379,9 @@ impl Inner {
             let ran = match ran {
                 Ok(ran) => ran,
                 Err(why) => {
-                    let kind = failure::of(&why, None);
-                    return Ok(Carried::Failed(why, kind, Spent::default()));
+                    let said = failure::Said::default();
+                    let kind = failure::of(&why, &said, None);
+                    return Ok(Carried::Failed(why, kind, said, Spent::default()));
                 }
             };
             let Ran::Ended { status, stderr, .. } = ran else {
@@ -417,23 +418,23 @@ impl Inner {
             no
         });
         // A failure whose result was read took what the result says; one with none, what is not known. Its kind is
-        // told by what the program reported and what it took. A return the stream holds is read however the program
-        // exited: the one the command line took, or the last attempt of one it gave up on, after which it exits with
-        // an error.
-        let failed = |why: String, spent: Option<Spent>| {
-            let kind = failure::of(&why, spent.as_ref());
-            Ok(Carried::Failed(why, kind, spent.unwrap_or_default()))
+        // told by what the program's stream said of the service's errors, what it reported and what it took. A return
+        // the stream holds is read however the program exited: the one the command line took, or the last attempt of
+        // one it gave up on, after which it exits with an error.
+        let failed = |why: String, said: failure::Said, spent: Option<Spent>| {
+            let kind = failure::of(&why, &said, spent.as_ref());
+            Ok(Carried::Failed(why, kind, said, spent.unwrap_or_default()))
         };
         let read = match read {
             Ok(read) => read,
-            Err(no) if status.success() => return failed(no.why, no.spent),
+            Err(no) if status.success() => return failed(no.why, no.said, no.spent),
             Err(no) => {
                 let why = match had_result {
                     true => no.why,
                     false => process::tail(stderr.trim().as_bytes()),
                 };
                 let command = &self.settings.agents.command;
-                return failed(format!("{command} exited with {status}: {why}"), no.spent);
+                return failed(format!("{command} exited with {status}: {why}"), no.said, no.spent);
             }
         };
         match returns::came(&read.structured, flow, &round.cell, &of.beside) {
@@ -441,7 +442,12 @@ impl Inner {
                 came.engine.extend(self.protected(round, &place, of).await);
                 Ok(Carried::Came(came, read.spent))
             }
-            Err(why) => Ok(Carried::Failed(why, Failure::Unread, read.spent)),
+            Err(why) => Ok(Carried::Failed(
+                why,
+                Failure::Unread,
+                failure::Said::default(),
+                read.spent,
+            )),
         }
     }
 
@@ -549,14 +555,14 @@ impl Inner {
     }
 }
 
-/// When the account's usage limit resets, where the failure is that limit and the program's report says when, the time
-/// now read by the clock.
-fn resets(failure: Failure, why: &str, clock: &dyn Clock) -> Option<work::Time> {
+/// When the account's usage limit resets, where the failure is that limit and the program's stream or its report says
+/// when, the time now read by the clock.
+fn resets(failure: Failure, why: &str, said: &failure::Said, clock: &dyn Clock) -> Option<work::Time> {
     if failure != Failure::UsageLimit {
         return None;
     }
     let now = clock.now().ok()?;
-    failure::resets_at(why, now.0, &failure::zone_offset).map(work::Time)
+    failure::resets(why, said, now.0, &failure::zone_offset).map(work::Time)
 }
 
 /// How many compactions of the session the file of marks holds, a byte for each.

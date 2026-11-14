@@ -359,11 +359,13 @@ pub struct Read {
 
 /// Why what the command line printed is no result to take, with what the round took where the result could be read:
 /// an error, or a result with no structured return, still says what the call cost, and the call is paid for all the
-/// same. Where nothing could be read, what the round took is not known.
+/// same. Where nothing could be read, what the round took is not known. What the stream said of the service's errors
+/// in its own fields comes with it, whatever was read.
 #[derive(Debug)]
 pub struct NoResult {
     pub why: String,
     pub spent: Option<Spent>,
+    pub said: failure::Said,
 }
 
 /// The tool the command line hands a return in with, under `--json-schema`.
@@ -383,6 +385,8 @@ pub struct Stream {
     attempts: Attempts,
     /// What the command line said of each use of a tool of the agent's own that it refused, by the use's id.
     refusals: Vec<(String, String)>,
+    /// What it said of the service's errors, in its own fields.
+    said: failure::Said,
 }
 
 impl Stream {
@@ -400,6 +404,7 @@ impl Stream {
         let Ok(v) = serde_json::from_str::<Value>(text) else {
             return true;
         };
+        self.said.line(&v);
         match v["type"].as_str() {
             Some("stream_event") => return self.attempts.event(&v),
             Some("result") => self.result = Some(v),
@@ -426,14 +431,26 @@ impl Stream {
     /// cost, or the whole total where that is less (measured: the total is the whole session's, even where two lines
     /// take turns in one worktree).
     pub fn read(self, begin: Begin, before: u64) -> std::result::Result<Read, NoResult> {
+        let fields = self.said;
         let Some(result) = self.result else {
             let why = "the command line's stream holds no result".to_string();
-            return Err(NoResult { why, spent: None });
+            return Err(NoResult {
+                why,
+                spent: None,
+                said: fields,
+            });
         };
-        let result: Result = serde_json::from_value(result).map_err(|e| NoResult {
-            why: format!("the command line's result cannot be read: {e}"),
-            spent: None,
-        })?;
+        let result: Result = match serde_json::from_value(result) {
+            Ok(result) => result,
+            Err(e) => {
+                let why = format!("the command line's result cannot be read: {e}");
+                return Err(NoResult {
+                    why,
+                    spent: None,
+                    said: fields,
+                });
+            }
+        };
         let spent = spent(&result, begin, before);
         if !result.is_error {
             return match result.structured_output {
@@ -441,6 +458,7 @@ impl Stream {
                 None => Err(NoResult {
                     why: "the command line's result holds no structured return".to_string(),
                     spent: Some(spent),
+                    said: fields,
                 }),
             };
         }
@@ -474,6 +492,7 @@ impl Stream {
                     Err(NoResult {
                         why: format!("{why}; its last attempt at the return is no JSON ({e}){refused}"),
                         spent: Some(spent),
+                        said: fields,
                     })
                 }
             };
@@ -481,6 +500,7 @@ impl Stream {
         Err(NoResult {
             why,
             spent: Some(spent),
+            said: fields,
         })
     }
 }
@@ -868,6 +888,30 @@ mod tests {
                        "content_block": { "type": "tool_use", "id": "x", "name": STRUCTURED_OUTPUT } } });
         assert!(!stream.line(sub.to_string().as_bytes()), "a subagent's is not kept");
         assert!(stream.attempts.last().is_none());
+    }
+
+    // A weekly limit as version 2.1.323 reports it: the result's words and fields as a real round kept them, and the
+    // refusal's message as the command line's schema gives it, resetting at 11pm in Los Angeles. The stream's fields
+    // say the kind and the day of the reset, which the words alone give as a time of day.
+    #[test]
+    fn what_the_stream_says_of_a_refusal_comes_with_the_failure() {
+        let refused = json!({ "type": "assistant", "parent_tool_use_id": null, "error": "rate_limit",
+            "api_error": "usage_limit_reached", "api_error_status": 429,
+            "api_error_params": { "rate_limit_info": { "status": "rejected", "resetsAt": 1_794_380_400_u64,
+                "rateLimitType": "seven_day", "isUsingOverage": false } },
+            "message": { "content": [{ "type": "text",
+                "text": "You've hit your weekly limit · resets 11pm (America/Los_Angeles)" }] } });
+        let result = json!({ "type": "result", "subtype": "success", "is_error": true, "api_error_status": 429,
+            "api_error": "usage_limit_reached", "terminal_reason": "api_error", "total_cost_usd": 9.62,
+            "result": "You've hit your weekly limit · resets 11pm (America/Los_Angeles)" });
+        let stream = [refused.to_string(), result.to_string()].join("\n");
+        let no = read(stream.as_bytes(), Begin::Resume, 9_620_000).expect_err("a refusal is not taken");
+        assert_eq!(no.said.kind(), Some(Failure::UsageLimit));
+        assert_eq!(no.said.resets, Some(1_794_380_400_000));
+        assert_eq!(failure::of(&no.why, &no.said, no.spent.as_ref()), Failure::UsageLimit);
+        // A stream cut off before its result says what it said all the same.
+        let cut = read(refused.to_string().as_bytes(), Begin::New, 0).expect_err("no result");
+        assert_eq!((cut.spent, cut.said.kind()), (None, Some(Failure::UsageLimit)));
     }
 
     #[test]

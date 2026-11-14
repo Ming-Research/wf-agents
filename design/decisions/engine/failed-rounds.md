@@ -1,8 +1,20 @@
 # Failed rounds
 
+### decision the-fields-tell-the-kind-before-the-words
+The kind of a failed round, and when a usage limit resets, are told first by the fields the command line names the service's error in: the error of the main loop's last message and the service's typed kind of it, and a rate limit event that refused, with the reset they give. The words of its report decide only where the fields say nothing, as when it crashed.
+Why: The words change between versions of the command line: a weekly limit in words never met before was taken for a failure in passing and tried again and again, and a reset written with its day, "resets Fri 5pm", was read as that time today.
+
+### decision a-crash-is-tried-again
+A round whose command line printed no result fails in passing, unless its words say a cause every work shares, and is tried again within the bound on failures in passing in a row.
+Why: A crash says nothing of its cause, and the old engine tried it again as a failure in passing; paused, a work left to run unattended would wait for the owner for what may pass by itself, a judgment no case has measured. What a crashed round took is not known, and the bound is what keeps it from spending unseen.
+
 ### decision a-shared-cause-is-one-wait
 A round that fails at the account's usage limit, for a command line that cannot run, or for want of the network holds the rounds of every work, as one wait worked out from the records of every work; no work is paused for it, and every work goes on by itself once the wait is over.
 Why: One cause stops every work alike: paused one by one, each would wait for the owner to start it by hand once the cause had passed, and a mark written on each would have to be lifted on each.
+
+### decision a-reset-not-said-is-tried-by-one-round
+At a usage limit whose reset the command line did not say, one round, of whichever work comes to one first, tries half an hour after the last one ended, and every work goes on only once a round comes back; at a reset it said, every work goes on at once.
+Why: The time is a guess: every work going on at it would each meet the limit again and write its message into its session once more (principle no-unseen-spending-loop).
 
 ### decision the-wait-holds-what-its-cause-stops
 At the usage limit and for a command line that cannot run the wait holds only the agents' rounds; without the network it holds the engine's own acts as well. An act that meets the network gone before any agent's round has fails as a cause no kind tells apart, and pauses its work.

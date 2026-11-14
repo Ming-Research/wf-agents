@@ -6,8 +6,9 @@
 //! The wait stands from the latest round of an agent, of any work, that failed so, until a round of an agent that
 //! began after that one ended comes back. Until then the agents' rounds may begin again only so:
 //!
-//! - At the account's usage limit, none begins until it resets, at the time the command line said, or half an hour
-//!   after the failure where it said none it could be read by; then every work goes on.
+//! - At the account's usage limit, none begins until it resets, at the time the command line said; then every work
+//!   goes on. Where it said none it could be read by, one round, of whichever work comes to one first, tries half an
+//!   hour after the last one ended: every work going on at a time guessed would each meet the limit again.
 //! - Where the command line cannot run, only the owner can mend it, by signing in again or installing it, and writes
 //!   nothing: one round, of whichever work comes to one first, tries every half minute after the last one ended.
 //! - Without the network, the engine looks at the network itself every half minute, which costs no round and writes
@@ -24,7 +25,8 @@ use flow::{Compiled, Kind};
 use store::WorkNumber;
 use work::{Back, Time, Work};
 
-/// How long a usage limit is waited out whose reset the command line did not say in words it could be read by.
+/// How long after the last round ended the next one tries, at a usage limit whose reset the command line did not say
+/// so that it could be read.
 pub const UNKNOWN_RESET: u64 = 30 * 60 * 1000;
 
 /// How long after the last round ended the next one tries, where the command line cannot run; and how often the
@@ -72,10 +74,18 @@ impl Outage {
     /// When the agents' rounds may begin again.
     pub fn until(&self) -> Until {
         let from = self.last.unwrap_or(self.since);
-        match self.failure {
-            Failure::UsageLimit => Until::At(self.resets.unwrap_or(Time(self.since.0.saturating_add(UNKNOWN_RESET)))),
+        match (self.failure, self.resets) {
+            (Failure::UsageLimit, Some(at)) => Until::At(at),
             _ if self.trying => Until::Tried,
-            Failure::Offline => Until::Trial {
+            (Failure::UsageLimit, None) => {
+                let at = Time(from.0.saturating_add(UNKNOWN_RESET));
+                Until::Trial {
+                    at,
+                    look: false,
+                    latest: at,
+                }
+            }
+            (Failure::Offline, _) => Until::Trial {
                 at: Time(from.0.saturating_add(PROBE)),
                 look: true,
                 latest: Time(from.0.saturating_add(OFFLINE_TRY)),
