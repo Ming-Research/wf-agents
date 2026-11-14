@@ -335,9 +335,8 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
   const taken = cells.reduce((sum, cell) => sum + widthOf(cell.id), namesWidth);
   const size = { width: '100%', minWidth: taken + FLOW_WIDTHS.words };
 
-  // What is chosen elsewhere (a panel) is brought into view in the frame.
-  // A block is found by its datum's row, or else by the row of a trigger that stands on it, which a block standing only
-  // for a trigger has alone.
+  // What is chosen elsewhere (a panel) is brought into view in the frame. A block is found by its datum's row, or else
+  // by the row of a trigger that stands on it, which a block standing only for a trigger has alone.
   useEffect(() => {
     const key = chosen && keyOf(chosen);
     if (!key) return;

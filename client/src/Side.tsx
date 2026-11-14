@@ -157,7 +157,7 @@ function AgentSent({
   line: string;
   cells: string[];
   unknown: Unknown[];
-  /// The names of the engine's tools, which the form's tree draws apart from the fields.
+  /// The flow's tools, which the form's tree draws apart from the fields.
   tools: string[];
   onChoose: (c: Chosen) => void;
 }) {
@@ -253,7 +253,7 @@ export function CellPanel(props: {
   /// What the cell's agent is sent as the cell is entered, part by part in the order sent; none for an engine's
   /// cell, and where the page was not given it.
   sent?: SentPart[];
-  /// The names of the engine's tools; none where the page was not given them.
+  /// The flow's tools, as what an agent is sent names them; none where the page was not given them.
   tools?: string[];
   /// What an engine's cell's act writes; none for an agent's cell, and where the page was not given it.
   act?: ActWords;

@@ -175,7 +175,7 @@ export interface Matrix {
   waysBack: number;
 }
 
-/// The matrix of a flow.
+/// Works out from a flow everything its chart draws.
 export function matrix(flow: Flow): Matrix {
   const cells = flow.cells;
   const blockIn = (name: string) => flow.blocks.find((b) => b.name === name) as Block;
