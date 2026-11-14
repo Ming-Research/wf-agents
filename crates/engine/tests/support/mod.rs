@@ -212,6 +212,8 @@ pub struct Driver {
     /// Whether the work is paused, by whoever, as the records said after the last event.
     pub paused: bool,
     pub log: Vec<String>,
+    /// Each note is said on the standard error as well, as it is taken: to follow a history that does not end.
+    pub live: bool,
     pub seen: Seen,
 }
 
@@ -230,16 +232,23 @@ impl Driver {
             clock: 1_800_000_000_000,
             paused: false,
             log: Vec::new(),
+            live: false,
             seen: Seen::default(),
         }
     }
 
     pub fn note(&mut self, what: String) {
+        if self.live {
+            eprintln!("{what}");
+        }
         self.log.push(what);
     }
 
     /// Hands the event to the loop, and takes what is to be done, or checks a refusal left the work as it was.
     pub fn take(&mut self, event: Event) -> bool {
+        if self.live {
+            eprintln!("deciding: {:?}", decide::decide(&self.flow.flow, &self.work.records));
+        }
         self.note(format!("event: {event:?}"));
         let before = self.work.clone();
         let failed = matches!(event, Event::Failed { .. });

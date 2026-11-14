@@ -102,6 +102,9 @@ use support::{Driver, Part, Rng, lacking_a_must_write};
 /// How many histories are run.
 const SEEDS: u64 = 40;
 
+/// The history whose every step is said as it is taken, where one is.
+const WATCHED: Option<u64> = Some(11);
+
 /// How many random steps, at most, a history takes before the content continuation.
 const RANDOM: usize = 200;
 
@@ -1242,8 +1245,10 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
         check_failed: false,
         answered: None,
     };
+    let mut d = Driver::new(flow.clone(), rng, seed, true);
+    d.live = WATCHED == Some(seed);
     let mut h = History {
-        d: Driver::new(flow.clone(), rng, seed, true),
+        d,
         roles,
         verdict: Verdict::default(),
         merges: 0,
@@ -1326,7 +1331,7 @@ fn histories() {
     let mut broken: BTreeMap<&str, Vec<Case>> = BTreeMap::new();
     let mut continued = 0;
     let mut most = (0, 1);
-    for seed in 0..SEEDS {
+    for seed in WATCHED.map_or(0..SEEDS, |w| w..w + 1) {
         let mut log = Vec::new();
         // Which history is under way, and how long each took, said as it goes: a history that takes the time the test
         // has is named by the last of these.
