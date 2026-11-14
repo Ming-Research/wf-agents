@@ -366,7 +366,15 @@ impl Inner {
             );
             // The stream is kept as it comes, so that what the agent is doing can be read while it does it.
             let mut kept = Keeping::to(&stream_at)?;
-            let mut each = |line: &[u8]| kept.line(line);
+            let mut told_answered = false;
+            let mut each = |line: &[u8]| {
+                kept.line(line);
+                // The service serves the round: a wait every work shares need not wait for its end.
+                if !told_answered && kept.stream.answered() {
+                    told_answered = true;
+                    teller.answered();
+                }
+            };
             // A program that cannot be started printed no result: its words say whether it is missing, which holds
             // every work, and any other cause is tried again as a failure in passing.
             let ran = process::streamed(command, Some(cli::stdin(told)), Some(&group), stop, &mut each).await;

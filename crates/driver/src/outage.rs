@@ -4,7 +4,9 @@
 //! `state-from-records`), and the reason the page gives for every work it holds.
 //!
 //! The wait stands from the latest round of an agent, of any work, that failed so, until a round of an agent that
-//! began after that one ended comes back. Until then the agents' rounds may begin again only so:
+//! began after that one ended comes back, or the service answers it while it is under way: what it is to try is
+//! whether the service serves again, which its first answer shows, and the round may go on for long after. Until then
+//! the agents' rounds may begin again only so:
 //!
 //! - At the account's usage limit, none begins until it resets, at the time the command line said; then every work
 //!   goes on. Where it said none it could be read by, one round, of whichever work comes to one first, tries half an
@@ -18,6 +20,8 @@
 //!
 //! A look at the network is no record: it is what the outside says at a moment, which the driver keeps only until the
 //! next. Lost in a stop, it is taken again.
+
+use std::collections::BTreeSet;
 
 use decide::RunId;
 use decide::run::Failure;
@@ -130,8 +134,12 @@ struct Agents {
     ended: Option<(Time, decide::Seq, Option<Back>)>,
 }
 
-/// The wait every work shares, from the records of these works on the flows they run on, if one stands.
-pub fn outage<'a>(works: impl IntoIterator<Item = (WorkNumber, &'a Compiled, &'a Work)>) -> Option<Outage> {
+/// The wait every work shares, from the records of these works on the flows they run on, and the rounds the service
+/// answered while under way, each of a work and run by its number, if one stands.
+pub fn outage<'a>(
+    works: impl IntoIterator<Item = (WorkNumber, &'a Compiled, &'a Work)>,
+    answered: &BTreeSet<(WorkNumber, RunId, usize)>,
+) -> Option<Outage> {
     let mut rounds = Vec::new();
     for (number, flow, work) in works {
         rounds.extend(agents_rounds(number, flow, work));
@@ -152,10 +160,11 @@ pub fn outage<'a>(works: impl IntoIterator<Item = (WorkNumber, &'a Compiled, &'a
     let after = |r: &&Agents| r.began > since || (r.work == round.work && r.began_at > ended_at);
     let later: Vec<&Agents> = rounds.iter().filter(after).collect();
     let came_back = later.iter().any(|r| {
-        matches!(
+        let back = matches!(
             &r.ended,
             Some((_, _, Some(Back::Asked(_) | Back::HandedIn(_) | Back::Returned { .. })))
-        )
+        );
+        back || answered.contains(&(r.work, r.run, r.number))
     });
     if came_back {
         return None;

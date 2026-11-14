@@ -33,6 +33,7 @@ mod acts;
 mod agents;
 pub mod catch_up;
 pub mod cli;
+mod cost;
 pub mod failure;
 pub mod git;
 mod held;

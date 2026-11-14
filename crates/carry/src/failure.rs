@@ -1,8 +1,8 @@
 //! The kind of cause of a round of the command line that failed, and, at the account's usage limit, when the limit
 //! resets. The command line names the service's errors in fields of its stream ([`Said`]), which are read first: its
-//! words change between its versions, and a weekly limit was once taken for a failure in passing because its words
-//! were new. Where it names none, as when it crashed or is older, the words of what it reported tell the kind, as the
-//! old engine told them (`crates/sessions/src/cli.rs` on `old-main`), each met in a real report.
+//! words change between its versions, and what is told by them misses each new wording. Where it names none, as when
+//! it crashed or is of a version that has none, the words of what it reported tell the kind, each met in a real
+//! report.
 
 use std::net::{TcpStream, ToSocketAddrs};
 use std::process::Command;
@@ -46,7 +46,8 @@ fn host(base: Option<&str>) -> String {
 /// the error of the main loop's latest message, where that message is one, with its kind (`error`) and, where the
 /// command line gives one, the service's typed kind (`api_error`), which the result repeats; and whether the latest
 /// rate limit event refused the account's requests (`rate_limit_event`), with when the limit resets, as that event
-/// or the refusal itself says (`rate_limit_info`).
+/// or the refusal itself says (`rate_limit_info`). An event that refuses while the command line carries on, on its
+/// overage or in a grace, refuses nothing, as the command line itself reads it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Said {
     /// The kind the command line's own kind of the error tells (`rate_limit`, `overloaded`, `authentication_failed`),
@@ -62,12 +63,15 @@ pub struct Said {
 }
 
 /// The service's typed kinds of error (`api_error`) that tell a kind, each with it. The others say what running again
-/// cannot mend and no kind says so; they are told by the words, as a failure in passing whose tries are bounded.
+/// cannot mend and no kind says so; they are told by the words, as a failure in passing whose tries are bounded. A
+/// cause that is one session's or one model's is never one every work shares.
 const API_ERRORS: &[(&str, Failure)] = &[
     // The account's own limit or a spend cap: the refusal says which, and when it resets.
     ("usage_limit_reached", Failure::UsageLimit),
-    ("model_requires_usage_credits", Failure::UsageLimit),
-    ("long_context_credits_required", Failure::UsageLimit),
+    // The model this level runs on needs usage credits the account has not: its works pause, with why.
+    ("model_requires_usage_credits", Failure::Other),
+    // This session's context is past what the account may send without credits: its work pauses, with why.
+    ("long_context_credits_required", Failure::PromptTooLong),
     ("safety_monitor_blocked", Failure::Flagged),
     ("connection_failed", Failure::Offline),
     // What only the owner mends: the sign-in, the credentials, the network's own refusal, the command line's version.
@@ -100,7 +104,8 @@ const ERRORS: &[(&str, Failure)] = &[
     ("verification_required", Failure::CannotRun),
     ("billing_error", Failure::CannotRun),
     ("cloud_credential_error", Failure::CannotRun),
-    ("model_not_found", Failure::CannotRun),
+    // The level names a model the service has not: the works at that level pause, with why, each as it meets it.
+    ("model_not_found", Failure::Other),
     ("overloaded", Failure::Passing),
     ("server_error", Failure::Passing),
     ("max_output_tokens", Failure::Passing),
@@ -125,7 +130,7 @@ impl Said {
             }
             Some("rate_limit_event") => {
                 let info = &line["rate_limit_info"];
-                self.refused = info["status"] == "rejected";
+                self.refused = refuses(info);
                 if self.refused
                     && let Some(at) = reset(info)
                 {
@@ -141,12 +146,25 @@ impl Said {
         }
     }
 
-    /// The kind of cause the fields tell; none where they tell none, and the words decide.
+    /// The kind of cause the fields tell; none where they tell none, and the words decide. The round's own error
+    /// comes before a rate limit event that refused.
     pub fn kind(&self) -> Option<Failure> {
         (self.api_error)
-            .or_else(|| self.refused.then_some(Failure::UsageLimit))
             .or(self.error)
+            .or_else(|| self.refused.then_some(Failure::UsageLimit))
     }
+}
+
+/// Whether a rate limit event refuses the account's requests: it says so, and the command line does not carry on past
+/// it, on the account's overage or in a grace.
+fn refuses(info: &Value) -> bool {
+    let set = |key: &str| info[key] == true;
+    let overage = matches!(info["overageStatus"].as_str(), Some("allowed" | "allowed_warning"));
+    info["status"] == "rejected"
+        && !overage
+        && !set("isUsingOverage")
+        && !set("overageInUse")
+        && !set("rateLimitGraceActive")
 }
 
 /// When a limit resets, in milliseconds since the start of 1970, from what the command line says of it
@@ -219,27 +237,24 @@ const KINDS: [(Failure, &[&str]); 6] = [
 
 /// The kind of cause of a failed round: by what the command line gave up on, then by the fields its stream named the
 /// service's error in, then by the words of what it reported and what the round took. A round that printed no result,
-/// as when the command line crashed, fails in passing unless its words say otherwise, as in the old engine: it is
-/// tried again, and the bound on tries in a row pauses its work.
+/// as when the command line crashed, fails in passing unless its words say otherwise: it is tried again, what it spent
+/// counted, and the bound on tries in a row pauses its work.
 pub fn of(report: &str, said: &Said, spent: Option<&work::Spent>) -> Failure {
     let words = kind(report);
     // A return the command line gave up on is sent back, whatever the service said of the calls before it.
     if words == Failure::Unread {
         return words;
     }
-    if let Some(kind) = said.kind() {
-        return kind;
-    }
-    match spent {
+    let reached = spent.is_some_and(|s| s.input_tokens + s.cached_tokens + s.output_tokens > 0);
+    match said.kind() {
+        // A connection that failed after the round had spent tokens is that round's own, cut or ended early, and no
+        // sign the network has gone.
+        Some(Failure::Offline) if reached => Failure::Passing,
+        Some(kind) => kind,
         // A round that spent tokens reached the service: whatever words it quotes, its command line runs and its
         // network is there.
-        Some(spent)
-            if spent.input_tokens + spent.cached_tokens + spent.output_tokens > 0
-                && matches!(words, Failure::CannotRun | Failure::Offline) =>
-        {
-            Failure::Passing
-        }
-        _ => words,
+        None if reached && matches!(words, Failure::CannotRun | Failure::Offline) => Failure::Passing,
+        None => words,
     }
 }
 
@@ -263,18 +278,32 @@ fn hit_a_limit(text: &str) -> bool {
     })
 }
 
+/// How long after a time it said a reset is still taken as just passed, and so as now: the time read and the clock
+/// it is read by may be a little apart.
+const JUST_PASSED: i64 = 60 * 60;
+
+/// The furthest ahead a reset is taken: past it, it is read as said by mistake, and is not known. The longest limit
+/// is a week's.
+const FURTHEST: u64 = 8 * 24 * 60 * 60 * 1000;
+
 /// When a usage limit resets, in milliseconds since the start of 1970: as the command line's stream said it
-/// ([`Said`]), and where it did not, as the words of its report say ([`resets_at`]).
+/// ([`Said`]), and where it did not, as the words of its report say ([`resets_at`]); one just passed is now, and one
+/// further ahead than a reset can be is not known.
 pub fn resets(report: &str, said: &Said, now: u64, offset: &dyn Fn(Option<&str>) -> Option<i64>) -> Option<u64> {
-    said.resets.or_else(|| resets_at(report, now, offset))
+    let at = said.resets.or_else(|| resets_at(report, now, offset))?;
+    let passed = now.saturating_sub(at);
+    if passed > 0 {
+        return (passed <= JUST_PASSED as u64 * 1000).then_some(now);
+    }
+    (at - now <= FURTHEST).then_some(at)
 }
 
 /// When a usage limit the command line reported resets, in milliseconds since the start of 1970: from the time it
 /// gives, as seconds since then after a bar (`limit reached|1760000000`), or as a time after "resets", with or without
 /// a day before it: `resets 5pm`, `resets 11:30am (Europe/Paris)`, `resets Fri 5pm`, `resets Nov 4 at 11pm`; the next
-/// time after `now` the clock shows it there. `offset` gives a time zone's distance from UTC in seconds, the local one
-/// for none, as it is now: a reset beyond a change of the clocks there is read an hour off. None where the report
-/// gives no time it can read.
+/// time the clock shows it there, but one passed within [`JUST_PASSED`] being now. `offset` gives a time zone's
+/// distance from UTC in seconds, the local one for none, as it is now: a reset beyond a change of the clocks there is
+/// read an hour off. None where the report gives no time it can read.
 pub fn resets_at(report: &str, now: u64, offset: &dyn Fn(Option<&str>) -> Option<i64>) -> Option<u64> {
     if let Some((_, rest)) = report.split_once('|') {
         let digits: String = rest.trim().chars().take_while(char::is_ascii_digit).collect();
@@ -306,7 +335,7 @@ pub fn resets_at(report: &str, now: u64, offset: &dyn Fn(Option<&str>) -> Option
     if word == "at" {
         word = words.next()?;
     }
-    let (hour, minute) = clock_of(word, words.next())?;
+    let (hour, minute) = clock_of(word)?;
     // A time zone named in brackets, as the command line names it, with its own case.
     let zone = (report.rfind('('))
         .and_then(|i| report[i + 1..].split_once(')').map(|(z, _)| z.trim()))
@@ -315,35 +344,39 @@ pub fn resets_at(report: &str, now: u64, offset: &dyn Fn(Option<&str>) -> Option
     let local = i64::try_from(now / 1000).ok()? + off;
     let today = local.div_euclid(86_400);
     let time = hour * 3600 + minute * 60;
+    // What is still to come, or just passed: the clock showing it this time, as against the next.
+    let ahead = |at: i64| at > local - JUST_PASSED;
     let at = match (date, weekday) {
-        // A date: in the year that makes it the next time after now.
+        // A date: this year's, or next year's where this year's has passed.
         (Some((month, day)), _) => {
             let (year, ..) = civil(today);
             let this = days(year, month, day)? * 86_400 + time;
-            if this > local {
+            if ahead(this) {
                 this
             } else {
                 days(year + 1, month, day)? * 86_400 + time
             }
         }
-        // A day of the week: the next one at the time, today's where it is still to come.
+        // A day of the week: this week's, or the next one's where this week's has passed.
         (None, Some(weekday)) => {
-            let ahead = (weekday - weekday_of_day(today)).rem_euclid(7);
-            let at = (today + ahead) * 86_400 + time;
-            if at > local { at } else { at + 7 * 86_400 }
+            let back = (weekday_of_day(today) - weekday).rem_euclid(7);
+            let at = (today - back) * 86_400 + time;
+            if ahead(at) { at } else { at + 7 * 86_400 }
         }
         // A time of day alone: today's, or tomorrow's where it has passed.
         (None, None) => {
             let at = today * 86_400 + time;
-            if at > local { at } else { at + 86_400 }
+            if ahead(at) { at } else { at + 86_400 }
         }
     };
+    // One just passed is now.
+    let at = at.max(local);
     u64::try_from((at - off) * 1000).ok()
 }
 
-/// The hour and minute a word gives as a time of day, with am or pm at its end or as the word after it: `5pm`,
-/// `11:30am`, `5 pm`, `17:00`.
-fn clock_of(word: &str, next: Option<&str>) -> Option<(i64, i64)> {
+/// The hour and minute a word gives as a time of day, with am or pm at its end where it has one: `5pm`, `11:30am`,
+/// `12:30`, `17:00`.
+fn clock_of(word: &str) -> Option<(i64, i64)> {
     let hour_text: String = word.chars().take_while(char::is_ascii_digit).collect();
     let mut hour: i64 = hour_text.parse().ok()?;
     let rest = &word[hour_text.len()..];
@@ -354,14 +387,9 @@ fn clock_of(word: &str, next: Option<&str>) -> Option<(i64, i64)> {
         }
         None => (0, rest),
     };
-    let meridiem = if rest.is_empty() {
-        next.unwrap_or_default()
-    } else {
-        rest
-    };
-    if meridiem.starts_with("pm") && hour < 12 {
+    if rest.starts_with("pm") && hour < 12 {
         hour += 12;
-    } else if meridiem.starts_with("am") && hour == 12 {
+    } else if rest.starts_with("am") && hour == 12 {
         hour = 0;
     }
     (hour <= 23 && minute <= 59).then_some((hour, minute))
@@ -530,8 +558,8 @@ mod tests {
         assert_eq!(of("You've hit your limit", &none, Some(&spent)), Failure::UsageLimit);
     }
 
-    // As in the old engine, a command line that crashed is tried again: the bound on failures in passing in a row
-    // pauses its work where it goes on crashing.
+    // A command line that crashed is tried again, as most of its crashes pass: the bound on failures in passing in a
+    // row pauses its work where it goes on crashing.
     #[test]
     fn a_round_that_printed_no_result_fails_in_passing_unless_its_words_say_otherwise() {
         let none = Said::default();
@@ -602,6 +630,79 @@ mod tests {
         assert_eq!(of(gave_up, &limit, none), Failure::Unread);
     }
 
+    // A refusing event the command line carries on past, on the account's overage, refuses nothing; and the round's
+    // own error, read after it, tells the kind.
+    #[test]
+    fn a_rate_limit_event_the_command_line_carries_on_past_refuses_nothing() {
+        let rejected = |extra: Value| {
+            let mut info = serde_json::json!({ "status": "rejected", "resetsAt": 1_792_976_400_u64 });
+            for (key, value) in extra.as_object().into_iter().flatten() {
+                info[key] = value.clone();
+            }
+            serde_json::json!({ "type": "rate_limit_event", "rate_limit_info": info })
+        };
+        let none = Some(&work::Spent::default());
+        for carried in [
+            serde_json::json!({ "overageStatus": "allowed" }),
+            serde_json::json!({ "overageStatus": "allowed_warning" }),
+            serde_json::json!({ "isUsingOverage": true }),
+            serde_json::json!({ "overageInUse": true }),
+            serde_json::json!({ "rateLimitGraceActive": true }),
+        ] {
+            let on = rejected(carried.clone());
+            assert!(!said(std::slice::from_ref(&on)).refused, "{carried}");
+            let overloaded = said(&[on, refusal("overloaded", None, Value::Null)]);
+            assert_eq!(of("API Error: 529", &overloaded, none), Failure::Passing, "{carried}");
+        }
+        // A refusing event comes after the round's own error.
+        let refused = rejected(serde_json::json!({ "overageStatus": "rejected" }));
+        let overloaded = said(&[refused.clone(), refusal("overloaded", None, Value::Null)]);
+        assert_eq!(of("API Error: 529", &overloaded, none), Failure::Passing);
+        assert_eq!(of("API Error", &said(&[refused]), none), Failure::UsageLimit);
+    }
+
+    // A connection that failed once the round had spent tokens is the round's own; before any spend, the network's.
+    #[test]
+    fn a_connection_that_failed_after_the_round_spent_is_in_passing() {
+        let failed = serde_json::json!({ "type": "result", "is_error": true, "api_error": "connection_failed" });
+        let said = said(&[failed]);
+        let spent = work::Spent {
+            input_tokens: 10,
+            output_tokens: 5,
+            ..work::Spent::default()
+        };
+        assert_eq!(
+            of("API Error: Connection error.", &said, Some(&spent)),
+            Failure::Passing
+        );
+        assert_eq!(
+            of("API Error: Connection error.", &said, Some(&work::Spent::default())),
+            Failure::Offline
+        );
+    }
+
+    // What is one session's or one model's holds no other work: its work pauses, saying why.
+    #[test]
+    fn a_cause_of_one_session_or_one_model_is_no_wait_every_work_shares() {
+        let none = Some(&work::Spent::default());
+        let long = said(&[refusal(
+            "rate_limit",
+            Some("long_context_credits_required"),
+            Value::Null,
+        )]);
+        assert_eq!(of("API Error", &long, none), Failure::PromptTooLong);
+        let credits = said(&[refusal("rate_limit", Some("model_requires_usage_credits"), Value::Null)]);
+        assert_eq!(of("API Error", &credits, none), Failure::Other);
+        let missing = said(&[refusal("model_not_found", None, Value::Null)]);
+        assert_eq!(
+            of("There's an issue with the selected model", &missing, none),
+            Failure::Other
+        );
+        for kind in [Failure::PromptTooLong, Failure::Other] {
+            assert!(!kind.shared());
+        }
+    }
+
     // A message of the main loop that is no error ends what an earlier one said, and a subagent's error is not the
     // round's.
     #[test]
@@ -636,10 +737,17 @@ mod tests {
             resets_at("You've hit your limit · resets 9pm", now, &utc),
             Some(now + 3_600_000)
         );
-        // A time already past today is tomorrow's.
+        // A time just passed is now; one passed longer ago, tomorrow's.
+        assert_eq!(resets_at("5-hour limit reached ∙ resets 7:30pm", now, &utc), Some(now));
         assert_eq!(
-            resets_at("5-hour limit reached ∙ resets 7:30pm", now, &utc),
-            Some(now + 23 * 3_600_000 + 1_800_000)
+            resets_at("5-hour limit reached ∙ resets 6:30pm", now, &utc),
+            Some(now + 22 * 3_600_000 + 1_800_000)
+        );
+        // Am or pm is the time's own: a time without it is on the clock of twenty-four hours.
+        let chicago = |z: Option<&str>| (z == Some("America/Chicago")).then_some(-5 * 3600);
+        assert_eq!(
+            resets_at("You've hit your limit · resets 12:30 (America/Chicago)", now, &chicago),
+            Some(now + 21 * 3_600_000 + 1_800_000)
         );
         let paris = |z: Option<&str>| (z == Some("Europe/Paris")).then_some(3600);
         assert_eq!(
@@ -661,9 +769,10 @@ mod tests {
             resets_at("You've hit your weekly limit · resets Fri 5pm", now, &utc),
             Some(hours(4 * 24 + 21))
         );
-        // Today's day at a time still to come is today; at one passed, a week on.
+        // Today's day at a time still to come is today; at one just passed, now; at one passed before, a week on.
         assert_eq!(resets_at("resets Sun 11pm", now, &utc), Some(hours(3)));
-        assert_eq!(resets_at("resets Sunday 5 pm", now, &utc), Some(hours(7 * 24 - 3)));
+        assert_eq!(resets_at("resets Sun 7:30pm", now, &utc), Some(now));
+        assert_eq!(resets_at("resets Sunday 5pm", now, &utc), Some(hours(7 * 24 - 3)));
         let la = |z: Option<&str>| (z == Some("America/Los_Angeles")).then_some(-7 * 3600);
         assert_eq!(
             resets_at(
@@ -677,11 +786,12 @@ mod tests {
             resets_at("resets Oct 26, 7:30am", now, &utc),
             Some(hours(11) + 1_800_000)
         );
-        // A date passed this year is next year's.
+        // A date passed this year is next year's, and one just passed is now.
         assert_eq!(
             resets_at("resets Oct 25 at 12am", now, &utc),
             Some(hours(365 * 24 - 20))
         );
+        assert_eq!(resets_at("resets Oct 25 at 7:30pm", now, &utc), Some(now));
         assert_eq!(resets_at("resets Feb 30 at 1am", now, &utc), None);
         // When the stream says, that is when.
         let said = Said {
@@ -693,6 +803,16 @@ mod tests {
             resets("resets Fri 5pm", &Said::default(), now, &utc),
             Some(hours(4 * 24 + 21))
         );
+        // A reset further ahead than a week's limit can be is not known; one just passed is now, and one long passed
+        // is not known.
+        assert_eq!(resets("resets Oct 25 at 12am", &Said::default(), now, &utc), None);
+        let at = |ms: u64| Said {
+            resets: Some(ms),
+            ..Said::default()
+        };
+        assert_eq!(resets("", &at(now - 600_000), now, &utc), Some(now));
+        assert_eq!(resets("", &at(now - 2 * 3_600_000), now, &utc), None);
+        assert_eq!(resets("", &at(hours(9 * 24)), now, &utc), None);
     }
 
     #[test]

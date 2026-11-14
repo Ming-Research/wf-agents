@@ -151,6 +151,9 @@ pub struct Driver {
     /// When the driver was last told the time it asked for: a wake at or before it has been acted on. Lost in a stop,
     /// when a wake whose time has come is acted on again.
     ticked: Option<Time>,
+    /// Each round, of a work and run by its number, that the agents' service answered while it was under way. What
+    /// the outside says at a moment, kept only in memory: lost in a stop, the round is given again and answers again.
+    answered: BTreeSet<(WorkNumber, decide::RunId, usize)>,
 }
 
 /// When the driver is to be told the time again: the agents' rounds may begin then, or, where `look`, the network is
@@ -338,6 +341,7 @@ impl Driver {
             policy,
             looked: None,
             ticked: None,
+            answered: BTreeSet::new(),
         };
         let items = driver.store.items().map_err(Fault::Store)?;
         let heads = driver.store.works().map_err(Fault::Store)?;
@@ -643,9 +647,41 @@ impl Driver {
         }
     }
 
-    /// The wait every work shares, if one stands: worked out from the records of every work ([`outage`]).
+    /// The wait every work shares, if one stands: worked out from the records of every work and the rounds the
+    /// service answered while under way ([`outage`]).
     pub fn outage(&self) -> Option<Outage> {
-        outage::outage((self.works.values()).map(|held| (held.head.number, &*held.flow, &held.work)))
+        let works = (self.works.values()).map(|held| (held.head.number, &*held.flow, &held.work));
+        outage::outage(works, &self.answered)
+    }
+
+    /// Takes, at the time the caller's clock gives, that the agents' service answered the round under way of the run:
+    /// where a wait every work shares lets that round try, it is over, and every work is looked at again; what is to
+    /// be done is given. A round no longer under way is passed over.
+    pub fn answered(&mut self, now: Time, work: WorkNumber, run: decide::RunId) -> Result<Vec<Todo>, Fault> {
+        if let Some(fault) = &self.fault {
+            return Err(fault.clone());
+        }
+        let Some(held) = self.works.get(&work) else {
+            return Ok(Vec::new());
+        };
+        let records = &held.work.records;
+        let began = records.rounds.iter().filter(|r| r.run == run).count();
+        let ended = records.returned.iter().filter(|r| r.run == run).count();
+        if began == 0 || ended >= began {
+            return Ok(Vec::new());
+        }
+        let outage = self.outage();
+        self.answered.insert((work, run, began));
+        if self.outage() == outage {
+            return Ok(Vec::new());
+        }
+        match self.look(now) {
+            Ok(todos) => self.filled(now, todos),
+            Err(fault) => {
+                self.stop(fault.clone(), true);
+                Err(fault)
+            }
+        }
     }
 
     /// When the driver is to be told the time again, where the wait every work shares is over then by itself, or the

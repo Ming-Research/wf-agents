@@ -259,3 +259,27 @@ fn a_shared_failure_of_a_round_whose_work_was_cancelled_begins_no_wait() {
     assert_eq!(h.d().outage(), None);
     assert!(!h.hands_in(b, &[("text", None)]).is_empty(), "the other work was held");
 }
+
+// What the round that tries is to find is whether the service serves again: its first answer shows it, and every
+// other work goes on then, not once the round, which may go on for long, has ended.
+#[test]
+fn a_wait_whose_trying_round_the_service_answers_is_over_then() {
+    for failure in [Failure::CannotRun, Failure::UsageLimit, Failure::Offline] {
+        let (mut h, a, b) = two();
+        fails(&mut h, a, failure, None);
+        fails(&mut h, b, failure, None);
+        let since = h.d().outage().expect("the wait stands").since;
+        let wait = if failure == Failure::UsageLimit {
+            UNKNOWN_RESET
+        } else {
+            PROBE
+        };
+        let todos = h.tick(Time(since.0 + wait), Some(true));
+        assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 2)], "{failure:?}");
+        let todos = h.service_answers(a);
+        assert_eq!(h.d().outage(), None, "{failure:?}");
+        assert_eq!(agents_rounds(&todos), vec![(b, "write".to_string(), 2)], "{failure:?}");
+        // Answered again, it changes nothing.
+        assert_eq!(h.service_answers(a), vec![]);
+    }
+}

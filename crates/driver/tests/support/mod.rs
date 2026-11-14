@@ -1293,6 +1293,18 @@ impl H {
         todos
     }
 
+    /// The agents' service answers the round under way of the work, which the driver must take.
+    pub fn service_answers(&mut self, work: WorkNumber) -> Vec<Todo> {
+        let (run, ..) = self.round(work);
+        let now = self.now();
+        let todos = (self.dm().answered(now, work, run)).expect("the driver takes the answer");
+        self.given(&todos);
+        if self.checking {
+            self.check();
+        }
+        todos
+    }
+
     /// The work is let on.
     pub fn let_on(&mut self, work: WorkNumber) -> Vec<Todo> {
         self.on(work, Event::Resumed)

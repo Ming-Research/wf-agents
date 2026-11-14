@@ -1,20 +1,24 @@
 # Failed rounds
 
 ### decision the-fields-tell-the-kind-before-the-words
-The kind of a failed round, and when a usage limit resets, are told first by the fields the command line names the service's error in: the error of the main loop's last message and the service's typed kind of it, and a rate limit event that refused, with the reset they give. The words of its report decide only where the fields say nothing, as when it crashed.
-Why: The words change between versions of the command line: a weekly limit in words never met before was taken for a failure in passing and tried again and again, and a reset written with its day, "resets Fri 5pm", was read as that time today.
+The kind of a failed round, and when a usage limit resets, are told first by the fields the command line names the service's error in: the service's typed kind of the main loop's last error, then that error's own kind, then a rate limit event that refused as the command line itself reads it (not where it carries on, on the account's overage or in a grace), with the reset they give. The words of its report decide only where the fields say nothing, as when it crashed. A connection that failed after the round spent tokens is the round's own failure, in passing, and not the network's.
+Why: The words change between versions of the command line, and a kind told by them misses each new wording: a limit in new words is taken for a failure in passing and tried again, and a reset written with its day, as "resets Fri 5pm", is read wrong by words that know only a time of day. A cut connection, or a body that ended early, says nothing of the network once the service has served the round.
 
 ### decision a-crash-is-tried-again
-A round whose command line printed no result fails in passing, unless its words say a cause every work shares, and is tried again within the bound on failures in passing in a row.
-Why: A crash says nothing of its cause, and the old engine tried it again as a failure in passing; paused, a work left to run unattended would wait for the owner for what may pass by itself, a judgment no case has measured. What a crashed round took is not known, and the bound is what keeps it from spending unseen.
+A round whose command line printed no result fails in passing, unless its words say a cause every work shares, and is tried again within the bound on failures in passing in a row; what it spent is its calls' tokens at their model's prices, a model not known priced as the dearest.
+Why: A crash says nothing of its cause, and most pass; paused, a work left to run unattended would wait for the owner for what may pass by itself, a judgment no case has measured. Counted, what each try spent reaches the work's budget, and the bound keeps the tries from going on unseen.
 
 ### decision a-shared-cause-is-one-wait
-A round that fails at the account's usage limit, for a command line that cannot run, or for want of the network holds the rounds of every work, as one wait worked out from the records of every work; no work is paused for it, and every work goes on by itself once the wait is over.
-Why: One cause stops every work alike: paused one by one, each would wait for the owner to start it by hand once the cause had passed, and a mark written on each would have to be lifted on each.
+A round that fails at the account's usage limit, for a command line that cannot run, or for want of the network holds the rounds of every work, as one wait worked out from the records of every work; no work is paused for it, and every work goes on by itself once the wait is over. A cause of one session or one model (a context past what the account may send without credits, a model the service does not serve or the account may not use) pauses the work that meets it, with why.
+Why: One cause stops every work alike: paused one by one, each would wait for the owner to start it by hand once the cause had passed, and a mark written on each would have to be lifted on each. A cause of one session or one model does not pass with time: held as every work's, it would stop works it does not touch and be tried again for ever.
 
 ### decision a-reset-not-said-is-tried-by-one-round
-At a usage limit whose reset the command line did not say, one round, of whichever work comes to one first, tries half an hour after the last one ended, and every work goes on only once a round comes back; at a reset it said, every work goes on at once.
+At a usage limit whose reset the command line did not say, or said further ahead than a week's limit reaches, one round, of whichever work comes to one first, tries half an hour after the last one ended; at a reset it said, every work goes on at once, a reset just passed being now.
 Why: The time is a guess: every work going on at it would each meet the limit again and write its message into its session once more (principle no-unseen-spending-loop).
+
+### decision a-trial-is-over-at-the-first-answer
+A wait every work shares that lets one round try is over once the service answers that round with a message that is no error, without waiting for the round's end; what answered is kept only in memory.
+Why: What the round tries is whether the service serves again, which its first answer shows, and a round may go on for tens of minutes after it, every other work held meanwhile. Lost in a stop, the round is given again and answers again.
 
 ### decision the-wait-holds-what-its-cause-stops
 At the usage limit and for a command line that cannot run the wait holds only the agents' rounds; without the network it holds the engine's own acts as well. An act that meets the network gone before any agent's round has fails as a cause no kind tells apart, and pauses its work.
