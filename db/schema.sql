@@ -333,6 +333,26 @@ CREATE TABLE moments (
     PRIMARY KEY (work, place)
 );
 
+-- An observation of the installation, numbered by the store as it is kept, counting from one: the `n`th text, counting
+-- from one, of the `observations` of what came back at the end of a round of a run, the return the run was taken on.
+-- It is kept as the run finishes; a return sent back keeps none. What it says, its cell and when it was kept are in the
+-- work's records, and are not kept again here.
+CREATE TABLE observations (
+    number INTEGER PRIMARY KEY,
+    work INTEGER NOT NULL,
+    run INTEGER NOT NULL,
+    round INTEGER NOT NULL,
+    n INTEGER NOT NULL,
+    UNIQUE (work, run, n),
+    FOREIGN KEY (work, run, round) REFERENCES back (work, run, round)
+);
+
+-- The owner read the observation, at `at`: one row for one that was read, and none for one still unread.
+CREATE TABLE observations_read (
+    observation INTEGER PRIMARY KEY REFERENCES observations (number),
+    at INTEGER NOT NULL
+);
+
 -- A copy of the database was taken, under this name, at `taken`. `seq` is the order the copies were recorded in, which
 -- a clock that jumped cannot change: the copies kept are the newest by it. The rows are only added, so the number of a
 -- row is one more than the newest's. A copy belongs to no work.

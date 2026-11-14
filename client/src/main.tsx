@@ -1,4 +1,4 @@
-// The page's entry: its tokens and parts, the chart's styles, the works page's, and the page.
+// The page's entry: its tokens and parts, the chart's styles, the works page's, the observations', and the page.
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -8,6 +8,7 @@ import './styles/tokens.css';
 import './styles/parts.css';
 import './styles/chart.css';
 import './styles/works.css';
+import './styles/observations.css';
 
 const root = document.getElementById('root');
 if (root) {

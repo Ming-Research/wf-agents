@@ -12,6 +12,7 @@
 //! - With the engine running, the items and the works ([`interface`], whose types are in [`works`]), and what needs
 //!   whoever plans the work since a mark ([`attention`]).
 //! - `GET /api/v1/backup`: how the copies of the database stand ([`copies`]).
+//! - The observations of the installation, and the owner's reading of each ([`observations`]).
 //! - Any other path that is not under `/api/` is a file of the page, `index.html` when there is no such file.
 //!
 //! Wherever they are served, a request that could come from a page of another site is refused before it reaches a
@@ -22,6 +23,7 @@ pub mod copies;
 pub mod given;
 mod guard;
 pub mod interface;
+pub mod observations;
 pub mod view;
 pub mod works;
 

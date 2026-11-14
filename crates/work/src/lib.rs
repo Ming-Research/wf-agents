@@ -86,6 +86,12 @@ impl Work {
         let names = (r.started.iter().map(|s| s.run.0)).chain(r.called.iter().map(|c| c.call.0));
         names.max().unwrap_or(0) + 1
     }
+
+    /// What came back at the end of the run's last round that ended while the run was open, with the round's number:
+    /// of a run that finished, the return it was taken on, which met everything the flow requires.
+    pub fn last_back(&self, run: RunId) -> Option<(usize, &Back)> {
+        (self.back.range((run, 0)..=(run, usize::MAX)).next_back()).map(|(&(_, round), back)| (round, back))
+    }
 }
 
 /// A time, as whatever drives the engine reads its clock: milliseconds since the start of 1970. The engine reads no

@@ -327,6 +327,11 @@ describe('the panel of a step', () => {
     expect(panel.querySelector('pre.content')?.textContent).toBe('Found 0 errors.');
   });
 
+  it('shows the run the address names, chosen as the work is first shown', () => {
+    const page = draw(<WorkScreen page={fixtureWork(41)} onActed={() => undefined} run={3} />, fixtureSource());
+    expect(page.querySelector('aside[aria-label="Run 3 of implement"]')).not.toBeNull();
+  });
+
   it('shows why a return was sent back, and a way round', async () => {
     const { page } = drawWork(41);
     await chooseStep(page, 2);

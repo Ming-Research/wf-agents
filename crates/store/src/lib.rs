@@ -25,10 +25,14 @@
 //! - `tables`: a work's entries, table by table.
 //! - `backups`: the copies of the database that were taken and uploaded, and what failed in keeping them. They belong
 //!   to no work, and the backup's own task keeps them through a connection of its own ([`Backups`]).
+//! - `observations`: what agents came across beyond their works, each text of the `observations` of a return its run
+//!   was taken on, kept as the run's finish is saved; and the owner's reading of each. They belong to no work, and are
+//!   read and marked read through a connection of their own ([`Observations`]).
 
 mod backups;
 pub mod before_migration;
 mod items;
+mod observations;
 mod tables;
 
 use std::path::Path;
@@ -39,6 +43,7 @@ use work::{Time, Work};
 
 pub use backups::{Backups, Failure, Kept, Records};
 pub use items::{Change, First, Item, ItemChange, ItemNumber, WorkHead, WorkNumber};
+pub use observations::{Observation, Observations};
 
 /// The name of the store's file in the data directory.
 pub const FILE: &str = "store.sqlite";
@@ -48,7 +53,7 @@ pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 10;
+pub const SCHEMA_VERSION: u32 = 11;
 
 /// The migrations, in order: the first brings a database of version 1 of the schema to version 2, and each after it
 /// one version further, replacing the version's one row last. Each file is named by the minute it was written and
@@ -65,6 +70,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!(
         "../../../db/migrations/202611131500-keep-what-a-return-dealt-with-what-reached-a-round-and-what-filled-it.sql"
     ),
+    include_str!("../../../db/migrations/202611141600-keep-the-observations-the-returns-taken-carry.sql"),
 ];
 
 // The migrations bring a database of every earlier version to this one.
@@ -167,9 +173,10 @@ pub trait Storage {
     /// Everything kept of the work.
     fn load(&self, work: WorkNumber) -> Result<Work, Fault>;
 
-    /// Keeps what the work has that the store does not hold yet, in one transaction. What the store holds of it must
-    /// be where the given work begins: where it holds an entry the work lacks or holds otherwise, nothing is kept and
-    /// the fault says where. Saving a work the store holds whole keeps nothing.
+    /// Keeps what the work has that the store does not hold yet, in one transaction, and with it, as observations of
+    /// the installation, the observations of the return each run that finished since was taken on. What the store
+    /// holds of it must be where the given work begins: where it holds an entry the work lacks or holds otherwise,
+    /// nothing is kept and the fault says where. Saving a work the store holds whole keeps nothing.
     fn save(&mut self, work: WorkNumber, given: &Work) -> Result<(), Fault>;
 
     /// The pause of everything, where it holds: when it began and who set it; none where it does not, as in a store

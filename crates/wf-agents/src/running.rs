@@ -179,6 +179,8 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
             }
             None => web::with_works(flows_shown, service.handle(), levels),
         };
+        // The observations are read, and marked read, through connections of their own to the store's file.
+        let router = router.merge(web::observations::router(service.handle(), data.join(store::FILE)));
         println!("The owner's pages are at {}", works_page(address));
         let held = web::works::Engine::of(service.driver()).paused.map(|paused| paused.by);
         if held == Some(web::works::Pauser::Engine) {

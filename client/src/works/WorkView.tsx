@@ -17,7 +17,11 @@ import { type Source, useChanges, useReading, useSource } from './source';
 import { ChosenPanel, type Reader } from './StepPanel';
 import { spentWords, tokensWords } from './words';
 
-export function WorkView({ work }: { work: number }) {
+export function WorkView({ work, run }: {
+  work: number;
+  /// The run the address names, chosen as the work is first shown, as by a link to it.
+  run?: number;
+}) {
   const source = useSource();
   const load = useCallback(() => source.loadWork(work), [source, work]);
   const { value: page, failed, read } = useReading(load);
@@ -31,7 +35,7 @@ export function WorkView({ work }: { work: number }) {
       <p className="message muted">Reading work {work}</p>
     );
   }
-  return <WorkScreen page={page} failed={failed} onActed={read} />;
+  return <WorkScreen page={page} failed={failed} onActed={read} run={run} />;
 }
 
 /// The reads of a work's contents, each made once: a version, an ended round, what it was told and returned, and a
@@ -61,19 +65,24 @@ export function readerOf(source: Source, work: number): Reader {
   };
 }
 
-export function WorkScreen({ page, failed = null, onActed }: {
+export function WorkScreen({ page, failed = null, onActed, run }: {
   page: WorkPage;
   /// Why the last read of the work failed, where it did: what is shown is from before.
   failed?: string | null;
   onActed: () => void;
+  /// The run chosen as the work is first shown; none chooses nothing.
+  run?: number;
 }) {
   const source = useSource();
   const { summary } = page;
   const work = summary.number;
   const reader = useMemo(() => readerOf(source, work), [source, work]);
-  const [chosen, setChosen] = useState<Chosen>(null);
-  // The panel is open at first, unless the window is too narrow to show the history beside it.
-  const [folded, setFolded] = useState(() => window.innerWidth < 2 * PANEL.first);
+  const [chosen, setChosen] = useState<Chosen>(() => {
+    const step = run === undefined ? -1 : page.steps.findIndex((s) => s.kind === 'run' && s.run === run);
+    return step < 0 ? null : { step };
+  });
+  // The panel is open at first, unless the window is too narrow to show the history beside it and nothing is chosen.
+  const [folded, setFolded] = useState(() => chosen === null && window.innerWidth < 2 * PANEL.first);
   const [panelWidth, setPanelWidth] = useKeptWidth(WIDTH_KEYS.panel, PANEL.min, PANEL.max);
 
   const send: Send = useCallback(

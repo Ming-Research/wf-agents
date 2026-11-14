@@ -347,8 +347,9 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
     Ok(out)
 }
 
-/// Keeps what the given work has that the store does not hold yet; or, where what the store holds is not where the
-/// given work begins, keeps nothing and says where. Everything is checked before anything is written.
+/// Keeps what the given work has that the store does not hold yet, with the observations of the runs among it that
+/// finished; or, where what the store holds is not where the given work begins, keeps nothing and says where.
+/// Everything is checked before anything is written.
 pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<(), Fault> {
     let w = work.0;
     let held = load(db, work)?;
@@ -510,6 +511,8 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
             params![w, run.0, round, json("back", what)?],
         )?;
     }
+    // What came back is kept first, which an observation names.
+    crate::observations::keep(db, work, given, finished)?;
     for (call, what) in calls {
         db.execute(
             "INSERT INTO calls (work, call, what) VALUES (?1, ?2, ?3)",
