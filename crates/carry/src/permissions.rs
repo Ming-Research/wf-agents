@@ -3,7 +3,7 @@
 //! words beside the flows.
 //!
 //! On every line the heavy commands are refused: compiling, type checking, building, test suites, benchmarks, and
-//! pushing. The project's check is had through the tool `check`, and only the engine pushes; run by an agent, they
+//! pushing. The project's tests are had through the tool `run_tests`, and only the engine pushes; run by an agent, they
 //! would fight the owner for the processor, and push what no check passed. On a line that writes, the commands that
 //! update the project's lock files and build, run and install nothing are allowed, though a heavy command covers them,
 //! rather than leave the agent to write a lock file by hand and the check to find its mistakes; which they are is the

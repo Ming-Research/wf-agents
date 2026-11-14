@@ -1,13 +1,13 @@
 //! The local repository as the host: main is its own main branch, the verdict is the project's check command run in
-//! the work's worktree, and the merge is made in its checkout. An agent's check runs the same command on the worktree
-//! as it stands, what is not committed included, and says the end of what it said, whether it passed or not; its check
-//! before the change runs it in a worktree of its own made at that commit, taken away once it has run, and takes away
-//! what such a check of the work left before.
+//! the work's worktree, and the merge is made in its checkout. An agent's `run_tests` runs the same command on the
+//! worktree as it stands, what is not committed included, and says what it said, whether it passed or not.
 
 use std::path::Path;
 
-use super::{Branch, Host, InUse, Named, Verdict, WHOLE};
-use crate::git::{self, Before};
+use flow::agents::{LocalWords, Tool, fill};
+
+use super::{Branch, Host, Named, Verdict};
+use crate::git;
 use crate::held::Stop;
 use crate::process::{self, Ran};
 use crate::settings::Project;
@@ -18,8 +18,8 @@ pub struct Local {
     project: Project,
     /// The variables of the engine's environment the check command is given beside those always given.
     env: Vec<String>,
-    /// The worktrees of the checks before the change running.
-    in_use: InUse,
+    /// What `run_tests` says here, from the tool's file beside the flows.
+    words: Option<LocalWords>,
 }
 
 impl Local {
@@ -27,8 +27,14 @@ impl Local {
         Local {
             project,
             env: Vec::new(),
-            in_use: InUse::default(),
+            words: None,
         }
+    }
+
+    /// The host that says what `run_tests` says in the words of the tool's file.
+    pub fn saying(mut self, tool: Option<&Tool>) -> Local {
+        self.words = tool.and_then(|tool| tool.local.clone());
+        self
     }
 
     /// The host whose check command is given these variables of the engine's environment, as the agents are.
@@ -37,22 +43,30 @@ impl Local {
         self
     }
 
-    /// Runs the check command in the directory, and says whether it passed with the end of what it said, `on` saying
-    /// where after "passed" and "failed"; none where it was told to stop.
-    async fn run(&self, dir: &Path, on: &str, stop: &mut Stop) -> Result<Option<String>, String> {
+    /// What `run_tests` says here, or why there are no words.
+    fn words(&self) -> Result<&LocalWords, String> {
+        (self.words.as_ref())
+            .ok_or_else(|| "the words of run_tests (agents/tools/run_tests.toml) have no [local]".to_string())
+    }
+
+    /// Runs the check command in the directory, and says whether it passed with what it said; none where it was told
+    /// to stop.
+    async fn run(&self, dir: &Path, stop: &mut Stop) -> Result<Option<String>, String> {
+        let words = self.words()?;
         let check = &self.project.check;
         let ran = process::run(process::shell(check, dir, &self.env), None, None, stop).await?;
         let Ran::Ended { status, stdout, .. } = ran else {
             return Ok(None);
         };
-        let passed = if status.success() {
-            "passed".to_string()
+        let outcome = if status.success() {
+            words.passed.clone()
         } else {
-            format!("failed ({status})")
+            fill(&words.failed, &[("status", &status.to_string())])
         };
-        let tail = process::tail(&stdout);
-        Ok(Some(format!(
-            "The check `{check}` {passed}{on}. The end of what it said:\n{tail}"
+        let said = String::from_utf8_lossy(&stdout);
+        Ok(Some(fill(
+            &words.ran,
+            &[("command", check), ("outcome", &outcome), ("said", &said)],
         )))
     }
 }
@@ -88,52 +102,28 @@ impl Host for Local {
         kept_main(&self.project.main)
     }
 
-    async fn check(&self, branch: &Branch<'_>, named: &Named, stop: &mut Stop) -> Result<Option<String>, String> {
+    async fn run_tests(&self, branch: &Branch<'_>, named: &Named, stop: &mut Stop) -> Result<Option<String>, String> {
+        let words = self.words()?;
         let ran = match git::worktree(branch.place) {
-            Ok(dir) => self.run(&dir, "", stop).await,
+            Ok(dir) => self.run(&dir, stop).await,
             Err(why) => Err(why),
         };
         // What could not be run is said with the command, as what ran is.
         let check = &self.project.check;
-        let said = ran.unwrap_or_else(|why| Some(format!("The check `{check}` could not be run: {why}")));
-        Ok(said.map(|said| whole(named, said)))
-    }
-
-    async fn check_before(
-        &self,
-        branch: &Branch<'_>,
-        before: &Before,
-        named: &Named,
-        stop: &mut Stop,
-    ) -> Result<Option<String>, String> {
-        let mine = git::before_dir(branch.place, &before.commit).display().to_string();
-        let _held = self.in_use.hold(&mine).await;
-        // What no check of this process holds was left by one that ended.
-        for left in git::befores(branch.place) {
-            if !self.in_use.held(&left.display().to_string()) {
-                git::take_away(&self.project, &left).await?;
+        let said = ran.unwrap_or_else(|why| Some(fill(&words.could_not, &[("command", check), ("why", &why)])));
+        // The tests and checks named are not run apart: the whole command runs.
+        Ok(said.map(|said| {
+            if named.is_empty() {
+                said
+            } else {
+                format!("{}\n\n{said}", words.not_apart)
             }
-        }
-        let dir = git::check_out_before(&self.project, branch.place, &before.commit).await?;
-        let ran = self.run(&dir, " on it", stop).await;
-        let taken = git::take_away(&self.project, &dir).await;
-        let said = ran?;
-        taken?;
-        Ok(said.map(|said| whole(named, said)))
+        }))
     }
 
     /// The local repository holds nothing for a work beside its branch and its worktrees, which the acts let go.
     async fn end(&self, _: &Branch<'_>, _: bool) -> Result<(), String> {
         Ok(())
-    }
-}
-
-/// What the check found, said after [`WHOLE`] where the agent named what it does not run apart.
-fn whole(named: &Named, said: String) -> String {
-    if named.is_empty() {
-        said
-    } else {
-        format!("{WHOLE}\n\n{said}")
     }
 }
 

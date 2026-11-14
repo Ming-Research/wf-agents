@@ -220,8 +220,6 @@ pub struct GitHub {
     /// The variable of the engine's environment that holds the engine's token for GitHub.
     #[serde(default = "token_env")]
     pub token_env: String,
-    /// The checks of the CI that count, by the name of their check run or commit status.
-    pub checks: Vec<String>,
     /// How many minutes a named check may have no run on a pushed commit before the CI is taken never to have
     /// started.
     #[serde(default = "start_minutes")]
@@ -235,108 +233,18 @@ pub struct GitHub {
     /// Whether a work's branch on GitHub is deleted once it is merged.
     #[serde(default)]
     pub delete_branch: bool,
-    /// Whether the project's CI runs on a push to the branches the agents' `check_before` pushes to; without it, the
-    /// tool is refused before anything is pushed.
-    #[serde(default)]
-    pub runs_on_before_branches: bool,
     /// The `gh` command line, or a path to it.
     #[serde(default = "gh")]
     pub gh: String,
-    /// The project's fast CI, which runs only the tests and checks an agent names; with none, an agent's check is the
-    /// whole CI of its commit.
-    pub fast: Option<Fast>,
-    /// How the lines of a red job's log are told apart, as the project's tools print them; with none, only by what
-    /// GitHub itself writes there.
-    #[serde(default)]
-    pub log: Log,
+    /// The runners this installation has, by the name a workflow's `runner` in the project's declaration gives them:
+    /// `github` for GitHub's own machines, and the label of each self-hosted runner. A workflow that runs on another is
+    /// not run.
+    #[serde(default = "runners")]
+    pub runners: Vec<String>,
 }
 
-/// How the lines of a red job's log are told apart, as the project's tools print them, each kind a list of patterns: a
-/// line is of a kind where it is the whole of one of its patterns, the spaces it begins with included, so that a word
-/// the tools align is written aligned, `*` standing for any text. What GitHub itself writes in a log (a step's command,
-/// its errors, the runner's clean-up) the engine knows without them.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Log {
-    /// The lines that only show progress, such as a dependency fetched or built and a test started or passed: left
-    /// out.
-    #[serde(default)]
-    pub progress: Vec<String>,
-    /// The lines that say a test did not pass: each kept with the lines under it, its output, up to the next line of
-    /// one of these kinds.
-    #[serde(default)]
-    pub failures: Vec<String>,
-    /// The lines that say a test was still running: kept, as they say which test held a job cancelled at its time
-    /// limit.
-    #[serde(default)]
-    pub running: Vec<String>,
-    /// The lines that begin an error or a warning: each kept with the lines under it up to a blank line.
-    #[serde(default)]
-    pub errors: Vec<String>,
-    /// The line that begins the summary of a run of the tests: the last of them kept with everything after it.
-    #[serde(default)]
-    pub summary: Vec<String>,
-    /// The lines of no other kind that end a failed test's output, such as a line that says the next unit of tests
-    /// runs.
-    #[serde(default)]
-    pub ends_output: Vec<String>,
-    /// Where the tools begin a line that says what it is with one word right-aligned to this many columns and followed
-    /// by a space, as cargo and nextest align theirs to twelve: each such line ends a failed test's output as well.
-    pub status_width: Option<usize>,
-}
-
-/// A project's fast CI: a workflow GitHub runs by hand, always by its file on the main branch, which checks out the
-/// commit it is given, runs only the tests and the checks it is given and reports what became of each test. The engine
-/// reads its results by the conventions its reading of them holds to (JUnit XML, a unit not built as a testsuite with
-/// no testcase and an error, and at least every test a name names run).
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Fast {
-    /// The workflow, by its file's name, such as `fast.yml`.
-    pub workflow: String,
-    /// The input that takes the commit to check out and test.
-    #[serde(default = "commit_input")]
-    pub commit_input: String,
-    /// The input that takes a value only one request knows, which the run's name must hold: by it the engine finds the
-    /// run it asked for among the others.
-    #[serde(default = "call_input")]
-    pub call_input: String,
-    /// The input that takes the tests to run: each name followed by a line break, the last too.
-    #[serde(default = "tests_input")]
-    pub tests_input: String,
-    /// The input that takes the checks to run beside the tests, as a JSON array of the names of their jobs, given only
-    /// when one is named.
-    #[serde(default = "checks_input")]
-    pub checks_input: String,
-    /// The checks, each the name of a job of the workflow, that it runs when named, such as the lint.
-    #[serde(default)]
-    pub named_checks: Vec<String>,
-    /// The artifact a run uploads with its JUnit files.
-    #[serde(default = "results")]
-    pub results: String,
-    /// What the project's test runners put between the parts of a test's name, such as `::` and ` > `.
-    #[serde(default)]
-    pub separators: Vec<String>,
-}
-
-fn commit_input() -> String {
-    "commit".to_string()
-}
-
-fn call_input() -> String {
-    "call".to_string()
-}
-
-fn tests_input() -> String {
-    "tests".to_string()
-}
-
-fn checks_input() -> String {
-    "checks".to_string()
-}
-
-fn results() -> String {
-    "test-results".to_string()
+fn runners() -> Vec<String> {
+    vec!["github".to_string()]
 }
 
 fn origin() -> String {
@@ -586,6 +494,25 @@ pub struct Items {
     pub highest_level: Option<String>,
 }
 
+/// What the settings are told where they name `github.runs_on_before_branches`, which the engine no longer reads.
+const BEFORE_BRANCHES: &str = "github.runs_on_before_branches: this setting was removed, as the engine no longer pushes \
+     the code before a change to branches of its own; delete the line";
+
+/// What the settings are told where they name `github.fast`, which the project declares now.
+const FAST_MOVED: &str = "github.fast: the fast workflow is the project's, not the installation's: it is declared in the \
+     project's flow/project.toml as [ci.fast] (workflow, runner, the inputs, results, and `checks` for named_checks), \
+     and its separators are gone, for a test's name is the one its results give it; delete the table, and name in \
+     github.runners the runners this installation has";
+
+/// What the settings are told where they name `github.log`, which the engine no longer reads.
+const LOG_GONE: &str = "github.log: the engine reads no log: a test's result and what it said come from the JUnit its \
+     workflow uploads; delete the table";
+
+/// What the settings are told where they name `github.checks`, which the project's full workflows are now.
+const CHECKS_MOVED: &str = "github.checks: the checks that count are the jobs of the project's full workflows, declared in \
+     the project's flow/project.toml as [ci.full] (workflows, runner, too_long), which the check before a merge runs \
+     on the commit to merge; delete the line";
+
 /// What the settings are told where they name `agents.model`, the one model every round once ran on.
 const ONE_MODEL: &str = "agents.model: rounds no longer run on one model: each item has a level, and each level names \
      its model. Take out agents.model; add a table [agents.levels.<name>] with desc and model for each level, and a \
@@ -610,9 +537,6 @@ impl GitHub {
                 self.repository
             ));
         }
-        if self.checks.is_empty() || self.checks.iter().any(|c| c.trim().is_empty()) {
-            wrong.push("github.checks: at least one check counts, each named".to_string());
-        }
         if self.start_minutes == 0 || self.timeout_minutes < self.start_minutes {
             wrong.push(
                 "github.start_minutes, github.timeout_minutes: the CI is given at least a minute to start, and no \
@@ -627,21 +551,8 @@ impl GitHub {
                 self.merge_method
             ));
         }
-        if let Some(fast) = &self.fast {
-            let blank = [
-                &fast.workflow,
-                &fast.commit_input,
-                &fast.call_input,
-                &fast.tests_input,
-                &fast.checks_input,
-                &fast.results,
-            ];
-            if blank.iter().any(|v| v.trim().is_empty()) || fast.named_checks.iter().any(|c| c.trim().is_empty()) {
-                wrong.push(
-                    "github.fast: the workflow, its inputs, its results and each check it runs by name are named"
-                        .to_string(),
-                );
-            }
+        if self.runners.iter().any(|r| r.trim().is_empty()) {
+            wrong.push("github.runners: each runner is named".to_string());
         }
         if self.token_env.is_empty() {
             wrong.push("github.token_env: the token's variable has a name".to_string());
@@ -673,6 +584,19 @@ impl Settings {
         }
         if agents.is_some_and(|agents| agents.contains_key("owner_language")) {
             return Err(OWNER_LANGUAGE.to_string());
+        }
+        let github = table.as_ref().and_then(|t| t.get("github")).and_then(|g| g.as_table());
+        if github.is_some_and(|github| github.contains_key("runs_on_before_branches")) {
+            return Err(BEFORE_BRANCHES.to_string());
+        }
+        if github.is_some_and(|github| github.contains_key("fast")) {
+            return Err(FAST_MOVED.to_string());
+        }
+        if github.is_some_and(|github| github.contains_key("log")) {
+            return Err(LOG_GONE.to_string());
+        }
+        if github.is_some_and(|github| github.contains_key("checks")) {
+            return Err(CHECKS_MOVED.to_string());
         }
         let settings: Settings = toml::from_str(text).map_err(|e| e.to_string().trim_end().to_string())?;
         let mut wrong = Vec::new();
@@ -743,15 +667,6 @@ impl Settings {
             warned.push(
                 "agents.permissions.locks: no command that updates a lock file is named, so an agent that writes may \
                  update none."
-                    .to_string(),
-            );
-        }
-        if let Some(github) = &self.github
-            && github.log == Log::default()
-        {
-            warned.push(
-                "github.log: no pattern of the project's tools is named, so the log of a red job is cut only by what \
-                 GitHub writes in it: the agents are given the steps that failed, up to their last error."
                     .to_string(),
             );
         }
@@ -864,46 +779,49 @@ mod tests {
     }
 
     #[test]
-    fn a_fast_ci_is_read_with_its_defaults_and_its_names_must_be_given() {
-        let github =
-            "\n[github]\nrepository = \"owner/name\"\nchecks = [\"check\"]\n[github.fast]\nworkflow = \"fast.yml\"\n";
+    fn the_fast_ci_of_the_installation_is_refused_in_words_that_say_where_it_went_and_the_runners_are_read() {
+        let github = "\n[github]\nrepository = \"owner/name\"\n";
         let settings = Settings::read(&format!("{SAMPLE}{github}")).expect("it reads");
-        let fast = settings.github.and_then(|g| g.fast).expect("a fast CI");
-        assert_eq!(
-            fast,
-            Fast {
-                workflow: "fast.yml".to_string(),
-                commit_input: "commit".to_string(),
-                call_input: "call".to_string(),
-                tests_input: "tests".to_string(),
-                checks_input: "checks".to_string(),
-                named_checks: Vec::new(),
-                results: "test-results".to_string(),
-                separators: Vec::new(),
-            }
+        assert_eq!(settings.github.expect("github").runners, ["github"]);
+        let runners = format!("{SAMPLE}{github}runners = [\"github\", \"14900K\"]\n");
+        let both = Settings::read(&runners)
+            .expect("it reads")
+            .github
+            .expect("github")
+            .runners;
+        assert_eq!(both, ["github", "14900K"]);
+        let checks = format!("{SAMPLE}{github}checks = [\"check\"]\n");
+        let refused = Settings::read(&checks).expect_err("refused");
+        assert!(
+            refused.starts_with("github.checks: the checks that count are the jobs of the project's full"),
+            "{refused}"
         );
-        let blank = format!("{SAMPLE}{}", github.replace("\"fast.yml\"", "\" \""));
-        let refused = Settings::read(&blank).expect_err("refused");
-        assert!(refused.contains("github.fast"), "{refused}");
+        assert!(
+            refused.contains("[ci.full]") && refused.ends_with("delete the line"),
+            "{refused}"
+        );
+        let fast = format!("{SAMPLE}{github}[github.fast]\nworkflow = \"fast.yml\"\n");
+        let refused = Settings::read(&fast).expect_err("refused");
+        assert!(
+            refused.starts_with("github.fast: the fast workflow is the project's"),
+            "{refused}"
+        );
+        assert!(
+            refused.contains("[ci.fast]") && refused.contains("github.runners"),
+            "{refused}"
+        );
     }
 
-    // The settings that name no lock command, or on GitHub no line of the project's tools in a log, are said as the
-    // engine starts: the engine knows none of its own.
+    // The settings that name no lock command are said as the engine starts: the engine knows none of its own.
     #[test]
-    fn the_owner_is_told_when_no_lock_command_or_log_pattern_is_named() {
+    fn the_owner_is_told_when_no_lock_command_is_named() {
         let mut settings = Settings::read(SAMPLE).unwrap();
         settings.agents.config_dir = Some("agents".into());
         assert!(settings.warnings().is_empty());
         settings.agents.permissions.locks.clear();
-        settings.github = Settings::read(&on_github()).unwrap().github;
-        assert_eq!(settings.warnings().len(), 1, "the sample's log names patterns");
-        settings.github.as_mut().unwrap().log = Log::default();
         let warned = settings.warnings();
-        assert_eq!(warned.len(), 2, "{warned:?}");
+        assert_eq!(warned.len(), 1, "{warned:?}");
         assert!(warned[0].starts_with("agents.permissions.locks:"), "{}", warned[0]);
-        assert!(warned[1].starts_with("github.log:"), "{}", warned[1]);
-        settings.github.as_mut().unwrap().log.status_width = Some(12);
-        assert_eq!(settings.warnings().len(), 1);
     }
 
     #[test]
@@ -1003,6 +921,17 @@ mod tests {
         for key in ["[agents.levels.<name>]", "[items]", "default_level"] {
             assert!(refused.contains(key), "{refused}");
         }
+    }
+
+    #[test]
+    fn the_removed_setting_of_the_branches_before_a_change_is_refused_in_words_that_say_it_can_go() {
+        let text = format!("{SAMPLE}\n[github]\nrepository = \"o/n\"\nruns_on_before_branches = true\n");
+        let refused = Settings::read(&text).expect_err("refused");
+        assert!(
+            refused.starts_with("github.runs_on_before_branches: this setting was removed")
+                && refused.ends_with("delete the line"),
+            "{refused}"
+        );
     }
 
     #[test]
@@ -1144,7 +1073,6 @@ mod tests {
         assert_eq!(github.url(), "https://github.com/owner/name.git");
         assert_eq!(github.remote, "origin");
         assert_eq!(github.token_env, "WF_GITHUB_TOKEN");
-        assert_eq!(github.checks, ["check"]);
         assert_eq!((github.start_minutes, github.timeout_minutes), (10, 120));
         assert_eq!(github.merge_method, "squash");
         assert!(!github.delete_branch);
@@ -1154,13 +1082,11 @@ mod tests {
     #[test]
     fn what_github_cannot_be_given_is_refused_all_at_once() {
         let text = (on_github().replace("repository = \"owner/name\"", "repository = \"name\""))
-            .replace("checks = [\"check\"]", "checks = []")
             .replace("merge_method = \"squash\"", "merge_method = \"fast-forward\"")
             .replace("# env = [\"ANTHROPIC_API_KEY\"]", "env = [\"WF_GITHUB_TOKEN\"]");
         let refused = Settings::read(&text).expect_err("refused");
-        assert_eq!(refused.lines().count(), 4, "{refused}");
+        assert_eq!(refused.lines().count(), 3, "{refused}");
         assert!(refused.contains("github.repository"), "{refused}");
-        assert!(refused.contains("github.checks"), "{refused}");
         assert!(refused.contains("github.merge_method"), "{refused}");
         assert!(refused.contains("agents.env: WF_GITHUB_TOKEN"), "{refused}");
         let unknown = on_github().replace("delete_branch = false", "delete_branches = false");
@@ -1265,11 +1191,17 @@ mod tests {
             settings.value("agents.levels.2.model").as_deref(),
             Some("claude-sonnet-5-5")
         );
-        for none in ["github.checks", "agents.config_dir", "owner.voice", "agents.slots.more"] {
+        for none in [
+            "github.checks",
+            "github.repository",
+            "agents.config_dir",
+            "owner.voice",
+            "agents.slots.more",
+        ] {
             assert_eq!(settings.value(none), None, "{none}");
         }
         let listed = Settings::read(&on_github()).unwrap();
-        assert_eq!(listed.value("github.checks").as_deref(), Some("[\"check\"]"));
+        assert_eq!(listed.value("github.runners").as_deref(), Some("[\"github\"]"));
     }
 
     // The subagents an agent may start are three where the settings give none, as on `old-main`, or as they say.

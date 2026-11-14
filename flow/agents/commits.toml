@@ -12,7 +12,5 @@ run = "Merge {main} at {head} into the work's branch as run {run} starts"
 # The check before the merge merges main's head into the work's branch, where the branch does not hold it. Its words
 # are not a run's, so that neither takes the other's merge for its own.
 check = "Merge {main} at {head} into the work's branch"
-# The code before the change: the commit of main the change begins from, with the files named put on it.
-before = "The code before the change of {branch}, with its tests"
 # The merge of the work's branch into main, where no host merges it.
 merge = "Merge {branch}"

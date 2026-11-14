@@ -105,6 +105,98 @@ pub struct Project {
     /// The project's settings, which the words sent to the agents name as `project.<name>`.
     #[serde(default)]
     pub project: BTreeMap<String, String>,
+    /// Where the project's tests are, and what its tests expect.
+    pub tests: Option<Tests>,
+    /// The project's two workflows, which the engine runs tests and checks through.
+    pub ci: Option<Ci>,
+}
+
+/// `[tests]` of `project.toml`.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Tests {
+    /// Where the project's tests are, as git pathspecs.
+    pub paths: Vec<String>,
+    /// The expected-value data of its tests, as git pathspecs.
+    pub expected: Vec<String>,
+}
+
+/// `[ci]` of `project.toml`: the project's two workflows, each with a role the engine relies on. Both report each test
+/// as JUnit XML, named by the one name an agent asks for it by.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Ci {
+    pub fast: Option<CiFast>,
+    pub full: Option<CiFull>,
+}
+
+/// The fast workflow: dispatched by hand on a commit with the tests and checks to run, builds and runs only those.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CiFast {
+    /// The workflow, by its file's name, always run by its file on the main branch.
+    pub workflow: String,
+    /// Where it runs: `github`, GitHub's own machines, or the label of a self-hosted runner.
+    pub runner: String,
+    /// The input that takes the commit to check out and test.
+    #[serde(default = "commit_input")]
+    pub commit_input: String,
+    /// The input that takes a value only one request knows, which the run's name must hold.
+    #[serde(default = "call_input")]
+    pub call_input: String,
+    /// The input that takes the names of the tests to run, each followed by a line break.
+    #[serde(default = "tests_input")]
+    pub tests_input: String,
+    /// The input that takes the checks to run beside the tests, a JSON array of their jobs' names.
+    #[serde(default = "checks_input")]
+    pub checks_input: String,
+    /// The checks it runs when named, each the name of a job of the workflow, such as the lint.
+    #[serde(default)]
+    pub checks: Vec<String>,
+    /// The artifact a run uploads its JUnit files in.
+    #[serde(default = "results")]
+    pub results: String,
+}
+
+/// The full workflows: every job required to merge, dispatched on the exact commit, run once before the merge.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CiFull {
+    /// The workflows, by their files' names, always run by their files on the main branch.
+    pub workflows: Vec<String>,
+    /// Where they run, as for the fast workflow.
+    pub runner: String,
+    /// How long a run may take before it is given up, such as `2h`, `90m` or `30s`.
+    pub too_long: String,
+    /// The input that takes the commit to check out and test.
+    #[serde(default = "commit_input")]
+    pub commit_input: String,
+    /// The input that takes a value only one request knows, which the run's name must hold.
+    #[serde(default = "call_input")]
+    pub call_input: String,
+    /// The artifact a run uploads its JUnit files in.
+    #[serde(default = "results")]
+    pub results: String,
+}
+
+fn commit_input() -> String {
+    "commit".to_string()
+}
+
+fn call_input() -> String {
+    "call".to_string()
+}
+
+fn tests_input() -> String {
+    "tests".to_string()
+}
+
+fn checks_input() -> String {
+    "checks".to_string()
+}
+
+fn results() -> String {
+    "test-results".to_string()
 }
 
 /// The installation's settings the words sent to the agents may name, whose values the engine fills in from the
@@ -441,6 +533,114 @@ pub struct Tool {
     /// name: the words for each way, by the way's name, which the engine chooses.
     #[serde(default)]
     pub places: BTreeMap<String, BTreeMap<String, String>>,
+    /// What a round is told of a request of it that cannot be read as that shape: `{error}` what the reading said.
+    pub unread: Option<String>,
+    /// How much of a result of it a round is given.
+    pub given: Option<ResultGiven>,
+    /// What it says where the host is the local repository, in place of `words`.
+    pub words_local: Option<String>,
+    /// What it says of what a run found, whatever the host.
+    pub result: Option<ResultWords>,
+    /// What it says where the host is GitHub.
+    pub github: Option<GithubWords>,
+    /// What it says where the host is the local repository.
+    pub local: Option<LocalWords>,
+}
+
+/// What a result of `run_tests` says of the tests and checks a run found. `{...}` are filled in a run.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResultWords {
+    /// What opens it: `{which}` the workflow's role (`which_fast`, `which_full`), `{commit}`, `{url}` of the run,
+    /// `{came}` what it came to.
+    pub head: String,
+    pub which_fast: String,
+    pub which_full: String,
+    /// What it came to: `{passed}` of `{total}`, tests and checks, apart by `came_join`.
+    pub came_tests: String,
+    pub came_checks: String,
+    pub came_join: String,
+    /// The title of the tests, and of the checks.
+    pub tests_title: String,
+    pub checks_title: String,
+    /// A test: `{name}`, `{became}` one of the following, `{time}` as `time` says it where the results give one.
+    pub test: String,
+    pub time: String,
+    pub passed: String,
+    pub failed: String,
+    pub skipped: String,
+    /// A name asked for that no test of the run has: `{why}`.
+    pub not_run: String,
+    /// A name asked for, no test of the run has it, and a unit was not built: `{why}`.
+    pub not_built: String,
+    /// What a test that failed said, as the results hold it: `{said}`.
+    pub output: String,
+    /// A check, a job of the workflow: `{name}`, `{how}` one of the following, `{link}` as `link` says it.
+    pub job: String,
+    pub link: String,
+    pub job_passed: String,
+    pub job_failed: String,
+    pub job_broken: String,
+    pub job_pending: String,
+    /// A check named that the run has no job of.
+    pub job_missing: String,
+    /// The run uploaded no JUnit it can read, so no test's result is known: `{why}`.
+    pub no_junit: String,
+    /// What the check before a merge was judged by: `{urls}` the runs.
+    pub verdict_by: String,
+    /// A unit not built: `{unit}`, `{why}`.
+    pub unit_not_built: String,
+    /// A name asked for that no test of the run has; and the same where a unit was not built, so that the test may be
+    /// in it: `{units}` them.
+    pub no_such_test: String,
+    pub no_such_test_unbuilt: String,
+    /// Each test a name has was skipped.
+    pub all_skipped: String,
+}
+
+/// What `run_tests` says where the host is GitHub.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GithubWords {
+    /// A merge is under way in the worktree: `{changes}`.
+    pub merge_under_way: String,
+    /// The worktree has changes not committed: `{changes}`.
+    pub uncommitted: String,
+    /// The branch has no commit of its own beyond main: `{main}`.
+    pub no_own_commit: String,
+    /// Tests or checks are named and the project declares no fast workflow.
+    pub no_fast: String,
+    /// Nothing is named and the project declares no full workflows.
+    pub no_full: String,
+    /// Checks named that the fast workflow does not run by name: `{unknown}`, `{runs}` what it runs.
+    pub unknown_checks: String,
+    /// The workflow's runner is not one this installation has: `{runner}`, `{have}`.
+    pub runner_missing: String,
+}
+
+/// What `run_tests` says where the host is the local repository.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LocalWords {
+    /// What the project's command said: `{command}`, `{outcome}`, `{said}`.
+    pub ran: String,
+    pub passed: String,
+    /// `{status}` how it ended.
+    pub failed: String,
+    /// It could not be run: `{command}`, `{why}`.
+    pub could_not: String,
+    /// Said before what it found where tests or checks are named, which are not run apart.
+    pub not_apart: String,
+}
+
+/// How much of a tool's result a round is given: the result is kept whole, and given cut where it is longer.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResultGiven {
+    /// The most bytes of a result a round is given.
+    pub bound: usize,
+    /// What follows a result cut: `{given}` the bytes of it given, `{size}` the bytes it is whole.
+    pub cut: String,
 }
 
 /// `agents/message/message.toml`: what the engine sends a cell's agent as it enters the cell, its parts in order.
@@ -572,8 +772,6 @@ pub struct Commits {
     pub run: String,
     /// The check's merge of main into the work's branch.
     pub check: String,
-    /// The code before the change.
-    pub before: String,
     /// The merge of the work's branch into main.
     pub merge: String,
 }

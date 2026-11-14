@@ -203,40 +203,6 @@ impl Api for Gh {
         pull(&self.json(method, &path, Some(asked), &[201]).await?)
     }
 
-    async fn checks(&self, commit: &str) -> Result<Vec<Check>, String> {
-        let mut runs = Vec::new();
-        for page in 1.. {
-            let path = format!(
-                "repos/{}/commits/{commit}/check-runs?per_page=100&page={page}",
-                self.repository
-            );
-            let listed = self.json("GET", &path, None, &[200]).await?;
-            let total = listed["total_count"].as_u64().unwrap_or_default();
-            let these = listed["check_runs"].as_array().cloned().unwrap_or_default();
-            let last = these.is_empty();
-            runs.extend(these);
-            if last || runs.len() as u64 >= total {
-                break;
-            }
-        }
-        let path = format!("repos/{}/commits/{commit}/status?per_page=100", self.repository);
-        let status = self.json("GET", &path, None, &[200]).await?;
-        let statuses = status["statuses"].as_array().cloned().unwrap_or_default();
-        Ok(checks(&runs, &statuses))
-    }
-
-    async fn log(&self, job: u64) -> Result<String, String> {
-        let path = format!("repos/{}/actions/jobs/{job}/logs", self.repository);
-        // A log holds the escapes that colour its text, which `gh` otherwise refuses to print, giving the status and
-        // no body: the engine reads them as data and takes them out itself.
-        let answer = self.ask_with("GET", &path, None, &["--allow-escape-sequences"]).await?;
-        if answer.status == 200 {
-            Ok(answer.body)
-        } else {
-            Err(refusal(&answer))
-        }
-    }
-
     async fn merge(&self, number: u64, head: &str, method: &str) -> Result<String, String> {
         let path = format!("repos/{}/pulls/{number}/merge", self.repository);
         let asked = json!({ "sha": head, "merge_method": method });
@@ -465,80 +431,6 @@ fn pull(value: &Value) -> Result<Pull, String> {
     })
 }
 
-/// The checks of a commit, from its check runs and its commit statuses as GitHub's REST API gives them. Of each name
-/// among the check runs, the latest run counts, so that a check run again, as a person may on GitHub, is judged by
-/// its new run; GitHub gives each status's latest itself.
-pub(crate) fn checks(runs: &[Value], statuses: &[Value]) -> Vec<Check> {
-    let mut latest: std::collections::BTreeMap<&str, &Value> = std::collections::BTreeMap::new();
-    for run in runs {
-        let Some(name) = run["name"].as_str() else {
-            continue;
-        };
-        let newer = latest
-            .get(name)
-            .is_none_or(|kept| run["id"].as_u64() > kept["id"].as_u64());
-        if newer {
-            latest.insert(name, run);
-        }
-    }
-    let mut checks: Vec<Check> = (latest.into_iter())
-        .map(|(name, kept)| {
-            let mut check = check_run(name, kept);
-            // The earlier runs of the same check, said as they are, oldest first.
-            let mut earlier: Vec<&Value> = (runs.iter())
-                .filter(|run| run["name"].as_str() == Some(name) && run["id"].as_u64() != kept["id"].as_u64())
-                .collect();
-            earlier.sort_by_key(|run| run["id"].as_u64());
-            check.earlier = (earlier.into_iter())
-                .map(|run| {
-                    let how = (run["conclusion"].as_str())
-                        .or_else(|| run["status"].as_str())
-                        .unwrap_or("unknown");
-                    let at = (run["html_url"].as_str()).or_else(|| run["details_url"].as_str());
-                    at.map_or(how.to_string(), |at| format!("{how} {at}"))
-                })
-                .collect();
-            check
-        })
-        .collect();
-    checks.extend(statuses.iter().filter_map(status));
-    checks
-}
-
-/// A check run as a check.
-fn check_run(name: &str, run: &Value) -> Check {
-    let outcome = match (run["status"].as_str(), run["conclusion"].as_str()) {
-        (Some("completed"), Some("success" | "neutral" | "skipped")) => Outcome::Passed,
-        // A job stopped at its time limit, or cancelled, judged the code as far as it ran: its log says what ran and
-        // what was still running, which a check asked again on the same commit would not run again to say.
-        (Some("completed"), Some(how @ ("failure" | "timed_out" | "cancelled"))) => {
-            match (how, lasted(&run["started_at"], &run["completed_at"])) {
-                ("failure", _) | (_, None) => Outcome::Failed(how.to_string()),
-                (_, Some(lasted)) => Outcome::Failed(format!("{how} after {lasted}")),
-            }
-        }
-        (Some("completed"), Some(how)) => Outcome::Broken(how.to_string()),
-        (Some("completed"), None) => Outcome::Broken("no conclusion".to_string()),
-        _ => Outcome::Pending,
-    };
-    let said: Vec<&str> = [&run["output"]["title"], &run["output"]["summary"]]
-        .into_iter()
-        .filter_map(Value::as_str)
-        .filter(|s| !s.trim().is_empty())
-        .collect();
-    let actions = run["app"]["slug"].as_str() == Some("github-actions");
-    Check {
-        name: name.to_string(),
-        outcome,
-        url: (run["html_url"].as_str())
-            .or_else(|| run["details_url"].as_str())
-            .map(str::to_string),
-        summary: (!said.is_empty()).then(|| said.join("\n")),
-        job: if actions { run["id"].as_u64() } else { None },
-        earlier: Vec::new(),
-    }
-}
-
 /// A job of a run as a check; none for a job that did not run, its condition false.
 fn job(job: &Value) -> Option<Check> {
     let outcome = match (job["status"].as_str(), job["conclusion"].as_str()) {
@@ -553,9 +445,6 @@ fn job(job: &Value) -> Option<Check> {
         name: job["name"].as_str()?.to_string(),
         outcome,
         url: job["html_url"].as_str().map(str::to_string),
-        summary: None,
-        job: job["id"].as_u64(),
-        earlier: Vec::new(),
     })
 }
 
@@ -574,63 +463,6 @@ fn files_under(dir: &Path, prefix: &str) -> Result<Vec<File>, String> {
         }
     }
     Ok(out)
-}
-
-/// How long a check ran, in words, from the times GitHub gives as `2026-11-11T07:48:56Z`; none where it gives none.
-fn lasted(started: &Value, completed: &Value) -> Option<String> {
-    let seconds = seconds_of(completed.as_str()?)? - seconds_of(started.as_str()?)?;
-    let (minutes, seconds) = (seconds / 60, seconds % 60);
-    let unit = |n: i64, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
-    Some(match (minutes, seconds) {
-        (0, s) => unit(s, "second"),
-        (m, 0) => unit(m, "minute"),
-        (m, s) => format!("{} and {}", unit(m, "minute"), unit(s, "second")),
-    })
-}
-
-/// The seconds since 1970 of a time as GitHub writes one, in UTC: `2026-11-11T07:48:56Z`, fractions of a second left
-/// out; none for anything else.
-fn seconds_of(time: &str) -> Option<i64> {
-    let time = time.strip_suffix('Z')?;
-    let (date, clock) = time.split_once('T')?;
-    let clock = clock.split('.').next()?;
-    let numbers = |text: &str, sep: char| -> Option<Vec<i64>> { text.split(sep).map(|n| n.parse().ok()).collect() };
-    let (d, c) = (numbers(date, '-')?, numbers(clock, ':')?);
-    let [year, month, day] = <[i64; 3]>::try_from(d).ok()?;
-    let [hour, minute, second] = <[i64; 3]>::try_from(c).ok()?;
-    // Days from the civil date, by the proleptic Gregorian calendar.
-    let (y, m) = if month <= 2 {
-        (year - 1, month + 9)
-    } else {
-        (year, month - 3)
-    };
-    let era = y.div_euclid(400);
-    let of_era = y - era * 400;
-    let of_year = (153 * m + 2) / 5 + day - 1;
-    let of_cycle = of_era * 365 + of_era / 4 - of_era / 100 + of_year;
-    let days = era * 146_097 + of_cycle - 719_468;
-    Some(days * 86_400 + hour * 3600 + minute * 60 + second)
-}
-
-/// A commit status as a check.
-fn status(status: &Value) -> Option<Check> {
-    let name = status["context"].as_str()?;
-    let outcome = match status["state"].as_str()? {
-        "success" => Outcome::Passed,
-        "pending" => Outcome::Pending,
-        "failure" => Outcome::Failed("failure".to_string()),
-        other => Outcome::Broken(other.to_string()),
-    };
-    Some(Check {
-        name: name.to_string(),
-        outcome,
-        url: status["target_url"].as_str().map(str::to_string),
-        summary: (status["description"].as_str())
-            .filter(|s| !s.trim().is_empty())
-            .map(str::to_string),
-        job: None,
-        earlier: Vec::new(),
-    })
 }
 
 mod release;

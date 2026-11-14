@@ -1,85 +1,228 @@
-//! The project's fast CI: a workflow the engine runs by hand, which runs only the tests and the checks an agent named
-//! and reports what became of each test (`results`). Brought over from the old engine's `ci` and `ci_before`
-//! (`crates/engine/src/tools.rs` on `old-main`): the tests and checks named, the run asked for and waited for, and each
-//! test's own result and time read from the run's JUnit. Unlike there, the workflow is always run by its file on main,
-//! given the commit to test, and its run is found by a value only that request knows, which the run's name holds.
+//! The project's two workflows, which the engine runs by hand through the project's declaration (`ci` in
+//! `flow/project.toml`), always by their files on main, given the commit to run on, each run found by a value only
+//! its request knows, which the run's name holds; and what each reports, read from the JUnit XML it uploads (`results`)
+//! and never from a log.
 //!
-//! What is said of a run: each test named, with what became of it and how long it ran, and what a failed one said;
-//! each check named; and, for a job that failed with nothing named to say why (a unit that did not compile, say), what
-//! its log says of the failure. What a test or a log said shares the bytes a check's output is given.
+//! - fast: runs only the tests and checks a request names, and builds only what they need; every `run_tests` that
+//!   names tests or checks is run by it.
+//! - full: the workflows that hold every job required to merge; a `run_tests` that names none is run by them, once, on
+//!   the work's last commit.
+//!
+//! What is said of a run: each test, with what became of it, how long it took and what a failed one said; each check
+//! named, a job of the workflow; and, for a job that failed with nothing named to say why, that it failed. A run that
+//! uploaded no JUnit the engine can read is said so: no result is guessed from a log.
+
+use std::time::Duration;
+
+use flow::agents::{Ci, CiFast, CiFull, ResultWords, Tool, fill};
 
 use super::api::{Api, Check, Outcome, Run};
 use super::results::{self, Became, Case};
-use super::{GitHub, log};
+use super::{GitHub, output};
 use crate::held::Stop;
-use crate::host::Named;
+use crate::host::{Named, Verdict};
 use crate::process;
-use crate::settings::Fast;
 
-/// Why what the agent named cannot be run by the fast CI, in words for it: a check the workflow does not run by name.
-pub(super) fn refused(fast: &Fast, named: &Named) -> Option<String> {
-    let unknown: Vec<&str> = (named.checks.iter())
-        .filter(|c| !fast.named_checks.contains(c))
-        .map(String::as_str)
-        .collect();
-    if unknown.is_empty() {
-        return None;
-    }
-    let runs = if fast.named_checks.is_empty() {
-        "no check by name".to_string()
-    } else {
-        format!("by name only {}", fast.named_checks.join(", "))
-    };
-    Some(format!(
-        "Nothing was checked: the project's fast CI runs {runs}, and not {}.",
-        unknown.join(", ")
-    ))
+/// The workflow to run, the artifact its results are in, and what it is run with.
+struct Plan<'a> {
+    workflow: &'a str,
+    results: &'a str,
+    inputs: Vec<(String, String)>,
+    call: String,
+    limit: Duration,
 }
 
-/// The inputs the workflow is run with: the commit, the request's own value, the tests, each followed by a line break,
-/// and the checks as a JSON array, given only when one is named, so that a workflow made before that input takes its
-/// default, which runs none.
-fn inputs(fast: &Fast, commit: &str, call: &str, named: &Named) -> Vec<(String, String)> {
-    let tests: String = (named.tests.iter()).map(|t| format!("{}\n", t.trim())).collect();
-    let mut inputs = vec![
-        (fast.commit_input.clone(), commit.to_string()),
-        (fast.call_input.clone(), call.to_string()),
-        (fast.tests_input.clone(), tests),
-    ];
-    if !named.checks.is_empty() {
-        let checks = serde_json::to_string(&named.checks).unwrap_or_default();
-        inputs.push((fast.checks_input.clone(), checks));
-    }
-    inputs
-}
-
-/// What a run of the fast CI came to.
+/// What a run of a workflow came to.
 struct Ran {
     run: Run,
     jobs: Vec<Check>,
     results: Result<results::Run, String>,
 }
 
+/// A time such as `90m`, `2h`, `30s` or `1d`; or why it is none.
+pub(super) fn span_of(text: &str) -> Result<Duration, String> {
+    let text = text.trim();
+    let (number, unit) = text.split_at(text.find(|c: char| !c.is_ascii_digit()).unwrap_or(text.len()));
+    let number: u64 = number
+        .parse()
+        .map_err(|_| format!("{text:?} is no time such as 90m or 2h"))?;
+    let seconds = match unit {
+        "s" => 1,
+        "m" => 60,
+        "h" => 3600,
+        "d" => 86_400,
+        _ => return Err(format!("{text:?} is no time such as 90m or 2h")),
+    };
+    Ok(Duration::from_secs(number * seconds))
+}
+
+/// What a request is run by.
+pub(super) enum Role<'a> {
+    Fast(&'a CiFast),
+    Full(&'a CiFull),
+}
+
 impl<A: Api> GitHub<A> {
-    /// Runs the fast workflow on the commit, pushed already, with what the agent named, and says what became of it;
-    /// none where it was told to stop. The workflow is run by its file on main, so that no work chooses what runs on
-    /// the project's machine, and GitHub always has that file and that branch.
-    pub(super) async fn fast(
+    /// The words of the tool, or why there are none.
+    fn tool(&self) -> Result<&Tool, String> {
+        self.config
+            .tool
+            .as_ref()
+            .ok_or_else(|| "the words of run_tests (agents/tools/run_tests.toml) are not given".to_string())
+    }
+
+    /// Why a request cannot be run by the project's workflows, in the words of the tool's file, or the workflow it is
+    /// run by: the fast one where it names tests or checks, the full ones where it names none.
+    pub(super) fn role<'a>(&'a self, ci: Option<&'a Ci>, named: &Named) -> Result<Result<Role<'a>, String>, String> {
+        let words = self
+            .tool()?
+            .github
+            .as_ref()
+            .ok_or("the words of run_tests have no [github]")?;
+        let have = self.config.runners.join(", ");
+        let runner_missing = |runner: &str| {
+            (!self.config.runners.iter().any(|r| r == runner))
+                .then(|| fill(&words.runner_missing, &[("runner", runner), ("have", &have)]))
+        };
+        if named.is_empty() {
+            let Some(full) = ci.and_then(|ci| ci.full.as_ref()) else {
+                return Ok(Err(words.no_full.clone()));
+            };
+            return Ok(runner_missing(&full.runner).map_or(Ok(Role::Full(full)), Err));
+        }
+        let Some(fast) = ci.and_then(|ci| ci.fast.as_ref()) else {
+            return Ok(Err(words.no_fast.clone()));
+        };
+        let unknown: Vec<&str> = (named.checks.iter())
+            .filter(|c| !fast.checks.contains(c))
+            .map(String::as_str)
+            .collect();
+        if !unknown.is_empty() {
+            let (runs, unknown) = (fast.checks.join(", "), unknown.join(", "));
+            return Ok(Err(fill(
+                &words.unknown_checks,
+                &[("runs", &runs), ("unknown", &unknown)],
+            )));
+        }
+        Ok(runner_missing(&fast.runner).map_or(Ok(Role::Fast(fast)), Err))
+    }
+
+    /// Runs the workflows of the role on the commit, pushed already, and says what became of them; none where it was
+    /// told to stop. The workflows are run by their files on main, so that no work chooses what runs on the project's
+    /// machines, and GitHub always has those files and that branch.
+    pub(super) async fn run_role(
         &self,
-        fast: &Fast,
+        role: Role<'_>,
         commit: &str,
         named: &Named,
         stop: &mut Stop,
     ) -> Result<Option<String>, String> {
-        let workflow = &fast.workflow;
+        let Some(ran) = self.execute_role(&role, commit, named, stop).await? else {
+            return Ok(None);
+        };
+        let words = &self
+            .tool()?
+            .result
+            .as_ref()
+            .ok_or("the words of run_tests have no [result]")?;
+        Ok(Some(said(words, &role, commit, &ran, named, false)))
+    }
+
+    /// Runs the workflows of the role, one after the other, and gives what each came to; none where it was told to
+    /// stop.
+    async fn execute_role(
+        &self,
+        role: &Role<'_>,
+        commit: &str,
+        named: &Named,
+        stop: &mut Stop,
+    ) -> Result<Option<Vec<Ran>>, String> {
+        let mut ran = Vec::new();
+        match role {
+            Role::Fast(fast) => {
+                let call = uuid::Uuid::new_v4().simple().to_string();
+                let tests: String = (named.tests.iter()).map(|t| format!("{}\n", t.trim())).collect();
+                let mut inputs = vec![
+                    (fast.commit_input.clone(), commit.to_string()),
+                    (fast.call_input.clone(), call.clone()),
+                    (fast.tests_input.clone(), tests),
+                ];
+                if !named.checks.is_empty() {
+                    let checks = serde_json::to_string(&named.checks).unwrap_or_default();
+                    inputs.push((fast.checks_input.clone(), checks));
+                }
+                let plan = Plan {
+                    workflow: &fast.workflow,
+                    results: &fast.results,
+                    inputs,
+                    call,
+                    limit: self.config.timeout,
+                };
+                match self.execute(&plan, commit, stop).await? {
+                    Some(one) => ran.push(one),
+                    None => return Ok(None),
+                }
+            }
+            Role::Full(full) => {
+                let limit = span_of(&full.too_long).map_err(|why| format!("ci.full.too_long: {why}"))?;
+                for workflow in &full.workflows {
+                    let call = uuid::Uuid::new_v4().simple().to_string();
+                    let inputs = vec![
+                        (full.commit_input.clone(), commit.to_string()),
+                        (full.call_input.clone(), call.clone()),
+                    ];
+                    let plan = Plan {
+                        workflow,
+                        results: &full.results,
+                        inputs,
+                        call,
+                        limit,
+                    };
+                    match self.execute(&plan, commit, stop).await? {
+                        Some(one) => ran.push(one),
+                        None => return Ok(None),
+                    }
+                }
+            }
+        }
+        Ok(Some(ran))
+    }
+
+    /// The verdict of the check before a merge on the commit, pushed already: the project's full workflows run on it,
+    /// once, and judged by what they uploaded and by their jobs: it failed where a test failed, where a job did not
+    /// pass, or where a run uploaded no JUnit the engine can read, said as `run_tests` says what a run found, of what
+    /// did not pass. None where it was told to stop.
+    pub(super) async fn judge_full(&self, commit: &str, stop: &mut Stop) -> Result<Option<Verdict>, String> {
+        let named = Named::default();
+        let role = match self.role(self.config.ci.as_ref(), &named)? {
+            Ok(role) => role,
+            Err(refused) => return Err(refused),
+        };
+        let Some(ran) = self.execute_role(&role, commit, &named, stop).await? else {
+            return Ok(None);
+        };
+        let words = &self
+            .tool()?
+            .result
+            .as_ref()
+            .ok_or("the words of run_tests have no [result]")?;
+        let red = ran.iter().any(|one| match &one.results {
+            Ok(run) => run.cases.iter().any(|c| c.outcome == results::Outcome::Failed) || one.jobs.iter().any(red_job),
+            Err(_) => true,
+        });
+        let urls: Vec<&str> = ran.iter().map(|r| r.run.url.as_str()).collect();
+        Ok(Some(Verdict {
+            failed: red.then(|| said(words, &role, commit, &ran, &named, true)),
+            by: Some(fill(&words.verdict_by, &[("urls", &urls.join(", "))])),
+            notes: Vec::new(),
+        }))
+    }
+
+    /// Dispatches the workflow with its inputs, waits for its run, and reads what it uploaded.
+    async fn execute(&self, plan: &Plan<'_>, commit: &str, stop: &mut Stop) -> Result<Option<Ran>, String> {
+        let workflow = plan.workflow;
         let main = &self.project.main;
-        // A value no other request has, which the run's name holds: by it this request's run is told from another's
-        // on the same commit, as another check of the same work asks for at once.
-        let call = uuid::Uuid::new_v4().simple().to_string();
-        (self
-            .api
-            .dispatch(workflow, main, &inputs(fast, commit, &call, named))
-            .await)
+        (self.api.dispatch(workflow, main, &plan.inputs).await)
             .map_err(|why| format!("GitHub refused to run {workflow} on {main} for {commit}: {why}"))?;
         let began = tokio::time::Instant::now();
         let run = loop {
@@ -87,7 +230,7 @@ impl<A: Api> GitHub<A> {
                 runs = self.api.runs(workflow, main) => runs?,
                 () = stop.told() => return Ok(None),
             };
-            let mine = runs.into_iter().find(|r| r.title.contains(&call));
+            let mine = runs.into_iter().find(|r| r.title.contains(&plan.call));
             let waited = began.elapsed();
             match mine {
                 Some(run) if run.completed => break run,
@@ -106,10 +249,10 @@ impl<A: Api> GitHub<A> {
                         super::span(self.config.start)
                     ));
                 }
-                _ if waited >= self.config.timeout => {
+                _ if waited >= plan.limit => {
                     return Err(format!(
                         "the run of {workflow} on {commit} is not complete after {}",
-                        super::span(self.config.timeout)
+                        super::span(plan.limit)
                     ));
                 }
                 _ => {}
@@ -120,138 +263,220 @@ impl<A: Api> GitHub<A> {
             }
         };
         let jobs = self.api.jobs(run.id).await?;
-        let results = if named.tests.is_empty() {
-            Err("no test was named".to_string())
-        } else {
-            match self.api.artifact(run.id, &fast.results).await {
-                Ok(Some(files)) => results::read(&files).map_err(|why| format!("the artifact {}: {why}", fast.results)),
-                Ok(None) => Err(format!("the run uploaded no artifact {}", fast.results)),
-                Err(why) => Err(format!("the artifact {} could not be fetched: {why}", fast.results)),
+        let results = match self.api.artifact(run.id, plan.results).await {
+            Ok(Some(files)) => results::read(&files).map_err(|why| format!("the artifact {}: {why}", plan.results)),
+            Ok(None) => Err(format!("the run uploaded no artifact {}", plan.results)),
+            Err(why) => Err(format!("the artifact {} could not be fetched: {why}", plan.results)),
+        };
+        Ok(Some(Ran { run, jobs, results }))
+    }
+}
+
+/// What became of the runs, in words for the agent: a line of what they came to, each test, each check named, and each
+/// job that failed where nothing named says why. A run whose results could not be read says no test's result is known.
+fn said(words: &ResultWords, role: &Role<'_>, commit: &str, ran: &[Ran], named: &Named, red_only: bool) -> String {
+    let which = match role {
+        Role::Fast(_) => &words.which_fast,
+        Role::Full(_) => &words.which_full,
+    };
+    let urls: Vec<&str> = ran.iter().map(|r| r.run.url.as_str()).collect();
+    let mut lines = Vec::new();
+    let mut tests: Vec<String> = Vec::new();
+    let (mut total, mut passed) = (0, 0);
+    let mut any_failed = false;
+    let mut unread: Vec<String> = Vec::new();
+    for one in ran {
+        let run = match &one.results {
+            Ok(run) => run,
+            Err(why) => {
+                unread.push(fill(&words.no_junit, &[("why", why)]));
+                continue;
             }
         };
-        let ran = Ran { run, jobs, results };
-        Ok(Some(self.said(fast, commit, &ran, named).await))
+        match role {
+            Role::Fast(_) => {
+                for row in results::rows(&named.tests, run) {
+                    total += 1;
+                    passed += usize::from(row.became == Became::Passed);
+                    any_failed |= row.became == Became::Failed;
+                    tests.extend(test_lines(words, &row, run));
+                }
+            }
+            Role::Full(_) => {
+                // What did not pass first, then what did.
+                let mut cases: Vec<&Case> = run.cases.iter().collect();
+                cases.sort_by_key(|c| c.outcome == results::Outcome::Passed);
+                for case in cases {
+                    total += 1;
+                    passed += usize::from(case.outcome == results::Outcome::Passed);
+                    any_failed |= case.outcome == results::Outcome::Failed;
+                    if !(red_only && case.outcome == results::Outcome::Passed) {
+                        tests.extend(case_lines(words, case));
+                    }
+                }
+                tests.extend(run.unbuilt.iter().map(|u| {
+                    let why = fill(&words.unit_not_built, &[("unit", &u.unit), ("why", &u.why)]);
+                    fill(
+                        &words.test,
+                        &[
+                            ("name", &u.unit),
+                            ("became", &fill(&words.not_built, &[("why", &why)])),
+                            ("time", ""),
+                        ],
+                    )
+                }));
+            }
+        }
     }
-
-    /// What became of the run, in words for the agent: a line of what it came to, each test named, each check named,
-    /// and what the log of a job that failed says where nothing named says why.
-    async fn said(&self, fast: &Fast, commit: &str, ran: &Ran, named: &Named) -> String {
-        let rows = results::rows(
-            &named.tests,
-            ran.results.as_ref().map_err(String::as_str),
-            &fast.separators,
+    let checks: Vec<&Check> = match role {
+        Role::Fast(_) => (ran.iter().flat_map(|r| &r.jobs))
+            .filter(|j| named.checks.contains(&j.name))
+            .collect(),
+        Role::Full(_) => ran.iter().flat_map(|r| &r.jobs).collect(),
+    };
+    let mut came = Vec::new();
+    if total > 0 || matches!(role, Role::Full(_)) && unread.is_empty() {
+        let (passed, total) = (passed.to_string(), total.to_string());
+        came.push(fill(&words.came_tests, &[("passed", &passed), ("total", &total)]));
+    }
+    if !checks.is_empty() {
+        let green = checks.iter().filter(|j| !red_job(j)).count().to_string();
+        let all = checks.len().to_string();
+        came.push(fill(&words.came_checks, &[("passed", &green), ("total", &all)]));
+    }
+    let head = fill(
+        &words.head,
+        &[
+            ("which", which),
+            ("commit", commit),
+            ("url", &urls.join(", ")),
+            ("came", &came.join(&words.came_join)),
+        ],
+    );
+    lines.push(head);
+    lines.extend(unread);
+    if !tests.is_empty() {
+        lines.push(format!("{}\n{}", words.tests_title, tests.join("\n")));
+    }
+    let missing: Vec<&String> = match role {
+        Role::Fast(_) => (named.checks.iter())
+            .filter(|c| !ran.iter().flat_map(|r| &r.jobs).any(|j| &j.name == *c))
+            .collect(),
+        Role::Full(_) => Vec::new(),
+    };
+    // A job that failed and is no check named, where no test named failed, as the job of the tests when a unit did not
+    // compile.
+    let unexplained: Vec<&Check> = match role {
+        Role::Fast(_) if !any_failed => (ran.iter().flat_map(|r| &r.jobs))
+            .filter(|j| red_job(j) && !named.checks.contains(&j.name))
+            .collect(),
+        _ => Vec::new(),
+    };
+    if !checks.is_empty() || !missing.is_empty() || !unexplained.is_empty() {
+        // Of the full workflows' jobs, only those that did not pass where only what did not pass is said.
+        let shown = checks.iter().filter(|j| !red_only || red_job(j));
+        let mut jobs: Vec<String> = shown.chain(&unexplained).map(|j| job_line(words, j)).collect();
+        jobs.extend(
+            missing
+                .iter()
+                .map(|c| fill(&words.job, &[("name", c), ("how", &words.job_missing), ("link", "")])),
         );
-        let failed_tests = rows.iter().filter(|r| r.became == Became::Failed).count();
-        let checks: Vec<&Check> = (ran.jobs.iter()).filter(|j| named.checks.contains(&j.name)).collect();
-        // A job that failed and is no check named, where no test named failed, as the job of the tests when a unit did
-        // not compile: its log says why.
-        let unexplained: Vec<&Check> = (ran.jobs.iter())
-            .filter(|j| red(j) && !named.checks.contains(&j.name) && failed_tests == 0)
-            .collect();
-        let excerpts = failed_tests + checks.iter().filter(|j| red(j)).count() + unexplained.len();
-        let budget = process::TAIL / excerpts.max(1);
-        let passed = rows.iter().filter(|r| r.became == Became::Passed).count();
-        let mut came = Vec::new();
-        if !rows.is_empty() {
-            came.push(format!("{passed} of the {} tests named passed", rows.len()));
+        if !jobs.is_empty() {
+            lines.push(format!("{}\n{}", words.checks_title, jobs.join("\n")));
         }
-        if !checks.is_empty() {
-            let green = checks.iter().filter(|j| !red(j)).count();
-            came.push(format!("{green} of the {} checks named passed", checks.len()));
-        }
-        let mut said = vec![format!(
-            "The fast CI ran on the commit {commit} ({}): {}.",
-            ran.run.url,
-            came.join("; ")
-        )];
-        if !rows.is_empty() {
-            let mut lines = vec!["The tests named:".to_string()];
-            for row in &rows {
-                lines.push(test_line(row, budget));
-            }
-            said.push(lines.join("\n"));
-        }
-        let missing: Vec<&str> = (named.checks.iter())
-            .filter(|c| !ran.jobs.iter().any(|j| &j.name == *c))
-            .map(String::as_str)
-            .collect();
-        if !checks.is_empty() || !missing.is_empty() {
-            let mut lines = vec!["The checks named:".to_string()];
-            lines.extend(checks.iter().map(|j| format!("- {}", self.job_line(j))));
-            lines.extend(
-                missing
-                    .iter()
-                    .map(|c| format!("- {c}: the run has no job of that name")),
-            );
-            said.push(lines.join("\n"));
-        }
-        let mut said = said.join("\n\n");
-        for job in checks.iter().filter(|j| red(j)).chain(&unexplained) {
-            said.push_str(&format!("\n\n{}", self.job_line(job)));
-            let Some(id) = job.job else {
-                continue;
-            };
-            match self.api.log(id).await {
-                Ok(text) => said.push_str(&format!(
-                    "\nWhat its log says of the failure, as the CI printed it:\n{}",
-                    log::fenced(&log::what_failed(&text, budget, &self.config.log))
-                )),
-                Err(why) => said.push_str(&format!("\nIts log could not be read: {why}")),
-            }
-        }
-        said
     }
+    lines.join("\n\n")
+}
 
-    /// A job's name and what came of it, with its link.
-    fn job_line(&self, job: &Check) -> String {
-        let at = job.url.as_ref().map_or(String::new(), |url| format!(" {url}"));
-        match &job.outcome {
-            Outcome::Passed => format!("{}: passed", job.name),
-            Outcome::Failed(how) => format!("{}: failed ({how}){at}", job.name),
-            Outcome::Broken(how) => format!("{}: ended without judging the code ({how}){at}", job.name),
-            Outcome::Pending => format!("{}: not complete{at}", job.name),
-        }
-    }
+/// A job's name and what came of it, with its link.
+fn job_line(words: &ResultWords, job: &Check) -> String {
+    let link = job
+        .url
+        .as_ref()
+        .map_or(String::new(), |url| fill(&words.link, &[("url", url)]));
+    let how = match &job.outcome {
+        Outcome::Passed => words.job_passed.clone(),
+        Outcome::Failed(how) => fill(&words.job_failed, &[("how", how)]),
+        Outcome::Broken(how) => fill(&words.job_broken, &[("how", how)]),
+        Outcome::Pending => words.job_pending.clone(),
+    };
+    fill(&words.job, &[("name", &job.name), ("how", &how), ("link", &link)])
 }
 
 /// Whether a job did not pass.
-fn red(job: &Check) -> bool {
+fn red_job(job: &Check) -> bool {
     !matches!(job.outcome, Outcome::Passed)
 }
 
-/// A test named, as a line of what became of it: with one test it names, that test's result and time; with several,
-/// each of them on a line of its own; what a failed one said beneath it.
-fn test_line(row: &results::Row<'_>, budget: usize) -> String {
-    let named = row.named;
-    let mut lines = vec![match (row.became, row.matched.as_slice()) {
-        (Became::Passed | Became::Failed, [one]) => format!("- {named}: {}", case(one)),
-        (Became::Passed, _) => format!("- {named}: passed, as each test it names"),
-        (Became::Failed, _) => format!("- {named}: failed, as a test it names"),
-        (Became::NotRun, _) => format!("- {named}: not run: {}", row.why.as_deref().unwrap_or_default()),
-        (Became::NotBuilt, _) => format!("- {named}: not built: {}", row.why.as_deref().unwrap_or_default()),
-        (Became::Unread, _) => format!("- {named}: unread: {}", row.why.as_deref().unwrap_or_default()),
-    }];
-    if row.matched.len() > 1 {
-        lines.extend(
-            row.matched
-                .iter()
-                .map(|c| format!("  - {} {}: {}", c.test.unit, c.test.name, case(c))),
-        );
-    }
-    for c in row.matched.iter().filter(|c| c.outcome == results::Outcome::Failed) {
-        if let Some(said) = &c.said {
-            lines.push(format!("  What {} said:", c.test.name));
-            lines.push(log::fenced(&log::plain(said, budget)));
-        }
-    }
-    lines.join("\n")
+/// How long a test took, as the results give it, in the words of the file; nothing where they give none.
+fn time(words: &ResultWords, case: &Case) -> String {
+    case.time
+        .as_ref()
+        .map_or(String::new(), |time| fill(&words.time, &[("time", time)]))
 }
 
-/// What became of a test and how long it ran.
-fn case(c: &Case) -> String {
-    let became = c.outcome.as_str();
-    match &c.time {
-        Some(time) => format!("{became} in {time} s"),
-        None => became.to_string(),
+/// A test as a line of what became of it and how long it took, and what a failed one said beneath it.
+fn case_lines(words: &ResultWords, case: &Case) -> Vec<String> {
+    let became = match case.outcome {
+        results::Outcome::Passed => &words.passed,
+        results::Outcome::Failed => &words.failed,
+        results::Outcome::Skipped => &words.skipped,
+    };
+    let mut lines = vec![fill(
+        &words.test,
+        &[
+            ("name", &case.test.name),
+            ("became", became),
+            ("time", &time(words, case)),
+        ],
+    )];
+    if case.outcome == results::Outcome::Failed
+        && let Some(said) = &case.said
+    {
+        let said = output::fenced(&output::plain(said, process::KEPT_WHOLE));
+        lines.push(fill(&words.output, &[("said", &said)]));
     }
+    lines
+}
+
+/// A test an agent named, as the lines of the tests of the run it names, or of why none is.
+fn test_lines(words: &ResultWords, row: &results::Row<'_>, run: &results::Run) -> Vec<String> {
+    let mut lines = Vec::new();
+    match row.became {
+        Became::NotRun | Became::NotBuilt => {
+            let why = if row.became == Became::NotRun {
+                words.no_such_test.clone()
+            } else {
+                let units: Vec<String> = (run.unbuilt.iter())
+                    .map(|u| fill(&words.unit_not_built, &[("unit", &u.unit), ("why", &u.why)]))
+                    .collect();
+                fill(&words.no_such_test_unbuilt, &[("units", &units.join("; "))])
+            };
+            let became = fill(
+                if row.became == Became::NotRun {
+                    &words.not_run
+                } else {
+                    &words.not_built
+                },
+                &[("why", &why)],
+            );
+            lines.push(fill(
+                &words.test,
+                &[("name", row.named), ("became", &became), ("time", "")],
+            ));
+        }
+        Became::Skipped => {
+            let became = fill(&words.not_run, &[("why", &words.all_skipped)]);
+            lines.push(fill(
+                &words.test,
+                &[("name", row.named), ("became", &became), ("time", "")],
+            ));
+        }
+        Became::Passed | Became::Failed => {
+            for case in &row.matched {
+                lines.extend(case_lines(words, case));
+            }
+        }
+    }
+    lines
 }

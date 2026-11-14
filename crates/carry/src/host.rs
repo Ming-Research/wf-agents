@@ -1,13 +1,13 @@
 //! The host of the project's repository: where the head of its main branch is, what gives the verdict on a commit of
-//! a work's branch, how the commit the check passed is merged, how the agents' tools `check` and `check_before`
-//! check their work, and what it lets go of once a work has ended. The rest of the acts (a work's branch and worktree, the repository's configuration, a conflict
-//! with main) is done in the project's local repository whatever the host, and the installation's settings say which
+//! a work's branch, how the commit the check passed is merged, how the agents' tool `run_tests` runs the tests of
+//! their work, and what it lets go of once a work has ended. The rest of the acts (a work's branch and worktree, the
+//! repository's configuration, a conflict with main) is done in the project's local repository whatever the host, and the installation's settings say which
 //! host it is.
 //!
 //! - [`Local`]: the local repository is the host: its own main branch, the project's check command, and a merge in its
 //!   checkout; an agent's check runs the command on the worktree as it stands.
 //! - [`GitHub`]: the repository on GitHub is the host: its main branch, the CI of the work's pull request, and the
-//!   pull request's merge; an agent's check is the CI of the last commit of its work's branch, which it pushes.
+//!   pull request's merge; an agent's `run_tests` is the CI of the last commit of its work's branch, which the engine pushes.
 //! - `fake`: a host for the tests, which gives what it is told to.
 //!
 //! Each operation can be asked again after the engine started again, and finds what it did already rather than doing
@@ -19,13 +19,12 @@ mod local;
 #[cfg(test)]
 pub(crate) mod fake;
 
-use std::collections::BTreeMap;
 use std::future::Future;
 use std::sync::Arc;
 
 use store::WorkNumber;
 
-use crate::git::{Before, Place};
+use crate::git::Place;
 use crate::held::Stop;
 
 pub use github::GitHub;
@@ -74,7 +73,7 @@ pub trait Host: Send + Sync + 'static {
     fn main(&self) -> impl Future<Output = Result<String, String>> + Send;
 
     /// The verdict on the commit, the head of the work's branch, which is committed and merges into main without a
-    /// conflict; none where it was told to stop. A named check red on the commit fails it, whatever else is red, and
+    /// conflict; none where it was told to stop. A failure fails it, whatever else passes, and
     /// nothing is run again.
     fn verdict(
         &self,
@@ -93,34 +92,23 @@ pub trait Host: Send + Sync + 'static {
     /// the host again: where a work's change begins is worked out from it.
     fn kept_main(&self) -> String;
 
-    /// What the agents' tool `check` finds of the work, with the tests and checks the agent named, in words for the
-    /// agent that asked; none where it was told to stop. An `Err` is why it could not check, for the agent too. What
-    /// failed is said as [`Host::verdict`] says it.
-    fn check(
+    /// What the agents' tool `run_tests` finds of the work, with the tests and checks the agent named, in words for the
+    /// agent that asked, whole; none where it was told to stop. An `Err` is why it could not run them, for the agent
+    /// too. What failed is said as [`Host::verdict`] says it.
+    fn run_tests(
         &self,
         branch: &Branch<'_>,
         named: &Named,
         stop: &mut Stop,
     ) -> impl Future<Output = Result<Option<String>, String>> + Send;
 
-    /// What the agents' tool `check_before` finds of the commit made of the code before the work's change with some
-    /// of its files put on it, with the tests the agent named, in words for the agent that asked, as [`Host::check`]
-    /// gives them.
-    fn check_before(
-        &self,
-        branch: &Branch<'_>,
-        before: &Before,
-        named: &Named,
-        stop: &mut Stop,
-    ) -> impl Future<Output = Result<Option<String>, String>> + Send;
-
-    /// Lets go of what the host holds for the work, which has ended with nothing of it under way: the branches of its
-    /// checks before the change, and its pull request where it did not merge, closed with a word that its work ended
-    /// ([`CLOSED`]). What is gone, closed or merged already is left as it is, and the work's own branch stays.
+    /// Lets go of what the host holds for the work, which has ended with nothing of it under way: its pull request
+    /// where it did not merge, closed with a word that its work ended ([`CLOSED`]). What is gone, closed or merged
+    /// already is left as it is, and the work's own branch stays.
     fn end(&self, branch: &Branch<'_>, merged: bool) -> impl Future<Output = Result<(), String>> + Send;
 }
 
-/// The tests and the checks an agent names to its check, each as it wrote it.
+/// The tests and the checks an agent names to `run_tests`, each as it wrote it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Named {
     pub tests: Vec<String>,
@@ -144,43 +132,9 @@ pub(crate) fn kept_main(settings: &crate::settings::Settings) -> String {
     }
 }
 
-/// What a check that runs whole says before what it found, where the agent named tests or checks it does not run
-/// apart.
-pub(crate) const WHOLE: &str = "This check runs whole: the tests and checks you named are not run apart.";
-
 /// What the host says on the pull request of a work that ended without merging. It says not why: why is the owner's,
 /// in the owner's language, and on the owner's page.
 pub const CLOSED: &str = "Its work ended without merging.";
-
-/// The names a host's checks before the change are running under in this process: a worktree or a branch each, named
-/// by the work and the commit. A check holds its name while it runs, so that another asked at once for the same commit
-/// waits for it, and what a check finds of the work's names that none holds was left by a process of the engine that
-/// ended, and is taken away.
-#[derive(Clone, Default)]
-pub(crate) struct InUse(Arc<std::sync::Mutex<BTreeMap<String, Arc<tokio::sync::Mutex<()>>>>>);
-
-impl std::fmt::Debug for InUse {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("InUse")
-    }
-}
-
-impl InUse {
-    fn names(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, Arc<tokio::sync::Mutex<()>>>> {
-        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    /// Holds the name, once no other check holds it, until what is given back is dropped.
-    pub(crate) async fn hold(&self, name: &str) -> tokio::sync::OwnedMutexGuard<()> {
-        let lock = self.names().entry(name.to_string()).or_default().clone();
-        lock.lock_owned().await
-    }
-
-    /// Whether a check of this process holds the name.
-    pub(crate) fn held(&self, name: &str) -> bool {
-        self.names().get(name).is_some_and(|lock| lock.try_lock().is_err())
-    }
-}
 
 /// A host shared, as the acts and the tools share it.
 impl<H: Host> Host for Arc<H> {
@@ -200,21 +154,11 @@ impl<H: Host> Host for Arc<H> {
         (**self).kept_main()
     }
 
-    async fn check(&self, branch: &Branch<'_>, named: &Named, stop: &mut Stop) -> Result<Option<String>, String> {
-        (**self).check(branch, named, stop).await
+    async fn run_tests(&self, branch: &Branch<'_>, named: &Named, stop: &mut Stop) -> Result<Option<String>, String> {
+        (**self).run_tests(branch, named, stop).await
     }
 
     async fn end(&self, branch: &Branch<'_>, merged: bool) -> Result<(), String> {
         (**self).end(branch, merged).await
-    }
-
-    async fn check_before(
-        &self,
-        branch: &Branch<'_>,
-        before: &Before,
-        named: &Named,
-        stop: &mut Stop,
-    ) -> Result<Option<String>, String> {
-        (**self).check_before(branch, before, named, stop).await
     }
 }

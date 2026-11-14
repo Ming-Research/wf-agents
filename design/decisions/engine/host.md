@@ -10,17 +10,9 @@ Why: The command line handles authentication and paging and adds no network stac
 Nothing of a check on the host is kept by the engine: the pull request is found again by its branch, the CI by its commit. A pull request a person closed, merged or pointed elsewhere fails the round, and no second one is opened.
 Why: A restart between opening a pull request and recording it would open a second one (principle effects-known-as-done), and opening another past a person's close would act against them.
 
-### decision the-checks-the-installation-names
-Only the checks the installation names count, each by its latest run, and one that ended without judging the code, such as a cancelled one, fails the round instead of the work.
-Why: Counting every check that appears cannot tell "all done" from "not all started" and makes an informational bot a judge; the branch rules' required checks lost because reading them needs administration rights.
-
-### decision a-red-check-holds-the-work
-A named check red on the work's commit holds the work, also where it is red on main's head too, which is said beside its failure, and no failed job is ever run again by the engine; where a check ran more than once on the commit, each run is said as it is.
-Why: Passing over what was red on main as well lost: once main's red was run again green, a work could merge a failure of its own. Running a red job again lost because it destroys the scene of an intermittent failure and lets it merge, when the task is to find it.
-
-### decision no-merge-onto-a-red-main
-No work merges onto a main whose named checks failed on its head, nor a checked commit whose latest run of a named check failed: the merge fails its round, pausing the work with the reason. Nobody is told when main is green again, a work so held waits for the owner to let it on, and no fix of main can merge through the engine while it is red.
-Why: Merging onto a red main hides which change broke it, and a commit red since its check passed would land a failure. Waiting inside the merge gains nothing, since a green main has a new head that the check must take in anyway.
+### decision the-check-before-the-merge-is-the-full-workflows-once
+The check before the merge runs the project's full workflows on the exact commit to merge, by hand and once, and judges it by the JUnit they upload and by their jobs' conclusions: it fails on a test that failed, on a job that did not pass, and on a run that uploaded no JUnit the engine can read, and never by the pull request's checks or a log. Each failure is said as it is, and no failed job is ever run again by the engine.
+Why: What the pull request's checks show is what GitHub's triggers happened to start, and counting every check that appears cannot tell "all done" from "not all started"; the branch rules' required checks lost because reading them needs administration rights. The project's declaration names what must pass, and a log has no form the engine can read for every project. Running a red job again lost because it destroys the scene of an intermittent failure and lets it merge, when the task is to find it.
 
 ### decision the-check-takes-main-in
 The check merges main's head into the work's branch as a commit of the engine's own and judges that commit, and the merge lands only a commit that holds the main the check took in.
@@ -31,5 +23,5 @@ A work's pull request is a draft until just before its merge; its body is what t
 Why: Anyone on GitHub sees what the change is and that it is not yet to be reviewed, and an agent's text on a public repository must notify, close and reveal nothing. Worked out otherwise by either check, the two would rewrite each other's body each time.
 
 ### decision letting-go-at-the-end
-Once a work has ended and nothing of it is under way, the engine takes away its worktrees, uncommitted changes included on purpose, and the host's branches of its checks before the change, and closes its pull request into main where it did not merge; the work's own branch stays, and nothing that is a symbolic link is followed. What cannot be let go is the engine's pause of the ended work, saying why, tried again once the owner lets it on.
+Once a work has ended and nothing of it is under way, the engine takes away its worktrees, uncommitted changes included on purpose, and closes its pull request into main where it did not merge; the work's own branch stays, and nothing that is a symbolic link is followed. What cannot be let go is the engine's pause of the ended work, saying why, tried again once the owner lets it on.
 Why: A round or a tool may work in the worktree until it ends, the branch keeps the commits the work paid for (principle keep-what-was-paid-for), and a link could lead to another work's worktree. A failure retried unseen would hold a locked worktree for ever with nobody told (principle nothing-passes-for-normal).

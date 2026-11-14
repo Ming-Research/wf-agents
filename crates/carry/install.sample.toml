@@ -19,8 +19,7 @@ repo = "/path/to/the/repository"
 # The repository's main branch.
 main = "main"
 # A shell command whose exit with 0 means the work passes. Where the local repository is the host, it is run in a
-# work's worktree by the check before the merge and by the agents' tool `check`, and by their `check_before` in a
-# worktree of its own holding the code before the change with the agent's tests. With [github] below, the CI is run
+# work's worktree by the check before the merge and by the agents' tool `run_tests`. With [github] below, the CI is run
 # instead, and this command is not.
 check = "./test.sh"
 # The acts refuse a repository whose own configuration could make git run a program (a filter, a merge driver, a
@@ -94,16 +93,13 @@ highest_level = "3"
 context_limit = 500000
 
 # The repository on GitHub, where GitHub is the host: with this table, the check before a work's merge and the agents'
-# tool `check` push the work's branch to GitHub, open its pull request into the main branch where it has none, and
-# wait for the CI of the pushed commit; nothing is run on this machine. The agents' `check_before` pushes the code
-# before the change with the agent's tests to a branch `wf-agents-before/<the work's branch>-<commit>`, waits for its
-# CI and deletes the branch: the project's CI must run the checks named below on a push to those branches, and
-# `runs_on_before_branches` below must say it does. With [github.fast] below, a check that names tests or checks has
-# only those run, by the project's fast CI, and the check before the change runs the tests it names so. The merge
-# merges the work's pull request. Without this table, the
-# local repository is the host. The engine needs `git` and `gh`, and its own token for GitHub in its environment: a
+# tool `run_tests` push the work's branch to GitHub, open its pull request into the main branch where it has none, and
+# run the project's workflows on the pushed commit; nothing is run on this machine. A request of `run_tests` that names
+# tests or checks has only those run, by the project's fast workflow, and one that names none is run by the project's
+# full workflows, as is the check before the merge, on the commit to merge, once; both are declared in the project's
+# flow/project.toml. The merge merges the work's pull request. Without this table, the local repository is the host. The engine needs `git` and `gh`, and its own token for GitHub in its environment: a
 # fine-grained token for the one repository, with Contents and Pull requests read and write, Checks and Commit
-# statuses read, and Actions read, or read and write with [github.fast], whose workflow it runs by hand. The engine
+# statuses read, and Actions read and write, for the workflows it runs by hand. The engine
 # itself never pushes a change to the project's workflow files; a work's commit that changes them is pushed only with
 # Workflows read and write (the `workflow` scope of a classic token), and without it GitHub refuses that push, which
 # the agent is told.
@@ -114,10 +110,8 @@ context_limit = 500000
 # remote = "origin"
 # # The variable of the engine's environment that holds its token. No agent is given it.
 # token_env = "WF_GITHUB_TOKEN"
-# # The checks of the CI that count, by the name of their check run (a job's name) or commit status; others do not.
-# checks = ["check"]
-# # A named check with no run on the pushed commit after this many minutes: the CI never started, and the check fails
-# # its round, or the agents' tool says so.
+# # A run of a workflow that is not listed, or never leaves the queue, after this many minutes: the CI never started,
+# # and the check fails its round, or the agents' tool says so.
 # start_minutes = 10
 # # The CI not complete after this many minutes is given up, and the check fails its round, or the agents' tool says
 # # so.
@@ -126,52 +120,12 @@ context_limit = 500000
 # merge_method = "squash"
 # # Whether a work's branch on GitHub is deleted once it is merged.
 # delete_branch = false
-# # Whether the project's CI runs the named checks on a push to the branches under `wf-agents-before/`, which the
-# # agents' `check_before` pushes to; without it, that tool is refused before anything is pushed.
-# runs_on_before_branches = false
 # # The gh command line, or a path to it.
 # gh = "gh"
-# # The project's fast CI: a workflow run by hand, which runs only the tests and checks it is given on the commit it is
-# # given and uploads what became of each test as JUnit XML. Without it, an agent's check is the whole CI of its commit.
-# [github.fast]
-# # The workflow, by its file's name. It is always run by the file of it on the main branch, never by a work's own.
-# workflow = "fast.yml"
-# # The input that takes the commit to check out and test.
-# commit_input = "commit"
-# # The input that takes a value only that one request knows; the run's name (`run-name`) must hold it, by which the
-# # engine finds its run among the others.
-# call_input = "call"
-# # The input that takes the tests, each name followed by a line break.
-# tests_input = "tests"
-# # The input that takes the checks named, as a JSON array of the names of their jobs.
-# checks_input = "checks"
-# # The checks the workflow runs when named, each the name of its job.
-# named_checks = ["lint"]
-# # The artifact a run uploads its JUnit files in.
-# results = "test-results"
-# # What the project's test runners put between the parts of a test's name.
-# separators = ["::", " > "]
-# # How the lines of a red job's log are told apart, as the project's tools print them, so that the agent is given
-# # what failed and not the rest. Each kind is a list of patterns; a line is of a kind where it is the whole of one of
-# # its patterns, the spaces it begins with included, `*` standing for any text. Without this table, a log is cut only
-# # by what GitHub itself writes in it: the steps that failed, up to their last error; `wf-agents run` says so as it
-# # starts.
-# [github.log]
-# # Lines that only show progress, left out.
-# progress = ["Downloading *", "Building *", "PASSED *"]
-# # Lines that say a test did not pass, each kept with its output, up to the next line of any of these kinds.
-# failures = ["FAILED *"]
-# # Lines that say a test was still running, kept.
-# running = ["* still running after *"]
-# # Lines that begin an error or a warning, each kept with the lines under it up to a blank line.
-# errors = ["error:*", "warning:*"]
-# # The line that begins the summary of the tests, kept with everything after it.
-# summary = ["Summary: *"]
-# # Lines of no other kind that end a failed test's output.
-# ends_output = ["Running *"]
-# # Where the tools begin a line with one word right-aligned to this many columns and a space, each such line ends a
-# # failed test's output as well.
-# status_width = 12
+# # The runners this installation has: `github` for GitHub's own machines, and the label of each self-hosted runner. A
+# # workflow of the project (its `ci.fast` and `ci.full` in flow/project.toml) names the runner it runs on, and is not
+# # run where this installation lacks it.
+# runners = ["github"]
 
 # The agents' tool `query`: one read-only SQL query on the engine's store, which the engine runs and answers in the next
 # message. Off until the owner has settled what the agents see: with it off, a request is answered that the store is
