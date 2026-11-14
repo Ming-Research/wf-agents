@@ -215,12 +215,12 @@ pub trait Tools: Send + Sync {
     fn withdraw(&self, call: ToolCall, reply: CallReply);
 }
 
-/// What looks at the network while the agents' rounds wait for it to be reached: whether the agents' service can be
-/// reached from here, as far as a look that costs no round and writes nothing in a session can tell.
+/// What looks at the network while the rounds of a service wait for it to be reached: whether the service, the agents'
+/// or the acts' host, can be reached from here, as far as a look that costs no round and writes nothing can tell.
 ///
 /// It is called off the loop, on a thread that may wait on the network for a few seconds.
 pub trait Network: Send + Sync {
-    /// Whether the network reaches the agents' service now.
+    /// Whether the network reaches the service now.
     fn reached(&self) -> bool;
 }
 
@@ -235,7 +235,10 @@ pub struct Carriers {
     /// How many rounds of agents may go on at once: the engine gives the agents no more than this, and the others wait
     /// for a slot in the engine's order. The engine's own acts take none.
     pub slots: usize,
+    /// The look at the network to the agents' service.
     pub network: Arc<dyn Network>,
+    /// The look at the network to the host the acts reach; none where no network reaches it, as the local repository.
+    pub host: Option<Arc<dyn Network>>,
 }
 
 impl Carriers {
@@ -561,6 +564,7 @@ mod tests {
             tools: Arc::new(NoTools),
             slots: 1,
             network: Arc::new(Reached),
+            host: None,
         }
     }
 

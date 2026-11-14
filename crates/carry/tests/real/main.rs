@@ -267,7 +267,13 @@ fn compiled(on: On) -> Compiled {
     }
     let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<BTreeSet<_>>();
     let has = Has {
-        sources: names(&[driver::DEPENDENCIES, driver::SESSION, carry::tree::TREE, flow::ANSWER]),
+        sources: names(&[
+            driver::DEPENDENCIES,
+            driver::SESSION,
+            carry::tree::TREE,
+            flow::ANSWER,
+            "main",
+        ]),
         acts: names(&["start", "check", "merge", "deliver"]),
         // The triggers beside the repository's flows are every flow's, and one says what happened by the files of
         // the tree.
@@ -376,7 +382,8 @@ case "$first" in
                 git -C "$r" -c user.name=Tester -c user.email=tester@example.com commit -q -m 'Main moved'
             fi
             git -c user.name=Fake -c user.email=fake@example.com commit -q --allow-empty -m 'Build the greeting'
-            out='"code":"A greeting."'
+            head=$(git rev-parse HEAD)
+            out="\"code\":\"A greeting, in commit $head.\""
         fi ;;
     Review) out='"verdict":{{"value":"yes","why":"Fine."}}' ;;
 esac
@@ -684,6 +691,17 @@ impl Real {
                 .expect("the work's place is made");
         }
         work
+    }
+
+    /// A source outside the works says this now of the project the items are added to, as the watch of main says
+    /// main's head.
+    pub fn outside(&mut self, source: &str, content: &str) {
+        let message = Message::Outside {
+            project: self.project.clone(),
+            source: source.to_string(),
+            content: content.to_string(),
+        };
+        self.service.take(message).expect("the loop takes it");
     }
 
     /// Does what the owner does to the work, which the loop takes.

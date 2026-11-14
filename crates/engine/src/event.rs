@@ -168,8 +168,32 @@ pub enum Gate {
     Open,
     /// No round of an agent begins; the engine's own acts do.
     Agents,
-    /// No round begins, the engine's own acts' included: they may reach the network, which cannot be reached.
+    /// No round of the engine's own acts begins, their host being out of reach; the agents' do.
+    Acts,
+    /// No round begins, of an agent or an act.
     Every,
+}
+
+impl Gate {
+    /// Whether it holds the agents' rounds.
+    pub fn holds_agents(self) -> bool {
+        matches!(self, Gate::Agents | Gate::Every)
+    }
+
+    /// Whether it holds the engine's own acts.
+    pub fn holds_acts(self) -> bool {
+        matches!(self, Gate::Acts | Gate::Every)
+    }
+
+    /// The gate that holds what either holds.
+    pub fn and(self, other: Gate) -> Gate {
+        match (self, other) {
+            (Gate::Open, gate) | (gate, Gate::Open) => gate,
+            (Gate::Agents, Gate::Agents) => Gate::Agents,
+            (Gate::Acts, Gate::Acts) => Gate::Acts,
+            _ => Gate::Every,
+        }
+    }
 }
 
 /// Why what happened was not taken: it cannot have happened to this work, or nothing can be decided of it.

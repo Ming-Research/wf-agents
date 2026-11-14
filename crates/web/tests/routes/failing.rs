@@ -102,6 +102,7 @@ async fn a_wait_every_work_shares_is_given_once_for_all_and_as_what_each_work_it
     post(router, "/api/v1/works/1/acts", &answer).await;
     pass(2000).await;
     let outage = json!({
+        "service": "agents",
         "failure": "usageLimit",
         "why": "You've hit your limit",
         "work": 1,

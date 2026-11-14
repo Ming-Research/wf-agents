@@ -818,3 +818,63 @@ fn a_compaction_within_a_round_of_the_cell_that_loads_the_session_has_it_run_no_
     s.on(compacted());
     assert_eq!(s.session_block().len(), 1);
 }
+
+// A round that fails for a model the service does not have pauses its own work, and every other work that runs a
+// round on that model, saying why; a work whose rounds run on another model goes on.
+#[test]
+fn a_model_the_service_does_not_have_pauses_every_work_whose_rounds_run_on_it() {
+    // Level 1 runs on opus, which the service does not have; level 2 on sonnet.
+    let by_level = Policy {
+        limit: 500,
+        on: Box::new(|item, _| {
+            let model = if item.level.as_deref() == Some("2") {
+                "sonnet"
+            } else {
+                "opus"
+            };
+            Some(RanOn {
+                level: item.level.clone().unwrap_or_default(),
+                ..on(model)
+            })
+        }),
+    };
+    let mut s = S::with(by_level, None);
+    // The work's first round tries on opus, before the others are added.
+    s.began();
+    let (run, _) = s.round();
+    let mut add = |level: &str| {
+        let new = NewItem {
+            title: format!("Greet at {level}"),
+            level: level.to_string(),
+            project: PROJECT.to_string(),
+            depends_on: Vec::new(),
+            flow: "sessions".to_string(),
+            writes: vec![FirstWrite {
+                block: "request".into(),
+                content: "Greet the user.".to_string(),
+                value: None,
+            }],
+        };
+        let (_, work, _) = s.driver.add(Time(s.clock), new).expect("added");
+        s.driver.happened(Time(s.clock), work, Event::Resumed).expect("let on");
+        work
+    };
+    let (same, other) = (add("1"), add("2"));
+    s.on(Event::Failed {
+        run,
+        why: "There's an issue with the selected model".to_string(),
+        failure: decide::run::Failure::NoModel,
+        resets: None,
+        spent: Spent::default(),
+    });
+    let paused = |work: WorkNumber| decide::paused(&s.driver.work(work).expect("the work").work.records);
+    assert!(paused(s.work), "the round's own work is paused");
+    assert!(paused(same), "a work whose rounds run on the model is paused");
+    assert!(!paused(other), "a work whose rounds run on another model goes on");
+    let records = &s.driver.work(same).expect("the work").work.records;
+    let why = records.pauses.last().and_then(|p| p.why.clone()).unwrap_or_default();
+    assert!(
+        why.contains("opus") && why.contains(&format!("work {}", s.work.0)),
+        "{why}"
+    );
+}

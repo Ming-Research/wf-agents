@@ -118,7 +118,16 @@ impl Hub {
         self.host.verdict(&branch(&place), commit, &mut Stop::never()).await
     }
 
+    /// Merges the commit the check passed; a refusal but for a moved main in the host's words.
     async fn merge(&self, checked: &str) -> Result<String, String> {
+        self.merging(checked).await.map_err(|not| match not {
+            NotMerged::Failed(why) => why,
+            moved => panic!("refused otherwise: {moved:?}"),
+        })
+    }
+
+    /// Merges the commit the check passed.
+    async fn merging(&self, checked: &str) -> Result<String, NotMerged> {
         let place = self.place();
         self.host.merge(&branch(&place), Some(checked)).await
     }
@@ -607,8 +616,8 @@ async fn the_merge_refuses_a_main_that_moved_on_github_since_the_check() {
     run(&other, &["config", "user.email", "someone@example.com"]);
     let moved = commit(&other, "weather.txt", "Sunny.\n");
     run(&other, &["push", "-q", "origin", "main"]);
-    let refused = hub.merge(&checked).await.expect_err("refused");
-    assert!(refused.contains(&format!("main has moved to {moved}")), "{refused}");
+    let refused = hub.merging(&checked).await.expect_err("refused");
+    assert_eq!(refused, NotMerged::Moved { main: moved, checked });
     assert!(
         !hub.github().asked().iter().any(|a| matches!(a, Asked::Merge { .. })),
         "nothing was merged"
@@ -628,6 +637,26 @@ async fn a_merge_github_refuses_fails_the_round_in_githubs_words() {
         refused,
         "GitHub did not merge the pull request https://github.example/pull/1: HTTP 405: At least 1 approving review \
          is required"
+    );
+}
+
+// GitHub refusing the merge because main moved as it was to merge is a moved main, as the engine's own look finds.
+#[tokio::test]
+async fn a_merge_github_refuses_for_a_base_that_moved_is_a_moved_main() {
+    let hub = Hub::new();
+    let checked = hub.committed().await;
+    hub.green(&checked);
+    hub.verdict(&checked).await.unwrap().unwrap();
+    hub.github()
+        .refuse_merges("HTTP 405: Base branch was modified. Review and try the merge again.");
+    let refused = hub.merging(&checked).await.expect_err("refused");
+    let main = run(&hub.repo.project.repo, &["rev-parse", &hub.host.kept_main()]);
+    assert_eq!(
+        refused,
+        NotMerged::Moved {
+            main,
+            checked: checked.clone()
+        }
     );
 }
 
@@ -652,7 +681,10 @@ async fn a_merge_with_no_pull_request_or_no_check_fails_the_round() {
     assert!(failed.contains("has no open pull request"), "{failed}");
     let place = hub.place();
     let failed = hub.host.merge(&branch(&place), None).await.expect_err("no check");
-    assert!(failed.contains("the flow has no check"), "{failed}");
+    assert!(
+        matches!(&failed, NotMerged::Failed(why) if why.contains("the flow has no check")),
+        "{failed:?}"
+    );
 }
 
 /// What git's credential helpers give, with what the host gives git, for this protocol and host; offline.

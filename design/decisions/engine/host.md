@@ -18,6 +18,18 @@ Why: What the pull request's checks show is what GitHub's triggers happened to s
 The check merges main's head into the work's branch as a commit of the engine's own and judges that commit, and the merge lands only a commit that holds the main the check took in.
 Why: What passes is then exactly what lands. GitHub's test merge lost because it leaves no mark when main moves after the CI began and the local host has none; an agent's round lost as exact work an agent sometimes gets wrong (principle mechanical-engine).
 
+### decision the-check-holds-the-head-to-what-the-work-names
+The check passes only a branch whose head is a commit the work names in what its cells write (but the check's own), or such a commit with only the engine's own merges of main on top of it, each known by its address, its words and the main it merged; where the work names none, or none that is the head, the check fails with why. What only people write, and what a source outside writes, as main's head, names nothing.
+Why: An agent that committed after handing in what it did, or named a commit it did not make, would have code merged that nobody judged by its words. The commit is read where the work already names it (the code, the tests a tester committed, an answer to a review or to the check, "fixed, with its commit") rather than from a field of its own: a judgment, no case having tried the other. A merge by the engine's address alone is no merge of the engine's: an agent can commit by any address.
+
+### decision one-work-checks-and-merges-at-a-time
+The works of a project take turns to check and merge: a work's check waits until no other work has the turn, and the work keeps it from its check until its merge, or its check failing; a work whose check passed and whose merge does not come keeps it no longer than a quarter of an hour. The turn is kept in memory only.
+Why: Checked side by side, each work's merge moves main under the others', each of which is then checked again, and the last of many could go round past its bound on tries and stop for the owner. That a work held between its check and its merge holds the others back no longer than a quarter of an hour rests on judgment.
+
+### decision a-moved-main-is-checked-again-by-itself
+A merge refused because main moved since the check passed, as the engine finds or GitHub says ("Base branch was modified"), fails in passing and keeps the work's turn: the watch of main writes main's new head into the work at once, which runs the check again on it, and the merge is tried again after its wait with what that check found. Nothing waits for the owner.
+Why: Main moves under a checked work where it was merged by hand or by another engine; a refusal that waited for the owner stopped the work for what passes by itself. Merging main in within the merge lost, since what lands would be what no check judged (decision the-check-takes-main-in).
+
 ### decision the-pull-request-says-what-the-work-wrote
 A work's pull request is a draft until just before its merge; its body is what the work wrote in the blocks the flow's check names, published with no mention, reference, closing word or path of this machine left to act, cut to a bound, and written over at each check, a person's edit included; the check before the merge and the agents' check work it out alike.
 Why: Anyone on GitHub sees what the change is and that it is not yet to be reviewed, and an agent's text on a public repository must notify, close and reveal nothing. Worked out otherwise by either check, the two would rewrite each other's body each time.

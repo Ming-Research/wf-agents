@@ -4,6 +4,7 @@ import type { Outage, Waited } from '../works-api';
 import { callWords, failureWords, outageWords, unmetWords, waitedWords, waitsForOwner } from './words';
 
 const outage = (o: Partial<Outage>): Outage => ({
+  service: 'agents',
   failure: 'usageLimit',
   why: "You've hit your limit",
   work: 3,
@@ -36,8 +37,10 @@ describe('the words of a round that failed and of the waits that follow', () => 
       'sign the command line in again or install it; no agent',
     );
     expect(
-      outageWords(outage({ failure: 'offline', until: { kind: 'trial', at: 0, look: true, latest: 0 } })),
+      outageWords(outage({ failure: 'offline', until: { kind: 'trial', at: 0, look: true } })),
     ).toContain('one round tries once the network is reached');
+    const host = outage({ service: 'host', failure: 'offline', until: { kind: 'looked', at: 0 } });
+    expect(outageWords(host)).toContain("no act of the engine's of any work begins, once the host is reached");
   });
 
   it('waits for the owner only where the command line cannot run', () => {

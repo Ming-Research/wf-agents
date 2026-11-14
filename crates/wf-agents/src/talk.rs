@@ -772,10 +772,13 @@ fn outage(outage: &Outage) -> String {
     let until = match outage.until {
         Until::At { at } => format!("until {}", utc(at)),
         Until::Trial { at, look: false, .. } => format!("one round tries at {}", utc(at)),
-        Until::Trial { at, latest, .. } => format!(
-            "the network is looked at from {} every half minute, and one round tries once it is reached, at the latest at {}",
-            utc(at),
-            utc(latest)
+        Until::Trial { at, .. } => format!(
+            "the network is looked at from {} every half minute, and one round tries once it is reached",
+            utc(at)
+        ),
+        Until::Looked { at } => format!(
+            "the host is looked at from {} every half minute, and every act goes on once it is reached",
+            utc(at)
         ),
         Until::Tried => "one round tries now".to_string(),
     };

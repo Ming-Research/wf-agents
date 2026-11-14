@@ -60,18 +60,23 @@ export type Failure =
   | 'cannotRun'
   | 'offline'
   | 'promptTooLong'
+  | 'noModel'
   | 'other';
 
-/// When the agents' rounds may begin again: at a time, every work's; or one round tries at a time, where `look` once
-/// a look at the network every half minute reaches it, at the latest at `latest`; or once the round trying now ends.
+/// When the rounds a wait holds may begin again: at a time, every work's; or one round tries at a time, where `look`
+/// once a look at the network every half minute reaches it; or every round once a look at the host, every half minute
+/// from a time, reaches it; or once the round trying now ends or is answered.
 export type Until =
   | { kind: 'at'; at: number }
-  | { kind: 'trial'; at: number; look: boolean; latest: number }
+  | { kind: 'trial'; at: number; look: boolean }
+  | { kind: 'looked'; at: number }
   | { kind: 'tried' };
 
 /// A wait every work shares: a round of an agent failed for a cause no one work has, and no agent's round of any work
 /// begins while it stands.
 export interface Outage {
+  /// The service whose rounds it holds: the agents', or the host's the engine's acts reach.
+  service: 'agents' | 'host';
   failure: Failure;
   why: string;
   /// The round that failed so, the latest that did.

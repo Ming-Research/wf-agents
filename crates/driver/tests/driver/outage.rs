@@ -1,7 +1,8 @@
 //! A wait every work shares: a round of an agent that failed for a cause no one work has holds the agents' rounds of
 //! every work, as one fact worked out from all their records, until the wait is over: at the usage limit's reset, at
 //! a round that tries once in a while and comes back, or, without the network, once a look finds it reached. The
-//! engine's own acts go on meanwhile, and no work is paused for it.
+//! engine's own acts go on meanwhile, and no work is paused for it. An act that fails for want of the network to its
+//! host holds the acts of every work, and only those, until a look at the host reaches it.
 
 use decide::run::Failure;
 use driver::outage::{PROBE, UNKNOWN_RESET};
@@ -62,7 +63,8 @@ fn at_the_usage_limit_no_agents_round_of_any_work_begins_until_it_resets_and_no_
         h.d().wake(),
         Some(Wake {
             at: resets,
-            look: false
+            look: false,
+            look_at_host: false
         })
     );
     // The other work's round, under way as the limit was met, ends; its merge, the engine's own act, goes on.
@@ -91,15 +93,15 @@ fn at_a_usage_limit_whose_reset_was_not_said_one_round_tries_half_an_hour_on_and
     fails(&mut h, b, Failure::UsageLimit, None);
     let since = h.d().outage().expect("the wait stands").since;
     let at = Time(since.0 + UNKNOWN_RESET);
+    assert_eq!(h.d().outage().unwrap().until(), Until::Trial { at, look: false });
     assert_eq!(
-        h.d().outage().unwrap().until(),
-        Until::Trial {
+        h.d().wake(),
+        Some(Wake {
             at,
             look: false,
-            latest: at
-        }
+            look_at_host: false
+        })
     );
-    assert_eq!(h.d().wake(), Some(Wake { at, look: false }));
     assert_eq!(h.tick(Time(at.0 - 1), None), vec![]);
     // At the time, one round tries, of the first work to come to one; the other waits for it.
     let todos = h.tick(at, None);
@@ -112,7 +114,8 @@ fn at_a_usage_limit_whose_reset_was_not_said_one_round_tries_half_an_hour_on_and
         h.d().wake(),
         Some(Wake {
             at: Time(since.0 + UNKNOWN_RESET),
-            look: false
+            look: false,
+            look_at_host: false
         })
     );
     let todos = h.tick(Time(since.0 + UNKNOWN_RESET), None);
@@ -135,7 +138,8 @@ fn where_the_command_line_cannot_run_one_round_tries_every_half_minute_and_one_t
         h.d().wake(),
         Some(Wake {
             at: Time(since.0 + PROBE),
-            look: false
+            look: false,
+            look_at_host: false
         })
     );
     // The other work's round, under way, fails so too: the wait counts from it.
@@ -167,41 +171,48 @@ fn without_the_network_it_is_looked_at_every_half_minute_and_a_round_tries_once_
     fails(&mut h, a, Failure::Offline, None);
     let since = h.d().outage().expect("the wait stands").since;
     let first = Time(since.0 + PROBE);
-    assert_eq!(h.d().wake(), Some(Wake { at: first, look: true }));
+    assert_eq!(
+        h.d().wake(),
+        Some(Wake {
+            at: first,
+            look: true,
+            look_at_host: false
+        })
+    );
     // A look that does not reach it begins nothing, and the next look is half a minute later.
     assert_eq!(h.tick(first, Some(false)), vec![]);
     assert_eq!(
         h.d().wake(),
         Some(Wake {
             at: Time(first.0 + PROBE),
-            look: true
+            look: true,
+            look_at_host: false
         })
     );
     let todos = h.tick(Time(first.0 + PROBE), Some(true));
     assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 2)]);
 }
 
+// A round tried while the network is down writes its message into its session again: no time alone lets one try.
 #[test]
-fn without_the_network_a_round_tries_every_five_minutes_whatever_the_looks_find() {
+fn without_the_network_no_round_tries_until_a_look_reaches_it() {
     let (mut h, a, _) = two();
     fails(&mut h, a, Failure::Offline, None);
-    let outage = h.d().outage().expect("the wait stands");
-    let Until::Trial { latest, .. } = outage.until() else {
-        panic!("{:?}", outage.until());
-    };
-    let mut at = Time(outage.since.0 + PROBE);
-    while at < latest {
+    let since = h.d().outage().expect("the wait stands").since;
+    let mut at = Time(since.0 + PROBE);
+    for _ in 0..40 {
+        assert_eq!(
+            h.d().wake(),
+            Some(Wake {
+                at,
+                look: true,
+                look_at_host: false
+            })
+        );
         assert_eq!(h.tick(at, Some(false)), vec![]);
         at = Time(at.0 + PROBE);
     }
-    assert_eq!(
-        h.d().wake(),
-        Some(Wake {
-            at: latest,
-            look: false
-        })
-    );
-    let todos = h.tick(latest, None);
+    let todos = h.tick(at, Some(true));
     assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 2)]);
 }
 
@@ -214,21 +225,51 @@ fn a_cause_one_work_has_holds_no_other_work() {
     assert!(!todos.is_empty());
 }
 
+// Each service has its own wait: without the network to the agents' service the engine's acts, which reach their own
+// host, go on; and an act that fails for want of the network to its host holds the acts of every work, and only those,
+// until a look at the host reaches it, an agent's round that comes back meanwhile ending nothing of it.
 #[test]
-fn without_the_network_the_engines_own_acts_wait_as_well_and_go_on_with_the_rest() {
+fn without_the_network_to_the_agents_service_the_engines_own_acts_go_on() {
     let (mut h, a, b) = two();
     fails(&mut h, a, Failure::Offline, None);
-    // The other work's round, under way as the network went, ends: its merge, which reaches the network on a host,
-    // waits with every agent's round.
     let todos = h.hands_in(b, &[("text", None)]);
-    assert_eq!(todos, vec![], "an act began while the network could not be reached");
-    let since = h.d().outage().expect("the wait stands").since;
-    let todos = h.tick(Time(since.0 + PROBE), Some(true));
-    assert_eq!(agents_rounds(&todos), vec![(a, "write".to_string(), 2)]);
-    // The round that tried comes back: every work goes on, the merge among them.
+    assert_eq!(rounds(&todos), vec![(b, "merge".to_string())]);
+    assert_eq!(h.d().host_outage(), None);
+}
+
+#[test]
+fn an_act_that_fails_for_want_of_its_hosts_network_holds_the_acts_alone_until_a_look_at_the_host_reaches_it() {
+    let (mut h, a, b) = two();
     let todos = h.hands_in(a, &[("text", None)]);
-    let merges = (todos.iter()).filter(|t| matches!(&t.effect, Effect::Round { cell, .. } if cell.as_str() == "merge"));
-    assert_eq!(merges.map(|t| t.work).collect::<Vec<_>>(), vec![a, b]);
+    assert_eq!(rounds(&todos), vec![(a, "merge".to_string())]);
+    fails(&mut h, a, Failure::Offline, None);
+    assert!(
+        !decide::paused(&h.d().work(a).unwrap().work.records),
+        "the act pauses no work"
+    );
+    assert_eq!(h.d().outage(), None, "the agents' service is not held");
+    let outage = h.d().host_outage().expect("the acts' wait stands");
+    assert_eq!((outage.failure, outage.work), (Failure::Offline, a));
+    let at = Time(outage.since.0 + PROBE);
+    assert_eq!(outage.until(), Until::Looked { at });
+    assert_eq!(
+        h.d().wake(),
+        Some(Wake {
+            at,
+            look: false,
+            look_at_host: true
+        })
+    );
+    // The other work's agent goes on, and comes back: the acts' wait stands, and its merge waits.
+    let todos = h.hands_in(b, &[("text", None)]);
+    assert_eq!(rounds(&todos), vec![]);
+    assert!(h.d().host_outage().is_some());
+    // A look at the host that does not reach it lets nothing on; one that does, every act at once.
+    assert_eq!(h.tick_host(at, false), vec![]);
+    let todos = h.tick_host(Time(at.0 + PROBE), true);
+    assert_eq!(rounds(&todos), vec![(a, "merge".to_string()), (b, "merge".to_string())]);
+    h.hands_in(a, &[("merged", None)]);
+    assert_eq!(h.d().host_outage(), None);
 }
 
 #[test]
@@ -282,4 +323,14 @@ fn a_wait_whose_trying_round_the_service_answers_is_over_then() {
         // Answered again, it changes nothing.
         assert_eq!(h.service_answers(a), vec![]);
     }
+}
+
+/// The rounds given among these, of every cell.
+fn rounds(todos: &[Todo]) -> Vec<(WorkNumber, String)> {
+    (todos.iter())
+        .filter_map(|t| match &t.effect {
+            Effect::Round { cell, .. } => Some((t.work, cell.to_string())),
+            _ => None,
+        })
+        .collect()
 }

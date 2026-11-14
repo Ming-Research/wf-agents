@@ -928,6 +928,7 @@ pub struct Start {
 #[serde(deny_unknown_fields)]
 pub struct Merge {
     pub text: String,
+    pub moved: String,
 }
 
 /// `agents/acts/deliver.toml`.
@@ -976,6 +977,8 @@ pub struct Found {
     pub protected: String,
     /// The change under the paths the project protects could not be looked at.
     pub protected_unread: String,
+    pub unnamed: String,
+    pub not_head: String,
 }
 
 /// A piece of a text of the engine's words: what is sent as written, or a place filled in a run, by its name.

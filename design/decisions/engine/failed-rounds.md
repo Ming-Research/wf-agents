@@ -9,8 +9,8 @@ A round whose command line printed no result fails in passing, unless its words 
 Why: A crash says nothing of its cause, and most pass; paused, a work left to run unattended would wait for the owner for what may pass by itself, a judgment no case has measured. Counted, what each try spent reaches the work's budget, and the bound keeps the tries from going on unseen.
 
 ### decision a-shared-cause-is-one-wait
-A round that fails at the account's usage limit, for a command line that cannot run, or for want of the network holds the rounds of every work, as one wait worked out from the records of every work; no work is paused for it, and every work goes on by itself once the wait is over. A cause of one session or one model (a context past what the account may send without credits, a model the service does not serve or the account may not use) pauses the work that meets it, with why.
-Why: One cause stops every work alike: paused one by one, each would wait for the owner to start it by hand once the cause had passed, and a mark written on each would have to be lifted on each. A cause of one session or one model does not pass with time: held as every work's, it would stop works it does not touch and be tried again for ever.
+A round that fails at the account's usage limit, for a command line that cannot run, or for want of the network holds the rounds of every work, as one wait worked out from the records of every work; no work is paused for it, and every work goes on by itself once the wait is over. A cause of one session or one model (a context past what the account may send without credits, a model the account may not use) pauses the work that meets it, with why; a model the service does not have pauses, with why, that work and every other whose rounds run on it.
+Why: One cause stops every work alike: paused one by one, each would wait for the owner to start it by hand once the cause had passed, and a mark written on each would have to be lifted on each. A cause of one session or one model does not pass with time: held as every work's, it would stop works it does not touch and be tried again for ever. A model the service does not have fails every round on it until the installation names another, so each other work on it would fail its next round for the same cause.
 
 ### decision a-reset-not-said-is-tried-by-one-round
 At a usage limit whose reset the command line did not say, or said further ahead than a week's limit reaches, one round, of whichever work comes to one first, tries half an hour after the last one ended; at a reset it said, every work goes on at once, a reset just passed being now.
@@ -21,13 +21,17 @@ A wait every work shares that lets one round try is over once the service answer
 Why: What the round tries is whether the service serves again, which its first answer shows, and a round may go on for tens of minutes after it, every other work held meanwhile. Lost in a stop, the round is given again and answers again.
 
 ### decision the-wait-holds-what-its-cause-stops
-At the usage limit and for a command line that cannot run the wait holds only the agents' rounds; without the network it holds the engine's own acts as well. An act that meets the network gone before any agent's round has fails as a cause no kind tells apart, and pauses its work.
-Why: The engine's acts need no agent but may reach the network (a push, a pull request, a merge on a host), and failing there one by one they would each wait for the owner; held at the usage limit they would wait for nothing.
+There is a wait for each service the works reach: the agents' service, whose wait holds only the agents' rounds, and the host the acts reach, whose wait holds only the acts. An act that fails in the words git, ssh, `gh` or the host give a failing network begins the acts' wait where a look at that host finds it gone, and is otherwise tried again in passing; an act of a host no network reaches, as the local repository, never begins one; an act that fails for any other cause pauses its work. Nothing that comes of one service's rounds ends the other's wait.
+Why: The engine's acts need no agent but reach their host (a push, a pull request, a merge), and failing there one by one they would each wait for the owner; held for the agents' service they would wait for nothing, and an act that comes back says nothing of the agents' service, nor an agent's round of the host. A failure in other words would fail again.
+
+### decision the-acts-host-is-tried-by-a-look
+The acts' wait is tried by a look at their host every half minute, and is over once a look reaches it, every act then going on; no act is sent to try it, and no time ends it without a look.
+Why: A look costs nothing, while an act may hold its round for long (the check waits for the full CI), every other act held behind it; ended by time alone, every act would meet the host still gone and fail again.
 
 The backup of the records is held by neither this wait nor the owner's pause: see decision backup-is-the-engines-own-tick in backup.md.
 
 ### decision no-round-tries-the-network
-While the network cannot be reached, the engine looks at it itself, which costs no round, and a round tries only once a look reaches it, or now and then in case what is looked at is not the service; a look's finding is not recorded, and after a stop the engine looks again at once.
+While the network to the agents' service cannot be reached, the engine looks at the service's host itself, which costs no round, and a round tries only once a look reaches it, never at a time alone; a look's finding is not recorded, and after a stop the engine looks again at once.
 Why: The command line writes a round's message into its session before it calls the service, and retrying rounds through an outage filled a session with the same input again and again.
 
 ### decision the-retry-wait-is-a-call

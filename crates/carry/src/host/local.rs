@@ -6,7 +6,7 @@ use std::path::Path;
 
 use flow::agents::{LocalWords, Tool, fill};
 
-use super::{Branch, Host, Named, Verdict};
+use super::{Branch, Host, Named, NotMerged, Verdict};
 use crate::git;
 use crate::held::Stop;
 use crate::process::{self, Ran};
@@ -94,7 +94,7 @@ impl Host for Local {
         }))
     }
 
-    async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, String> {
+    async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {
         git::merge(&self.project, branch.place, checked).await
     }
 

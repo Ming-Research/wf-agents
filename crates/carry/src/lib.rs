@@ -102,6 +102,8 @@ pub fn carry(
     let tag = git::tag(&installation);
     let query = querying(&settings, &beside, &data)?;
     let (mut acts, mut tools, mut watches, mut of) = (BTreeMap::new(), BTreeMap::new(), Vec::new(), BTreeMap::new());
+    // The network reaches a project's host on GitHub, one look for every such project, and no network a local one.
+    let mut host_look: Option<Arc<dyn service::Network>> = None;
     let (declared, faults) = projects::declared(&settings, &beside);
     if !faults.is_empty() {
         return Err(faults.join("; "));
@@ -128,7 +130,7 @@ pub fn carry(
                     &project,
                     &data,
                     &tag,
-                    (words.clone(), protecting),
+                    (words.clone(), protecting, None),
                     query.clone(),
                     unread,
                 )
@@ -138,12 +140,14 @@ pub fn carry(
                 let ci = beside.project.ci.clone();
                 let host = host::GitHub::from_settings(github, &project, &data, env, ci, tool.clone())
                     .map_err(|why| format!("projects.{name}: {why}"))?;
+                let look = (host_look.get_or_insert_with(|| Arc::new(failure::LookAt(host::github::LOOK.to_string()))))
+                    .clone();
                 on(
                     host,
                     &project,
                     &data,
                     &tag,
-                    (words.clone(), protecting),
+                    (words.clone(), protecting, Some(look)),
                     query.clone(),
                     unread,
                 )
@@ -171,6 +175,7 @@ pub fn carry(
             said: beside.installation.no_project.clone(),
         }),
         network: Arc::new(failure::Look),
+        host: host_look,
     };
     Ok((carriers, watches))
 }
@@ -201,7 +206,7 @@ fn on<H: Host>(
     project: &Project,
     data: &Path,
     tag: &str,
-    (words, protecting): (Words, acts::Protecting),
+    (words, protecting, look): (Words, acts::Protecting, Option<Arc<dyn service::Network>>),
     query: Querying,
     unread: Option<String>,
 ) -> (Arc<dyn Rounds>, Arc<dyn ToolsTrait>, Watch, String) {
@@ -215,6 +220,10 @@ fn on<H: Host>(
         words,
     )
     .protecting(protecting);
+    let acts = match look {
+        Some(look) => acts.looking(look),
+        None => acts,
+    };
     let watch = acts.watch(WATCH);
     let tools = Tools::new(host, project.clone(), data.to_path_buf(), tag.to_string(), unread).querying(query);
     (Arc::new(acts), Arc::new(tools), watch, main)

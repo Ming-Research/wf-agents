@@ -205,6 +205,8 @@ export function failureWords(failure: Failure): string {
       return 'the network cannot be reached';
     case 'promptTooLong':
       return 'the prompt is too long for the model';
+    case 'noModel':
+      return "the service has no model of the name the round's level gives";
     case 'other':
       return 'a cause no kind tells apart';
   }
@@ -218,11 +220,15 @@ export function outageWords(outage: Outage): string {
       ? `until ${clock(until.at)}`
       : until.kind === 'tried'
         ? 'one round tries now'
-        : until.look
-          ? `one round tries once the network is reached, looked at from ${clock(until.at)}, at the latest at ${clock(until.latest)}`
-          : `one round tries at ${clock(until.at)}`;
+        : until.kind === 'looked'
+          ? `once the host is reached, looked at from ${clock(until.at)}`
+          : until.look
+            ? `one round tries once the network is reached, looked at from ${clock(until.at)}`
+            : `one round tries at ${clock(until.at)}`;
   const mend = outage.failure === 'cannotRun' ? ': sign the command line in again or install it' : '';
-  return `${failureWords(outage.failure)}${mend}; no agent's round of any work begins, ${when} (work ${outage.work}, round ${outage.round} of run ${outage.run}: ${outage.why})`;
+  const held =
+    outage.service === 'host' ? "no act of the engine's of any work begins" : "no agent's round of any work begins";
+  return `${failureWords(outage.failure)}${mend}; ${held}, ${when} (work ${outage.work}, round ${outage.round} of run ${outage.run}: ${outage.why})`;
 }
 
 /// What a round asked for.

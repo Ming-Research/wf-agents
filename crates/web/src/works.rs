@@ -48,6 +48,8 @@ pub struct Items {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Outage {
+    /// The service whose rounds it holds: the agents', or the host's the acts reach.
+    pub service: Service,
     /// The kind of the cause: the usage limit, a command line that cannot run, or no network.
     pub failure: Failure,
     /// Why the round failed, as what carried it out said.
@@ -65,16 +67,28 @@ pub struct Outage {
     pub holds: bool,
 }
 
-/// When the agents' rounds may begin again.
+/// A service the works reach, each with its wait.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Service {
+    /// The agents' service.
+    Agents,
+    /// The host of the project's repository, as the engine's acts reach it.
+    Host,
+}
+
+/// When the rounds a wait holds may begin again.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Until {
     /// At this time, every work's: as the usage limit resets.
     At { at: u64 },
     /// One round, of whichever work comes to one first, tries at this time; where `look`, the network is looked at
-    /// every half minute from then, and the round tries once a look reaches it, at the latest at `latest`.
-    Trial { at: u64, look: bool, latest: u64 },
-    /// Once the round that tries now has ended.
+    /// every half minute from then, and the round tries once a look reaches it.
+    Trial { at: u64, look: bool },
+    /// Every round, once a look at the host, taken every half minute from this time, reaches it.
+    Looked { at: u64 },
+    /// Once the round that tries now has ended, or the service has answered it.
     Tried,
 }
 
@@ -96,6 +110,8 @@ pub enum Failure {
     Offline,
     /// The prompt is too long for the model.
     PromptTooLong,
+    /// The service has no model of the name the round's level gives.
+    NoModel,
     /// A cause no kind tells apart.
     Other,
 }
@@ -1252,7 +1268,8 @@ impl Items {
     /// Every item the driver holds, each with its work, as they stand at this time.
     pub fn of(driver: &Driver, now: Time) -> Result<Items, Broken> {
         let mut items = Vec::new();
-        let outage = driver.outage().map(|outage| Outage::of(&outage, driver.holds(now)));
+        let outages = Outages::of(driver, now);
+        let outage = outages.agents.clone();
         for kept in driver.works() {
             let view = viewed(driver, kept.head.number)?;
             items.push(Item {
@@ -1263,7 +1280,7 @@ impl Items {
                 added: kept.item.added.0,
                 depends_on: kept.item.depends_on.iter().map(|on| on.0).collect(),
                 history: ItemHistory::of(kept.item),
-                work: Summary::of(kept, &view, driver.held(kept.head.number), outage.as_ref())?,
+                work: Summary::of(kept, &view, driver.held(kept.head.number), &outages)?,
             });
         }
         items.sort_by_key(|item| item.number);
@@ -1305,7 +1322,7 @@ impl ItemHistory {
 impl Summary {
     /// The work in brief, from what the driver holds of it, the deciding code's view of it, what holds back the round
     /// it would begin next, and the wait every work shares, where one stands.
-    pub fn of(kept: Kept<'_>, view: &View, held: Option<Holder>, outage: Option<&Outage>) -> Result<Summary, Broken> {
+    pub fn of(kept: Kept<'_>, view: &View, held: Option<Holder>, outages: &Outages) -> Result<Summary, Broken> {
         let work = kept.work;
         let runs = runs(kept)?;
         let cells = (view.cells.iter())
@@ -1333,7 +1350,7 @@ impl Summary {
             flow: kept.head.flow.clone(),
             added: kept.head.added.0,
             paused: decide::paused(&work.records),
-            now: Now::of(kept, &view.decision, held, outage)?,
+            now: Now::of(kept, &view.decision, held, outages)?,
             cells,
             spent: runs.iter().fold(Spent::default(), |sum, run| sum.with(run.spent)),
             last: work.moments.last().map(|moment| moment.at.0),
@@ -1423,17 +1440,20 @@ impl Now {
         kept: Kept<'_>,
         decision: &Decision,
         held: Option<Holder>,
-        outage: Option<&Outage>,
+        outages: &Outages,
     ) -> Result<Now, Broken> {
         let work = kept.work;
         let everything = Now::Everything {};
-        let agents = |cell: &CellId| (kept.flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == Kind::Agent);
-        // The rounds of a cell the wait holds now: an agent's, and without the network every cell's.
-        let shared =
-            |cell: &CellId| (outage.filter(|o| o.holds)).is_some_and(|o| o.failure == Failure::Offline || agents(cell));
+        // The wait that holds the rounds of a cell now: the agents' for an agent's, the host's for an act's.
+        let holding = |cell: &CellId| {
+            let agent = (kept.flow.cells.iter()).any(|spec| spec.id == *cell && spec.kind == Kind::Agent);
+            let outage = if agent { &outages.agents } else { &outages.host };
+            outage.as_ref().filter(|o| o.holds)
+        };
+        let shared = |cell: &CellId| holding(cell).is_some();
         let waits_shared = |cell: &CellId| Now::Waits {
             at: cell.to_string(),
-            on: outage
+            on: holding(cell)
                 .into_iter()
                 .map(|outage| Waited::Agents { outage: outage.clone() })
                 .collect(),
@@ -1681,15 +1701,7 @@ impl WorkPage {
         }
         steps.sort_by_key(Step::at);
         Ok(Some(WorkPage {
-            summary: Summary::of(
-                kept,
-                &view,
-                driver.held(number),
-                driver
-                    .outage()
-                    .map(|outage| Outage::of(&outage, driver.holds(now)))
-                    .as_ref(),
-            )?,
+            summary: Summary::of(kept, &view, driver.held(number), &Outages::of(driver, now))?,
             title: kept.item.title.clone(),
             level: kept.item.level.clone(),
             project: kept.item.project.clone(),
@@ -2232,9 +2244,32 @@ pub(crate) fn runs(kept: Kept<'_>) -> Result<Vec<Run>, Broken> {
     Ok(runs)
 }
 
+/// The waits every work shares, as they stand: the agents' service's, and the host's the acts reach.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Outages {
+    pub agents: Option<Outage>,
+    pub host: Option<Outage>,
+}
+
+impl Outages {
+    /// The waits as the driver works them out at this time, each saying whether it holds its rounds now.
+    pub(crate) fn of(driver: &Driver, now: Time) -> Outages {
+        let gate = driver.gate(now);
+        let (agents, host) = (gate.holds_agents(), gate.holds_acts());
+        Outages {
+            agents: driver.outage().map(|outage| Outage::of(&outage, agents)),
+            host: driver.host_outage().map(|outage| Outage::of(&outage, host)),
+        }
+    }
+}
+
 impl Outage {
     pub(crate) fn of(outage: &driver::Outage, holds: bool) -> Outage {
         Outage {
+            service: match outage.service {
+                driver::Service::Agents => Service::Agents,
+                driver::Service::Host => Service::Host,
+            },
             failure: Failure::of(outage.failure),
             why: outage.why.clone(),
             work: outage.work.0,
@@ -2243,11 +2278,8 @@ impl Outage {
             since: outage.since.0,
             until: match outage.until() {
                 UntilOf::At(at) => Until::At { at: at.0 },
-                UntilOf::Trial { at, look, latest } => Until::Trial {
-                    at: at.0,
-                    look,
-                    latest: latest.0,
-                },
+                UntilOf::Trial { at, look } => Until::Trial { at: at.0, look },
+                UntilOf::Looked { at } => Until::Looked { at: at.0 },
                 UntilOf::Tried => Until::Tried,
             },
             holds,
@@ -2265,6 +2297,7 @@ impl Failure {
             FailureOf::CannotRun => Failure::CannotRun,
             FailureOf::Offline => Failure::Offline,
             FailureOf::PromptTooLong => Failure::PromptTooLong,
+            FailureOf::NoModel => Failure::NoModel,
             FailureOf::Other => Failure::Other,
         }
     }

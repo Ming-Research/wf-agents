@@ -36,7 +36,7 @@ use std::time::Duration;
 pub use api::{Api, Pull, State};
 pub use gh::{Gh, GhOffsite, UPLOAD_RATE};
 
-use super::{Branch, Host, Named, Verdict};
+use super::{Branch, Host, Named, NotMerged, Verdict};
 use crate::git::{self, With};
 use crate::held::Stop;
 use crate::settings::{self, Project};
@@ -44,6 +44,13 @@ use crate::settings::{self, Project};
 /// How often GitHub is asked how a run of a workflow goes: a run takes from half a minute to some minutes, and is waited
 /// for while an agent or the check before a merge waits, so it is seen done within a few seconds, for a call a time.
 pub const FAST_POLL: Duration = Duration::from_secs(5);
+
+/// What GitHub says where it refuses a merge because main moved as it was to merge (`HTTP 405`).
+const BASE_MODIFIED: &str = "Base branch was modified";
+
+/// Where a look at the network to GitHub connects: whether it resolves and takes a connection tells whether the acts'
+/// host can be reached.
+pub const LOOK: &str = "github.com:443";
 
 /// How the GitHub host reaches the repository and judges its CI.
 #[derive(Clone)]
@@ -326,22 +333,22 @@ impl<A: Api> Host for GitHub<A> {
         self.judge_full(commit, stop).await
     }
 
-    async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, String> {
+    async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {
         let Some(checked) = checked else {
-            return Err(
+            return Err(NotMerged::Failed(
                 "the flow has no check before its merge: on GitHub, what is merged is the pull request the check opens"
                     .to_string(),
-            );
+            ));
         };
         let (main, name) = (&self.project.main, &branch.place.branch);
         let pulls = self.api.pulls(name).await?;
         // Only a pull request into main can be the work's merge: one merged into another branch put nothing on main.
         if let Some(merged) = pulls.iter().find(|p| p.state == State::Merged && p.base == *main) {
             if merged.head != checked {
-                return Err(format!(
+                return Err(NotMerged::Failed(format!(
                     "the pull request {} was merged at {}, not at {checked}, the commit the check passed",
                     merged.url, merged.head
-                ));
+                )));
             }
             let commit = (merged.merge_commit.clone()).ok_or_else(|| {
                 format!(
@@ -353,34 +360,50 @@ impl<A: Api> Host for GitHub<A> {
             return Ok(commit);
         }
         let Some(open) = pulls.iter().find(|p| p.state == State::Open) else {
-            return Err(format!(
+            return Err(NotMerged::Failed(format!(
                 "the branch {name} has no open pull request on GitHub: the check opens it, and the merge merges it"
-            ));
+            )));
         };
         if open.base != *main {
-            return Err(format!(
+            return Err(NotMerged::Failed(format!(
                 "the pull request {} goes into {}, not into {main}",
                 open.url, open.base
-            ));
+            )));
         }
         if open.head != checked {
-            return Err(format!(
+            return Err(NotMerged::Failed(format!(
                 "the pull request {} is at {}, not at {checked}, the commit the check passed: the work is checked \
                  again before it merges",
                 open.url, open.head
-            ));
+            )));
         }
         let now = self.main().await?;
         let holds = git::said(&self.project.repo, &["merge-base", "--is-ancestor", &now, checked]).await?;
         if !holds.ok {
-            return Err(super::moved(main, &now, checked));
+            return Err(NotMerged::Moved {
+                main: now,
+                checked: checked.to_string(),
+            });
         }
         if open.draft {
             (self.api.ready(&open.node).await)
                 .map_err(|why| format!("GitHub did not make the pull request {} ready: {why}", open.url))?;
         }
-        let commit = (self.api.merge(open.number, checked, &self.config.merge_method).await)
-            .map_err(|why| format!("GitHub did not merge the pull request {}: {why}", open.url))?;
+        let commit = match self.api.merge(open.number, checked, &self.config.merge_method).await {
+            Ok(commit) => commit,
+            // GitHub's own word that main moved as it was to merge.
+            Err(why) if why.contains(BASE_MODIFIED) => {
+                let main = self.main().await?;
+                return Err(NotMerged::Moved {
+                    main,
+                    checked: checked.to_string(),
+                });
+            }
+            Err(why) => {
+                let why = format!("GitHub did not merge the pull request {}: {why}", open.url);
+                return Err(NotMerged::Failed(why));
+            }
+        };
         self.delete(branch).await?;
         Ok(commit)
     }
