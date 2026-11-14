@@ -19,11 +19,15 @@ branch.
 Hand in `tests`, and what stays red or stays suspect in `testing`.
 '''
 when = { needs_testing = "yes" }
-triggered_by = ["on_code", "on_acceptance", "on_reply_testing"]
+# Run when the review asks for it, and again when the implementation answers its red tests, not on every version of
+# the code: run on each, it found nothing in half its runs.
+triggered_by = ["on_needs_testing", "on_acceptance", "on_reply_testing"]
 context = [
   "background",
+  "needs_testing",
   "plan_agent",
   "code",
+  "evidence",
   "acceptance",
   "reply_testing",
   "tests",
@@ -37,6 +41,9 @@ on_reply_testing = """Run your tests on the new commit: accept each answer in `r
 
 # `all` for a record, `last_and_latest` where the cell works from what changed, `latest` for the rest.
 [kinds]
+needs_testing = "latest"
+# The tests the implementation removed, skipped or weakened, each judged by whether what it checked is still checked.
+evidence = "latest"
 tests = "latest"
 background = "latest"
 plan_agent = "latest"
