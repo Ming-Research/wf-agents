@@ -99,6 +99,66 @@ pub struct Agents {
     pub commits: Commits,
     /// What the engine itself asks the owner: `agents/asks.toml`.
     pub asks: Asks,
+    /// What the engine says as it guards what rounds cost and keeps their sessions' caches: `agents/cost.toml`.
+    pub cost: Cost,
+}
+
+/// `agents/cost.toml`: what the engine says as it guards what the agents' rounds cost and keeps their sessions' prompt
+/// caches.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Cost {
+    pub ping: PingWords,
+    pub guard: GuardWords,
+    pub work: WorkWords,
+}
+
+/// What a keep-warm ping sends, and why one failed.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PingWords {
+    /// The whole message it sends.
+    pub message: String,
+    pub under_way: String,
+    pub no_round: String,
+    pub no_system: String,
+    pub stopped: String,
+    pub exited: String,
+}
+
+/// Where a line the run guard judges by comes from, by the scope of its history.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScopeWords {
+    pub cell: String,
+    pub flow: String,
+    pub works: String,
+    pub line: String,
+}
+
+/// Why the run guard stopped a round.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GuardWords {
+    pub growth: String,
+    pub jump: String,
+    pub again: String,
+    pub from: String,
+    pub scope: ScopeWords,
+    pub tool: String,
+    pub between: String,
+    pub no_tools: String,
+}
+
+/// Why the engine paused a work whose spend or time is past the line of the flow's other works.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkWords {
+    pub spent: String,
+    pub time: String,
+    pub started: String,
+    pub let_on: String,
+    pub between: String,
 }
 
 impl Agents {
@@ -1114,6 +1174,7 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         acts: writes.acts,
         commits: writes.commits,
         asks: asks(&at.join(ASKS_FILE))?,
+        cost: file(&at.join("cost.toml"))?,
     })
 }
 

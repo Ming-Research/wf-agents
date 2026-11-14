@@ -1,6 +1,7 @@
 //! When a line goes on in its session and when it begins a new one, with the command line: the context a round ended
-//! with, past the limit, has the line's next round begin a session of its own id; a compaction is counted and given
-//! the round's whole message again; and the sessions are recorded with why they began.
+//! with, past the limit, the installation's or the lower one its line's history gives, has the line's next round begin
+//! a session of its own id; a compaction is counted and given the round's whole message again; and the sessions are
+//! recorded with why they began.
 
 use service::Act;
 use work::Why;
@@ -41,6 +42,41 @@ async fn a_round_ending_past_the_context_limit_has_the_lines_next_round_begin_a_
     // A new session costs what the command line says it cost, the earlier session's rounds being no part of it.
     let build_run = real.run_of(work, "build");
     assert_eq!(kept.spent[&(build_run, 1)].usd_micros, 10_000);
+}
+
+#[tokio::test]
+async fn a_round_ending_past_what_its_lines_other_sessions_ended_with_has_the_lines_next_round_begin_a_new_session() {
+    // The first work's rounds each end with 100,000 tokens; the second's build with 600,000.
+    let fake = Fake {
+        contexts: &[100_000, 100_000, 100_000, 100_000, 600_000, 100_000],
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    real.settings.history.samples = 2;
+    real.restart();
+    let first = real.add().await;
+    real.act(first, Act::Resume);
+    real.until(|real| ended(&real.decision(first))).await;
+    let second = real.add().await;
+    real.act(second, Act::Resume);
+    real.until(|real| ended(&real.decision(second))).await;
+    // The first work's line ran in one session, with no history of another to judge it by.
+    assert!(real.work(first).sessions.is_empty(), "{:?}", real.work(first).sessions);
+    // The second's build ended past the line its line's rounds in the first work give, 100,000 tokens, below the
+    // installation's limit: the line begins a new session, its own earlier round being no part of what judged it.
+    let limit = Why::Limit {
+        context: 600_000,
+        limit: 100_000,
+    };
+    let kept = real.work(second);
+    let engineer: Vec<&Why> = (kept.sessions.iter())
+        .filter(|s| s.line == "engineer")
+        .map(|s| &s.why)
+        .collect();
+    assert_eq!(engineer, [&limit]);
+    // Each round's calls were recorded, its program having said it took its message in.
+    let measured = &kept.measured;
+    assert!(!measured.is_empty() && measured.iter().all(|m| m.measures.received && m.measures.calls == 1));
 }
 
 #[tokio::test]

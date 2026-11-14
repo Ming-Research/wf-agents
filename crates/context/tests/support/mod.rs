@@ -405,6 +405,28 @@ impl Sim {
         self.take(Event::Resumed);
     }
 
+    /// The round failed for a cause of this kind, having taken nothing, its program having said, or not, as its stream
+    /// began, that it had taken its message in.
+    pub fn fails_as(&mut self, round: &Given, failure: decide::run::Failure, received: bool) {
+        // What its program's stream said before it failed: that it had taken its message in, or nothing.
+        let measures = work::Measures {
+            received,
+            ..work::Measures::default()
+        };
+        self.take(Event::Measured {
+            run: round.run,
+            attempt: 1,
+            measures,
+        });
+        self.take(Event::Failed {
+            run: round.run,
+            why: "it failed".to_string(),
+            failure,
+            resets: None,
+            spent: Spent::default(),
+        });
+    }
+
     /// The line begins a new session, for this reason.
     pub fn anew(&mut self, line: &str, why: Why) {
         self.take(Event::Anew {

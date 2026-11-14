@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use driver::Policy;
+use driver::{Policy, Warm};
 use flow::CellSpec;
 use serde::{Deserialize, Serialize};
 use service::{Levels, LevelsFault};
@@ -34,9 +34,12 @@ pub struct Settings {
     /// Where the copies of the database are kept off the machine, and how many are kept; with none, the copies stay
     /// on the machine alone, which shares the disk they are kept against losing.
     pub backup: Option<Backup>,
-    /// When a line of a work begins a new session.
+    /// How a line's session is kept: its program's prompt cache, and the pings that keep it warm while the line waits.
     #[serde(default)]
     pub sessions: Sessions,
+    /// What a measured quantity is judged by: the history of its own kind.
+    #[serde(default)]
+    pub history: History,
     /// Whether the store is open to the agents' tool `query`, and its bounds.
     #[serde(default)]
     pub query: Query,
@@ -168,20 +171,39 @@ impl Backup {
     }
 }
 
-/// When a line of a work begins a new session, beyond its first, a lost one, and one the owner asks for.
+/// How a line's session is kept between its rounds. A session whose context, as a round of its line ends, is past the
+/// lower of the line its line's history gives (`history`) and `context_limit` is replaced at the line's next round, and
+/// so is one on another model or account.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sessions {
-    /// The context in tokens past which a line's session is replaced by a new one: once a round of the line ends with
-    /// more, the line's next round begins a new session.
+    /// The most context a line's session holds as a round of it ends, in tokens, before the line begins a new session:
+    /// the limit where the line's history is too short to give one, and above it the line's history only lowers it.
     #[serde(default = "context_limit")]
     pub context_limit: u64,
+    /// How long the agents' program keeps a session in its prompt cache after its last call, in minutes: an hour for
+    /// `claude`, whose usage says every write to the cache is one kept an hour (`ephemeral_1h_input_tokens`); 0 for a
+    /// program that keeps none, whose sessions are not kept warm. How many keep-warm pings a wait is worth is not set
+    /// here: it follows from the prices of the session's model.
+    #[serde(default = "cache_minutes")]
+    pub cache_minutes: u64,
+    /// How long after a session's last call a line that waits has it sent a keep-warm ping, in minutes: five before the
+    /// cache lets it go, time for the ping and four tries again a minute apart.
+    #[serde(default = "warm_minutes")]
+    pub warm_minutes: u64,
+    /// Whether the sessions of works are kept warm while the owner holds everything: a session waits out the pause
+    /// warm, at a ping an hour, and is not written again whole when the owner lets everything on.
+    #[serde(default = "warm_while_paused")]
+    pub warm_while_paused: bool,
 }
 
 impl Default for Sessions {
     fn default() -> Self {
         Sessions {
             context_limit: context_limit(),
+            cache_minutes: cache_minutes(),
+            warm_minutes: warm_minutes(),
+            warm_while_paused: warm_while_paused(),
         }
     }
 }
@@ -189,6 +211,42 @@ impl Default for Sessions {
 fn context_limit() -> u64 {
     500_000
 }
+
+fn cache_minutes() -> u64 {
+    60
+}
+
+fn warm_minutes() -> u64 {
+    55
+}
+
+fn warm_while_paused() -> bool {
+    true
+}
+
+/// What a measured quantity is judged by: the history of its own kind, never a number set by hand (principle
+/// `judged-by-own-history`).
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct History {
+    /// How many values a history needs at least before it gives a line: 19, of which a value of the same kind is the
+    /// largest one time in twenty, so that a line from fewer would stand on too little.
+    #[serde(default = "samples")]
+    pub samples: usize,
+}
+
+impl Default for History {
+    fn default() -> Self {
+        History { samples: samples() }
+    }
+}
+
+fn samples() -> usize {
+    19
+}
+
+/// A minute, in milliseconds.
+const MINUTE: u64 = 60_000;
 
 /// A project whose works are done: a local git repository, its main branch, the command that checks it, and where it is
 /// hosted.
@@ -644,8 +702,18 @@ impl Settings {
         {
             wrong.push("agents.work_budget_usd: a budget is a number of dollars, none below nothing".to_string());
         }
-        if settings.sessions.context_limit == 0 {
+        let sessions = &settings.sessions;
+        if sessions.context_limit == 0 {
             wrong.push("sessions.context_limit: a session may hold some context".to_string());
+        }
+        if sessions.cache_minutes > 0 && sessions.warm_minutes >= sessions.cache_minutes {
+            wrong.push(
+                "sessions.warm_minutes: a session is pinged before the cache lets it go, within sessions.cache_minutes"
+                    .to_string(),
+            );
+        }
+        if settings.history.samples == 0 {
+            wrong.push("history.samples: a line is worked out from at least one value".to_string());
         }
         if settings.projects.is_empty() {
             wrong.push(
@@ -752,14 +820,31 @@ impl Settings {
         })
     }
 
-    /// When a line begins a new session: past the context limit, and where the model or the account its session's
-    /// rounds ran on is not the one its rounds run on now.
+    /// When a line begins a new session, where the model or the account its session's rounds ran on is not the one its
+    /// rounds run on now, and past the limit of its context; and how its sessions are kept warm while it waits.
     pub fn policy(&self) -> Policy {
         let settings = self.clone();
+        let sessions = &self.sessions;
+        let warm = self.cache_ms().map(|life_ms| Warm {
+            life_ms,
+            after_ms: sessions.warm_minutes.saturating_mul(MINUTE),
+            most: (self.agents.levels.values())
+                .filter_map(|level| Some((level.model.clone(), crate::cost::pings_worth(&level.model)?)))
+                .collect(),
+            while_paused: sessions.warm_while_paused,
+        });
         Policy {
-            limit: self.sessions.context_limit,
+            samples: self.history.samples,
+            limit: sessions.context_limit,
             on: Box::new(move |item, cell| settings.ran_on(item.level.as_deref(), cell).ok()),
+            warm,
         }
+    }
+
+    /// How long the agents' program keeps a session in its prompt cache after its last call, in milliseconds; none
+    /// where it keeps none.
+    pub fn cache_ms(&self) -> Option<u64> {
+        (self.sessions.cache_minutes > 0).then(|| self.sessions.cache_minutes.saturating_mul(MINUTE))
     }
 
     /// The value of the setting this key names, its parts joined by dots, as an agent is given it beside the key: a
@@ -811,23 +896,61 @@ mod tests {
         );
         assert_eq!(settings.agents.setting_sources, "user");
         assert!(settings.agents.env.is_empty());
-        assert_eq!(settings.sessions.context_limit, 500_000);
+        assert_eq!(settings.sessions, Sessions::default());
+        assert_eq!(settings.history.samples, 19);
     }
 
     #[test]
-    fn a_session_is_given_a_context_limit_of_500000_tokens_where_none_is_set() {
+    fn a_session_is_kept_warm_from_55_minutes_after_its_last_call_to_the_hour_as_often_as_its_models_prices_make_worth()
+    {
+        let without = SAMPLE
+            .replace("cache_minutes = 60\n", "")
+            .replace("warm_minutes = 55\n", "");
+        let without = without.replace("warm_while_paused = true\n", "");
+        assert_ne!(without, SAMPLE, "the sample sets them");
+        let settings = Settings::read(&without).expect("it reads without");
+        let warm = settings.policy().warm.expect("kept warm");
+        assert_eq!(
+            (warm.life_ms, warm.after_ms, warm.while_paused),
+            (3_600_000, 3_300_000, true)
+        );
+        // The sample's levels run on Haiku, Sonnet and Opus 5.5 and on Fable 5.1.
+        let most: Vec<(&str, u32)> = warm.most.iter().map(|(m, n)| (m.as_str(), *n)).collect();
+        assert_eq!(
+            most,
+            [
+                ("claude-fable-5-1", 79),
+                ("claude-haiku-5-5", 19),
+                ("claude-opus-5-5", 39),
+                ("claude-sonnet-5-5", 39)
+            ]
+        );
+        let none = Settings::read(&SAMPLE.replace("cache_minutes = 60", "cache_minutes = 0")).unwrap();
+        assert_eq!(none.policy().warm, None, "a program that keeps no cache");
+        let late = SAMPLE.replace("warm_minutes = 55", "warm_minutes = 60");
+        assert!(
+            Settings::read(&late)
+                .expect_err("refused")
+                .contains("sessions.warm_minutes")
+        );
+    }
+
+    #[test]
+    fn a_session_is_given_a_context_limit_of_500000_tokens_where_none_is_set_and_a_history_of_nothing_is_refused() {
         let without = SAMPLE.replace("context_limit = 500000\n", "");
         assert_ne!(without, SAMPLE, "the sample sets it");
         let settings = Settings::read(&without).expect("it reads without");
         assert_eq!(settings.policy().limit, 500_000);
         let set = Settings::read(&SAMPLE.replace("context_limit = 500000", "context_limit = 200000")).unwrap();
         assert_eq!(set.policy().limit, 200_000);
-        let none = SAMPLE.replace("context_limit = 500000", "context_limit = 0");
+        let nothing = SAMPLE.replace("context_limit = 500000", "context_limit = 0");
         assert!(
-            Settings::read(&none)
+            Settings::read(&nothing)
                 .expect_err("refused")
                 .contains("sessions.context_limit")
         );
+        let none = SAMPLE.replace("samples = 19", "samples = 0");
+        assert!(Settings::read(&none).expect_err("refused").contains("history.samples"));
     }
 
     #[test]

@@ -2,9 +2,9 @@
 
 What a round of an agent's cell is sent as the cell is entered, and what its session holds.
 
-### decision a-fill-counts-where-its-round-reached-the-model
-What a try's message fills is recorded before its program is given the message, and a session holds it only where the round reached the model, as the tokens the round took say.
-Why: Recorded after the try, a try cut off or an engine stopped during it would leave the record short of what the session holds; a round that never reached the model put nothing into the session, which is also how whether a round begins its session is counted.
+### decision a-fill-counts-where-its-program-had-the-message
+What a try's message fills is recorded before its program is given the message, and a session holds it only where the round reached the model, as the tokens the round took say, or its last try's program said, as its stream began, that it had taken its message in. What the round failed of says nothing of this. Whether a round begins its session is counted the same way.
+Why: Recorded after the try, a try cut off or an engine stopped during it would leave the record short of what the session holds. The program writes the message into the session before it calls the service (decision `no-round-tries-the-network`), so a round tried again after it would put a second copy there; but a crash before the program read its input fails in passing as one after does, and a message referred to and lacking leaves the agent without it, which costs more than tokens.
 
 ### decision a-compaction-empties-the-session-at-its-round
 A session compacted during a round holds, for the rounds after it, only what that round handed in: from where the compaction is recorded as the session reopened (decision a-compaction-reopens-the-session-under-its-id), the message the compaction's hook gives the session again within the round not counted as held.
@@ -30,9 +30,9 @@ Why: A version is put into a round as it begins, as one its return would have wr
 Where a return was sent back for writing over a version it never saw, of a block the cell is not given, that version is given with why, in the words a datum given `latest` is given in; of a block the cell is given, the datum's own kind gives it.
 Why: With no tool to read the blocks, nothing else shows the agent what it is to write over.
 
-### decision last-and-latest-whole-where-the-version-worked-from-is-lacking
-A datum given `last_and_latest` whose latest the session holds, and not the version the cell last worked from, while what is newer is new to the cell, is sent whole, as `given.toml` says where the session lacks that version.
-Why: The line of a datum held names the version last worked from, which the agent cannot see in such a session, so the change since it would stay unseen.
+### decision a-version-is-held-by-what-it-is
+A version is held by what it is, never by its content, so a new version that says what an earlier one said is given; a latest version the session holds is given by `held`'s line, though the session lacks the version the cell last worked from.
+Why: Holding by content swallowed what was new: the owner saying the same twice, or a datum changed back, would not be given, while the cell was told of a version it never saw. Giving the latest whole where the version last worked from is lacking was turned down: the change since it is unseen either way, and the session holds every word.
 
 ### decision the-situations-written-stand-data-by-class
 `wf-agents flow situations` writes each situation an entry of a cell can be in with the data in two classes, each standing alike, those of the triggers that ran the cell and the rest, and counts every combination of each datum's own state without writing it.

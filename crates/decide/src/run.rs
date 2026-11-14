@@ -14,8 +14,9 @@
 //! Whatever carried it out tells the cause apart ([`Failure`]), and each kind is handled its own way. A failure in
 //! passing is tried again, after a wait that grows each time, as a call of the run that the engine makes; so many in a
 //! row and the next pauses the work ([`pausing`]). A return that could not be read is sent back, as any return that
-//! does not meet what the flow requires. A round the service's safety check flagged is tried again, in a new session of
-//! its line, and the second in a row pauses the work. A cause every work shares (the account's usage limit, a command
+//! does not meet what the flow requires. A round the service's safety check flagged, and one the run guard stopped for a
+//! context its cell's history does not explain, is tried again in a new session of its line, and the second of the same
+//! kind in a row pauses the work. A cause every work shares (the account's usage limit, a command
 //! line that cannot run, no network) holds the agents' rounds of every work, which is no matter of one run's: the run
 //! only has its next round once they may begin again. Any other failure pauses the work as the round fails, so that the
 //! owner sees the cause first. Once the work is let on, the run has its next round, given what the failed round was
@@ -79,6 +80,9 @@ pub enum Failure {
     /// The service's safety check flagged the round, stopping it or refusing its message. It is tried again in a new
     /// session of its line, which does not give the check the same context again.
     Flagged,
+    /// The run guard stopped the round: its context grew past what its cell's history explains. It is tried again in a
+    /// new session of its line, since the same session would give the next round the same context.
+    Guarded,
     /// The account's usage limit was reached: no agent round of any work begins until it resets.
     UsageLimit,
     /// The agents' command line cannot run at all: its sign-in has expired, or the program is missing. Only the owner
@@ -114,6 +118,8 @@ pub enum Pausing {
     Passing { failed: u32 },
     /// The round was flagged once more, in the new session its line was given for the time before.
     FlaggedAgain,
+    /// The run guard stopped the round once more, in the new session its line was given for the time before.
+    GuardedAgain,
 }
 
 /// A round of a run.
@@ -393,9 +399,10 @@ pub fn next(log: &Log, requires: Requires, hold: Hold) -> Step {
             }
             return Step::Rest { calls: open };
         }
-        // Any other failure is no return sent back and makes no call: it counts against no limit. A flagged round is
-        // tried in a new session of its line, which whatever carries it out begins; one whose cause every work
-        // shares has its next round once agents' rounds may begin again; one that paused the work, once it is let on.
+        // Any other failure is no return sent back and makes no call: it counts against no limit. A flagged round, and
+        // one the run guard stopped, is tried in a new session of its line, which whatever carries it out begins; one
+        // whose cause every work shares has its next round once agents' rounds may begin again; one that paused the
+        // work, once it is let on.
         Return::Failed { .. } => return held(Step::Retry, hold),
         Return::Came {
             dealt_with,
@@ -466,9 +473,9 @@ fn passing_in_a_row(log: &Log) -> u32 {
 
 /// Why the engine pauses the work as the run's last round fails, if it does: the failure is of a kind running again
 /// cannot help; or it is in passing, and more of the run's last rounds in a row failed so than are tried again
-/// ([`PASSING`]); or the round was flagged, and so was another of the run's last rounds in a row, whatever failed
-/// between them, the first having had its line's session begun anew. Any other failure the run takes up itself
-/// ([`next`]). The failures in a row start anew where the owner let the work on.
+/// ([`PASSING`]); or the round was flagged, or the run guard stopped it, and another of the run's last rounds in a row
+/// failed so, whatever failed between them, the first having had its line's session begun anew. Any other failure the
+/// run takes up itself ([`next`]). The failures in a row start anew where the owner let the work on.
 pub fn pausing(log: &Log) -> Option<Pausing> {
     let mut row = failures_in_a_row(log);
     match row.next()? {
@@ -478,6 +485,7 @@ pub fn pausing(log: &Log) -> Option<Pausing> {
             (failed > PASSING).then_some(Pausing::Passing { failed })
         }
         Failure::Flagged => row.any(|f| f == Failure::Flagged).then_some(Pausing::FlaggedAgain),
+        Failure::Guarded => row.any(|f| f == Failure::Guarded).then_some(Pausing::GuardedAgain),
         Failure::Unread | Failure::UsageLimit | Failure::CannotRun | Failure::Offline => None,
     }
 }

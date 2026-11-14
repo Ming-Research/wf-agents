@@ -11,6 +11,7 @@ use driver::{FirstWrite, NewItem, SESSION};
 use engine::RanOn;
 use engine::{Ask, Handed, Session, Why};
 use flow::{Compiled, Has};
+use work::Measures;
 use work::sessions::of_round;
 
 use super::*;
@@ -40,7 +41,7 @@ fn flow() -> Compiled {
         shown = true
         [blocks.session]
         outside = "session"
-        writes = { text = "A new session of the line `{line}`: {why}.", limit = "its context was {context} tokens as its last round ended, past the limit of {limit}", model = "its rounds now run on another model than {was}, which it was begun on", account = "its rounds now run under another account than it was begun under", owner = "the owner asked for one", flagged = "the service's safety check flagged its last round", lost = "the agents' program no longer had the session it was in", compacted = "The session of the line `{line}` was compacted: it holds only a summary of what it read." }
+        writes = { text = "A new session of the line `{line}`: {why}.", limit = "its context was {context} tokens as its last round ended, past the limit of {limit} for its line", model = "its rounds now run on another model than {was}, which it was begun on", account = "its rounds now run under another account than it was begun under", owner = "the owner asked for one", flagged = "the service's safety check flagged its last round", guarded = "the run guard stopped its last round", too_long = "its last round's prompt was too long", lost = "the agents' program no longer had the session it was in", compacted = "The session of the line `{line}` was compacted: it holds only a summary of what it read." }
         [blocks.tree]
         outside = "tree"
         shown = true
@@ -171,12 +172,15 @@ fn reopened(s: &mut S, policy: Policy) -> Vec<Todo> {
     todos
 }
 
-/// The policy where every round runs on this model, with a limit of 500 tokens.
+/// The policy where every round runs on this model, a history of one value giving a line, a limit of 500 tokens, and
+/// no session kept warm.
 fn policy(model: &str) -> Policy {
     let model = model.to_string();
     Policy {
+        samples: 1,
         limit: 500,
         on: Box::new(move |_, _| Some(on(&model))),
+        warm: None,
     }
 }
 
@@ -188,11 +192,14 @@ fn account(dir: Option<&str>) -> Account {
     Arc::new(Mutex::new(dir.map(str::to_string)))
 }
 
-/// The policy where every round runs on this model, under the account as it is when asked, with a limit of 500 tokens.
+/// The policy where every round runs on this model, under the account as it is when asked, a history of one value
+/// giving a line.
 fn policy_under(model: &str, account: Account) -> Policy {
     let model = model.to_string();
     Policy {
+        samples: 1,
         limit: 500,
+        warm: None,
         on: Box::new(move |_, _| {
             Some(RanOn {
                 account: account.lock().unwrap().clone(),
@@ -236,6 +243,60 @@ impl S {
             Time(START),
         )
         .unwrap();
+        // A work before, whose one round, of the line `engineer`, said what its calls came to and failed with a
+        // context of 500 tokens, pausing it: the line's history, whose one value gives a limit of 500 tokens. It
+        // took no tokens, so that its session is not kept warm. The rounds of the work the tests run
+        // say nothing of their calls, and so add nothing to it.
+        let earlier = NewItem {
+            title: "Before".to_string(),
+            level: "1".to_string(),
+            project: PROJECT.to_string(),
+            tags: Vec::new(),
+            depends_on: Vec::new(),
+            flow: "sessions".to_string(),
+            writes: vec![FirstWrite {
+                block: "request".into(),
+                content: "Greet the user.".to_string(),
+                value: None,
+            }],
+        };
+        let (_, before, _) = driver.add(Time(START), earlier).unwrap();
+        let todos = driver.happened(Time(START), before, Event::Resumed).unwrap();
+        let run = (todos.iter())
+            .find_map(|t| match &t.effect {
+                Effect::Round { run, .. } if t.work == before => Some(*run),
+                _ => None,
+            })
+            .expect("the earlier work's first round");
+        let measures = Measures {
+            calls: 1,
+            ..Measures::default()
+        };
+        let events = [
+            Event::Ran {
+                run,
+                attempt: 1,
+                on: on("opus"),
+            },
+            Event::Measured {
+                run,
+                attempt: 1,
+                measures,
+            },
+            Event::Failed {
+                run,
+                why: "the agent could not go on".to_string(),
+                failure: decide::run::Failure::Other,
+                resets: None,
+                spent: Spent {
+                    context_tokens: Some(500),
+                    ..Default::default()
+                },
+            },
+        ];
+        for event in events {
+            driver.happened(Time(START), before, event).unwrap();
+        }
         let new = NewItem {
             title: "Greet".to_string(),
             level: "1".to_string(),
@@ -277,7 +338,7 @@ impl S {
     fn round(&self) -> (RunId, String) {
         (self.driver.pending().into_iter())
             .find_map(|todo| match todo.effect {
-                Effect::Round { run, cell, .. } => Some((run, cell.0)),
+                Effect::Round { run, cell, .. } if todo.work == self.work => Some((run, cell.0)),
                 _ => None,
             })
             .expect("a round is under way")
@@ -976,7 +1037,9 @@ fn a_compaction_within_a_round_of_the_cell_that_loads_the_session_has_it_run_no_
 fn a_model_the_service_does_not_have_pauses_every_work_whose_rounds_run_on_it() {
     // Level 1 runs on opus, which the service does not have; level 2 on sonnet.
     let by_level = Policy {
+        samples: 1,
         limit: 500,
+        warm: None,
         on: Box::new(|item, _| {
             let model = if item.level.as_deref() == Some("2") {
                 "sonnet"
@@ -1029,4 +1092,500 @@ fn a_model_the_service_does_not_have_pauses_every_work_whose_rounds_run_on_it() 
         why.contains("opus") && why.contains(&format!("work {}", s.work.0)),
         "{why}"
     );
+}
+#[test]
+fn a_line_whose_history_is_too_short_to_give_a_line_is_limited_by_the_policy() {
+    let mut s = S::with(
+        Policy {
+            samples: 2,
+            ..policy("opus")
+        },
+        None,
+    );
+    s.hands_in(100, true);
+    s.hands_in(5_000, true);
+    let limit = Why::Limit {
+        context: 5_000,
+        limit: 500,
+    };
+    assert_eq!(
+        s.sessions(),
+        [("engineer".to_string(), limit)],
+        "one value of the line's history gives no line, and the policy's limit stands"
+    );
+}
+
+// The line of a line's history lowers its limit, never raises it past the policy's: a history that came near the
+// model's window gives a line past it.
+#[test]
+fn a_line_is_limited_by_the_lower_of_its_historys_line_and_the_policys_limit() {
+    for (most, context, limit) in [(300, 400, 300), (1_000, 600, 500)] {
+        let mut s = S::with(
+            Policy {
+                limit: most,
+                ..policy("opus")
+            },
+            None,
+        );
+        s.hands_in(100, true);
+        s.hands_in(context, true);
+        assert_eq!(
+            s.sessions(),
+            [("engineer".to_string(), Why::Limit { context, limit })],
+            "the history's line is 500 tokens, the policy's limit {most}"
+        );
+    }
+}
+
+// Every round of a session replaced for its size is left out of the history, not only its last: what the session held
+// on its way there is no measure of what is usual either.
+#[test]
+fn every_round_of_a_session_replaced_for_its_size_is_left_out_of_the_history() {
+    let mut s = S::new();
+    measured(&mut s, 0, "a");
+    s.hands_in(100, true);
+    measured(&mut s, 100, "a");
+    s.hands_in(600, true);
+    assert!(matches!(s.sessions().last(), Some((_, Why::Limit { .. }))));
+    // The load runs again in the new session.
+    measured(&mut s, 0, "a");
+    s.hands_in(100, false);
+    let cut: Vec<bool> = s.driver.history("sessions").iter().map(|sample| sample.cut).collect();
+    assert_eq!(
+        cut,
+        [false, true, true, false],
+        "the work before's round, the two of the session replaced, and the round of the new one"
+    );
+}
+
+#[test]
+fn a_round_the_run_guard_stopped_is_tried_again_in_a_new_session_and_a_second_pauses_the_work() {
+    let mut s = S::new();
+    s.hands_in(100, true);
+    let (build, cell) = s.round();
+    assert_eq!(cell, "build");
+    let guarded = |s: &mut S, run| {
+        s.began();
+        s.on(Event::Failed {
+            run,
+            why: "the run guard stopped the round".to_string(),
+            failure: decide::run::Failure::Guarded,
+            resets: None,
+            spent: Spent::default(),
+        });
+    };
+    guarded(&mut s, build);
+    assert_eq!(s.sessions(), [("engineer".to_string(), Why::Guarded)]);
+    // The loading cell runs first in the new session, and the build is tried again after it, in that session.
+    let (load, cell) = s.round();
+    assert_eq!(cell, "load");
+    assert_eq!(s.engineer(load, 1), (1, true));
+    s.hands_in(100, false);
+    let (again, _) = s.round();
+    assert_eq!(again, build);
+    assert!(!decide::paused(&s.kept().records));
+    guarded(&mut s, build);
+    assert!(
+        decide::paused(&s.kept().records),
+        "stopped again, the work waits for the owner"
+    );
+}
+
+/// The policy where every round runs on this model, and a line that waits has its session pinged 55 minutes after its
+/// last call, of an hour the cache keeps it, at most twice in a wait.
+fn warm(model: &str) -> Policy {
+    Policy {
+        warm: Some(driver::Warm {
+            life_ms: 3_600_000,
+            after_ms: 3_300_000,
+            most: [(model.to_string(), 2)].into(),
+            while_paused: false,
+        }),
+        ..policy(model)
+    }
+}
+
+/// The pings of the work the driver gives in these todos.
+fn pings(s: &S, todos: &[Todo]) -> Vec<(String, u32)> {
+    (todos.iter())
+        .filter(|t| t.work == s.work)
+        .filter_map(|t| match &t.effect {
+            Effect::Ping { line, session } => Some((line.clone(), *session)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// When the work's next ping is due, which is when the driver is to be told the time next.
+fn woken(s: &S) -> u64 {
+    let at = kept_warm(s).first().expect("a session kept warm").at.0;
+    let wake = s.driver.wake().expect("the driver waits for a time").at.0;
+    assert_eq!(wake, at, "the driver wakes as the work's next ping is due");
+    at
+}
+
+/// A ping of the session of the line `engineer` ended, having taken this, or failed.
+fn pinged(spent: Spent, failed: Option<&str>) -> Event {
+    Event::Pinged {
+        line: "engineer".to_string(),
+        session: 0,
+        spent,
+        failed: failed.map(str::to_string),
+    }
+}
+
+/// The sessions of the work's lines that are kept warm, as the policy keeps them.
+fn kept_warm(s: &S) -> Vec<driver::warm::Kept> {
+    let held = s.driver.work(s.work).expect("the work");
+    driver::warm::kept(
+        held.flow,
+        held.work,
+        held.item,
+        &warm("opus"),
+        &Default::default(),
+        Time(s.clock),
+    )
+}
+
+#[test]
+fn a_line_that_waits_has_its_session_pinged_before_the_cache_lets_it_go_as_often_as_a_wait_is_worth() {
+    let mut s = S::with(warm("opus"), None);
+    s.hands_in(100, true);
+    // The build waits on a tool's result: its line's session waits, called last as the build's round ended.
+    s.asks(100);
+    let last = s.clock;
+    let at = woken(&s);
+    assert_eq!(at, last + 3_300_000, "55 minutes after the session's last call");
+    assert!(
+        pings(&s, &s.driver.pending()).is_empty(),
+        "a ping is none of the work's pending acts"
+    );
+    let todos = s.driver.tick(Time(at), None, None).expect("the driver takes the time");
+    assert_eq!(
+        pings(&s, &todos),
+        [("engineer".to_string(), 0)],
+        "the line's session alone, not the review's"
+    );
+    // Under way, it is not given again.
+    let again = s.driver.tick(Time(at + 1), None, None).unwrap();
+    assert!(pings(&s, &again).is_empty(), "given twice");
+    // Ended, it is the session's last call: the next is due 55 minutes after it.
+    s.clock = at + 5_000;
+    let read = Spent {
+        cached_tokens: 100,
+        context_tokens: Some(120),
+        ..Default::default()
+    };
+    s.driver.happened(Time(s.clock), s.work, pinged(read, None)).unwrap();
+    assert_eq!(s.kept().pinged.len(), 1);
+    let next = woken(&s);
+    assert_eq!(next, s.clock + 3_300_000);
+    let todos = s.driver.tick(Time(next), None, None).unwrap();
+    assert_eq!(pings(&s, &todos).len(), 1);
+    s.clock = next + 2_000;
+    s.driver.happened(Time(s.clock), s.work, pinged(read, None)).unwrap();
+    // Two pings were sent in the wait, as many as it is worth: the line's session is pinged no more.
+    assert!(kept_warm(&s).is_empty(), "no more pings in this wait");
+}
+
+#[test]
+fn a_ping_that_failed_is_tried_again_a_minute_after_and_none_past_the_caches_life() {
+    let mut s = S::with(warm("opus"), None);
+    s.hands_in(100, true);
+    s.asks(100);
+    let at = woken(&s);
+    s.driver.tick(Time(at), None, None).unwrap();
+    s.clock = at + 1_000;
+    let failed = pinged(Spent::default(), Some("no network"));
+    s.driver.happened(Time(s.clock), s.work, failed).unwrap();
+    let kept = kept_warm(&s);
+    assert_eq!(kept.len(), 1);
+    assert_eq!(
+        kept[0].at.0,
+        s.clock + driver::warm::RETRY_MS,
+        "a minute after the failure"
+    );
+    // Past the cache's life no ping is due: it would write the session whole again, for nothing.
+    let held = s.driver.work(s.work).unwrap();
+    let late = driver::warm::due(
+        held.flow,
+        held.work,
+        held.item,
+        &warm("opus"),
+        &Default::default(),
+        kept[0].life,
+    );
+    assert!(late.is_empty());
+}
+
+#[test]
+fn a_session_a_ping_compacted_counts_as_reopened() {
+    let mut s = S::with(warm("opus"), None);
+    s.hands_in(100, true);
+    s.asks(100);
+    let at = woken(&s);
+    s.driver.tick(Time(at), None, None).unwrap();
+    s.clock = at + 1_000;
+    let compacted = Spent {
+        compactions: 1,
+        ..Default::default()
+    };
+    s.driver
+        .happened(Time(s.clock), s.work, pinged(compacted, None))
+        .unwrap();
+    assert_eq!(s.sessions(), [("engineer".to_string(), Why::Compacted)]);
+}
+
+/// The round under way says what its calls came to: its first call read this from the cache, on this model.
+fn measured(s: &mut S, read: u64, model: &str) {
+    let (run, _) = s.round();
+    let measures = Measures {
+        calls: 1,
+        first_read: Some(read),
+        first_context: Some(read + 10),
+        before: [("model".to_string(), model.to_string())].into(),
+        ..Measures::default()
+    };
+    s.on(Event::Measured {
+        run,
+        attempt: 1,
+        measures,
+    });
+}
+
+#[test]
+fn a_round_that_went_on_in_its_session_within_the_caches_life_and_read_less_than_half_of_it_missed_the_cache() {
+    let mut s = S::with(warm("opus"), None);
+    measured(&mut s, 0, "a");
+    s.hands_in(1_000, true);
+    // The build goes on in the session the load began, at once, and reads a tenth of it: a miss nothing explains.
+    let (build, _) = s.round();
+    measured(&mut s, 100, "a");
+    s.asks(1_000);
+    let misses = s.driver.misses(s.work);
+    assert_eq!(misses.len(), 1, "{misses:?}");
+    let miss = &misses[0];
+    assert_eq!((miss.run, miss.round, miss.read, miss.held), (build, 1, 100, 1_000));
+    assert_eq!(miss.written(), 900);
+    assert!(!miss.expected(), "nothing before the messages differed: a fault");
+    // After the cache's life, its next round writes the session again by design: no miss.
+    s.clock += 2 * 3_600_000;
+    let call = s.kept().records.called.last().expect("the build's call").call;
+    s.on(Event::Done {
+        call,
+        result: "the request".to_string(),
+    });
+    measured(&mut s, 0, "a");
+    s.hands_in(1_000, true);
+    assert_eq!(
+        s.driver.misses(s.work).len(),
+        1,
+        "a round after the cache's life is no miss"
+    );
+}
+
+#[test]
+fn a_miss_after_what_comes_before_the_messages_changed_is_expected_and_a_hit_is_no_miss() {
+    let mut s = S::with(warm("opus"), None);
+    measured(&mut s, 0, "a");
+    s.hands_in(1_000, true);
+    // Read whole from the cache: no miss.
+    measured(&mut s, 990, "a");
+    s.asks(1_000);
+    assert!(s.driver.misses(s.work).is_empty());
+    let call = s.kept().records.called.last().expect("the build's call").call;
+    s.on(Event::Done {
+        call,
+        result: "the request".to_string(),
+    });
+    // On another model, the session is written again by design.
+    measured(&mut s, 0, "b");
+    s.hands_in(1_000, true);
+    let misses = s.driver.misses(s.work);
+    assert_eq!(misses.len(), 1);
+    assert_eq!(misses[0].differs, ["model"]);
+    assert!(misses[0].expected());
+}
+
+#[test]
+fn no_session_is_pinged_while_the_engine_holds_everything_as_it_opened_until_the_owner_lifts_it() {
+    let mut s = S::with(warm("opus"), None);
+    s.hands_in(100, true);
+    s.asks(100);
+    let at = woken(&s);
+    // The engine opens again on the work going on, and holds everything until the owner has seen how things stand.
+    let (driver, _) = Driver::open(
+        Box::new(s.db.open()),
+        vec![s.flow.clone()],
+        SLOTS,
+        Some(warm("opus")),
+        Time(s.clock),
+    )
+    .expect("the driver opens again");
+    s.driver = driver;
+    assert!(
+        s.driver
+            .everything_paused()
+            .is_some_and(|paused| paused.by == Pauser::Engine)
+    );
+    let held = s.driver.tick(Time(at), None, None).unwrap();
+    assert!(pings(&s, &held).is_empty(), "a ping spends before the owner has looked");
+    assert!(s.driver.wake().is_none(), "nothing to wake for while it holds");
+    let lifted = s.driver.pause_everything(Time(at + 1), false).unwrap();
+    let mut todos = lifted;
+    todos.extend(s.driver.tick(Time(at + 2), None, None).unwrap());
+    assert_eq!(pings(&s, &todos), [("engineer".to_string(), 0)]);
+}
+
+#[test]
+fn a_session_whose_cache_let_it_go_unpinged_wakes_the_driver_no_more() {
+    let mut s = S::with(warm("opus"), None);
+    s.hands_in(100, true);
+    s.asks(100);
+    let life = kept_warm(&s)[0].life.0;
+    // The engine was told no time while the cache kept the session: past its life, no ping is due, and the driver is
+    // woken for none, however often it is told the time.
+    for now in [life, life + 1, life + 2] {
+        let todos = s.driver.tick(Time(now), None, None).unwrap();
+        assert!(pings(&s, &todos).is_empty(), "a ping past the cache's life");
+        assert_eq!(s.driver.wake(), None, "woken at {now} for a ping it will not give");
+    }
+}
+
+#[test]
+fn only_the_lines_the_work_can_come_back_to_and_none_while_a_round_of_it_is_under_way_are_kept_warm() {
+    let mut s = S::with(warm("opus"), None);
+    s.hands_in(100, true);
+    s.hands_in(100, true);
+    // The review's round is under way: nothing of the work is pinged, on any line.
+    let (_, cell) = s.round();
+    assert_eq!(cell, "review");
+    s.began();
+    assert!(kept_warm(&s).is_empty(), "a ping beside a round of its work");
+    // The review waits on a tool's result: its line comes back, and the engineer's, which nothing the review writes
+    // runs, does not.
+    let ask = Ask::Tool {
+        name: "read".to_string(),
+        input: "code".to_string(),
+    };
+    s.ends(100, Came::asks(vec![ask]));
+    let lines: Vec<String> = kept_warm(&s).into_iter().map(|k| k.due.line).collect();
+    assert_eq!(lines, ["review"]);
+}
+
+#[test]
+fn no_session_is_pinged_while_the_owner_holds_everything_unless_the_settings_keep_them_warm_then() {
+    for while_paused in [false, true] {
+        let mut policy = warm("opus");
+        if let Some(warm) = &mut policy.warm {
+            warm.while_paused = while_paused;
+        }
+        let mut s = S::with(policy, None);
+        s.hands_in(100, true);
+        s.asks(100);
+        let at = woken(&s);
+        s.driver
+            .pause_everything(Time(s.clock), true)
+            .expect("everything is paused");
+        let todos = s.driver.tick(Time(at), None, None).unwrap();
+        assert_eq!(!pings(&s, &todos).is_empty(), while_paused);
+    }
+}
+
+#[test]
+fn a_ping_that_compacted_the_session_after_the_loading_cells_round_has_that_cell_run_again() {
+    let mut s = S::with(warm("opus"), None);
+    // A person stops the build while the load runs: once the load has handed in, the work rests, its last round the
+    // loading cell's.
+    s.on(Event::Wrote {
+        block: "stop".into(),
+        by: Outsider::Person,
+        content: "Stop.".to_string(),
+        matters: true,
+        value: Some("yes".to_string()),
+    });
+    s.hands_in(100, true);
+    let at = woken(&s);
+    s.driver.tick(Time(at), None, None).unwrap();
+    s.clock = at + 1_000;
+    let compacted = Spent {
+        compactions: 1,
+        ..Default::default()
+    };
+    s.driver
+        .happened(Time(s.clock), s.work, pinged(compacted, None))
+        .unwrap();
+    // The compaction came in no round of the loading cell's: the session it loads holds a summary, and it runs again.
+    assert_eq!(s.sessions(), [("engineer".to_string(), Why::Compacted)]);
+    assert_eq!(s.session_block().len(), 1);
+    let (_, cell) = s.round();
+    assert_eq!(cell, "load");
+}
+
+// A round that would begin while a ping of its work is under way begins once the ping has ended, after what the ping
+// did to its session, so that it is filled as the session then stands: a compaction the ping made comes before it.
+#[test]
+fn a_round_due_while_its_works_ping_is_under_way_begins_after_the_ping_and_what_it_did() {
+    let mut s = S::with(warm("opus"), None);
+    s.hands_in(100, true);
+    s.asks(100);
+    let at = woken(&s);
+    s.driver.tick(Time(at), None, None).unwrap();
+    s.clock = at;
+    // The tool's result comes while the ping is under way: no round begins beside it.
+    let rounds = s.kept().records.rounds.len();
+    let call = s.kept().records.called.last().expect("the build's call").call;
+    s.on(Event::Done {
+        call,
+        result: "the request".to_string(),
+    });
+    assert_eq!(s.kept().records.rounds.len(), rounds, "a round began beside the ping");
+    assert!(
+        !(s.driver.pending().iter()).any(|t| matches!(t.effect, Effect::Round { .. })),
+        "a round is to be done beside the ping"
+    );
+    // The ping ends, having compacted the session: the compaction is recorded, and the round begins after it.
+    s.clock += 1_000;
+    let compacted = Spent {
+        compactions: 1,
+        ..Default::default()
+    };
+    s.driver
+        .happened(Time(s.clock), s.work, pinged(compacted, None))
+        .unwrap();
+    let kept = s.kept();
+    let compaction = (kept.sessions.iter())
+        .find(|session| session.why == Why::Compacted)
+        .expect("the ping's compaction")
+        .at;
+    assert_eq!(
+        kept.records.rounds.len(),
+        rounds + 1,
+        "the round begins once the ping has ended"
+    );
+    let round = kept.records.rounds.last().expect("the round");
+    assert!(
+        round.at > compaction,
+        "the round began before the compaction it is filled after"
+    );
+}
+
+// A round that goes on in its session is given beside its message the return before it, which the session has held
+// only since; a round that begins its session holds none.
+#[test]
+fn a_round_that_goes_on_in_its_session_has_the_return_before_it_and_one_that_begins_it_none() {
+    let mut s = S::new();
+    let (load, _) = s.round();
+    s.hands_in(100, true);
+    let (build, cell) = s.round();
+    assert_eq!(cell, "build");
+    let held = s.driver.work(s.work).expect("the work");
+    let back = driver::history::last_return(held.flow, held.work, "engineer", build, 1);
+    let handed = match back {
+        Some(work::Back::Returned { handed, .. }) => handed.iter().map(|h| h.content.as_str()).collect::<Vec<_>>(),
+        other => panic!("the load's return: {other:?}"),
+    };
+    assert_eq!(handed, ["the context"]);
+    let first = driver::history::last_return(held.flow, held.work, "engineer", load, 1);
+    assert_eq!(first, None, "the load began the session");
 }

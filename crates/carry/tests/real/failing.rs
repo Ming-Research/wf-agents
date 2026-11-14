@@ -1,6 +1,6 @@
 //! A round that fails for a cause running it again cannot help pauses its work with the reason, its end kept in the
-//! records with its kind; once the owner lets the work on, the run's next round is given what the failed one was, and
-//! begins the session the failed one could not. A return the command line gave up on is rebuilt from its stream and
+//! records with its kind; once the owner lets the work on, the run's next round is given what the failed one was, in
+//! a session of its own when the prompt was too long. A return the command line gave up on is rebuilt from its stream and
 //! taken, and one that cannot be read is sent back, in the session. A session the command line no longer has is begun
 //! again, and its round told everything a run's first round is.
 
@@ -47,13 +47,17 @@ async fn a_failed_round_pauses_the_work_with_the_reason_and_the_next_round_runs_
     assert_eq!(real.finished(work), ["plan", "build", "review", "merge"]);
     let calls = real.calls();
     assert_eq!(calls.len(), 4, "the plan's program was run twice");
-    // The round after the failed one is given the same, and begins the session, as the failed one was to.
+    // The round after the one whose prompt was too long is given the same, and begins a session of its own, recorded
+    // with why.
     let kept = real.work(work);
     assert_eq!(kept.given.get(&(plan_run, 2)), Some(&Given::Task));
     assert_eq!(kept.given.get(&(plan_run, 1)), Some(&Given::Task));
-    assert_eq!(calls[0].session(), calls[1].session());
+    assert_eq!(calls[0].session().0, "--session-id");
     assert_eq!(calls[1].session().0, "--session-id");
+    assert_ne!(calls[0].session().1, calls[1].session().1);
     assert!(calls[1].stdin.contains("## Your task"), "{}", calls[1].stdin);
+    let too_long = (kept.sessions.iter()).filter(|s| s.why == Why::TooLong).count();
+    assert_eq!(too_long, 1, "{:?}", kept.sessions);
     // Each round is kept.
     for n in [1, 2] {
         let base = real.data.join(format!("rounds/1/{}-{n}", plan_run.0));
@@ -223,6 +227,24 @@ async fn a_failed_round_whose_result_says_what_it_cost_is_charged_it_and_the_nex
         total >= 850_000,
         "the work's total, {total}, leaves out the failed round"
     );
+}
+
+#[tokio::test]
+async fn a_round_whose_program_crashed_before_its_result_is_charged_its_calls_at_their_prices_and_says_so() {
+    let fake = Fake {
+        crashes_first: true,
+        ..Fake::default()
+    };
+    let mut real = Real::trial(fake);
+    let work = real.add().await;
+    real.act(work, Act::Resume);
+    real.until(|real| real.failures == 1).await;
+    let kept = real.work(work);
+    let plan_run = kept.records.started[0].run;
+    // Opus 5.5: 100 × 4 + 1,000 × 0.2 + 10 × 20 millionths of a dollar.
+    assert_eq!(kept.spent[&(plan_run, 1)].usd_micros, 400 + 200 + 200);
+    let measures = work::measured::of_round(&kept.measured, plan_run, 1).expect("its calls are measured");
+    assert!(measures.priced, "what it took is priced from its calls");
 }
 
 #[tokio::test]
