@@ -3,7 +3,7 @@
 use super::*;
 
 #[test]
-fn a_job_is_read_by_its_conclusion_and_one_that_did_not_run_is_none() {
+fn a_job_is_read_by_its_conclusion_and_one_that_did_not_run_is_skipped() {
     let job = |status: &str, conclusion: Option<&str>| {
         job(
             &json!({ "name": "test", "status": status, "conclusion": conclusion, "html_url": "https://github.com/o/r/runs/1/job/2" }),
@@ -23,10 +23,103 @@ fn a_job_is_read_by_its_conclusion_and_one_that_did_not_run_is_none() {
     );
     assert_eq!(job("in_progress", None).map(|j| j.outcome), Some(Outcome::Pending));
     assert_eq!(
-        job("completed", Some("skipped")),
-        None,
-        "a job whose condition was false did not run"
+        job("completed", Some("skipped")).map(|j| j.outcome),
+        Some(Outcome::Skipped),
+        "a job whose condition was false did not run, and is not left out"
     );
+}
+
+// The time of a job is the whole seconds from its `started_at` to its `completed_at`, and only a job that ran to a
+// conclusion has one: a cancelled job, one not complete and one that did not run did not finish.
+#[test]
+fn a_jobs_wall_time_is_read_from_its_two_stamps_when_it_ran_to_a_conclusion() {
+    let took = |status: &str, conclusion: Option<&str>, started: Value, completed: Value| {
+        job(&json!({
+            "name": "test", "status": status, "conclusion": conclusion,
+            "started_at": started, "completed_at": completed,
+        }))
+        .map(|j| j.took)
+    };
+    let (start, end) = (json!("2026-11-14T10:00:00Z"), json!("2026-11-14T10:03:12Z"));
+    assert_eq!(
+        took("completed", Some("success"), start.clone(), end.clone()),
+        Some(Some(192))
+    );
+    assert_eq!(
+        took("completed", Some("failure"), start.clone(), end.clone()),
+        Some(Some(192))
+    );
+    assert_eq!(
+        took("completed", Some("timed_out"), start.clone(), end.clone()),
+        Some(Some(192))
+    );
+    for (status, conclusion) in [
+        ("completed", Some("cancelled")),
+        ("completed", Some("skipped")),
+        ("in_progress", None),
+    ] {
+        assert_eq!(
+            took(status, conclusion, start.clone(), end.clone()),
+            Some(None),
+            "{status} {conclusion:?} did not finish"
+        );
+    }
+    // No usable stamp, no time: a missing one, a null, an order reversed, and any other form of a time.
+    for (started, completed) in [
+        (json!(null), end.clone()),
+        (start.clone(), json!(null)),
+        (end.clone(), start.clone()),
+        (start.clone(), json!("2026-11-14T10:03:12.000Z")),
+        (start.clone(), json!("2026-11-14T11:03:12+01:00")),
+        (start.clone(), json!("2026-13-14T10:03:12Z")),
+        (start.clone(), json!("2026-02-29T10:03:12Z")),
+        (start.clone(), json!("2026-11-14T24:00:00Z")),
+        (start.clone(), json!("2026-11-14 10:03:12Z")),
+        (start.clone(), json!("2026-11-1\u{e9}T10:03:12Z")),
+    ] {
+        assert_eq!(
+            took("completed", Some("success"), started.clone(), completed.clone()),
+            Some(None),
+            "{started} to {completed}"
+        );
+    }
+}
+
+// The seconds between two stamps hold over a day, a month, a year and a leap day, and none is lost at the March of a
+// leap year.
+#[test]
+fn the_seconds_between_two_stamps_hold_across_days_months_years_and_leap_days() {
+    let between = |from: &str, to: &str| seconds_between(from, to);
+    assert_eq!(between("2026-11-14T10:00:00Z", "2026-11-14T10:00:00Z"), Some(0));
+    assert_eq!(between("2026-11-14T23:59:59Z", "2026-11-15T00:00:00Z"), Some(1));
+    assert_eq!(between("2026-11-30T23:59:00Z", "2026-12-01T00:01:00Z"), Some(120));
+    assert_eq!(between("2026-12-31T23:59:59Z", "2027-01-01T00:00:00Z"), Some(1));
+    assert_eq!(
+        between("2024-02-28T00:00:00Z", "2024-03-01T00:00:00Z"),
+        Some(2 * 86_400),
+        "2024 has a 29th of February"
+    );
+    assert_eq!(
+        between("2026-02-28T00:00:00Z", "2026-03-01T00:00:00Z"),
+        Some(86_400),
+        "2026 has none"
+    );
+    assert_eq!(
+        between("2024-01-01T00:00:00Z", "2025-01-01T00:00:00Z"),
+        Some(366 * 86_400)
+    );
+    assert_eq!(
+        between("1999-12-31T00:00:00Z", "2000-03-01T00:00:00Z"),
+        Some(61 * 86_400),
+        "2000 is a leap year"
+    );
+    assert_eq!(
+        between("2100-02-28T00:00:00Z", "2100-03-01T00:00:00Z"),
+        Some(86_400),
+        "2100 is not"
+    );
+    assert_eq!(epoch("1970-01-01T00:00:00Z"), Some(0));
+    assert_eq!(epoch("2026-11-14T10:03:12Z"), Some(1_794_650_592));
 }
 
 #[test]

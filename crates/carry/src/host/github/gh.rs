@@ -442,21 +442,78 @@ fn pull(value: &Value) -> Result<Pull, String> {
     })
 }
 
-/// A job of a run as a check; none for a job that did not run, its condition false.
+/// A job of a run as a check; none for a job that has no name. A job that did not run is a check that was skipped.
 fn job(job: &Value) -> Option<Check> {
     let outcome = match (job["status"].as_str(), job["conclusion"].as_str()) {
-        (Some("completed"), Some("skipped")) => return None,
+        (Some("completed"), Some("skipped")) => Outcome::Skipped,
         (Some("completed"), Some("success" | "neutral")) => Outcome::Passed,
         (Some("completed"), Some(how @ ("failure" | "timed_out"))) => Outcome::Failed(how.to_string()),
         (Some("completed"), Some(how)) => Outcome::Broken(how.to_string()),
         (Some("completed"), None) => Outcome::Broken("no conclusion".to_string()),
         _ => Outcome::Pending,
     };
+    // Only a job that ran to a conclusion has a time to give; one cancelled or not complete did not finish.
+    let took = match outcome {
+        Outcome::Passed | Outcome::Failed(_) => job["started_at"]
+            .as_str()
+            .zip(job["completed_at"].as_str())
+            .and_then(|(from, to)| seconds_between(from, to)),
+        _ => None,
+    };
     Some(Check {
         name: job["name"].as_str()?.to_string(),
         outcome,
         url: job["html_url"].as_str().map(str::to_string),
+        took,
     })
+}
+
+/// The whole seconds from one timestamp to a later one, each in the form GitHub gives, `YYYY-MM-DDTHH:MM:SSZ` in UTC;
+/// none where either is in another form or the second is before the first.
+fn seconds_between(from: &str, to: &str) -> Option<u64> {
+    u64::try_from(epoch(to)? - epoch(from)?).ok()
+}
+
+/// The seconds from 1970-01-01T00:00:00Z to a timestamp in the form GitHub gives, `YYYY-MM-DDTHH:MM:SSZ`; none for a
+/// timestamp in any other form or of a day that does not exist.
+fn epoch(stamp: &str) -> Option<i64> {
+    let bytes = stamp.as_bytes();
+    let shaped = bytes.len() == 20
+        && [(4, b'-'), (7, b'-'), (10, b'T'), (13, b':'), (16, b':'), (19, b'Z')]
+            .iter()
+            .all(|&(at, sign)| bytes[at] == sign);
+    if !shaped {
+        return None;
+    }
+    let number = |from: usize, to: usize| -> Option<i64> {
+        let digits = stamp.get(from..to)?;
+        digits
+            .bytes()
+            .all(|b| b.is_ascii_digit())
+            .then(|| digits.parse().ok())
+            .flatten()
+    };
+    let (year, month, day) = (number(0, 4)?, number(5, 7)?, number(8, 10)?);
+    let (hour, minute, second) = (number(11, 13)?, number(14, 16)?, number(17, 19)?);
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days_in_month = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return None,
+    };
+    if !(1..=days_in_month).contains(&day) || hour > 23 || minute > 59 || second > 59 {
+        return None;
+    }
+    // Days from the civil date to 1970-01-01, counting the year from March so that a leap day ends it.
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let year_of_era = year - era * 400;
+    let day_of_year = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let days = era * 146_097 + day_of_era - 719_468;
+    Some(days * 86_400 + hour * 3600 + minute * 60 + second)
 }
 
 /// Every file under a directory, each as its path under it with `/` between its parts, after `prefix`, and its bytes.

@@ -67,7 +67,8 @@ pub struct Verdict {
     /// by what it was checked against alone.
     pub by: Option<String>,
     /// What the host says of the checks beside the verdict, each in words and with no judgment of its own: a check run
-    /// more than once on the commit, with each run's result.
+    /// more than once on the commit, with each run's result; and the jobs of the runs that are not said as what failed,
+    /// each with how it ended and its wall time.
     pub notes: Vec<String>,
 }
 
