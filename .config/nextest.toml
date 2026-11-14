@@ -14,7 +14,8 @@ filter = 'binary(histories)'
 slow-timeout = { period = "60s", terminate-after = 5 }
 
 # The histories of the engineer's flow walk the most, its cells running on the groups of its blocks: on GitHub's
-# machines its 500 histories take longer than 300 s. They are stopped at 540 s, inside the job's 15 minutes.
+# machines each takes several times what one did before the groups. They are stopped at 540 s, inside the job's 15
+# minutes.
 [[profile.ci.overrides]]
 filter = 'test(=random_works_on_the_engineers_flow_keep_what_the_flow_must)'
 slow-timeout = { period = "60s", terminate-after = 9 }

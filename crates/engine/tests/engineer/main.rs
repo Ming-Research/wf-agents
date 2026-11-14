@@ -99,11 +99,8 @@ use flow::{Compiled, Has, Kind, compile, read};
 use reading::{Reading, Writer};
 use support::{Driver, Part, Rng, lacking_a_must_write};
 
-/// How many histories are run.
-const SEEDS: u64 = 40;
-
-/// The history whose every step is said as it is taken, where one is.
-const WATCHED: Option<u64> = Some(11);
+/// How many histories are run: 200, where the flow before its groups ran 500 in the time it now takes to run these.
+const SEEDS: u64 = 200;
 
 /// How many random steps, at most, a history takes before the content continuation.
 const RANDOM: usize = 200;
@@ -844,8 +841,9 @@ fn content_bound(d: &Driver) -> u64 {
 
 /// The owner's few words to a cell, where the key reads a block only cells write: in an input of a cell that
 /// writes it which only people write, so that the cell runs again and writes the block anew; where that cell has no
-/// such input, in one of the nearest cell before it that has one, whose run the work goes on from until the cell that
-/// writes the block runs again; none where no such cell or input is.
+/// such input, in one of the nearest cell before it that has one and writes a block the writer runs on, whose run,
+/// answering the owner, writes it anew, so that the writer runs again; none where no such cell or input is. A cell
+/// spoken to that writes nothing the writer runs on would run again and leave the work where it was.
 fn ask_a_cell(d: &Driver, key: &Condition) -> Option<Event> {
     let only_cells = |b: &BlockId| {
         let w = &d.flow.blocks[b].writers;
@@ -856,11 +854,15 @@ fn ask_a_cell(d: &Driver, key: &Condition) -> Option<Event> {
         let w = &block.writers;
         w.people && w.cells.is_empty() && w.outside.is_none() && block.values.is_none()
     };
-    let spoken_to = |j: usize| d.flow.flow.cells()[j].runs_on.iter().find(|b| only_people(b));
+    let cells = d.flow.flow.cells();
+    let spoken_to = |j: usize| cells[j].runs_on.iter().find(|b| only_people(b));
+    // Whether the cell at `j` runs the writer at `w` again by what it writes: it is the writer, or writes a block the
+    // writer runs on.
+    let leads_to = |j: usize, w: usize| j == w || cells[j].outputs.iter().any(|b| cells[w].runs_on.contains(b));
     (key_reads(&d.flow, key).into_iter().filter(|b| only_cells(b)))
         .flat_map(|b| &d.flow.blocks[b].writers.cells)
         .filter_map(|c| d.flow.flow.place(c))
-        .find_map(|j| (0..=j).rev().find_map(spoken_to))
+        .find_map(|w| (0..=w).rev().filter(|&j| leads_to(j, w)).find_map(spoken_to))
         .map(|b| wrote(b, Outsider::Person, true, None))
 }
 
@@ -1245,10 +1247,8 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
         check_failed: false,
         answered: None,
     };
-    let mut d = Driver::new(flow.clone(), rng, seed, true);
-    d.live = WATCHED == Some(seed);
     let mut h = History {
-        d,
+        d: Driver::new(flow.clone(), rng, seed, true),
         roles,
         verdict: Verdict::default(),
         merges: 0,
@@ -1331,12 +1331,8 @@ fn histories() {
     let mut broken: BTreeMap<&str, Vec<Case>> = BTreeMap::new();
     let mut continued = 0;
     let mut most = (0, 1);
-    for seed in WATCHED.map_or(0..SEEDS, |w| w..w + 1) {
+    for seed in 0..SEEDS {
         let mut log = Vec::new();
-        // Which history is under way, and how long each took, said as it goes: a history that takes the time the test
-        // has is named by the last of these.
-        let began = std::time::Instant::now();
-        let _ = writeln!(std::io::stderr(), "history {seed} begins");
         let verdict = match panic::catch_unwind(AssertUnwindSafe(|| one_history(&flow, seed, &mut log))) {
             Ok(verdict) => verdict,
             Err(e) => {
@@ -1345,12 +1341,6 @@ fn histories() {
                 verdict
             }
         };
-        let _ = writeln!(
-            std::io::stderr(),
-            "history {seed} took {:?}, {} steps",
-            began.elapsed(),
-            log.len()
-        );
         for r in verdict.reached {
             *reached.entry(r).or_default() += 1;
         }
