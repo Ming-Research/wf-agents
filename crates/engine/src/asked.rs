@@ -199,6 +199,62 @@ fn said(flow: &Compiled, work: &mut Work, cell: &CellId, answered: &Said, turns:
     }
 }
 
+/// The questions of the work that stand, in the words of the block written through the field of a return that holds
+/// its questions, as its `writes` give them ([`Question`]); `none` there where none stands.
+pub(crate) fn standing(flow: &Compiled, work: &Work, block: &decide::BlockId) -> String {
+    let Some(declared) = flow.blocks.get(block) else {
+        return String::new();
+    };
+    let writes = &declared.writes;
+    let text = |name: &str| writes.get(name).unwrap_or_default();
+    let each: Vec<String> = (questions(&work.records).into_iter())
+        .filter(|(_, q)| q.stands())
+        .filter_map(|(name, q)| {
+            let Some(Question::Asked {
+                waits,
+                recommends,
+                ask,
+                options,
+                ..
+            }) = work.question(q.latest)
+            else {
+                return None;
+            };
+            let options: Vec<String> = (options.iter().enumerate())
+                .map(|(i, way)| {
+                    let number = (i + 1).to_string();
+                    let recommended = if *recommends == Some(i as u64 + 1) {
+                        text("recommended")
+                    } else {
+                        ""
+                    };
+                    let places = [
+                        ("number", number.as_str()),
+                        ("does", way.does.as_str()),
+                        ("follows", way.follows.as_str()),
+                        ("recommended", recommended),
+                    ];
+                    fill(text("option"), &places)
+                })
+                .collect();
+            let version = q.latest.at.0.to_string();
+            let places = [
+                ("name", name),
+                ("cell", q.latest.cell.as_str()),
+                ("version", version.as_str()),
+                ("waits", if *waits { text("waits") } else { "" }),
+                ("ask", ask.as_str()),
+                ("options", &options.join("\n")),
+            ];
+            Some(fill(text("question"), &places))
+        })
+        .collect();
+    if each.is_empty() {
+        return text("none").to_string();
+    }
+    each.join(text("between"))
+}
+
 /// Writes the work's block of [`ASKED`], where its flow has one and the block does not say already how the questions
 /// stand: its value, and its words as the block's `writes` give them, `answered`, or `waiting` with `{questions}` the
 /// names of those without an answer, in the order of their names, joined by `between`. Before it is first written the

@@ -52,6 +52,8 @@ pub enum Event {
     },
     /// The call has its result.
     Done { call: CallId, result: String },
+    /// The owner says these words to the line (design document `data-and-context`, 37 to 41).
+    Said { line: String, words: String },
     /// The owner answers this version of the question, taking this option, counted from one, for this reason where
     /// one is given (design document `data-and-context`, 34).
     Answer {
@@ -148,6 +150,15 @@ pub enum Effect {
     /// It is to be done until the call is said to have its result, which is then that it was withdrawn, or whatever
     /// came back before it could be.
     Withdraw { call: CallId },
+    /// What the owner said is handed to the round of this run under way, after its next use of a tool: the words,
+    /// with the trigger of the cell's they are new to the round as, and what the cell does for it. It is not given
+    /// again after the engine stops: words that reached no round stay new to its cell.
+    Tell {
+        run: RunId,
+        trigger: String,
+        words: String,
+        does: Option<String>,
+    },
     /// The round of this run that is under way is stopped: the run was abandoned, with its work cancelled or for a
     /// cell before it that the owner turned to. It is to be done until the round is said to have ended; what comes
     /// back from it is dropped.
@@ -200,6 +211,8 @@ pub enum Refused {
     NoSuchLine(String),
     /// The work has not ended, or something of it is still under way: it has nothing to let go yet.
     NotToRelease,
+    /// No cell of the line is one the owner's words run that applies now.
+    NoOneSpokenTo(String),
     /// The work has no question of this name.
     NoSuchQuestion(String),
     /// The question has no such version that asks it: none was written at that place, or it withdrew the question.

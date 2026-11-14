@@ -58,7 +58,7 @@ fn spec() -> Spec {
                 ("plan".into(), standing(4, None)),
                 ("verdict".into(), standing(5, Some("yes"))),
             ]),
-            waits_for_calls: false,
+            waits: false,
             questions: BTreeMap::new(),
         },
     }

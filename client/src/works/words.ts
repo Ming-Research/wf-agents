@@ -398,6 +398,8 @@ export function unmetWords(unmet: Unmet): string {
       return `its question ${unmet.name} recommends none of its options`;
     case 'notAnswerable':
       return `it asked the question ${unmet.name}, and no answer runs its cell`;
+    case 'notAnswered':
+      return `it dealt with ${unmet.name}, the owner's words, and gave no answer in ${unmet.field}`;
   }
 }
 

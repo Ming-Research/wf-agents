@@ -5,9 +5,10 @@
 // From the engine, with the mocks off:
 // - The body, from the work's blocks, the current version of each: Background is `background`; Plan is `plan_owner`,
 //   and under it `questions`; there is no Problem. For an item of the `deliver` flow, Plan is `delivered`.
-// - The messages: each version of a block people write as a note to one cell (one people write, with no fixed
-//   values, that one cell reads) is the owner's, to that cell; each version of a block whose name begins `reply_` is
-//   the reply of the cell that wrote it, to the owner. In the order of their times.
+// - The messages: each version of the record of what is said, the block the cells write through the return's field
+//   `reply` and the owner writes too, in the order it was written: one the owner wrote is the owner's, to the cell of
+//   the block of the owner's words the engine wrote with it in the same act, at the place after it; one a cell wrote
+//   is that cell's answer, to the owner.
 // - A question a cell asked the owner: its sentence alone, answered in words, since the engine gives no options.
 // - A ruling: for each precondition the work waits for, each block its test reads that people write whose current
 //   version keeps the test from holding, with that version's writer and content (`readRulings`).
@@ -60,9 +61,15 @@ function contentOf(load: LoadVersion, work: number, block: string, at: number): 
   return kept;
 }
 
+/// The versions of a block, in the order they were written.
+const allVersionsOf = (page: WorkPage, block: string): Version[] =>
+  [...(page.blocks.find((b) => b.name === block)?.versions ?? [])].sort((a, b) => a.at - b.at);
+
 /// The versions of a block that have content, in the order they were written.
-const versionsOf = (page: WorkPage, block: string): Version[] =>
-  (page.blocks.find((b) => b.name === block)?.versions ?? []).filter((v) => v.chars > 0).sort((a, b) => a.at - b.at);
+const versionsOf = (page: WorkPage, block: string): Version[] => allVersionsOf(page, block).filter((v) => v.chars > 0);
+
+/// The source outside the work that writes the block of the owner's words to a cell as the owner speaks to its line.
+const WORDS = 'words';
 
 /// A message as the owner's box writes it: the passage it quotes, each line after `> `, a blank line, and the words.
 function quoted(content: string): { quote: string | null; text: string } {
@@ -92,38 +99,32 @@ export async function readBody(page: WorkPage, load: LoadVersion): Promise<Body>
     current(deliver ? 'delivered' : 'plan_owner'),
     deliver ? Promise.resolve([]) : current('questions'),
   ]);
-  // The owner's notes, each to the one cell that reads it, and the cells' replies, each from the cell that writes it.
-  const notes = page.flow.blocks.filter((b) => b.writtenBy.people && b.values === null && b.readBy.cells.length === 1);
-  const replies = page.flow.blocks.filter((b) => b.name.startsWith('reply_'));
-  const said = await Promise.all([
-    ...notes.flatMap((b) =>
-      versionsOf(page, b.name).map(async (v): Promise<Message & { place: number }> => {
-        const { quote, text } = quoted(await contentOf(load, work, b.name, v.at));
-        return { who: 'owner', at: v.time, to: [b.readBy.cells[0]], quote, text, place: v.at };
-      }),
-    ),
-    ...replies.flatMap((b) =>
-      versionsOf(page, b.name).map(async (v): Promise<Message & { place: number }> => {
-        const who = v.by.kind === 'run' ? v.by.cell : (b.writtenBy.cells[0] ?? b.name);
-        const text = await contentOf(load, work, b.name, v.at);
-        return { who, at: v.time, to: ['owner'], quote: null, text, place: v.at };
-      }),
-    ),
-  ]);
-  // A cell's reply is part of the talk only where it answers the owner: where the owner wrote to that cell before it.
-  // What a cell writes there with nobody having spoken to it has no words of the owner's to stand under, and is left
-  // out.
-  const spokenTo = new Map<string, number>();
-  for (const m of said) {
-    if (m.who !== 'owner') continue;
-    const cell = m.to[0];
-    spokenTo.set(cell, Math.min(spokenTo.get(cell) ?? Infinity, m.place));
+  // The record of what is said: written through the return's field `reply`, and by the owner.
+  const record = page.flow.blocks.find((b) => b.field === 'reply' && b.writtenBy.people);
+  // Of each place, the cell whose block of the owner's words the engine wrote there.
+  const spokenAt = new Map<number, string>();
+  for (const c of page.flow.cells) {
+    for (const t of c.triggers) {
+      const block = page.flow.blocks.find((b) => b.name === t.block);
+      if (block?.writtenBy.outside !== WORDS) continue;
+      for (const v of allVersionsOf(page, t.block)) spokenAt.set(v.at, c.id);
+    }
   }
-  const answers = (m: Message & { place: number }): boolean =>
-    m.who === 'owner' || (spokenTo.get(m.who) ?? Infinity) < m.place;
+  const said =
+    record === undefined
+      ? []
+      : await Promise.all(
+          versionsOf(page, record.name).map(async (v): Promise<Message & { place: number }> => {
+            const content = await contentOf(load, work, record.name, v.at);
+            if (v.by.kind === 'run') return { who: v.by.cell, at: v.time, to: ['owner'], quote: null, text: content, place: v.at };
+            const { quote, text } = quoted(content);
+            const cell = spokenAt.get(v.at + 1);
+            return { who: 'owner', at: v.time, to: cell === undefined ? [] : [cell], quote, text, place: v.at };
+          }),
+        );
   const messages = said
-    .filter((m) => m.text.trim() !== '' && answers(m))
-    .sort((a, b) => a.at - b.at || a.place - b.place)
+    .filter((m) => m.text.trim() !== '')
+    .sort((a, b) => a.place - b.place)
     .map(({ who, at, to, quote, text }) => ({ who, at, to, quote, text }));
   return { background, problem: [], plan: [...plan, ...questions], planWaits: false, messages };
 }

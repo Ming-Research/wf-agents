@@ -72,6 +72,8 @@ pub struct Seen {
     pub bound_finished: usize,
     /// Releases given of what a work that ended held.
     pub released: usize,
+    /// Words told to a round under way.
+    pub told: usize,
 }
 
 /// The first finished run of the records that lacks a write of a block its cell must write, read from the records of
@@ -253,6 +255,16 @@ impl Driver {
                 self.paused = decide::paused(&self.work.records);
                 for effect in effects {
                     match &effect {
+                        // Words told to a round under way are handed to it and kept by no one: a stop does not give
+                        // them again.
+                        Effect::Tell { run, .. } => {
+                            let r = &self.work.records;
+                            let began = r.rounds.iter().filter(|x| x.run == *run).count();
+                            let ended = r.returned.iter().filter(|x| x.run == *run).count();
+                            assert!(began > ended, "words are told to a run with no round under way");
+                            self.seen.told += 1;
+                            continue;
+                        }
                         Effect::Round { run, number, .. } => {
                             assert!(
                                 self.rounds.insert((*run, *number)),
@@ -375,6 +387,7 @@ impl Driver {
         }
         for effect in &self.held {
             match effect {
+                Effect::Tell { .. } => panic!("words told to a round are held"),
                 Effect::Round { run, .. } => assert!(r.started.iter().any(|s| s.run == *run), "an unknown run"),
                 Effect::Call { call, run, .. } => {
                     assert!(
@@ -482,6 +495,7 @@ impl Driver {
                 Effect::Round { .. } => true,
                 Effect::Call { what, .. } => people || matches!(what, Call::Asked(Ask::Tool { .. })),
                 Effect::Withdraw { .. } | Effect::Stop { .. } | Effect::Release { .. } => true,
+                Effect::Tell { .. } => false,
             })
             .cloned()
             .collect()
@@ -555,6 +569,7 @@ impl Driver {
                     "the release of a work that ended was refused"
                 );
             }
+            Effect::Tell { .. } => unreachable!("words told to a round are not held"),
         }
     }
 

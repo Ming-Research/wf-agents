@@ -39,9 +39,9 @@ fn a_return_with_every_block_the_cell_must_hand_in_finishes_the_run() {
 }
 
 #[test]
-fn a_round_entered_for_the_owner_while_its_cell_waits_for_calls_is_held_to_no_block_its_cell_must_write() {
+fn a_round_entered_for_the_owner_while_its_cell_waits_is_held_to_no_block_its_cell_must_write() {
     let mut s = must_write(&["verdict", "plan"]);
-    s.told.waits_for_calls = true;
+    s.told.waits = true;
     assert_eq!(step(vec![handed_in(vec![])], &s), finish(vec![]));
     // What it hands in is still checked.
     let unmet = vec![Unmet::NoValue {

@@ -17,6 +17,11 @@
 # compaction counts as the session reopened.
 compacted = "Your session was compacted during this round. What the round was told, again, whole, as to a session that begins; carry on with the round's work."
 
+# What the owner says to a round while it runs, given to its session right after its next use of one of its program's
+# own tools: `{words}` what the owner said, `{trigger}` the trigger it is new to the round as, `{do}` what the cell does
+# for it, as the part `triggers` below says it.
+said = "## Said to you while this round runs\n\nThe owner: {words}\n\nIt is new to this round as `{trigger}`{do}"
+
 # `{taken}` is each block in `each`, `{block}` its name and `{number}` the version it is kept as, with `between`
 # between two of them.
 [[parts]]

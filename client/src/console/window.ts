@@ -8,8 +8,7 @@
 /// Who writes a message, or is named in one to receive it.
 export type Who = 'owner' | 'engineer' | 'architect' | 'assistant';
 
-/// A cell of the engineer's flow a message can go to, or come from, by its id: the research (`R1`), the deep research
-/// (`D1`), the implementation (`I1`), or a cell that asked the owner a question while working.
+/// A cell of the work's flow a message can go to, or come from, by its id.
 export type MessageCell = string;
 
 /// A passage of the body, written in markdown. Changed when it changed since the owner last marked the item read.

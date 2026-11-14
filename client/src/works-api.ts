@@ -282,7 +282,8 @@ export type Unmet =
   | { kind: 'noSuchQuestion'; name: string }
   | { kind: 'questionTwice'; name: string }
   | { kind: 'notAnOption'; name: string }
-  | { kind: 'notAnswerable'; name: string };
+  | { kind: 'notAnswerable'; name: string }
+  | { kind: 'notAnswered'; name: string; field: string };
 
 /// What a round is given: the cell's task, the results of the calls the round before asked for, or why what the
 /// round before handed in was sent back.
@@ -555,6 +556,8 @@ export type Act =
   | { kind: 'cancel'; why?: string | null }
   /// Gives a call that waits for a person its result.
   | { kind: 'result'; call: number; result: string }
+  /// Says something to a line of the work: to the cell of it the work has reached, of those the owner's words run.
+  | { kind: 'say'; line: string; words: string }
   /// Answers a version of a question, taking an option counted from one, saying why where the owner does.
   | { kind: 'answer'; question: string; version: number; option: number; why?: string | null }
   /// Has the line begin a new session at its next round.

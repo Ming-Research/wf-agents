@@ -268,6 +268,8 @@ impl History {
             Effect::Release { .. } => {
                 self.take(Event::Released);
             }
+            // Nobody speaks in these histories.
+            Effect::Tell { .. } => unreachable!("no words are said"),
         }
         true
     }

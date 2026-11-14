@@ -67,7 +67,7 @@ use decide::RunId;
 use decide::run::Failure;
 use driver::Policy;
 use engine::Came;
-use service::{Clock, Doing, Round, RoundReply, Rounds, SystemClock, Teller, Told};
+use service::{Clock, Doing, Round, RoundReply, Rounds, SystemClock, Teller, Telling, Told};
 use store::WorkNumber;
 use tokio::process::Command;
 use uuid::Uuid;
@@ -239,6 +239,30 @@ impl Rounds for Agents {
         }
     }
 
+    fn tell(&self, round: Round, told: Telling) {
+        let words = words(&self.inner.kept(&round));
+        // A telling that cannot be put where the hook reads it is said on the standard error: the words stay new to
+        // the cell, which runs again for them.
+        let said = match crate::projects::of(&self.inner.projects, &round.item) {
+            Ok(of) => said(&of.beside, &told),
+            Err(why) => {
+                eprintln!(
+                    "work {}: what the owner said could not be handed to the round: {why}",
+                    round.work.0
+                );
+                return;
+            }
+        };
+        tokio::spawn(async move {
+            if let Err(why) = words.put(&said).await {
+                eprintln!(
+                    "work {}: what the owner said could not be handed to the round: {why}",
+                    round.work.0
+                );
+            }
+        });
+    }
+
     fn told(&self, work: WorkNumber, run: RunId, round: usize) -> Result<Told, String> {
         kept::told(&self.inner.data, work, run, round)
     }
@@ -340,10 +364,7 @@ impl Inner {
         let again = format!("{}\n\n{}", of.beside.message.compacted, anew.text);
         write(&compacted.again, again.as_bytes()).await?;
         // What the owner says to the round while it runs waits beside it, for the hook after the next use of a tool.
-        let words = Words {
-            waiting: base.with_extension("words.json"),
-            delivered: base.with_extension("delivered"),
-        };
+        let words = words(&base);
         let mut tried = false;
         // The session the program lost is begun again under its id, and that is recorded once for the round.
         let at = work::sessions::began_at(work, round.run, round.number);
@@ -657,4 +678,51 @@ async fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     tokio::fs::write(path, bytes)
         .await
         .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Where what the owner says to the round of this base waits for its hook, and where the hook moves what it gave: the
+/// one place the round's command line is given and the telling puts the words.
+fn words(base: &Path) -> Words {
+    Words {
+        waiting: base.with_extension("words.json"),
+        delivered: base.with_extension("delivered"),
+    }
+}
+
+/// What the owner said to a round under way, as its session is given it: in the words of `said` in the message's file,
+/// with what the cell does for the trigger as the part of the triggers says it.
+fn said(beside: &Beside, told: &Telling) -> String {
+    let message = &beside.message;
+    let part = message.parts.iter().find(|p| p.part == flow::agents::Part::Triggers);
+    let does = match (&told.does, part.and_then(|p| p.does.as_deref())) {
+        (Some(does), Some(text)) => flow::agents::fill(text, &[("do", does.trim())]),
+        _ => String::new(),
+    };
+    let places = [
+        ("words", told.words.as_str()),
+        ("trigger", told.trigger.as_str()),
+        ("do", does.as_str()),
+    ];
+    flow::agents::fill(&message.said, &places)
+}
+
+#[cfg(test)]
+mod tests {
+    use service::Telling;
+
+    #[test]
+    fn what_the_owner_said_to_a_round_is_given_in_the_words_of_the_message_with_what_the_cell_does_for_it() {
+        let beside = crate::returns::tests::words();
+        let told = Telling {
+            words: "Name it greet.".to_string(),
+            trigger: "on_spoken".to_string(),
+            does: Some("Answer the owner.".to_string()),
+        };
+        assert_eq!(
+            super::said(&beside, &told),
+            "Said: Name it greet. (on_spoken: Answer the owner.)"
+        );
+        let told = Telling { does: None, ..told };
+        assert_eq!(super::said(&beside, &told), "Said: Name it greet. (on_spoken)");
+    }
 }

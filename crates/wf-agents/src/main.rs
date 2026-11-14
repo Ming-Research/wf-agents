@@ -182,6 +182,14 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
+    /// Says something to a line of a work: to the cell of it the work has reached, of those the owner's words run.
+    Say {
+        work: u64,
+        line: String,
+        words: String,
+        #[command(flatten)]
+        at: At,
+    },
     /// Answers a version of a question of a work, taking an option, counted from one.
     Answer {
         work: u64,
@@ -375,6 +383,7 @@ fn main() -> ExitCode {
         Command::Result { work, call, result, at } => {
             talk::ask(at.port, Asked::Act(work, Act::Result { call, result }))
         }
+        Command::Say { work, line, words, at } => talk::ask(at.port, Asked::Act(work, Act::Say { line, words })),
         Command::Answer {
             work,
             question,
@@ -399,10 +408,20 @@ fn main() -> ExitCode {
 
 /// The names of the sources outside a work that write its blocks, which every definition is compiled against:
 /// `dependencies`, `session` and `start`, written by the engine's driver, the last as the owner starts the work;
-/// `answer`, written by the engine's loop as the owner answers a question of the cell, and `asked`, as the questions
-/// and their answers come to stand otherwise; `main`, written by the acts' watch of main on the host; and `tree`,
-/// written by the carriers as they look at the design tree on a work's branch.
-const SOURCES: [&str; 7] = ["answer", "asked", "dependencies", "main", "session", "start", "tree"];
+/// `answer`, written by the engine's loop as the owner answers a question of the cell, `words`, as the owner speaks to
+/// the cell's line, and `asked`, as the questions and their answers come to stand otherwise; `main`, written by the
+/// acts' watch of main on the host; and `tree`, written by the carriers as they look at the design tree on a work's
+/// branch.
+const SOURCES: [&str; 8] = [
+    "answer",
+    "asked",
+    "words",
+    "dependencies",
+    "main",
+    "session",
+    "start",
+    "tree",
+];
 
 /// The names of the acts of the engine's own that carry out an engine cell: `start` makes the place a work is done
 /// in, `check` checks the work before its merge, `merge` merges it, and `deliver` says that a deliverable item, made

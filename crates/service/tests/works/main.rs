@@ -396,6 +396,8 @@ fn carried(driver: &driver::Driver, todo: &Todo) -> Option<Unit> {
         Effect::Call { .. } => None,
         Effect::Withdraw { call } => Some(Unit::Call(work, *call)),
         Effect::Release { .. } => Some(Unit::Release(work)),
+        // Told to a round under way, the words are its round's: no unit of their own.
+        Effect::Tell { .. } => None,
     }
 }
 

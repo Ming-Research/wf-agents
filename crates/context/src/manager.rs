@@ -127,6 +127,7 @@ pub fn enter(
             number: v.at,
             value: v.value.clone(),
             content: content(work, block, v.at).to_string(),
+            by: by(&records, &v.by),
         };
         let last = last_worked_from(flow, &records, cell, block);
         let holds = |at: Seq| held.versions.get(block).is_some_and(|h| h.contains(&at));
@@ -253,6 +254,7 @@ pub fn enter(
                             number: v.at,
                             value: v.value.clone(),
                             content: content(work, block, v.at).to_string(),
+                            by: by(&records, &v.by),
                         };
                         values.written_over.push((block.clone(), written));
                     }
@@ -309,6 +311,22 @@ fn kept_part(words: &Agents, name: &str) -> bool {
 /// The content of a version of a block; nothing where the work keeps none.
 fn content<'a>(work: &'a Work, block: &BlockId, at: Seq) -> &'a str {
     work.contents.get(&(block.clone(), at)).map_or("", String::as_str)
+}
+
+/// Who wrote a version: a person, the outside, or the cell of the run that did.
+fn by(records: &Records, writer: &Writer) -> message::By {
+    match writer {
+        Writer::Person => message::By::Person,
+        Writer::Outside => message::By::Outside,
+        Writer::Run(run) => {
+            let cell = records
+                .started
+                .iter()
+                .find(|s| s.run == *run)
+                .map(|s| s.cell.to_string());
+            message::By::Cell(cell.unwrap_or_default())
+        }
+    }
 }
 
 /// Whether the run is one of the cell's.
