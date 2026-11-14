@@ -285,7 +285,12 @@ export function FlowPage({ definition, given, active = true }: {
     panel = <TestPanel row={testRow} flow={flow} onChoose={choose} fold={fold} />;
   } else if (tool !== undefined) {
     panel = (
-      <ToolPanel name={tool} words={given?.state === 'compiled' ? given.toolFiles[tool] : undefined} fold={fold} />
+      <ToolPanel
+        name={tool}
+        words={given?.state === 'compiled' ? given.toolFiles[tool] : undefined}
+        unread={given?.state === 'unread' ? given.why : undefined}
+        fold={fold}
+      />
     );
   }
 
@@ -318,6 +323,11 @@ export function FlowPage({ definition, given, active = true }: {
           <Legend waysBack={drawn.waysBack} />
         </span>
       </div>
+      {given?.state === 'unread' && (
+        <p className="read-failed" role="alert">
+          What an agent is sent could not be read, and the flow is shown without it: {given.why}
+        </p>
+      )}
       <main
         className={`view-body with-panel ${folded ? 'panel-folded' : ''}`}
         style={panelWidth !== null ? ({ '--panel-width': `${panelWidth}px` } as CSSProperties) : undefined}

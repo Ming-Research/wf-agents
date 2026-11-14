@@ -333,11 +333,18 @@ export async function read<T>(path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
-/// The definition shown, and what an agent is sent as each of its cells is entered, read together.
+/// The definition shown, and what an agent is sent as each of its cells is entered, read together. What an agent is
+/// sent that could not be read is said with why, the route's own reason or the read's, and the flow is shown without
+/// it.
 export async function load(): Promise<{
   definition: Definition;
   given: Given;
 }> {
-  const [definition, given] = await Promise.all([read<Definition>('/api/v1/flow'), read<Given>('/api/v1/flow/given')]);
+  const [definition, given] = await Promise.all([
+    read<Definition>('/api/v1/flow'),
+    read<Given>('/api/v1/flow/given').catch(
+      (e: unknown): Given => ({ state: 'unread', why: e instanceof Error ? e.message : String(e) }),
+    ),
+  ]);
   return { definition, given };
 }

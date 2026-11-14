@@ -98,7 +98,9 @@ drawn line with an arrow.
 - **Box** (`textarea`, `.select`): a hairline box on the card with 3px corners, as a button; a choice is a native
   select, 24px, which starts unset ("Pick a value") wherever the owner's pick is what is sent.
 - **Read failed** (`.read-failed`): one line in red on the red tint under the view's line, when a view could not be read
-  again; what is shown stays, from before, and so does what the owner typed.
+  again; what is shown stays, from before, and so does what the owner typed. On the flow page, when what an agent is
+  sent could not be read, with why: the flow is shown without it, and a tool's panel says it in place of the tool's
+  file.
 - **Content** (`Opener`): a link, "Show content" or "Show result", that reads a content only when the owner opens it and
   shows it under the link as it is (`Unfold` is the same link for what is shown otherwise, as what a round was told): preformatted monospace on the ground, in a hairline frame, wrapping, scrolling past
   its height. A content is read once; it does not change.

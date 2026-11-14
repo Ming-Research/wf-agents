@@ -758,9 +758,11 @@ export function ToolPanel(props: {
   name: string;
   /// The tool's file; none where the page was not given it.
   words?: ActWords;
+  /// Why what an agent is sent, the tools' files with it, could not be read.
+  unread?: string;
   fold: Fold;
 }) {
-  const { name, words, fold } = props;
+  const { name, words, unread, fold } = props;
   return (
     <Panel
       label={`Tool ${name}`}
@@ -779,6 +781,10 @@ export function ToolPanel(props: {
             </ListRow>
           ))}
         </ul>
+      ) : unread !== undefined ? (
+        <p className="read-failed" role="alert">
+          The tool's file could not be read: {unread}
+        </p>
       ) : (
         <p className="muted">The page was not given the tool's file</p>
       )}
