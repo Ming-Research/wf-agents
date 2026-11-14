@@ -743,6 +743,11 @@ textarea:disabled {
   font-size: 14px;
 }
 
+/* What the question asks the owner to write, under its words. */
+.confirm-body textarea {
+  margin-top: var(--space-8);
+}
+
 .confirm-buttons {
   display: flex;
   justify-content: flex-end;

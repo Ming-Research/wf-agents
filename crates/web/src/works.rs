@@ -132,6 +132,9 @@ pub struct Item {
     pub added: u64,
     /// The items it depends on, in the order of their numbers.
     pub depends_on: Vec<u64>,
+    /// The tags it carries, in the order of their names.
+    #[serde(default)]
+    pub tags: Vec<String>,
     /// What it was as it was added, and each change made to it since: what it said before, and when it changed.
     pub history: ItemHistory,
     /// The one work done for it, which was added with it.
@@ -155,20 +158,37 @@ pub struct FirstItem {
     /// None for an item added before items had levels.
     pub level: Option<String>,
     pub depends_on: Vec<u64>,
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
-/// A change made to an item, at this time.
+/// A change made to an item, at this time, and why, as whoever made it said; none for a change kept before changes
+/// said why.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemChange {
+    pub time: u64,
+    #[serde(default)]
+    pub why: Option<String>,
+    pub what: ItemChanged,
+}
+
+/// What a change made to an item did.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum ItemChange {
+pub enum ItemChanged {
     /// It was given this title.
-    Title { time: u64, title: String },
+    Title { title: String },
     /// It was put at this level.
-    Level { time: u64, level: String },
+    Level { level: String },
     /// It came to depend on this item.
-    DependsOn { time: u64, item: u64 },
+    DependsOn { item: u64 },
     /// It no longer depends on this item.
-    NoLongerDependsOn { time: u64, item: u64 },
+    NoLongerDependsOn { item: u64 },
+    /// It came to carry this tag.
+    Tagged { tag: String },
+    /// It no longer carries this tag.
+    Untagged { tag: String },
 }
 
 /// A work in brief.
@@ -387,6 +407,9 @@ pub struct WorkPage {
     pub level: Option<String>,
     /// The project of its item, as [`Item`] has it.
     pub project: Option<String>,
+    /// The tags of its item, as [`Item`] has them.
+    #[serde(default)]
+    pub tags: Vec<String>,
     /// What its item was as it was added, and each change made to it since, as [`Item`] has them.
     pub history: ItemHistory,
     /// The flow it runs on, as the flow page reads a flow.
@@ -595,6 +618,8 @@ pub enum Step {
     Resumed { at: u64, time: u64 },
     /// The work's item was cancelled, for this reason where whoever cancelled it gave one.
     Cancelled { at: u64, time: u64, why: Option<String> },
+    /// The work's item, cancelled, was reopened, for this reason: the work is paused until it is let on.
+    Reopened { at: u64, time: u64, why: String },
     /// A new session of the line began, or begins with the line's next round, for this reason.
     Session {
         at: u64,
@@ -957,50 +982,82 @@ pub struct LevelPage {
     pub desc: String,
 }
 
-/// The level the owner puts an item at.
+/// Changes of items whoever plans the work asks for together, for one reason: made in the order given, each judged
+/// against what those before it make, all of them or none.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct NewLevel {
-    pub level: String,
+pub struct ItemChanges {
+    /// Why they are made, in a sentence: kept with each.
+    pub why: String,
+    pub changes: Vec<ChangeAsked>,
 }
 
-/// The title whoever plans the work gives an item.
+/// A change of an item, as whoever plans the work asks for it. Each kind is a struct, as an [`Act`] is.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct NewTitle {
-    pub title: String,
-}
-
-/// A change of what an item depends on, as whoever plans the work asks for it. Each kind is a struct, as an [`Act`]
-/// is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
 )]
-pub enum DependencyChange {
-    /// The item comes to depend on this one.
-    Add { item: u64 },
-    /// The item no longer depends on this one.
-    Remove { item: u64 },
+pub enum ChangeAsked {
+    /// The item is given this title, which its merge will be named by.
+    Title { item: u64, title: String },
+    /// The item is put at this level, among those the settings name and at most the highest an item may be at.
+    Level { item: u64, level: String },
+    /// The item comes to depend on this one, while its work has started no run.
+    DependsOn { item: u64, on: u64 },
+    /// The item no longer depends on this one, while its work has started no run.
+    NoLongerDependsOn { item: u64, on: u64 },
+    /// The item comes to carry this tag.
+    Tag { item: u64, tag: String },
+    /// The item no longer carries this tag.
+    Untag { item: u64, tag: String },
+    /// The item is cancelled: nothing of its work goes on.
+    Cancel { item: u64 },
+    /// The item, cancelled, is reopened: its work is paused, and goes on from its records once it is let on.
+    Reopen { item: u64 },
 }
 
-/// Whether a change of an item changed it: it was so already where not, as when it was at that level already.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Whether each change of those asked together changed its item, in the order asked: it was so already where not, as
+/// when the item was at that level already.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ItemChanged {
-    pub changed: bool,
+pub struct ItemsChanged {
+    pub changed: Vec<bool>,
 }
 
-impl DependencyChange {
-    /// The change as the loop takes it.
-    pub fn taken(self) -> store::ItemChange {
+impl ChangeAsked {
+    /// The item it changes.
+    pub fn item(&self) -> u64 {
         match self {
-            DependencyChange::Add { item } => store::ItemChange::DependsOn(ItemNumber(item)),
-            DependencyChange::Remove { item } => store::ItemChange::NoLongerDependsOn(ItemNumber(item)),
+            ChangeAsked::Title { item, .. }
+            | ChangeAsked::Level { item, .. }
+            | ChangeAsked::DependsOn { item, .. }
+            | ChangeAsked::NoLongerDependsOn { item, .. }
+            | ChangeAsked::Tag { item, .. }
+            | ChangeAsked::Untag { item, .. }
+            | ChangeAsked::Cancel { item }
+            | ChangeAsked::Reopen { item } => *item,
         }
+    }
+
+    /// The change as the loop takes it, a level being one of these, or why that level is no item's.
+    pub fn taken(self, levels: &Levels) -> Result<(ItemNumber, driver::Asked), String> {
+        use driver::Asked;
+        use store::ItemChange as C;
+        let item = ItemNumber(self.item());
+        let asked = match self {
+            ChangeAsked::Title { title, .. } => Asked::Item(C::Title(title)),
+            ChangeAsked::Level { level, .. } => Asked::Item(C::Level(levels.of_item(Some(&level))?)),
+            ChangeAsked::DependsOn { on, .. } => Asked::Item(C::DependsOn(ItemNumber(on))),
+            ChangeAsked::NoLongerDependsOn { on, .. } => Asked::Item(C::NoLongerDependsOn(ItemNumber(on))),
+            ChangeAsked::Tag { tag, .. } => Asked::Item(C::Tagged(tag)),
+            ChangeAsked::Untag { tag, .. } => Asked::Item(C::Untagged(tag)),
+            ChangeAsked::Cancel { .. } => Asked::Cancel,
+            ChangeAsked::Reopen { .. } => Asked::Reopen,
+        };
+        Ok((item, asked))
     }
 }
 
@@ -1180,6 +1237,9 @@ pub struct NewItem {
     pub project: String,
     /// The items it depends on, of its own project or another.
     pub depends_on: Vec<u64>,
+    /// The tags it carries; none where none is given.
+    #[serde(default)]
+    pub tags: Vec<String>,
     /// The name of the flow its work runs on.
     pub flow: String,
     /// What is written for it as it is added, each a block people write.
@@ -1279,6 +1339,7 @@ impl Items {
                 project: kept.item.project.clone(),
                 added: kept.item.added.0,
                 depends_on: kept.item.depends_on.iter().map(|on| on.0).collect(),
+                tags: kept.item.tags.clone(),
                 history: ItemHistory::of(kept.item),
                 work: Summary::of(kept, &view, driver.held(kept.head.number), &outages)?,
             });
@@ -1297,24 +1358,29 @@ impl ItemHistory {
                 title: first.title.clone(),
                 level: first.level.clone(),
                 depends_on: first.depends_on.iter().map(|on| on.0).collect(),
+                tags: first.tags.clone(),
             },
             changes: (item.changes.iter())
-                .map(|change| {
-                    let time = change.at.0;
-                    match &change.what {
-                        store::ItemChange::Title(title) => ItemChange::Title {
-                            time,
-                            title: title.clone(),
-                        },
-                        store::ItemChange::Level(level) => ItemChange::Level {
-                            time,
-                            level: level.clone(),
-                        },
-                        store::ItemChange::DependsOn(on) => ItemChange::DependsOn { time, item: on.0 },
-                        store::ItemChange::NoLongerDependsOn(on) => ItemChange::NoLongerDependsOn { time, item: on.0 },
-                    }
+                .map(|change| ItemChange {
+                    time: change.at.0,
+                    why: change.why.clone(),
+                    what: ItemChanged::of(&change.what),
                 })
                 .collect(),
+        }
+    }
+}
+
+impl ItemChanged {
+    /// What a change the store keeps did, as the pages read it.
+    pub fn of(what: &store::ItemChange) -> ItemChanged {
+        match what {
+            store::ItemChange::Title(title) => ItemChanged::Title { title: title.clone() },
+            store::ItemChange::Level(level) => ItemChanged::Level { level: level.clone() },
+            store::ItemChange::DependsOn(on) => ItemChanged::DependsOn { item: on.0 },
+            store::ItemChange::NoLongerDependsOn(on) => ItemChanged::NoLongerDependsOn { item: on.0 },
+            store::ItemChange::Tagged(tag) => ItemChanged::Tagged { tag: tag.clone() },
+            store::ItemChange::Untagged(tag) => ItemChanged::Untagged { tag: tag.clone() },
         }
     }
 }
@@ -1684,11 +1750,18 @@ impl WorkPage {
                 Step::Resumed { at, time }
             });
         }
-        if let Some(at) = work.records.cancelled {
+        for at in &work.records.cancels {
             steps.push(Step::Cancelled {
                 at: at.0,
-                time: time(work, at)?,
-                why: work.why_cancelled.clone(),
+                time: time(work, *at)?,
+                why: work.why_cancelled.get(at).cloned(),
+            });
+        }
+        for at in &work.records.reopens {
+            steps.push(Step::Reopened {
+                at: at.0,
+                time: time(work, *at)?,
+                why: work.why_reopened.get(at).cloned().unwrap_or_default(),
             });
         }
         for session in &work.sessions {
@@ -1705,6 +1778,7 @@ impl WorkPage {
             title: kept.item.title.clone(),
             level: kept.item.level.clone(),
             project: kept.item.project.clone(),
+            tags: kept.item.tags.clone(),
             history: ItemHistory::of(kept.item),
             flow: Flow::of(kept.flow),
             cells,
@@ -1725,6 +1799,7 @@ impl Step {
             | Step::Paused { at, .. }
             | Step::Resumed { at, .. }
             | Step::Cancelled { at, .. }
+            | Step::Reopened { at, .. }
             | Step::Session { at, .. } => *at,
         }
     }
@@ -1896,6 +1971,7 @@ impl NewItem {
             level,
             project,
             depends_on: self.depends_on.into_iter().map(ItemNumber).collect(),
+            tags: self.tags,
             flow: self.flow,
             writes: (self.writes.into_iter())
                 .map(|write| driver::FirstWrite {

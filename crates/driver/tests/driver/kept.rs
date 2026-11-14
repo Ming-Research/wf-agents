@@ -101,5 +101,5 @@ fn after_every_call_the_store_holds_what_the_driver_shows() {
         r.pauses.len(),
     ];
     assert!(kinds.iter().all(|n| *n > 0), "an entry of a kind is missing: {kinds:?}");
-    assert!(r.cancelled.is_some());
+    assert!(r.cancelled().is_some());
 }

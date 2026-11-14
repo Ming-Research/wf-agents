@@ -242,18 +242,31 @@ pub(crate) fn load(db: &Connection, work: WorkNumber) -> Result<Work, Fault> {
             why,
         });
     }
-    let cancelled = rows(db, "SELECT at, why FROM cancelled WHERE work = ?1", w, |row| {
-        Ok((Seq(row.get(0)?), row.get::<_, Option<String>>(1)?))
-    })?
-    .into_iter()
-    .next();
-    r.cancelled = cancelled.as_ref().map(|(at, _)| *at);
-    out.why_cancelled = cancelled.and_then(|(_, why)| why);
-    r.released = rows(db, "SELECT at FROM released WHERE work = ?1", w, |row| {
+    let cancels = rows(
+        db,
+        "SELECT at, why FROM cancelled WHERE work = ?1 ORDER BY at",
+        w,
+        |row| Ok((Seq(row.get(0)?), row.get::<_, Option<String>>(1)?)),
+    )?;
+    for (at, why) in cancels {
+        r.cancels.push(at);
+        if let Some(why) = why {
+            out.why_cancelled.insert(at, why);
+        }
+    }
+    let reopens = rows(
+        db,
+        "SELECT at, why FROM reopened WHERE work = ?1 ORDER BY at",
+        w,
+        |row| Ok((Seq(row.get(0)?), row.get::<_, String>(1)?)),
+    )?;
+    for (at, why) in reopens {
+        r.reopens.push(at);
+        out.why_reopened.insert(at, why);
+    }
+    r.releases = rows(db, "SELECT at FROM released WHERE work = ?1 ORDER BY at", w, |row| {
         Ok(Seq(row.get(0)?))
-    })?
-    .into_iter()
-    .next();
+    })?;
 
     out.contents = rows(
         db,
@@ -411,18 +424,21 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
     let answers = grown("answers", &h.answers, &g.answers, |e| Entry::At(e.at))?;
     let let_go = grown("let_go", &h.let_go, &g.let_go, |e| Entry::At(e.at))?;
     let pauses = grown("pauses", &h.pauses, &g.pauses, |e| Entry::At(e.at))?;
-    let cancelled = match (h.cancelled, g.cancelled) {
-        (None, new) => new,
-        (Some(h), Some(g)) if h == g && held.why_cancelled == given.why_cancelled => None,
-        (Some(h), Some(_)) => return Err(diverged("cancelled", Entry::At(h), Divergence::Changed)),
-        (Some(h), None) => return Err(diverged("cancelled", Entry::At(h), Divergence::Missing)),
+    // A cancel and a reopen are kept with why, which is theirs as much as their place.
+    let with_why = |places: &[Seq], why: &BTreeMap<Seq, String>| -> Vec<(Seq, Option<String>)> {
+        places.iter().map(|at| (*at, why.get(at).cloned())).collect()
     };
-    let released = match (h.released, g.released) {
-        (None, new) => new,
-        (Some(h), Some(g)) if h == g => None,
-        (Some(h), Some(_)) => return Err(diverged("released", Entry::At(h), Divergence::Changed)),
-        (Some(h), None) => return Err(diverged("released", Entry::At(h), Divergence::Missing)),
-    };
+    let (held_cancels, given_cancels) = (
+        with_why(&h.cancels, &held.why_cancelled),
+        with_why(&g.cancels, &given.why_cancelled),
+    );
+    let cancels = grown("cancelled", &held_cancels, &given_cancels, |(at, _)| Entry::At(*at))?;
+    let (held_reopens, given_reopens) = (
+        with_why(&h.reopens, &held.why_reopened),
+        with_why(&g.reopens, &given.why_reopened),
+    );
+    let reopens = grown("reopened", &held_reopens, &given_reopens, |(at, _)| Entry::At(*at))?;
+    let releases = grown("released", &h.releases, &g.releases, |at| Entry::At(*at))?;
     let contents = gained("contents", &held.contents, &given.contents, |(block, at)| {
         Entry::Version {
             block: block.clone(),
@@ -540,13 +556,19 @@ pub(crate) fn save(db: &Connection, work: WorkNumber, given: &Work) -> Result<()
             params![w, e.at.0, e.paused, pauser, e.why],
         )?;
     }
-    if let Some(at) = cancelled {
+    for (at, why) in cancels {
         db.execute(
             "INSERT INTO cancelled (work, at, why) VALUES (?1, ?2, ?3)",
-            params![w, at.0, given.why_cancelled],
+            params![w, at.0, why],
         )?;
     }
-    if let Some(at) = released {
+    for (at, why) in reopens {
+        db.execute(
+            "INSERT INTO reopened (work, at, why) VALUES (?1, ?2, ?3)",
+            params![w, at.0, why],
+        )?;
+    }
+    for at in releases {
         db.execute("INSERT INTO released (work, at) VALUES (?1, ?2)", params![w, at.0])?;
     }
     for ((block, version), content) in contents {

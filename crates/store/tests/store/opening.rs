@@ -22,7 +22,7 @@ fn a_new_file_is_made_with_the_schema_its_version_and_a_write_ahead_log() {
     assert_eq!(store.works(), Ok(vec![]));
     let tables: BTreeSet<String> = dump(&db.path).into_keys().collect();
     assert_eq!(tables, schema_tables());
-    assert_eq!(tables.len(), 39);
+    assert_eq!(tables.len(), 41);
     let file = Connection::open(&db.path).expect("the database opens");
     let version: u32 = (file.query_row("SELECT version FROM schema_version", [], |row| row.get(0))).expect("a version");
     assert_eq!(version, SCHEMA_VERSION);
@@ -40,10 +40,7 @@ fn a_file_made_before_is_opened_with_what_it_holds() {
         let work = first_work(&mut store);
         store
             .add(
-                "second",
-                "2",
-                "one",
-                &[ItemNumber(1)],
+                &first("second", "2", &[ItemNumber(1)]),
                 "judged",
                 Time(START + 1),
                 &Work::default(),
@@ -224,7 +221,7 @@ fn a_file_made_with_the_first_version_of_the_schema_is_migrated_and_its_pauses_r
 }
 
 /// The migrations, in order, each bringing a file one version further, as the store's own list holds them.
-pub(crate) const MIGRATIONS: [&str; 12] = [
+pub(crate) const MIGRATIONS: [&str; 13] = [
     include_str!("../../../../db/migrations/202611101530-say-who-paused-a-work-and-why.sql"),
     include_str!("../../../../db/migrations/202611102304-give-items-a-level.sql"),
     include_str!("../../../../db/migrations/202611111400-say-when-a-work-let-go-of-what-it-held.sql"),
@@ -239,6 +236,9 @@ pub(crate) const MIGRATIONS: [&str; 12] = [
     include_str!("../../../../db/migrations/202611141600-keep-the-observations-the-returns-taken-carry.sql"),
     include_str!("../../../../db/migrations/202611141700-give-items-a-project.sql"),
     include_str!("../../../../db/migrations/202611141900-keep-the-questions-put-to-the-owner-and-the-answers.sql"),
+    include_str!(
+        "../../../../db/migrations/202611142000-say-why-each-change-of-an-item-was-made-tag-items-and-reopen-them.sql"
+    ),
 ];
 
 #[test]
@@ -271,7 +271,7 @@ fn a_file_of_version_9_is_migrated_and_its_runs_read_as_dealing_with_everything_
     // A work of the new form is kept in it beside, as in a file made at this version.
     let new = of_the_new_form();
     let (_, number) = store
-        .add("second", "2", "one", &[], "judged", Time(START), &Work::default())
+        .add(&first("second", "2", &[]), "judged", Time(START), &Work::default())
         .expect("the item is added");
     store.save(number, &new).expect("the work is saved");
     let opened = old.open();
@@ -389,7 +389,7 @@ fn an_item_kept_before_items_had_levels_is_opened_at_none() {
     );
     // An item added now has its level.
     store
-        .add("added now", "1", "one", &[], "judged", Time(START), &Work::default())
+        .add(&first("added now", "1", &[]), "judged", Time(START), &Work::default())
         .expect("the item is added");
     assert_eq!(store.items().unwrap()[1].level.as_deref(), Some("1"));
 }
@@ -418,10 +418,10 @@ fn an_item_kept_before_items_had_projects_is_opened_with_none() {
     assert_eq!(versions(&db.path), [SCHEMA_VERSION]);
     store
         .add(
-            "added now",
-            "1",
-            "two",
-            &[ItemNumber(1)],
+            &store::First {
+                project: Some("two".to_string()),
+                ..first("added now", "1", &[ItemNumber(1)])
+            },
             "judged",
             Time(START),
             &Work::default(),

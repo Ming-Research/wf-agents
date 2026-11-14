@@ -10,8 +10,8 @@ use super::*;
 /// Records with an entry of every kind, each at a place of its own, from 1 to [`LAST`], as a work can have them: a run
 /// that made a call, had its result, and in its next round was told of the owner's words, written while it was under
 /// way, then finished naming what it dealt with; the outside's write; one run abandoned; a cell let go; a pause and a
-/// letting on; a cancel; a question the finished run asked and the owner's answer to it; and the release of what the
-/// work held.
+/// letting on; a cancel; a question the finished run asked and the owner's answer to it; the release of what the work
+/// held; and a reopen.
 fn every_kind() -> Records {
     let (a, b) = (RunId(1), RunId(2));
     Records {
@@ -101,7 +101,7 @@ fn every_kind() -> Records {
                 why: None,
             },
         ],
-        cancelled: Some(Seq(18)),
+        cancels: vec![Seq(18)],
         questions: vec![Questioned {
             name: "way".to_string(),
             cell: "a".into(),
@@ -118,12 +118,13 @@ fn every_kind() -> Records {
             why: Some("The other way.".to_string()),
             at: Seq(20),
         }],
-        released: Some(Seq(LAST)),
+        releases: vec![Seq(21)],
+        reopens: vec![Seq(LAST)],
     }
 }
 
 /// The place of the last entry of [`every_kind`].
-const LAST: u64 = 21;
+const LAST: u64 = 22;
 
 /// The place of every entry of the records, with the list that holds it.
 fn places(r: &Records) -> BTreeSet<(&'static str, Seq)> {
@@ -143,8 +144,9 @@ fn places(r: &Records) -> BTreeSet<(&'static str, Seq)> {
         .chain(of("answers", &r.answers, |e| e.at))
         .chain(of("let_go", &r.let_go, |e| e.at))
         .chain(of("pauses", &r.pauses, |e| e.at))
-        .chain(r.cancelled.map(|at| ("cancelled", at)))
-        .chain(r.released.map(|at| ("released", at)))
+        .chain(of("cancels", &r.cancels, |at| *at))
+        .chain(of("reopens", &r.reopens, |at| *at))
+        .chain(of("releases", &r.releases, |at| *at))
         .collect()
 }
 

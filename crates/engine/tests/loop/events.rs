@@ -121,7 +121,7 @@ fn the_owner_letting_a_cell_go_on_pausing_resuming_and_cancelling_are_each_recor
         vec!["judge"]
     );
     assert_eq!(r.pauses.iter().map(|p| p.paused).collect::<Vec<_>>(), vec![true, false]);
-    assert!(r.cancelled.is_some());
+    assert!(r.cancelled().is_some());
 }
 
 #[test]

@@ -38,15 +38,15 @@ fn two_works_are_kept_apart() {
     let mut d = Driver::new();
     history(&mut d);
     let mut store = Store::in_memory().expect("the store opens");
-    let first = first_work(&mut store);
+    let earlier = first_work(&mut store);
     let (_, second) = store
-        .add("another", "2", "one", &[], "judged", Time(START), &Work::default())
+        .add(&first("another", "2", &[]), "judged", Time(START), &Work::default())
         .expect("the item is added");
-    store.save(first, &d.work).expect("the work is saved");
+    store.save(earlier, &d.work).expect("the work is saved");
     assert_eq!(store.load(second), Ok(Work::default()));
     let mut short = Driver::new();
     short.wrote("request", Outsider::Person, None);
     store.save(second, &short.work).expect("the other work is saved");
-    assert_eq!(store.load(first), Ok(d.work.clone()));
+    assert_eq!(store.load(earlier), Ok(d.work.clone()));
     assert_eq!(store.load(second), Ok(short.work.clone()));
 }

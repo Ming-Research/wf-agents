@@ -386,7 +386,7 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
                 }
             } else if d.paused {
                 d.take(Event::Resumed);
-            } else if !deps_merged && r.cancelled.is_none() {
+            } else if !deps_merged && r.cancelled().is_none() {
                 d.take(wrote(&part.deps, Outsider::Outside, Some(&part.merged)));
             } else if let Some(effect) = at_limit {
                 // The owner lets the run go on at its limit.
@@ -401,7 +401,7 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
         }
         let r = &d.work.records;
         let decision = decide(&d.flow.flow, r);
-        if r.cancelled.is_some() && r.finished.is_empty() {
+        if r.cancelled().is_some() && r.finished.is_empty() {
             assert_eq!(decision, Decision::Ended(End::Cancelled), "a cancelled work goes on");
             seen.cancels += 1;
         } else {

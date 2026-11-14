@@ -182,8 +182,8 @@ pub fn last_place(r: &Records) -> Seq {
         .chain(r.written.iter().map(|e| e.at))
         .chain(r.let_go.iter().map(|e| e.at))
         .chain(r.pauses.iter().map(|e| e.at))
-        .chain(r.cancelled)
-        .chain(r.released)
+        .chain(r.cancels.iter().copied())
+        .chain(r.releases.iter().copied())
         .max()
         .unwrap_or_default()
 }
@@ -207,8 +207,9 @@ pub fn as_of(r: &Records, upto: Seq) -> Records {
         answers: kept(&r.answers, |e| e.at, upto),
         let_go: kept(&r.let_go, |e| e.at, upto),
         pauses: kept(&r.pauses, |e| e.at, upto),
-        cancelled: r.cancelled.filter(|at| *at <= upto),
-        released: r.released.filter(|at| *at <= upto),
+        cancels: kept(&r.cancels, |at| *at, upto),
+        reopens: kept(&r.reopens, |at| *at, upto),
+        releases: kept(&r.releases, |at| *at, upto),
     }
 }
 
@@ -600,7 +601,7 @@ pub fn abandoned(v: &mut Verdict, flow: &Flow, reading: &Reading, run: RunId, be
     let s = reading.started[&run];
     let now = Seq(u64::MAX);
     let ok = match because {
-        Abandoning::Cancelled => reading.records.cancelled.is_some(),
+        Abandoning::Cancelled => reading.records.cancelled().is_some(),
         Abandoning::NoLongerApplies => !(flow.place(&s.cell)).is_some_and(|i| reading.applies(flow, i)),
         Abandoning::Stopped { cell, block } => {
             v.count(STOPS);

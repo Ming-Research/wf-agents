@@ -39,6 +39,7 @@ fn release(end: End) -> Release {
                 level: None,
                 project: None,
                 depends_on: Vec::new(),
+                tags: Vec::new(),
             },
             Vec::new(),
         ),
@@ -62,7 +63,14 @@ fn acts_flow() -> Compiled {
 /// Starts the work in the repository and commits on its branch.
 async fn started(repo: &Repo) {
     let main = run(&repo.project.repo, &["rev-parse", "main"]);
-    let started = start(&repo.project, &Fake::new(&main), &repo.place(WORK), &Mutex::new(()))
+    let place = repo.place(WORK);
+    let branch = Branch {
+        work: WORK,
+        title: "Greet the user",
+        about: "",
+        place: &place,
+    };
+    let started = start(&repo.project, &Fake::new(&main), &branch, &Mutex::new(()))
         .await
         .expect("the work starts");
     commit(&started.place.dir, "farewell.txt", "Bye.\n");
@@ -145,7 +153,13 @@ async fn letting_go_that_fails_is_said_once_for_the_owner_and_not_tried_again() 
 async fn another(repo: &Repo) -> git::Place {
     let main = run(&repo.project.repo, &["rev-parse", "main"]);
     let other = repo.place(WorkNumber(2));
-    start(&repo.project, &Fake::new(&main), &other, &Mutex::new(()))
+    let branch = Branch {
+        work: WorkNumber(2),
+        title: "Say goodbye",
+        about: "",
+        place: &other,
+    };
+    start(&repo.project, &Fake::new(&main), &branch, &Mutex::new(()))
         .await
         .expect("it starts");
     std::fs::write(other.dir.join("draft.txt"), "Not yet.\n").unwrap();

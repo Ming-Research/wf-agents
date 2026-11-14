@@ -2,9 +2,10 @@
 
 use std::sync::{Arc, Mutex};
 
-use driver::{Failed, Fault};
-use service::{Act, Refusal, Scripted, Service, TokioClock};
+use driver::{Asked, Failed, Fault};
+use service::{Act, Message, Refusal, Scripted, Service, TokioClock};
 use store::{Item, ItemChange, ItemNumber, Storage, Store, WorkHead, WorkNumber};
+use tokio::sync::oneshot;
 use work::{Time, Work};
 
 use crate::{START, act_on, add_to, new_item, trial_flow};
@@ -23,19 +24,22 @@ fn full() -> store::Fault {
 impl Storage for Failing {
     fn add(
         &mut self,
-        title: &str,
-        level: &str,
-        project: &str,
-        depends_on: &[ItemNumber],
+        item: &store::First,
         flow: &str,
         at: Time,
         first: &Work,
     ) -> Result<(ItemNumber, WorkNumber), store::Fault> {
-        self.store.add(title, level, project, depends_on, flow, at, first)
+        self.store.add(item, flow, at, first)
     }
 
-    fn change(&mut self, item: ItemNumber, change: &ItemChange, at: Time) -> Result<(), store::Fault> {
-        self.store.change(item, change, at)
+    fn change(
+        &mut self,
+        at: Time,
+        why: Option<&str>,
+        changes: &[(ItemNumber, ItemChange)],
+        works: &[(WorkNumber, &Work)],
+    ) -> Result<(), store::Fault> {
+        self.store.change(at, why, changes, works)
     }
 
     fn items(&self) -> Result<Vec<Item>, store::Fault> {
@@ -107,13 +111,17 @@ async fn an_act_the_engine_stopped_before_keeping_is_to_be_given_again() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn an_act_kept_before_the_engine_stopped_is_not_to_be_given_again() {
+async fn a_change_kept_before_the_engine_stopped_is_not_to_be_given_again() {
     let (mut service, saves, _dir) = failing();
-    let (first, work) = add_to(&mut service, new_item("Greet the user", &[]));
-    add_to(&mut service, new_item("Say goodbye", &[first.0]));
-    // The cancel is kept; what the driver writes for the item that depends on it is not.
-    *saves.lock().unwrap() = Some(1);
-    let (answer, taken) = act_on(&mut service, work, Act::Cancel { why: None });
+    let (first, _) = add_to(&mut service, new_item("Greet the user", &[]));
+    let (second, _) = add_to(&mut service, new_item("Say goodbye", &[]));
+    // The change is kept; what the driver writes of what the item that comes to wait now waits for is not.
+    *saves.lock().unwrap() = Some(0);
+    let (reply, mut answer) = oneshot::channel();
+    let changes = vec![(second, Asked::Item(ItemChange::DependsOn(first)))];
+    let why = "It greets first.".to_string();
+    let taken = service.take(Message::Change { why, changes, reply });
+    let answer = answer.try_recv().expect("the loop answers at once");
     assert_eq!(answer, Err(stopped(true)));
     assert_eq!(taken, Err(service::Fault::Driver(Fault::Store(full()))));
     assert_eq!(

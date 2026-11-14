@@ -312,7 +312,7 @@ impl System {
                         work,
                         item,
                         at,
-                        why: kept.work.why_cancelled.clone(),
+                        why: (kept.work.records.cancelled()).and_then(|at| kept.work.why_cancelled.get(&at).cloned()),
                     });
                     if let Some(week) = week_of(&mut counted, at) {
                         week.cancelled += 1;
@@ -368,7 +368,7 @@ fn ended(driver: &Driver, kept: Kept<'_>, runs: &[Run]) -> Result<Option<Ending>
             })
             .max()
             .map(Ending::Merged),
-        Decision::Ended(End::Cancelled) => match kept.work.records.cancelled {
+        Decision::Ended(End::Cancelled) => match kept.work.records.cancelled() {
             Some(at) => Some(Ending::Cancelled(time(kept.work, at)?)),
             None => None,
         },

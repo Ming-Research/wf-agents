@@ -202,7 +202,7 @@ describe('the panel of the item selected', () => {
     expect((el.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Half a thought');
   });
 
-  it('pauses a work that goes on, starts one that is paused, and cancels one once the owner confirms', async () => {
+  it('pauses a work that goes on, starts one that is paused, and cancels one once the owner confirms and says why', async () => {
     const sent: Sent = [];
     const el = draw(2, answered(sent));
     await act(async () => button(el, 'Pause').click());
@@ -218,10 +218,13 @@ describe('the panel of the item selected', () => {
     await act(async () => (el.querySelector('dialog .confirm-buttons button') as HTMLButtonElement).click());
     expect(el.querySelector('dialog')).toBeNull();
     await act(async () => button(el, 'Cancel').click());
+    // A cancel says why: until it does, it is not made.
+    expect(button(el, 'Cancel the work').disabled).toBe(true);
+    type(el.querySelector('dialog textarea') as HTMLTextAreaElement, ' Joined into #3 ');
     await act(async () => button(el, 'Cancel the work').click());
     expect(sent.slice(1)).toEqual([
       [4, { kind: 'resume' }],
-      [4, { kind: 'cancel' }],
+      [4, { kind: 'cancel', why: 'Joined into #3' }],
     ]);
   });
 

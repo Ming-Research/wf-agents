@@ -122,4 +122,7 @@ pub trait Api: Send + Sync + 'static {
 
     /// Closes the pull request, saying this on it first.
     fn close(&self, number: u64, comment: &str) -> impl Future<Output = Result<(), String>> + Send;
+
+    /// Opens the closed pull request again.
+    fn reopen(&self, number: u64) -> impl Future<Output = Result<(), String>> + Send;
 }

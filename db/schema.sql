@@ -35,15 +35,25 @@ CREATE TABLE depends (
     CHECK (on_item < item)
 );
 
--- A change made to an item since it was added, its nth counting from one, at this time (JSON): it was given a title,
--- put at a level, came to depend on an item or no longer depends on one. What an item is as it stands is what it was
--- added as with each of its changes made in turn: its latest title and level, or those it was added with where it has
--- none, and the items it was added depending on with each it came to depend on, but those it no longer depends on.
+-- An item carries a tag, which classifies it, as it is added.
+CREATE TABLE tagged (
+    item INTEGER NOT NULL REFERENCES items (number),
+    tag TEXT NOT NULL,
+    PRIMARY KEY (item, tag)
+);
+
+-- A change made to an item since it was added, its nth counting from one, at this time (JSON), and why, as whoever
+-- made it said: it was given a title, put at a level, came to depend on an item or no longer depends on one, or came to
+-- carry a tag or no longer carries one. Changes made together have one time and one reason. `why` is null for a change
+-- kept before changes said why. What an item is as it stands is what it was added as with each of its changes made in
+-- turn: its latest title and level, or those it was added with where it has none, the items it was added depending on
+-- with each it came to depend on, but those it no longer depends on, and so its tags.
 CREATE TABLE item_changes (
     item INTEGER NOT NULL REFERENCES items (number),
     n INTEGER NOT NULL,
     at INTEGER NOT NULL,
     change TEXT NOT NULL,
+    why TEXT,
     PRIMARY KEY (item, n)
 );
 
@@ -227,11 +237,22 @@ CREATE TABLE pauses (
     PRIMARY KEY (work, at)
 );
 
--- The work's item was cancelled: one row for a work that was, with why where whoever cancelled it said.
+-- The work's item was cancelled, with why where whoever cancelled it said. A work has a row for each time it was, each
+-- after it was last reopened.
 CREATE TABLE cancelled (
-    work INTEGER PRIMARY KEY REFERENCES works (number),
+    work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
-    why TEXT
+    why TEXT,
+    PRIMARY KEY (work, at)
+);
+
+-- The work's item, which was cancelled, was reopened, for this reason: the cancel before it no longer stands, and the
+-- work goes on from its records once it is let on.
+CREATE TABLE reopened (
+    work INTEGER NOT NULL REFERENCES works (number),
+    at INTEGER NOT NULL,
+    why TEXT NOT NULL,
+    PRIMARY KEY (work, at)
 );
 
 -- Every work was paused (1) or that pause lifted (0), by `pauser` (`Owner`, or `Engine` as it started with works going
@@ -245,11 +266,12 @@ CREATE TABLE everything_paused (
     time INTEGER NOT NULL
 );
 
--- What the work held outside the engine was let go, once it had ended and nothing of it was under way: one row for a
--- work that did.
+-- What the work held outside the engine was let go, once it had ended and nothing of it was under way: a row each time
+-- it ended and did, a work reopened ending again.
 CREATE TABLE released (
-    work INTEGER PRIMARY KEY REFERENCES works (number),
-    at INTEGER NOT NULL
+    work INTEGER NOT NULL REFERENCES works (number),
+    at INTEGER NOT NULL,
+    PRIMARY KEY (work, at)
 );
 
 -- The content of a version of a block, the version named by the place of the entry that wrote it.

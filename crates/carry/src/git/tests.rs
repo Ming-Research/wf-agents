@@ -107,7 +107,9 @@ async fn start_twice_gives_one_worktree() {
     let again = start(&repo.project, &repo.place(WORK), "main")
         .await
         .expect("the work starts again");
-    assert_eq!(again, first);
+    assert_eq!((&again.place, &again.from), (&first.place, &first.from));
+    // The branch was there already the second time.
+    assert!(!first.kept && again.kept);
     let worktrees = run(&repo.project.repo, &["worktree", "list", "--porcelain"]);
     assert_eq!(worktrees.lines().filter(|l| l.starts_with("worktree ")).count(), 2);
 }

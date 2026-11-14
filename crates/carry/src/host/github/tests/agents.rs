@@ -65,7 +65,8 @@ async fn changes_not_committed_are_said_and_nothing_is_pushed() {
 #[tokio::test]
 async fn a_branch_with_no_commit_of_its_own_is_said_and_nothing_is_pushed() {
     let hub = Hub::new();
-    crate::acts::start(&hub.repo.project, &hub.host, &hub.place(), &Mutex::new(()))
+    let place = hub.place();
+    crate::acts::start(&hub.repo.project, &hub.host, &super::branch(&place), &Mutex::new(()))
         .await
         .expect("the work starts");
     let said = hub.agents_check().await.unwrap().expect("said");

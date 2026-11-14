@@ -19,6 +19,7 @@ import type {
   Run,
   SessionWhy,
   Spent,
+  Step,
   Summary,
   Unmet,
   Waited,
@@ -481,7 +482,21 @@ export function callState(row: CallRow, abandoned = false): string {
   return abandoned ? `${made}, withdrawn with its run` : `${made}, no result yet`;
 }
 
+/// What a cancel does, said before the owner makes one.
+export const CANCEL_DOES = 'Nothing of it goes on until its item is reopened, and then it goes on from where it stopped';
+
+/// What the owner is asked for as they cancel a work, which is kept with the cancel.
+export const CANCEL_WHY = 'Why it is cancelled, in a sentence, such as the item it was joined into';
+
 /// Whether a work has ended: merged, or its item cancelled.
 export function hasEnded(summary: Pick<Summary, 'now'>): boolean {
   return summary.now.kind === 'merged' || summary.now.kind === 'cancelled';
+}
+
+/// Why letting go of what an ended work held failed, where the engine paused the work for it and it is not let on
+/// since: letting it on tries again. None otherwise.
+export function letGoFailed(summary: Pick<Summary, 'now' | 'paused'>, steps: Step[]): string | null {
+  if (!hasEnded(summary) || !summary.paused) return null;
+  const last = [...steps].reverse().find((s) => s.kind === 'paused' || s.kind === 'resumed');
+  return last?.kind === 'paused' && last.by === 'engine' ? (last.why ?? 'the engine gave no reason') : null;
 }

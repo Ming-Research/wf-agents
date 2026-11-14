@@ -1,14 +1,57 @@
-//! Changing an item after it was added: whether a change may be made is judged from the item, how far its work has
-//! gone and what each item depends on, and nothing else (principle `decide-purely`), so that the driver, which holds
-//! them, and a test give it the same answer. A change is kept as a record of its own after the item's others, and what
-//! the item stands as is worked out of them (crate `store`, [`store::Item`]).
+//! Changing items after they were added: whether changes may be made is judged from the items, how far each one's work
+//! has gone and what each depends on, and nothing else (principle `decide-purely`), so that the driver, which holds
+//! them, and a test give it the same answer. Changes asked together are judged in the order given, each against the
+//! items as the changes before it would leave them, and are made all of them or none ([`judge`]). A change of an item
+//! is kept as a record of its own after the item's others, and what the item stands as is worked out of them (crate
+//! `store`, [`store::Item`]); a cancel and a reopen are the work's own records.
 //!
-//! Every change is refused once the item's work has ended: nothing of the work goes on, and the item is what it ended
-//! as. Its title and its level change until then; what it depends on only while its work has started no run (entry
-//! `dependencies-until-the-work-starts`).
+//! Every change but a reopen is refused once the item's work has ended: nothing of the work goes on, and the item is
+//! what it ended as. Its title, level and tags change until then; what it depends on only while its work has started
+//! no run (entry `dependencies-until-the-work-starts`). Two relations between items hold whatever is changed: an item
+//! that has not ended depends on no cancelled item, and an item that has merged depends on no item that has not merged
+//! by any change (entry `cancels-keep-to-the-dependencies`).
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use decide::End;
 use store::{Item, ItemChange, ItemNumber};
+
+/// The longest a tag may be, in characters.
+pub const TAG_CHARS: usize = 40;
+
+/// A change of an item, as whoever plans the work asks for it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Asked {
+    /// A change of the item itself: its title, level, dependencies or tags.
+    Item(ItemChange),
+    /// Its work is cancelled, and ends.
+    Cancel,
+    /// It is reopened: it was cancelled, and its work goes on again once it is let on.
+    Reopen,
+}
+
+/// An item as changes of it are judged: the item, how far its work has gone, and whether its end is letting go of what
+/// it held.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Planned {
+    pub item: Item,
+    /// Whether its work has started a run.
+    pub started: bool,
+    /// How its work ended, where it has.
+    pub ended: Option<End>,
+    /// Whether its work's end is letting go of what it held, which a reopen would leave half done.
+    pub letting_go: bool,
+}
+
+impl Planned {
+    fn gone(&self) -> Gone {
+        match self.ended {
+            Some(end) => Gone::Ended(end),
+            None if self.started => Gone::Started,
+            None => Gone::NotStarted,
+        }
+    }
+}
 
 /// How far an item's work has gone, as a change of the item is judged.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,48 +77,170 @@ pub enum Unchangeable {
     Circle(Vec<ItemNumber>),
     /// It does not depend on the item it was to no longer depend on.
     NotDependent(ItemNumber),
+    /// It does not carry the tag it was to no longer carry.
+    NotTagged(String),
+    /// It is to be cancelled, and these items, which have not ended, depend on it: they would wait for it for good.
+    OpenDependants(Vec<ItemNumber>),
+    /// It is to be reopened, or to depend on these items, which are cancelled: it would wait for them for good.
+    OnCancelled(Vec<ItemNumber>),
+    /// It is to be reopened, and these items, which have merged, depend on it: a merged item would depend on one that
+    /// has not.
+    MergedDependants(Vec<ItemNumber>),
+    /// It is to be reopened, and is not cancelled.
+    NotCancelled,
+    /// It is to be reopened, and its cancel is still letting go of what its work held.
+    LettingGo,
 }
 
-/// Why a change was not made: there is no item it names, or it may not be made.
+/// Why a change was not made: there is no item it names, what it gives is not what an item takes, or it may not be
+/// made.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Refused {
     NoSuchItem(ItemNumber),
     /// The title it was to be given has no words.
     BlankTitle,
+    /// The tag is not one an item may carry: it is empty, longer than [`TAG_CHARS`], or holds a space or a comma.
+    BadTag(String),
     Unchangeable(Unchangeable),
 }
 
-/// Whether the change makes the item other than it is, or why it is refused: `gone` says how far the item's work has
-/// gone, and `depends_on` gives what each item depends on as it stands, none for an item there is not. A change that
-/// leaves the item as it is, a title or a level it has, or an item it depends on already, is no change, and is not
+/// A change refused: the place it was given at among those asked together, the first being 0, the item it names, and
+/// why.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NotMade {
+    pub at: usize,
+    pub item: ItemNumber,
+    pub why: Refused,
+}
+
+/// Whether each change makes its item other than it is, in the order given, or every change that is refused: none is
+/// then made. The changes are judged in turn, each against the items as the changes before it that were not refused
+/// would leave them, so that every refusal is said at once. `items` gives every item as it stands. A change that leaves
+/// its item as it is, a title, a level or a tag it has, or an item it depends on already, is no change, and is not
 /// refused for that; a title of no words is refused, as it is when an item is added.
 pub fn judge(
-    item: &Item,
-    gone: Gone,
-    change: &ItemChange,
-    depends_on: impl Fn(ItemNumber) -> Option<Vec<ItemNumber>>,
-) -> Result<bool, Refused> {
+    items: &BTreeMap<ItemNumber, Planned>,
+    changes: &[(ItemNumber, Asked)],
+) -> Result<Vec<bool>, Vec<NotMade>> {
+    let mut items = items.clone();
+    let mut changed = Vec::new();
+    let mut refused = Vec::new();
+    for (at, (item, asked)) in changes.iter().enumerate() {
+        match judge_one(&items, *item, asked) {
+            Ok(changes) => {
+                if changes {
+                    made(&mut items, *item, asked);
+                }
+                changed.push(changes);
+            }
+            Err(why) => refused.push(NotMade { at, item: *item, why }),
+        }
+    }
+    if refused.is_empty() { Ok(changed) } else { Err(refused) }
+}
+
+/// Whether the tag is one an item may carry; why not, where it is not.
+pub fn tag_fault(tag: &str) -> Option<Refused> {
+    let bad = tag.is_empty() || tag.chars().count() > TAG_CHARS || tag.chars().any(|c| c.is_whitespace() || c == ',');
+    bad.then(|| Refused::BadTag(tag.to_string()))
+}
+
+/// Whether one change makes the item other than it is, or why it is refused.
+fn judge_one(items: &BTreeMap<ItemNumber, Planned>, number: ItemNumber, asked: &Asked) -> Result<bool, Refused> {
     let refused = |why| Err(Refused::Unchangeable(why));
+    let Some(planned) = items.get(&number) else {
+        return Err(Refused::NoSuchItem(number));
+    };
+    let item = &planned.item;
+    let gone = planned.gone();
+    let dependants = |what: &dyn Fn(&Planned) -> bool| -> Vec<ItemNumber> {
+        (items.values())
+            .filter(|other| other.item.depends_on.contains(&number) && what(other))
+            .map(|other| other.item.number)
+            .collect()
+    };
+    let cancelled = |on: &[ItemNumber]| -> Vec<ItemNumber> {
+        (on.iter().copied())
+            .filter(|on| items.get(on).is_some_and(|p| p.ended == Some(End::Cancelled)))
+            .collect()
+    };
+    if *asked == Asked::Reopen {
+        if planned.ended != Some(End::Cancelled) {
+            return refused(Unchangeable::NotCancelled);
+        }
+        if planned.letting_go {
+            return refused(Unchangeable::LettingGo);
+        }
+        let on = cancelled(&item.depends_on);
+        if !on.is_empty() {
+            return refused(Unchangeable::OnCancelled(on));
+        }
+        let merged = dependants(&|other| other.ended == Some(End::Merged));
+        if !merged.is_empty() {
+            return refused(Unchangeable::MergedDependants(merged));
+        }
+        return Ok(true);
+    }
     if let Gone::Ended(end) = gone {
         return refused(Unchangeable::Ended(end));
     }
-    match change {
-        ItemChange::Title(title) if title.trim().is_empty() => Err(Refused::BlankTitle),
-        ItemChange::Title(title) => Ok(*title != item.title),
-        ItemChange::Level(level) => Ok(item.level.as_deref() != Some(level.as_str())),
-        ItemChange::DependsOn(on) | ItemChange::NoLongerDependsOn(on) if depends_on(*on).is_none() => {
-            Err(Refused::NoSuchItem(*on))
+    match asked {
+        Asked::Reopen => Ok(true),
+        Asked::Cancel => {
+            let open = dependants(&|other| other.ended.is_none());
+            if open.is_empty() {
+                Ok(true)
+            } else {
+                refused(Unchangeable::OpenDependants(open))
+            }
         }
-        ItemChange::DependsOn(_) | ItemChange::NoLongerDependsOn(_) if gone == Gone::Started => {
-            refused(Unchangeable::Started)
-        }
-        ItemChange::DependsOn(on) if item.depends_on.contains(on) => Ok(false),
-        ItemChange::DependsOn(on) => match way(*on, item.number, &depends_on) {
-            Some(way) => refused(Unchangeable::Circle(way)),
-            None => Ok(true),
+        Asked::Item(change) => match change {
+            ItemChange::Title(title) if title.trim().is_empty() => Err(Refused::BlankTitle),
+            ItemChange::Title(title) => Ok(*title != item.title),
+            ItemChange::Level(level) => Ok(item.level.as_deref() != Some(level.as_str())),
+            ItemChange::Tagged(tag) => match tag_fault(tag) {
+                Some(fault) => Err(fault),
+                None => Ok(!item.tags.contains(tag)),
+            },
+            ItemChange::Untagged(tag) if !item.tags.contains(tag) => refused(Unchangeable::NotTagged(tag.clone())),
+            ItemChange::Untagged(_) => Ok(true),
+            ItemChange::DependsOn(on) | ItemChange::NoLongerDependsOn(on) if !items.contains_key(on) => {
+                Err(Refused::NoSuchItem(*on))
+            }
+            ItemChange::DependsOn(_) | ItemChange::NoLongerDependsOn(_) if gone == Gone::Started => {
+                refused(Unchangeable::Started)
+            }
+            ItemChange::DependsOn(on) if item.depends_on.contains(on) => Ok(false),
+            ItemChange::DependsOn(on) if !cancelled(&[*on]).is_empty() => refused(Unchangeable::OnCancelled(vec![*on])),
+            ItemChange::DependsOn(on) => {
+                let depends_on = |n: ItemNumber| items.get(&n).map(|p| p.item.depends_on.clone());
+                match way(*on, number, &depends_on) {
+                    Some(way) => refused(Unchangeable::Circle(way)),
+                    None => Ok(true),
+                }
+            }
+            ItemChange::NoLongerDependsOn(on) if !item.depends_on.contains(on) => {
+                refused(Unchangeable::NotDependent(*on))
+            }
+            ItemChange::NoLongerDependsOn(_) => Ok(true),
         },
-        ItemChange::NoLongerDependsOn(on) if !item.depends_on.contains(on) => refused(Unchangeable::NotDependent(*on)),
-        ItemChange::NoLongerDependsOn(_) => Ok(true),
+    }
+}
+
+/// Makes what the change does to the items as they are judged: the item changed, its work cancelled, or reopened.
+fn made(items: &mut BTreeMap<ItemNumber, Planned>, number: ItemNumber, asked: &Asked) {
+    let Some(planned) = items.get_mut(&number) else {
+        return;
+    };
+    match asked {
+        Asked::Item(change) => planned.item.is(change),
+        // Cancelled, its work lets go of what it held, now or once what it has under way has ended: a reopen asked
+        // with the cancel would come while it lets go.
+        Asked::Cancel => {
+            planned.ended = Some(End::Cancelled);
+            planned.letting_go = true;
+        }
+        Asked::Reopen => planned.ended = None,
     }
 }
 
@@ -86,7 +251,7 @@ fn way(
     to: ItemNumber,
     depends_on: &impl Fn(ItemNumber) -> Option<Vec<ItemNumber>>,
 ) -> Option<Vec<ItemNumber>> {
-    let mut seen = std::collections::BTreeSet::new();
+    let mut seen = BTreeSet::new();
     let mut way = vec![from];
     // Each item on the way, with the items it depends on that are still to be tried.
     let mut left = vec![reversed(depends_on(from))];
@@ -119,133 +284,4 @@ fn reversed(on: Option<Vec<ItemNumber>>) -> Vec<ItemNumber> {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::collections::BTreeMap;
-
-    use store::First;
-    use work::Time;
-
-    use super::*;
-
-    fn n(numbers: &[u64]) -> Vec<ItemNumber> {
-        numbers.iter().copied().map(ItemNumber).collect()
-    }
-
-    /// The items 1 to 5: 2 depends on 1, 3 on 2, 4 on 1 and 3, and 5 on nothing.
-    fn graph() -> BTreeMap<ItemNumber, Vec<ItemNumber>> {
-        [(1, n(&[])), (2, n(&[1])), (3, n(&[2])), (4, n(&[1, 3])), (5, n(&[]))]
-            .into_iter()
-            .map(|(item, on)| (ItemNumber(item), on))
-            .collect()
-    }
-
-    fn item(graph: &BTreeMap<ItemNumber, Vec<ItemNumber>>, number: u64) -> Item {
-        let first = First {
-            title: format!("item {number}"),
-            level: Some("2".to_string()),
-            project: Some("one".to_string()),
-            depends_on: graph[&ItemNumber(number)].clone(),
-        };
-        Item::new(ItemNumber(number), Time(0), first, Vec::new())
-    }
-
-    fn judged(number: u64, gone: Gone, change: ItemChange) -> Result<bool, Refused> {
-        let graph = graph();
-        judge(&item(&graph, number), gone, &change, |on| graph.get(&on).cloned())
-    }
-
-    #[test]
-    fn a_circle_is_refused_with_the_way_round_it() {
-        let circle = |way: &[u64]| Err(Refused::Unchangeable(Unchangeable::Circle(n(way))));
-        assert_eq!(
-            judged(1, Gone::NotStarted, ItemChange::DependsOn(ItemNumber(4))),
-            circle(&[4, 1])
-        );
-        assert_eq!(
-            judged(2, Gone::NotStarted, ItemChange::DependsOn(ItemNumber(3))),
-            circle(&[3, 2])
-        );
-        assert_eq!(
-            judged(2, Gone::NotStarted, ItemChange::DependsOn(ItemNumber(4))),
-            circle(&[4, 3, 2])
-        );
-        assert_eq!(
-            judged(5, Gone::NotStarted, ItemChange::DependsOn(ItemNumber(5))),
-            circle(&[5])
-        );
-        assert_eq!(
-            judged(5, Gone::NotStarted, ItemChange::DependsOn(ItemNumber(4))),
-            Ok(true)
-        );
-        assert_eq!(
-            judged(3, Gone::NotStarted, ItemChange::DependsOn(ItemNumber(5))),
-            Ok(true)
-        );
-    }
-
-    #[test]
-    fn what_the_item_is_already_is_no_change_and_no_refusal() {
-        assert_eq!(
-            judged(2, Gone::NotStarted, ItemChange::Title("item 2".into())),
-            Ok(false)
-        );
-        assert_eq!(judged(2, Gone::Started, ItemChange::Level("2".into())), Ok(false));
-        assert_eq!(
-            judged(4, Gone::NotStarted, ItemChange::DependsOn(ItemNumber(3))),
-            Ok(false)
-        );
-    }
-
-    #[test]
-    fn a_started_work_keeps_what_it_depends_on_and_takes_a_title_and_a_level() {
-        let started = Err(Refused::Unchangeable(Unchangeable::Started));
-        assert_eq!(judged(4, Gone::Started, ItemChange::DependsOn(ItemNumber(5))), started);
-        assert_eq!(
-            judged(4, Gone::Started, ItemChange::NoLongerDependsOn(ItemNumber(3))),
-            started
-        );
-        assert_eq!(judged(4, Gone::Started, ItemChange::Title("less".into())), Ok(true));
-        assert_eq!(judged(4, Gone::Started, ItemChange::Level("3".into())), Ok(true));
-    }
-
-    #[test]
-    fn an_ended_work_takes_no_change() {
-        for end in [End::Merged, End::Cancelled] {
-            let ended = Err(Refused::Unchangeable(Unchangeable::Ended(end)));
-            assert_eq!(judged(2, Gone::Ended(end), ItemChange::Title("other".into())), ended);
-            assert_eq!(judged(2, Gone::Ended(end), ItemChange::Level("1".into())), ended);
-            assert_eq!(
-                judged(2, Gone::Ended(end), ItemChange::NoLongerDependsOn(ItemNumber(1))),
-                ended
-            );
-        }
-    }
-
-    #[test]
-    fn a_title_of_no_words_is_refused_started_or_not() {
-        for gone in [Gone::NotStarted, Gone::Started] {
-            for title in ["", " \t "] {
-                assert_eq!(
-                    judged(2, gone, ItemChange::Title(title.into())),
-                    Err(Refused::BlankTitle)
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn an_item_there_is_not_and_one_not_depended_on_are_refused() {
-        assert_eq!(
-            judged(2, Gone::NotStarted, ItemChange::DependsOn(ItemNumber(9))),
-            Err(Refused::NoSuchItem(ItemNumber(9)))
-        );
-        assert_eq!(
-            judged(2, Gone::NotStarted, ItemChange::NoLongerDependsOn(ItemNumber(5))),
-            Err(Refused::Unchangeable(Unchangeable::NotDependent(ItemNumber(5))))
-        );
-        assert_eq!(
-            judged(4, Gone::NotStarted, ItemChange::NoLongerDependsOn(ItemNumber(1))),
-            Ok(true)
-        );
-    }
-}
+mod tests;

@@ -1,6 +1,7 @@
-//! The routes of the items and the works, as `client/src/works-api.ts` reads them. Each read and each act goes to the
-//! engine's loop through its [`Handle`], which takes them in order with everything else that happens; what a round was
-//! told and returned is read off the loop, from its carrier.
+//! The routes of the items and the works, as `client/src/works-api.ts` reads them, and the reads of the plan that
+//! whoever plans the work makes with the commands (module `plan`). Each read and each act goes to the engine's loop
+//! through its [`Handle`], which takes them in order with everything else that happens; what a round was told and
+//! returned is read off the loop, from its carrier.
 //!
 //! A refusal answers with a status of 4xx and [`Refusal`]: 404 for a work, version, round or call there is none of,
 //! 400 for what cannot be read, and 422 for what the engine refused. A work that cannot be shown, which the engine never
@@ -8,23 +9,23 @@
 
 use axum::Router;
 use axum::body::Bytes;
-use axum::extract::rejection::PathRejection;
-use axum::extract::{Path, State};
+use axum::extract::rejection::{PathRejection, QueryRejection};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post};
 use decide::RunId;
 use driver::Failed;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use service::{Handle, Levels, Projects};
-use store::{ItemChange, ItemNumber, WorkNumber};
+use store::WorkNumber;
 use tokio::sync::broadcast::error::RecvError;
 
+use crate::plan::{Candidates, Graph, HITS, Hits, PlanChanges, PlanMark, Tags, Way};
 use crate::works::{
-    Act, Added, Broken, CallPage, Changed, DependencyChange, DoingPage, Engine, EngineAct, ItemChanged, Items,
-    LevelsPage, NewItem, NewLevel, NewTitle, ProjectsPage, Refusal, RoundPage, SystemPage, ToldPage, VersionPage,
-    WorkPage,
+    Act, Added, Broken, CallPage, Changed, DoingPage, Engine, EngineAct, ItemChanges, Items, ItemsChanged, LevelsPage,
+    NewItem, ProjectsPage, Refusal, RoundPage, SystemPage, ToldPage, VersionPage, WorkPage,
 };
 
 /// The routes of the items and the works, over the engine's loop; an item is added at one of these levels, to one of
@@ -35,14 +36,15 @@ pub fn router(handle: Handle, levels: Levels, projects: Projects) -> Router {
     let named = ProjectsPage::of(&projects);
     let (to_add, projects) = (levels.clone(), std::sync::Arc::new(projects));
     let add = move |handle: State<Handle>, body: Bytes| add(handle, to_add.clone(), projects.clone(), body);
-    let set = move |handle: State<Handle>, path: Result<Path<u64>, PathRejection>, body: Bytes| {
-        set_level(handle, levels.clone(), path, body)
-    };
+    let change = move |handle: State<Handle>, body: Bytes| change(handle, levels.clone(), body);
     Router::new()
         .route("/api/v1/items", get(items).post(add))
-        .route("/api/v1/items/{item}/level", post(set))
-        .route("/api/v1/items/{item}/title", post(retitle))
-        .route("/api/v1/items/{item}/dependencies", post(depend))
+        .route("/api/v1/items/changes", post(change))
+        .route("/api/v1/plan/changes", get(plan_changes))
+        .route("/api/v1/plan/candidates", get(candidates))
+        .route("/api/v1/plan/search", get(search))
+        .route("/api/v1/plan/graph/{item}", get(graph))
+        .route("/api/v1/plan/tags", get(tags))
         .route("/api/v1/levels", get(move || async move { Json(shown.clone()) }))
         .route("/api/v1/projects", get(move || async move { Json(named.clone()) }))
         .route("/api/v1/works/{work}", get(work))
@@ -117,58 +119,145 @@ async fn add(
     }
 }
 
-/// Puts an item at another level, as the owner: one of the levels, at most the highest an item may be at.
-async fn set_level(
+/// Changes items, as whoever plans the work asks, for the one reason given, all of the changes or none: a level is
+/// one of the levels, at most the highest an item may be at. Answers whether each changed its item, or why they were
+/// refused, each change refused named by its place among them.
+async fn change(State(handle): State<Handle>, levels: std::sync::Arc<Levels>, body: Bytes) -> Response {
+    let asked: ItemChanges = match serde_json::from_slice(&body) {
+        Ok(asked) => asked,
+        Err(e) => return fail(StatusCode::BAD_REQUEST, format!("The changes cannot be read: {e}.")),
+    };
+    if asked.why.trim().is_empty() {
+        return fail(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "A change says why it is made, and this one says nothing: give a reason in a sentence.".to_string(),
+        );
+    }
+    if asked.changes.is_empty() {
+        return fail(StatusCode::UNPROCESSABLE_ENTITY, "No change is asked for.".to_string());
+    }
+    let (mut changes, mut unlevelled) = (Vec::new(), Vec::new());
+    let asked_alone = asked.changes.len() == 1;
+    for (at, change) in asked.changes.into_iter().enumerate() {
+        match change.taken(&levels) {
+            Ok(change) => changes.push(change),
+            Err(why) if asked_alone => {
+                return fail(StatusCode::UNPROCESSABLE_ENTITY, format!("The item's level: {why}."));
+            }
+            Err(why) => unlevelled.push(format!("change {}: the item's level: {why}", at + 1)),
+        }
+    }
+    if !unlevelled.is_empty() {
+        let said = unlevelled.join("; ");
+        return fail(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            format!(
+                "{}{}; so none of the changes was made.",
+                said[..1].to_uppercase(),
+                &said[1..]
+            ),
+        );
+    }
+    match handle.change(asked.why, changes).await {
+        Ok(changed) => Json(ItemsChanged { changed }).into_response(),
+        Err(refusal) => refused(&refusal),
+    }
+}
+
+/// The query of a read of the plan's changes: the mark the last read gave, where there was one.
+#[derive(Deserialize)]
+struct Since {
+    since: Option<String>,
+}
+
+async fn plan_changes(State(handle): State<Handle>, Query(query): Query<Since>) -> Response {
+    let since = match query.since.as_deref().map(PlanMark::read).transpose() {
+        Ok(since) => since,
+        Err(unreadable) => return fail(StatusCode::BAD_REQUEST, format!("{}.", unreadable.0)),
+    };
+    match handle.read(move |driver| PlanChanges::of(driver, since.as_ref())).await {
+        Ok(Ok(changes)) => Json(changes).into_response(),
+        Ok(Err(unreadable)) => fail(StatusCode::UNPROCESSABLE_ENTITY, format!("{}.", unreadable.0)),
+        Err(refusal) => refused(&refusal),
+    }
+}
+
+async fn candidates(State(handle): State<Handle>) -> Response {
+    match handle.read(Candidates::of).await {
+        Ok(candidates) => Json(candidates).into_response(),
+        Err(refusal) => refused(&refusal),
+    }
+}
+
+async fn tags(State(handle): State<Handle>) -> Response {
+    match handle.read(Tags::of).await {
+        Ok(tags) => Json(tags).into_response(),
+        Err(refusal) => refused(&refusal),
+    }
+}
+
+/// The query of a search: the text, and the most hits to give.
+#[derive(Deserialize)]
+struct Searched {
+    text: String,
+    limit: Option<usize>,
+}
+
+async fn search(State(handle): State<Handle>, query: Result<Query<Searched>, QueryRejection>) -> Response {
+    let Query(query) = match query {
+        Ok(query) => query,
+        Err(rejection) => {
+            return fail(
+                StatusCode::BAD_REQUEST,
+                format!("The search cannot be read: {}.", rejection.body_text()),
+            );
+        }
+    };
+    if query.text.trim().is_empty() {
+        return fail(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "A search looks for a text, and this one has none.".to_string(),
+        );
+    }
+    let limit = query.limit.unwrap_or(HITS).max(1);
+    match handle.read(move |driver| Hits::of(driver, &query.text, limit)).await {
+        Ok(hits) => Json(hits).into_response(),
+        Err(refusal) => refused(&refusal),
+    }
+}
+
+/// The query of a walk of dependencies: which way, where only one, up to what the item depends on and down to what
+/// depends on it, and how deep.
+#[derive(Deserialize)]
+struct Walked {
+    way: Option<String>,
+    depth: Option<usize>,
+}
+
+async fn graph(
     State(handle): State<Handle>,
-    levels: std::sync::Arc<Levels>,
     path: Result<Path<u64>, PathRejection>,
-    body: Bytes,
+    Query(query): Query<Walked>,
 ) -> Response {
     let item = match path {
-        Ok(Path(item)) => ItemNumber(item),
+        Ok(Path(item)) => item,
         Err(rejection) => return unreadable(&rejection),
     };
-    let asked: NewLevel = match serde_json::from_slice(&body) {
-        Ok(asked) => asked,
-        Err(e) => return fail(StatusCode::BAD_REQUEST, format!("The level cannot be read: {e}.")),
+    let way = match query.way.as_deref() {
+        None => None,
+        Some("down") => Some(Way::Down),
+        Some("up") => Some(Way::Up),
+        Some(other) => {
+            return fail(
+                StatusCode::BAD_REQUEST,
+                format!("A walk goes up or down, and {other:?} is neither."),
+            );
+        }
     };
-    let level = match levels.of_item(Some(&asked.level)) {
-        Ok(level) => level,
-        Err(why) => return fail(StatusCode::UNPROCESSABLE_ENTITY, format!("The item's level: {why}.")),
-    };
-    changed(&handle, item, ItemChange::Level(level)).await
-}
-
-/// Gives an item another title, as whoever plans the work.
-async fn retitle(State(handle): State<Handle>, path: Result<Path<u64>, PathRejection>, body: Bytes) -> Response {
-    let item = match path {
-        Ok(Path(item)) => ItemNumber(item),
-        Err(rejection) => return unreadable(&rejection),
-    };
-    let asked: NewTitle = match serde_json::from_slice(&body) {
-        Ok(asked) => asked,
-        Err(e) => return fail(StatusCode::BAD_REQUEST, format!("The title cannot be read: {e}.")),
-    };
-    changed(&handle, item, ItemChange::Title(asked.title)).await
-}
-
-/// Makes an item depend on another, or no longer, as whoever plans the work.
-async fn depend(State(handle): State<Handle>, path: Result<Path<u64>, PathRejection>, body: Bytes) -> Response {
-    let item = match path {
-        Ok(Path(item)) => ItemNumber(item),
-        Err(rejection) => return unreadable(&rejection),
-    };
-    let asked: DependencyChange = match serde_json::from_slice(&body) {
-        Ok(asked) => asked,
-        Err(e) => return fail(StatusCode::BAD_REQUEST, format!("The change cannot be read: {e}.")),
-    };
-    changed(&handle, item, asked.taken()).await
-}
-
-/// Changes the item, and answers whether that changed it, or why it was refused.
-async fn changed(handle: &Handle, item: ItemNumber, change: ItemChange) -> Response {
-    match handle.change(item, change).await {
-        Ok(changed) => Json(ItemChanged { changed }).into_response(),
+    let depth = query.depth.unwrap_or(3).max(1);
+    match handle.read(move |driver| Graph::of(driver, item, way, depth)).await {
+        Ok(Some(graph)) => Json(graph).into_response(),
+        Ok(None) => fail(StatusCode::NOT_FOUND, format!("There is no item #{item}.")),
         Err(refusal) => refused(&refusal),
     }
 }

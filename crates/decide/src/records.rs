@@ -57,13 +57,16 @@ pub struct Records {
     pub let_go: Vec<LetGo>,
     /// Each time the work was paused or let on again; the latest says which it is.
     pub pauses: Vec<Pause>,
-    /// When the work's item was cancelled, if it was.
-    pub cancelled: Option<Seq>,
-    /// When what the work held outside the engine was let go, once it had ended and nothing of it was under way: its
-    /// worktree, and its pull request where it did not merge. Records kept before the engine let go of anything have
-    /// none, and read so.
+    /// Each time the work's item was cancelled, in order. The cancel that stands is [`Records::cancelled`].
+    pub cancels: Vec<Seq>,
+    /// Each time the work's item was reopened, each after a cancel, in order: the cancel before it no longer stands.
     #[serde(default)]
-    pub released: Option<Seq>,
+    pub reopens: Vec<Seq>,
+    /// Each time what the work held outside the engine was let go, once it had ended and nothing of it was under way:
+    /// its worktree, and its pull request where it did not merge. Records kept before the engine let go of anything
+    /// have none, and read so. What was let go since the work's latest reopen is [`Records::released`].
+    #[serde(default)]
+    pub releases: Vec<Seq>,
 }
 
 impl Records {
@@ -94,9 +97,25 @@ impl Records {
             answers: kept(&self.answers, |e| e.at, place),
             let_go: kept(&self.let_go, |e| e.at, place),
             pauses: kept(&self.pauses, |e| e.at, place),
-            cancelled: self.cancelled.filter(|at| *at < place),
-            released: self.released.filter(|at| *at < place),
+            cancels: kept(&self.cancels, |at| *at, place),
+            reopens: kept(&self.reopens, |at| *at, place),
+            releases: kept(&self.releases, |at| *at, place),
         }
+    }
+
+    /// The cancel that stands: the latest cancel, where no reopen came after it.
+    pub fn cancelled(&self) -> Option<Seq> {
+        let cancel = self.cancels.iter().max().copied()?;
+        let reopened = self.reopens.iter().any(|at| *at > cancel);
+        (!reopened).then_some(cancel)
+    }
+
+    /// When what the work held outside was let go, where it was since the work's latest reopen: a reopened work holds
+    /// its place again once it is let on, and lets it go again when it ends again.
+    pub fn released(&self) -> Option<Seq> {
+        let reopened = self.reopens.iter().max().copied();
+        let release = self.releases.iter().max().copied()?;
+        reopened.is_none_or(|reopened| release > reopened).then_some(release)
     }
 }
 
@@ -360,4 +379,7 @@ pub enum RecordFault {
     /// What is decided on these records, once done, leads to deciding again without end: the engine, which went round
     /// past its bound, says so, as the walk alone cannot.
     WithoutEnd,
+    /// The work was reopened at this place with no cancel since it was last reopened: only a cancelled item is
+    /// reopened.
+    ReopenedNotCancelled(Seq),
 }

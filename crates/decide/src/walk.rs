@@ -14,7 +14,8 @@
 //! otherwise entered; the rest are passed. A work in which nothing new runs a cell, and nothing is under way or
 //! waited for, rests until someone writes what runs one. One round of a work is under way at a time: a round of a cell
 //! after one the owner turned to, by words or by an answer, is stopped, nothing else beginning until it has ended, and
-//! its cell runs again later. A work has ended when its last cell has a record or its item is cancelled.
+//! its cell runs again later. A work has ended when its last cell has a record or its item is cancelled and not
+//! reopened since; a reopened work is walked from its records as any other, what its cancel abandoned leaving no record.
 //!
 //! A pause of the work changes none of this order. It holds back the run the walk comes to, unless one of that run's
 //! reasons is a note a person wrote, or the owner turning to the cell, since the cell last ran (since the run of its
@@ -145,7 +146,7 @@ pub fn decide_in(flow: &Flow, records: &Records, room: Room) -> Decision {
     if walk.record(&cells[cells.len() - 1].id).is_some() {
         return Decision::Ended(End::Merged);
     }
-    if records.cancelled.is_some() {
+    if records.cancelled().is_some() {
         // Nothing of a cancelled work goes on: each run that is still open is abandoned, whatever it is doing.
         return match walk.runs.values().find(|r| r.open()) {
             Some(run) => Decision::Abandon {
@@ -447,8 +448,9 @@ fn check(records: &Records) -> Result<(), RecordFault> {
         .chain(records.answers.iter().map(|e| e.at))
         .chain(records.let_go.iter().map(|e| e.at))
         .chain(records.pauses.iter().map(|e| e.at))
-        .chain(records.cancelled)
-        .chain(records.released);
+        .chain(records.cancels.iter().copied())
+        .chain(records.reopens.iter().copied())
+        .chain(records.releases.iter().copied());
     let mut seen = BTreeSet::new();
     for at in places {
         if !seen.insert(at) {
@@ -463,6 +465,14 @@ fn check(records: &Records) -> Result<(), RecordFault> {
             .any(|q| q.name == a.question && q.at == a.version && !q.withdrawn && q.at < a.at);
         if !asked {
             return Err(RecordFault::AnswerNoVersion(a.at));
+        }
+    }
+    // A reopen and the cancel before it come in turn: each reopen has a cancel after the reopen before it.
+    for reopen in &records.reopens {
+        let before = (records.reopens.iter()).filter(|at| *at < reopen).max();
+        let cancelled = (records.cancels.iter()).any(|at| at < reopen && before.is_none_or(|before| at > before));
+        if !cancelled {
+            return Err(RecordFault::ReopenedNotCancelled(*reopen));
         }
     }
     for c in &records.called {

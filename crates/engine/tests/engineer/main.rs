@@ -1291,7 +1291,7 @@ fn one_history(flow: &Compiled, seed: u64, log: &mut Vec<String>) -> Verdict {
                 break;
             }
         }
-        if h.d.work.records.cancelled.is_none() {
+        if h.d.work.records.cancelled().is_none() {
             h.content();
         }
         h.reached_at_the_end();

@@ -51,8 +51,8 @@ mod support;
 use std::collections::BTreeSet;
 use std::panic::{self, AssertUnwindSafe};
 
-use decide::{CallId, Decision, Outsider, Pauser, RunId, Waited, Who};
-use driver::{FirstWrite, NewItem, Todo};
+use decide::{CallId, Decision, End, Outsider, Pauser, RunId, Waited, Who};
+use driver::{Asked, FirstWrite, NewItem, Todo};
 use engine::{Ask, Call, Came, Effect, Event, Handed, Spent, Time, Work};
 use store::{ItemChange, ItemNumber, WorkHead, WorkNumber};
 use support::*;
@@ -133,6 +133,8 @@ struct Seen {
     /// Changes of an item the driver made, and those it refused or that changed nothing.
     changed: usize,
     change_refused: usize,
+    /// Works reopened, their items cancelled before.
+    reopened: usize,
     /// Openings on works going on, at which the driver paused everything until the owner lifted it.
     held_at_start: usize,
 }
@@ -245,9 +247,13 @@ impl History {
         of[self.rng.below(of.len())].clone()
     }
 
-    /// Adds an item, depending on some of those there, on a random flow, with a first write or none.
+    /// Adds an item, depending on some of those there that are not cancelled, on a random flow, with a first write or
+    /// none.
     fn add(&mut self, title: &str) {
-        let numbers: Vec<ItemNumber> = self.h.d().works().map(|k| k.head.item).collect();
+        let numbers: Vec<ItemNumber> = (self.h.d().works())
+            .filter(|k| self.h.decision(k.head.number) != Decision::Ended(End::Cancelled))
+            .map(|k| k.head.item)
+            .collect();
         let depends_on: Vec<ItemNumber> = numbers.into_iter().filter(|_| self.rng.chance(35)).collect();
         let flow = ["judged", "short", "plain"][self.rng.below(3)];
         let flow = if self.delivers.chance(20) { "deliver" } else { flow };
@@ -262,6 +268,7 @@ impl History {
             level: "1".to_string(),
             project: "one".to_string(),
             depends_on,
+            tags: Vec::new(),
             flow: flow.to_string(),
             writes,
         };
@@ -277,41 +284,56 @@ impl History {
         }
     }
 
-    /// Whoever plans the work changes an item: its title or level, or what it depends on, which may be refused.
+    /// Whoever plans the work changes items, one or two together: a title or a level, what one depends on, a cancel
+    /// or the reopening of a cancelled one, which may be refused.
     fn change(&mut self) {
         let items: Vec<ItemNumber> = self.h.d().works().map(|k| k.head.item).collect();
         if items.is_empty() {
             return;
         }
-        let item = items[self.changes.below(items.len())];
-        let on = items[self.changes.below(items.len())];
-        let depends_on = (self.h.d().works())
-            .find(|k| k.head.item == item)
-            .map(|k| k.item.depends_on.clone())
-            .unwrap_or_default();
-        let change = match self.changes.below(10) {
-            0..=2 => ItemChange::Title(format!("retitled at step {}", self.step)),
-            3 => ItemChange::Level(["1", "2"][self.changes.below(2)].to_string()),
-            4..=6 => ItemChange::DependsOn(on),
-            _ => ItemChange::NoLongerDependsOn(match depends_on.as_slice() {
-                [] => on,
-                some => some[self.changes.below(some.len())],
-            }),
-        };
-        let before = self
-            .h
-            .d()
-            .works()
-            .find(|k| k.head.item == item)
-            .map(|k| k.item.changes.len());
-        if self.act(Act::Change(item, change)).is_some() {
-            let after = self
-                .h
-                .d()
-                .works()
+        let cancelled: Vec<ItemNumber> = (self.h.d().works())
+            .filter(|k| self.h.decision(k.head.number) == Decision::Ended(End::Cancelled))
+            .map(|k| k.head.item)
+            .collect();
+        let mut asked = Vec::new();
+        for _ in 0..1 + usize::from(self.changes.chance(25)) {
+            let item = items[self.changes.below(items.len())];
+            let on = items[self.changes.below(items.len())];
+            let depends_on = (self.h.d().works())
                 .find(|k| k.head.item == item)
-                .map(|k| k.item.changes.len());
-            if after > before {
+                .map(|k| k.item.depends_on.clone())
+                .unwrap_or_default();
+            let change = match self.changes.below(12) {
+                0..=2 => Asked::Item(ItemChange::Title(format!("retitled at step {}", self.step))),
+                3 => Asked::Item(ItemChange::Level(["1", "2"][self.changes.below(2)].to_string())),
+                4..=6 => Asked::Item(ItemChange::DependsOn(on)),
+                7 | 8 => Asked::Item(ItemChange::NoLongerDependsOn(match depends_on.as_slice() {
+                    [] => on,
+                    some => some[self.changes.below(some.len())],
+                })),
+                9 => Asked::Cancel,
+                _ => match cancelled.as_slice() {
+                    [] => Asked::Reopen,
+                    some => {
+                        asked.push((some[self.changes.below(some.len())], Asked::Reopen));
+                        continue;
+                    }
+                },
+            };
+            asked.push((item, change));
+        }
+        let counts = |h: &H| -> (usize, usize) {
+            (h.d().works()).fold((0, 0), |(changes, reopens), k| {
+                (changes + k.item.changes.len(), reopens + k.work.records.reopens.len())
+            })
+        };
+        let before = counts(&self.h);
+        if self.act(Act::Change(asked)).is_some() {
+            let after = counts(&self.h);
+            if after.1 > before.1 {
+                self.seen.reopened += after.1 - before.1;
+            }
+            if after.0 > before.0 {
                 self.seen.changed += 1;
             } else {
                 self.seen.change_refused += 1;
@@ -792,6 +814,7 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
                 seen.given_again += s.given_again;
                 seen.changed += s.changed;
                 seen.change_refused += s.change_refused;
+                seen.reopened += s.reopened;
                 seen.held_at_start += s.held_at_start;
             }
             Err(e) => {
@@ -835,6 +858,7 @@ fn many_works_keep_the_drivers_properties_with_and_without_stops_and_failures() 
         ("works waiting at rest", seen.rested_waiting),
         ("works ended at rest", seen.rested_ended),
         ("items changed", seen.changed),
+        ("items reopened", seen.reopened),
         ("changes of items refused or changing nothing", seen.change_refused),
     ];
     let never: Vec<&str> = counts.iter().filter(|(_, n)| *n == 0).map(|(what, _)| *what).collect();

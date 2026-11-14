@@ -62,8 +62,9 @@ async fn a_work_is_given_as_it_is_now_and_step_by_step_with_the_flow_it_runs_on(
             },
             "title": "Greet the user",
             "level": "2",
+            "tags": [],
             "history": {
-                "first": { "title": "Greet the user", "level": "2", "dependsOn": [] },
+                "first": { "title": "Greet the user", "level": "2", "dependsOn": [], "tags": [] },
                 "changes": [],
             },
             "project": "trial",

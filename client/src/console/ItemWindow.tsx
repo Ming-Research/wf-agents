@@ -45,7 +45,8 @@ import {
   type WorkPage,
 } from '../works-api';
 import { StateLegend, Strip } from '../works/marks';
-import { callWords, outageWords } from '../works/words';
+import { LetGoAgain } from '../works/Boxes';
+import { CANCEL_DOES, CANCEL_WHY, callWords, letGoFailed, outageWords } from '../works/words';
 import { type ItemStanding, standingOf, whoGives } from './items';
 import { Markdown } from './markdown';
 import { markRead } from './mock';
@@ -261,13 +262,16 @@ function useSending(act: (what: Act) => Promise<unknown>) {
       },
       (e: unknown) => {
         setWaiting(false);
-        setRefused(e instanceof Error ? e.message : String(e));
+        setRefused(refusal(e));
         return false;
       },
     );
   };
   return { waiting, refused, send };
 }
+
+/// Why what the owner did was refused, in words.
+const refusal = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /// The words for who writes a message or is named in one: a cell by the name the owner calls it.
 const WRITER: Record<string, string> = {
@@ -492,6 +496,8 @@ function ItemView({
     setBody((was) => ({ ...was, messages: [...was.messages, message] }));
     setQuote(null);
   };
+  // An ended work whose letting go of what it held failed is tried again from here.
+  const letGoFailedNow = read === null ? null : letGoFailed(work, read.steps);
   return (
     <div className="cw-item" ref={inner}>
       <header className="drawer-head">
@@ -511,6 +517,11 @@ function ItemView({
       <WorkLine w={work} page={read} />
       {!ended(work) && (
         <Acts paused={work.paused || work.now.kind === 'paused'} goOn={goOnOf(work.now)} act={send} />
+      )}
+      {letGoFailedNow !== null && (
+        <div className="cw-acts">
+          <LetGoAgain why={letGoFailedNow} send={(what) => send(what).then(() => null, refusal)} />
+        </div>
       )}
       <div className="drawer-body">
         <div className="cw-tabs">
@@ -672,11 +683,12 @@ function WorkLine({ w, page }: { w: Summary; page: WorkPage | null }) {
 }
 
 /// What the owner does to a work that goes on: let it go on past a limit it waits at; start it or pause it, with one
-/// switch whose pressed choice says which it is in; cancel it, once they confirm. While one is under way, none takes
-/// effect.
+/// switch whose pressed choice says which it is in; cancel it, once they confirm and say why. While one is under way,
+/// none takes effect.
 function Acts({ paused, goOn, act }: { paused: boolean; goOn: Act | null; act: (what: Act) => Promise<unknown> }) {
   const { waiting, refused, send } = useSending(act);
   const [asking, setAsking] = useState(false);
+  const [why, setWhy] = useState('');
   return (
     <div className="acts cw-acts">
       {goOn !== null && (
@@ -713,12 +725,20 @@ function Acts({ paused, goOn, act }: { paused: boolean; goOn: Act | null; act: (
         <Confirm
           title="Cancel this work?"
           verb="Cancel the work"
+          ready={why.trim() !== ''}
           onAnswer={(yes) => {
             setAsking(false);
-            if (yes) void send({ kind: 'cancel' });
+            if (yes) void send({ kind: 'cancel', why: why.trim() });
           }}
         >
-          It cannot be let on again.
+          <p>{CANCEL_DOES}.</p>
+          <textarea
+            rows={2}
+            aria-label="Why it is cancelled"
+            placeholder={CANCEL_WHY}
+            value={why}
+            onChange={(e) => setWhy(e.target.value)}
+          />
         </Confirm>
       )}
       {refused !== null && <span className="failed small">{refused}</span>}

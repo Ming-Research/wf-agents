@@ -36,6 +36,9 @@ pub enum Event {
     Resumed,
     /// The work's item was cancelled, for this reason where whoever cancelled it gave one.
     Cancelled { why: Option<String> },
+    /// The work's item, which was cancelled, was reopened, for this reason: the work no longer ends there, and is
+    /// paused by the owner, as a work added is, until it is let on.
+    Reopened { why: String },
     /// The round of the run that was under way ended, having taken this.
     Returned { run: RunId, came: Came, spent: Spent },
     /// The round of the run that was under way failed, for this reason, having taken this: nothing came back. The
@@ -230,4 +233,6 @@ pub enum Refused {
     NoSuchVersion { question: String, version: Seq },
     /// The version of the question has no option of this number.
     NotAnOption { question: String, option: u64 },
+    /// The work's item is not cancelled: there is no cancel to reopen.
+    NotCancelled,
 }

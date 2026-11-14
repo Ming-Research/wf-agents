@@ -14,7 +14,7 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
 use flow::{Fault, FaultKind, Has, Source};
-use web::works::{Act, DependencyChange, EngineAct};
+use web::works::{Act, ChangeAsked, EngineAct};
 
 use crate::talk::Asked;
 
@@ -73,6 +73,9 @@ enum Command {
         /// An item it depends on, by number, of its own project or another; given once for each.
         #[arg(long = "depends-on", value_name = "ITEM")]
         depends_on: Vec<u64>,
+        /// A tag it carries, which classifies it; given once for each.
+        #[arg(long = "tag", value_name = "TAG")]
+        tags: Vec<String>,
         /// A block written for it, with this text.
         #[arg(long = "write", value_name = "BLOCK=TEXT")]
         texts: Vec<String>,
@@ -85,28 +88,46 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
+    /// Makes several changes of items at once, for one reason: in the order given, each judged against what those
+    /// before it make, all of them or none. Each is ITEM:KIND or ITEM:KIND=VALUE, the kind one of title=TEXT,
+    /// level=LEVEL, depends-on=ITEM, no-longer-depends-on=ITEM, tag=TAG, untag=TAG, cancel and reopen. Every refusal
+    /// is said at once, by the change's place among them.
+    Change {
+        #[command(flatten)]
+        why: Why,
+        #[arg(required = true, value_name = "ITEM:KIND[=VALUE]")]
+        changes: Vec<String>,
+        #[command(flatten)]
+        at: At,
+    },
     /// Puts an item at another level, among those the settings name and at most the highest an item may be at: its
     /// work's rounds run on it from their next.
     SetLevel {
         item: u64,
         level: String,
         #[command(flatten)]
+        why: Why,
+        #[command(flatten)]
         at: At,
     },
     /// Gives an item another title, which its merge will be named by. The title it had is kept, as every change of an
-    /// item is: `wf-agents show` says each.
+    /// item is, with why: `wf-agents show` says each.
     SetTitle {
         item: u64,
         title: String,
         #[command(flatten)]
+        why: Why,
+        #[command(flatten)]
         at: At,
     },
     /// Makes an item depend on another, while its work has started no run: its work then waits for that one to merge as
-    /// well. Refused where that one depends on it already, by way of any items.
+    /// well. Refused where that one depends on it already, by way of any items, or is cancelled.
     AddDependency {
         item: u64,
         /// The item it comes to depend on.
         on: u64,
+        #[command(flatten)]
+        why: Why,
         #[command(flatten)]
         at: At,
     },
@@ -116,11 +137,105 @@ enum Command {
         /// The item it no longer depends on.
         on: u64,
         #[command(flatten)]
+        why: Why,
+        #[command(flatten)]
         at: At,
     },
-    /// Says whether everything is paused and how many slots are taken, and lists the items, each with what its work
-    /// does now.
+    /// Has an item carry a tag, which classifies it: a name with no space and no comma.
+    Tag {
+        item: u64,
+        tag: String,
+        #[command(flatten)]
+        why: Why,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Has an item no longer carry a tag.
+    Untag {
+        item: u64,
+        tag: String,
+        #[command(flatten)]
+        why: Why,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Reopens a cancelled item: its work is paused, and goes on from its records once it is let on with `wf-agents
+    /// resume`, making its place again on the branch it kept. Refused while it depends on a cancelled item, or a
+    /// merged item depends on it.
+    Reopen {
+        item: u64,
+        #[command(flatten)]
+        why: Why,
+        #[command(flatten)]
+        at: At,
+    },
+    /// Says whether everything is paused and how many slots are taken, and lists the items that have not ended, each
+    /// with what its work does now, at most a hundred from the first given, and how many that ended it leaves out.
     List {
+        /// Only the items that carry this tag.
+        #[arg(long)]
+        tag: Option<String>,
+        /// The item to list from, the first where none is given.
+        #[arg(long, value_name = "ITEM")]
+        from: Option<u64>,
+        /// The items that ended, merged or cancelled, as well.
+        #[arg(long)]
+        all: bool,
+        #[command(flatten)]
+        at: At,
+    },
+    /// What changed in the plan since the mark the last call gave: each item added, each change of an item, each cancel
+    /// and reopen, with when and why, oldest first, and the mark to give next time. With no mark, from the start.
+    Changes {
+        /// The mark the last call gave.
+        #[arg(long)]
+        since: Option<String>,
+        #[command(flatten)]
+        at: At,
+    },
+    /// The items that could be let on now: paused, every item they depend on merged. Those more open items wait for
+    /// come first; the choice is yours.
+    Candidates {
+        #[command(flatten)]
+        at: At,
+    },
+    /// Where a text is mentioned, ignoring case: in titles, in the blocks people wrote, and in why changes were made.
+    Search {
+        text: String,
+        /// The most hits to give.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        #[command(flatten)]
+        at: At,
+    },
+    /// What an item waits for and what waits for it: up, the items it depends on, each with those it depends on in
+    /// turn; down, the items that depend on it, likewise; to a depth.
+    Graph {
+        item: u64,
+        /// Only up: what it depends on.
+        #[arg(long, conflicts_with = "down")]
+        up: bool,
+        /// Only down: what depends on it.
+        #[arg(long)]
+        down: bool,
+        /// How many steps to walk.
+        #[arg(long, default_value_t = 3)]
+        depth: usize,
+        #[command(flatten)]
+        at: At,
+    },
+    /// The tags items carry, each with how many items carry it and how many of those have not ended.
+    Tags {
+        #[command(flatten)]
+        at: At,
+    },
+    /// The text of an item's blocks, as the latest version of each says it, in short: of each section, its heading and
+    /// first paragraph, cut. With a block, that block alone; with --whole, that block whole.
+    Text {
+        item: u64,
+        block: Option<String>,
+        #[arg(long, requires = "block")]
+        whole: bool,
         #[command(flatten)]
         at: At,
     },
@@ -151,7 +266,8 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Cancels a work's item, saying why: nothing of the work goes on.
+    /// Cancels a work's item, saying why: nothing of the work goes on. Refused while an item that has not ended depends
+    /// on it; `wf-agents change` cancels several at once, by item.
     Cancel {
         work: u64,
         /// Why it is cancelled, in a sentence, such as the item it was joined into; kept with the cancel.
@@ -224,6 +340,14 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
+}
+
+/// Why a change is made, kept with it.
+#[derive(Args)]
+struct Why {
+    /// Why the change is made, in a sentence; kept with it.
+    #[arg(long = "why", value_name = "SENTENCE")]
+    why: String,
 }
 
 /// Where the running engine is.
@@ -317,26 +441,59 @@ fn main() -> ExitCode {
             project,
             flow,
             depends_on,
+            tags,
             texts,
             files,
             choices,
             at,
-        } => match talk::new_item(title, level, project, flow, depends_on, &texts, &files, &choices) {
-            Ok(item) => talk::ask(at.port, Asked::Add(item)),
+        } => {
+            let written = talk::Written {
+                texts: &texts,
+                files: &files,
+                choices: &choices,
+            };
+            match talk::new_item(title, level, project, flow, depends_on, tags, written) {
+                Ok(item) => talk::ask(at.port, Asked::Add(item)),
+                Err(why) => {
+                    eprintln!("{why}");
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        Command::Change { why, changes, at } => match talk::changes(&changes) {
+            Ok(changes) => talk::ask(at.port, Asked::Change { why: why.why, changes }),
             Err(why) => {
                 eprintln!("{why}");
                 ExitCode::FAILURE
             }
         },
-        Command::SetLevel { item, level, at } => talk::ask(at.port, Asked::SetLevel(item, level)),
-        Command::SetTitle { item, title, at } => talk::ask(at.port, Asked::SetTitle(item, title)),
-        Command::AddDependency { item, on, at } => {
-            talk::ask(at.port, Asked::Depend(item, DependencyChange::Add { item: on }))
+        Command::SetLevel { item, level, why, at } => one(at, why, ChangeAsked::Level { item, level }),
+        Command::SetTitle { item, title, why, at } => one(at, why, ChangeAsked::Title { item, title }),
+        Command::AddDependency { item, on, why, at } => one(at, why, ChangeAsked::DependsOn { item, on }),
+        Command::RemoveDependency { item, on, why, at } => one(at, why, ChangeAsked::NoLongerDependsOn { item, on }),
+        Command::Tag { item, tag, why, at } => one(at, why, ChangeAsked::Tag { item, tag }),
+        Command::Untag { item, tag, why, at } => one(at, why, ChangeAsked::Untag { item, tag }),
+        Command::Reopen { item, why, at } => one(at, why, ChangeAsked::Reopen { item }),
+        Command::List { tag, from, all, at } => talk::ask(at.port, Asked::List(talk::Listing { tag, from, all })),
+        Command::Changes { since, at } => talk::ask(at.port, Asked::Changes { since }),
+        Command::Candidates { at } => talk::ask(at.port, Asked::Candidates),
+        Command::Search { text, limit, at } => talk::ask(at.port, Asked::Search { text, limit }),
+        Command::Graph {
+            item,
+            down,
+            up,
+            depth,
+            at,
+        } => {
+            let way = match (down, up) {
+                (true, _) => Some("down"),
+                (_, true) => Some("up"),
+                _ => None,
+            };
+            talk::ask(at.port, Asked::Graph { item, way, depth })
         }
-        Command::RemoveDependency { item, on, at } => {
-            talk::ask(at.port, Asked::Depend(item, DependencyChange::Remove { item: on }))
-        }
-        Command::List { at } => talk::ask(at.port, Asked::List),
+        Command::Tags { at } => talk::ask(at.port, Asked::Tags),
+        Command::Text { item, block, whole, at } => talk::ask(at.port, Asked::Text { item, block, whole }),
         Command::Show { work, at } => talk::ask(at.port, Asked::Show(work)),
         Command::Resume { work, all, at } => match (work, all) {
             (Some(work), false) => talk::ask(at.port, Asked::Act(work, Act::Resume {})),
@@ -395,6 +552,17 @@ fn main() -> ExitCode {
         Command::LetGo { work, cell, at } => talk::ask(at.port, Asked::Act(work, Act::LetGo { cell })),
         Command::NewSession { work, line, at } => talk::ask(at.port, Asked::Act(work, Act::NewSession { line })),
     }
+}
+
+/// Asks for one change of an item, for its reason.
+fn one(at: At, why: Why, change: ChangeAsked) -> ExitCode {
+    talk::ask(
+        at.port,
+        Asked::Change {
+            why: why.why,
+            changes: vec![change],
+        },
+    )
 }
 
 /// The names of the sources outside a work that write its blocks, which every definition is compiled against:

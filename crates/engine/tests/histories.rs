@@ -415,12 +415,12 @@ fn one_history(seed: u64, stops: bool, log: &mut Vec<String>) -> (Work, Seen) {
         }
         if matches!(decision, Decision::Ended(_)) {
             assert!(
-                d.work.records.released.is_some(),
+                d.work.records.released().is_some(),
                 "a work that ended at rest holds what it held"
             );
         }
         // A work cancelled after it merged has merged.
-        if d.work.records.cancelled.is_some() && decision != Decision::Ended(decide::End::Merged) {
+        if d.work.records.cancelled().is_some() && decision != Decision::Ended(decide::End::Merged) {
             assert_eq!(
                 decision,
                 Decision::Ended(decide::End::Cancelled),

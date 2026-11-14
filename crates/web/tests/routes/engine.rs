@@ -128,6 +128,7 @@ async fn started_on_a_work_going_on_the_engine_says_it_holds_everything_until_th
             level: "2".to_string(),
             project: "trial".to_string(),
             depends_on: Vec::new(),
+            tags: Vec::new(),
             flow: "trial".to_string(),
             writes: vec![driver::FirstWrite {
                 block: decide::BlockId("request".to_string()),

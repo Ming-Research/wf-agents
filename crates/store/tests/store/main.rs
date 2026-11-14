@@ -132,9 +132,21 @@ impl Db {
 /// The item and the work a store of the tests holds first, added at fixed times so that two stores can be compared.
 fn first_work(store: &mut Store) -> WorkNumber {
     let (_, work) = store
-        .add("the item", "2", "one", &[], "judged", Time(START), &Work::default())
+        .add(&first("the item", "2", &[]), "judged", Time(START), &Work::default())
         .expect("the item is added");
     work
+}
+
+/// An item as it is added: this title, at this level, of the project `one`, depending on these items, and carrying no
+/// tag.
+fn first(title: &str, level: &str, depends_on: &[store::ItemNumber]) -> store::First {
+    store::First {
+        title: title.to_string(),
+        level: Some(level.to_string()),
+        project: Some("one".to_string()),
+        depends_on: depends_on.to_vec(),
+        tags: Vec::new(),
+    }
 }
 
 /// Every row of every table of the database, each table's rows in a fixed order: what the file holds, however the
@@ -469,7 +481,28 @@ fn history(d: &mut Driver) {
     d.withdraw();
     // Nothing of it is under way then: what it held is let go.
     d.on(Event::Released);
-    assert!(d.work.records.released.is_some(), "what the work held was not let go");
+    assert!(d.work.records.released().is_some(), "what the work held was not let go");
+}
+
+/// The [`history`], and then the work reopened, cancelled again and letting go again: what no store before items were
+/// reopened could hold.
+fn reopened_after(d: &mut Driver) {
+    history(d);
+    d.on(Event::Reopened {
+        why: "the item it was joined into was too big".into(),
+    });
+    assert!(
+        d.work.records.released().is_none(),
+        "a work reopened holds its place again"
+    );
+    d.on(Event::Cancelled {
+        why: Some("joined after all".into()),
+    });
+    d.on(Event::Released);
+    assert!(
+        d.work.records.released().is_some(),
+        "what the work held was not let go again"
+    );
 }
 
 /// A work on the judged flow whose returns are of the form every cell's return takes (design document
