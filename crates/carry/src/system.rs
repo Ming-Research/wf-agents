@@ -9,7 +9,7 @@
 //! only when it is reopened, as a new session. A file of the project is never read through a symbolic link
 //! ([`read_within`]). The engine fills three places of the texts ([`Filling`]): `{your_line}`, what the line may do in
 //! the worktree ([`Permissions::told`](crate::permissions::Permissions::told)); `{store}`, what the engine's records
-//! hold, which is nothing until the tool `query` is built; and `{named_checks}`, the checks an agent may name to
+//! hold, as [`crate::store`] gives it; and `{named_checks}`, the checks an agent may name to
 //! `run_tests`, in the words its file gives for how the installation runs the project's CI. Each setting the texts name, but in a file of the project, is given with
 //! its value beside it: the project's from `project.toml`, and the installation's it names there from these settings
 //! ([`named`]); so is each setting a cell's task names, as its message sends it.
@@ -86,6 +86,9 @@ pub struct Filling {
     pub named: flow::system::Settings,
     /// What fills `{named_checks}`; none where no tool's file gives words for how the installation runs its CI.
     pub named_checks: Option<String>,
+    /// What fills `{store}`: what the schema's comments say of the store where the settings open it to the agents, and
+    /// the tool's file's words that it is not open where they do not ([`crate::store`]).
+    pub store: String,
 }
 
 /// The place of a tool's words that says which checks an agent may name.
@@ -107,19 +110,22 @@ pub fn filling(settings: &Settings, beside: &Agents) -> Filling {
         Some(_) => ways.get("none_named").cloned(),
         None => ways.get("whole").cloned(),
     });
+    // Settings that cannot open the store are refused as the carriers are made, before any prompt is.
+    let store = crate::store(settings, beside).unwrap_or_default();
     Filling {
         named: named(settings, beside),
         named_checks,
+        store,
     }
 }
 
 /// What fills each place of the texts the engine fills, by its name, for a line whose agents are told `your_line` of
-/// what they may do in the worktree: `your_line`, that; `store`, what the engine's records hold, nothing until the
-/// tool `query` is built; `named_checks`, as `filling` has it. None for any other.
+/// what they may do in the worktree: `your_line`, that; `store`, what the engine's records hold, as `filling` has it;
+/// `named_checks`, as `filling` has it. None for any other.
 fn filled(name: &str, your_line: &str, filling: &Filling) -> Option<String> {
     match name {
         "your_line" => Some(your_line.to_string()),
-        "store" => Some(String::new()),
+        "store" => Some(filling.store.clone()),
         NAMED_CHECKS => filling.named_checks.clone(),
         _ => None,
     }

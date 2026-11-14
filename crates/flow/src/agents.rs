@@ -36,6 +36,24 @@ pub const COMMITS_FILE: &str = "commits.toml";
 /// worktree.
 pub const YOUR_LINE_FILE: &str = "your_line.toml";
 
+/// The texts the engine fills of a tool, by the tool: its file holds each of these and no other, since the engine says
+/// each of them in some answer and a misspelt name would leave an answer empty. A tool not named here has none.
+pub const TOOL_TEXTS: &[(&str, &[&str])] = &[(
+    "query",
+    &[
+        "closed",
+        "unreadable",
+        "error",
+        "timeout",
+        "unavailable",
+        "row_too_long",
+        "hides_nothing",
+        "store_table",
+        "store_column",
+        "store_column_commented",
+    ],
+)];
+
 /// The field of a return that holds the blocks a cell writes, each under its name. The form does not list them: the
 /// cell is told its own with its task, and the engine checks what it writes against them.
 pub const OUTPUTS: &str = "outputs";
@@ -411,6 +429,12 @@ pub enum ToldAs {
 #[serde(deny_unknown_fields)]
 pub struct Tool {
     pub words: String,
+    /// What the tool says of its own answers, by name, `{name}` places in each filled where it is said.
+    #[serde(default)]
+    pub texts: BTreeMap<String, String>,
+    /// How many bytes of a result of the tool `query` a message gives; a result longer is given cut and kept whole in
+    /// the records. Only `query` has its results cut. With none, a result is given whole.
+    pub given_bytes: Option<usize>,
     /// The shape of a request of it.
     pub request: toml::Value,
     /// What fills each place of its words that the engine fills by how the installation runs the tool, by the place's
@@ -719,6 +743,20 @@ pub fn read(root: &Path) -> Result<Agents, String> {
             return Err(format!("{}: {what}", return_file.display()));
         }
     }
+    let tools: BTreeMap<String, Tool> = each(&at.join("tools"))?;
+    for (name, known) in TOOL_TEXTS {
+        let Some(tool) = tools.get(*name) else { continue };
+        let file = at.join("tools").join(format!("{name}.toml"));
+        let lacks: Vec<&str> = known.iter().copied().filter(|k| !tool.texts.contains_key(*k)).collect();
+        let more: Vec<&str> = (tool.texts.keys().map(String::as_str))
+            .filter(|k| !known.contains(k))
+            .collect();
+        if !lacks.is_empty() || !more.is_empty() {
+            let (lacks, more) = (lacks.join(", "), more.join(", "));
+            let what = format!("[texts] lacks: {lacks}; has what the engine does not say: {more}");
+            return Err(format!("{}: {what}", file.display()));
+        }
+    }
     let writes = writes(root)?;
     Ok(Agents {
         root: root.to_path_buf(),
@@ -730,7 +768,7 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         returns,
         sent_back: file(&at.join("return").join("sent_back.toml"))?,
         fields,
-        tools: each(&at.join("tools"))?,
+        tools,
         message: file(&at.join("message").join("message.toml"))?,
         given: file(&at.join("message").join("given.toml"))?,
         acts: writes.acts,

@@ -1,5 +1,6 @@
 //! The tools an agent may ask for: `read`, which answers with the blocks of the work as it is kept (the module
-//! `read`); `check`, which checks the work as the host checks it ([`Host::check`]): the project's check command run in
+//! `read`); `query`, one read-only SQL query on the store, run in a thread of its own and interrupted where it is
+//! withdrawn (the module `query`); `check`, which checks the work as the host checks it ([`Host::check`]): the project's check command run in
 //! the work's worktree where the local repository is the host, the CI of the last commit of the work's branch where
 //! GitHub is; and `check_before`, which checks in the same way the code before the work's change with the files its
 //! input names put on it, so that a test is seen red or green before the change as well as after it. A tool's result
@@ -8,6 +9,7 @@
 //! into main's head is answered at once with the files in conflict (the module `conflict`).
 
 mod conflict;
+mod query;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -21,6 +23,8 @@ use crate::held::{Held, Stop};
 use crate::host::{Branch, Host, Named};
 use crate::read::{self, READ};
 use crate::settings::Project;
+
+pub use query::{QUERY, Querying};
 
 /// The name of the tool that checks the work.
 pub const CHECK: &str = "check";
@@ -40,6 +44,8 @@ struct Inner<H> {
     /// The installation's part of the names of the works' worktrees.
     tag: String,
     held: Held<(WorkNumber, CallId), CallReply>,
+    /// The tool `query`, closed until the settings open it.
+    query: Querying,
 }
 
 /// What came of a call.
@@ -59,8 +65,17 @@ impl<H: Host> Tools<H> {
                 data,
                 tag,
                 held: Held::new(),
+                query: Querying::closed(),
             }),
         }
+    }
+
+    /// The tools with the tool `query` as this says it is.
+    pub fn querying(mut self, query: Querying) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("the tools are not shared yet")
+            .query = query;
+        self
     }
 }
 
@@ -75,6 +90,20 @@ impl<H: Host> ToolsTrait for Tools<H> {
         tokio::spawn(async move {
             let answered = if call.name == READ {
                 Answer::Result(read::answer(&call.flow, &call.kept, &call.input))
+            } else if call.name == QUERY {
+                // The query runs in a thread of its own, within its time limit; withdrawn, it is interrupted.
+                let asked = inner.clone();
+                let input = call.input.clone();
+                let cancel = Arc::new(query::Cancel::default());
+                let told = cancel.clone();
+                let mut running = tokio::task::spawn_blocking(move || asked.query.answer(&input, &told));
+                tokio::select! {
+                    said = &mut running => Answer::Result(said.unwrap_or_else(|_| inner.query.unavailable())),
+                    () = stop.told() => {
+                        cancel.tell();
+                        Answer::Withdrawn
+                    }
+                }
             } else {
                 let place = git::place(&inner.data, &inner.tag, call.work);
                 // What the work says of itself, as the acts work it out, so that the pull request the tool brings up
@@ -114,7 +143,7 @@ impl<H> Tools<H> {
     }
 }
 
-/// Runs the tool named, other than `read`, on the work's branch, with this input, and gives its result.
+/// Runs the tool named, other than `read` and `query`, on the work's branch, with this input, and gives its result.
 async fn answer(
     host: &impl Host,
     project: &Project,
@@ -130,7 +159,7 @@ async fn answer(
         (CHECK_BEFORE, Ok(asked)) => before(host, project, branch, &asked, stop).await,
         _ => {
             return Answer::Result(format!(
-                "No such tool: {name}. The tools are: {READ}, {CHECK}, {CHECK_BEFORE}."
+                "No such tool: {name}. The tools are: {READ}, {QUERY}, {CHECK}, {CHECK_BEFORE}."
             ));
         }
     };
@@ -310,7 +339,7 @@ mod tests {
         let repo = Repo::new("true");
         assert_eq!(
             answered(&repo, "ci").await,
-            "No such tool: ci. The tools are: read, check, check_before."
+            "No such tool: ci. The tools are: read, query, check, check_before."
         );
     }
 

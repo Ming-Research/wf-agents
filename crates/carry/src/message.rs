@@ -190,7 +190,7 @@ pub fn message(
             match work.given.get(&(run, earlier)) {
                 Some(Given::Results(calls)) => {
                     parts.push(earlier_results(earlier));
-                    calls_and_results(work, calls, true, &mut parts);
+                    calls_and_results(work, calls, true, words, &mut parts);
                 }
                 Some(Given::SentBack(unmet)) => {
                     parts.push(told.earlier.replace("{round}", &earlier.to_string()));
@@ -204,7 +204,7 @@ pub fn message(
         Given::Task => {}
         Given::Results(calls) => {
             parts.push(RESULTS.to_string());
-            calls_and_results(work, calls, false, &mut parts);
+            calls_and_results(work, calls, false, words, &mut parts);
             parts.push(GO_ON.to_string());
         }
         Given::SentBack(unmet) => {
@@ -310,7 +310,7 @@ fn task(flow: &Compiled, work: &Work, cell: &CellSpec, run: RunId, sent: Option<
 }
 
 /// Each call with its result; of an earlier round, a `read` only named.
-fn calls_and_results(work: &Work, calls: &[CallId], earlier: bool, parts: &mut Vec<String>) {
+fn calls_and_results(work: &Work, calls: &[CallId], earlier: bool, words: &Agents, parts: &mut Vec<String>) {
     for call in calls {
         // What an earlier round read is named, not given again: the blocks may have changed since, and the agent reads
         // again what it needs.
@@ -329,9 +329,21 @@ fn calls_and_results(work: &Work, calls: &[CallId], earlier: bool, parts: &mut V
             Some(Call::Wait { .. }) | None => unknown_call(*call),
         };
         parts.push(head);
-        let result = work.results.get(call).map(|r| r.trim_end().to_string());
+        let result = work.results.get(call).map(|r| given(work, call, r.trim_end(), words));
         parts.push(result.unwrap_or_else(|| NO_RESULT.to_string()));
     }
+}
+
+/// What a result is given as: a result of the tool `query` longer than its file says a message gives is cut as the tool
+/// cuts it, the records holding it whole.
+fn given(work: &Work, call: &CallId, result: &str, words: &Agents) -> String {
+    if let Some(Call::Asked(Ask::Tool { name, input })) = work.calls.get(call)
+        && name == crate::tools::QUERY
+        && let Some(bytes) = words.tools.get(name).and_then(|t| t.given_bytes)
+    {
+        return crate::tools::Querying::cut(result, input, bytes);
+    }
+    result.to_string()
 }
 
 /// What ran the round: each trigger of the cell that is new to it, in the order the cell names them, with what the cell

@@ -58,7 +58,7 @@ pub use agents::{Agents, ROUNDS};
 pub use host::github::{GhOffsite, UPLOAD_RATE};
 pub use process::{STOP_WAIT, TAIL};
 pub use settings::Settings;
-pub use tools::{CHECK, CHECK_BEFORE};
+pub use tools::{CHECK, CHECK_BEFORE, QUERY, Querying};
 
 /// The carriers of these settings, keeping what they keep in the data directory: the installation's id, the works'
 /// worktrees, and what each round was told and returned. The agents' rounds are told, and given the form of return,
@@ -82,14 +82,15 @@ pub fn carry(mut settings: Settings, data: &Path, beside: flow::agents::Agents) 
     let installation = session::installation(&data)?;
     let project = settings.project.clone();
     let tag = git::tag(&installation);
+    let query = querying(&settings, &beside, &data)?;
     let (acts, tools, watch, main) = match &settings.github {
         None => {
             let host = host::Local::new(project.clone()).giving(settings.agents.env.clone());
-            on(host, &project, &data, &tag, words)
+            on(host, &project, &data, &tag, words, query.clone())
         }
         Some(github) => {
             let host = host::GitHub::from_settings(github, &project, &data, |name| std::env::var(name).ok())?;
-            on(host, &project, &data, &tag, words)
+            on(host, &project, &data, &tag, words, query.clone())
         }
     };
     let slots = settings.agents.slots;
@@ -103,6 +104,20 @@ pub fn carry(mut settings: Settings, data: &Path, beside: flow::agents::Agents) 
     Ok((carriers, watch))
 }
 
+/// The tool `query` as these settings and the files beside the flows say; or why the settings cannot open it.
+fn querying(settings: &Settings, beside: &flow::agents::Agents, data: &Path) -> Result<Querying, String> {
+    let tool = beside.tools.get(QUERY);
+    Querying::new(&settings.query, tool, data, store::SCHEMA).map_err(|why| format!("query.open: {why}"))
+}
+
+/// What fills `{store}` in the words of the tool `query`, which the line's system prompt holds: the store as the
+/// comments of its schema describe it where the settings open it to the agents, and the file's words that it is not
+/// open where they do not; or why the settings cannot open it. It is made outside the tools, which the loop holds as
+/// one trait object, so that the prompt, made from the same settings and files, can be given it.
+pub fn store(settings: &Settings, beside: &flow::agents::Agents) -> Result<String, String> {
+    querying(settings, beside, Path::new("")).map(|query| query.store())
+}
+
 /// The acts, the tools and the watch of main, on one host they share, and the reference that holds main's head as the
 /// host last gave it.
 fn on<H: Host>(
@@ -111,6 +126,7 @@ fn on<H: Host>(
     data: &Path,
     tag: &str,
     words: Words,
+    query: Querying,
 ) -> (Arc<dyn Rounds>, Arc<dyn ToolsTrait>, Watch, String) {
     let main = host.kept_main();
     let host = Arc::new(host);
@@ -122,6 +138,6 @@ fn on<H: Host>(
         words,
     );
     let watch = acts.watch(WATCH);
-    let tools = Tools::new(host, project.clone(), data.to_path_buf(), tag.to_string());
+    let tools = Tools::new(host, project.clone(), data.to_path_buf(), tag.to_string()).querying(query);
     (Arc::new(acts), Arc::new(tools), watch, main)
 }

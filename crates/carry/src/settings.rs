@@ -36,6 +36,62 @@ pub struct Settings {
     /// When a line of a work begins a new session.
     #[serde(default)]
     pub sessions: Sessions,
+    /// Whether the store is open to the agents' tool `query`, and its bounds.
+    #[serde(default)]
+    pub query: Query,
+}
+
+/// The agents' tool `query`: one read-only SQL query on the store. It is off until the owner has settled which tables
+/// the agents see and under which names.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Query {
+    /// Whether the tool answers: with `false`, a request is answered that the store is not open to agents yet and the
+    /// store is not touched.
+    #[serde(default)]
+    pub open: bool,
+    /// The most rows a query is kept with; a query finding more has the first of them kept.
+    #[serde(default = "query_rows")]
+    pub max_rows: usize,
+    /// The milliseconds a query may run before it is stopped.
+    #[serde(default = "query_timeout_ms")]
+    pub timeout_ms: u64,
+    /// The most bytes of rows a query is kept with, past which the rest is cut as past the row limit; and the most
+    /// one row may take, a row over it being refused.
+    #[serde(default = "query_bytes")]
+    pub max_bytes: usize,
+    /// The longest a string or a blob may be in a query, however it is made: what one call of a function over very long
+    /// values may cost is held by it, which the time a query may run cannot hold.
+    #[serde(default = "query_value_bytes")]
+    pub max_value_bytes: usize,
+}
+
+impl Default for Query {
+    fn default() -> Self {
+        Query {
+            open: false,
+            max_rows: query_rows(),
+            timeout_ms: query_timeout_ms(),
+            max_bytes: query_bytes(),
+            max_value_bytes: query_value_bytes(),
+        }
+    }
+}
+
+fn query_rows() -> usize {
+    200
+}
+
+fn query_timeout_ms() -> u64 {
+    5_000
+}
+
+fn query_bytes() -> usize {
+    1 << 20
+}
+
+fn query_value_bytes() -> usize {
+    1 << 16
 }
 
 /// The owner of the installation.

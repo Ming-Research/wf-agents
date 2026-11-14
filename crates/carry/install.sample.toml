@@ -173,6 +173,23 @@ context_limit = 500000
 # # failed test's output as well.
 # status_width = 12
 
+# The agents' tool `query`: one read-only SQL query on the engine's store, which the engine runs and answers in the next
+# message. Off until the owner has settled what the agents see: with it off, a request is answered that the store is
+# not open to agents yet, and the store is not touched. Left out, it is off. It may be turned on only where
+# `db/schema.sql` marks a table or a column "hidden from agents" in its comment: none is hidden is a fault at start.
+# [query]
+# open = false
+# # The most rows a query is kept with; a query finding more has the first of them kept, and the agent is given the
+# # query that reads the rest.
+# max_rows = 200
+# # The milliseconds a query may run before it is stopped.
+# timeout_ms = 5000
+# # The most bytes of rows a query is kept with, and the most one row may take: a row over it is refused.
+# max_bytes = 1048576
+# # The longest a string or a blob may be in a query, however it is made. One call of a function over very long values
+# # is not stopped by the time above, so what it may cost is held by this.
+# max_value_bytes = 65536
+
 # The copies of the engine's database. Every day while the engine runs, it copies the database whole into
 # `backups/` in the data directory and keeps the newest `keep` there. Without this table, that is all: the copies share
 # the disk they are kept against losing, so they do not guard against its loss, and the owner's page says so. With it,

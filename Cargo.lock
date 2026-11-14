@@ -155,6 +155,7 @@ dependencies = [
  "engine",
  "flow",
  "roxmltree",
+ "rusqlite",
  "serde",
  "serde_json",
  "service",
