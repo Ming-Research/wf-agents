@@ -7,7 +7,7 @@ tree (`design/principles/frontend/look.md`), and the values they speak of are he
 a library's parts spend room on padding and chrome the owner does not read, and one small set of our own is learned
 once.
 
-The values follow the console's graph of items on `main` (`client/src/console/snap.ts`, its `PALETTE`, and
+The values follow the console's graph of items on `old-main` (`client/src/console/snap.ts`, its `PALETTE`, and
 `client/src/styles/tokens.css` there), the view the owner likes best. The views that come over next will sit with this
 one as one page.
 
@@ -326,7 +326,7 @@ of it is out of view, with the zoom under it.
 ## The console
 
 The items as a tree in columns on a canvas (`src/console/snap.ts`), drawn by WebGL so that hundreds of items move
-smoothly, and the panel at its right with the item selected. It is the console of `main`, brought over as it was.
+smoothly, and the panel at its right with the item selected. It is the console of `old-main`, brought over as it was.
 
 - **Columns.** One column for each level, the items nothing depends on at the left; in each, the level's items one
   under another, a row of 32px, those under one item standing apart from those under the next. The wheel over a
@@ -334,7 +334,7 @@ smoothly, and the panel at its right with the item selected. It is the console o
   the middle of the screen is level; a sideways scroll or a drag moves all the columns sideways. The tree is laid on
   `--ground`, and fades into it at the top and the bottom of the screen.
 - **Card.** 300px wide, white (`--card`) with a hairline of the console's own `#e5e7eb` (a step off `--line`), 6px
-  corners: the canvas's own, as on `main`. Its number in monospace, in the colour of the item's standing (the
+  corners: the canvas's own, as on `old-main`. Its number in monospace, in the colour of the item's standing (the
   console's faint grey `#9aa1ad` while open, `--green` when merged, paler when cancelled), its title in 14px, the
   canvas's own size, in Primer's sans-serif stack, which the console drew in (a canvas resolves a stack by its own
   rules, so the page's `--font` could draw another face); at its right a tag of how many things its work waits for from the owner,
