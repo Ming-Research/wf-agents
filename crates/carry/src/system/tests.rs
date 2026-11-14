@@ -430,3 +430,44 @@ fn the_store_the_words_of_query_name_is_what_the_settings_say_of_it() {
     assert!(told.contains("### `things`\n- `id` INTEGER"), "{told}");
     assert!(!told.contains(closed.as_str()), "{told}");
 }
+
+/// The five columns of the real schema that hold what agents may not read, each with its table.
+const HIDDEN_COLUMNS: [(&str, &str); 5] = [
+    ("ran", "account"),
+    ("backup_failures", "why"),
+    ("results", "result"),
+    ("back", "back"),
+    ("calls", "what"),
+];
+
+// With the store open and the real schema, the description of the store reaches the system prompt, with each table the
+// schema keeps and none of the columns it hides.
+#[test]
+fn the_real_store_opened_to_agents_is_described_in_the_system_prompt_without_the_columns_the_schema_hides() {
+    let (beside, flow) = (beside(), engineer());
+    let mut open = settings();
+    open.query.open = true;
+    assert_eq!(faults(&open, &beside, &flow), Vec::<String>::new());
+    let cell = cell(&flow, "engineer");
+    let told = of_line(&beside, &filling(&open, &beside), &flow, cell, "", project).expect("it is made");
+    let described = crate::store(&open, &beside).expect("the schema hides what agents may not read");
+    assert!(told.contains(&described), "{told}");
+    assert!(
+        !told.contains("{store}") && !told.contains("is not open to agents yet"),
+        "{told}"
+    );
+    for (table, hidden) in HIDDEN_COLUMNS {
+        let section = described
+            .split("\n\n")
+            .find(|s| s.starts_with(&format!("### `{table}`")))
+            .unwrap_or_else(|| panic!("{table}:\n{described}"));
+        assert!(
+            section.lines().skip(1).any(|l| l.starts_with("- `")),
+            "the table keeps its other columns: {section}"
+        );
+        assert!(
+            !section.lines().any(|l| l.starts_with(&format!("- `{hidden}` "))),
+            "{table}.{hidden}:\n{section}"
+        );
+    }
+}

@@ -260,7 +260,7 @@ CREATE TABLE back (
     work INTEGER NOT NULL,
     run INTEGER NOT NULL,
     round INTEGER NOT NULL,
-    back TEXT NOT NULL,
+    back TEXT NOT NULL, -- Hidden from agents.
     PRIMARY KEY (work, run, round),
     FOREIGN KEY (work, run) REFERENCES started (work, run)
 );
@@ -269,7 +269,7 @@ CREATE TABLE back (
 CREATE TABLE calls (
     work INTEGER NOT NULL,
     call INTEGER NOT NULL,
-    what TEXT NOT NULL,
+    what TEXT NOT NULL, -- Hidden from agents.
     PRIMARY KEY (work, call),
     FOREIGN KEY (work, call) REFERENCES called (work, call)
 );
@@ -278,7 +278,7 @@ CREATE TABLE calls (
 CREATE TABLE results (
     work INTEGER NOT NULL,
     call INTEGER NOT NULL,
-    result TEXT NOT NULL,
+    result TEXT NOT NULL, -- Hidden from agents.
     PRIMARY KEY (work, call),
     FOREIGN KEY (work, call) REFERENCES called (work, call)
 );
@@ -320,7 +320,7 @@ CREATE TABLE ran (
     level TEXT NOT NULL,
     model TEXT NOT NULL,
     effort TEXT,
-    account TEXT,
+    account TEXT, -- Hidden from agents.
     PRIMARY KEY (work, at),
     FOREIGN KEY (work, run) REFERENCES started (work, run)
 );
@@ -355,7 +355,7 @@ CREATE TABLE backup_failures (
     at INTEGER NOT NULL,
     name TEXT NOT NULL,
     step TEXT NOT NULL,
-    why TEXT NOT NULL
+    why TEXT NOT NULL -- Hidden from agents.
 );
 
 -- A step of keeping the copies ended at `at` with nothing failing, and so mended the failures up to the one numbered
