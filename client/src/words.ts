@@ -109,6 +109,14 @@ export function faultWords(fault: Fault): string {
       return `No line names the rules ${w.name}, so no agent would be given them.`;
     case 'valuesEmpty':
       return 'A choice has no values to choose from.';
+    case 'defaultNotAChoice':
+      return `${w.block} says what it counts as before it is written, but it is not a choice.`;
+    case 'defaultNotAValue':
+      return `${w.block} counts as ${w.default} before it is written, which is not one of its values.`;
+    case 'blockNamedTest':
+      return "A block is named test, which a cell's when takes for a named test.";
+    case 'whenNotOneKey':
+      return "A cell's when names one thing: test, or one block with the value it must have.";
     case 'noteNotByPeople':
       return `${w.block} is a note, but people do not write it.`;
     case 'noteIsAChoice':

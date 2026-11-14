@@ -169,6 +169,22 @@ describe('the words of the page', () => {
         what: { kind: 'conditionNotWrittenBefore', block: 'go' },
       }),
     ).toBe('The condition reads go, which neither a cell before this one, people nor the outside write.');
+    expect(
+      faultWords({ file: 'blocks/plan.toml', field: 'default', what: { kind: 'defaultNotAChoice', block: 'plan' } }),
+    ).toBe('plan says what it counts as before it is written, but it is not a choice.');
+    expect(
+      faultWords({
+        file: 'blocks/plan/deep_needed.toml',
+        field: 'default',
+        what: { kind: 'defaultNotAValue', block: 'deep_needed', default: 'maybe' },
+      }),
+    ).toBe('deep_needed counts as maybe before it is written, which is not one of its values.');
+    expect(faultWords({ file: 'blocks/test.toml', field: '', what: { kind: 'blockNamedTest' } })).toBe(
+      "A block is named test, which a cell's when takes for a named test.",
+    );
+    expect(faultWords({ file: 'cells/D1.toml', field: 'when', what: { kind: 'whenNotOneKey' } })).toBe(
+      "A cell's when names one thing: test, or one block with the value it must have.",
+    );
     expect(faultWords({ file: 'plan.toml', field: 'task', what: { kind: 'noTask' } })).toBe(
       "An agent's cell has no task, or one of no words: its agent would be told nothing to do.",
     );

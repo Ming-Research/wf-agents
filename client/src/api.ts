@@ -183,6 +183,14 @@ export type What =
   /// A set of the flow's rules that no line names.
   | { kind: 'unusedRules'; name: string }
   | { kind: 'valuesEmpty' }
+  /// The block says what it counts as before anyone writes it, and it is not a choice.
+  | { kind: 'defaultNotAChoice'; block: string }
+  /// The block counts before anyone writes it as a value that is not one of its values.
+  | { kind: 'defaultNotAValue'; block: string; default: string }
+  /// A block is named `test`, which a cell's `when` reads as the name of a named test.
+  | { kind: 'blockNamedTest' }
+  /// A cell's `when` names more than one thing, or nothing: it is `{ test = "..." }` or one block with its value.
+  | { kind: 'whenNotOneKey' }
   | { kind: 'noteNotByPeople'; block: string }
   | { kind: 'noteIsAChoice'; block: string }
   | { kind: 'noSuchBlock'; block: string }
