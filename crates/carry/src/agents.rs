@@ -38,7 +38,9 @@
 //!
 //! As a round of a line that may change the work ends with a return, the engine looks at what the work's branch changes
 //! under the paths the project protects, and asks the owner by itself where it is a change not asked of yet, beside
-//! the return ([`protected`](crate::protected)).
+//! the return, each file with why the work says it is needed; where a file of it has no reason, it asks nothing, and a
+//! return that does the cell's work is found wanting for each such file, and so sent back
+//! ([`protected`](crate::protected)).
 //!
 //! Before the first round of each run of a cell that takes main in, the work's branch takes in main's head as the host
 //! last gave it ([`catch_up`](crate::catch_up)), and what came of it is kept beside the run's rounds before the round
@@ -63,7 +65,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use decide::run::Failure;
+use decide::run::{Failure, Unmet};
 use decide::{Pauser, RunId};
 use driver::Policy;
 use engine::Came;
@@ -391,7 +393,7 @@ impl Inner {
             // The system prompt is the one the session began with: made from the worktree as it begins, and kept.
             let made = || {
                 let read = |path: &str| system::read_within(&dir, path);
-                let your_line = permissions.told(&of.beside.your_line);
+                let your_line = permissions.told(&of.beside.your_line, &of.beside.project.protected.paths);
                 system::of_line(&of.beside, &of.filling, flow, &round.cell, &your_line, read)
             };
             let kept_at = system::kept_at(&self.data, session);
@@ -529,8 +531,12 @@ impl Inner {
             }
         };
         match returns::came(&read.structured, flow, &round.cell, &of.beside) {
-            Ok(mut came) => {
-                came.engine.extend(self.protected(round, &place, of).await);
+            Ok(reading) => {
+                let mut came = reading.came;
+                let looked = self.protected(round, &place, of, reading.protected.as_ref()).await;
+                came.engine.extend(looked.asks);
+                let unexplained = looked.unexplained.into_iter().map(|path| Unmet::Unexplained { path });
+                came.found.extend(unexplained);
                 Ok(Carried::Came(came, read.spent))
             }
             Err(why) => Ok(Carried::Failed(
@@ -542,23 +548,30 @@ impl Inner {
         }
     }
 
-    /// What the engine asks the owner of the work's change under the paths the project protects, as the round ends,
-    /// where its line may change the work ([`protected`]): the early notice of what the check before the merge holds
-    /// the work to. A look that fails is said on the standard error and asks nothing, the check being what holds the
-    /// merge.
-    async fn protected(&self, round: &Round, place: &git::Place, of: &Of) -> Option<work::Question> {
+    /// What the engine finds of the work's change under the paths the project protects, as the round ends, where its
+    /// line may change the work, the return saying why the work changes each file where it does the cell's work
+    /// (`given`) ([`protected`]): what it asks the owner, the early notice of what the check before the merge holds the
+    /// work to, and each file the return is sent back for, as nothing says why. A look that fails is said on the
+    /// standard error, asks nothing and sends nothing back, the check being what holds the merge.
+    async fn protected(
+        &self,
+        round: &Round,
+        place: &git::Place,
+        of: &Of,
+        given: Option<&BTreeMap<String, String>>,
+    ) -> protected::Looked {
         if round.cell.reads_only {
-            return None;
+            return protected::Looked::default();
         }
         let (paths, words) = (&of.beside.project.protected.paths, &of.beside.asks.protected);
-        match protected::look(&of.project, place, &of.main, paths, words, &round.kept).await {
-            Ok(question) => question,
+        match protected::look(&of.project, place, &of.main, paths, words, &round.kept, given).await {
+            Ok(looked) => looked,
             Err(why) => {
                 eprintln!(
                     "work {}: the change under the protected paths could not be looked at: {why}",
                     round.work.0
                 );
-                None
+                protected::Looked::default()
             }
         }
     }

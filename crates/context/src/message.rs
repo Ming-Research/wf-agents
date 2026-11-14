@@ -784,6 +784,7 @@ impl Build<'_> {
             Unmet::QuestionTwice { name } => (&f.question_twice, vec![("name", name.clone())]),
             Unmet::NotAnOption { name } => (&f.not_an_option, vec![("name", name.clone())]),
             Unmet::NotAnswerable { name } => (&f.not_answerable, vec![("name", name.clone())]),
+            Unmet::Unexplained { path } => (&f.unexplained, vec![("path", path.clone())]),
         };
         let places: Vec<(&str, &str)> = places.iter().map(|(name, value)| (*name, value.as_str())).collect();
         text::as_written(&fill(text.trim_end(), &places))

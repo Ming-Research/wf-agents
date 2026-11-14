@@ -18,6 +18,7 @@ mod left;
 mod levels;
 mod permissions;
 mod projects;
+mod protected;
 mod query;
 mod sessions;
 mod stopping;
@@ -80,6 +81,9 @@ pub struct Fake {
     pub plan_edits_guide: bool,
     /// Whether the build commits a file of the design tree.
     pub design: bool,
+    /// Whether the build, once, commits a line to the project's guide, which the project protects, saying why only in
+    /// a round told its return was sent back for it.
+    pub build_changes_guide: bool,
     /// Whether the build, once, commits a file of the design tree to main.
     pub moves_main: bool,
     /// The context each call ends with, in tokens, by the call's number, the first being one: each call then says, as
@@ -105,6 +109,7 @@ impl Default for Fake {
             refuses_first: false,
             plan_edits_guide: false,
             design: false,
+            build_changes_guide: false,
             moves_main: false,
             contexts: &[],
         }
@@ -348,6 +353,7 @@ calls=''
 out=''
 unchanged=''
 asked=''
+protected=''
 case "$first" in
     Plan)
         if [ '{sleeps}' != 0 ] && [ ! -f "$log/slept" ]; then
@@ -394,6 +400,14 @@ case "$first" in
                 git -C "$r" add design/main.md
                 git -C "$r" -c user.name=Tester -c user.email=tester@example.com commit -q -m 'Main moved'
             fi
+            if [ '{changes_guide}' = yes ] && [ ! -f "$log/guided" ]; then
+                touch "$log/guided"
+                printf 'A line the build added.\n' >> '{guide}'
+                git add '{guide}'
+            fi
+            if [ '{changes_guide}' = yes ] && grep -q 'is a file the project protects' "$log/$n.stdin"; then
+                protected='"protected_changes":{{"{guide}":"The build needs the line."}},'
+            fi
             echo "$n" >> built.txt
             git add built.txt
             git -c user.name=Fake -c user.email=fake@example.com commit -q -m 'Build the greeting'
@@ -405,7 +419,7 @@ esac
 if [ -n "$calls" ]; then
     structured="{{\"calls\":{{$calls}}}}"
 else
-    structured="{{\"outcome\":{{\"dealt_with\":[$dealt],\"meaning_unchanged\":[$unchanged],\"questions\":[$asked],\"outputs\":{{$out}}}}}}"
+    structured="{{\"outcome\":{{\"dealt_with\":[$dealt],\"meaning_unchanged\":[$unchanged],\"questions\":[$asked],$protected\"outputs\":{{$out}}}}}}"
 fi
 contexts='{contexts}'
 iterations='{iterations}'
@@ -433,6 +447,7 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         edits_guide = yes(fake.plan_edits_guide),
         guide = PROJECT_FILES[0].0,
         design = yes(fake.design),
+        changes_guide = yes(fake.build_changes_guide),
         moves = yes(fake.moves_main),
         gave_up = GAVE_UP,
         refused = refused.display(),

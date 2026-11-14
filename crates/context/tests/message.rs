@@ -356,6 +356,29 @@ fn a_round_after_its_return_was_sent_back_is_sent_why() {
     assert!(anew.text.contains("## Sent back"), "{}", anew.text);
 }
 
+// A return the engine found leaving files the project protects changed with nothing to say why is sent back naming
+// each, in the words of the files beside the flows.
+#[test]
+fn a_return_that_leaves_a_protected_file_changed_and_says_not_why_is_sent_back_naming_it() {
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    carry(&mut sim, &[("plan", "Greet by name.", None)]);
+    let round = sim.round().expect("the build is entered");
+    let entered = sim.enter(&round, sim.begins(&round));
+    sim.tries(&round, 1, entered.fills);
+    let mut came = Came::hands_in(Vec::new());
+    came.found = ["AGENTS.md", "flow/cell.toml"]
+        .map(|path| Unmet::Unexplained { path: path.to_string() })
+        .to_vec();
+    sim.returns(&round, came, 0);
+    let again = sim.round().expect("the build's round after it was sent back");
+    assert_eq!((again.run, again.number), (round.run, 2));
+    let entered = sim.enter(&again, false);
+    let said = "## Sent back\n\n- `AGENTS.md` is protected: say why, or take it back.\n- `flow/cell.toml` is \
+                protected: say why, or take it back.\n";
+    assert!(entered.text.contains(said), "{}", entered.text);
+}
+
 #[test]
 fn main_taken_in_is_told_to_a_cell_that_takes_it_in_in_one_line_in_the_words_of_its_part() {
     let mut sim = Sim::new();

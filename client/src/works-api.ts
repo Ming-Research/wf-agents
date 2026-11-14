@@ -315,7 +315,8 @@ export type Unmet =
   | { kind: 'noSuchQuestion'; name: string }
   | { kind: 'questionTwice'; name: string }
   | { kind: 'notAnOption'; name: string }
-  | { kind: 'notAnswerable'; name: string };
+  | { kind: 'notAnswerable'; name: string }
+  | { kind: 'unexplained'; path: string };
 
 /// What a round is given: the cell's task, the results of the calls the round before asked for, or why what the
 /// round before handed in was sent back.
