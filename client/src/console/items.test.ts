@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import type { CellNow, Item, Items, Now, Summary } from '../works-api';
-import { asksOf, shownTree, type Shown } from './items';
+import type { CellNow, Item, Items, Now, Summary, Waited } from '../works-api';
+import { asksOf, shownTree, type Shown, whoGives } from './items';
 import { indexTree } from './tree';
 
 const CELLS = ['plan', 'implement', 'merge'];
@@ -156,51 +156,19 @@ describe('what a card shows of an item', () => {
     ]);
     // Not begun, it still says how many items it waits for.
     expect(shown[0].blocked).toBe(1);
-    // A precondition the owner makes hold is no question: it marks the card, and counts nothing.
+    // A precondition the owner makes hold is no question: it counts nothing.
     expect(shown[2].asks).toBe(0);
-    expect(shown[2].work?.where).toEqual({ cell: 'plan', title: null, says: [['requires', 'read']] });
-  });
-});
-
-describe('where a card says its work waits for the owner', () => {
-  const titles: Record<string, string> = { plan: 'Initial research', implement: 'Implement', merge: 'Check before the merge' };
-  const where = (now: Now, states?: CellNow['state'][]) => {
-    const i: Item = { ...item(1, 'open'), work: work(1, now, states) };
-    return shownTree({ items: [i] }, (flow, cell) => (flow === 'small' ? (titles[cell] ?? null) : null))[0].work?.where;
-  };
-
-  it('names the cell by its id and its title, and what it waits for as keys and values', () => {
-    const answer: Now = { kind: 'waits', at: 'plan', on: [{ kind: 'answer', question: 'scope' }] };
-    expect(where(answer)).toEqual({ cell: 'plan', title: 'Initial research', says: [['answer', 'scope']] });
-    expect(where(merge)).toEqual({
-      cell: 'merge',
-      title: 'Check before the merge',
-      says: [['requires', 'asked = answered']],
-    });
-    // Of what the work waits for, only what the owner gives.
-    expect(where(waits)?.says).toEqual([
-      ['question', 'Which?'],
-      ['requires', 'confirmed'],
-      ['limit', 'runs 3'],
-    ]);
   });
 
-  it('says a work the owner paused as paused, at the cell it would go on at, apart from a question', () => {
-    expect(where({ kind: 'paused', by: 'owner', why: null }, ['done', 'again', 'notYet'])).toEqual({
-      cell: 'implement',
-      title: 'Implement',
-      says: [['paused', null]],
-    });
-  });
-
-  it('says nothing of a work that waits for anything else, runs, or that the engine stopped', () => {
-    const slot: Now = { kind: 'waits', at: 'plan', on: [{ kind: 'slot' }] };
-    const items: Now = {
-      kind: 'waits',
-      at: 'plan',
-      on: [{ kind: 'precondition', test: 'deps', words: 'deps', by: [{ kind: 'outside', source: 'dependencies' }] }],
+  it("takes the engine's word of how the questions stand as the owner's to give, and its questions as the count", () => {
+    const asked: Waited = {
+      kind: 'precondition',
+      test: 'asked = answered',
+      words: 'asked = answered',
+      by: [{ kind: 'outside', source: 'asked' }],
     };
-    for (const now of [slot, items, { kind: 'next', cell: 'plan' } as Now, { kind: 'paused', by: 'engine', why: 'x' } as Now])
-      expect(where(now, ['resting', 'notYet', 'notYet'])).toBeNull();
+    expect(whoGives(asked)).toBe('owner');
+    const i: Item = { ...item(1, 'open'), work: { ...work(1, merge), holding: ['measure', 'read-the-time'] } };
+    expect(shownTree({ items: [i] })[0].asks).toBe(2);
   });
 });

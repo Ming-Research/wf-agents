@@ -346,19 +346,11 @@ smoothly, and the panel at its right with the item selected. It is the console o
   corners: the canvas's own, as on `main`. Its number in monospace, in the colour of the item's standing (the
   console's faint grey `#9aa1ad` while open, `--green` when merged, paler when cancelled), its title in 14px, the
   canvas's own size, in Primer's sans-serif stack, which the console drew in (a canvas resolves a stack by its own
-  rules, so the page's `--font` could draw another face); at its right a tag of how many questions to the owner hold
-  its work now, the one count of what waits for the owner, `--on-colour` on `--red`, and, while its work has not
-  begun, a lock framed in muted with how many items it depends on are not merged. A card whose work goes on, once it
-  has begun or while it is paused, at fault or waits, is drawn in the colour of what the work does (`--blue` running,
+  rules, so the page's `--font` could draw another face); at its right a tag of how many questions to the owner hold its work,
+  `--on-colour` on `--red`, and, while its work has not begun, a lock framed in muted with how many items it depends on
+  are not merged. A card whose work goes on, once it has begun or while it is paused, at fault or waits, is tinted with the colour of what the work does (`--blue` running,
   `--orange` waiting for the owner, the console's pale yellow `#e8cc6a` waiting for anything else, muted paused,
-  `--red` halted, by a fault or by the engine's pause): one running is filled with it and glows; one that waits for
-  the owner, a question, a precondition the owner makes hold, a limit, stalled, one that is paused, and one halted, is
-  tinted with it as the tokens' tints are (10% over the card), its edge a deeper shade (45%), with no glow, as the
-  console on `old-main` marked a card in work; the rest have an edge of it alone. A card that waits for the owner, or that the
-  owner paused, has a third row that says where: the cell, its id in monospace, muted, and its title semibold, as the
-  page shows a cell, then what it waits for there as keys and values as the records and the cells' files write them
-  (`answer group-trigger-cannot-be-dealt-with`, `requires asked = answered`, `paused`), cut at the card's edge. Its
-  second row: the works page's strip of the work's cells, mark for mark, drawn on the
+  `--red` halted, by a fault or by the engine's pause), and has a second row: the works page's strip of the work's cells, mark for mark, drawn on the
   canvas from the same definition and the same tokens as the page's marks (`src/works/state-marks.ts`), the mark of a
   cell running pulsing while its round is under way; what the work has taken, in dollars; and how long it has gone on,
   its colour by its age (muted, amber after half an hour, `--red` after an hour, violet after a day). The strip keeps

@@ -629,7 +629,6 @@ export function fixtureSource(start = Date.now()): Source {
   };
   return {
     loadItems: () => Promise.resolve(structuredClone(data)),
-    loadFlow: () => Promise.resolve({ state: 'compiled', flow: FLOW }),
     loadWork: (work) => {
       try {
         const { item, summary } = find(work);

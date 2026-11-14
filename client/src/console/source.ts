@@ -2,7 +2,6 @@
 // when the page's address has `?fixtures`, the made-up items of `fixtures.ts`, so that the console can be looked at
 // with no server behind it.
 
-import { type Definition, read } from '../api';
 import { type Heard, listenShared } from '../changes';
 import { usesFixtures } from '../mock-data';
 import {
@@ -21,9 +20,6 @@ export type { Heard };
 
 export interface Source {
   loadItems: () => Promise<Items>;
-  /// The flow's definition, from which a card names the cell its work waits at by its title; where there is none,
-  /// by its id alone.
-  loadFlow?: () => Promise<Definition>;
   loadWork: (work: number) => Promise<WorkPage>;
   /// The content of a version of a block of a work.
   loadVersion: (work: number, block: string, at: number) => Promise<VersionPage>;
@@ -36,7 +32,6 @@ export interface Source {
 /// whole page shares (`changes.ts`).
 export const interfaceSource: Source = {
   loadItems,
-  loadFlow: () => read<Definition>('/api/v1/flow'),
   loadWork,
   loadVersion,
   act,

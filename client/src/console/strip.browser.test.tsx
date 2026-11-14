@@ -50,7 +50,6 @@ const working = (id: number, cells: CellNow[]): Shown => ({
     from: Date.now(),
     usdMicros: 12_340_000,
     last: null,
-    where: null,
   },
   children: [],
 });

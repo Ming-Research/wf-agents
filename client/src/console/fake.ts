@@ -118,7 +118,6 @@ export function fakeShown(count: number): Shown[] {
           from: Date.now() - 3600000,
           usdMicros: 1_250_000,
           last: Date.now(),
-          where: null,
         };
   const shown = (i: FakeItem): Shown => ({
     id: i.id,
