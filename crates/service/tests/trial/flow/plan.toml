@@ -3,6 +3,6 @@ kind = "agent"
 effort = "high"
 line = "engineer"
 task = "Write the plan from the request."
-requires = ["ready"]
+requires = { test = "ready" }
 inputs = ["request"]
 outputs = ["plan"]

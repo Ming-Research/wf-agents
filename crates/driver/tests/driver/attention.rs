@@ -559,7 +559,7 @@ fn a_work_waiting_for_a_precondition_the_owner_makes_hold_is_a_line() {
         title = "Merge"
         kind = "engine"
         act = "merge"
-        requires = ["may_merge"]
+        requires = { test = "may_merge" }
         inputs = ["text"]
         outputs = ["merged"]
     "#;

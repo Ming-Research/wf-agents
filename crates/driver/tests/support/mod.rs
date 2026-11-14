@@ -114,7 +114,7 @@ pub fn judged() -> Compiled {
         effort = "high"
         line = "main"
         task = "Write the text the request asks for."
-        requires = ["ready"]
+        requires = { test = "ready" }
         inputs = ["start", "request", "opinions"]
         outputs = ["text"]
     "#;
@@ -163,7 +163,7 @@ pub fn short() -> Compiled {
         effort = "high"
         line = "main"
         task = "Draft the plan from the request."
-        requires = ["ready"]
+        requires = { test = "ready" }
         inputs = ["start", "request"]
         outputs = ["plan"]
     "#;
@@ -1600,7 +1600,7 @@ pub fn waits_for_dependencies(cell: &str) -> Decision {
     Decision::Wait {
         at: cell.into(),
         on: vec![Waited::Precondition {
-            test: "ready".into(),
+            on: "ready".into(),
             by: vec![dependencies()],
         }],
     }

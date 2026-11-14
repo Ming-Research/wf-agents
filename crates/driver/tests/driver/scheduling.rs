@@ -152,7 +152,7 @@ fn started() -> flow::Compiled {
         kind = "engine"
         act = "start"
         inputs = ["start"]
-        requires = ["ready"]
+        requires = { test = "ready" }
         outputs = ["place"]
     "#;
     let write = r#"

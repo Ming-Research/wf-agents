@@ -57,7 +57,7 @@ fn small() -> Compiled {
         title = "Merge"
         kind = "engine"
         act = "merge"
-        requires = ["may_merge"]
+        requires = { test = "may_merge" }
         inputs = ["text"]
         outputs = ["merged"]
     "#;
@@ -147,7 +147,7 @@ fn a_work_goes_from_cell_to_cell_as_each_hands_in_and_rests_at_the_merge_for_the
     assert_eq!(effects, vec![]);
     assert_eq!(pending(&flow, &work), vec![]);
     let word = Waited::Precondition {
-        test: "may_merge".into(),
+        on: "may_merge".into(),
         by: vec![Maker::Owner],
     };
     let rests = Decision::Wait {

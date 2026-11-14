@@ -29,6 +29,14 @@ fn engineer() -> Compiled {
     flow::compile(&source, &has).expect("the engineer's flow compiles")
 }
 
+/// The key the first cell of the deliver flow and of the engineer's waits on: the items the item depends on merged.
+fn merged() -> decide::Condition {
+    decide::Condition::Is {
+        block: DEPENDENCIES.into(),
+        value: MERGED.to_string(),
+    }
+}
+
 /// The driver with the flows of the tests, the deliver flow and the engineer's.
 fn harness() -> H {
     let mut flows = flows();
@@ -41,7 +49,7 @@ fn waits_to_be_delivered() -> Decision {
     Decision::Wait {
         at: "V1".into(),
         on: vec![Waited::Precondition {
-            test: "all_delivered".into(),
+            on: merged(),
             by: vec![dependencies()],
         }],
     }
@@ -103,7 +111,7 @@ fn an_engineers_item_that_depends_on_a_deliverable_starts_only_once_the_delivera
     let waits_to_start = Decision::Wait {
         at: "S1".into(),
         on: vec![Waited::Precondition {
-            test: "may_start".into(),
+            on: merged(),
             // The engineer's item waits for the items it depends on to merge, not for the owner.
             by: vec![dependencies()],
         }],
