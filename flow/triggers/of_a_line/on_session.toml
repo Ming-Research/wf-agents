@@ -8,13 +8,16 @@ from = "session"
 # What the engine writes into the block as a line begins a new session: `text`, with `{line}` the line and `{why}` the
 # words below of why it began one; and, as its session is compacted during a round, which begins none, `compacted`
 # with `{line}`. Filled in a run: `{context}` the tokens of the session's context as its last round ended, `{limit}`
-# the limit; `{was}` the model it was begun on.
+# the limit: the line its line's history gives, never more than the installation's `sessions.context_limit`; `{was}` the
+# model it was begun on.
 [writes]
 text = "A new session of the line `{line}`: {why}."
-limit = "its context was {context} tokens as its last round ended, past the limit of {limit}"
+limit = "its context was {context} tokens as its last round ended, past the limit of {limit} for its line"
 model = "its rounds now run on another model than {was}, which it was begun on"
 account = "its rounds now run under another account than it was begun under"
 owner = "the owner asked for one"
 flagged = "the service's safety check flagged its last round"
+guarded = "the run guard stopped its last round, whose context grew past what its cell's history explains"
+too_long = "its last round's prompt was too long for the model"
 lost = "the agents' program no longer had the session it was in"
 compacted = "The session of the line `{line}` was compacted: it holds only a summary of what it read."

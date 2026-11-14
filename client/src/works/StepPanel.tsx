@@ -14,7 +14,7 @@ import type { Block, CallRow, Doing, Handed, Round, RoundPage, Run, Step, ToldPa
 import type { Chosen } from './History';
 import { findRun } from './placing';
 import { Opener, StateMark, cellNowWords } from './marks';
-import { ContextKeys, DoingNow, Filled, RanKeys, SystemPrompt, TookKeys } from './Round';
+import { ContextKeys, DoingNow, Filled, MissedKeys, RanKeys, SystemPrompt, TookKeys } from './Round';
 import { RoundTold } from './Told';
 import { UsagePanel } from './Usage';
 import {
@@ -222,7 +222,7 @@ function RoundPart({ run, round, reader, shown }: { run: Run; round: Round; read
           <>
             <dt>Took</dt>
             <dd>
-              <TookKeys spent={round.spent} />
+              <TookKeys spent={round.spent} estimated={round.estimated} />
             </dd>
           </>
         )}
@@ -231,6 +231,14 @@ function RoundPart({ run, round, reader, shown }: { run: Run; round: Round; read
             <dt>Context</dt>
             <dd>
               <ContextKeys context={round.context} compactions={round.compactions} />
+            </dd>
+          </>
+        )}
+        {round.missed && (
+          <>
+            <dt>Missed</dt>
+            <dd>
+              <MissedKeys missed={round.missed} />
             </dd>
           </>
         )}

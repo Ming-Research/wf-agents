@@ -130,6 +130,10 @@ struct Reached {
     compacted: usize,
     results: usize,
     sent_back: usize,
+    /// Rounds that failed after their program had the message.
+    wrote: usize,
+    /// New versions given whole that said what one the session held said.
+    said_again: usize,
 }
 
 /// One history, and the test's account beside it.
@@ -142,6 +146,8 @@ struct History {
     worked: BTreeMap<(CellId, BlockId), Seq>,
     /// The last content written of each block.
     last: BTreeMap<String, String>,
+    /// Every content written of each block, so that one may be written again.
+    written: BTreeMap<String, Vec<String>>,
     count: u64,
 }
 
@@ -155,13 +161,21 @@ impl History {
             lines: BTreeMap::new(),
             worked: BTreeMap::new(),
             last: BTreeMap::new(),
+            written: BTreeMap::new(),
             count: 0,
         }
     }
 
-    /// A new content of the block: the last one with a line changed or added, or a first one of many lines.
+    /// A new content of the block: now and then one it had before, as the same said twice or a change taken back;
+    /// otherwise the last one with a line changed or added, or a first one of many lines.
     fn content(&mut self, block: &str) -> String {
         self.count += 1;
+        let before = self.written.get(block).cloned().unwrap_or_default();
+        if !before.is_empty() && self.rng.chance(15) {
+            let again = before[self.rng.below(before.len())].clone();
+            self.last.insert(block.to_string(), again.clone());
+            return again;
+        }
         let mut lines: Vec<String> = match self.last.get(block) {
             Some(last) => last.split('\n').map(str::to_string).collect(),
             None => (1..=12).map(|n| format!("{block}, line {n}")).collect(),
@@ -174,6 +188,7 @@ impl History {
         }
         let text = lines.join("\n");
         self.last.insert(block.to_string(), text.clone());
+        self.written.entry(block.to_string()).or_default().push(text.clone());
         text
     }
 
@@ -226,8 +241,30 @@ impl History {
         };
         assert_eq!(self.sim.enter(round, false), going_on, "entered again after its try");
         assert_eq!(self.sim.enter(round, true), anew, "entered again anew after its try");
+        // A message gives a new version whole though it says what one the session holds said.
+        for fill in &going_on.fills {
+            let Fill::Whole { block, version } = fill else {
+                continue;
+            };
+            let text = self.sim.content(block.as_str(), *version);
+            let had = held.versions.get(block).into_iter().flatten();
+            if had
+                .into_iter()
+                .any(|h| h != version && self.sim.content(block.as_str(), *h) == text)
+            {
+                reached.said_again += 1;
+            }
+        }
         if self.rng.chance(8) {
-            self.sim.fails(round);
+            // A round that failed after its program had its message, as at the usage limit, put it into its session;
+            // one that failed before its program ran put nothing there.
+            if self.rng.chance(50) {
+                self.lines.entry(line.clone()).or_default().fill(round.run, &used.fills);
+                self.sim.fails_as(round, decide::run::Failure::UsageLimit, true);
+                reached.wrote += 1;
+            } else {
+                self.sim.fails(round);
+            }
             return;
         }
         self.lines.entry(line.clone()).or_default().fill(round.run, &used.fills);
@@ -354,7 +391,6 @@ impl History {
         let lacking: Vec<Seq> = all.iter().map(|v| v.at).filter(|at| !held.holds(block, *at)).collect();
         // The carrier says what changed in the tree, from the version the session read where the cell worked from none.
         let compared = block.as_str() == "tree";
-        let lacks_last = new && last.is_some_and(|l| l < latest && !held.holds(block, l));
         if kind == InputKind::All && !lacking.is_empty() {
             let stands = if held.holds(block, all[0].at) {
                 Stands::HoldsLast
@@ -362,9 +398,6 @@ impl History {
                 Stands::Lacks
             };
             return (stands, lacking.into_iter().map(whole).collect(), last);
-        }
-        if held.holds(block, latest) && lacks_last && kind == InputKind::LastAndLatest && !compared {
-            return (Stands::Lacks, vec![whole(latest)], last);
         }
         if held.holds(block, latest) {
             let stands = if new && last.is_some() {
@@ -509,18 +542,17 @@ impl History {
                 Stands::HoldsLatest => {
                     let sent = sent.expect("the line of a datum held that is new");
                     assert_eq!(sent.form, Form::Held);
-                    let last = format!("last worked from {}", last.expect("a version worked from").0);
+                    let worked = last.expect("a version worked from");
+                    let said = format!("last worked from {}", worked.0);
                     assert!(
-                        as_written(&sent.pieces).ends_with(&last),
+                        as_written(&sent.pieces).ends_with(&said),
                         "{}",
                         as_written(&sent.pieces)
                     );
                     reached.held += 1;
+                    reached.lacks_last += usize::from(!held.holds(&g.block, worked));
                 }
                 Stands::Holds | Stands::Unwritten => assert!(sent.is_none(), "{name} is sent"),
-                Stands::Lacks if held.holds(&g.block, entered.run.data[&g.block].latest.number) => {
-                    reached.lacks_last += 1;
-                }
                 Stands::Lacks | Stands::HoldsLast => assert!(sent.is_some(), "{name} is not sent"),
             }
         }
@@ -655,7 +687,7 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
         ("a change sent", reached.changes),
         ("the line of a datum held that is new", reached.held),
         (
-            "the latest sent whole where the session holds it and not the version last worked from",
+            "the latest held referred to where the session lacks the version last worked from",
             reached.lacks_last,
         ),
         ("a version put into a round", reached.put_in),
@@ -668,6 +700,8 @@ fn every_round_is_filled_with_what_its_session_lacks_by_the_kinds_of_its_cell() 
         ("a session compacted", reached.compacted),
         ("results given", reached.results),
         ("a return sent back", reached.sent_back),
+        ("a round that failed after its program had its message", reached.wrote),
+        ("a new version given that said what one held said", reached.said_again),
     ] {
         assert!(n > 0, "no history reached {what}");
     }

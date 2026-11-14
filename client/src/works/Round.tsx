@@ -1,13 +1,14 @@
 // What a round's part of a run's panel shows of the round beside what it was given and what came back, each by its key
 // as the flow's files and the work's records write it, and what the page works out from them said plainly: what it
-// ran on and in which session of its line; what it took; the context it ended with; what was filled into its session,
-// which is what was new to the round; while it is under way and its panel is open, what its agent is doing, read again
-// every few seconds; and the system prompt of its session, which each of its rounds is given.
+// ran on and in which session of its line; what it took; the context it ended with; how it missed its session's prompt
+// cache, where it did; what was filled into its session, which is what was new to the round; while it is under way and
+// its panel is open, what its agent is doing, read again every few seconds; and the system prompt of its session, which
+// each of its rounds is given.
 
 import { type ReactNode, useEffect, useState } from 'react';
 
 import { Attr, ListRow } from '../parts';
-import type { Doing, Fill, Round, RoundTry, Spent } from '../works-api';
+import type { Doing, Fill, Missed, Round, RoundTry, Spent } from '../works-api';
 import { Content, Unfold } from './marks';
 import { type Key, count, spentKeys } from './words';
 
@@ -38,9 +39,25 @@ export function RanKeys({ round }: { round: Round }) {
   return <Keys keys={keys} />;
 }
 
-/// What the round took.
-export function TookKeys({ spent }: { spent: Spent }) {
-  return <Keys keys={spentKeys(spent)} />;
+/// What the round took, and, where it was worked out from its calls at their models' prices, that it was: `priced`.
+export function TookKeys({ spent, estimated }: { spent: Spent; estimated: boolean }) {
+  const keys: Key[] = estimated ? [...spentKeys(spent), ['priced', 'true']] : spentKeys(spent);
+  return <Keys keys={keys} />;
+}
+
+/// How the round missed its session's prompt cache: what its first call read from the cache, what the session held,
+/// and what comes before the session's messages and differs from the call before, which is none where the miss is a
+/// fault of wf-agents.
+export function MissedKeys({ missed }: { missed: Missed }) {
+  return (
+    <Keys
+      keys={[
+        ['first_read', count(missed.read)],
+        ['held', count(missed.held)],
+        ['differs', missed.differs.length === 0 ? 'none' : missed.differs.join(', ')],
+      ]}
+    />
+  );
 }
 
 /// The context the round ended with, and how often its session was compacted during it.

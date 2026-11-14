@@ -128,10 +128,32 @@ default_level = "2"
 highest_level = "3"
 
 [sessions]
-# A line of a work keeps one session of the program from round to round. Once a round of the line ends with a context
-# of more tokens than this, the line's next round begins a new session; a line also begins one where the model or the
-# config_dir is no longer the one its session was begun with. Left out, it is 500000.
+# A line of a work keeps one session of the program from round to round. It begins a new one where the model or the
+# config_dir is no longer the one its session was begun with, and where a round of the line ends with more context than
+# the limit: the line its own history gives ([history] below), but never more than this many tokens, which is the limit
+# while the history is too short to give a line. The program compacts a session near its model's window, so a line
+# drawn from history stands past the window once one session came near it, and only this number still bounds what each
+# call of a long session reads. Left out, it is 500000.
 context_limit = 500000
+#
+# How long the program keeps a session in its prompt cache after its last call, in minutes: an hour for `claude`, whose
+# usage says each write to the cache is kept an hour. 0 for a program that keeps none. Left out, it is 60.
+cache_minutes = 60
+# A session whose line waits is sent a keep-warm ping this many minutes after its last call, so that the cache does not
+# let it go: five before it would, time for the ping and four tries again a minute apart. A wait is sent as many as
+# cost, each reading the session, no more than writing it again would beyond reading it, at its model's prices: 39 on
+# Opus and Sonnet 5.5, 19 on Haiku 5.5, 79 on Fable 5.1. Left out, it is 55.
+warm_minutes = 55
+# Whether sessions are kept warm while the owner holds everything, so that they are not written again whole when the
+# owner lets everything on. Left out, they are.
+warm_while_paused = true
+
+[history]
+# A measured quantity (a round's growth of context, its cost and time, a session's context, a work's spend) is judged
+# against the history of its own kind: its line stands past the largest value by as much as that is past the median.
+# A history gives a line once it has at least this many values: 19, of which a value of the same kind is the largest
+# one time in twenty. Left out, it is 19.
+samples = 19
 
 # The agents' tool `query`: one read-only SQL query on the engine's store, which the engine runs and answers in the next
 # message. Off until the owner has settled what the agents see: with it off, a request is answered that the store is

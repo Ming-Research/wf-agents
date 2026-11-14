@@ -63,18 +63,20 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use decide::RunId;
 use decide::run::Failure;
+use decide::{Pauser, RunId};
 use driver::Policy;
 use engine::Came;
-use service::{Clock, Doing, Round, RoundReply, Rounds, SystemClock, Teller, Told};
+use service::{Clock, Doing, Ping, PingReply, Round, RoundReply, Rounds, SystemClock, Teller, Told};
 use store::WorkNumber;
 use tokio::process::Command;
+use tokio::sync::oneshot;
 use uuid::Uuid;
-use work::{RanOn, Spent, Why};
+use work::{Back, Measures, RanOn, Spent, Why, Work};
 
 use crate::catch_up::{self, CaughtUp};
-use crate::cli::{self, Begin, Compacted, InSession, Words};
+use crate::cli::{self, Begin, Calls, Compacted, InSession, Words};
+use crate::guard::{Crossing, Guard};
 use crate::held::{Failing, Held, Stop};
 use crate::permissions::Permissions;
 use crate::process::{self, Ran};
@@ -103,6 +105,9 @@ struct Inner {
     held: Held<(WorkNumber, RunId, usize), RoundReply>,
     /// The clock a usage limit's reset is read by, where the command line gives it as a time of day.
     clock: Arc<dyn Clock>,
+    /// A lock for each work, so that a keep-warm ping of a work never runs beside a round of it: a round waits for a
+    /// ping of its work to end, and a ping that finds a round of its work under way is given up.
+    in_work: std::sync::Mutex<BTreeMap<WorkNumber, Arc<tokio::sync::Mutex<()>>>>,
 }
 
 /// What the rounds of the works of a project's items are run with.
@@ -167,6 +172,7 @@ impl Agents {
                 projects,
                 held: Held::new(),
                 clock,
+                in_work: std::sync::Mutex::new(BTreeMap::new()),
             }),
         }
     }
@@ -188,7 +194,7 @@ impl Rounds for Agents {
                     let Some(reply) = inner.held.take(key) else {
                         return;
                     };
-                    match inner.over_budget(&round, &spent) {
+                    match inner.to_wait(&round, &spent) {
                         Some(why) => reply.ended_and_paused(came, spent, why),
                         None => reply.ended(came, spent),
                     }
@@ -202,7 +208,7 @@ impl Rounds for Agents {
                     // Where the round took the work over its budget, the work is paused for that whatever the kind.
                     Some(Failing::Fail(reply)) => {
                         let resets = resets(failure, &why, &said, &*inner.clock);
-                        match inner.over_budget(&round, &spent) {
+                        match inner.to_wait(&round, &spent) {
                             Some(over) => {
                                 let pause = format!("{why}; and {over}");
                                 reply.failed_and_paused(failure, resets, why, spent, pause);
@@ -263,6 +269,16 @@ impl Rounds for Agents {
     fn policy(&self) -> Option<Policy> {
         Some(self.inner.settings.policy())
     }
+
+    fn ping(&self, ping: Ping, reply: PingReply) {
+        let inner = self.inner.clone();
+        tokio::spawn(async move {
+            match inner.ping(&ping).await {
+                Ok(spent) => reply.ended(spent),
+                Err((why, spent)) => reply.failed(why, spent),
+            }
+        });
+    }
 }
 
 impl Inner {
@@ -302,12 +318,23 @@ impl Inner {
         }
         let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
         let permissions = Permissions::of(round.cell.reads_only, args, added);
+        // One program at a time in a work: a keep-warm ping of it under way ends first, so that what its session holds
+        // and cost is worked out with the ping in.
+        let lock = self.lock(round.work);
+        let _one = lock.lock().await;
         let InSession {
             number,
             mut begin,
             before,
         } = cli::in_session(flow, work, line, round.run, round.number);
         let session = session::session(self.installation, round.work, line, number);
+        // What the round is judged by while it runs: the prompt its session last had, and whether the owner let it run
+        // past the guard.
+        let last = driver::history::last_prompt(flow, work, line, round.run, round.number);
+        let returned = driver::history::last_return(flow, work, line, round.run, round.number).map_or(0, chars_of);
+        let waived = let_run(work, round.run, round.number, Failure::Guarded);
+        // The guard stopped the run's round before this one, which this one is tried again for.
+        let guarded_before = stopped_before(work, round.run, round.number, Failure::Guarded);
         // What the round is sent in the session as it stands, and in one that holds nothing: one begun under the round,
         // or compacted during it.
         let about = context::For {
@@ -370,6 +397,7 @@ impl Inner {
             };
             let kept_at = system::kept_at(&self.data, session);
             let system = system::of_session(&kept_at, made)?;
+            let before = self.before_messages(&on, &system, &form, &permissions);
             let command = self.command(
                 &dir,
                 &on,
@@ -381,25 +409,55 @@ impl Inner {
                 session,
                 begin,
             );
-            // The stream is kept as it comes, so that what the agent is doing can be read while it does it.
+            // The stream is kept as it comes, so that what the agent is doing can be read while it does it; and the run
+            // guard judges each call as the stream tells it, halting the program at a signal past its lines.
             let mut kept = Keeping::to(&stream_at)?;
+            // What the engine gave the round in its session: its message, and the return before it, which the session
+            // has held only since its last call, so that a short message after a long return is no jump.
+            let given = told.chars().count() as u64 + returned;
+            let mut guard = Guard::new(round.lines.clone(), last, given, waived);
+            let (halt, halted) = oneshot::channel();
+            let mut halt = Some(halt);
+            let mut crossed: Option<Crossing> = None;
             let mut told_answered = false;
-            let mut each = |line: &[u8]| {
-                kept.line(line);
-                // The service serves the round: a wait every work shares need not wait for its end.
-                if !told_answered && kept.stream.answered() {
-                    told_answered = true;
-                    teller.answered();
-                }
+            let ran = {
+                let mut each = |line: &[u8]| {
+                    kept.line(line);
+                    // The service serves the round: a wait every work shares need not wait for its end.
+                    if !told_answered && kept.stream.answered() {
+                        told_answered = true;
+                        teller.answered();
+                    }
+                    if crossed.is_none()
+                        && let Some(crossing) = guard.judge(kept.calls())
+                    {
+                        crossed = Some(crossing);
+                        if guard.stops()
+                            && let Some(halt) = halt.take()
+                        {
+                            let _ = halt.send(());
+                        }
+                    }
+                };
+                // A program that cannot be started printed no result: its words say whether it is missing, which holds
+                // every work, and any other cause is tried again as a failure in passing.
+                let stdin = Some(cli::stdin(told));
+                process::streamed(command, stdin, Some(&group), stop, Some(halted), &mut each).await
             };
-            // A program that cannot be started printed no result: its words say whether it is missing, which holds
-            // every work, and any other cause is tried again as a failure in passing.
-            let ran = process::streamed(command, Some(cli::stdin(told)), Some(&group), stop, &mut each).await;
             // Each compaction of the try is a reopening of the session, told while the round is still under way,
             // however the try ended.
             let compactions = marked(&compacted.marks).await;
             for _ in 0..compactions {
                 teller.session_began(line.to_string(), Why::Compacted);
+            }
+            // A round the guard stopped printed no result: what it took is its calls at their models' prices. So is
+            // what a try took whose program ended of itself with no result to say it, as one that crashed.
+            let halted = crossed.is_some() && guard.stops();
+            let ended = matches!(&ran, Ok(Ran::Ended { .. }));
+            let priced = halted || (ended && !kept.stream.has_result() && kept.stream.priced().is_some());
+            // What the calls of a try whose program ran came to is told before the round ends, however it ended.
+            if let Some(measures) = kept.measures(given, before, crossed.is_some(), priced) {
+                teller.measured(n, measures);
             }
             let ran = match ran {
                 Ok(ran) => ran,
@@ -410,6 +468,15 @@ impl Inner {
                 }
             };
             let Ran::Ended { status, stderr, .. } = ran else {
+                // Stopped by the guard, the round failed for it, having taken what its calls cost.
+                if let Some(crossing) = crossed.filter(|_| halted) {
+                    let why = crossing.words(&of.beside.cost.guard, kept.tools(), guarded_before);
+                    let spent = Spent {
+                        compactions,
+                        ..kept.stream.priced().unwrap_or_default()
+                    };
+                    return Ok(Carried::Failed(why, Failure::Guarded, failure::Said::default(), spent));
+                }
                 return Ok(Carried::Stopped);
             };
             let stream = kept.done()?;
@@ -562,12 +629,89 @@ impl Inner {
         kept::base(&self.data, round.work, round.run, round.number)
     }
 
+    /// Why the work is to wait for the owner as the round ends, where it does: the round took it over its budget, or
+    /// its spend or time since it last waited for the owner is past what the flow's other works explain; both where
+    /// both hold.
+    fn to_wait(&self, round: &Round, spent: &Spent) -> Option<String> {
+        let reasons: Vec<String> = [self.over_budget(round, spent)]
+            .into_iter()
+            .chain(self.past_history(round, spent))
+            .flatten()
+            .collect();
+        // Two reasons are joined in the project's words, which the second, of the history, is said in.
+        let between = (crate::projects::of(&self.projects, &round.item)).map(|of| of.beside.cost.work.between.clone());
+        (!reasons.is_empty()).then(|| reasons.join(&between.unwrap_or_default()))
+    }
+
+    /// Why the work is to wait for the owner, where what it has spent, or the time its rounds have taken, since it
+    /// started or was last let on after the engine paused it, this round with them, is past the line the flow's other
+    /// works give (principle `judged-by-own-history`): each where it is.
+    fn past_history(&self, round: &Round, spent: &Spent) -> Vec<Option<String>> {
+        let work = &round.kept;
+        let since = stretch(work);
+        let ended = |at: decide::Seq| at > since;
+        let mut usd = spent.usd_micros;
+        let mut ms = 0u64;
+        let mut counted: Vec<RunId> = Vec::new();
+        for r in &work.records.rounds {
+            counted.push(r.run);
+            let k = counted.iter().filter(|x| **x == r.run).count();
+            let end = (work.records.returned.iter()).filter(|e| e.run == r.run).nth(k - 1);
+            let Some(end) = end.filter(|end| ended(end.at)) else {
+                continue;
+            };
+            usd += work.spent.get(&(r.run, k)).map_or(0, |s| s.usd_micros);
+            if let (Some(from), Some(to)) = (work.time_of(r.at), work.time_of(end.at)) {
+                ms += to.0.saturating_sub(from.0);
+            }
+        }
+        usd += (work.pinged.iter())
+            .filter(|p| ended(p.at))
+            .map(|p| p.spent.usd_micros)
+            .sum::<u64>();
+        // The round under way, from its beginning to now.
+        let began = work::sessions::began_at(work, round.run, round.number).and_then(|at| work.time_of(at));
+        if let (Some(began), Ok(now)) = (began, self.clock.now()) {
+            ms += now.0.saturating_sub(began.0);
+        }
+        // The words are the project's; a work whose project the settings no longer have says nothing of its history.
+        let Ok(of) = crate::projects::of(&self.projects, &round.item) else {
+            return Vec::new();
+        };
+        let words = &of.beside.cost.work;
+        let since_words = match since {
+            decide::Seq(0) => &words.started,
+            _ => &words.let_on,
+        };
+        let told = |said: &str, value: f64, line: &driver::history::Line, unit: Unit| {
+            flow::agents::fill(
+                said,
+                &[
+                    ("work", &round.work.0.to_string()),
+                    ("value", &unit.say(value)),
+                    ("line", &unit.say(line.value)),
+                    ("works", &line.samples.to_string()),
+                    ("since", since_words),
+                ],
+            )
+        };
+        let lines = &round.lines;
+        let spent_past = (lines.work_spent.as_ref())
+            .filter(|line| usd as f64 > line.value)
+            .map(|line| told(&words.spent, usd as f64, line, Unit::Dollars));
+        let time_past = (lines.work_time.as_ref())
+            .filter(|line| ms as f64 > line.value)
+            .map(|line| told(&words.time, ms as f64, line, Unit::Minutes));
+        vec![spent_past, time_past]
+    }
+
     /// Why the work is to wait for the owner, where the round took it over its budget: everything its rounds have
     /// spent, this one with them, is more than the settings let a work spend.
     fn over_budget(&self, round: &Round, spent: &Spent) -> Option<String> {
         let budget = self.settings.budget_micros()?;
         // No other round of the work ended while this one was under way: a work has one round under way at a time.
-        let total = round.kept.spent.values().map(|s| s.usd_micros).sum::<u64>() + spent.usd_micros;
+        let pinged = round.kept.pinged.iter().map(|p| p.spent.usd_micros).sum::<u64>();
+        let total = round.kept.spent.values().map(|s| s.usd_micros).sum::<u64>() + spent.usd_micros + pinged;
         let dollars = |micros: u64| micros as f64 / 1_000_000.0;
         (total > budget).then(|| {
             format!(
@@ -578,6 +722,238 @@ impl Inner {
             )
         })
     }
+}
+
+/// How many characters a round came back with, as its return writes them: what it dealt with, handed in, asked for and
+/// said; nothing for a round that failed.
+fn chars_of(back: &Back) -> u64 {
+    let written = match back {
+        Back::Returned {
+            dealt_with,
+            handed,
+            asks,
+            said,
+            ..
+        } => serde_json::to_string(&(dealt_with, handed, asks, said)),
+        Back::HandedIn(handed) => serde_json::to_string(handed),
+        Back::Asked(asks) => serde_json::to_string(asks),
+        Back::Failed { .. } => return 0,
+    };
+    written.map_or(0, |text| text.chars().count() as u64)
+}
+
+impl Inner {
+    /// The lock of the work, made where it has none.
+    fn lock(&self, work: WorkNumber) -> Arc<tokio::sync::Mutex<()>> {
+        let mut locks = self.in_work.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        locks.entry(work).or_default().clone()
+    }
+
+    /// What comes before a session's messages in the prompt of a call on this, with this system prompt, form of return
+    /// and permissions, which the cache reads only where it is what the call before had: the model, the effort, and a
+    /// digest each of the system prompt, the schema and the tools the program is given ([`work::Measures::before`]).
+    fn before_messages(
+        &self,
+        on: &RanOn,
+        system: &str,
+        form: &str,
+        permissions: &Permissions,
+    ) -> BTreeMap<String, String> {
+        let tools: Vec<String> = (self.settings.agents.args.iter().cloned())
+            .chain(permissions.arguments())
+            .collect();
+        let mut before = BTreeMap::from([
+            ("model".to_string(), on.model.clone()),
+            ("system".to_string(), work::digest(system)),
+            ("schema".to_string(), work::digest(form)),
+            ("tools".to_string(), work::digest(&tools.join("\n"))),
+        ]);
+        if let Some(effort) = &on.effort {
+            before.insert("effort".to_string(), effort.clone());
+        }
+        before
+    }
+
+    /// Sends the session of the ping its keep-warm message, with the command line of the session's last round, which
+    /// the cache keeps the session under, and gives what it took; or why it failed, with what it took. A work a round
+    /// of which is under way is not pinged, and a ping that has not ended by the time the cache lets the session go is
+    /// stopped, since after that it would write the session again for nothing.
+    async fn ping(&self, ping: &Ping) -> Result<Spent, (String, Spent)> {
+        let failed = |why: String| (why, Spent::default());
+        let of = crate::projects::of(&self.projects, &ping.item).map_err(failed)?;
+        let said = &of.beside.cost.ping;
+        let fill = flow::agents::fill;
+        let (flow, work, line) = (&*ping.flow, &*ping.kept, ping.line.as_str());
+        let lock = self.lock(ping.work);
+        let Ok(_one) = lock.try_lock() else {
+            return Err(failed(said.under_way.clone()));
+        };
+        let session = session::session(self.installation, ping.work, line, ping.session);
+        // The session's last round that ran, whose command line it is sent with.
+        let last = (work.ran.iter().rev()).find(|r| {
+            let cell = work.records.started.iter().find(|s| s.run == r.run).map(|s| &s.cell);
+            let spec = cell.and_then(|cell| flow.cells.iter().find(|c| c.id == *cell));
+            spec.and_then(|c| c.line.as_deref()) == Some(line)
+        });
+        let no_round = || failed(fill(&said.no_round, &[("line", line)]));
+        let (run, number, on) = last.map(|r| (r.run, r.round, r.on.clone())).ok_or_else(no_round)?;
+        let started = (work.records.started.iter())
+            .find(|s| s.run == run)
+            .ok_or_else(no_round)?;
+        let cell = (flow.cells.iter())
+            .find(|c| c.id == started.cell)
+            .ok_or_else(no_round)?;
+        let place = git::place(&self.data, &git::tag(&self.installation), ping.work);
+        let dir = git::worktree(&place).map_err(failed)?;
+        let system = std::fs::read_to_string(system::kept_at(&self.data, session))
+            .map_err(|e| failed(fill(&said.no_system, &[("why", &e.to_string())])))?;
+        let form = flow::form::form(flow, &of.beside).map_err(failed)?;
+        let (args, added) = (&self.settings.agents.args, &self.settings.agents.permissions);
+        let permissions = Permissions::of(cell.reads_only, args, added);
+        let base =
+            kept::base(&self.data, ping.work, run, number).with_file_name(format!("ping-{line}-{}", ping.session));
+        let compacted = Compacted {
+            marks: base.with_extension("compacted"),
+            again: base.with_extension("again.md"),
+        };
+        let words = Words {
+            waiting: base.with_extension("words.json"),
+            delivered: base.with_extension("delivered"),
+        };
+        let _ = tokio::fs::remove_file(&compacted.marks).await;
+        // A ping's compaction gives the session nothing again: its next round is filled from the top.
+        write(&compacted.again, b"").await.map_err(failed)?;
+        let command = self.command(
+            &dir,
+            &on,
+            &system,
+            &permissions,
+            &form,
+            &compacted,
+            &words,
+            session,
+            Begin::Resume,
+        );
+        // What the session cost before the ping: its rounds' and its earlier pings'.
+        let before = cli::in_session(flow, work, line, run, number + 1).before;
+        let message = cli::stdin(&said.message);
+        // The ping is given what is left of the cache's life after it was due.
+        let left = (self.settings.cache_ms())
+            .map(|life| life.saturating_sub(self.settings.sessions.warm_minutes.saturating_mul(60_000)))
+            .unwrap_or(0);
+        let (halt, halted) = oneshot::channel();
+        let timer = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(left)).await;
+            let _ = halt.send(());
+        });
+        let mut stream = cli::Stream::default();
+        let mut lines = Vec::new();
+        let mut each = |line: &[u8]| {
+            stream.line(line);
+            lines.extend_from_slice(line);
+            lines.push(b'\n');
+        };
+        let mut never = crate::held::Stop::never();
+        let ran = process::streamed(command, Some(message), None, &mut never, Some(halted), &mut each).await;
+        timer.abort();
+        let marks = marked(&compacted.marks).await;
+        let _ = tokio::fs::remove_file(&compacted.marks).await;
+        let _ = tokio::fs::remove_file(&compacted.again).await;
+        let priced = || Spent {
+            compactions: marks,
+            ..stream.priced().unwrap_or_default()
+        };
+        let Ran::Ended { status, stderr, .. } = ran.map_err(failed)? else {
+            let minutes = (left / 60_000).to_string();
+            return Err((fill(&said.stopped, &[("minutes", &minutes)]), priced()));
+        };
+        let spent = match cli::read(&lines, Begin::Resume, before) {
+            Ok(read) => read.spent,
+            Err(no) => no.spent.unwrap_or_else(priced),
+        };
+        let spent = Spent {
+            compactions: marks,
+            ..spent
+        };
+        let spent_any = spent.input_tokens + spent.cached_tokens + spent.output_tokens > 0;
+        if status.success() || spent_any {
+            return Ok(spent);
+        }
+        let end = process::tail(String::from_utf8_lossy(&stderr).trim().as_bytes());
+        let why = fill(
+            &said.exited,
+            &[
+                ("command", &self.settings.agents.command),
+                ("status", &status.to_string()),
+                ("said", &end),
+            ],
+        );
+        Err((why, spent))
+    }
+}
+
+/// Where the work's spend and time are counted from, as its history judges them: the place where it was last let on
+/// after the engine paused it, or its start.
+fn stretch(work: &Work) -> decide::Seq {
+    let pauses = &work.records.pauses;
+    (pauses.iter().enumerate())
+        .filter(|(i, p)| {
+            !p.paused
+                && pauses[..*i]
+                    .iter()
+                    .rev()
+                    .find(|q| q.paused)
+                    .is_some_and(|q| q.by == Pauser::Engine)
+        })
+        .map(|(_, p)| p.at)
+        .max()
+        .unwrap_or(decide::Seq(0))
+}
+
+/// The unit a work's spend or time is said in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Unit {
+    /// Dollars, of millionths of a dollar.
+    Dollars,
+    /// Minutes, of milliseconds.
+    Minutes,
+}
+
+impl Unit {
+    /// A value as the words say it in the unit.
+    fn say(self, value: f64) -> String {
+        match self {
+            Unit::Dollars => format!("{:.2}", value / 1_000_000.0),
+            Unit::Minutes => format!("{:.0}", value / 60_000.0),
+        }
+    }
+}
+
+/// The rounds of the run before the one of this number that ran to an end of their own, newest first: those that
+/// failed for another cause than `kind`, or were cut off, passed over.
+fn ended_before(work: &Work, run: RunId, number: usize, kind: Failure) -> Option<(usize, &Back)> {
+    (1..number).rev().find_map(|k| match work.back.get(&(run, k)) {
+        Some(back @ Back::Failed { failure, .. }) if *failure == kind => Some((k, back)),
+        Some(Back::Failed { .. }) | None => None,
+        Some(back) => Some((k, back)),
+    })
+}
+
+/// Whether the round of the run before this one, passing over those that failed otherwise, failed of this kind.
+fn stopped_before(work: &Work, run: RunId, number: usize, kind: Failure) -> bool {
+    matches!(ended_before(work, run, number, kind), Some((_, Back::Failed { failure, .. })) if *failure == kind)
+}
+
+/// Whether the owner let the round of this number of the run run past what stopped the run's round before it, of this
+/// kind: that round, passing over those that failed for another cause or were cut off, failed of it, and the work was
+/// let on since it ended.
+fn let_run(work: &Work, run: RunId, number: usize, kind: Failure) -> bool {
+    let Some((k, Back::Failed { failure, .. })) = ended_before(work, run, number, kind) else {
+        return false;
+    };
+    let ended = (work.records.returned.iter()).filter(|e| e.run == run).nth(k - 1);
+    let let_on = |at: decide::Seq| work.records.pauses.iter().any(|p| !p.paused && p.at > at);
+    *failure == kind && ended.is_some_and(|ended| let_on(ended.at))
 }
 
 /// When the account's usage limit resets, where the failure is that limit and the program's stream or its report says
@@ -629,6 +1005,55 @@ impl Keeping {
         })
     }
 
+    /// The calls of the session's own agent the stream has told so far.
+    fn calls(&self) -> &Calls {
+        &self.stream.own
+    }
+
+    /// The uses of tools of the session's own agent the stream has told so far.
+    fn tools(&self) -> &[(String, String, String)] {
+        &self.stream.tools
+    }
+
+    /// What the try's calls came to, given a message of this many characters, with what came before the session's
+    /// messages and the program's version as its stream told it, whether it went past the run guard's lines, and
+    /// whether what it took is priced from its calls; none where its program printed nothing.
+    fn measures(
+        &self,
+        given: u64,
+        mut before: BTreeMap<String, String>,
+        crossed: bool,
+        priced: bool,
+    ) -> Option<Measures> {
+        if self.stream.is_empty() {
+            return None;
+        }
+        if let Some(program) = &self.stream.program {
+            before.insert("program".to_string(), program.clone());
+        }
+        let calls = &self.stream.own;
+        // The program's own count where it printed its result; what the stream told of the agent's calls where not, as
+        // of a try that was stopped.
+        let (fresh, read, written, thinking, turns) =
+            (self.stream.printed()).unwrap_or((calls.fresh, calls.read, calls.written, None, u64::from(calls.count)));
+        Some(Measures {
+            input_tokens: fresh,
+            cache_read_tokens: read,
+            cache_written_tokens: written,
+            thinking_tokens: thinking,
+            turns,
+            calls: calls.count,
+            first_read: calls.first.map(|(read, _)| read),
+            first_context: calls.first.map(|(_, whole)| whole),
+            added: calls.added,
+            given,
+            before,
+            received: self.stream.began(),
+            crossed,
+            priced,
+        })
+    }
+
     /// Takes a line of the stream, without its newline.
     fn line(&mut self, line: &[u8]) {
         use std::io::Write;
@@ -657,4 +1082,105 @@ async fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
     tokio::fs::write(path, bytes)
         .await
         .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use decide::{Pause, Returned, Round as Began, Seq};
+    use work::Back;
+
+    use super::*;
+
+    fn pause(at: u64, paused: bool, by: Pauser) -> Pause {
+        Pause {
+            paused,
+            at: Seq(at),
+            by,
+            why: None,
+        }
+    }
+
+    #[test]
+    fn a_works_spend_is_counted_from_where_it_was_last_let_on_after_the_engine_paused_it() {
+        let mut work = Work::default();
+        assert_eq!(stretch(&work), Seq(0), "from its start");
+        work.records.pauses = vec![pause(3, true, Pauser::Owner), pause(4, false, Pauser::Owner)];
+        assert_eq!(stretch(&work), Seq(0), "the owner's own pause starts nothing anew");
+        work.records
+            .pauses
+            .extend([pause(6, true, Pauser::Engine), pause(8, false, Pauser::Owner)]);
+        assert_eq!(stretch(&work), Seq(8));
+    }
+
+    /// A work whose one run's rounds ended so, each a round of its own, the work paused and let on as the pauses say.
+    fn failed(backs: &[Option<Failure>], pauses: Vec<Pause>) -> Work {
+        let mut work = Work::default();
+        let run = RunId(1);
+        for (k, back) in backs.iter().enumerate() {
+            let at = 10 * k as u64 + 1;
+            work.records.rounds.push(Began { run, at: Seq(at) });
+            work.records.returned.push(Returned { run, at: Seq(at + 1) });
+            let back = match back {
+                Some(failure) => Back::Failed {
+                    why: "it failed".to_string(),
+                    failure: *failure,
+                    resets: None,
+                },
+                None => Back::HandedIn(Vec::new()),
+            };
+            work.back.insert((run, k + 1), back);
+        }
+        // The round the questions are about, under way.
+        work.records.rounds.push(Began { run, at: Seq(1000) });
+        work.records.pauses = pauses;
+        work
+    }
+
+    #[test]
+    fn a_round_after_the_guard_stopped_its_run_and_the_owner_let_the_work_on_runs_past_the_guard() {
+        let (run, guard) = (RunId(1), Failure::Guarded);
+        let let_on = || vec![pause(50, true, Pauser::Engine), pause(60, false, Pauser::Owner)];
+        let stopped = failed(&[Some(guard), Some(guard)], Vec::new());
+        assert!(!let_run(&stopped, run, 3, guard), "not let on since");
+        let stopped = failed(&[Some(guard), Some(guard)], let_on());
+        assert!(let_run(&stopped, run, 3, guard));
+        assert!(stopped_before(&stopped, run, 3, guard));
+        assert!(!let_run(&stopped, run, 1, guard), "a first round");
+        // A failure of another cause between, as in passing after the owner's Start, does not undo the release.
+        let between = failed(&[Some(guard), Some(Failure::Passing)], let_on());
+        assert!(let_run(&between, run, 3, guard));
+        // A round that ended of itself since does.
+        let ended = failed(&[Some(guard), None], let_on());
+        assert!(!let_run(&ended, run, 3, guard));
+        let flagged = failed(&[Some(Failure::Flagged)], let_on());
+        assert!(!let_run(&flagged, run, 2, guard), "stopped for another cause");
+    }
+
+    #[test]
+    fn a_line_is_said_in_its_unit() {
+        assert_eq!(Unit::Dollars.say(2_500_000.0), "2.50");
+        assert_eq!(Unit::Minutes.say(180_000.0), "3");
+    }
+
+    #[test]
+    fn a_return_counts_the_characters_it_was_written_in_and_a_failure_none() {
+        let handed = vec![work::Handed {
+            block: "plan".into(),
+            content: "Greet by name.".to_string(),
+            matters: true,
+            value: None,
+        }];
+        let back = Back::HandedIn(handed.clone());
+        assert_eq!(
+            chars_of(&back),
+            serde_json::to_string(&handed).unwrap().chars().count() as u64
+        );
+        assert!(chars_of(&back) > "Greet by name.".len() as u64);
+        let failed = Back::Failed {
+            why: "the program crashed".to_string(),
+            failure: Failure::Passing,
+            resets: None,
+        };
+        assert_eq!(chars_of(&failed), 0);
+    }
 }

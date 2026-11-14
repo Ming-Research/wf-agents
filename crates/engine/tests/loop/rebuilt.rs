@@ -17,6 +17,8 @@ fn rebuilt(work: &Work) -> Work {
         sessions: work.sessions.clone(),
         ran: work.ran.clone(),
         observed: work.observed.clone(),
+        measured: work.measured.clone(),
+        pinged: work.pinged.clone(),
         why_cancelled: work.why_cancelled.clone(),
         why_reopened: work.why_reopened.clone(),
     }

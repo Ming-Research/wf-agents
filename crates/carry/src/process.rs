@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::Command;
+use tokio::sync::oneshot;
 
 use crate::held::Stop;
 
@@ -49,18 +50,21 @@ pub(crate) async fn run(
     group_file: Option<&Path>,
     stop: &mut Stop,
 ) -> Result<Ran, String> {
-    run_with(command, stdin, group_file, stop, None).await
+    run_with(command, stdin, group_file, stop, None, None).await
 }
 
-/// Runs the program as [`run`] does, each line of its standard output given to `lines` as it comes, and not kept.
+/// Runs the program as [`run`] does, each line of its standard output given to `lines` as it comes, and not kept; and
+/// stops it as it is told to stop, or as `halt` is sent, which whatever reads its lines may do. A `halt` dropped unsent
+/// stops nothing.
 pub(crate) async fn streamed(
     command: Command,
     stdin: Option<Vec<u8>>,
     group_file: Option<&Path>,
     stop: &mut Stop,
+    halt: Option<oneshot::Receiver<()>>,
     lines: Lines<'_>,
 ) -> Result<Ran, String> {
-    run_with(command, stdin, group_file, stop, Some(lines)).await
+    run_with(command, stdin, group_file, stop, halt, Some(lines)).await
 }
 
 async fn run_with(
@@ -68,6 +72,7 @@ async fn run_with(
     stdin: Option<Vec<u8>>,
     group_file: Option<&Path>,
     stop: &mut Stop,
+    halt: Option<oneshot::Receiver<()>>,
     lines: Option<Lines<'_>>,
 ) -> Result<Ran, String> {
     command
@@ -85,7 +90,7 @@ async fn run_with(
         let started = started(group).await.unwrap_or_default();
         let _ = tokio::fs::write(file, format!("{group}\n{started}\n")).await;
     }
-    let ran = wait(child, stdin, group, &program, stop, lines).await;
+    let ran = wait(child, stdin, group, &program, stop, halt, lines).await;
     if let Some(file) = group_file {
         let _ = tokio::fs::remove_file(file).await;
     }
@@ -100,8 +105,19 @@ async fn wait(
     group: Option<u32>,
     program: &str,
     stop: &mut Stop,
+    halt: Option<oneshot::Receiver<()>>,
     mut lines: Option<Lines<'_>>,
 ) -> Result<Ran, String> {
+    // A halt sent stops the program as a stop does; one dropped unsent, or none, never comes.
+    let halted = async {
+        let sent = match halt {
+            Some(halt) => halt.await.is_ok(),
+            None => false,
+        };
+        if !sent {
+            std::future::pending::<()>().await;
+        }
+    };
     if let (Some(bytes), Some(mut pipe)) = (stdin, child.stdin.take()) {
         // Written beside the reading of the output, so that a child that writes before it has read all does not
         // wait on a pipe nobody empties. A child that ends without reading all of it closes the pipe: that is no
@@ -150,7 +166,7 @@ async fn wait(
             };
             Ok(Ran::Ended { status, stdout, stderr })
         }
-        () = stop.told() => {
+        () = async { tokio::select! { () = stop.told() => {}, () = halted => {} } } => {
             if let Some(group) = group {
                 signal(group, "TERM").await;
                 if tokio::time::timeout(STOP_WAIT, &mut output).await.is_err() {

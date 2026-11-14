@@ -21,7 +21,10 @@ import type { Failure, Refusal, Spent } from '../works-api';
 export interface Week {
   /// When it begins, as the page gave it.
   start: number;
+  /// What its rounds and its keep-warm pings took: `rounds` counts the rounds alone.
   spent: Spent;
+  /// What the keep-warm pings that ended in it took, each counted as a round. Absent from an engine that keeps none.
+  pinged?: Spent;
   merged: number;
   cancelled: number;
   added: number;
@@ -47,6 +50,7 @@ export interface ModelSpent {
 export interface WorkSpent {
   work: number;
   item: number;
+  /// What its rounds and keep-warm pings that ended in the span took: `rounds` counts the rounds alone.
   spent: Spent;
 }
 
@@ -56,7 +60,7 @@ export interface Merged {
   at: number;
   /// When its first round began.
   from: number | null;
-  /// What all its rounds took.
+  /// What all its rounds and keep-warm pings took: `rounds` counts the rounds alone.
   spent: Spent;
 }
 
@@ -100,7 +104,11 @@ export interface System {
   now: number;
   /// When the span begins: its first week.
   from: number | null;
+  /// What the span's rounds and keep-warm pings took: `rounds` counts the rounds alone.
   spent: Spent;
+  /// What the keep-warm pings that ended in the span took, each counted as a round. Absent from an engine that keeps
+  /// none.
+  pinged?: Spent;
   weeks: Week[];
   byCell: CellSpent[];
   byModel: ModelSpent[];

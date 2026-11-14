@@ -119,6 +119,8 @@ describe('how a run stands', () => {
     compactions: 0,
     session: null,
     tries: [],
+    missed: null,
+      estimated: false,
   });
 
   it('says a run whose last round failed failed, neither under way nor at rest, and open', () => {

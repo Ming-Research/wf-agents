@@ -47,8 +47,7 @@ pub(crate) struct Stop {
 }
 
 impl Stop {
-    /// A stop that is never told.
-    #[cfg(test)]
+    /// A stop that is never told: of what runs to its end once begun, as a keep-warm ping does.
     pub(crate) fn never() -> Stop {
         Stop::new(oneshot::channel().1)
     }
