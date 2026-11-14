@@ -99,9 +99,10 @@ use flow::{Compiled, Has, Kind, compile, read};
 use reading::{Reading, Writer};
 use support::{Driver, Part, Rng, lacking_a_must_write};
 
-/// How many histories are run: fewer than the 500 the flow before its groups ran, since its cells now run on the
-/// groups of its blocks and each history takes longer.
-const SEEDS: u64 = 150;
+/// How many histories are run: 40, where the flow before its groups ran 500, since its cells now run on the groups of
+/// its blocks and each history takes about ten times as long (more than 150 take longer than 540 s on GitHub's
+/// machines).
+const SEEDS: u64 = 40;
 
 /// How many random steps, at most, a history takes before the content continuation.
 const RANDOM: usize = 200;
