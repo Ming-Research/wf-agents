@@ -182,6 +182,9 @@ pub struct Given {
 /// A block of a work's state, as the engine needs to know it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Block {
+    /// The file it is declared in, from the flow's directory: its own in `blocks/` or `../data/`, the trigger's that
+    /// declares a block with no content, or `flow.toml` of a flow written before it was laid out one thing to a file.
+    pub file: String,
     /// The values of a block that is a choice; a block with none is not one.
     pub values: Option<Vec<String>>,
     /// What the block is, in a sentence, where the definition says it.
@@ -1775,6 +1778,7 @@ impl<'a> Definition<'a> {
                 let uses = &self.uses[name.as_str()];
                 let writers: Vec<&str> = uses.writers.iter().map(|&(_, id)| id).collect();
                 let block = Block {
+                    file: self.places.file("blocks", name),
                     values: declared.values.clone(),
                     what: declared.what.clone(),
                     field: declared.field.clone(),

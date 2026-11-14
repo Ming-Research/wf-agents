@@ -64,6 +64,7 @@ pub fn compiled(flow: &str, cells: &[(&str, &str)]) -> Compiled {
 const START_BLOCK: &str = r#"
         [blocks.start]
         outside = "start"
+        writes = { text = "The owner started the work." }
 "#;
 
 /// The dependencies block, which the driver writes, and the named test the first cell of a flow waits on: that every

@@ -14,6 +14,7 @@ mod changing;
 mod delivering;
 mod dependencies;
 mod events;
+mod faults;
 mod kept;
 mod opening;
 mod outage;

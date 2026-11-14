@@ -140,6 +140,7 @@ fn started() -> flow::Compiled {
         writes = { merged = "Every item this one depends on has merged.", waiting = "Waits for the items {items} to merge.", cancelled = "{item} (cancelled)", between = ", " }
         [blocks.start]
         outside = "start"
+        writes = { text = "The owner started the work." }
         [tests.ready]
         says = "Every item this one depends on has merged"
         kind = "all"
@@ -177,6 +178,22 @@ fn started() -> flow::Compiled {
 fn started_place(h: &mut H, work: WorkNumber) {
     assert_eq!(h.round(work).1, "start");
     h.hands_in(work, &[("place", None)]);
+}
+
+#[test]
+fn what_the_driver_writes_as_the_owner_starts_a_work_is_the_flow_s_words() {
+    let mut h = H::with_slots(vec![started()], 1);
+    let (_, work) = h.add_let_on(new_item("one", &[], "started"));
+    let kept = h.d().work(work).expect("the work is there").work;
+    let versions = decide::versions(&kept.records);
+    let start = decide::BlockId::from("start");
+    let at = (versions.get(&start).and_then(|v| v.last()))
+        .expect("the start is written")
+        .at;
+    assert_eq!(
+        kept.contents.get(&(start, at)).map(String::as_str),
+        Some("The owner started the work.")
+    );
 }
 
 #[test]

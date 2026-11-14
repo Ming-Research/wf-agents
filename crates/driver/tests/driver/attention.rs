@@ -539,6 +539,7 @@ fn a_work_waiting_for_a_precondition_the_owner_makes_hold_is_a_line() {
         shown = true
         [blocks.start]
         outside = "start"
+        writes = { text = "The owner started the work." }
         [tests.may_merge]
         says = "The owner let the work merge"
         kind = "all"
