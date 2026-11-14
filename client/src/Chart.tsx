@@ -703,10 +703,10 @@ function LineSegments({ spot }: { spot: LineSpot }) {
   );
 }
 
-/// The row of a condition, under the lines: a named test, or a block a cell's `when` reads, by its name; under each cell
-/// whose `when` it is, a tick, a cross or the value (`ConditionGlyph`), and a square under each that `requires` it; and
-/// what the test `says`, or the block's `default`. On the row of a condition the chosen cell names, by which key it
-/// names it. Chosen by its name, it opens the test's panel, or the block's.
+/// The row of a condition, under the lines: a named test, or a block a cell's `when` reads, by its name; under each
+/// cell whose `when` it is, a tick, a cross or the value (`ConditionGlyph`), and a square under each that `requires`
+/// it; and what the test `says`, or the block's `default`. On the row of a condition the chosen cell names, by which
+/// key it names it. Chosen by its name, it opens the test's panel, or the block's.
 function ConditionLine(props: {
   row: ConditionRow;
   /// Of a block's row, the block as the flow declares it.

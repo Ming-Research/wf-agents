@@ -71,8 +71,8 @@ drawn line with an arrow.
   under the Works tab), so that back, forward, a reload and a link show the same view; nothing, or a hash the page does
   not know, shows the works.
 - **View's line** (`.view-line`): one thin row under the bar that belongs to the view: what it shows, one muted sentence
-  of the facts of the whole view (for the flow, its limits and its tools), its legend and its own switches. It wraps to a second row where the window is too narrow, the facts giving
-  way first.
+  of the facts of the whole view (for the flow, its limits and its tools), its legend and its own switches. It wraps
+  to a second row where the window is too narrow, the facts giving way first.
 - **Button** (`Button`): words in a hairline box, 24px; `primary` filled with the accent, for the one action a view
   exists for; `submit` for the button that sends its form. A button that cannot be pressed yet, or whose act is on its
   way, is `disabled`: on the ground, muted, with no hover, so that nothing is sent twice.
@@ -199,10 +199,11 @@ its id in monospace, in the middle. A cell's column starts 56px wide, which its 
 on hovering: what the row's thing is; and, once a cell is chosen, on the rows it has to do with, what that cell says of
 it, the other rows muted. Over that column stand, on one line, the id, the title, the line, when it runs and what it
 waits for of the cell under the pointer or holding the focus, or else of the cell chosen; and under them, in a label,
-what the column holds. The chart scrolls sideways where the words would have less than 280px. The corner says "Blocks
-↓" at its left and "Cells →" at its right, on one line. The wheel scrolls the chart wherever the pointer is over it, the
-fixed heads and names too. The engine's tools are the flow's, alike for every agent's cell, and are named once in the
-view's line after the limits (`tools query, run_tests`), each opening the tool's panel: its file and its keys as written.
+what the column holds. The chart scrolls sideways where the words would have less than 280px. The corner says
+"Blocks ↓" at its left and "Cells →" at its right, on one line. The wheel scrolls the chart wherever the pointer is
+over it, the fixed heads and names too. The engine's tools are the flow's, alike for every agent's cell, and are named
+once in the view's line after the limits (`tools query, run_tests`), each opening the tool's panel: its file and its
+keys as written.
 
 Over the blocks stand two bands of rows, each with a firmer line under its last row and what each row is muted after its
 name, so that each thing is drawn once. The lines: a row for each line the agents' cells name, where the first cell on

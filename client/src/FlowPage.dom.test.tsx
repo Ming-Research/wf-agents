@@ -106,7 +106,14 @@ describe('the chart', () => {
     expect(texts(rowOf(page, 'needs_design'), '.spot .visually-hidden')).toEqual(['judge outputs needs_design']);
     expect(rowOf(page, 'needs_design').querySelector('.block-values')?.textContent).toBe('yes|no');
     // A head holds the id alone; its title, line, when and requires are what its button is called, by their keys.
-    expect(texts(page, 'thead .cell-head .head-button')).toEqual(['plan', 'judge', 'design', 'answer', 'check', 'merge']);
+    expect(texts(page, 'thead .cell-head .head-button')).toEqual([
+      'plan',
+      'judge',
+      'design',
+      'answer',
+      'check',
+      'merge',
+    ]);
     expect(headNames(page)[2]).toBe('design Design, engineer, when needs_design = yes');
     expect(headNames(page)[3]).toBe('answer Answer comments, engineer, when has_comment, requires [plan_confirmed]');
     // The one way back: judge writes the opinions whose trigger runs plan, and the arrow is at plan's mark.
@@ -147,7 +154,8 @@ describe('the chart', () => {
       'check outputs ci',
       'merge triggered_by on_ci',
     ]);
-    expect(page.querySelectorAll('tbody:not(.band) .part.condition, tbody:not(.band) .part.precondition')).toHaveLength(0);
+    expect(page.querySelectorAll('tbody:not(.band) .part.condition')).toHaveLength(0);
+    expect(page.querySelectorAll('tbody:not(.band) .part.precondition')).toHaveLength(0);
     expect(bandRow(page, 'condition-row', 'may_merge').querySelectorAll('.part.precondition')).toHaveLength(1);
     expect(bandRow(page, 'condition-row', 'needs_design').querySelectorAll('.part.holds')).toHaveLength(1);
     expect(page.querySelector('.legend')?.textContent).toContain('when no');
@@ -181,7 +189,12 @@ describe('the chart', () => {
     click(bandRow(page, 'condition-row', 'has_comment').querySelector('.head-button'));
     const panel = page.querySelector('aside[aria-label="Test has_comment"]') as HTMLElement;
     expect(panel.querySelector('.drawer-belongs')?.textContent).toBe('tests/has_comment.toml');
-    expect(texts(panel, '.status-line')).toEqual(['saysThe item has a comment', 'kind any', 'reads [commented]', 'is yes']);
+    expect(texts(panel, '.status-line')).toEqual([
+      'saysThe item has a comment',
+      'kind any',
+      'reads [commented]',
+      'is yes',
+    ]);
     expect(texts(panel, '.panel-part-label')).toEqual(['when 1']);
   });
 
@@ -430,9 +443,11 @@ describe('the panel and the widths', () => {
     expect(page.querySelector('.view-body')?.className).not.toContain('panel-folded');
   });
 
-  it('names the flow’s tools once, in the view’s line after the limits, each opening its panel, and draws no row of them', () => {
+  it('names the flow’s tools once, in the view’s line after the limits, each opening its panel', () => {
     const page = draw({ state: 'compiled', flow: flowOf([cell('a', { tools: ['query', 'run_tests'] })], {}) });
-    expect(page.querySelector('.view-facts')?.textContent).toBe('limits runs 3, returns 2, calls 40 · tools query, run_tests');
+    expect(page.querySelector('.view-facts')?.textContent).toBe(
+      'limits runs 3, returns 2, calls 40 · tools query, run_tests',
+    );
     expect(texts(page, 'tbody .row-label')).not.toContain('tool');
     click([...page.querySelectorAll('.view-facts button')].find((b) => b.textContent === 'query'));
     expect(page.querySelector('aside[aria-label="Tool query"]')).not.toBeNull();
@@ -494,6 +509,10 @@ describe('the panel and the widths', () => {
     expect(reviewer.querySelector('.words')?.textContent).toBe('line');
     click(reviewer.querySelector('.head-button'));
     const panel = page.querySelector('aside[aria-label="Line reviewer"]') as HTMLElement;
-    expect(texts(panel, '.status-line')).toEqual(['levels_above 1', 'reads_only true', 'rules [general, engineering]']);
+    expect(texts(panel, '.status-line')).toEqual([
+      'levels_above 1',
+      'reads_only true',
+      'rules [general, engineering]',
+    ]);
   });
 });
