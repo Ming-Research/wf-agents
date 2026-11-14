@@ -40,6 +40,7 @@
 mod carriers;
 mod clock;
 mod levels;
+mod projects;
 pub mod script;
 mod scripted;
 mod words;
@@ -61,6 +62,7 @@ pub use carriers::{
 };
 pub use clock::{Clock, SystemClock, TokioClock};
 pub use levels::{Level, Levels, LevelsFault};
+pub use projects::Projects;
 pub use script::Script;
 pub use scripted::Scripted;
 pub use words::{record_fault_words, refused_words, store_fault_words};
@@ -117,8 +119,13 @@ pub enum Message {
         change: ItemChange,
         reply: oneshot::Sender<Result<bool, Refusal>>,
     },
-    /// A source outside the works says this now: the head of the project's main branch, for one.
-    Outside { source: String, content: String },
+    /// A source outside the works says this now of the project of this name: the head of the project's main branch,
+    /// for one.
+    Outside {
+        project: String,
+        source: String,
+        content: String,
+    },
     /// The works are read, as the driver holds them now.
     Read(Reader),
     /// The time of the engine's wait, this call of this work, has come.
@@ -296,9 +303,13 @@ impl Service {
                     .map_err(|failed| answer(work, failed))?;
                 self.hand(now, todos)?;
             }
-            Message::Outside { source, content } => {
+            Message::Outside {
+                project,
+                source,
+                content,
+            } => {
                 let now = self.now()?;
-                let todos = (self.driver.outside(now, &source, &content)).map_err(Fault::Driver)?;
+                let todos = (self.driver.outside(now, &project, &source, &content)).map_err(Fault::Driver)?;
                 self.hand(now, todos)?;
             }
             Message::Due { work, call } => {
@@ -689,10 +700,11 @@ impl Handle {
         });
     }
 
-    /// Says what a source outside the works says now, for the loop to write into the works; nothing where the loop
-    /// has ended.
-    pub fn outside(&self, source: &str, content: &str) {
+    /// Says what a source outside the works says now of the project of this name, for the loop to write into the works
+    /// of that project's items; nothing where the loop has ended.
+    pub fn outside(&self, project: &str, source: &str, content: &str) {
         let message = Message::Outside {
+            project: project.to_string(),
             source: source.to_string(),
             content: content.to_string(),
         };

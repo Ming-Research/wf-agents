@@ -21,6 +21,11 @@ pub const AGENTS_DIR: &str = "agents";
 /// The file beside the flows that names the project's files and settings.
 pub const PROJECT_FILE: &str = "project.toml";
 
+/// A project's declaration, the same file as [`PROJECT_FILE`], by its path from the root of the project's repository:
+/// each project an installation names declares its files, its settings, its tests and its workflows there, and the
+/// works of its items are run with it in place of the one beside the flows.
+pub const DECLARATION: &str = "flow/project.toml";
+
 /// The file, from the directory that holds the flows, that names the sets of rules for the agents, each by its name
 /// with its file beside it. A line names those it takes.
 pub const RULES_FILE: &str = "agents/rules/rules.toml";
@@ -31,6 +36,10 @@ pub const ACTS_DIR: &str = "acts";
 
 /// The file, in `agents/`, of who the engine's commits are by and the words of each.
 pub const COMMITS_FILE: &str = "commits.toml";
+
+/// The file, in `agents/`, of what the texts beside the flows take from the installation: the settings of it they may
+/// name, and what a tool's result says where the work's item belongs to no project the installation names.
+pub const INSTALLATION_FILE: &str = "installation.toml";
 
 /// The file, in `agents/`, of what the place `{your_line}` in the engine's words says: what the line may do in the
 /// worktree.
@@ -68,6 +77,8 @@ pub struct Agents {
     /// The text of each file of the engine's own words that the session names, by its name in `agents/`.
     pub words: BTreeMap<String, String>,
     pub your_line: YourLine,
+    /// What the texts take from the installation: `agents/installation.toml`.
+    pub installation: Installation,
     /// The sets of rules for the agents, by name, as `agents/rules/rules.toml` names them, each with its text.
     pub rules: BTreeMap<String, RuleSet>,
     pub returns: Return,
@@ -86,6 +97,24 @@ pub struct Agents {
 }
 
 impl Agents {
+    /// These, with the project's declaration, the text of a `project.toml` read at `at`, in place of the one beside the
+    /// flows; or why it cannot be read, or lacks a file the session names, said with where it was read.
+    pub fn declared(&self, text: &str, at: &str) -> Result<Agents, String> {
+        let project: Project = toml::from_str(text).map_err(|e| format!("{at}: {}", e.to_string().trim_end()))?;
+        for part in &self.session.parts {
+            if let SessionPart::Project(ProjectPart { project: name }) = part
+                && !project.files.contains_key(name)
+            {
+                let session = self.root.join(AGENTS_DIR).join("session.toml");
+                return Err(format!("{at}: has no file {name}, which {} names", session.display()));
+            }
+        }
+        Ok(Agents {
+            project,
+            ..self.clone()
+        })
+    }
+
     /// The path of a file of these, from the directory that holds the flows, with that directory's name before it, as
     /// a part names the file it comes from.
     pub fn source(&self, path: &str) -> String {
@@ -94,8 +123,8 @@ impl Agents {
     }
 }
 
-/// `project.toml`: the project's files the engine gives every agent, and the settings the words sent to the agents may
-/// name.
+/// `project.toml`: what is the project's: its design tree, its files the engine gives every agent, its settings the words
+/// sent to the agents may name, its tests and its workflows.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Project {
@@ -103,9 +132,6 @@ pub struct Project {
     pub tree: String,
     /// The project's files, by the name a part of a session gives them.
     pub files: BTreeMap<String, ProjectFile>,
-    /// The installation's settings the words sent to the agents may name.
-    #[serde(default)]
-    pub installation: Installation,
     /// The project's settings, which the words sent to the agents name as `project.<name>`.
     #[serde(default)]
     pub project: BTreeMap<String, String>,
@@ -203,12 +229,26 @@ fn results() -> String {
     "test-results".to_string()
 }
 
-/// The installation's settings the words sent to the agents may name, whose values the engine fills in from the
-/// installation.
+/// `agents/installation.toml`: the installation's settings the words sent to the agents may name, whose values the
+/// engine fills in from the installation, read once for every project; and what a tool's result says where a work's item
+/// belongs to no project the installation names.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Installation {
     pub names: Vec<String>,
+    /// What a tool's result says where the work's item belongs to no project the installation names.
+    #[serde(default)]
+    pub no_project: NoProject,
+}
+
+/// What a tool's result says where nothing is run, the work's item belonging to no project the installation names:
+/// `unnamed` where it belongs to one the installation does not name, `{project}` its name; `none` where it belongs to
+/// none.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NoProject {
+    pub unnamed: String,
+    pub none: String,
 }
 
 /// A file of the project.
@@ -1005,6 +1045,7 @@ pub fn read(root: &Path) -> Result<Agents, String> {
         session,
         words,
         your_line: file(&at.join(YOUR_LINE_FILE))?,
+        installation: file(&at.join(INSTALLATION_FILE))?,
         rules,
         returns,
         sent_back: file(&at.join("return").join("sent_back.toml"))?,

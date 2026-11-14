@@ -10,6 +10,7 @@ import {
   fixtureCall,
   fixtureCopies,
   fixtureItems,
+  fixtureProjects,
   fixtureRound,
   fixtureTold,
   fixtureVersion,
@@ -67,6 +68,7 @@ function fixtureSource(over: Partial<Source> = {}): TestSource {
       s.reads.items += 1;
       return fixtureItems();
     },
+    loadProjects: async () => fixtureProjects(),
     loadWork: async (n) => {
       s.reads.work += 1;
       return fixtureWork(n);
@@ -130,6 +132,19 @@ async function click(element: Element | null | undefined) {
 const button = (root: ParentNode, words: string) =>
   [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === words) as HTMLButtonElement | undefined;
 
+/// Picks an option of a choice as the browser would, so that React hears it.
+function pick(select: Element | null, value: string) {
+  const s = select as HTMLSelectElement;
+  act(() => {
+    s.value = value;
+    s.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+
+/// The works the list shows, by their numbers, in its order.
+const listed = (page: HTMLElement) =>
+  [...page.querySelectorAll<HTMLElement>('tbody tr.work-row')].map((r) => Number(r.dataset.work));
+
 /// Chooses the step at this place by its row's words at the left.
 async function chooseStep(page: HTMLElement, index: number) {
   await click(page.querySelectorAll('tbody tr.step-row')[index]?.querySelector('.step-lead button'));
@@ -150,6 +165,46 @@ describe('the list of works', () => {
     expect(rows[0].querySelectorAll('.strip .state-mark')).toHaveLength(6);
     await click(rows[3]);
     expect(window.location.hash).toBe('#/works/41');
+  });
+
+  it("shows, with a project chosen, that project's works and every work waiting for the owner, and every work with none chosen", () => {
+    const page = draw(<WorksTable items={fixtureItems()} projects={fixtureProjects().names} />, fixtureSource());
+    const select = page.querySelector('.view-line select') as HTMLSelectElement;
+    expect(select.closest('label')?.querySelector('.muted.mono')?.textContent).toBe('project');
+    expect([...select.options].map((o) => o.textContent)).toEqual(['all', 'Whitefoot', 'wf-agents']);
+    expect(select.value).toBe('');
+    expect(listed(page)).toHaveLength(10);
+    const facts = () => page.querySelector('.view-facts')?.textContent;
+    expect(facts()).toBe('10 works, 4 waiting for the owner');
+    // The works waiting for the owner of the other project, 44 and 41, stay; the counts stay those of every work.
+    pick(select, 'Whitefoot');
+    expect(listed(page)).toEqual([43, 44, 45, 41, 47]);
+    expect(facts()).toBe('10 works, 4 waiting for the owner, 5 shown');
+    // An item added before items had projects is shown only with none chosen, as it waits for nobody.
+    pick(select, 'wf-agents');
+    expect(listed(page)).toEqual([43, 44, 45, 41, 50, 42, 46, 48]);
+    pick(select, '');
+    expect(listed(page)).toHaveLength(10);
+    expect(facts()).toBe('10 works, 4 waiting for the owner');
+  });
+
+  it('keeps no project chosen once the list is drawn anew, and takes no room for a choice with one project', async () => {
+    const names = fixtureProjects().names;
+    const first = draw(<WorksTable items={fixtureItems()} projects={names} />, fixtureSource());
+    pick(first.querySelector('select'), 'Whitefoot');
+    expect(listed(first)).toHaveLength(5);
+    expect(listed(draw(<WorksTable items={fixtureItems()} projects={names} />, fixtureSource()))).toHaveLength(10);
+    const one = draw(<WorksList />, fixtureSource({ loadProjects: async () => ({ names: ['Whitefoot'] }) }));
+    await settle();
+    expect(one.querySelector('select')).toBeNull();
+    expect(listed(one)).toHaveLength(10);
+  });
+
+  it('shows every work, with no choice of project, where the projects cannot be read', async () => {
+    const page = draw(<WorksList />, fixtureSource({ loadProjects: () => Promise.reject(new Error('no such route')) }));
+    await settle();
+    expect(page.querySelector('select')).toBeNull();
+    expect(listed(page)).toHaveLength(10);
   });
 
   it('says why the engine paused a work, in the tone of what failed', () => {
@@ -191,6 +246,17 @@ describe('the list of works', () => {
     await settle();
     expect(source.reads.items).toBe(before + 1);
     expect(page.querySelector('.read-failed')).toBeNull();
+  });
+});
+
+describe("a work's line", () => {
+  it("names its item's project by key and value after its title, and nothing for an item of no project", () => {
+    const named = drawWork(43).page.querySelector('.view-line .view-name')?.nextElementSibling as HTMLElement;
+    expect(named.textContent).toBe('project Whitefoot');
+    expect(texts(named, '.muted.mono')).toEqual(['project']);
+    expect(texts(named, '.mono:not(.muted)')).toEqual(['Whitefoot']);
+    const none = drawWork(49).page.querySelector('.view-line .view-name')?.nextElementSibling;
+    expect(none?.className).toBe('view-facts');
   });
 });
 

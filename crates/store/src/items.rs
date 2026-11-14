@@ -27,6 +27,9 @@ pub struct Item {
     /// The name of its level among the installation's levels: the latest it was put at, or the one it was added at;
     /// none for an item kept before items had levels and never put at one.
     pub level: Option<String>,
+    /// The name of the project it belongs to, as the installation's settings name it, which it keeps; none for an item
+    /// kept before items had projects.
+    pub project: Option<String>,
     /// When it was added.
     pub added: Time,
     /// The items it depends on, in the order of their numbers: those it was added depending on, with each it came to
@@ -44,6 +47,8 @@ pub struct First {
     pub title: String,
     /// None for an item kept before items had levels.
     pub level: Option<String>,
+    /// None for an item kept before items had projects.
+    pub project: Option<String>,
     /// Each added before it, in the order of their numbers.
     pub depends_on: Vec<ItemNumber>,
 }
@@ -75,6 +80,7 @@ impl Item {
             number,
             title: first.title.clone(),
             level: first.level.clone(),
+            project: first.project.clone(),
             added,
             depends_on: first.depends_on.clone(),
             first,
@@ -118,6 +124,7 @@ pub(crate) fn add_item(
     db: &Connection,
     title: &str,
     level: &str,
+    project: &str,
     depends_on: &[ItemNumber],
     at: Time,
 ) -> Result<ItemNumber, Fault> {
@@ -129,8 +136,8 @@ pub(crate) fn add_item(
         }
     }
     db.execute(
-        "INSERT INTO items (title, added, level) VALUES (?1, ?2, ?3)",
-        params![title, at.0, level],
+        "INSERT INTO items (title, added, level, project) VALUES (?1, ?2, ?3, ?4)",
+        params![title, at.0, level, project],
     )?;
     let number = ItemNumber(db.last_insert_rowid().cast_unsigned());
     for on in depends_on {
@@ -186,21 +193,23 @@ pub(crate) fn items(db: &Connection) -> Result<Vec<Item>, Fault> {
         let (item, on) = row?;
         depends.entry(item).or_default().push(ItemNumber(on));
     }
-    let mut query = db.prepare("SELECT number, title, added, level FROM items ORDER BY number")?;
+    let mut query = db.prepare("SELECT number, title, added, level, project FROM items ORDER BY number")?;
     let rows = query.query_map([], |row| {
         Ok((
             row.get::<_, u64>(0)?,
             row.get::<_, String>(1)?,
             row.get::<_, u64>(2)?,
             row.get::<_, Option<String>>(3)?,
+            row.get::<_, Option<String>>(4)?,
         ))
     })?;
     let mut items = Vec::new();
     for row in rows {
-        let (number, title, added, level) = row?;
+        let (number, title, added, level, project) = row?;
         let first = First {
             title,
             level,
+            project,
             depends_on: depends.remove(&number).unwrap_or_default(),
         };
         let changes = changes.remove(&number).unwrap_or_default();

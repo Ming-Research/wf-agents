@@ -14,6 +14,7 @@
 // - `POST /api/v1/items/{item}/dependencies`: makes an item depend on another or no longer (`DependencyChange`), while
 //   its work has started no run, and says whether that changed it (`ItemChanged`).
 // - `GET  /api/v1/levels`: the levels an item may be given, with what each is for (`Levels`).
+// - `GET  /api/v1/projects`: the projects the installation names, in order of their names (`Projects`).
 // - `GET  /api/v1/works/{work}`: one work, as it is now and step by step from its start (`WorkPage`).
 // - `GET  /api/v1/works/{work}/versions/{block}/{at}`: the content of a version of a block (`VersionPage`).
 // - `GET  /api/v1/works/{work}/runs/{run}/rounds/{number}`: one round in full (`RoundPage`).
@@ -181,6 +182,9 @@ export interface Item {
   /// The level it was given as it was added, which chooses what its agents' rounds run on; none for an item added
   /// before items had levels, whose rounds run at the default level.
   level: string | null;
+  /// The project it belongs to, by the name the installation's settings give it; none for an item added before items
+  /// had projects.
+  project: string | null;
   added: number;
   dependsOn: number[];
   /// What it was as it was added, and each change made to it since: what it said before, and when it changed.
@@ -379,6 +383,8 @@ export interface WorkPage {
   title: string;
   /// The level of its item, as `Item` has it.
   level: string | null;
+  /// The project of its item, as `Item` has it.
+  project: string | null;
   /// What its item was as it was added, and each change made to it since, as `Item` has them.
   history: ItemHistory;
   /// The flow it runs on.
@@ -456,6 +462,11 @@ export interface Levels {
   highest: string;
 }
 
+/// The projects the installation names, in order of their names.
+export interface Projects {
+  names: string[];
+}
+
 /// Whether a change of an item changed it: it was so already where not, as when it was at that level already.
 export interface ItemChanged {
   changed: boolean;
@@ -490,6 +501,8 @@ export interface NewItem {
   title: string;
   /// The level it is given; with none, the level the installation adds an item at where it is given none.
   level?: string | null;
+  /// The project it belongs to, one the installation names.
+  project: string;
   dependsOn: number[];
   /// The flow its work runs on.
   flow: string;
@@ -584,6 +597,7 @@ export const loadTold = (work: number, run: number, round: number) =>
   read<ToldPage>(`/api/v1/works/${work}/runs/${run}/rounds/${round}/told`);
 export const loadCall = (work: number, call: number) => read<CallPage>(`/api/v1/works/${work}/calls/${call}`);
 export const loadLevels = () => read<Levels>('/api/v1/levels');
+export const loadProjects = () => read<Projects>('/api/v1/projects');
 export const act = (work: number, what: Act) => send<null>(`/api/v1/works/${work}/acts`, what);
 export const addItem = (item: NewItem) => send<Added>('/api/v1/items', item);
 export const setLevel = (item: number, level: string) => send<ItemChanged>(`/api/v1/items/${item}/level`, { level });

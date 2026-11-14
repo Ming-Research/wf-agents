@@ -24,9 +24,8 @@ export type LoadVersion = (work: number, block: string, at: number) => Promise<V
 
 /// What a card and the window show of an item that the engine does not give: made up with the mocks, none without.
 export function itemOf(item: Item): ItemMock {
-  const mock = itemMock(item);
-  if (mocksShown()) return mock;
-  return { unseen: false, unread: 0, openQuestions: 0, project: mock.project, tier: null, verdicts: [] };
+  if (mocksShown()) return itemMock(item);
+  return { unseen: false, unread: 0, openQuestions: 0, tier: null, verdicts: [] };
 }
 
 /// A question a cell asked the owner, as a choice at the plan's end: with made-up options with the mocks, and with none

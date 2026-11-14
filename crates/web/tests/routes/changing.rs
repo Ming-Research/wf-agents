@@ -11,6 +11,7 @@ fn item(title: &str, on: Value) -> Value {
     json!({
         "title": title,
         "dependsOn": on,
+        "project": "trial",
         "flow": "trial",
         "writes": [{ "block": "request", "content": "Please.", "value": null }],
     })
@@ -72,7 +73,7 @@ async fn a_change_the_engine_refuses_says_why() {
             post(
                 router,
                 "/api/v1/items",
-                &json!({ "title": title, "dependsOn": [], "flow": "trial", "writes": [] })
+                &json!({ "title": title, "dependsOn": [], "project": "trial", "flow": "trial", "writes": [] })
             )
             .await,
             refused(blank)

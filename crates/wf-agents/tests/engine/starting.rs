@@ -62,6 +62,8 @@ fn started_again_on_a_work_going_on_the_engine_holds_everything_until_the_owner_
         "Greet the user",
         "--flow",
         "trial",
+        "--project",
+        "script",
         "--write",
         "request=Please.",
     ]);
@@ -101,6 +103,8 @@ fn a_second_engine_on_a_data_directory_one_drives_does_not_start() {
         "Greet the user",
         "--flow",
         "trial",
+        "--project",
+        "script",
         "--write",
         "request=Please.",
     ]);

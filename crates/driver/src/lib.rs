@@ -27,9 +27,10 @@
 //! is the installation's [`Policy`], worked out of the work's records after each thing that happens and before the walk
 //! (module [`sessions`]).
 //!
-//! What another source outside the works says, such as the head of the project's main branch, the driver is told
-//! ([`Driver::outside`]), and writes into the block of that source of each work that has not ended, where the block
-//! does not say it already.
+//! What another source outside the works says of a project, such as the head of the project's main branch, the driver
+//! is told ([`Driver::outside`]), and writes into the block of that source of each work of that project's items that
+//! has not ended, where the block does not say it already. An item belongs to one project, and may depend on an item
+//! of another: the block of [`DEPENDENCIES`] waits for it as for any other.
 //!
 //! The driver is also the scheduler: it alone sees every work, and so it works out what holds back every work at once
 //! and gives each work's loop that room ([`Room`]). The pause of everything is kept in the store, so that it holds
@@ -221,7 +222,9 @@ pub struct NewItem {
     pub title: String,
     /// The name of the level it is given, which whoever adds it has checked against the installation's levels.
     pub level: String,
-    /// The items it depends on.
+    /// The name of the project it belongs to, which whoever adds it has checked against the installation's projects.
+    pub project: String,
+    /// The items it depends on, of its own project or another.
     pub depends_on: Vec<ItemNumber>,
     /// The name of the flow its work runs on.
     pub flow: String,
@@ -458,7 +461,7 @@ impl Driver {
         let room = self.room(None, true);
         effects.extend(handle_held(&flow, &mut work, now, Event::Look, room, gate).map_err(Failed::Refused)?);
         let (item, number) = (self.store)
-            .add(&new.title, &new.level, &depends_on, &new.flow, now, &work)
+            .add(&new.title, &new.level, &new.project, &depends_on, &new.flow, now, &work)
             .map_err(|fault| self.stop(Fault::Store(fault), false))?;
         let held = Held {
             head: WorkHead {
@@ -473,6 +476,7 @@ impl Driver {
                 First {
                     title: new.title,
                     level: Some(new.level),
+                    project: Some(new.project),
                     depends_on,
                 },
                 Vec::new(),
@@ -760,12 +764,13 @@ impl Driver {
         }
     }
 
-    /// Takes what a source outside the works says now, at the time the caller's clock gives: it is written into the
-    /// block of that source of each work that has not ended, where the block does not say it already, as a change of
-    /// its meaning; and gives what is to be done. A work whose flow has no block of the source is written nothing, and
-    /// [`DEPENDENCIES`] and [`START`], the driver's own sources, are written by the driver alone. Fails only where the
-    /// driver is stopped, or stops on it.
-    pub fn outside(&mut self, now: Time, source: &str, content: &str) -> Result<Vec<Todo>, Fault> {
+    /// Takes what a source outside the works says now of the project of this name, such as the head of its main
+    /// branch, at the time the caller's clock gives: it is written into the block of that source of each work of an
+    /// item of that project that has not ended, where the block does not say it already, as a change of its meaning;
+    /// and gives what is to be done. A work of another project's item, or of an item of none, is written nothing, nor
+    /// is a work whose flow has no block of the source; [`DEPENDENCIES`] and [`START`], the driver's own sources, are
+    /// written by the driver alone. Fails only where the driver is stopped, or stops on it.
+    pub fn outside(&mut self, now: Time, project: &str, source: &str, content: &str) -> Result<Vec<Todo>, Fault> {
         if let Some(fault) = &self.fault {
             return Err(fault.clone());
         }
@@ -776,7 +781,7 @@ impl Driver {
         let (mut failed, mut written) = (None, false);
         let (room, gate) = (self.room(None, false), self.gate(now));
         for (number, held) in &mut self.works {
-            if held.standing != Standing::Going {
+            if held.standing != Standing::Going || held.item.project.as_deref() != Some(project) {
                 continue;
             }
             let ours = (held.flow.blocks.iter()).find(|(_, b)| b.writers.outside.as_deref() == Some(source));

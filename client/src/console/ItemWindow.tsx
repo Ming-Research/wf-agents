@@ -34,7 +34,7 @@ import {
   useState,
 } from 'react';
 
-import { Button, Confirm, PanelPart, Switch } from '../parts';
+import { Attr, Button, Confirm, PanelPart, Switch } from '../parts';
 import { mocksShown } from '../mock-data';
 import {
   type Act,
@@ -497,7 +497,11 @@ function ItemView({
             {item.title}
           </button>
         </h2>
-        <span className="drawer-belongs">{mock.project}</span>
+        {item.project !== null && (
+          <span className="drawer-belongs">
+            <Attr name="project" value={item.project} />
+          </span>
+        )}
       </header>
       <ItemLine item={item} waitsFor={waitsFor} goal={goal} tier={mock.tier} />
       <WorkLine w={work} page={read} />

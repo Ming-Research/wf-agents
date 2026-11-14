@@ -37,6 +37,7 @@ fn release(end: End) -> Release {
             First {
                 title: "Greet the user".to_string(),
                 level: None,
+                project: None,
                 depends_on: Vec::new(),
             },
             Vec::new(),

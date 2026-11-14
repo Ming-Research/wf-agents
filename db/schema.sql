@@ -15,16 +15,19 @@ CREATE TABLE schema_version (
     version INTEGER PRIMARY KEY
 );
 
--- An item: a thing to be done, as it was added. Its number is given by the store, counting from one. Its level is the
--- name of the level of the installation it was given as it was added; null for an item kept before items had levels.
+-- An item: a thing to be done, as it was added. Its number is given by the store, counting from one, one sequence
+-- across the projects. Its level is the name of the level of the installation it was given as it was added; null for
+-- an item kept before items had levels. Its project is the name the installation's settings give the project it
+-- belongs to, whose repository its works run in; null for an item kept before items had projects.
 CREATE TABLE items (
     number INTEGER PRIMARY KEY,
     title TEXT NOT NULL,
     added INTEGER NOT NULL,
-    level TEXT
+    level TEXT,
+    project TEXT
 );
 
--- An item depends on another as it is added, one added before it.
+-- An item depends on another as it is added, one added before it, of its own project or another.
 CREATE TABLE depends (
     item INTEGER NOT NULL REFERENCES items (number),
     on_item INTEGER NOT NULL REFERENCES items (number),

@@ -7,7 +7,7 @@ use service::{Scripted, Service, TokioClock};
 use store::{Backups, Store};
 use web::{Copies, Flows};
 
-use crate::{START, get_json, levels, pass, trial_dir, trial_has, trial_script};
+use crate::{START, get_json, levels, pass, projects, trial_dir, trial_has, trial_script};
 
 /// The interface over the engine's loop, with the route of the copies over the store's file.
 fn serving(off_machine: bool, keep: usize) -> (axum::Router, Backups, tempfile::TempDir) {
@@ -44,7 +44,7 @@ pub(crate) fn serving_with_handle(
         keep,
         off_machine,
     };
-    let router = web::with_works_and_copies(flows, handle.clone(), levels(), copies);
+    let router = web::with_works_and_copies(flows, handle.clone(), levels(), projects(), copies);
     (router, Backups::open(&path).unwrap(), dir, handle)
 }
 

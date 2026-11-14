@@ -119,14 +119,25 @@ impl Flows {
 }
 
 /// The interface and the page, over these definitions, with the items and the works of the engine's loop, whose items
-/// are added at these levels.
-pub fn with_works(flows: Flows, handle: service::Handle, levels: service::Levels) -> Router {
-    router(flows).merge(interface::router(handle, levels))
+/// are added at these levels, to these projects.
+pub fn with_works(
+    flows: Flows,
+    handle: service::Handle,
+    levels: service::Levels,
+    projects: service::Projects,
+) -> Router {
+    router(flows).merge(interface::router(handle, levels, projects))
 }
 
 /// The same, with the route of how the copies of the database stand.
-pub fn with_works_and_copies(flows: Flows, handle: service::Handle, levels: service::Levels, copies: Copies) -> Router {
-    with_works(flows, handle.clone(), levels).merge(copies::router(handle, copies))
+pub fn with_works_and_copies(
+    flows: Flows,
+    handle: service::Handle,
+    levels: service::Levels,
+    projects: service::Projects,
+    copies: Copies,
+) -> Router {
+    with_works(flows, handle.clone(), levels, projects).merge(copies::router(handle, copies))
 }
 
 /// The interface and the page, over these definitions.

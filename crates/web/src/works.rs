@@ -26,7 +26,7 @@ use decide::{
 use driver::{Driver, Kept, Until as UntilOf};
 use flow::Kind;
 use serde::{Deserialize, Serialize};
-use service::Levels;
+use service::{Levels, Projects};
 use store::{ItemNumber, WorkNumber};
 use work::{Ask as AskOf, Back as BackOf, Call as CallOf, Given as GivenOf, Time, Why, Work};
 
@@ -107,6 +107,9 @@ pub struct Item {
     /// The level it was given as it was added, which chooses what its agents' rounds run on; none for an item added
     /// before items had levels, whose rounds run at the default level.
     pub level: Option<String>,
+    /// The project it belongs to, by the name the installation's settings give it, whose repository its works run in;
+    /// none for an item added before items had projects.
+    pub project: Option<String>,
     /// When it was added, in milliseconds since the start of 1970, as every time here is.
     pub added: u64,
     /// The items it depends on, in the order of their numbers.
@@ -362,6 +365,8 @@ pub struct WorkPage {
     pub title: String,
     /// The level of its item, as [`Item`] has it.
     pub level: Option<String>,
+    /// The project of its item, as [`Item`] has it.
+    pub project: Option<String>,
     /// What its item was as it was added, and each change made to it since, as [`Item`] has them.
     pub history: ItemHistory,
     /// The flow it runs on, as the flow page reads a flow.
@@ -768,6 +773,22 @@ pub struct LevelsPage {
     pub highest: String,
 }
 
+/// The projects the installation names, by their names in order: those an item may be added to.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectsPage {
+    pub names: Vec<String>,
+}
+
+impl ProjectsPage {
+    /// The page of these projects.
+    pub fn of(projects: &Projects) -> ProjectsPage {
+        ProjectsPage {
+            names: projects.names().to_vec(),
+        }
+    }
+}
+
 /// A level, with what work it is for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -913,6 +934,9 @@ pub struct NewItem {
     /// The level it is given; with none, the level the installation adds an item at where it is given none.
     #[serde(default)]
     pub level: Option<String>,
+    /// The project it belongs to, one the installation names.
+    pub project: String,
+    /// The items it depends on, of its own project or another.
     pub depends_on: Vec<u64>,
     /// The name of the flow its work runs on.
     pub flow: String,
@@ -1009,6 +1033,7 @@ impl Items {
                 number: kept.item.number.0,
                 title: kept.item.title.clone(),
                 level: kept.item.level.clone(),
+                project: kept.item.project.clone(),
                 added: kept.item.added.0,
                 depends_on: kept.item.depends_on.iter().map(|on| on.0).collect(),
                 history: ItemHistory::of(kept.item),
@@ -1436,6 +1461,7 @@ impl WorkPage {
             )?,
             title: kept.item.title.clone(),
             level: kept.item.level.clone(),
+            project: kept.item.project.clone(),
             history: ItemHistory::of(kept.item),
             flow: Flow::of(kept.flow),
             cells,
@@ -1600,13 +1626,19 @@ impl Act {
 }
 
 impl NewItem {
-    /// The item as the driver adds it, at the level it asks for or else at the default of these levels; or why it
-    /// cannot be at the level it asks for, in words.
-    pub fn taken(self, levels: &Levels) -> Result<driver::NewItem, String> {
-        let level = levels.of_item(self.level.as_deref())?;
+    /// The item as the driver adds it, at the level it asks for or else at the default of these levels, of the project
+    /// it asks for among these; or why it cannot be, in words.
+    pub fn taken(self, levels: &Levels, projects: &Projects) -> Result<driver::NewItem, String> {
+        let level = levels
+            .of_item(self.level.as_deref())
+            .map_err(|why| format!("The item's level: {why}"))?;
+        let project = projects
+            .of_item(&self.project)
+            .map_err(|why| format!("The item's project: {why}"))?;
         Ok(driver::NewItem {
             title: self.title,
             level,
+            project,
             depends_on: self.depends_on.into_iter().map(ItemNumber).collect(),
             flow: self.flow,
             writes: (self.writes.into_iter())

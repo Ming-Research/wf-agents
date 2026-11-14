@@ -19,6 +19,8 @@ fn everything_is_paused_and_let_on_again_from_the_command_line() {
             "Greet the user",
             "--flow",
             "trial",
+            "--project",
+            "script",
             "--write",
             "request=Greet the user, please."
         ]),

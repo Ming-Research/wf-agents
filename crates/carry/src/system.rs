@@ -11,8 +11,8 @@
 //! the worktree ([`Permissions::told`](crate::permissions::Permissions::told)); `{store}`, what the engine's records
 //! hold, as [`crate::store`] gives it; and `{named_checks}`, the checks an agent may name to
 //! `run_tests`, in the words its file gives for how the installation runs the project's CI. Each setting the texts name, but in a file of the project, is given with
-//! its value beside it: the project's from `project.toml`, and the installation's it names there from these settings
-//! ([`named`]); so is each setting a cell's task names, as its message sends it.
+//! its value beside it: the project's from its `project.toml`, and the installation's that `agents/installation.toml`
+//! names, from these settings ([`named`]); so is each setting a cell's task names, as its message sends it.
 //!
 //! As the engine starts, every text sent to the agents is checked, each fault said with the file or the thing of the
 //! flow that holds the text, all of them at once ([`faults`]): a place the engine does not fill, a setting named that
@@ -26,7 +26,7 @@ use flow::{Compiled, Kind};
 use uuid::Uuid;
 
 use crate::git;
-use crate::settings::Settings;
+use crate::settings::{Project, Settings};
 
 /// The directory in the data directory where the system prompt each session began with is kept.
 pub const SESSIONS: &str = "sessions";
@@ -133,7 +133,7 @@ fn filled(name: &str, your_line: &str, filling: &Filling) -> Option<String> {
 
 /// The settings the texts beside the flows may name, the installation's each with the value these settings give it.
 pub fn named(settings: &Settings, beside: &Agents) -> flow::system::Settings {
-    flow::system::Settings::of(&beside.project, |key| settings.value(key))
+    flow::system::Settings::of(&beside.project, &beside.installation, |key| settings.value(key))
 }
 
 /// The system prompt of the session of the cell's line, for a line whose agents are told `your_line` of what they may
@@ -214,9 +214,9 @@ pub fn faults(settings: &Settings, beside: &Agents, flow: &Compiled) -> Vec<Stri
 /// in its order, on main where works branch from, as the host last gave it: one not named by a path within the
 /// repository, one main does not hold as a file, or one a symbolic link on main leads to, the file or a directory above
 /// it. A work's worktree is made from main, so its sessions would find none, or read through the link.
-pub fn project_files(settings: &Settings, beside: &Agents) -> Vec<String> {
-    let repo = &settings.project.repo;
-    let main = crate::host::kept_main(settings);
+pub fn project_files(project: &Project, beside: &Agents) -> Vec<String> {
+    let repo = &project.repo;
+    let main = crate::host::kept_main(project);
     let git = |args: &[&str]| {
         std::process::Command::new("git")
             .arg("-C")

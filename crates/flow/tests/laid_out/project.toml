@@ -9,8 +9,5 @@ path = "AGENTS.md"
 [files.constitution]
 path = "design/constitution.md"
 
-[installation]
-names = ["owner.language"]
-
 [project]
 research = "research/"

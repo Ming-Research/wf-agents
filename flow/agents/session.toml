@@ -6,7 +6,8 @@
 # place `{your_line}` filled from `your_line.toml`; `returns = "how_you_return"`, how a cell returns, made from
 # `return/` (`[how_you_return]` in `return.toml`) for the tools the flow names, the place `{store}` in the words of
 # `query` filled with what the engine's records hold. The engine gives each setting these texts name, but for a file of
-# the project, its value beside its name: the project's in `../project.toml`, and the installation's it names there.
+# the project, its value beside its name: the project's in its `project.toml`, and the installation's that
+# `installation.toml` names.
 parts = [
   { project = "guide" },
   { project = "constitution" },

@@ -40,7 +40,7 @@ fn two_works_are_kept_apart() {
     let mut store = Store::in_memory().expect("the store opens");
     let first = first_work(&mut store);
     let (_, second) = store
-        .add("another", "2", &[], "judged", Time(START), &Work::default())
+        .add("another", "2", "one", &[], "judged", Time(START), &Work::default())
         .expect("the item is added");
     store.save(first, &d.work).expect("the work is saved");
     assert_eq!(store.load(second), Ok(Work::default()));

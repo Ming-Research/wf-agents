@@ -252,7 +252,7 @@ impl<'a> Build<'a> {
                 .iter()
                 .flat_map(|c| c.triggers.iter().map(|t| t.name.clone())),
         );
-        known.extend(agents.project.installation.names.iter().cloned());
+        known.extend(agents.installation.names.iter().cloned());
         // The project's own files are the project's to word, and are not checked.
         let project: Vec<&String> = agents.project.files.values().map(|f| &f.path).collect();
         let mut out = std::collections::BTreeSet::new();

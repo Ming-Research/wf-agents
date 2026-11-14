@@ -184,9 +184,11 @@ pub fn ask(port: u16, asked: Asked) -> ExitCode {
 
 /// The new item, with what is written for it: each text, then each file's content, then each choice, in the order
 /// given. Each is `BLOCK=WHAT`. It is added paused.
+#[allow(clippy::too_many_arguments)]
 pub fn new_item(
     title: String,
     level: Option<String>,
+    project: String,
     flow: String,
     depends_on: Vec<u64>,
     texts: &[String],
@@ -222,6 +224,7 @@ pub fn new_item(
     Ok(NewItem {
         title,
         level,
+        project,
         depends_on,
         flow,
         writes,

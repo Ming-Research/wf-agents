@@ -37,7 +37,7 @@ fn what_the_engine_says_to_every_agent_is_read_from_its_files_beside_the_flows()
     assert_eq!(read.root, beside());
     assert_eq!(read.project.files["guide"].path, "AGENTS.md");
     assert_eq!(read.project.files["constitution"].path, "design/constitution.md");
-    assert_eq!(read.project.installation.names, ["owner.language"]);
+    assert_eq!(read.installation.names, ["owner.language"]);
     assert_eq!(read.project.project["research"], "research/");
 
     let parts: Vec<String> = (read.session.parts.iter())

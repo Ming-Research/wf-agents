@@ -71,6 +71,7 @@ function manySource(n: number): ManySource {
     changed: (c: Changed) => listening.forEach((l) => l.onChanged(c)),
     source: {
       loadCopies: async () => fixtureCopies(),
+      loadProjects: async () => ({ names: [] }),
       loadItems: async (): Promise<Items> => {
         s.reads += 1;
         return manyItems(n, s.changedWork);

@@ -89,6 +89,7 @@ async fn a_request_held_open_is_answered_as_soon_as_something_comes() {
     let item = json!({
         "title": "Greet the user",
         "dependsOn": [],
+        "project": "trial",
         "flow": "trial",
         "writes": [{ "block": "request", "content": "Greet the user, please.", "value": null }],
     });
@@ -121,6 +122,7 @@ async fn a_request_held_open_with_no_mark_gives_a_work_that_ended_while_it_was_h
     let item = json!({
         "title": "Greet the user",
         "dependsOn": [],
+        "project": "trial",
         "flow": "trial",
         "writes": [{ "block": "request", "content": "Greet the user, please.", "value": null }],
     });

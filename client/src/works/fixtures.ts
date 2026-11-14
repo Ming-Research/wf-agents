@@ -8,7 +8,7 @@
 // the engine because a round failed; one merged; one cancelled after a let-go; one with a fault; and one long history, waiting at the merge for the owner, with a
 // return sent back, tool calls and their results, a round with what it was told and returned, a run abandoned because
 // the owner wrote an opinion for an earlier cell, a review's opinions sending the implementation round twice, and a
-// write by the outside.
+// write by the outside. The items belong to two projects, and one, added before items had projects, to none.
 
 import type { Flow } from '../api';
 import { cell, flowOf, test, tested } from '../testing';
@@ -26,6 +26,7 @@ import type {
   Item,
   Items,
   Now,
+  Projects,
   Round,
   RoundPage,
   Run,
@@ -40,6 +41,16 @@ import type {
 } from '../works-api';
 
 const MINUTE = 60_000;
+
+/// The projects the fixtures' installation names, in order of their names.
+const PROJECTS = ['Whitefoot', 'wf-agents'];
+
+/// The project of each work's item: three of `Whitefoot`; none for the work with a fault in its records, whose item
+/// was added before items had projects; `wf-agents` for the rest.
+function projectOf(work: number): string | null {
+  if (work === 49) return null;
+  return [43, 45, 47].includes(work) ? PROJECTS[0] : PROJECTS[1];
+}
 
 /// The flow the works run on: a plan, deep research when the plan asks for it, the implementation and its review, a
 /// check with the latest main, and the merge, which waits for the owner's approval.
@@ -453,6 +464,7 @@ class History {
       },
       title,
       level: '2',
+      project: projectOf(number),
       history: { first: { title, level: '2', dependsOn: [] }, changes: [] },
       flow: FLOW,
       cells: details,
@@ -646,8 +658,8 @@ function build(now: number): { works: Map<number, Built>; items: Item[] } {
   const keep = (built: Built) => {
     works.set(built.page.summary.number, built);
     const s = built.page.summary;
-    const { title, level, history } = built.page;
-    items.push({ number: s.item, title, level, added: s.added, dependsOn: [], history, work: s });
+    const { title, level, project, history } = built.page;
+    items.push({ number: s.item, title, level, project, added: s.added, dependsOn: [], history, work: s });
   };
 
   keep(long(hours(30)));
@@ -802,6 +814,10 @@ function work(n: number): Built {
 
 export function fixtureItems(): Items {
   return { items: fixtures().items, outage: null };
+}
+
+export function fixtureProjects(): Projects {
+  return { names: [...PROJECTS] };
 }
 
 /// The copies of the database as they stand when all is well: the newest taken three hours ago and kept off the machine.

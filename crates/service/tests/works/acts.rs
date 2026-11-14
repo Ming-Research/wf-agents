@@ -58,6 +58,7 @@ async fn an_item_on_a_flow_there_is_none_of_is_refused() {
     let item = NewItem {
         title: "Greet the user".to_string(),
         level: "1".to_string(),
+        project: "trial".to_string(),
         depends_on: Vec::new(),
         flow: "other".to_string(),
         writes: vec![FirstWrite {

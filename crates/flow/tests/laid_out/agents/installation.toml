@@ -1,0 +1,6 @@
+# What the texts of the tests take from the installation.
+names = ["owner.language"]
+
+[no_project]
+unnamed = "Nothing was run: the project {project} is not named."
+none = "Nothing was run: no project."

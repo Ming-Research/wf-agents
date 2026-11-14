@@ -44,6 +44,8 @@ fn a_deliverable_made_of_an_engineers_item_is_delivered_once_it_merges_and_lets_
             title,
             "--flow",
             flow,
+            "--project",
+            "script",
             "--write",
             "background=What it is to deliver.",
         ];

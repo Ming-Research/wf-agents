@@ -1,11 +1,12 @@
-//! The installation's settings: the owner, the project the works are done in, where its repository is hosted, and how
-//! its agents are run. They are read from a TOML file, `install.toml` in the data directory unless another is named;
-//! `install.sample.toml` beside this crate's manifest says what each key is. A key the file does not know is refused,
-//! as the flow's files refuse one, so that a misspelt key is not silently left at nothing.
+//! The installation's settings: the owner, the projects the works are done in, each by its name with its repository
+//! and where it is hosted, and how the agents are run. They are read from a TOML file, `install.toml` in the data
+//! directory unless another is named; `install.sample.toml` beside this crate's manifest says what each key is. A key
+//! the file does not know is refused, as the flow's files refuse one, so that a misspelt key is not silently left at
+//! nothing.
 //!
 //! A text the agents are given names a setting by its key between backticks, as `` `owner.language` ``, and is given
-//! with the setting's value written beside the name: the files beside the flows name, in `project.toml`, the
-//! installation's settings their texts may name, and the installation holds each one's value ([`Settings::value`]).
+//! with the setting's value written beside the name: `agents/installation.toml` beside the flows names the
+//! installation's settings the texts may name, and the installation holds each one's value ([`Settings::value`]).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -24,12 +25,12 @@ use crate::permissions::{HEAVY, NEVER_A_LOCK, falls_under};
 pub struct Settings {
     /// The owner, for whom the agents write what the owner reads.
     pub owner: Owner,
-    pub project: Project,
+    /// The projects the works are done in, by the name the installation gives each: an item belongs to one of them,
+    /// and its works run in that project's repository. Left out, there is none, which is refused with words.
+    #[serde(default)]
+    pub projects: BTreeMap<String, Project>,
     pub agents: Agents,
     pub items: Items,
-    /// Where the project's repository is on GitHub, which then carries out the acts; with none, the local repository
-    /// does.
-    pub github: Option<GitHub>,
     /// Where the copies of the database are kept off the machine, and how many are kept; with none, the copies stay
     /// on the machine alone, which shares the disk they are kept against losing.
     pub backup: Option<Backup>,
@@ -134,7 +135,7 @@ fn backup_keep() -> usize {
 
 impl Backup {
     /// What is wrong with these settings, each in words with its key.
-    fn wrong(&self, agents: &Agents, github: Option<&GitHub>) -> Vec<String> {
+    fn wrong(&self, agents: &Agents, projects: &BTreeMap<String, Project>) -> Vec<String> {
         let mut wrong = Vec::new();
         let parts: Vec<&str> = self.repository.split('/').collect();
         if !(parts.len() == 2 && parts.iter().all(|p| !p.is_empty())) {
@@ -155,11 +156,13 @@ impl Backup {
                 self.token_env
             ));
         }
-        if github.is_some_and(|g| g.token_env == self.token_env) {
-            wrong.push(
-                "backup.token_env: the copies have a token of their own, not the one of the project's repository"
-                    .to_string(),
-            );
+        for (name, project) in projects {
+            if project.github.as_ref().is_some_and(|g| g.token_env == self.token_env) {
+                wrong.push(format!(
+                    "backup.token_env: the copies have a token of their own, not the one of the repository of the \
+                     project {name}"
+                ));
+            }
         }
         wrong
     }
@@ -187,7 +190,8 @@ fn context_limit() -> u64 {
     500_000
 }
 
-/// The project whose works are done: a local git repository, its main branch and the command that checks it.
+/// A project whose works are done: a local git repository, its main branch, the command that checks it, and where it is
+/// hosted.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Project {
@@ -201,12 +205,15 @@ pub struct Project {
     /// be, each a whole key or a beginning followed by `*`: `filter.lfs.*` for a repository that needs Git LFS.
     #[serde(default)]
     pub allowed_config: Vec<String>,
+    /// Where the repository is on GitHub, which then carries out the acts of the project's works; with none, the local
+    /// repository does.
+    pub github: Option<GitHub>,
     /// Who the engine's commits are by, and the words of each: not in the settings, but in `agents/commits.toml`
     /// beside the flows, put here as the carriers are made ([`crate::carry`]).
     #[serde(skip)]
     pub commits: flow::agents::Commits,
-    /// The directory of the repository that holds the project's design tree: not in the settings, but in
-    /// `project.toml` beside the flows, put here as the carriers are made.
+    /// The directory of the repository that holds the project's design tree: not in the settings, but in the
+    /// project's declaration, `flow/project.toml` on its main, put here as the carriers are made.
     #[serde(skip)]
     pub tree: String,
 }
@@ -216,7 +223,7 @@ pub struct Project {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GitHub {
-    /// The repository on github.com, as `owner/name`; `project.repo` is a clone of it.
+    /// The repository on github.com, as `owner/name`; the project's `repo` is a clone of it.
     pub repository: String,
     /// The clone's name for the repository on GitHub: main's head is fetched to `refs/remotes/<remote>/<main>`.
     #[serde(default = "origin")]
@@ -240,9 +247,9 @@ pub struct GitHub {
     /// The `gh` command line, or a path to it.
     #[serde(default = "gh")]
     pub gh: String,
-    /// The runners this installation has, by the name a workflow's `runner` in the project's declaration gives them:
-    /// `github` for GitHub's own machines, and the label of each self-hosted runner. A workflow that runs on another is
-    /// not run.
+    /// The runners the repository has, by the name a workflow's `runner` in the project's declaration gives them:
+    /// `github` for GitHub's own machines, and the label of each self-hosted runner registered for it. A workflow that
+    /// runs on another is not run.
     #[serde(default = "runners")]
     pub runners: Vec<String>,
 }
@@ -517,6 +524,12 @@ const CHECKS_MOVED: &str = "github.checks: the checks that count are the jobs of
      the project's flow/project.toml as [ci.full] (workflows, runner, too_long), which the check before a merge runs \
      on the commit to merge; delete the line";
 
+/// What the settings are told where they hold `[project]` or `[github]`, the tables of the one project an installation
+/// once had, `{key}` the one they hold.
+const ONE_PROJECT: &str = "{key}: an installation names each of its projects now, and [{key}] is a project's: write \
+     [project] as [projects.<name>] and [github] as [projects.<name>.github], <name> the name the project is known \
+     by; install.sample.toml shows them.";
+
 /// What the settings are told where they name `agents.model`, the one model every round once ran on.
 const ONE_MODEL: &str = "agents.model: rounds no longer run on one model: each item has a level, and each level names \
      its model. Take out agents.model; add a table [agents.levels.<name>] with desc and model for each level, and a \
@@ -531,35 +544,36 @@ const OWNER_LANGUAGE: &str = "agents.owner_language: the owner's language is the
 pub const FILE: &str = "install.toml";
 
 impl GitHub {
-    /// What is wrong with these settings, each in words with its key.
-    fn wrong(&self, agents: &Agents) -> Vec<String> {
+    /// What is wrong with these settings of the project of this name, each in words with its key.
+    fn wrong(&self, project: &str, agents: &Agents) -> Vec<String> {
         let mut wrong = Vec::new();
         let parts: Vec<&str> = self.repository.split('/').collect();
         if !(parts.len() == 2 && parts.iter().all(|p| !p.is_empty())) {
             wrong.push(format!(
-                "github.repository: a repository is named as owner/name, not {:?}",
+                "projects.{project}.github.repository: a repository is named as owner/name, not {:?}",
                 self.repository
             ));
         }
         if self.start_minutes == 0 || self.timeout_minutes < self.start_minutes {
-            wrong.push(
-                "github.start_minutes, github.timeout_minutes: the CI is given at least a minute to start, and no \
-                 less time to end"
-                    .to_string(),
-            );
+            wrong.push(format!(
+                "projects.{project}.github.start_minutes, projects.{project}.github.timeout_minutes: the CI is \
+                     given at least a minute to start, and no less time to end"
+            ));
         }
         if !MERGE_METHODS.contains(&self.merge_method.as_str()) {
             wrong.push(format!(
-                "github.merge_method: one of {}, not {:?}",
+                "projects.{project}.github.merge_method: one of {}, not {:?}",
                 MERGE_METHODS.join(", "),
                 self.merge_method
             ));
         }
         if self.runners.iter().any(|r| r.trim().is_empty()) {
-            wrong.push("github.runners: each runner is named".to_string());
+            wrong.push(format!("projects.{project}.github.runners: each runner is named"));
         }
         if self.token_env.is_empty() {
-            wrong.push("github.token_env: the token's variable has a name".to_string());
+            wrong.push(format!(
+                "projects.{project}.github.token_env: the token's variable has a name"
+            ));
         }
         if agents.env.contains(&self.token_env) {
             wrong.push(format!(
@@ -589,18 +603,33 @@ impl Settings {
         if agents.is_some_and(|agents| agents.contains_key("owner_language")) {
             return Err(OWNER_LANGUAGE.to_string());
         }
-        let github = table.as_ref().and_then(|t| t.get("github")).and_then(|g| g.as_table());
-        if github.is_some_and(|github| github.contains_key("runs_on_before_branches")) {
-            return Err(BEFORE_BRANCHES.to_string());
+        // Settings of the one project an installation once had are told where its tables went.
+        let moved: Vec<&str> = (["project", "github"].into_iter())
+            .filter(|key| table.as_ref().is_some_and(|t| t.contains_key(*key)))
+            .collect();
+        if !moved.is_empty() {
+            return Err(moved
+                .iter()
+                .map(|key| ONE_PROJECT.replace("{key}", key))
+                .collect::<Vec<_>>()
+                .join("\n"));
         }
-        if github.is_some_and(|github| github.contains_key("fast")) {
-            return Err(FAST_MOVED.to_string());
-        }
-        if github.is_some_and(|github| github.contains_key("log")) {
-            return Err(LOG_GONE.to_string());
-        }
-        if github.is_some_and(|github| github.contains_key("checks")) {
-            return Err(CHECKS_MOVED.to_string());
+        let projects = table
+            .as_ref()
+            .and_then(|t| t.get("projects"))
+            .and_then(|p| p.as_table());
+        for (name, project) in projects.into_iter().flatten() {
+            let github = project.get("github").and_then(|g| g.as_table());
+            for (key, words) in [
+                ("runs_on_before_branches", BEFORE_BRANCHES),
+                ("fast", FAST_MOVED),
+                ("log", LOG_GONE),
+                ("checks", CHECKS_MOVED),
+            ] {
+                if github.is_some_and(|github| github.contains_key(key)) {
+                    return Err(format!("projects.{name}.{words}"));
+                }
+            }
         }
         let settings: Settings = toml::from_str(text).map_err(|e| e.to_string().trim_end().to_string())?;
         let mut wrong = Vec::new();
@@ -618,8 +647,24 @@ impl Settings {
         if settings.sessions.context_limit == 0 {
             wrong.push("sessions.context_limit: a session may hold some context".to_string());
         }
-        if settings.project.main.is_empty() {
-            wrong.push("project.main: the main branch has a name".to_string());
+        if settings.projects.is_empty() {
+            wrong.push(
+                "projects: the installation names at least one project, as a table [projects.<name>]".to_string(),
+            );
+        }
+        for (name, project) in &settings.projects {
+            if name.trim() != name || name.is_empty() || name.chars().any(char::is_control) {
+                wrong.push(format!(
+                    "projects.{name:?}: a project's name is some text, with no space around it and no control \
+                     character"
+                ));
+            }
+            if project.main.is_empty() {
+                wrong.push(format!("projects.{name}.main: the main branch has a name"));
+            }
+            if let Some(github) = &project.github {
+                wrong.extend(github.wrong(name, &settings.agents));
+            }
         }
         if settings.owner.language.trim().is_empty() {
             wrong.push("owner.language: the owner's language has a name".to_string());
@@ -635,11 +680,8 @@ impl Settings {
                 ));
             }
         }
-        if let Some(github) = &settings.github {
-            wrong.extend(github.wrong(&settings.agents));
-        }
         if let Some(backup) = &settings.backup {
-            wrong.extend(backup.wrong(&settings.agents, settings.github.as_ref()));
+            wrong.extend(backup.wrong(&settings.agents, &settings.projects));
         }
         if wrong.is_empty() {
             Ok(settings)
@@ -736,6 +778,11 @@ impl Settings {
         }
     }
 
+    /// The project of this name, where these settings name one so.
+    pub fn project(&self, name: &str) -> Option<&Project> {
+        self.projects.get(name)
+    }
+
     /// The budget of a work in millionths of a dollar, where there is one.
     pub fn budget_micros(&self) -> Option<u64> {
         // The budget was checked to be a finite number of no less than nothing; a larger one than a u64 holds is none.
@@ -752,7 +799,8 @@ mod tests {
     #[test]
     fn the_sample_reads() {
         let settings = Settings::read(SAMPLE).expect("the sample reads");
-        assert_eq!(settings.project.main, "main");
+        assert_eq!(settings.projects.keys().collect::<Vec<_>>(), ["example"]);
+        assert_eq!(settings.projects["example"].main, "main");
         assert_eq!(settings.agents.command, "claude");
         assert_eq!(settings.agents.slots, 2);
         assert_eq!(settings.agents.config_dir, None);
@@ -784,30 +832,27 @@ mod tests {
 
     #[test]
     fn the_fast_ci_of_the_installation_is_refused_in_words_that_say_where_it_went_and_the_runners_are_read() {
-        let github = "\n[github]\nrepository = \"owner/name\"\n";
+        let github = "\n[projects.example.github]\nrepository = \"owner/name\"\n";
         let settings = Settings::read(&format!("{SAMPLE}{github}")).expect("it reads");
-        assert_eq!(settings.github.expect("github").runners, ["github"]);
+        let of = |settings: Settings| settings.projects["example"].github.clone().expect("github");
+        assert_eq!(of(settings).runners, ["github"]);
         let runners = format!("{SAMPLE}{github}runners = [\"github\", \"14900K\"]\n");
-        let both = Settings::read(&runners)
-            .expect("it reads")
-            .github
-            .expect("github")
-            .runners;
+        let both = of(Settings::read(&runners).expect("it reads")).runners;
         assert_eq!(both, ["github", "14900K"]);
         let checks = format!("{SAMPLE}{github}checks = [\"check\"]\n");
         let refused = Settings::read(&checks).expect_err("refused");
         assert!(
-            refused.starts_with("github.checks: the checks that count are the jobs of the project's full"),
+            refused.starts_with("projects.example.github.checks: the checks that count are the jobs of the project's"),
             "{refused}"
         );
         assert!(
             refused.contains("[ci.full]") && refused.ends_with("delete the line"),
             "{refused}"
         );
-        let fast = format!("{SAMPLE}{github}[github.fast]\nworkflow = \"fast.yml\"\n");
+        let fast = format!("{SAMPLE}{github}[projects.example.github.fast]\nworkflow = \"fast.yml\"\n");
         let refused = Settings::read(&fast).expect_err("refused");
         assert!(
-            refused.starts_with("github.fast: the fast workflow is the project's"),
+            refused.starts_with("projects.example.github.fast: the fast workflow is the project's"),
             "{refused}"
         );
         assert!(
@@ -929,10 +974,11 @@ mod tests {
 
     #[test]
     fn the_removed_setting_of_the_branches_before_a_change_is_refused_in_words_that_say_it_can_go() {
-        let text = format!("{SAMPLE}\n[github]\nrepository = \"o/n\"\nruns_on_before_branches = true\n");
+        let text =
+            format!("{SAMPLE}\n[projects.example.github]\nrepository = \"o/n\"\nruns_on_before_branches = true\n");
         let refused = Settings::read(&text).expect_err("refused");
         assert!(
-            refused.starts_with("github.runs_on_before_branches: this setting was removed")
+            refused.starts_with("projects.example.github.runs_on_before_branches: this setting was removed")
                 && refused.ends_with("delete the line"),
             "{refused}"
         );
@@ -1054,7 +1100,7 @@ mod tests {
     /// The sample with its table for GitHub written in.
     fn on_github() -> String {
         let table = (SAMPLE.lines())
-            .skip_while(|line| *line != "# [github]")
+            .skip_while(|line| *line != "# [projects.example.github]")
             .take_while(|line| line.starts_with('#'))
             .map(|line| line.strip_prefix("# ").unwrap_or(line))
             .collect::<Vec<_>>()
@@ -1064,15 +1110,15 @@ mod tests {
 
     #[test]
     fn the_local_repository_is_the_host_where_no_github_is_given() {
-        assert_eq!(Settings::read(SAMPLE).unwrap().github, None);
+        assert_eq!(Settings::read(SAMPLE).unwrap().projects["example"].github, None);
     }
 
     #[test]
     fn the_samples_table_for_github_reads() {
-        let github = Settings::read(&on_github())
-            .expect("it reads")
+        let github = (Settings::read(&on_github()).expect("it reads").projects["example"]
             .github
-            .expect("GitHub is the host");
+            .clone())
+        .expect("GitHub is the host");
         assert_eq!(github.repository, "owner/name");
         assert_eq!(github.url(), "https://github.com/owner/name.git");
         assert_eq!(github.remote, "origin");
@@ -1090,8 +1136,8 @@ mod tests {
             .replace("# env = [\"ANTHROPIC_API_KEY\"]", "env = [\"WF_GITHUB_TOKEN\"]");
         let refused = Settings::read(&text).expect_err("refused");
         assert_eq!(refused.lines().count(), 3, "{refused}");
-        assert!(refused.contains("github.repository"), "{refused}");
-        assert!(refused.contains("github.merge_method"), "{refused}");
+        assert!(refused.contains("projects.example.github.repository"), "{refused}");
+        assert!(refused.contains("projects.example.github.merge_method"), "{refused}");
         assert!(refused.contains("agents.env: WF_GITHUB_TOKEN"), "{refused}");
         let unknown = on_github().replace("delete_branch = false", "delete_branches = false");
         assert!(
@@ -1205,7 +1251,110 @@ mod tests {
             assert_eq!(settings.value(none), None, "{none}");
         }
         let listed = Settings::read(&on_github()).unwrap();
-        assert_eq!(listed.value("github.runners").as_deref(), Some("[\"github\"]"));
+        assert_eq!(
+            listed.value("projects.example.github.runners").as_deref(),
+            Some("[\"github\"]")
+        );
+    }
+
+    /// The sample with a second project, `other`, in a repository of its own on GitHub.
+    fn two_projects() -> String {
+        let other = "[projects.other]\nrepo = \"/path/to/the/other\"\nmain = \"trunk\"\ncheck = \"true\"\n\n\
+                     [projects.other.github]\nrepository = \"owner/other\"\nrunners = [\"github\", \"14900k\"]\n";
+        format!("{SAMPLE}\n{other}")
+    }
+
+    // An installation names its projects, each with its own repository, main branch, check and host.
+    #[test]
+    fn an_installation_names_several_projects_each_with_its_repository_and_host() {
+        let settings = Settings::read(&two_projects()).expect("it reads");
+        assert_eq!(settings.projects.keys().collect::<Vec<_>>(), ["example", "other"]);
+        let (example, other) = (&settings.projects["example"], &settings.projects["other"]);
+        assert_eq!(example.repo, Path::new("/path/to/the/repository"));
+        assert_eq!(example.github, None, "the local repository is its host");
+        assert_eq!(
+            (other.repo.as_path(), other.main.as_str()),
+            (Path::new("/path/to/the/other"), "trunk")
+        );
+        let github = other.github.as_ref().expect("GitHub is its host");
+        assert_eq!(github.repository, "owner/other");
+        assert_eq!(github.runners, ["github", "14900k"]);
+        assert_eq!(settings.project("other"), Some(other));
+        assert_eq!(settings.project("elsewhere"), None);
+    }
+
+    // What is wrong with a project's settings is said with the project's key, every project's at once; an installation
+    // with no project is refused.
+    #[test]
+    fn what_a_project_cannot_be_given_is_said_with_its_name() {
+        let text = (two_projects().replace("main = \"trunk\"", "main = \"\""))
+            .replace("repository = \"owner/other\"", "repository = \"other\"")
+            .replace("main = \"main\"", "main = \"\"");
+        let refused = Settings::read(&text).expect_err("refused");
+        assert_eq!(refused.lines().count(), 3, "{refused}");
+        assert!(
+            refused.contains("projects.example.main: the main branch has a name"),
+            "{refused}"
+        );
+        assert!(
+            refused.contains("projects.other.main: the main branch has a name"),
+            "{refused}"
+        );
+        assert!(refused.contains("projects.other.github.repository"), "{refused}");
+        let start = SAMPLE.find("[projects.example]").unwrap();
+        let end = SAMPLE.find("[agents]").unwrap();
+        let none = format!("{}{}", &SAMPLE[..start], &SAMPLE[end..]);
+        let refused = Settings::read(&none).expect_err("refused");
+        assert!(
+            refused.starts_with("projects: the installation names at least one project"),
+            "{refused}"
+        );
+        let spaced = SAMPLE.replace("[projects.example]", "[projects.\" example\"]");
+        assert!(
+            Settings::read(&spaced)
+                .expect_err("refused")
+                .contains("a project's name is some text")
+        );
+    }
+
+    // Settings written when an installation had one project, in [project] and [github], are told where each went,
+    // both at once: the one edit an installation of one project needs.
+    #[test]
+    fn the_tables_of_the_one_project_are_told_where_they_went() {
+        let one = SAMPLE.replace("[projects.example]", "[project]");
+        let refused = Settings::read(&one).expect_err("refused");
+        assert!(
+            refused.starts_with("project: an installation names each of its projects now"),
+            "{refused}"
+        );
+        assert!(refused.contains("write [project] as [projects.<name>]"), "{refused}");
+        let both = format!("{one}\n[github]\nrepository = \"owner/name\"\n");
+        let refused = Settings::read(&both).expect_err("refused");
+        assert_eq!(refused.lines().count(), 2, "{refused}");
+        assert!(
+            refused.lines().nth(1).is_some_and(|l| l.starts_with("github: ")),
+            "{refused}"
+        );
+        // Moved as it says, it reads.
+        let moved = both
+            .replace("[project]", "[projects.example]")
+            .replace("[github]", "[projects.example.github]");
+        assert!(
+            Settings::read(&moved).expect("it reads").projects["example"]
+                .github
+                .is_some()
+        );
+    }
+
+    // The copies' token is none of the projects' tokens.
+    #[test]
+    fn the_copies_token_is_no_projects_token() {
+        let same = format!(
+            "{}\n[backup]\nrepository = \"o/n\"\ntoken_env = \"WF_GITHUB_TOKEN\"\n",
+            two_projects()
+        );
+        let refused = Settings::read(&same).expect_err("refused");
+        assert!(refused.contains("the repository of the project other"), "{refused}");
     }
 
     // The subagents an agent may start are three where the settings give none, as on `old-main`, or as they say.

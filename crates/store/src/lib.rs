@@ -53,7 +53,7 @@ pub const SCHEMA: &str = include_str!("../../../db/schema.sql");
 
 /// The version of [`SCHEMA`]. A database made with an earlier one is migrated to it as it is opened; one made with
 /// any other is not opened.
-pub const SCHEMA_VERSION: u32 = 11;
+pub const SCHEMA_VERSION: u32 = 12;
 
 /// The migrations, in order: the first brings a database of version 1 of the schema to version 2, and each after it
 /// one version further, replacing the version's one row last. Each file is named by the minute it was written and
@@ -71,6 +71,7 @@ const MIGRATIONS: &[&str] = &[
         "../../../db/migrations/202611131500-keep-what-a-return-dealt-with-what-reached-a-round-and-what-filled-it.sql"
     ),
     include_str!("../../../db/migrations/202611141600-keep-the-observations-the-returns-taken-carry.sql"),
+    include_str!("../../../db/migrations/202611141700-give-items-a-project.sql"),
 ];
 
 // The migrations bring a database of every earlier version to this one.
@@ -146,15 +147,17 @@ impl From<rusqlite::Error> for Fault {
 
 /// The store, as whatever drives the engine reaches it.
 pub trait Storage {
-    /// Adds an item at this level, depending on these items, which must all be in the store already, together with the
-    /// work done for it on the flow of this name and what is kept of that work from its start, and gives their numbers.
-    /// The
-    /// item, the work and what is kept of it are added in one transaction: all of them or none. Only the flow's name
-    /// is kept: which version of the flow the work runs on is not kept yet.
+    /// Adds an item at this level, of the project of this name, depending on these items, which must all be in the
+    /// store already, of any project, together with the work done for it on the flow of this name and what is kept of
+    /// that work from its start, and gives their numbers. The item, the work and what is kept of it are added in one
+    /// transaction: all of them or none. Only the flow's name is kept: which version of the flow the work runs on is
+    /// not kept yet.
+    #[allow(clippy::too_many_arguments)]
     fn add(
         &mut self,
         title: &str,
         level: &str,
+        project: &str,
         depends_on: &[ItemNumber],
         flow: &str,
         at: Time,
@@ -262,13 +265,14 @@ impl Storage for Store {
         &mut self,
         title: &str,
         level: &str,
+        project: &str,
         depends_on: &[ItemNumber],
         flow: &str,
         at: Time,
         first: &Work,
     ) -> Result<(ItemNumber, WorkNumber), Fault> {
         let tx = self.db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let item = items::add_item(&tx, title, level, depends_on, at)?;
+        let item = items::add_item(&tx, title, level, project, depends_on, at)?;
         let work = items::add_work(&tx, item, flow, at)?;
         tables::save(&tx, work, first)?;
         tx.commit()?;

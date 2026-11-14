@@ -131,7 +131,7 @@ fn runs_of_the_new_form_load_back_with_what_they_dealt_with_what_was_put_in_and_
     let mut store = db.open();
     let before = first_work(&mut store);
     let (_, work) = store
-        .add("second", "2", &[], "judged", Time(START), &Work::default())
+        .add("second", "2", "one", &[], "judged", Time(START), &Work::default())
         .expect("the item is added");
     store.save(before, &d.work).expect("the work is saved");
     store.save(work, &new).expect("the work is saved");

@@ -95,7 +95,9 @@ pub struct ReleaseReply {
 }
 
 impl ReleaseReply {
-    pub(crate) fn new(work: WorkNumber, to: mpsc::UnboundedSender<Message>) -> Self {
+    /// The reply that says what came of it down this channel, as the loop makes it; whoever tests a carrier makes one
+    /// to read what the carrier says.
+    pub fn new(work: WorkNumber, to: mpsc::UnboundedSender<Message>) -> Self {
         ReleaseReply { work, to }
     }
 
@@ -285,7 +287,9 @@ pub struct CallReply {
 }
 
 impl RoundReply {
-    pub(crate) fn new(work: WorkNumber, run: RunId, to: mpsc::UnboundedSender<Message>) -> Self {
+    /// The reply that says what came of it down this channel, as the loop makes it; whoever tests a carrier makes one
+    /// to read what the carrier says.
+    pub fn new(work: WorkNumber, run: RunId, to: mpsc::UnboundedSender<Message>) -> Self {
         RoundReply { work, run, to }
     }
 
@@ -431,7 +435,9 @@ impl Teller {
 }
 
 impl CallReply {
-    pub(crate) fn new(work: WorkNumber, call: CallId, to: mpsc::UnboundedSender<Message>) -> Self {
+    /// The reply that says what came of it down this channel, as the loop makes it; whoever tests a carrier makes one
+    /// to read what the carrier says.
+    pub fn new(work: WorkNumber, call: CallId, to: mpsc::UnboundedSender<Message>) -> Self {
         CallReply { work, call, to }
     }
 

@@ -5,6 +5,8 @@
 //!
 //! - [`settings`]: the installation's settings, read from `install.toml`, and the settings a text names given with
 //!   their values.
+//! - [`projects`]: the projects the settings name, each with its declaration from its repository, and what the loop
+//!   gives the acts and the tools reaching the project of the work's item.
 //! - [`system`]: the system prompt of a line's session, made as the session begins from the files beside the flows
 //!   (`flow::system`) and kept with it, and what is checked of it as the engine starts.
 //! - [`git`]: a work's branch and worktree, what the check before its merge finds there, and the merge into the
@@ -37,6 +39,7 @@ mod host;
 mod kept;
 pub mod permissions;
 mod process;
+pub mod projects;
 pub mod returns;
 pub mod session;
 pub mod settings;
@@ -44,17 +47,19 @@ pub mod system;
 mod tools;
 pub mod tree;
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
 use acts::Acts;
 use host::Host;
+use projects::ByProject;
 use service::{Carriers, Rounds, Tools as ToolsTrait};
 use settings::Project;
 use tools::Tools;
 
 pub use acts::{MAIN, WATCH, Watch, Words, faults, main_faults, word_faults};
-pub use agents::{Agents, ROUNDS};
+pub use agents::{Agents, Of, ROUNDS};
 pub use host::github::{GhOffsite, UPLOAD_RATE};
 pub use process::{STOP_WAIT, TAIL};
 pub use settings::Settings;
@@ -62,61 +67,88 @@ pub use tools::{QUERY, Querying, RUN_TESTS};
 
 /// The carriers of these settings, keeping what they keep in the data directory: the installation's id, the works'
 /// worktrees, and what each round was told and returned. The agents' rounds are told, and given the form of return,
-/// as what is written beside the flows says, and their system prompts are made from it ([`system`]).
+/// as what is written beside the flows says, with the declaration of the project of the work's item in place of the
+/// one beside them, and their system prompts are made from it ([`system`]).
 ///
-/// The acts and the tools are carried out on the host the settings say: GitHub where they have a table for it, with
-/// the engine's token from its environment, and the local repository where they have none.
+/// Each project's acts and tools are carried out on the host its settings say: GitHub where they have a table for it,
+/// with the engine's token from its environment, and its local repository where they have none.
 pub fn carriers(settings: Settings, data: &Path, beside: flow::agents::Agents) -> Result<Carriers, String> {
     carry(settings, data, beside).map(|(carriers, _)| carriers)
 }
 
-/// The carriers of these settings, as [`carriers`] gives them, and the watch of main of their acts, which whoever
-/// runs the loop runs beside it, saying what it finds to the loop as the source [`MAIN`]. The acts and the commits the
-/// engine makes say what is written beside the flows says, as the agents' rounds do.
+/// The watch of main of a project's acts, with the project's name and the name of its main branch.
+pub struct ProjectWatch {
+    pub project: String,
+    pub main: String,
+    pub watch: Watch,
+}
+
+/// The carriers of these settings, as [`carriers`] gives them, and the watch of main of each project's acts, which
+/// whoever runs the loop runs beside it, saying what it finds to the loop as the source [`MAIN`] of that project. The
+/// acts and the commits the engine makes say what is written beside the flows says, as the agents' rounds do.
 pub fn carry(
-    mut settings: Settings,
+    settings: Settings,
     data: &Path,
-    mut beside: flow::agents::Agents,
-) -> Result<(Carriers, Watch), String> {
-    settings.project.commits = beside.commits.clone();
-    settings.project.tree = beside.project.tree.clone();
+    beside: flow::agents::Agents,
+) -> Result<(Carriers, Vec<ProjectWatch>), String> {
     let words = beside.acts.clone();
-    // Where the host is the local repository, the agents are told what `run_tests` does there.
-    if settings.github.is_none() {
-        local_words(&mut beside);
-    }
-    let tool = beside.tools.get(tools::RUN_TESTS).cloned();
-    let unread = unread(&beside);
     // The worktrees are given to git by their path, which git would read against the repository's directory were it
     // relative.
     let data = std::path::absolute(data).map_err(|e| format!("{}: {e}", data.display()))?;
     let installation = session::installation(&data)?;
-    let project = settings.project.clone();
     let tag = git::tag(&installation);
     let query = querying(&settings, &beside, &data)?;
-    let (acts, tools, watch, main) = match &settings.github {
-        None => {
-            let host = host::Local::new(project.clone())
-                .giving(settings.agents.env.clone())
-                .saying(tool.as_ref());
-            on(host, &project, &data, &tag, words, query.clone(), unread)
-        }
-        Some(github) => {
-            let env = |name: &str| std::env::var(name).ok();
-            let ci = beside.project.ci.clone();
-            let host = host::GitHub::from_settings(github, &project, &data, env, ci, tool.clone())?;
-            on(host, &project, &data, &tag, words, query.clone(), unread)
-        }
-    };
+    let (mut acts, mut tools, mut watches, mut of) = (BTreeMap::new(), BTreeMap::new(), Vec::new(), BTreeMap::new());
+    let (declared, faults) = projects::declared(&settings, &beside);
+    if !faults.is_empty() {
+        return Err(faults.join("; "));
+    }
+    for (name, declared) in declared {
+        let mut project = declared.settings;
+        project.commits = beside.commits.clone();
+        let beside = declared.beside;
+        project.tree = beside.project.tree.clone();
+        let tool = beside.tools.get(tools::RUN_TESTS).cloned();
+        let unread = unread(&beside);
+        let (rounds, answers, watch, main) = match &project.github {
+            None => {
+                let host = host::Local::new(project.clone())
+                    .giving(settings.agents.env.clone())
+                    .saying(tool.as_ref());
+                on(host, &project, &data, &tag, words.clone(), query.clone(), unread)
+            }
+            Some(github) => {
+                let env = |name: &str| std::env::var(name).ok();
+                let ci = beside.project.ci.clone();
+                let host = host::GitHub::from_settings(github, &project, &data, env, ci, tool.clone())
+                    .map_err(|why| format!("projects.{name}: {why}"))?;
+                on(host, &project, &data, &tag, words.clone(), query.clone(), unread)
+            }
+        };
+        acts.insert(name.clone(), rounds);
+        tools.insert(name.clone(), answers);
+        watches.push(ProjectWatch {
+            project: name.clone(),
+            main: project.main.clone(),
+            watch,
+        });
+        of.insert(name, agents::Of::new(&settings, project, beside, main));
+    }
     let slots = settings.agents.slots;
     let carriers = Carriers {
         slots,
-        agents: Arc::new(Agents::new(settings, data.clone(), installation, main, beside)),
-        acts,
-        tools,
+        agents: Arc::new(Agents::new(settings, data.clone(), installation, of)),
+        acts: Arc::new(ByProject {
+            of: acts,
+            said: beside.installation.no_project.clone(),
+        }),
+        tools: Arc::new(ByProject {
+            of: tools,
+            said: beside.installation.no_project.clone(),
+        }),
         network: Arc::new(failure::Look),
     };
-    Ok((carriers, watch))
+    Ok((carriers, watches))
 }
 
 /// The tool `query` as these settings and the files beside the flows say; or why the settings cannot open it.
@@ -131,16 +163,6 @@ fn querying(settings: &Settings, beside: &flow::agents::Agents, data: &Path) -> 
 /// one trait object, so that the prompt, made from the same settings and files, can be given it.
 pub fn store(settings: &Settings, beside: &flow::agents::Agents) -> Result<String, String> {
     querying(settings, beside, Path::new("")).map(|query| query.store())
-}
-
-/// What `run_tests` is told to do where the host is the local repository: its own words for it, in place of those for
-/// GitHub.
-fn local_words(beside: &mut flow::agents::Agents) {
-    if let Some(tool) = beside.tools.get_mut(tools::RUN_TESTS)
-        && let Some(local) = tool.words_local.take()
-    {
-        tool.words = local;
-    }
 }
 
 /// What an agent is told of a request of `run_tests` that cannot be read, from the file of the tool.
@@ -211,7 +233,7 @@ mod tests {
         let mut beside = flow::agents::read(&root).expect("what is written beside the flows is read");
         let github = beside.tools["run_tests"].words.clone();
         assert!(github.contains("last commit of the work's branch"), "{github}");
-        super::local_words(&mut beside);
+        crate::projects::local_words(&mut beside);
         let local = &beside.tools["run_tests"].words;
         assert!(
             local.contains("your worktree as it stands, what is not committed included"),

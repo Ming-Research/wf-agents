@@ -22,6 +22,7 @@ import type {
   Engine,
   EngineAct,
   Items,
+  Projects,
   RoundPage,
   ToldPage,
   VersionPage,
@@ -31,6 +32,8 @@ import type {
 export interface Source {
   loadCopies(): Promise<Copies>;
   loadItems(): Promise<Items>;
+  /// The projects the installation names.
+  loadProjects(): Promise<Projects>;
   loadWork(work: number): Promise<WorkPage>;
   loadVersion(work: number, block: string, at: number): Promise<VersionPage>;
   loadRound(work: number, run: number, round: number): Promise<RoundPage>;
@@ -49,6 +52,7 @@ export interface Source {
 export const INTERFACE: Source = {
   loadCopies: api.loadCopies,
   loadItems: api.loadItems,
+  loadProjects: api.loadProjects,
   loadWork: api.loadWork,
   loadVersion: api.loadVersion,
   loadRound: api.loadRound,
@@ -67,6 +71,7 @@ export const INTERFACE: Source = {
 export const FIXTURES: Source = {
   loadCopies: async () => (await import('./fixtures')).fixtureCopies(),
   loadItems: async () => (await import('./fixtures')).fixtureItems(),
+  loadProjects: async () => (await import('./fixtures')).fixtureProjects(),
   loadWork: async (work) => (await import('./fixtures')).fixtureWork(work),
   loadVersion: async (work, block, at) => (await import('./fixtures')).fixtureVersion(work, block, at),
   loadRound: async (work, run, round) => (await import('./fixtures')).fixtureRound(work, run, round),

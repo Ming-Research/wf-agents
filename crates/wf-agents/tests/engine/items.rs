@@ -14,6 +14,8 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
             "Greet the user",
             "--flow",
             "trial",
+            "--project",
+            "script",
             "--write",
             "request=Greet the user, please."
         ]),
@@ -70,7 +72,19 @@ fn an_item_is_added_let_on_answered_and_merged_from_the_command_line() {
 fn an_item_is_added_at_the_level_it_is_given_and_one_the_engine_lacks_is_refused() {
     let place = Place::new(SCRIPT);
     let engine = Engine::start(&place);
-    let add = |level: &'static str| ["add", "--title", "Greet the user", "--flow", "trial", "--level", level];
+    let add = |level: &'static str| {
+        [
+            "add",
+            "--title",
+            "Greet the user",
+            "--flow",
+            "trial",
+            "--project",
+            "script",
+            "--level",
+            level,
+        ]
+    };
     assert_eq!(
         engine.refuses(&add("2")),
         "The item's level: 2 is no level: the levels are 1.\n"
@@ -109,6 +123,8 @@ fn a_work_is_paused_written_let_go_and_cancelled_from_the_command_line() {
         "Greet the user",
         "--flow",
         "trial",
+        "--project",
+        "script",
         "--write-file",
         &from_file,
     ]);
@@ -119,6 +135,8 @@ fn a_work_is_paused_written_let_go_and_cancelled_from_the_command_line() {
             "Say goodbye",
             "--flow",
             "trial",
+            "--project",
+            "script",
             "--depends-on",
             "1",
             "--write",
@@ -166,7 +184,17 @@ fn a_work_is_paused_written_let_go_and_cancelled_from_the_command_line() {
         "People do not write the block plan.\n"
     );
     assert_eq!(
-        engine.refuses(&["add", "--title", "Other", "--flow", "trial", "--write", "request"]),
+        engine.refuses(&[
+            "add",
+            "--title",
+            "Other",
+            "--flow",
+            "trial",
+            "--project",
+            "script",
+            "--write",
+            "request"
+        ]),
         "--write takes BLOCK=WHAT, and was given \"request\"\n"
     );
 }

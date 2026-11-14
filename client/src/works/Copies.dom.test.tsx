@@ -32,6 +32,7 @@ function sourceOf(copies: () => Promise<Copies>): Source {
   return {
     loadCopies: copies,
     loadItems: async () => fixtureItems(),
+    loadProjects: never,
     loadWork: never,
     loadVersion: never,
     loadRound: never,
