@@ -1,42 +1,27 @@
-// The panel docked at the chart's right: everything about the cell or block the owner chose, or, when nothing is chosen
-// and there is a definition to compare against, the list of what changed, each change as the owner approves it.
+// The panel docked at the chart's right: everything about the cell or block the owner chose.
 
 import { Fragment, type ReactNode, useState } from 'react';
 
-import type { ActWords, Block, Cell, Change, Fault, Flow, SentCarried, SentPart, SentPiece, Unknown } from './api';
+import type { ActWords, Block, Cell, Fault, Flow, SentCarried, SentPart, SentPiece, Unknown } from './api';
 import type { Chosen } from './Chart';
-import { markedChange } from './diff';
 import { FormTree } from './FormTree';
-import { type BlockRow, type CellColumn, type Matrix, markOf, where } from './matrix';
-import { ListRow, Panel, PanelPart, STATUS_WORDS, type Status, Attr, StatusLine } from './parts';
-
-/// Whether the panel is folded away, and the way to fold it or bring it back.
-export type Fold = { folded: boolean; onFold: () => void; edge?: ReactNode };
-
-/// The status line of what a change did to a thing, when it did anything.
-function ChangeStatus({ status, changes }: { status: Status; changes: number }) {
-  if (status === 'same') return null;
-  return (
-    <StatusLine tone={status} word={STATUS_WORDS[status].replace(/^./, (c) => c.toUpperCase())}>
-      {status === 'changed' ? `${changes} change${changes === 1 ? '' : 's'}, listed below` : undefined}
-    </StatusLine>
-  );
-}
+import { type BlockRow, type Matrix, markOf, where } from './matrix';
+import { Attr, ListRow, Panel, PanelPart, StatusLine } from './parts';
 import {
-  changeWords,
   charactersWords,
   conditionWords,
   faultWords,
   inputKindWords,
   listed,
-  placeOf,
   readsWords,
   runBy,
   testWords,
   thereWhen,
-  type Place,
   writersBesideCells,
 } from './words';
+
+/// Whether the panel is folded away, and the way to fold it or bring it back.
+export type Fold = { folded: boolean; onFold: () => void; edge?: ReactNode };
 
 /// A name the owner can choose to see it on the chart and in the panel.
 function Choose({
@@ -55,129 +40,7 @@ function Choose({
   );
 }
 
-/// What was taken out or put in of a text, each line break in it after a "↵", so that a change of a line break alone
-/// shows.
-const marked = (text: string) => text.replace(/\n/g, '↵\n');
-
-/// One change: what changed, what it was, and what it is. A task is what its agent is told, so a change of one keeps
-/// its line breaks: it stands as one text with the words taken out and put in marked, or, where most of its words
-/// changed or it had none or has none, what it was and what it is each as a block of their own, one under the other.
-export function ChangeLine({ change }: { change: Change }) {
-  const { what, before, after } = changeWords(change);
-  const parts =
-    change.kind === 'task' && change.before && change.after ? markedChange(change.before, change.after) : null;
-  if (parts) {
-    return (
-      <span className="change">
-        <span className="change-what">{what}</span>
-        <span className="change-text">
-          {parts.map((part, i) =>
-            part.kind === 'same' ? (
-              part.text
-            ) : part.kind === 'del' ? (
-              <del key={i}>{marked(part.text)}</del>
-            ) : (
-              <ins key={i}>{marked(part.text)}</ins>
-            ),
-          )}
-        </span>
-      </span>
-    );
-  }
-  if (change.kind === 'task') {
-    return (
-      <span className="change">
-        <span className="change-what">{what}</span>
-        {before && <del className="change-text">{before}</del>}
-        {after && <ins className="change-text">{after}</ins>}
-      </span>
-    );
-  }
-  return (
-    <span className="change">
-      <span className="change-what">{what}</span>
-      {before && <del>{before}</del>}
-      {before && after && <span aria-hidden="true"> → </span>}
-      {after && <ins>{after}</ins>}
-    </span>
-  );
-}
-
-/// The list of what changed, in the order the interface gives, each run of changes at one place under its place.
-export function ChangesList(props: {
-  changes: Change[];
-  after: Flow;
-  before: Flow;
-  onChoose: (c: Chosen) => void;
-  fold: Fold;
-}) {
-  const { changes, after, before, onChoose, fold } = props;
-  const groups: { place: Place; changes: Change[] }[] = [];
-  for (const change of changes) {
-    const place = placeOf(change);
-    const last = groups[groups.length - 1];
-    if (last && JSON.stringify(last.place) === JSON.stringify(place)) last.changes.push(change);
-    else groups.push({ place, changes: [change] });
-  }
-  const title = (id: string) => (after.cells.find((c) => c.id === id) ?? before.cells.find((c) => c.id === id))?.title;
-  const head = (place: Place) => {
-    switch (place.on) {
-      case 'flow':
-        return 'The flow';
-      case 'test':
-        return (
-          <>
-            Test <span className="mono">{place.test}</span>
-          </>
-        );
-      case 'cell':
-        return (
-          <Choose chosen={{ cell: place.cell }} onChoose={onChoose}>
-            <span className="mono">{place.cell}</span> {title(place.cell)}
-          </Choose>
-        );
-      case 'block':
-        return (
-          <Choose chosen={{ block: place.block }} onChoose={onChoose}>
-            Block <span className="mono">{place.block}</span>
-          </Choose>
-        );
-    }
-  };
-  return (
-    <Panel
-      label="What changed"
-      title="What changed"
-      belongs={`${before.name} → ${after.name}`}
-      lines={
-        <StatusLine tone={changes.length > 0 ? 'changed' : 'quiet'} word={`${changes.length} changes`}>
-          each under the place it is in, to approve one by one
-        </StatusLine>
-      }
-      {...fold}
-    >
-      {changes.length === 0 && <p className="muted">Nothing: the two definitions compile to the same flow</p>}
-      <ol className="changes">
-        {groups.map((group, i) => (
-          <li key={i} className="change-group">
-            <PanelPart label={head(group.place)}>
-              <ul>
-                {group.changes.map((change, j) => (
-                  <ListRow key={j}>
-                    <ChangeLine change={change} />
-                  </ListRow>
-                ))}
-              </ul>
-            </PanelPart>
-          </li>
-        ))}
-      </ol>
-    </Panel>
-  );
-}
-
-/// The faults of a definition, each with its file and field: in place of the chart, or of the list of changes when
-/// it is the definition compared against that does not compile.
+/// The faults of a definition, each with its file and field, in place of the chart.
 export function Faults({ faults }: { faults: Fault[] }) {
   return (
     <table className="table faults">
@@ -240,22 +103,6 @@ function Cells({
         );
       })}
     </>
-  );
-}
-
-/// The changes of one place of the flow, in the panel of that place.
-function ChangesHere({ changes }: { changes: Change[] }) {
-  if (changes.length === 0) return null;
-  return (
-    <PanelPart label="What changed" count={changes.length}>
-      <ul className="changes-here">
-        {changes.map((change, i) => (
-          <ListRow key={i}>
-            <ChangeLine change={change} />
-          </ListRow>
-        ))}
-      </ul>
-    </PanelPart>
   );
 }
 
@@ -398,10 +245,9 @@ function AgentSent({
 /// what its agent is sent as it is entered, when it runs, what it waits for, its limits and the cells it shares a
 /// session with.
 export function CellPanel(props: {
-  column: CellColumn;
+  cell: Cell;
   matrix: Matrix;
   flow: Flow;
-  changes: Change[];
   /// What the cell's agent is sent as the cell is entered, part by part in the order sent; none for an engine's
   /// cell, and where the page was not given it.
   sent?: SentPart[];
@@ -414,8 +260,7 @@ export function CellPanel(props: {
   onChoose: (c: Chosen) => void;
   fold: Fold;
 }) {
-  const { column, flow, changes, sent, tools, act, unknown, onChoose, fold } = props;
-  const cell = (column.cell ?? column.other) as Cell;
+  const { cell, flow, sent, tools, act, unknown, onChoose, fold } = props;
   const blocks = new Map(flow.blocks.map((b) => [b.name, b]));
   const onLine = cell.line ? (flow.lines.find((l) => l.name === cell.line)?.cells ?? []) : [];
   const sharing = onLine.filter((c) => c !== cell.id);
@@ -436,7 +281,6 @@ export function CellPanel(props: {
       }
       lines={
         <>
-          <ChangeStatus status={column.status} changes={changes.length} />
           {cell.condition && (
             <StatusLine word={<Attr name="when" value={conditionWords(cell.condition)} />}>
               {cell.condition.on === 'test' ? cell.condition.test.words : undefined}
@@ -451,7 +295,6 @@ export function CellPanel(props: {
       }
       {...fold}
     >
-      {!column.cell && <p className="muted">Not in the version shown: this is the cell as the other version has it</p>}
       {sent && sent.length > 0 ? (
         <>
           <PanelPart label="triggered_by" count={cell.triggers.length}>
@@ -486,11 +329,6 @@ export function CellPanel(props: {
             tools={tools ?? []}
             onChoose={onChoose}
           />
-          {changes.length > 0 && (
-            <Folded label={`what changed from main (${changes.length})`}>
-              <ChangesHere changes={changes} />
-            </Folded>
-          )}
         </>
       ) : (
         <>
@@ -647,8 +485,6 @@ export function CellPanel(props: {
               </p>
             </PanelPart>
           )}
-
-          <ChangesHere changes={changes} />
         </>
       )}
     </Panel>
@@ -739,12 +575,11 @@ export function BlockPanel(props: {
   row: BlockRow;
   matrix: Matrix;
   flow: Flow;
-  changes: Change[];
   onChoose: (c: Chosen) => void;
   fold: Fold;
 }) {
-  const { row, flow, changes, onChoose, fold } = props;
-  const block = (row.block ?? row.other) as Block;
+  const { row, flow, onChoose, fold } = props;
+  const block = row.block;
   const besides = writersBesideCells(block);
   const backs = flow.cells.flatMap((reader, r) => {
     const mark = markOf(reader, block.name);
@@ -759,7 +594,6 @@ export function BlockPanel(props: {
       belongs={block.values ? <Attr name="values" value={listed(block.values)} /> : undefined}
       lines={
         <>
-          <ChangeStatus status={row.status} changes={changes.length} />
           {block.what !== null && <StatusLine word={<span className="mono">what</span>}>{block.what}</StatusLine>}
           <StatusLine word={<span className="mono">written_by</span>}>
             {block.writtenBy.cells.length > 0 && <Cells flow={flow} ids={block.writtenBy.cells} onChoose={onChoose} />}
@@ -773,7 +607,6 @@ export function BlockPanel(props: {
       }
       {...fold}
     >
-      {!row.block && <p className="muted">Not in the version shown: this is the block as the other version has it</p>}
       {block.writes && block.writes.length > 0 && (
         <PanelPart label="writes" count={block.writes.length}>
           <ul className="uses">
@@ -788,9 +621,9 @@ export function BlockPanel(props: {
           </ul>
         </PanelPart>
       )}
-      {backs.length === 0 && changes.length === 0 && <p className="muted">No way back runs through it</p>}
+      {backs.length === 0 && <p className="muted">No way back runs through it</p>}
       {backs.length > 0 && (
-        <PanelPart label="way_back" count={backs.length} last={changes.length > 0}>
+        <PanelPart label="way_back" count={backs.length}>
           <ul className="uses">
             {backs.map(({ reader, writers, byCondition }) => (
               <ListRow key={reader}>
@@ -803,7 +636,6 @@ export function BlockPanel(props: {
           </ul>
         </PanelPart>
       )}
-      <ChangesHere changes={changes} />
     </Panel>
   );
 }

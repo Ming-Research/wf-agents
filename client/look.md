@@ -76,8 +76,8 @@ drawn line with an arrow.
   exists for; `submit` for the button that sends its form. A button that cannot be pressed yet, or whose act is on its
   way, is `disabled`: on the ground, muted, with no hover, so that nothing is sent twice.
 - **Segmented switch** (`Switch`): two or three choices side by side, the one chosen on the card. For a choice that is
-  always set, such as a version or the theme.
-- **Tag** (`Tag`): a few words or a count of a state, filled in its colour, 16px high, monospace, 3px corners, as the
+  always set, such as the theme.
+- **Tag** (`.tag`): a few words or a count of a state, filled in its colour, 16px high, monospace, 3px corners, as the
   console's count tags on a card.
 - **Label** (`Label`, `.label`): 11px, upper case, letter-spaced, muted: what a column or a value is.
 - **List row** (`ListRow`): one thing per row, at least 26px, a hairline under it.

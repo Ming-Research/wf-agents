@@ -1,5 +1,5 @@
 // The page's parts, its own small design system (look.md): the bar, the view's line, a button, a segmented switch, a
-// tag, a label, a list row, the docked panel, and the few signs the chart's heads use. Each is drawn by its class in
+// label, a list row, the docked panel, and the few signs the chart's heads use. Each is drawn by its class in
 // styles/parts.css from the tokens in styles/tokens.css.
 
 import { type PointerEvent as Press, type ReactNode, useEffect, useRef } from 'react';
@@ -170,21 +170,6 @@ export function Edge({ side, label, start, onDrag, onReset }: {
   );
 }
 
-/// What a change did to a thing.
-export type Status = 'same' | 'added' | 'removed' | 'changed';
-
-export const STATUS_WORDS: Record<Exclude<Status, 'same'>, string> = {
-  added: 'put in',
-  removed: 'taken out',
-  changed: 'changed',
-};
-
-/// A tag: a few words of a state, in its colour on its tint; nothing for a thing the change left as it was.
-export function Tag({ status }: { status: Status }) {
-  if (status === 'same') return null;
-  return <span className={`tag tag-${status}`}>{STATUS_WORDS[status]}</span>;
-}
-
 /// A label: what a part holds or what a value is, small, upper case and muted.
 export function Label({ children }: { children: ReactNode }) {
   return <span className="label">{children}</span>;
@@ -260,8 +245,8 @@ export function Panel({ label, id, title, belongs, lines, folded, onFold, foot, 
   );
 }
 
-/// The colours a status line's dot takes: none; green for put in or done; red for taken out or failed; orange for
-/// changed or waiting for the owner; blue for running; the way back's purple.
+/// The colours a status line's dot takes: none; green for done; red for failed; orange for a change of a block's
+/// meaning or for waiting for the owner; blue for running; the way back's purple.
 export type Tone = 'quiet' | 'added' | 'removed' | 'changed' | 'running' | 'back';
 
 /// A status line of a panel: a dot in the colour of what it says, a word in semibold, and the facts after it.

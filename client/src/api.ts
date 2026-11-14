@@ -11,8 +11,6 @@ export interface Limits {
   calls: number;
 }
 
-export type LimitName = keyof Limits;
-
 /// The cells that share one session.
 export interface Line {
   name: string;
@@ -242,81 +240,6 @@ export interface Fault {
 
 export type Definition =
   { state: 'compiled'; flow: Flow } | { state: 'faults'; faults: Fault[] } | { state: 'unreadable'; reason: string };
-
-/// One change from the definition compared against to the one shown. Places are counted from 0.
-export type Change =
-  | { kind: 'name'; before: string; after: string }
-  | { kind: 'flowLimit'; limit: LimitName; before: number; after: number }
-  | { kind: 'testAdded'; test: Test }
-  | { kind: 'testRemoved'; test: Test }
-  | { kind: 'testReworded'; test: string; before: string; after: string }
-  | { kind: 'testChanged'; test: string; before: Test; after: Test }
-  | { kind: 'rulesAdded'; name: string; text: string }
-  | { kind: 'rulesRemoved'; name: string; text: string }
-  | { kind: 'rulesChanged'; name: string; before: string; after: string }
-  | { kind: 'cellAdded'; cell: string; place: number }
-  | { kind: 'cellRemoved'; cell: string; place: number }
-  | { kind: 'cellMoved'; cell: string; before: number; after: number }
-  | { kind: 'title'; cell: string; before: string; after: string }
-  | { kind: 'kind'; cell: string; before: Kind; after: Kind }
-  | { kind: 'line'; cell: string; before: string | null; after: string | null }
-  | { kind: 'readsOnly'; cell: string; before: boolean; after: boolean }
-  /// The parts of the system prompt of the session of the cell's line, by name.
-  | { kind: 'system'; cell: string; before: string[]; after: string[] }
-  | { kind: 'takesMain'; cell: string; before: boolean; after: boolean }
-  | { kind: 'task'; cell: string; before: string | null; after: string | null }
-  | { kind: 'act'; cell: string; before: string | null; after: string | null }
-  | {
-      kind: 'condition';
-      cell: string;
-      before: Condition | null;
-      after: Condition | null;
-    }
-  | { kind: 'preconditionAdded'; cell: string; test: Test }
-  | { kind: 'preconditionRemoved'; cell: string; test: Test }
-  | { kind: 'runsOnAdded'; cell: string; block: string }
-  | { kind: 'runsOnRemoved'; cell: string; block: string }
-  | { kind: 'givenAdded'; cell: string; block: string }
-  | { kind: 'givenRemoved'; cell: string; block: string }
-  | { kind: 'outputAdded'; cell: string; block: string }
-  | { kind: 'outputRemoved'; cell: string; block: string }
-  | { kind: 'mustWriteAdded'; cell: string; block: string }
-  | { kind: 'mustWriteRemoved'; cell: string; block: string }
-  | { kind: 'describesAdded'; cell: string; block: string }
-  | { kind: 'describesRemoved'; cell: string; block: string }
-  | { kind: 'toolAdded'; cell: string; tool: string }
-  | { kind: 'toolRemoved'; cell: string; tool: string }
-  | { kind: 'runsWhy'; cell: string; block: string; before: string | null; after: string | null }
-  | { kind: 'givenKind'; cell: string; block: string; before: InputKind; after: InputKind }
-  /// The blocks the cell is given in both stand in another order; both lists whole.
-  | { kind: 'givenOrder'; cell: string; before: string[]; after: string[] }
-  | { kind: 'givenWhy'; cell: string; block: string; before: string | null; after: string | null }
-  | { kind: 'cellLimit'; cell: string; limit: LimitName; before: number; after: number }
-  | { kind: 'effort'; cell: string; before: string | null; after: string | null }
-  | { kind: 'levelsAbove'; cell: string; before: number; after: number }
-  | { kind: 'blockAdded'; block: string }
-  | { kind: 'blockRemoved'; block: string }
-  | {
-      kind: 'values';
-      block: string;
-      before: string[] | null;
-      after: string[] | null;
-    }
-  | { kind: 'people'; block: string; before: boolean; after: boolean }
-  | { kind: 'note'; block: string; before: boolean; after: boolean }
-  | {
-      kind: 'outside';
-      block: string;
-      before: string | null;
-      after: string | null;
-    }
-  | { kind: 'shown'; block: string; before: boolean; after: boolean }
-  | {
-      kind: 'what';
-      block: string;
-      before: string | null;
-      after: string | null;
-    };
 
 /// What a part of what an agent is sent is, for the page to know what it may do with it: the program's own part; a
 /// part of the system prompt; the form of the return; a part of a message that is no content of a block, nor the task,

@@ -8,7 +8,7 @@ import { type Definition, type Flow, type Given, load } from './api';
 import { Chart, type Chosen, Legend } from './Chart';
 import { LazyConsolePage } from './console/lazy';
 import { type BarItems, Engine, useBarItems, waitsForOwner } from './Engine';
-import { type Version, matrix } from './matrix';
+import { matrix } from './matrix';
 import { Bar, Edge, Panel, Switch } from './parts';
 import { type Route, hashOf, tabOf, useRoute } from './route';
 import { type Serves, opensOnFlow, useServes } from './serves';
@@ -37,8 +37,8 @@ export function App() {
 
 type Loaded = { definition: Definition; given?: Given } | { failed: string };
 
-/// The view a route names. The flow, once shown, stays as the owner left it (what is chosen, the version, the panel)
-/// while another tab is shown, and is not read again on coming back.
+/// The view a route names. The flow, once shown, stays as the owner left it (what is chosen, the panel) while another
+/// tab is shown, and is not read again on coming back.
 export function Views({
   route,
   loadFlow = load,
@@ -183,10 +183,8 @@ export function FlowPage({ definition, given, active = true }: {
   const [folded, setFolded] = useState(true);
   const [panelWidth, setPanelWidth] = useKeptWidth(WIDTH_KEYS.panel, PANEL.min, PANEL.max);
 
-  const after = definition.state === 'compiled' ? definition.flow : undefined;
-
-  const shownVersion: Version = 'after';
-  const drawn = useMemo(() => (after ? matrix({ after }, shownVersion) : undefined), [after, shownVersion]);
+  const flow = definition.state === 'compiled' ? definition.flow : undefined;
+  const drawn = useMemo(() => (flow ? matrix(flow) : undefined), [flow]);
 
   // Choosing brings the panel back if it was folded away; Escape lets go of what is chosen.
   const choose = useCallback((c: Chosen) => {
@@ -202,7 +200,7 @@ export function FlowPage({ definition, given, active = true }: {
     return () => window.removeEventListener('keydown', close);
   }, [close, active]);
 
-  if (!after || !drawn) {
+  if (!flow || !drawn) {
     return (
       <>
         <div className="view-line">
@@ -221,8 +219,7 @@ export function FlowPage({ definition, given, active = true }: {
     );
   }
 
-  const shownFlow = after;
-  const column = chosen && 'cell' in chosen ? drawn.cells.find((c) => c.id === chosen.cell) : undefined;
+  const cell = chosen && 'cell' in chosen ? drawn.cells.find((c) => c.id === chosen.cell) : undefined;
   // A block chosen by its name: a datum's row, or else the row of a trigger that stands on it, which a block standing
   // only for a trigger has alone.
   const row =
@@ -245,16 +242,15 @@ export function FlowPage({ definition, given, active = true }: {
       <p className="muted">Choose a cell's head or a block's name to see everything about it</p>
     </Panel>
   );
-  if (column) {
+  if (cell) {
     panel = (
       <CellPanel
-        column={column}
+        cell={cell}
         matrix={drawn}
-        flow={shownFlow}
-        changes={[]}
-        sent={shownVersion === 'after' && given?.state === 'compiled' ? given.cells[column.id] : undefined}
+        flow={flow}
+        sent={given?.state === 'compiled' ? given.cells[cell.id] : undefined}
         tools={given?.state === 'compiled' ? given.tools : undefined}
-        act={given?.state === 'compiled' ? given.acts[column.id] : undefined}
+        act={given?.state === 'compiled' ? given.acts[cell.id] : undefined}
         unknown={given?.state === 'compiled' ? given.unknown : undefined}
         onChoose={choose}
         fold={fold}
@@ -265,8 +261,7 @@ export function FlowPage({ definition, given, active = true }: {
       <BlockPanel
         row={row}
         matrix={drawn}
-        flow={shownFlow}
-        changes={[]}
+        flow={flow}
         onChoose={choose}
         fold={fold}
       />
@@ -276,12 +271,12 @@ export function FlowPage({ definition, given, active = true }: {
   return (
     <>
       <div className="view-line">
-        <span className="view-name">{shownFlow.name}</span>
+        <span className="view-name">{flow.name}</span>
         <span className="view-facts" title="flow.toml">
-          {limitsWords(shownFlow)}
+          {limitsWords(flow)}
         </span>
         <span className="view-end">
-          <Legend waysBack={drawn.waysBack} comparing={false} />
+          <Legend waysBack={drawn.waysBack} />
         </span>
       </div>
       <main

@@ -343,18 +343,6 @@ textarea:disabled {
   white-space: nowrap;
 }
 
-.tag-added {
-  background: var(--green);
-}
-
-.tag-removed {
-  background: var(--red);
-}
-
-.tag-changed {
-  background: var(--orange);
-}
-
 /* A list row: one thing on one line, or wrapping when its words need it, at least a row high. */
 .list-row {
   display: flex;
@@ -588,31 +576,6 @@ textarea:disabled {
 
 .pairs dt {
   color: var(--muted);
-}
-
-/* A change: what changed, what it was and what it is. */
-.change-what {
-  margin-right: var(--space-8);
-  color: var(--muted);
-}
-
-/* A text a change took out or put in, such as a task, or a task with its changed words marked: on a line of its own,
-   its line breaks kept. */
-.change-text {
-  display: block;
-  margin-top: var(--space-4);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-/* What a change took out and put in. */
-del {
-  color: var(--red-text);
-}
-
-ins {
-  color: var(--green-text);
-  text-decoration: none;
 }
 
 /* A table of the page's: hairlines between rows, its head in labels. */

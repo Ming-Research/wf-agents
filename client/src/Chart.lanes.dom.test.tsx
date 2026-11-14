@@ -40,7 +40,7 @@ function drawn(flow: Flow): HTMLElement {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
-  act(() => root.render(<Chart matrix={matrix({ after: flow }, 'after')} chosen={null} onChoose={() => undefined} />));
+  act(() => root.render(<Chart matrix={matrix(flow)} chosen={null} onChoose={() => undefined} />));
   unmount = () => act(() => root.unmount());
   return container;
 }

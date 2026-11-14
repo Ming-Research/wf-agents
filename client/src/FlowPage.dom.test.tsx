@@ -5,9 +5,8 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { Change, Definition } from './api';
+import type { Definition } from './api';
 import { FlowPage, Shell } from './App';
-import { ChangeLine } from './Side';
 import { cell, flowOf, small, test } from './testing';
 
 let unmount: (() => void) | undefined;
@@ -58,16 +57,6 @@ const rows = (page: HTMLElement, triggers: boolean) =>
 /// The row of a datum, or of a trigger, of this name.
 const rowOf = (page: HTMLElement, name: string, trigger = false) =>
   rows(page, trigger).find((tr) => tr.querySelector('.block-name')?.textContent === name) as HTMLElement;
-
-/// The change drawn as the list of what changed draws it.
-function changeOf(change: Change): HTMLElement {
-  const container = document.createElement('div');
-  document.body.append(container);
-  const root = createRoot(container);
-  act(() => root.render(<ChangeLine change={change} />));
-  unmount = () => act(() => root.unmount());
-  return container.querySelector('.change') as HTMLElement;
-}
 
 describe('the chart', () => {
   it('shows the triggers’ rows over the data’s, the cells across in the order of the walk, and what each cell does with each', () => {
@@ -211,39 +200,6 @@ describe('the chart', () => {
   it('gives each cell’s column an edge to drag', () => {
     const page = draw({ state: 'compiled', flow: small() });
     expect(page.querySelectorAll('thead .cell-head .edge')).toHaveLength(6);
-  });
-});
-
-describe('a change of a task', () => {
-  const task = (before: string, after: string): Change => ({ kind: 'task', cell: 'a', before, after });
-
-  it('shows a change of a line break alone by a visible mark, the line breaks kept', () => {
-    const change = changeOf(task('Write the plan.\nSay what it leaves out.', 'Write the plan.\n\nSay what it leaves out.'));
-    expect(change.querySelector('.change-text')?.textContent).toBe('Write the plan.\n↵\nSay what it leaves out.');
-    expect(texts(change, 'ins')).toEqual(['↵']);
-    expect(change.querySelector('del')).toBeNull();
-    expect(change.textContent).not.toContain('→');
-  });
-
-  it('shows it as one text, the words taken out and put in marked', () => {
-    const was = 'Write the plan from the request.\nSay what it leaves out.\n\nKeep it short.';
-    const is = 'Write the plan from the request and its comments.\nSay what it leaves out.\n\nKeep it brief.';
-    const change = changeOf(task(was, is));
-    expect(change.querySelectorAll('.change-text')).toHaveLength(1);
-    expect(texts(change, 'del')).toEqual(['request.', 'short.']);
-    expect(texts(change, 'ins')).toEqual(['request and its comments.', 'brief.']);
-    const text = change.querySelector('.change-text') as HTMLElement;
-    // What stayed is plain, in the text itself, its line breaks as written.
-    const plain = [...text.childNodes].filter((n) => n.nodeType === Node.TEXT_NODE).map((n) => n.textContent);
-    expect(plain).toEqual(['Write the plan from the ', '\nSay what it leaves out.\n\nKeep it ']);
-  });
-
-  it('shows one whose words mostly changed as what it was, then what it is, each whole', () => {
-    const was = 'Write the plan from the request.';
-    const is = 'Review the code and its tests, and say whether you are content.';
-    const change = changeOf(task(was, is));
-    expect(change.querySelector('del.change-text')?.textContent).toBe(was);
-    expect(change.querySelector('ins.change-text')?.textContent).toBe(is);
   });
 });
 

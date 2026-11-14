@@ -15,10 +15,9 @@
 
 import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, useState } from 'react';
 
-import type { Block, Cell, Change, InputKind } from './api';
+import type { Cell, InputKind } from './api';
 import {
   type BlockRow,
-  type CellColumn,
   type Mark,
   MARK_PARTS,
   type MarkPart,
@@ -29,7 +28,7 @@ import {
   type ToolSpot,
   hasMark,
 } from './matrix';
-import { Edge, STATUS_WORDS, Sign } from './parts';
+import { Edge, Sign } from './parts';
 import { WIDTH_KEYS, useKeptWidth, useKeptWidths } from './sizes';
 import { cellSays, headFacts, inputKindWords, runBy } from './words';
 
@@ -45,10 +44,8 @@ const PART_WORDS: Record<MarkPart, string> = {
 };
 
 /// The words a mark says, for the pointer's tip and for a reader of the screen: "plan is run by, is given opinions".
-export function markWords(cell: string, block: string, spot: Pick<Spot, 'mark' | 'added' | 'removed'>): string {
+export function markWords(cell: string, block: string, spot: Pick<Spot, 'mark'>): string {
   const parts = MARK_PARTS.flatMap((part) => {
-    if (spot.added[part]) return [`${PART_WORDS[part]} (put in)`];
-    if (spot.removed[part]) return [`${PART_WORDS[part]} (taken out)`];
     if (!spot.mark[part]) return [];
     return part === 'given' && spot.mark.kind
       ? [`${PART_WORDS[part]} ${inputKindWords(spot.mark.kind)}`]
@@ -57,31 +54,20 @@ export function markWords(cell: string, block: string, spot: Pick<Spot, 'mark' |
   return parts.length > 0 ? `${cell} ${parts.join(', ')} ${block}` : '';
 }
 
-/// How one part of a mark is drawn: as it stands, put in by the change, or taken out by it.
-function partClass(part: MarkPart, spot: Spot): string | null {
-  if (spot.added[part]) return 'added';
-  if (spot.removed[part]) return 'removed';
-  return spot.mark[part] ? 'plain' : null;
-}
-
 /// A mark: a ring where the block runs the cell and the cell is given it, the ring's left half alone where the block
 /// only runs the cell, its right half alone where the cell is only given the block; a dot where the cell may write
 /// it, inside the ring or a half of it where both; a diamond round them where its condition reads the block's value,
 /// and a square round them where a precondition does.
 export function MarkGlyph({ spot }: { spot: Spot }) {
-  const runs = partClass('runs', spot);
-  const given = partClass('given', spot);
-  const write = partClass('write', spot);
-  const condition = partClass('condition', spot);
-  const precondition = partClass('precondition', spot);
-  if (!runs && !given && !write && !condition && !precondition) return null;
+  const { runs, given, write, condition, precondition } = spot.mark;
+  if (!hasMark(spot.mark)) return null;
   return (
     <svg className="glyph" viewBox="0 0 24 24" aria-hidden="true">
-      {condition && <polygon className={`part condition ${condition}`} points="12,1.5 22.5,12 12,22.5 1.5,12" />}
-      {precondition && <rect className={`part precondition ${precondition}`} x="3.5" y="3.5" width="17" height="17" />}
-      {runs && <path className={`part runs ${runs}`} d="M12 5.5 A6.5 6.5 0 0 0 12 18.5" />}
-      {given && <path className={`part given ${given}`} d="M12 5.5 A6.5 6.5 0 0 1 12 18.5" />}
-      {write && <circle className={`part write ${write}`} cx="12" cy="12" r={runs || given ? 3.25 : 6} />}
+      {condition && <polygon className="part condition" points="12,1.5 22.5,12 12,22.5 1.5,12" />}
+      {precondition && <rect className="part precondition" x="3.5" y="3.5" width="17" height="17" />}
+      {runs && <path className="part runs" d="M12 5.5 A6.5 6.5 0 0 0 12 18.5" />}
+      {given && <path className="part given" d="M12 5.5 A6.5 6.5 0 0 1 12 18.5" />}
+      {write && <circle className="part write" cx="12" cy="12" r={runs || given ? 3.25 : 6} />}
     </svg>
   );
 }
@@ -96,13 +82,12 @@ const KIND_SIGNS: Record<InputKind, string> = {
 /// A mark on a trigger's row: a ring where the trigger runs the cell, a disc where the cell writes the block the
 /// trigger stands on, a ring with a dot where both.
 export function TriggerGlyph({ spot }: { spot: Spot }) {
-  const runs = partClass('runs', spot);
-  const write = partClass('write', spot);
+  const { runs, write } = spot.mark;
   if (!runs && !write) return null;
   return (
     <svg className="glyph" viewBox="0 0 24 24" aria-hidden="true">
-      {runs && <circle className={`part runs ${runs}`} cx="12" cy="12" r="6.5" />}
-      {write && <circle className={`part write ${write}`} cx="12" cy="12" r={runs ? 3.25 : 6} />}
+      {runs && <circle className="part runs" cx="12" cy="12" r="6.5" />}
+      {write && <circle className="part write" cx="12" cy="12" r={runs ? 3.25 : 6} />}
     </svg>
   );
 }
@@ -120,12 +105,12 @@ export function DataGlyphs({ spot }: { spot: Spot }) {
   );
   return (
     <span className="glyphs">
-      {m.write && box('write', <circle className="part write plain" cx="12" cy="12" r="6" />)}
+      {m.write && box('write', <circle className="part write" cx="12" cy="12" r="6" />)}
       {m.given &&
         box(
           'given',
           <>
-            <circle className="part given plain" cx="12" cy="12" r="8" />
+            <circle className="part given" cx="12" cy="12" r="8" />
             {m.kind && (
               <text className="part kind" x="12" y="12">
                 {KIND_SIGNS[m.kind]}
@@ -133,19 +118,17 @@ export function DataGlyphs({ spot }: { spot: Spot }) {
             )}
           </>,
         )}
-      {m.condition && box('when', <polygon className="part condition plain" points="12,1.5 22.5,12 12,22.5 1.5,12" />)}
+      {m.condition && box('when', <polygon className="part condition" points="12,1.5 22.5,12 12,22.5 1.5,12" />)}
       {m.precondition &&
-        box('requires', <rect className="part precondition plain" x="3.5" y="3.5" width="17" height="17" />)}
+        box('requires', <rect className="part precondition" x="3.5" y="3.5" width="17" height="17" />)}
     </span>
   );
 }
 
-/// The legend of the marks and signs, in the view's line; with what a change's colours mean when comparing.
-export function Legend({ waysBack, comparing }: { waysBack: number; comparing: boolean }) {
+/// The legend of the marks and signs, in the view's line.
+export function Legend({ waysBack }: { waysBack: number }) {
   const spot = (mark: Partial<Mark>): Spot => ({
     mark: { ...NO_MARK, ...mark },
-    added: NO_MARK,
-    removed: NO_MARK,
     line: 'none',
     back: 'none',
     backTo: false,
@@ -180,7 +163,7 @@ export function Legend({ waysBack, comparing }: { waysBack: number; comparing: b
         <DataGlyphs spot={spot({ precondition: true })} /> requires
       </li>
       <li>
-        <ToolGlyph spot={{ asks: true, added: false, removed: false }} /> tools
+        <ToolGlyph spot={{ asks: true }} /> tools
       </li>
       <li>
         <Sign name="people" /> people
@@ -191,24 +174,16 @@ export function Legend({ waysBack, comparing }: { waysBack: number; comparing: b
       <li>
         <Sign name="shown" /> shown
       </li>
-      {comparing &&
-        (['added', 'removed', 'changed'] as const).map((status) => (
-          <li key={status}>
-            <span className={`legend-status status-${status}`} aria-hidden="true" /> {STATUS_WORDS[status]}
-          </li>
-        ))}
     </ul>
   );
 }
 
-/// The mark of a tool a cell may ask for: a small triangle, in the change's colour where the change put it in or took
-/// it out.
+/// The mark of a tool a cell may ask for: a small triangle.
 function ToolGlyph({ spot }: { spot: ToolSpot }) {
-  const status = spot.added ? 'added' : spot.removed ? 'removed' : spot.asks ? 'plain' : null;
-  if (!status) return null;
+  if (!spot.asks) return null;
   return (
     <svg className="glyph" viewBox="0 0 24 24" aria-hidden="true">
-      <path className={`part tool ${status}`} d="M8.5 7 L17 12 L8.5 17 Z" />
+      <path className="part tool" d="M8.5 7 L17 12 L8.5 17 Z" />
     </svg>
   );
 }
@@ -300,10 +275,10 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
   const namesWidth = names ?? WIDTHS.names;
   const widthOf = (id: string) => widths[id] ?? FLOW_WIDTHS.cell;
   // The table takes the frame's whole width: the names' column and the cells' at theirs, the words the rest.
-  const taken = cells.reduce((sum, column) => sum + widthOf(column.id), namesWidth);
+  const taken = cells.reduce((sum, cell) => sum + widthOf(cell.id), namesWidth);
   const size = { width: '100%', minWidth: taken + FLOW_WIDTHS.words };
 
-  // What is chosen elsewhere (the list of changes, a panel) is brought into view in the frame.
+  // What is chosen elsewhere (a panel) is brought into view in the frame.
   useEffect(() => {
     if (!chosen) return;
     const key = 'cell' in chosen ? `cell:${chosen.cell}` : `block:${chosen.block}`;
@@ -313,12 +288,10 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
 
   const chosenCell = chosen && 'cell' in chosen ? chosen.cell : null;
   const chosenBlock = chosen && 'block' in chosen ? chosen.block : null;
-  const cellOf = (column: CellColumn | undefined) => (column ? ((column.cell ?? column.other) as Cell) : null);
   // The cell whose words the rows show, and the cell the head of the words is about: the one under the pointer, or
   // else the one chosen.
-  const sayingColumn = cells.find((c) => c.id === chosenCell);
-  const saying = cellOf(sayingColumn);
-  const about = (pointed !== null ? cells[pointed] : undefined) ?? sayingColumn;
+  const saying = cells.find((c) => c.id === chosenCell) ?? null;
+  const about = (pointed !== null ? cells[pointed] : undefined) ?? saying;
   const unpoint = () => setPointed(null);
 
   return (
@@ -326,8 +299,8 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
       <table className="matrix flow" style={size as CSSProperties}>
         <colgroup>
           <col style={{ width: namesWidth }} />
-          {cells.map((column) => (
-            <col key={column.id} style={{ width: widthOf(column.id) }} />
+          {cells.map((cell) => (
+            <col key={cell.id} style={{ width: widthOf(cell.id) }} />
           ))}
           <col />
         </colgroup>
@@ -349,17 +322,17 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
                 onReset={() => setNames(null)}
               />
             </th>
-            {cells.map((column, c) => (
+            {cells.map((cell, c) => (
               <CellHead
-                key={column.id}
-                column={column}
-                chosen={chosenCell === column.id}
+                key={cell.id}
+                cell={cell}
+                chosen={chosenCell === cell.id}
                 pointed={pointed === c}
-                onChoose={() => onChoose(chosenCell === column.id ? null : { cell: column.id })}
+                onChoose={() => onChoose(chosenCell === cell.id ? null : { cell: cell.id })}
                 onPoint={() => setPointed(c)}
                 onUnpoint={unpoint}
-                width={widthOf(column.id)}
-                onWidth={(w) => setWidth(column.id, w)}
+                width={widthOf(cell.id)}
+                onWidth={(w) => setWidth(cell.id, w)}
               />
             ))}
             <WordsHead about={about} saying={saying} onPoint={unpoint} />
@@ -384,8 +357,8 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
           <tbody key={trigger ? 'triggers' : 'blocks'} className={trigger ? 'tools' : undefined}>
             {blocks.map((row, r) => {
               if (isTrigger(row) !== trigger) return null;
-              const isChosen = chosenBlock === (row.on ?? row.name);
-              const what = trigger ? (row.what ?? '') : ((row.block ?? row.other)?.what ?? '');
+              const isChosen = chosenBlock === row.on;
+              const what = trigger ? (row.what ?? '') : (row.block.what ?? '');
               // What the chosen cell says of the block; of one it may write, with what the block is, which is what the
               // cell is to hand in.
               const says = !saying
@@ -395,32 +368,28 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
                   : cellSays(saying, row.name);
               const said = says && what && saying?.outputs.includes(row.name) ? `${says}: ${what}` : says;
               return (
-                <tr
-                  key={row.name}
-                  className={`row status-${row.status} ${row.block ? '' : 'absent'} ${isChosen ? 'chosen' : ''}`}
-                >
+                <tr key={row.name} className={`row ${isChosen ? 'chosen' : ''}`}>
                   <BlockHead
                     row={row}
                     label={trigger ? row.name : null}
                     chosen={isChosen}
-                    onChoose={() => onChoose(isChosen ? null : { block: row.on ?? row.name })}
+                    onChoose={() => onChoose(isChosen ? null : { block: row.on })}
                     onPoint={unpoint}
                   />
-                  {cells.map((column, c) => (
+                  {cells.map((cell, c) => (
                     <SpotCell
-                      key={column.id}
+                      key={cell.id}
                       spot={spots[r][c]}
                       trigger={trigger}
-                      cell={column.id}
+                      cell={cell.id}
                       block={row.name}
-                      absent={!column.cell}
-                      chosen={chosenCell === column.id}
+                      chosen={chosenCell === cell.id}
                       pointed={pointed === c}
                       onPoint={() => setPointed(c)}
                     />
                   ))}
                   <td
-                    className={`words ${said ? 'said' : saying ? 'beside' : ''} ${row.changed.has('what') ? 'changed-field' : ''}`}
+                    className={`words ${said ? 'said' : saying ? 'beside' : ''}`}
                     title={said || what || undefined}
                     onMouseEnter={unpoint}
                   >
@@ -438,10 +407,9 @@ export function Chart({ matrix, chosen, onChoose }: ChartProps) {
 
 /// The head of a cell's column: its id and the first word of its line, which is all a column as wide as its marks has
 /// room for. Its title, its line in full, when it runs and what it waits for are over the column of words while the
-/// pointer or the keyboard is on the column, and in the cell's panel; what a change did to the cell is the colour of
-/// the head's edge, which the legend names, and what it changed of those is marked where they are said.
+/// pointer or the keyboard is on the column, and in the cell's panel.
 function CellHead(props: {
-  column: CellColumn;
+  cell: Cell;
   chosen: boolean;
   pointed: boolean;
   onChoose: () => void;
@@ -451,19 +419,14 @@ function CellHead(props: {
   /// Sets the column's width as dragged, or, with none, gives it back the width it starts at.
   onWidth: (width: number | null) => void;
 }) {
-  const { column, chosen, pointed, onChoose, onPoint, onUnpoint, width, onWidth } = props;
-  const cell = (column.cell ?? column.other) as Cell;
-  const changed = (...kinds: Change['kind'][]) => (kinds.some((k) => column.changed.has(k)) ? 'changed-field' : '');
+  const { cell, chosen, pointed, onChoose, onPoint, onUnpoint, width, onWidth } = props;
   const facts = headFacts(cell);
-  const status = column.status === 'same' ? [] : [STATUS_WORDS[column.status]];
-  const name = [`${cell.id} ${cell.title}`, facts.by, facts.when, facts.waits, ...status].filter((f) => f !== null);
+  const name = [`${cell.id} ${cell.title}`, facts.by, facts.when, facts.waits].filter((f) => f !== null);
   return (
     <th
       scope="col"
-      className={`cell-head status-${column.status} ${column.cell ? '' : 'absent'} ${chosen ? 'chosen' : ''} ${
-        pointed ? 'pointed' : ''
-      }`}
-      data-key={`cell:${column.id}`}
+      className={`cell-head ${chosen ? 'chosen' : ''} ${pointed ? 'pointed' : ''}`}
+      data-key={`cell:${cell.id}`}
       onMouseEnter={onPoint}
     >
       <button
@@ -475,16 +438,12 @@ function CellHead(props: {
         onFocus={onPoint}
         onBlur={onUnpoint}
       >
-        <span className={`cell-id ${changed('cellMoved')}`}>{column.id}</span>
-        <span
-          className={`cell-line ${cell.kind === 'agent' ? 'line-name' : ''} ${changed('kind', 'line', 'readsOnly')}`}
-        >
-          {runBy(cell).split('_')[0]}
-        </span>
+        <span className="cell-id">{cell.id}</span>
+        <span className={`cell-line ${cell.kind === 'agent' ? 'line-name' : ''}`}>{runBy(cell).split('_')[0]}</span>
       </button>
       <Edge
         side="right"
-        label={`Drag the width of ${column.id}'s column`}
+        label={`Drag the width of ${cell.id}'s column`}
         start={() => width}
         onDrag={onWidth}
         onReset={() => onWidth(null)}
@@ -494,39 +453,32 @@ function CellHead(props: {
 }
 
 /// The head of the column of words: the cell under the pointer, or else the cell chosen, by its id, its title, who
-/// runs it, when it runs and what it waits for, each marked where a change changed it; and under that what the column
-/// holds, which is what each block is until a cell is chosen, and then what that cell says of each block it has to do
-/// with.
-function WordsHead(props: { about: CellColumn | undefined; saying: Cell | null; onPoint: () => void }) {
-  const { about, saying, onPoint } = props;
-  const cell = about ? ((about.cell ?? about.other) as Cell) : null;
+/// runs it, when it runs and what it waits for; and under that what the column holds, which is what each block is until
+/// a cell is chosen, and then what that cell says of each block it has to do with.
+function WordsHead(props: { about: Cell | null; saying: Cell | null; onPoint: () => void }) {
+  const { about: cell, saying, onPoint } = props;
   const facts = cell ? headFacts(cell) : null;
-  const changed = (...kinds: Change['kind'][]) => (kinds.some((k) => about?.changed.has(k)) ? 'changed-field' : '');
   const whole =
     cell && facts ? [`${cell.id} ${cell.title}`, facts.by, facts.when, facts.waits].filter((f) => f !== null) : [];
   return (
     <th scope="col" className="words-head" onMouseEnter={onPoint}>
-      <span
-        className={`words-about ${about && !about.cell ? 'absent' : ''} ${about?.status === 'removed' ? 'taken-out' : ''}`}
-        title={whole.join(' · ') || undefined}
-      >
+      <span className="words-about" title={whole.join(' · ') || undefined}>
         {cell && facts && (
           <>
-            <span className="cell-id">{cell.id}</span>{' '}
-            <span className={`cell-title ${changed('title')}`}>{cell.title}</span>
+            <span className="cell-id">{cell.id}</span> <span className="cell-title">{cell.title}</span>
             <span className="muted">
               {' · '}
-              <span className={changed('kind', 'line', 'readsOnly')}>{facts.by}</span>
+              {facts.by}
               {facts.when !== null && (
                 <>
                   {' · '}
-                  <span className={changed('condition')}>{facts.when}</span>
+                  {facts.when}
                 </>
               )}
               {facts.waits !== null && (
                 <>
                   {' · '}
-                  <span className={changed('preconditionAdded', 'preconditionRemoved')}>{facts.waits}</span>
+                  {facts.waits}
                 </>
               )}
             </span>
@@ -541,8 +493,7 @@ function WordsHead(props: { about: CellColumn | undefined; saying: Cell | null; 
 }
 
 /// The name of a block at the left of its row, with its signs, the source outside the work that writes it and the
-/// values of a choice after it. What a change did to it is the colour of its edge, which the legend names, so that the
-/// name keeps the room.
+/// values of a choice after it.
 function BlockHead(props: {
   row: BlockRow;
   /// Of a row that stands only for a trigger, the trigger's name.
@@ -552,31 +503,29 @@ function BlockHead(props: {
   onPoint: () => void;
 }) {
   const { row, label, chosen, onChoose, onPoint } = props;
-  const block = (row.block ?? row.other) as Block;
-  const changed = (kind: 'values' | 'people' | 'outside' | 'shown') => (row.changed.has(kind) ? 'changed-field' : '');
-  const status = row.status === 'same' ? '' : `, ${STATUS_WORDS[row.status]}`;
+  const block = row.block;
   return (
     <th scope="row" className="lead block-head" data-key={`block:${row.name}`} onMouseEnter={onPoint}>
       <button
         type="button"
         className="head-button"
         aria-pressed={chosen}
-        aria-label={`Block ${row.name}${status}`}
+        aria-label={`Block ${row.name}`}
         onClick={onChoose}
       >
         <span className="block-name" title={row.name}>
           {label ?? row.name}
         </span>
         {label !== null && <span className="tool-label">trigger</span>}
-        {block.writtenBy.people && <Sign name="people" className={changed('people')} />}
+        {block.writtenBy.people && <Sign name="people" />}
         {block.writtenBy.outside !== null && (
           <span title={`from ${block.writtenBy.outside}`}>
-            <Sign name="outside" className={changed('outside')} />
+            <Sign name="outside" />
           </span>
         )}
-        {label === null && block.readBy.shown && <Sign name="shown" className={changed('shown')} />}
+        {label === null && block.readBy.shown && <Sign name="shown" />}
         {label === null && block.values && (
-          <span className={`block-values ${changed('values')}`} title={block.values.join(' | ')}>
+          <span className="block-values" title={block.values.join(' | ')}>
             {block.values.join('|')}
           </span>
         )}
@@ -589,7 +538,7 @@ function BlockHead(props: {
 /// the tool does; on the row of a tool the chosen cell may ask for, that it may.
 function ToolLine(props: {
   row: ToolRow;
-  cells: CellColumn[];
+  cells: Cell[];
   chosenCell: string | null;
   saying: Cell | null;
   pointed: number | null;
@@ -605,21 +554,13 @@ function ToolLine(props: {
         </span>
         <span className="tool-label">tool</span>
       </th>
-      {cells.map((column, c) => {
+      {cells.map((cell, c) => {
         const spot = row.spots[c];
-        const words = spot.added
-          ? `${column.id} may ask for ${row.name} (put in)`
-          : spot.removed
-            ? `${column.id} may ask for ${row.name} (taken out)`
-            : spot.asks
-              ? `${column.id} may ask for ${row.name}`
-              : '';
+        const words = spot.asks ? `${cell.id} may ask for ${row.name}` : '';
         return (
           <td
-            key={column.id}
-            className={`spot ${column.cell ? '' : 'absent'} ${chosenCell === column.id ? 'chosen' : ''} ${
-              pointed === c ? 'pointed' : ''
-            }`}
+            key={cell.id}
+            className={`spot ${chosenCell === cell.id ? 'chosen' : ''} ${pointed === c ? 'pointed' : ''}`}
             title={words || undefined}
             onMouseEnter={() => onPoint(c)}
           >
@@ -645,12 +586,11 @@ function SpotCell(props: {
   trigger: boolean;
   cell: string;
   block: string;
-  absent: boolean;
   chosen: boolean;
   pointed: boolean;
   onPoint: () => void;
 }) {
-  const { spot, trigger, cell, block, absent, chosen, pointed, onPoint } = props;
+  const { spot, trigger, cell, block, chosen, pointed, onPoint } = props;
   // Each half of the crossing carries the row's line, the way back, or both. Where both run, each keeps to its lane,
   // the line above the middle and the way back below it, so that neither covers the other; the mark stays in the
   // middle.
@@ -667,12 +607,9 @@ function SpotCell(props: {
   // The arrow of a way back is at the right of the read it points at, in the way back's lane.
   const arrowLane = runs('line', 'right') && runs('back', 'right') ? 'lane' : '';
   const words = markWords(cell, block, spot);
-  const marked = hasMark(spot.mark) || hasMark(spot.added) || hasMark(spot.removed);
   return (
     <td
-      className={`spot ${marked ? 'has-mark' : ''} ${absent ? 'absent' : ''} ${chosen ? 'chosen' : ''} ${
-        pointed ? 'pointed' : ''
-      }`}
+      className={`spot ${hasMark(spot.mark) ? 'has-mark' : ''} ${chosen ? 'chosen' : ''} ${pointed ? 'pointed' : ''}`}
       onMouseEnter={onPoint}
       title={words || undefined}
     >

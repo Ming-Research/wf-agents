@@ -73,7 +73,7 @@
   /* What a hover adds to the background under it: one step. */
   --step: rgb(0 0 0 / 4%);
 
-  /* The meanings, and only these: put in or done; waits for the owner or changed; running; taken out or failed; the way
+  /* The meanings, and only these: done; waits for the owner, or a change of a block's meaning; running; failed; the way
      back. A mark or a tag takes the colour itself; small text takes its text step, a darker step where the colour does
      not read on white; a fill takes its tint. */
   --green: #2f9e6e;

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { TestKind } from './api';
 import { test } from './testing';
-import { changeWords, conditionWords, faultWords, readsWords, writersBesideCells } from './words';
+import { conditionWords, faultWords, readsWords, writersBesideCells } from './words';
 
 describe('the words of the page', () => {
   it('say a condition by its block and value, or by its test’s name, as the cell’s file writes it', () => {
@@ -33,128 +33,7 @@ describe('the words of the page', () => {
     expect(writersBesideCells(block)).toEqual(['people', 'outside main']);
   });
 
-  it('say a change by the key it changed, as the files write it, and its value before and after', () => {
-    expect(changeWords({ kind: 'cellMoved', cell: 'a', before: 3, after: 0 })).toEqual({
-      what: 'order',
-      before: '4',
-      after: '1',
-    });
-    expect(
-      changeWords({ kind: 'condition', cell: 'a', before: null, after: { on: 'block', block: 'x', value: 'no' } }),
-    ).toEqual({ what: 'when', before: '', after: 'x is no' });
-    expect(changeWords({ kind: 'runsOnRemoved', cell: 'a', block: 'x' })).toEqual({
-      what: 'triggered_by',
-      before: 'x',
-      after: '',
-    });
-    expect(changeWords({ kind: 'givenAdded', cell: 'a', block: 'x' })).toEqual({
-      what: 'context',
-      before: '',
-      after: 'x',
-    });
-    expect(changeWords({ kind: 'toolAdded', cell: 'a', tool: 'query' })).toEqual({
-      what: 'tools',
-      before: '',
-      after: 'query',
-    });
-    expect(changeWords({ kind: 'system', cell: 'a', before: [], after: ['general', 'engineering'] })).toEqual({
-      what: 'rules',
-      before: '[]',
-      after: '[general, engineering]',
-    });
-    expect(changeWords({ kind: 'givenOrder', cell: 'a', before: ['x', 'y'], after: ['y', 'x'] })).toEqual({
-      what: 'context',
-      before: '[x, y]',
-      after: '[y, x]',
-    });
-    expect(changeWords({ kind: 'rulesChanged', name: 'general', before: 'One.', after: 'Two.' })).toEqual({
-      what: 'rules/general.md',
-      before: 'One.',
-      after: 'Two.',
-    });
-    expect(changeWords({ kind: 'givenKind', cell: 'a', block: 'x', before: 'lastAndLatest', after: 'all' })).toEqual({
-      what: 'kinds.x',
-      before: 'last_and_latest',
-      after: 'all',
-    });
-    expect(changeWords({ kind: 'runsWhy', cell: 'a', block: 'x', before: null, after: 'It is new.' })).toEqual({
-      what: 'run.x.why',
-      before: '',
-      after: 'It is new.',
-    });
-    expect(changeWords({ kind: 'readsOnly', cell: 'a', before: false, after: true })).toEqual({
-      what: 'reads_only',
-      before: 'false',
-      after: 'true',
-    });
-    expect(changeWords({ kind: 'mustWriteAdded', cell: 'a', block: 'x' })).toEqual({
-      what: 'must_write',
-      before: '',
-      after: 'x',
-    });
-    expect(changeWords({ kind: 'mustWriteRemoved', cell: 'a', block: 'x' })).toEqual({
-      what: 'must_write',
-      before: 'x',
-      after: '',
-    });
-    expect(changeWords({ kind: 'effort', cell: 'a', before: 'high', after: 'xhigh' })).toEqual({
-      what: 'effort',
-      before: 'high',
-      after: 'xhigh',
-    });
-    expect(changeWords({ kind: 'levelsAbove', cell: 'a', before: 0, after: 1 })).toEqual({
-      what: 'levels_above',
-      before: '0',
-      after: '1',
-    });
-    expect(changeWords({ kind: 'describesAdded', cell: 'a', block: 'x' })).toEqual({
-      what: 'describes',
-      before: '',
-      after: 'x',
-    });
-    expect(changeWords({ kind: 'values', block: 'x', before: null, after: ['yes', 'no'] })).toEqual({
-      what: 'values',
-      before: '',
-      after: '[yes, no]',
-    });
-  });
-
-  it('say a test put in, changed or required by its keys, and a block’s source by its name', () => {
-    const before = test('may_merge', 'The CI is green', 'all', ['ci'], 'green');
-    const after = test('may_merge', 'The work may merge', 'none', ['ci'], 'red');
-    expect(changeWords({ kind: 'testChanged', test: 'may_merge', before, after })).toEqual({
-      what: 'may_merge',
-      before: 'kind all, reads [ci], is green',
-      after: 'kind none, reads [ci], is red',
-    });
-    expect(changeWords({ kind: 'testAdded', test: after })).toEqual({
-      what: 'may_merge',
-      before: '',
-      after: 'kind none, reads [ci], is red',
-    });
-    expect(changeWords({ kind: 'preconditionRemoved', cell: 'merge', test: before })).toEqual({
-      what: 'requires',
-      before: 'may_merge',
-      after: '',
-    });
-    expect(changeWords({ kind: 'task', cell: 'plan', before: 'Plan it.', after: 'Plan it well.' })).toEqual({
-      what: 'task',
-      before: 'Plan it.',
-      after: 'Plan it well.',
-    });
-    expect(changeWords({ kind: 'act', cell: 'check', before: 'check', after: null })).toEqual({
-      what: 'act',
-      before: 'check',
-      after: '',
-    });
-    expect(changeWords({ kind: 'outside', block: 'main', before: null, after: 'main' })).toEqual({
-      what: 'outside',
-      before: '',
-      after: 'main',
-    });
-  });
-
-  it('say that a block is a note, a change of it, and a note people do not write', () => {
+  it('say that a block is a note, and a note people do not write', () => {
     const block = {
       name: 'opinions',
       values: null,
@@ -163,11 +42,6 @@ describe('the words of the page', () => {
       readBy: { cells: ['plan'], conditions: [], tests: [], shown: false },
     };
     expect(writersBesideCells(block)).toEqual(['people', 'note']);
-    expect(changeWords({ kind: 'note', block: 'opinions', before: false, after: true })).toEqual({
-      what: 'note',
-      before: 'false',
-      after: 'true',
-    });
     expect(
       faultWords({ file: 'flow.toml', field: 'blocks.plan.note', what: { kind: 'noteNotByPeople', block: 'plan' } }),
     ).toBe('plan is a note, but people do not write it.');

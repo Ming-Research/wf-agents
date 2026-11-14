@@ -1,6 +1,6 @@
 /* The flow's chart: the blocks down the side, the cells across, a mark where they cross, each block's line along its
-   row, the ways back in the way-back colour, and what a change did in the change colours. The blocks' names stay in
-   place as the frame scrolls sideways, and the cells' heads as it scrolls down. */
+   row, and the ways back in the way-back colour. The blocks' names stay in place as the frame scrolls sideways, and the
+   cells' heads as it scrolls down. */
 
 /* The view under the view's line: the chart's frame, and the docked panel at its right while one is open. */
 .view-body {
@@ -189,16 +189,6 @@ tr.row.chosen > .block-head {
   color: var(--text);
 }
 
-/* A cell the version shown does not have: its id muted, and struck through when it was taken out. */
-.flow .absent .cell-id {
-  color: var(--muted);
-}
-
-.flow .cell-head.status-removed.absent .cell-id,
-.flow .words-about.taken-out.absent .cell-title {
-  text-decoration: line-through;
-}
-
 .flow .corner-blocks {
   position: static;
   float: left;
@@ -300,51 +290,6 @@ tr.row.chosen > .block-head {
 .sign {
   flex: none;
   color: var(--accent);
-}
-
-/* What a change did: the cell's head and the block's name edged in its colour, a field it changed underlined. */
-.cell-head.status-added {
-  box-shadow: inset 0 var(--focus) var(--green);
-}
-
-.cell-head.status-removed {
-  box-shadow: inset 0 var(--focus) var(--red);
-}
-
-.cell-head.status-changed {
-  box-shadow: inset 0 var(--focus) var(--orange);
-}
-
-.status-added > .block-head {
-  box-shadow: inset var(--focus) 0 var(--green);
-}
-
-.status-removed > .block-head {
-  box-shadow: inset var(--focus) 0 var(--red);
-}
-
-.status-changed > .block-head {
-  box-shadow: inset var(--focus) 0 var(--orange);
-}
-
-.changed-field {
-  text-decoration: underline dotted var(--orange);
-  text-underline-offset: 3px;
-}
-
-svg.changed-field {
-  color: var(--orange);
-}
-
-/* What the version shown does not have: muted, and struck through when it was taken out. */
-.absent,
-.absent .head-button {
-  color: var(--muted);
-}
-
-.cell-head.status-removed.absent .cell-title,
-.status-removed.absent .block-name {
-  text-decoration: line-through;
 }
 
 /* A crossing: the row's line through it, the way back when there is one, and the mark. */
@@ -457,25 +402,6 @@ svg.changed-field {
   stroke-width: 1.5;
 }
 
-.part.added {
-  stroke: var(--green);
-}
-
-.part.write.added {
-  fill: var(--green);
-}
-
-.part.removed {
-  stroke: var(--red);
-  stroke-dasharray: 3 2;
-}
-
-.part.write.removed {
-  fill: none;
-  stroke: var(--red);
-  stroke-width: 1.5;
-}
-
 /* The legend, in the view's line. */
 .legend {
   display: flex;
@@ -501,24 +427,6 @@ svg.changed-field {
   width: var(--space-12);
   height: var(--chart-back);
   background: var(--violet);
-}
-
-.legend-status {
-  display: inline-block;
-  width: var(--focus);
-  height: var(--space-12);
-}
-
-.legend-status.status-added {
-  background: var(--green);
-}
-
-.legend-status.status-removed {
-  background: var(--red);
-}
-
-.legend-status.status-changed {
-  background: var(--orange);
 }
 
 /* The faults of a definition that does not compile, in place of the chart. */
