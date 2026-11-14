@@ -119,6 +119,8 @@ pub enum Given {
         tools: Vec<String>,
         /// What each engine's cell's act writes into its blocks, by the cell's id.
         acts: BTreeMap<String, ActWords>,
+        /// Each of the engine's tools as its file in `agents/tools/` writes it, by the tool's name.
+        tool_files: BTreeMap<String, ActWords>,
         /// Each name a text sent to an agent gives between backticks that nothing of the flow, the return, the tools
         /// or the settings defines, with the file it is in.
         unknown: Vec<Unknown>,
@@ -129,8 +131,9 @@ pub enum Given {
     Unread { why: String },
 }
 
-/// What an act of the engine writes, as its file in `agents/acts/` says it: each key, dotted where it is in a table, with
-/// its text and the places in it filled in a run.
+/// What a file of the engine's words beside the flows says, as it is written: of an act, what it writes, in
+/// `agents/acts/`; of a tool, what it is, in `agents/tools/`. Each key, dotted where it is in a table, with its text and
+/// the places in it filled in a run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActWords {
@@ -176,11 +179,20 @@ pub fn given(flow: &Compiled, alike: &Alike) -> Given {
             Err(why) => return Given::Unread { why },
         };
     }
+    let mut tool_files = BTreeMap::new();
+    for tool in agents.tools.keys() {
+        let file = format!("{}/tools/{tool}.toml", flow::agents::AGENTS_DIR);
+        match file_words(&agents, &file) {
+            Ok(words) => tool_files.insert(tool.clone(), words),
+            Err(why) => return Given::Unread { why },
+        };
+    }
     let unknown = build.unknown(&cells);
     Given::Compiled {
         cells,
         tools: agents.tools.keys().cloned().collect(),
         acts,
+        tool_files,
         unknown,
     }
 }
@@ -188,7 +200,13 @@ pub fn given(flow: &Compiled, alike: &Alike) -> Given {
 /// The words of an act, read from its file as it is written, in its order.
 fn act_words(agents: &flow::agents::Agents, act: &str) -> Result<ActWords, String> {
     let file = format!("{}/{}/{act}.toml", flow::agents::AGENTS_DIR, flow::agents::ACTS_DIR);
-    let path = agents.root.join(&file);
+    file_words(agents, &file)
+}
+
+/// The words of a file of the engine's beside the flows, read as it is written, in its order: each key, dotted where it
+/// is in a table, with its text.
+fn file_words(agents: &flow::agents::Agents, file: &str) -> Result<ActWords, String> {
+    let path = agents.root.join(file);
     let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let table: toml::Table = toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
     fn flat(table: &toml::Table, before: &str, out: &mut Vec<(String, Vec<Piece>)>) {
@@ -204,7 +222,7 @@ fn act_words(agents: &flow::agents::Agents, act: &str) -> Result<ActWords, Strin
     let mut words = Vec::new();
     flat(&table, "", &mut words);
     Ok(ActWords {
-        source: agents.source(&file),
+        source: agents.source(file),
         words,
     })
 }
@@ -284,18 +302,10 @@ impl<'a> Build<'a> {
             .collect()
     }
 
-    /// The engine's tools the flow's agent cells may ask for, each once, in the order the cells name them: the tools
-    /// the flow names, which every agent cell of it has.
-    fn tools(&self) -> Vec<&'a str> {
-        let mut tools = Vec::new();
-        for cell in self.flow.cells.iter().filter(|c| c.kind == Kind::Agent) {
-            for tool in &cell.tools {
-                if !tools.contains(&tool.as_str()) {
-                    tools.push(tool.as_str());
-                }
-            }
-        }
-        tools
+    /// The engine's tools this cell may ask for, in the order written: those its flow names for every agent cell,
+    /// where it names any, else the cell's own.
+    fn tools(cell: &CellSpec) -> Vec<&str> {
+        cell.tools.iter().map(String::as_str).collect()
     }
 
     /// The names of the fields of a kind of return, in the order of the form.
@@ -336,7 +346,7 @@ impl<'a> Build<'a> {
         let mut out = vec![self.part(What::Program, Carried::Program, "program", session, Vec::new())];
         // The form goes with the program's own tools, as a tool the program makes of it, which comes before the system
         // prompt in every request.
-        let form = written(&self.form());
+        let form = written(&self.form(cell));
         out.push(self.part(
             What::Form,
             Carried::Call,
@@ -455,22 +465,25 @@ impl<'a> Build<'a> {
         join(pieces)
     }
 
-    /// What the line of a block in what a cell returns says after its name, each where it holds: that it is a choice,
-    /// with its values; that the owner reads it; that the cell must hand it in every time.
-    fn marks(&self, cell: &CellSpec, block: &str) -> String {
+    /// What fills the places of the line of a block in what a cell returns that say what it is, each where it holds
+    /// and nothing where it does not: `{choice}`, that it is a choice, with its values; `{shown}`, that the owner reads
+    /// it; `{must_write}`, that the cell must hand it in every time. Each fills its place wherever the line has it.
+    fn marks(&self, cell: &CellSpec, block: &str) -> [(&'static str, String); 3] {
         let told = &self.agents.returns.outputs;
         let declared = self.flow.blocks.get(&BlockId::from(block));
-        let mut out = String::new();
-        if let Some(values) = declared.and_then(|b| b.values.as_ref()) {
-            out.push_str(&told.choice.replace("{values}", &ticked(values)));
-        }
-        if declared.is_some_and(|b| b.readers.shown) {
-            out.push_str(&told.shown);
-        }
-        if cell.must_write.iter().any(|b| b.as_str() == block) {
-            out.push_str(&told.must_write);
-        }
-        out
+        let choice = (declared.and_then(|b| b.values.as_ref()))
+            .map_or_else(String::new, |values| told.choice.replace("{values}", &ticked(values)));
+        let shown = if declared.is_some_and(|b| b.readers.shown) {
+            told.shown.clone()
+        } else {
+            String::new()
+        };
+        let must_write = if cell.must_write.iter().any(|b| b.as_str() == block) {
+            told.must_write.clone()
+        } else {
+            String::new()
+        };
+        [("choice", choice), ("shown", shown), ("must_write", must_write)]
     }
 
     /// The content of a block the cell is given, by the kind it is given in.
@@ -504,9 +517,9 @@ impl<'a> Build<'a> {
         }
     }
 
-    /// The part on returning of a line's system prompt: the same for every cell of the flow, each field and each tool
-    /// the flow names with its words, in the order `how_you_return` sets.
-    fn told(&self) -> Vec<Piece> {
+    /// The part on returning of a line's system prompt: each field and each tool the cell may ask for with its words,
+    /// in the order `how_you_return` sets; the same for every cell of a flow that names its tools for all of them.
+    fn told(&self, cell: &CellSpec) -> Vec<Piece> {
         let agents = self.agents;
         let told = &agents.returns.how_you_return;
         let item = |words: &str| told.item.replace("{text}", words.trim_end());
@@ -559,7 +572,7 @@ impl<'a> Build<'a> {
         if !reads.is_empty() {
             paragraphs.push(told.owner_reads.replace("{fields}", &and(&reads, &told.and)));
         }
-        let tools = self.tools();
+        let tools = Self::tools(cell);
         if !tools.is_empty() {
             paragraphs.push(told.calls.trim_end().to_string());
             paragraphs.push(told.tools.trim_end().to_string());
@@ -595,13 +608,14 @@ impl<'a> Build<'a> {
         with_slots(&[told.heading.clone(), list].join("\n\n"))
     }
 
-    /// The one form of a return of the flow: the same for every cell of it, so on every call of a session; the
-    /// engine's fields and the tools the flow names, in the order `form` sets. The blocks a cell writes go in
-    /// `outputs`, whose names the form does not list: the engine checks them once the return is read.
-    fn form(&self) -> String {
+    /// The form of a cell's return: the engine's fields and the tools the cell may ask for, in the order `form` sets;
+    /// the same for every cell of a flow that names its tools for all of them, so on every call of a session. The
+    /// blocks a cell writes go in `outputs`, whose names the form does not list: the engine checks them once the return
+    /// is read.
+    fn form(&self, cell: &CellSpec) -> String {
         let agents = self.agents;
         let form = &agents.returns.form;
-        let tools = self.tools();
+        let tools = Self::tools(cell);
         let kind = |order: &[InForm], kind: ReturnKind| {
             let mut properties = toml::Table::new();
             let mut required = Vec::new();
