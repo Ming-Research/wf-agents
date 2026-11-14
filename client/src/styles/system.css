@@ -104,15 +104,9 @@
   margin-bottom: var(--space-8);
 }
 
-/* A box a value is typed in, as the page's other boxes. */
-.field {
-  height: var(--control);
-  min-width: 0;
-  padding: 0 var(--space-8);
-  border: var(--hairline) solid var(--line);
-  border-radius: var(--corner);
-  background: var(--card);
-  color: var(--text);
+/* What is wrong with what the view shows, said first, over it. */
+.view-fault {
+  margin-bottom: var(--space-12);
 }
 
 .warn-text {

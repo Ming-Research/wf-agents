@@ -1,15 +1,29 @@
 // @vitest-environment happy-dom
 import '../dom-setup';
 
-import { act, Profiler, type ProfilerOnRenderCallback, type ReactNode } from 'react';
+import { act, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { useBarItems } from '../Engine';
 import type { Changed, Items } from '../works-api';
 import { fixtureCopies, fixtureItems } from './fixtures';
 import { keptSame, type Source, SourceContext } from './source';
 import { WorksList } from './WorksList';
+
+/// How many rows of works were drawn: each row's drawing says once what its work has taken, and nothing else of the list
+/// does, so the words of what was taken count the rows drawn.
+const drawn = vi.hoisted(() => ({ rows: 0 }));
+vi.mock('./words', async (original) => {
+  const words = await original<typeof import('./words')>();
+  return {
+    ...words,
+    spentWords: (...args: Parameters<typeof words.spentWords>) => {
+      drawn.rows += 1;
+      return words.spentWords(...args);
+    },
+  };
+});
 
 let unmounts: (() => void)[] = [];
 afterEach(() => {
@@ -109,44 +123,25 @@ function BarProbe() {
 }
 
 describe('the list of works with several hundred works', () => {
-  it('draws them all, and a change of one work draws its row again and not the others', async () => {
+  it('draws every row once, and on a change of one work draws its row again and no other', async () => {
     const s = manySource(MANY);
-    const commits: { phase: string; ms: number }[] = [];
-    const onRender: ProfilerOnRenderCallback = (_id, phase, actualDuration) => {
-      commits.push({ phase, ms: actualDuration });
-    };
-    const first = performance.now();
-    const page = draw(
-      <Profiler id="works" onRender={onRender}>
-        <WorksList />
-      </Profiler>,
-      s.source,
-    );
+    drawn.rows = 0;
+    const page = draw(<WorksList />, s.source);
     await settle();
-    const drawn = performance.now() - first;
     expect(page.querySelectorAll('tbody tr.work-row')).toHaveLength(MANY);
-    const whole = commits.reduce((most, c) => Math.max(most, c.ms), 0);
-
-    commits.length = 0;
+    expect(drawn.rows).toBe(MANY);
+    drawn.rows = 0;
     const changed = 2000 + 7;
     s.changedWork = changed;
-    const before = performance.now();
     act(() => s.changed({ works: [changed], items: false, copies: false }));
     await settle();
-    const again = performance.now() - before;
-    const row = page.querySelector(`tr[data-work="${changed}"]`);
-    expect(row?.querySelector('.work-now')?.textContent).toContain('Running review');
-    const update = commits.reduce((sum, c) => sum + c.ms, 0);
-    // Measured: on the owner's machine the first drawing of 500 works took about 580 ms and the change of one 21 ms;
-    // on CI, shared with other runs, 3.2 s and 82 ms. What is held is the share: the change of one costs a small part
-    // of drawing them all, which it does only where the rows that did not change are left as they were. The bound on
-    // the time of the change leaves room for a slower machine.
-    console.info(
-      `${MANY} works: drawn in ${drawn.toFixed(0)} ms (rendering ${whole.toFixed(0)} ms); one changed, drawn again ` +
-        `in ${again.toFixed(0)} ms (rendering ${update.toFixed(1)} ms)`,
-    );
-    expect(update).toBeLessThan(whole / 5);
-    expect(again).toBeLessThan(2000);
+    expect(page.querySelector(`tr[data-work="${changed}"] .work-now`)?.textContent).toContain('Running review');
+    expect(drawn.rows).toBe(1);
+    // Read again with nothing changed, no row is drawn again.
+    drawn.rows = 0;
+    act(() => s.changed({ works: [2000], items: false, copies: false }));
+    await settle();
+    expect(drawn.rows).toBe(0);
   }, 60_000);
 
   it('reads the items once for the bar and the list, once for a burst of changes, and not for the copies', async () => {

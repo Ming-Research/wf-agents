@@ -169,7 +169,7 @@ fn the_file_is_shown_as_it_writes_the_settings_in_its_order() {
         "no comment round the value"
     );
     assert_eq!(language.running, None, "the engine runs with the value written");
-    assert_eq!(language.change, Some(Change::Name { most: 40 }));
+    assert_eq!(language.change, Some(Change::Name));
     assert_eq!(
         key(&page, "agents", "args").written.as_deref(),
         Some("[\n  \"--permission-mode\", \"acceptEdits\",\n]"),
@@ -180,10 +180,7 @@ fn the_file_is_shown_as_it_writes_the_settings_in_its_order() {
         Some("{ heavy = [\"uv\"] }")
     );
     assert_eq!(key(&page, "agents", "command").change, None, "only the file changes it");
-    assert_eq!(
-        key(&page, "agents.levels.2", "model").change,
-        Some(Change::Name { most: 100 })
-    );
+    assert_eq!(key(&page, "agents.levels.2", "model").change, Some(Change::Name));
     let budget = key(&page, "agents", "work_budget_usd");
     assert_eq!(
         (budget.written.as_deref(), budget.running.as_deref()),
@@ -195,13 +192,7 @@ fn the_file_is_shown_as_it_writes_the_settings_in_its_order() {
         (limit.written.as_deref(), limit.running.as_deref()),
         (None, Some("500000"))
     );
-    assert_eq!(
-        limit.change,
-        Some(Change::Count {
-            least: 50_000,
-            most: 1_000_000
-        })
-    );
+    assert_eq!(limit.change, Some(Change::Count));
     assert_eq!(page.levels, ["1", "2"]);
     assert_eq!(page.unreadable, None);
     assert_eq!(page.git, None, "the directory is no work tree of git");
@@ -265,21 +256,22 @@ fn a_change_the_page_may_not_make_is_refused_and_nothing_is_written() {
             vec![("agents.command", serde_json::json!("other"))],
             "agents.command is changed only in the file",
         ),
+        // What the engine refuses, its own reading refuses, in its words.
         (
             vec![("agents.slots", serde_json::json!(0))],
-            "agents.slots is a whole number from 1 to 32",
+            "the settings would not read: agents.slots: at least one round must be able to run",
         ),
         (
-            vec![("agents.slots", serde_json::json!(33))],
-            "agents.slots is a whole number from 1 to 32",
+            vec![("agents.slots", serde_json::json!(-1))],
+            "agents.slots is a whole number",
         ),
         (
             vec![("agents.slots", serde_json::json!("3"))],
-            "agents.slots is a whole number from 1 to 32",
+            "agents.slots is a whole number",
         ),
         (
-            vec![("owner.language", serde_json::json!(" English"))],
-            "owner.language is a name on one line, of at most 40 characters, with no space round it",
+            vec![("owner.language", serde_json::json!("Eng\nlish"))],
+            "owner.language is a name on one line",
         ),
         (
             vec![("items.highest_level", serde_json::json!("3"))],

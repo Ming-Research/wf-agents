@@ -118,17 +118,21 @@ and those of its look.
 
 26. The lines of every chart of numbers take their colours in one order of hues (Article 8).
 
+27. The span of time the numbers of a view are for is chosen by one switch, the same in every view: the spans stand
+    side by side as links, the one in use marked, and it is kept in the address. A span is read against the ones
+    beside it.
+
 ## The settings
 
-27. Each part of the settings shows first what the page can change and then what only the file can; of the project's
+28. Each part of the settings shows first what the page can change and then what only the file can; of the project's
     constitution only its path is written, since its words are the project's own. The owner governs the whole
     configuration in one place and must see at a glance which is which. A page of its own for the levels alone was
     turned down.
 
-28. In a form written as a whole by one saving, nothing takes effect before it is saved, so what can be on or off
+29. In a form written as a whole by one saving, nothing takes effect before it is saved, so what can be on or off
     there is a box to tick and not a switch that acts when pressed; and a list the owner edits row by row is a table.
 
 ## The bar
 
-29. Beside the pause of everything stands a switch, with a short name and on unless turned off, that keeps the waiting
+30. Beside the pause of everything stands a switch, with a short name and on unless turned off, that keeps the waiting
     sessions warm: without it, going on in a session an hour later is dear.

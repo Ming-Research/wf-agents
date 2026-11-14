@@ -3,14 +3,15 @@
 // looked at before the interface serves the works. The page reaches it through a context, which a test sets to its
 // own source.
 //
-// The page is to stay quick with several hundred works, each change of any of them read again. So every part that
-// listens to the changes listens to one stream, the browser keeping only a few connections to the engine open at
-// once; a part reads again at most once at a time, and once more after a read where changes came while it was under
-// way; and the items, which the bar and the list of works both show, are read once for both, each item that did not
-// change kept as the very object it was, so that what draws it is not drawn again.
+// The page is to stay quick with several hundred works, each change of any of them read again. So the interface's
+// changes come on the page's one stream (changes.ts); a part reads again at most once at a time, and once more after
+// a read where changes came while it was under way; and the items, which the bar and the list of works both show, are
+// read once for both, each item that did not change kept as the very object it was, so that what draws it is not drawn
+// again.
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
+import { listenShared } from '../changes';
 import { usesFixtures } from '../mock-data';
 import * as api from '../works-api';
 import type {
@@ -39,8 +40,8 @@ export interface Source {
   /// How the engine stands as a whole, and the owner's pause of everything; a source that has no engine has neither.
   loadEngine?(): Promise<Engine>;
   actOnEngine?(what: EngineAct): Promise<null>;
-  /// Tells `onChanged` each time something happened, and `onOpened` each time the stream of changes opens, the first
-  /// time and again after it was lost, when changes may have been missed; gives the way to stop.
+  /// Tells `onChanged` each time something happened, and `onOpened` each time the stream of changes opens again after
+  /// it was lost, when changes may have been missed; gives the way to stop.
   changes(onChanged: (changed: Changed) => void, onOpened: () => void): () => void;
 }
 
@@ -57,8 +58,7 @@ export const INTERFACE: Source = {
   loadEngine: api.loadEngine,
   actOnEngine: api.actOnEngine,
   changes(onChanged, onOpened) {
-    if (typeof EventSource === 'undefined') return () => undefined;
-    return listen({ onChanged, onOpened });
+    return listenShared((heard) => (heard === 'everything' ? onOpened() : onChanged(heard)));
   },
 };
 
@@ -111,45 +111,6 @@ export function useChanges(onChanged: (changed: Changed) => void, onOpened: () =
 }
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
-
-/// What listens to the interface's changes.
-interface Listener {
-  onChanged: (changed: Changed) => void;
-  onOpened: () => void;
-}
-
-/// Everything that listens, and the one stream they share while any listens.
-const listeners = new Set<Listener>();
-let stream: EventSource | null = null;
-
-/// Listens to the interface's one stream of changes, opening it for the first that listens and closing it after the
-/// last; gives the way to stop. One that begins to listen while the stream is open reads what it shows as it begins,
-/// and is told only of the changes and the openings after.
-function listen(listener: Listener): () => void {
-  listeners.add(listener);
-  if (stream === null) {
-    const events = new EventSource('/api/v1/changes');
-    events.onopen = () => [...listeners].forEach((l) => l.onOpened());
-    events.onmessage = (e: MessageEvent<string>) => {
-      let changed: Changed;
-      try {
-        changed = JSON.parse(e.data) as Changed;
-      } catch {
-        // What cannot be read says nothing happened.
-        return;
-      }
-      [...listeners].forEach((l) => l.onChanged(changed));
-    };
-    stream = events;
-  }
-  return () => {
-    listeners.delete(listener);
-    if (listeners.size === 0 && stream !== null) {
-      stream.close();
-      stream = null;
-    }
-  };
-}
 
 /// A read of one load under way, and whether it is to be read once more when it ends.
 interface Flight<T> {

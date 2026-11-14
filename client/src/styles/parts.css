@@ -268,8 +268,9 @@ button {
   background-image: none;
 }
 
-/* A box to type in and a choice: a hairline box on the card, as a button. */
+/* A box to type in, a field of one line and a choice: a hairline box on the card, as a button. */
 textarea,
+.field,
 .select {
   border: var(--hairline) solid var(--line);
   border-radius: var(--corner);
@@ -290,7 +291,8 @@ textarea:disabled {
   color: var(--muted);
 }
 
-.select {
+.select,
+.field {
   height: var(--control);
   min-width: 0;
   max-width: 100%;

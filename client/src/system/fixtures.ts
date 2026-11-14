@@ -64,8 +64,9 @@ export function fixtureSystem(starts: number[]): System {
       { flow: 'engineer', cell: 'plan', spent: part(spent, 0.2) },
     ],
     byModel: [
-      { model: 'claude-sonnet-5-5', spent: part(spent, 0.8) },
-      { model: 'claude-opus-5-5', spent: part(spent, 0.2) },
+      { on: { kind: 'model', model: 'claude-sonnet-5-5' }, spent: part(spent, 0.8) },
+      { on: { kind: 'model', model: 'claude-opus-5-5' }, spent: part(spent, 0.2) },
+      { on: { kind: 'act' }, spent: part(spent, 0) },
     ],
     byWork: items
       .filter((i) => i.work.spent.rounds > 0)
@@ -112,7 +113,7 @@ export function fixtureSettings(): SettingsPage {
     levels: ['1', '2', '3'],
     git: { committed: true },
     tables: [
-      { name: 'owner', leftOut: false, keys: [key('language', '"Chinese"', null, { kind: 'name', most: 40 })] },
+      { name: 'owner', leftOut: false, keys: [key('language', '"Chinese"', null, { kind: 'name' })] },
       {
         name: 'project',
         leftOut: false,
@@ -124,7 +125,7 @@ export function fixtureSettings(): SettingsPage {
         keys: [
           key('command', '"claude"'),
           key('config_dir', '"/data/agents/claude"'),
-          key('slots', '3', '2', { kind: 'count', least: 1, most: 32 }),
+          key('slots', '3', '2', { kind: 'count' }),
           key('args', '["--permission-mode", "acceptEdits"]'),
           key('work_budget_usd', '5.0'),
         ],
@@ -141,7 +142,7 @@ export function fixtureSettings(): SettingsPage {
       {
         name: 'sessions',
         leftOut: true,
-        keys: [{ key: 'context_limit', written: null, running: '500000', change: { kind: 'count', least: 50000, most: 1000000 } }],
+        keys: [{ key: 'context_limit', written: null, running: '500000', change: { kind: 'count' } }],
       },
     ],
   };
@@ -152,7 +153,7 @@ function key(name: string, written: string, running: string | null = null, chang
 }
 
 function levelKeys(desc: string, model: string) {
-  return [key('desc', JSON.stringify(desc)), key('model', JSON.stringify(model), null, { kind: 'name', most: 100 })];
+  return [key('desc', JSON.stringify(desc)), key('model', JSON.stringify(model), null, { kind: 'name' })];
 }
 
 export function fixtureAccounts(): AccountsPage {

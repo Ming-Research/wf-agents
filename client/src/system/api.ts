@@ -35,9 +35,12 @@ export interface CellSpent {
   spent: Spent;
 }
 
+/// What a round ran on: an agent's round's model, the engine's own act, which runs on none, or an agent's round kept
+/// before the tries of a round were recorded, whose model is not known.
+export type RanOn = { kind: 'model'; model: string } | { kind: 'act' } | { kind: 'notRecorded' };
+
 export interface ModelSpent {
-  /// None for the engine's own acts, and for an agent's round kept before tries were recorded.
-  model: string | null;
+  on: RanOn;
   spent: Spent;
 }
 
@@ -109,11 +112,8 @@ export interface System {
   failed: FailedRound[];
 }
 
-/// What the page may change a key to.
-export type Change =
-  | { kind: 'name'; most: number }
-  | { kind: 'count'; least: number; most: number }
-  | { kind: 'level' };
+/// What kind of value the page may change a key to: a name on one line, a whole number, or one of the levels.
+export type Change = { kind: 'name' } | { kind: 'count' } | { kind: 'level' };
 
 export interface SettingsKey {
   /// The key within its table.

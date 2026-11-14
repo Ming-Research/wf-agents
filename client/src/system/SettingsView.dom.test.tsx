@@ -131,9 +131,9 @@ describe('the Settings view', () => {
     const s = settingsSource();
     const page = draw(s.source);
     await settle();
-    type(box(page, 'agents.slots'), '40');
+    type(box(page, 'agents.slots'), 'four');
     expect(save(page).disabled).toBe(true);
-    expect(page.querySelector('ul.failed')?.textContent).toBe('agents.slots is a whole number from 1 to 32');
+    expect(page.querySelector('ul.failed')?.textContent).toBe('agents.slots is a whole number');
     type(box(page, 'agents.slots'), '4');
     expect(save(page).disabled).toBe(false);
     act(() => save(page).click());
@@ -145,27 +145,60 @@ describe('the Settings view', () => {
     expect(s.reads).toBe(2);
   });
 
-  it('says why a save was refused, and keeps what was typed through a reload', async () => {
-    const s = settingsSource();
-    s.refuse = 'the settings would not read: agents.slots: at least one round must be able to run';
+  it('checks only the keys changed, and leaves to the engine what only it refuses', async () => {
+    const page0 = fixtureSettings();
+    const agents = page0.tables.find((t) => t.name === 'agents')!;
+    agents.keys = agents.keys.map((k) => (k.key === 'slots' ? { ...k, written: '0' } : k));
+    const s = settingsSource(page0);
     const page = draw(s.source);
     await settle();
     type(box(page, 'owner.language'), 'English');
+    expect(save(page).disabled).toBe(false);
+    expect(page.querySelector('ul.failed')).toBeNull();
+  });
+
+  it('keeps what was typed through a refusal, the file changed under it, and a reload, and drops a key the file now has', async () => {
+    const s = settingsSource();
+    s.refuse = 'install.toml changed since the page read it: read it again, and change it then';
+    const page = draw(s.source);
+    await settle();
+    type(box(page, 'owner.language'), 'English');
+    type(box(page, 'agents.slots'), '5');
+    // Someone changed the file: the save is refused, the file read anew, and what was typed stays on it.
+    const changed = fixtureSettings();
+    changed.base = 'changed';
+    const items = changed.tables.find((t) => t.name === 'items')!;
+    items.keys = items.keys.map((k) => (k.key === 'default_level' ? { ...k, written: '"1"' } : k));
+    s.page = changed;
     act(() => save(page).click());
     await settle();
     expect(page.querySelector('p.failed')?.textContent).toBe(`Refused: ${s.refuse}`);
+    expect(box(page, 'owner.language').value).toBe('English');
+    expect(box(page, 'agents.slots').value).toBe('5');
+    s.refuse = null;
+    act(() => save(page).click());
+    await settle();
+    expect(s.sent.at(-1)).toEqual({
+      base: 'changed',
+      set: [
+        { key: 'owner.language', value: 'English' },
+        { key: 'agents.slots', value: 5 },
+      ],
+    });
+    // Typed again and the page drawn anew, as on a reload: what was typed comes back, but a key whose value the file
+    // now has is no longer a change.
+    type(box(page, 'owner.language'), 'French');
+    type(box(page, 'agents.slots'), '6');
+    const later = fixtureSettings();
+    later.base = 'later';
+    const agents = later.tables.find((t) => t.name === 'agents')!;
+    agents.keys = agents.keys.map((k) => (k.key === 'slots' ? { ...k, written: '6' } : k));
+    s.page = later;
     const again = draw(s.source);
     await settle();
-    expect(box(again, 'owner.language').value).toBe('English');
-  });
-
-  it('drops what was typed against the file before it changed, and says so', async () => {
-    localStorage.setItem('settings-draft', JSON.stringify({ base: 'older', values: { 'agents.slots': '9' } }));
-    const s = settingsSource();
-    const page = draw(s.source);
-    await settle();
-    expect(box(page, 'agents.slots').value).toBe('3');
-    expect(page.textContent).toContain('was typed on the file as it was before it changed, and was dropped');
+    expect(box(again, 'owner.language').value).toBe('French');
+    expect(box(again, 'agents.slots').value).toBe('6');
+    expect(JSON.parse(localStorage.getItem('settings-draft') ?? '{}')).toEqual({ 'owner.language': 'French' });
   });
 
   it('saves nothing onto changes not committed, and says the file does not read', async () => {
@@ -175,13 +208,15 @@ describe('the Settings view', () => {
     type(box(page, 'agents.slots'), '4');
     expect(save(page).disabled).toBe(true);
     expect(save(page).title).toContain('has changes not committed');
-    expect(page.querySelector('.read-failed')?.textContent).toBe('The file does not read as settings: items.unknown: no such key');
+    expect(page.querySelector('.read-failed')).toBeNull();
+    expect(page.querySelector('.view-fault')?.textContent).toBe('The file does not read as settings: items.unknown: no such key');
   });
 
-  it('switches the account the agents run under once the owner says yes beside it', async () => {
+  it('switches the account the agents run under once the owner says yes beside it, keeping what was typed', async () => {
     const s = settingsSource();
     const page = draw(s.source);
     await settle();
+    type(box(page, 'agents.slots'), '4');
     const rows = [...page.querySelectorAll('table[aria-label="The accounts"] tbody tr')];
     expect(rows.map((r) => r.firstElementChild?.textContent)).toEqual(['claude', 'claude-second', 'claude-third']);
     expect(rows[0].textContent).toContain('named');
@@ -189,9 +224,13 @@ describe('the Settings view', () => {
     act(() => (rows[1].querySelector('button') as HTMLButtonElement).click());
     expect(rows[1].textContent).toContain('The agents run under second@example.com once the engine starts again');
     const useIt = [...rows[1].querySelectorAll('button')].find((b) => b.textContent === 'Use it') as HTMLButtonElement;
+    expect(useIt.className).not.toContain('button-primary');
+    act(() => useIt.click());
+    expect(useIt.disabled).toBe(true);
     act(() => useIt.click());
     await settle();
     expect(s.chosen).toEqual([{ base: 'fixture', name: 'claude-second' }]);
+    expect(box(page, 'agents.slots').value).toBe('4');
     const name = page.querySelector('#account-name') as HTMLInputElement;
     type(name, 'fourth');
     expect(page.querySelector('code.command')?.textContent).toBe('CLAUDE_CONFIG_DIR=/data/agents/claude-fourth claude');

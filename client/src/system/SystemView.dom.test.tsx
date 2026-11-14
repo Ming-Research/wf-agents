@@ -3,7 +3,7 @@ import '../dom-setup';
 
 import { act, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Changed, Engine } from '../works-api';
 import { fixtureCopies, fixtureItems, fixtureWork } from '../works/fixtures';
@@ -102,7 +102,7 @@ describe('the System view', () => {
     const s = sources({ slots: 3, taken: 1, paused: { since: Date.now(), by: 'owner' } });
     const { container } = draw(<SystemView period="week" />, s);
     await settle();
-    expect(container.querySelector('.view-facts')?.textContent).toContain('slots 1 taken of 3');
+    expect(container.querySelector('.view-facts')).toBeNull();
     const now = part(container, 'Now');
     const pairs = texts(now, 'dd');
     expect(pairs[0]).toContain('Every work paused since');
@@ -114,7 +114,9 @@ describe('the System view', () => {
     for (const [standing, words] of Object.entries(STANDING_WORDS)) {
       const n = items.filter((i) => standingOf(i.work) === standing).length;
       const tile = [...now.querySelectorAll('.tile')].find((t) => t.querySelector('.label')?.textContent === words.name);
-      expect(tile?.querySelector('.tile-value')?.textContent, words.name).toBe(String(n));
+      // The works whose round is under way are in the list of the rounds under way, and nowhere else.
+      if (standing === 'running') expect(tile).toBeUndefined();
+      else expect(tile?.querySelector('.tile-value')?.textContent, words.name).toBe(String(n));
     }
     const running = items.filter((i) => i.work.now.kind === 'round');
     expect(running.length).toBeGreaterThan(0);
@@ -169,5 +171,25 @@ describe('the System view', () => {
     act(() => s.changed({ works: [], items: false, copies: true }));
     await settle();
     expect(s.asked.length).toBe(before + 1);
+  });
+
+  it("cuts the week anew once Monday's midnight has passed, and reads the span then", async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    try {
+      // A Sunday a minute before midnight, in the browser's time zone.
+      vi.setSystemTime(new Date(2026, 10, 15, 23, 59));
+      const s = sources();
+      draw(<SystemView period="week" />, s);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(s.asked.at(-1)).toEqual([new Date(2026, 10, 9).getTime()]);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
+      });
+      expect(s.asked.at(-1)).toEqual([new Date(2026, 10, 16).getTime()]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

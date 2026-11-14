@@ -3,10 +3,10 @@
 // where they stand, and the rounds under way. Produced says what got done, Spent where the money and the time went,
 // and Gone wrong what was wasted or failed, each over the span the owner picks in the view's line: the week under way,
 // the four weeks to its end, or all time. Each part sums up first, in numbers that stand alone; a number that counts a
-// list unfolds it under the numbers. Brought over from the System view of the engine on `old-main`, as far as this
-// engine records what it showed.
+// list unfolds it under the numbers. Each thing is said once: the engine's pause and its slots in Now, and the rounds
+// under way in their list, not among the numbers of the works.
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { PanelPart, Switch } from '../parts';
 import { hashOf, type Period } from '../route';
@@ -25,7 +25,7 @@ import {
   tokens,
   tokensWords,
 } from '../works/words';
-import { type System, useSystemSource } from './api';
+import { type RanOn, type System, useSystemSource } from './api';
 import { ItemName, Tile, Tiles, ViewTable, WorkLink } from './parts';
 import {
   cacheShare,
@@ -36,6 +36,7 @@ import {
   type Standing,
   standingOf,
   summed,
+  nextWeekStart,
   weekStarts,
 } from './standing';
 
@@ -59,21 +60,29 @@ export function SystemView({ period }: { period: Period }) {
   const engine = useReading(loadEngine);
   const loadCopies = useCallback(() => works.loadCopies(), [works]);
   const copies = useReading(loadCopies);
-  // All time is counted from the week the earliest item was added in, once the items are read.
+  // All time is counted from the week the earliest item was added in, once the items are read. The weeks are cut anew
+  // from the time each read is made, so that a week begins at its Monday's midnight however long the view is open,
+  // and the span is read again then.
   const earliest = useMemo(
-    () => (items.value === null ? null : Math.min(Date.now(), ...items.value.items.map((item) => item.added))),
-    [items.value],
+    () =>
+      period !== 'all' || items.value === null
+        ? null
+        : Math.min(Date.now(), ...items.value.items.map((item) => item.added)),
+    [period, items.value],
   );
-  const weeks = useMemo(
-    () => (period === 'all' && earliest === null ? null : weekStarts(period, Date.now(), earliest)),
-    [period, earliest],
-  );
-  const key = weeks?.join(',') ?? null;
+  const waiting = period === 'all' && earliest === null;
   const loadSpan = useCallback(
-    () => (key === null ? new Promise<System>(() => undefined) : system.loadSystem(key.split(',').map(Number))),
-    [system, key],
+    () =>
+      waiting ? new Promise<System>(() => undefined) : system.loadSystem(weekStarts(period, Date.now(), earliest)),
+    [system, period, earliest, waiting],
   );
   const span = useReading(loadSpan);
+  const readSpan = span.read;
+  useEffect(() => {
+    const now = Date.now();
+    const timer = window.setTimeout(readSpan, nextWeekStart(now) - now);
+    return () => window.clearTimeout(timer);
+  }, [readSpan, span.value]);
   const readAll = useCallback(() => {
     engine.read();
     copies.read();
@@ -95,7 +104,6 @@ export function SystemView({ period }: { period: Period }) {
     <>
       <div className="view-line">
         <span className="view-name">System</span>
-        <span className="view-facts">{engineFacts(engine.value)}</span>
         <span className="view-end">
           <Switch<Period>
             label="The span the numbers count over"
@@ -139,16 +147,6 @@ export function SystemView({ period }: { period: Period }) {
   );
 }
 
-/// The engine in the view's line: whether it runs, and its slots.
-function engineFacts(engine: Engine | null): string {
-  if (engine === null) return '';
-  const state =
-    engine.paused === null
-      ? 'every work goes on'
-      : `every work paused since ${clock(engine.paused.since)}, by the ${engine.paused.by}`;
-  return `${state} · slots ${engine.taken} taken of ${engine.slots}`;
-}
-
 /// Whether the owner needs to step in: the engine, the wait every work shares, the copies; the works by where they
 /// stand, each count unfolding its works; and the rounds under way.
 function NowPart({ items, engine, copies, copiesFailed }: {
@@ -158,7 +156,8 @@ function NowPart({ items, engine, copies, copiesFailed }: {
   copiesFailed: string | null;
 }) {
   const [open, setOpen] = useState<Standing | null>(null);
-  const by = STANDINGS.map((standing) => ({
+  // The works whose round is under way are in the list of the rounds under way, not among the numbers.
+  const by = STANDINGS.filter((standing) => standing !== 'running').map((standing) => ({
     standing,
     list: items.items.filter((item) => standingOf(item.work) === standing),
   }));
@@ -355,6 +354,18 @@ function Produced({ s, items }: { s: System; items: Map<number, Item> }) {
   );
 }
 
+/// What a round ran on, in the table by model.
+function ranOnWords(on: RanOn) {
+  switch (on.kind) {
+    case 'model':
+      return on.model;
+    case 'act':
+      return <span className="muted">none: the engine's own acts</span>;
+    case 'notRecorded':
+      return <span className="muted">not recorded: agents' rounds kept before their tries were</span>;
+  }
+}
+
 /// What a list leaves out after the rows it draws.
 function More({ shown, of }: { shown: number; of: number }) {
   return of > shown ? <p className="small muted">and {of - shown} more, the earliest</p> : null;
@@ -424,8 +435,8 @@ function SpentPart({ s, items }: { s: System; items: Map<number, Item> }) {
           <h4 className="view-sub label">By model</h4>
           <ViewTable heads={['Model', 'Rounds', 'Tokens', 'Cost', 'Share']} numbers={[1, 2, 3, 4]}>
             {s.byModel.map((m) => (
-              <tr key={m.model ?? ''}>
-                <td className="mono">{m.model ?? <span className="muted">none: the engine's own acts</span>}</td>
+              <tr key={m.on.kind === 'model' ? m.on.model : m.on.kind}>
+                <td className="mono">{ranOnWords(m.on)}</td>
                 <td className="num">{m.spent.rounds}</td>
                 <td className="num" title={tokensWords(m.spent)}>
                   {tokens(allTokens(m.spent))}

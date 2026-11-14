@@ -7,14 +7,15 @@
 //! - `GET /api/v1/settings/accounts`: the accounts the agents' program may run under ([`AccountsPage`]).
 //! - `POST /api/v1/settings/accounts`: the owner's choice of another of them ([`AccountChoice`]), answered as a change.
 //!
-//! The owner may change on the page what the owner could on the engine's page before this one: the language the
-//! agents write in for the owner, the model of each level, the highest level an item may be at, the context past which
-//! a line begins a new session, how many rounds run at once, and the account the agents' program runs under. The rest
-//! only the file changes. A change is written into the file with its comments and its layout kept, only where the file
-//! it makes reads as settings, holds each value as asked, and has not changed since the page read it; where the
-//! directory the file is in keeps it in git, the change is committed there, saying what changed, and nothing is
-//! written onto a file whose changes are not committed. The engine reads the file as it starts: until it starts again,
-//! each key it runs at another value is shown with that value beside it.
+//! The owner changes on the page what is tuned while works go on: the language the agents write in for the owner, the
+//! model of each level, the highest level an item may be at, the context past which a line begins a new session, how
+//! many rounds run at once, and the account the agents' program runs under. The rest only the file changes. A value
+//! is checked here only for its kind; what the engine refuses of it, the engine's own reading of the file refuses. A
+//! change is written into the file with its comments and its layout kept, only where the file it makes reads as
+//! settings, holds each value as asked, and has not changed since the page read it; where the directory the file is in
+//! keeps it in git, the change is committed there, saying what changed, and nothing is written onto a file whose
+//! changes are not committed. The engine reads the file as it starts: until it starts again, each key it runs at
+//! another value than the file gives, as the engine reads the file, is shown with that value beside it.
 //!
 //! The settings hold no secret: a token is given to the engine in a variable of its environment, which the file names.
 
@@ -112,10 +113,10 @@ pub struct SettingsKey {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Change {
-    /// A name on one line, of at most this many characters.
-    Name { most: usize },
-    /// A whole number from `least` to `most`.
-    Count { least: u64, most: u64 },
+    /// A name, on one line.
+    Name,
+    /// A whole number.
+    Count,
     /// One of the levels.
     Level,
 }
@@ -195,14 +196,9 @@ pub struct AccountChoice {
 fn change_of(path: &[String]) -> Option<Change> {
     let parts: Vec<&str> = path.iter().map(String::as_str).collect();
     match parts.as_slice() {
-        ["owner", "language"] => Some(Change::Name { most: 40 }),
-        ["agents", "levels", _, "model"] => Some(Change::Name { most: 100 }),
-        ["agents", "slots"] => Some(Change::Count { least: 1, most: 32 }),
+        ["owner", "language"] | ["agents", "levels", _, "model"] => Some(Change::Name),
+        ["agents", "slots"] | ["sessions", "context_limit"] => Some(Change::Count),
         ["items", "highest_level"] => Some(Change::Level),
-        ["sessions", "context_limit"] => Some(Change::Count {
-            least: 50_000,
-            most: 1_000_000,
-        }),
         _ => None,
     }
 }
@@ -287,6 +283,11 @@ fn digest(text: &str) -> String {
     format!("{:016x}{:016x}", first.finish(), second.finish())
 }
 
+/// The file as it writes the settings, and what the engine runs with beside it; or why it cannot be shown.
+pub fn page_of(install: &Install) -> Result<SettingsPage, String> {
+    shown(install).map_err(|Refused(_, why)| why)
+}
+
 /// The file as it writes the settings, and what the engine runs with beside it.
 fn shown(install: &Install) -> Result<SettingsPage, Refused> {
     let text = text_of(&install.file)?;
@@ -296,15 +297,20 @@ fn shown(install: &Install) -> Result<SettingsPage, Refused> {
             format!("{} is not TOML: {e}", install.file.display()),
         )
     })?;
-    let unreadable = (install.read)(&text).err();
+    let read = (install.read)(&text);
     let mut tables = written(&doc);
-    // Each value written beside the engine's, where they differ.
+    // Each value written beside the engine's, where they differ as the engine reads them: `5` and `5.0` are one value
+    // to it, and a table written in part is filled with what the engine takes for the rest. Where the file does not
+    // read, its values are taken as TOML writes them.
     for table in &mut tables {
         let base = path_of(&table.name);
         for key in &mut table.keys {
             let path: Vec<String> = base.iter().cloned().chain(path_of(&key.key)).collect();
             let running = at(&install.running, &path);
-            let written = key.written.as_deref().and_then(json_of);
+            let written = match &read {
+                Ok(read) => at(read, &path).cloned(),
+                Err(_) => key.written.as_deref().and_then(json_of),
+            };
             if running != written.as_ref() {
                 key.running = Some(running.and_then(toml_text).unwrap_or_else(|| "none".to_string()));
             }
@@ -319,7 +325,7 @@ fn shown(install: &Install) -> Result<SettingsPage, Refused> {
     Ok(SettingsPage {
         file: install.file.display().to_string(),
         base: digest(&text),
-        unreadable,
+        unreadable: read.err(),
         tables,
         levels,
         git: kept(install).map_err(|why| Refused(StatusCode::INTERNAL_SERVER_ERROR, why))?,
@@ -599,24 +605,16 @@ fn changed(install: &Install, change: &SettingsChange) -> Result<Saved, Refused>
 /// The value asked for a key, checked against what the key may be; or why it may not be that.
 fn valued(key: &str, kind: &Change, value: &JsonValue, levels: &[String]) -> Result<Value, String> {
     match (kind, value) {
-        (Change::Name { most }, JsonValue::String(name)) => {
-            let one_line = !name.is_empty() && name.trim() == name && !name.contains(['\n', '\r']);
-            if one_line && name.chars().count() <= *most {
-                Ok(Value::from(name.as_str()))
-            } else {
-                Err(format!(
-                    "{key} is a name on one line, of at most {most} characters, with no space round it"
-                ))
-            }
+        (Change::Name, JsonValue::String(name)) if !name.trim().is_empty() && !name.contains(['\n', '\r']) => {
+            Ok(Value::from(name.as_str()))
         }
-        (Change::Count { least, most }, JsonValue::Number(n)) => match n.as_u64() {
-            Some(n) if (*least..=*most).contains(&n) => Ok(Value::from(i64::try_from(n).unwrap_or(i64::MAX))),
-            _ => Err(format!("{key} is a whole number from {least} to {most}")),
-        },
+        (Change::Name, _) => Err(format!("{key} is a name on one line")),
+        (Change::Count, JsonValue::Number(n)) if n.as_i64().is_some_and(|n| n >= 0) => {
+            Ok(Value::from(n.as_i64().unwrap_or_default()))
+        }
+        (Change::Count, _) => Err(format!("{key} is a whole number")),
         (Change::Level, JsonValue::String(level)) if levels.contains(level) => Ok(Value::from(level.as_str())),
         (Change::Level, _) => Err(format!("{key} is one of the levels: {}", levels.join(", "))),
-        (Change::Name { .. }, _) => Err(format!("{key} is a name")),
-        (Change::Count { least, most }, _) => Err(format!("{key} is a whole number from {least} to {most}")),
     }
 }
 

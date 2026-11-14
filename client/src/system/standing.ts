@@ -82,6 +82,13 @@ export function weekStarts(period: Period, now: number, earliest: number | null 
   return starts;
 }
 
+/// When the week after the one under way begins: its Monday's midnight in the browser's time zone.
+export function nextWeekStart(now: number): number {
+  const d = new Date(weekStarts('week', now)[0]);
+  d.setDate(d.getDate() + 7);
+  return d.getTime();
+}
+
 /// The share of the tokens sent that were read from the cache, from 0 to 1; none where nothing was sent.
 export function cacheShare(spent: Spent): number | null {
   const sent = spent.inputTokens + spent.cachedTokens;

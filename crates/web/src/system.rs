@@ -59,7 +59,8 @@ pub struct System {
     pub weeks: Vec<Week>,
     /// What the span's rounds took, by the cell of the flow they ran, the costliest first.
     pub by_cell: Vec<CellSpent>,
-    /// By the model an agent's round ran on, the costliest first; the engine's own acts run on none.
+    /// By the model a round ran on, the costliest first: an agent's round's model, the engine's own acts, which run on
+    /// none, and an agent's round whose model was not recorded.
     pub by_model: Vec<ModelSpent>,
     /// By work, the costliest first: each work a round of which ended in the span.
     pub by_work: Vec<WorkSpent>,
@@ -100,9 +101,20 @@ pub struct CellSpent {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelSpent {
-    /// None for the rounds of the engine's own acts, and of an agent's round kept before tries were recorded.
-    pub model: Option<String>,
+    pub on: RanOn,
     pub spent: Spent,
+}
+
+/// What a round ran on.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum RanOn {
+    /// An agent's round, on this model, as its last try recorded it.
+    Model { model: String },
+    /// A round of the engine's own act, which runs on no model.
+    Act,
+    /// An agent's round kept before the tries of a round were recorded, whose model is not known.
+    NotRecorded,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -200,7 +212,7 @@ impl System {
             })
             .collect();
         let mut by_cell: BTreeMap<(String, String), Spent> = BTreeMap::new();
-        let mut by_model: BTreeMap<Option<String>, Spent> = BTreeMap::new();
+        let mut by_model: BTreeMap<RanOn, Spent> = BTreeMap::new();
         for kept in driver.works() {
             let (work, item) = (kept.head.number.0, kept.item.number.0);
             let runs = runs(kept)?;
@@ -247,8 +259,15 @@ impl System {
                     }
                     let cell = by_cell.entry((kept.head.flow.clone(), run.cell.clone())).or_default();
                     *cell = cell.with(spent);
-                    let model = models.get(&(run.run, round.number)).cloned();
-                    let model = by_model.entry(model).or_default();
+                    let act = (kept.flow.cells.iter())
+                        .find(|spec| spec.id.as_str() == run.cell)
+                        .is_some_and(|spec| spec.act.is_some());
+                    let on = match models.get(&(run.run, round.number)) {
+                        Some(model) => RanOn::Model { model: model.clone() },
+                        None if act => RanOn::Act,
+                        None => RanOn::NotRecorded,
+                    };
+                    let model = by_model.entry(on).or_default();
                     *model = model.with(spent);
                     if let Some(Back::Failed { why, failure, .. }) = &round.back {
                         system.failed.push(FailedRound {
@@ -308,7 +327,7 @@ impl System {
             .collect();
         system.by_cell.sort_by_key(|c| std::cmp::Reverse(c.spent.usd_micros));
         system.by_model = (by_model.into_iter())
-            .map(|(model, spent)| ModelSpent { model, spent })
+            .map(|(on, spent)| ModelSpent { on, spent })
             .collect();
         system.by_model.sort_by_key(|m| std::cmp::Reverse(m.spent.usd_micros));
         system.by_work.sort_by_key(|w| std::cmp::Reverse(w.spent.usd_micros));

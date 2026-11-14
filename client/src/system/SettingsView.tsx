@@ -4,8 +4,9 @@
 // what only the file changes, table by table, each key with its value as written. Beside a value the engine runs at
 // another, which it does until it starts again, since it reads the file as it starts, is the value it runs with.
 // Save, the one action the view is for, writes what changed into the file, its comments and layout kept, and commits
-// it where the file's directory keeps it in git; what the file would refuse is refused before anything is written.
-// Brought over from the Settings view of the engine on `old-main`.
+// it where the file's directory keeps it in git; what the engine would refuse is refused before anything is written,
+// in the engine's words. What the owner typed and did not save is kept in the browser, key by key, through a reload, a
+// read of the file anew and a save refused.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -66,49 +67,53 @@ export function changeables(page: SettingsPage): Changeable[] {
   );
 }
 
-/// Why a value may not be the key's, in the words the engine refuses it with; none where it may.
+/// Why a value typed is not of the key's kind, as the route refuses it; none where it is. What the engine refuses of a
+/// value of the right kind, such as no slots at all, its own reading of the file refuses as the change is saved.
 export function problem(c: Changeable, value: string, levels: string[]): string | null {
   switch (c.change.kind) {
-    case 'name': {
-      const ok = value !== '' && value.trim() === value && !/[\n\r]/.test(value) && [...value].length <= c.change.most;
-      return ok ? null : `${c.key} is a name on one line, of at most ${c.change.most} characters, with no space round it`;
-    }
-    case 'count': {
-      const n = Number(value);
-      const ok = /^\d+$/.test(value) && n >= c.change.least && n <= c.change.most;
-      return ok ? null : `${c.key} is a whole number from ${c.change.least} to ${c.change.most}`;
-    }
+    case 'name':
+      return value.trim() !== '' && !/[\n\r]/.test(value) ? null : `${c.key} is a name on one line`;
+    case 'count':
+      return /^\d+$/.test(value) ? null : `${c.key} is a whole number`;
     case 'level':
       return levels.includes(value) ? null : `${c.key} is one of the levels: ${levels.join(', ')}`;
   }
 }
 
-/// What the owner typed and did not save, kept in the browser with the file it was typed against.
-interface Draft {
-  base: string;
-  values: Record<string, string>;
-}
+/// What the owner typed and did not save: each key the owner changed, with its value as typed.
+type Draft = Record<string, string>;
 
 const DRAFT = 'settings-draft';
 
-function keptDraft(): Draft | null {
+function keptDraft(): Draft {
   try {
     const text = localStorage.getItem(DRAFT);
-    if (text === null) return null;
-    const draft = JSON.parse(text) as Draft;
-    return typeof draft.base === 'string' && typeof draft.values === 'object' ? draft : null;
+    if (text === null) return {};
+    const draft: unknown = JSON.parse(text);
+    const ok =
+      typeof draft === 'object' &&
+      draft !== null &&
+      !Array.isArray(draft) &&
+      Object.values(draft).every((v) => typeof v === 'string');
+    return ok ? (draft as Draft) : {};
   } catch {
-    return null;
+    return {};
   }
 }
 
-function keepDraft(draft: Draft | null) {
+function keepDraft(draft: Draft) {
   try {
-    if (draft === null) localStorage.removeItem(DRAFT);
+    if (Object.keys(draft).length === 0) localStorage.removeItem(DRAFT);
     else localStorage.setItem(DRAFT, JSON.stringify(draft));
   } catch {
     // Kept for this page only.
   }
+}
+
+/// Of a draft, the keys still changed against the file as it is now: a key the file no longer has, or whose value the
+/// file now has, is no longer a change.
+function stillChanged(draft: Draft, keys: Changeable[]): Draft {
+  return Object.fromEntries(Object.entries(draft).filter(([key, v]) => keys.some((c) => c.key === key && c.value !== v)));
 }
 
 /// What a request said: done, with what, or refused, with why.
@@ -128,7 +133,7 @@ export function SettingsView() {
       <p className="message muted">Reading the settings</p>
     );
   }
-  return <SettingsForm key={page.base} page={page} failed={failed} said={said} onSaid={setSaid} reread={read} />;
+  return <SettingsForm page={page} failed={failed} said={said} onSaid={setSaid} reread={read} />;
 }
 
 function SettingsForm({ page, failed, said, onSaid, reread }: {
@@ -140,30 +145,19 @@ function SettingsForm({ page, failed, said, onSaid, reread }: {
 }) {
   const source = useSystemSource();
   const keys = useMemo(() => changeables(page), [page]);
-  // A draft typed against the file as it was before it changed is dropped, and the form says so: written now, it
-  // would put old values over new ones.
-  const [dropped] = useState(() => {
-    const draft = keptDraft();
-    return draft !== null && draft.base !== page.base && Object.keys(draft.values).length > 0;
-  });
-  const [values, setValues] = useState<Record<string, string>>(() => {
-    const draft = keptDraft();
-    return draft !== null && draft.base === page.base ? draft.values : {};
-  });
+  // What was typed is kept as it was typed, the file read anew under it: each key it changes stays changed.
+  const [typed, setTyped] = useState<Draft>(keptDraft);
+  const values = useMemo(() => stillChanged(typed, keys), [typed, keys]);
   const [sending, setSending] = useState(false);
-  useEffect(() => {
-    if (dropped) keepDraft(null);
-  }, [dropped]);
+  useEffect(() => keepDraft(values), [values]);
   const valueOf = (c: Changeable) => values[c.key] ?? c.value;
   const set = (key: string, value: string) => {
-    const next = { ...values, [key]: value };
-    const original = keys.find((c) => c.key === key)?.value;
-    if (value === original) delete next[key];
-    setValues(next);
-    keepDraft(Object.keys(next).length === 0 ? null : { base: page.base, values: next });
+    const next = stillChanged({ ...values, [key]: value }, keys);
+    setTyped(next);
+    keepDraft(next);
   };
   const changed = keys.filter((c) => valueOf(c) !== c.value);
-  const problems = keys.map((c) => problem(c, valueOf(c), page.levels)).filter((p): p is string => p !== null);
+  const problems = changed.map((c) => problem(c, valueOf(c), page.levels)).filter((p): p is string => p !== null);
   const notCommitted = page.git !== null && !page.git.committed;
   const why =
     changed.length === 0
@@ -186,14 +180,18 @@ function SettingsForm({ page, failed, said, onSaid, reread }: {
       })
       .then(
         (saved) => {
-          keepDraft(null);
-          setValues({});
+          const left = Object.fromEntries(Object.entries(values).filter(([key]) => !changed.some((c) => c.key === key)));
+          setTyped(left);
+          keepDraft(left);
           onSaid({ ok: true, saved });
-          reread();
         },
+        // Refused, what was typed stays, and the file is read anew: where it changed since, the change is made on it.
         (e: unknown) => onSaid({ ok: false, why: message(e) }),
       )
-      .finally(() => setSending(false));
+      .finally(() => {
+        setSending(false);
+        reread();
+      });
   };
   const fileOnly = page.tables
     .map((t) => ({ ...t, keys: t.keys.filter((k) => k.change === null) }))
@@ -216,23 +214,18 @@ function SettingsForm({ page, failed, said, onSaid, reread }: {
           </Button>
         </span>
       </div>
-      {page.unreadable !== null && (
-        <p className="read-failed" role="alert">
-          The file does not read as settings: {page.unreadable}
-        </p>
-      )}
       {failed !== null && (
         <p className="read-failed" role="alert">
           The settings could not be read again: {failed}. What is shown is from before.
         </p>
       )}
       <main className="view-page">
+        {page.unreadable !== null && (
+          <p className="failed view-fault" role="alert">
+            The file does not read as settings: {page.unreadable}
+          </p>
+        )}
         <PanelPart label="Changed here">
-          {dropped && (
-            <p className="warn-text">
-              What was typed and not saved was typed on the file as it was before it changed, and was dropped.
-            </p>
-          )}
           <ViewTable heads={['Key', 'Value', 'The engine runs with']} label="The settings the page changes">
             {keys.map((c) => (
               <tr key={c.key}>
@@ -364,6 +357,8 @@ function Accounts({ onSaid, reread }: { onSaid: (said: Said) => void; reread: ()
   const load = useCallback(() => source.loadAccounts(), [source]);
   const { value: page, failed, read } = useReading(load);
   const [asking, setAsking] = useState<string | null>(null);
+  // Whether the choice of an account is on its way: it is not sent again meanwhile.
+  const [choosing, setChoosing] = useState(false);
   const [name, setName] = useState(keptName);
   const typed = name.trim();
   const ok = NAME.test(typed) && !(page?.accounts ?? []).some((a) => a.name === `${page?.stem}-${typed}` && a.signedInAs !== null);
@@ -384,16 +379,21 @@ function Accounts({ onSaid, reread }: { onSaid: (said: Said) => void; reread: ()
     );
   }
   const use = (account: string) => {
-    setAsking(null);
+    if (choosing) return;
+    setChoosing(true);
     onSaid(null);
-    source.chooseAccount({ base: page.base, name: account }).then(
-      (saved) => {
-        onSaid({ ok: true, saved });
+    source
+      .chooseAccount({ base: page.base, name: account })
+      .then(
+        (saved) => onSaid({ ok: true, saved }),
+        (e: unknown) => onSaid({ ok: false, why: message(e) }),
+      )
+      .finally(() => {
+        setChoosing(false);
+        setAsking(null);
         read();
         reread();
-      },
-      (e: unknown) => onSaid({ ok: false, why: message(e) }),
-    );
+      });
   };
   const typeName = (v: string) => {
     setName(v);
@@ -420,7 +420,11 @@ function Accounts({ onSaid, reread }: { onSaid: (said: Said) => void; reread: ()
               ) : a.signedInAs === null ? null : asking === a.name ? (
                 <span className="ask-line">
                   The agents run under {a.signedInAs} once the engine starts again, each line in a new session.{' '}
-                  <Button primary onClick={() => use(a.name)}>
+                  <Button
+                    disabled={choosing}
+                    title={choosing ? 'The choice is on its way' : `Write ${a.path} as agents.config_dir`}
+                    onClick={() => use(a.name)}
+                  >
                     Use it
                   </Button>{' '}
                   <Button onClick={() => setAsking(null)}>Cancel</Button>

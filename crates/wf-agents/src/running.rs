@@ -618,4 +618,36 @@ mod tests {
             Err("items.highest_level: there is no level \"9\"".to_string())
         );
     }
+
+    // A value the engine reads as the one it runs with is shown with no other beside it, however the file writes it: a
+    // whole number for a decimal one, a table written in part; one the file changed since the engine started is.
+    #[test]
+    fn the_page_shows_beside_a_key_only_a_value_the_engine_reads_otherwise() {
+        let sample = include_str!("../../carry/install.sample.toml")
+            .replace("work_budget_usd = 5.0", "work_budget_usd = 5")
+            .replace(
+                "permissions = { heavy = [\"uv\"], locks = [\"uv lock\"], locks_except = [\"uv lock *--script*\"] }",
+                "permissions = { heavy = [\"uv\"] }",
+            );
+        let settings = carry::Settings::read(&sample).expect("it reads");
+        let dir = tempfile::tempdir().expect("a directory");
+        let file = dir.path().join("install.toml");
+        std::fs::write(&file, &sample).unwrap();
+        let install = installed(file.clone(), &settings).expect("it is made");
+        let differ = |page: &web::settings::SettingsPage| -> Vec<String> {
+            (page.tables.iter())
+                .flat_map(|t| {
+                    (t.keys.iter())
+                        .filter(|k| k.written.is_some() && k.running.is_some())
+                        .map(move |k| format!("{}.{} runs with {}", t.name, k.key, k.running.as_deref().unwrap_or("")))
+                })
+                .collect()
+        };
+        let page = web::settings::page_of(&install).expect("it is shown");
+        assert_eq!(page.unreadable, None);
+        assert_eq!(differ(&page), Vec::<String>::new());
+        std::fs::write(&file, sample.replace("slots = 2", "slots = 3")).unwrap();
+        let page = web::settings::page_of(&install).expect("it is shown");
+        assert_eq!(differ(&page), ["agents.slots runs with 2"]);
+    }
 }

@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { Spent, Summary } from '../works-api';
 import { fixtureItems } from '../works/fixtures';
 import { changeables, problem, unquoted } from './SettingsView';
 import { fixtureSettings } from './fixtures';
-import { cacheShare, mergeAverages, standingOf, summed, weekStarts } from './standing';
+import { cacheShare, mergeAverages, nextWeekStart, standingOf, summed, weekStarts } from './standing';
 
 const spent = (usdMicros: number, inputTokens = 0, cachedTokens = 0): Spent => ({
   usdMicros,
@@ -42,13 +42,29 @@ describe('where a work stands', () => {
 });
 
 describe('the span', () => {
+  // A time zone whose clocks go back an hour on 2026-10-25, inside the four weeks the test counts; CI runs in UTC,
+  // where no week would be longer than another.
+  const zone = process.env.TZ;
+  beforeAll(() => {
+    process.env.TZ = 'Europe/Berlin';
+  });
+  afterAll(() => {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  });
+
   it("is this week, the four weeks to its end, or every week from the earliest, each from its Monday's midnight", () => {
     // A Thursday afternoon, in the browser's own time zone.
     const thursday = new Date(2026, 10, 12, 15, 30).getTime();
     const monday = (month: number, day: number) => new Date(2026, month, day).getTime();
     expect(weekStarts('week', thursday)).toEqual([monday(10, 9)]);
-    // Midnight each Monday, wherever the clocks changed between them.
-    expect(weekStarts('4w', thursday)).toEqual([monday(9, 19), monday(9, 26), monday(10, 2), monday(10, 9)]);
+    // Midnight each Monday, wherever the clocks changed between them: the week the clocks went back in is an hour
+    // longer than the others.
+    const four = weekStarts('4w', thursday);
+    expect(four).toEqual([monday(9, 19), monday(9, 26), monday(10, 2), monday(10, 9)]);
+    const WEEK = 7 * 24 * 60 * 60 * 1000;
+    expect(four.slice(1).map((start, i) => start - four[i])).toEqual([WEEK + 60 * 60 * 1000, WEEK, WEEK]);
+    expect(nextWeekStart(thursday)).toBe(monday(10, 16));
     expect(weekStarts('all', thursday, new Date(2026, 9, 28, 10).getTime())).toEqual([
       monday(9, 26),
       monday(10, 2),
@@ -92,16 +108,17 @@ describe('the settings the page changes', () => {
     expect(unquoted('12')).toBe('12');
   });
 
-  it('refuse a value the engine would refuse, in its words', () => {
+  it("refuse a value of another kind than the key's, and leave the rest to the engine", () => {
     const keys = changeables(fixtureSettings());
     const of = (key: string) => keys.find((k) => k.key === key)!;
     const levels = ['1', '2', '3'];
     expect(problem(of('agents.slots'), '4', levels)).toBeNull();
-    expect(problem(of('agents.slots'), '0', levels)).toBe('agents.slots is a whole number from 1 to 32');
-    expect(problem(of('agents.slots'), '2.5', levels)).toBe('agents.slots is a whole number from 1 to 32');
-    expect(problem(of('owner.language'), ' English', levels)).toBe(
-      'owner.language is a name on one line, of at most 40 characters, with no space round it',
-    );
+    expect(problem(of('agents.slots'), '64', levels)).toBeNull();
+    // No slots at all is the engine's to refuse, as the change is saved.
+    expect(problem(of('agents.slots'), '0', levels)).toBeNull();
+    expect(problem(of('agents.slots'), '2.5', levels)).toBe('agents.slots is a whole number');
+    expect(problem(of('owner.language'), ' English', levels)).toBeNull();
+    expect(problem(of('owner.language'), 'Eng\nlish', levels)).toBe('owner.language is a name on one line');
     expect(problem(of('items.highest_level'), '9', levels)).toBe('items.highest_level is one of the levels: 1, 2, 3');
   });
 });

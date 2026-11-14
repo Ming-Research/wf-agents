@@ -69,6 +69,11 @@ async fn all_time_gives_the_merge_and_what_was_spent_on_each_cell_and_model() {
     };
     assert_eq!(rounds(&system["byCell"]), spent["rounds"].as_u64().unwrap());
     assert_eq!(rounds(&system["byModel"]), spent["rounds"].as_u64().unwrap());
+    // The merge is the engine's own act, its one round on no model, apart from the agents' rounds.
+    let acts = (system["byModel"].as_array().unwrap().iter())
+        .find(|m| m["on"]["kind"] == "act")
+        .expect("the merge's round");
+    assert_eq!(acts["spent"]["rounds"], 1, "{system}");
     assert_eq!(system["weeks"], json!([]), "all time is not cut into weeks");
     // 2026-11-10 is a Tuesday: everything happened in the week that began on the Monday before, and nothing in the
     // week before it.
