@@ -381,12 +381,12 @@ pub(crate) async fn conflicts(project: &Project, main: &str, commit: &str) -> Re
 }
 
 /// Merges the work's branch into the main branch in the repository's own checkout, which must be on the main branch,
-/// hold no uncommitted change and no merge under way, and gives the head of the main branch after it: the merge
-/// commit, or, where the branch holds nothing the main branch does not, the head as it was. Where `checked` names the
-/// commit the check passed, the branch's head must be that commit, and it is what is merged. A merge is refused while
-/// the repository's own configuration names a program git could run ([`configuration`]), as every act is. Where the
-/// merge fails, the merge it began is taken back.
-pub async fn merge(project: &Project, place: &Place, checked: Option<&str>) -> Result<String, NotMerged> {
+/// hold no uncommitted change and no merge under way, by a commit named `name` in the words of the project's
+/// `commits`, and gives the head of the main branch after it: the merge commit, or, where the branch holds nothing the
+/// main branch does not, the head as it was. Where `checked` names the commit the check passed, the branch's head must
+/// be that commit, and it is what is merged. A merge is refused while the repository's own configuration names a
+/// program git could run ([`configuration`]), as every act is. Where the merge fails, the merge it began is taken back.
+pub async fn merge(project: &Project, place: &Place, name: &str, checked: Option<&str>) -> Result<String, NotMerged> {
     let repo = &project.repo;
     let on = git(repo, &["symbolic-ref", "--quiet", "--short", "HEAD"]).await?;
     if on != project.main {
@@ -442,7 +442,7 @@ pub async fn merge(project: &Project, place: &Place, checked: Option<&str>) -> R
         let main = git(repo, &["rev-parse", "HEAD"]).await?;
         return Err(NotMerged::Moved { main, checked: head });
     }
-    let message = fill(&project.commits.merge, &[("branch", &place.branch)]);
+    let message = fill(&project.commits.merge, &[("branch", &place.branch), ("name", name)]);
     let args = ["merge", "--no-ff", "-m", &message, &head];
     if let Err(why) = git(repo, &args).await {
         if merging().await? {

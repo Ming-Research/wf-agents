@@ -95,7 +95,7 @@ impl Host for Local {
     }
 
     async fn merge(&self, branch: &Branch<'_>, checked: Option<&str>) -> Result<String, NotMerged> {
-        git::merge(&self.project, branch.place, checked).await
+        git::merge(&self.project, branch.place, branch.title, checked).await
     }
 
     fn kept_main(&self) -> String {

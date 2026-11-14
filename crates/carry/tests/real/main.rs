@@ -111,6 +111,9 @@ impl Default for Fake {
     }
 }
 
+/// The name the fake's build gives the work's merge, where its flow has a block for it, as it hands in its code.
+pub const NAMED: &str = "Greet the user by name";
+
 /// What the command line says of a return it gave up on, as it says it, the last refusal at its end.
 pub const GAVE_UP: &str = "Failed to provide valid structured output after 3 attempts — last StructuredOutput error: \
                            Output does not match required schema: /outcome: must be object";
@@ -237,6 +240,8 @@ pub struct Real {
     pub level: String,
     /// The project the items added from now on belong to.
     pub project: String,
+    /// The title the items added from now on are given.
+    pub title: String,
 }
 
 /// Runs git in the directory, which must pass, and gives its output.
@@ -399,6 +404,10 @@ case "$first" in
             git -c user.name=Fake -c user.email=fake@example.com commit -q -m 'Build the greeting'
             head=$(git rev-parse HEAD)
             out="\"code\":\"A greeting, in commit $head.\""
+            # Where the cell writes the name of the work's merge, it names it.
+            if printf '%s\n' "$text" | grep -q '^- `title`'; then
+                out="$out,\"title\":\"{name}\""
+            fi
         fi ;;
     Review) out='"verdict":{{"value":"yes","why":"Fine."}}' ;;
 esac
@@ -435,6 +444,7 @@ printf '{{"type":"result","subtype":"success","is_error":false,"total_cost_usd":
         design = yes(fake.design),
         moves = yes(fake.moves_main),
         gave_up = GAVE_UP,
+        name = NAMED,
         refused = refused.display(),
         contexts = (fake.contexts.iter().map(u64::to_string).collect::<Vec<_>>()).join(" "),
         iterations = fake.context.map_or_else(String::new, |context| {
@@ -587,6 +597,7 @@ impl Real {
             holds: 0,
             level: "1".to_string(),
             project: PROJECT.to_string(),
+            title: "Greet the user".to_string(),
         }
     }
 
@@ -698,7 +709,7 @@ impl Real {
             value: None,
         });
         let item = NewItem {
-            title: "Greet the user".to_string(),
+            title: self.title.clone(),
             level: self.level.clone(),
             project: self.project.clone(),
             depends_on: depends_on.to_vec(),

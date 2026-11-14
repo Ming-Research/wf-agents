@@ -967,6 +967,8 @@ pub struct Commits {
     pub check: String,
     /// The merge of the work's branch into main.
     pub merge: String,
+    /// The name of a work's merge, where the work has written none.
+    pub unnamed: String,
 }
 
 /// What the engine's acts write into the blocks their cells write: `agents/acts/<act>.toml`.
