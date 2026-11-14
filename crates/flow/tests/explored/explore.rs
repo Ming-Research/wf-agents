@@ -79,8 +79,10 @@ pub struct Explored {
 
 #[derive(Default)]
 pub struct Stats {
-    /// The states kept: rounds under way, waits and rests.
+    /// The states kept: rounds under way, waits and rests; and of them, by what their paths spent, those before and
+    /// past a write from outside.
     pub states: u64,
+    pub by_spent: BTreeMap<(u8, bool), u64>,
     /// The decisions of the walk taken, and the calls of the engine's reading of what a round was told.
     pub decisions: u64,
     pub told: u64,
@@ -228,6 +230,11 @@ pub fn explore(model: &Model, bounds: Bounds) -> Explored {
         }
         state.ancestors.push(key);
         e.out.stats.states += 1;
+        *e.out
+            .stats
+            .by_spent
+            .entry((state.spent, state.outside.is_some()))
+            .or_default() += 1;
         for child in e.children(&state, &decision) {
             queue.push_back(child);
         }

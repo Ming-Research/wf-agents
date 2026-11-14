@@ -105,6 +105,9 @@ fn stats(e: &Explored) -> String {
         "{} states, {} decisions of the walk, {} readings of what a round was told, {} runs, at most {} decisions in a \
          row, in {:.2?}",
         s.states, s.decisions, s.told, s.runs, s.longest, s.took
+    ) + &format!(
+        "; states by what their paths spent, and whether the outside wrote: {:?}",
+        s.by_spent
     )
 }
 
@@ -221,9 +224,17 @@ fn the_exploration_reaches_every_rarely_taken_path_and_the_engine_takes_every_st
         never.join("\n  ")
     );
     eprintln!("{report}");
+    let expected: Vec<&str> = NEVER.iter().map(|(item, _)| *item).collect();
+    let unexpected: Vec<&String> = never.iter().filter(|n| !expected.contains(&n.as_str())).collect();
+    let now_reached: Vec<&str> = expected.into_iter().filter(|x| !never.iter().any(|n| n == x)).collect();
     assert!(
-        missing.is_empty() && engine.is_empty(),
-        "{report}\nnot reached: {missing:?}\nsteps the engine refused:\n{}",
+        missing.is_empty() && engine.is_empty() && unexpected.is_empty() && now_reached.is_empty(),
+        "{report}\nnot reached: {missing:?}\nnever reached, and not said why: {unexpected:?}\nsaid never \
+         reached, and reached: {now_reached:?}\nsteps the engine refused:\n{}",
         engine.join("\n")
     );
 }
+
+/// What of the flow the exploration never reaches, each with why: what the flow's definition holds and no path can
+/// reach, or what lies past the bound.
+const NEVER: &[(&str, &str)] = &[];
