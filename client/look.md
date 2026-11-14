@@ -153,7 +153,8 @@ What the owner reviews every work by, so that it says plainly why a work is wher
   each by what happened last. The whole row opens the work. Below 760px the strip and what was taken give way and the
   now line wraps to two lines; below 480px the time gives way too. Where the installation names more than one project,
   the view's line holds after its name the key `project` and a native select of the projects, `all` at first, which
-  shows only the works of that project's items and is kept in the browser; with one project it is not there.
+  shows the works of that project's items with every work waiting for the owner, and the facts then say how many are
+  shown, the counts staying those of every work; the choice is kept nowhere; with one project it is not there.
 - **A work's line**: the view's line holds the way back to the works, the item's number and title, its project by key
   and value (`project wf-agents`) where it has one, the now line, what was taken in all, and the buttons Pause or Let
   on, and Cancel, which asks again in words before it sends.

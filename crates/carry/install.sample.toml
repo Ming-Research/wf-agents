@@ -4,8 +4,8 @@
 #
 # A text the agents are given (the engine's own words, the rules for the agents, the words of the return's fields and
 # of the tools, all beside the flows) may name by its key between backticks, as `owner.language`, a setting of these
-# that `[installation] names` in the project's `flow/project.toml` lists: the agent is given its value beside the name.
-# A flow whose texts given to a line name one these settings have no value for is refused as the engine starts.
+# that `names` in `agents/installation.toml` beside the flows lists: the agent is given its value beside the name. A
+# flow whose texts given to a line name one these settings have no value for is refused as the engine starts.
 
 [owner]
 # The language the agents write in what the owner reads, technical terms in their English original.
@@ -13,10 +13,9 @@ language = "Chinese"
 
 # The projects the works are done in, each a table named by the name the installation gives it, by which items and the
 # page know it: an item belongs to one project, and its works run in that project's repository, with what the project
-# declares in its repository's flow/project.toml (its files the agents are given, its settings, its tests and
-# workflows). Item numbers are one sequence across the projects, and an item may depend on an item of another project,
-# waited for as any other. An installation of one project names it as any other: what was once [project] is
-# [projects.<name>], and [github] is [projects.<name>.github].
+# declares in flow/project.toml on its main branch (its design tree, its files the agents are given, its settings, its
+# tests and workflows). Item numbers are one sequence across the projects, and an item may depend on an item of another
+# project, waited for as any other. Two projects never name one repository.
 [projects.example]
 # The local git repository the works are done in: its own checkout, which stays on the main branch. Each work has a
 # branch `work-<n>` and a worktree `<data>/worktrees/<n>` made from the main branch's head, and is merged here; with

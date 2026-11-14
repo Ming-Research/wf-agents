@@ -5,9 +5,8 @@
 //! nothing.
 //!
 //! A text the agents are given names a setting by its key between backticks, as `` `owner.language` ``, and is given
-//! with the setting's value written beside the name: each project's declaration, `flow/project.toml` in its
-//! repository, names the installation's settings the texts may name, and the installation holds each one's value
-//! ([`Settings::value`]).
+//! with the setting's value written beside the name: `agents/installation.toml` beside the flows names the
+//! installation's settings the texts may name, and the installation holds each one's value ([`Settings::value`]).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -214,7 +213,7 @@ pub struct Project {
     #[serde(skip)]
     pub commits: flow::agents::Commits,
     /// The directory of the repository that holds the project's design tree: not in the settings, but in the
-    /// project's declaration, `flow/project.toml` in its repository, put here as the carriers are made.
+    /// project's declaration, `flow/project.toml` on its main, put here as the carriers are made.
     #[serde(skip)]
     pub tree: String,
 }

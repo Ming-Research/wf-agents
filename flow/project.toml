@@ -1,6 +1,7 @@
-# A project's declaration, `flow/project.toml` in its repository: each project an installation names has its own, and
-# the agents of its works are given its files, as they are in the work's checkout, and its settings, which the words
-# sent to the agents name as `project.<name>`. This one is the declaration of the project whose repository holds the
+# A project's declaration, `flow/project.toml` on its repository's main branch: each project an installation names has
+# its own, read as the engine starts. It holds what is the project's: its design tree; its files, which the agents of
+# its works are given as they are in the work's checkout; its settings, which the words sent to the agents name as
+# `project.<name>`; and its tests and workflows. This one is the declaration of the project whose repository holds the
 # flows. A path is from the root of the project's checkout.
 
 # The directory that holds the project's design tree, which the engine looks at on each work's branch.
@@ -17,11 +18,6 @@ path = "design/constitution.md"
 # The rules of the project's design tree.
 [files.tree_rules]
 path = "design/README.md"
-
-# The installation's settings a text sent to an agent may name, whose values the engine fills in from the
-# installation: not the project's, so they are named here and kept there.
-[installation]
-names = ["owner.language", "agents.subagents.most"]
 
 [project]
 # Where an agent keeps what it makes for research, committed.

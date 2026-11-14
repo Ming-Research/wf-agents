@@ -167,31 +167,33 @@ describe('the list of works', () => {
     expect(window.location.hash).toBe('#/works/41');
   });
 
-  it("shows, with a project chosen, only the works of that project's items, and every work with none chosen", () => {
+  it("shows, with a project chosen, that project's works and every work waiting for the owner, and every work with none chosen", () => {
     const page = draw(<WorksTable items={fixtureItems()} projects={fixtureProjects().names} />, fixtureSource());
     const select = page.querySelector('.view-line select') as HTMLSelectElement;
     expect(select.closest('label')?.querySelector('.muted.mono')?.textContent).toBe('project');
     expect([...select.options].map((o) => o.textContent)).toEqual(['all', 'Whitefoot', 'wf-agents']);
     expect(select.value).toBe('');
     expect(listed(page)).toHaveLength(10);
+    const facts = () => page.querySelector('.view-facts')?.textContent;
+    expect(facts()).toBe('10 works, 4 waiting for the owner');
+    // The works waiting for the owner of the other project, 44 and 41, stay; the counts stay those of every work.
     pick(select, 'Whitefoot');
-    expect(listed(page)).toEqual([43, 45, 47]);
-    expect(page.querySelector('.view-facts')?.textContent).toBe('3 works, 2 waiting for the owner');
-    // An item added before items had projects is shown only with none chosen.
+    expect(listed(page)).toEqual([43, 44, 45, 41, 47]);
+    expect(facts()).toBe('10 works, 4 waiting for the owner, 5 shown');
+    // An item added before items had projects is shown only with none chosen, as it waits for nobody.
     pick(select, 'wf-agents');
-    expect(listed(page)).toEqual([44, 41, 50, 42, 46, 48]);
+    expect(listed(page)).toEqual([43, 44, 45, 41, 50, 42, 46, 48]);
     pick(select, '');
     expect(listed(page)).toHaveLength(10);
+    expect(facts()).toBe('10 works, 4 waiting for the owner');
   });
 
-  it('keeps the project chosen as the list is drawn again, while the installation names it among others', async () => {
+  it('keeps no project chosen once the list is drawn anew, and takes no room for a choice with one project', async () => {
     const names = fixtureProjects().names;
     const first = draw(<WorksTable items={fixtureItems()} projects={names} />, fixtureSource());
     pick(first.querySelector('select'), 'Whitefoot');
-    expect(listed(draw(<WorksTable items={fixtureItems()} projects={names} />, fixtureSource()))).toEqual([43, 45, 47]);
-    const other = draw(<WorksTable items={fixtureItems()} projects={['wf-agents', 'Firn-wf']} />, fixtureSource());
-    expect(listed(other)).toHaveLength(10);
-    // Where it names one project, the list takes no room for a choice.
+    expect(listed(first)).toHaveLength(5);
+    expect(listed(draw(<WorksTable items={fixtureItems()} projects={names} />, fixtureSource()))).toHaveLength(10);
     const one = draw(<WorksList />, fixtureSource({ loadProjects: async () => ({ names: ['Whitefoot'] }) }));
     await settle();
     expect(one.querySelector('select')).toBeNull();

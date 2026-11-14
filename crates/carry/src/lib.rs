@@ -99,7 +99,11 @@ pub fn carry(
     let tag = git::tag(&installation);
     let query = querying(&settings, &beside, &data)?;
     let (mut acts, mut tools, mut watches, mut of) = (BTreeMap::new(), BTreeMap::new(), Vec::new(), BTreeMap::new());
-    for (name, declared) in projects::declared(&settings, &beside)? {
+    let (declared, faults) = projects::declared(&settings, &beside);
+    if !faults.is_empty() {
+        return Err(faults.join("; "));
+    }
+    for (name, declared) in declared {
         let mut project = declared.settings;
         project.commits = beside.commits.clone();
         let beside = declared.beside;
@@ -134,8 +138,14 @@ pub fn carry(
     let carriers = Carriers {
         slots,
         agents: Arc::new(Agents::new(settings, data.clone(), installation, of)),
-        acts: Arc::new(ByProject(acts)),
-        tools: Arc::new(ByProject(tools)),
+        acts: Arc::new(ByProject {
+            of: acts,
+            said: beside.installation.no_project.clone(),
+        }),
+        tools: Arc::new(ByProject {
+            of: tools,
+            said: beside.installation.no_project.clone(),
+        }),
         network: Arc::new(failure::Look),
     };
     Ok((carriers, watches))

@@ -16,7 +16,8 @@ wf-agents runs coding agents through a defined flow.
   (`<data>/install.toml`, of which `crates/carry/install.sample.toml` is a sample); given `--script`, they follow the
   script instead. To try it on the trial flow with a script, in `crates/service/tests/trial`:
   `wf-agents run --data <an empty directory> --flow flow --script script.toml`; then
-  `wf-agents add --title "Greet the user" --flow trial --write "request=Greet the user."` and `wf-agents resume 1`,
+  `wf-agents add --title "Greet the user" --flow trial --project script --write "request=Greet the user."` and
+  `wf-agents resume 1`,
   and `wf-agents list` or the pages to follow it;
   `wf-agents pause --all` and `wf-agents resume --all` pause everything and lift it. Whoever plans the work waits
   with `wf-agents wait` for what needs them, each answer ending with the mark to give the next.

@@ -63,7 +63,9 @@ fn as_written(pieces: &[Piece]) -> String {
 
 /// The settings the texts name, each with a value.
 fn settings(agents: &Agents) -> Settings {
-    Settings::of(&agents.project, |name| Some(format!("the value of {name}")))
+    Settings::of(&agents.project, &agents.installation, |name| {
+        Some(format!("the value of {name}"))
+    })
 }
 
 /// The system prompt as it is sent, its places filled as the engine fills them.
@@ -182,8 +184,8 @@ fn a_setting_the_texts_name_with_no_value_makes_no_prompt() {
     // The way the project names its tests, which the words of `run_tests` name, given as the installation's here, with
     // no value; and the subagents an agent may start.
     agents.project.project.remove("test_names");
-    agents.project.installation.names.push("project.test_names".to_string());
-    let lacking = Settings::of(&agents.project, |name| {
+    agents.installation.names.push("project.test_names".to_string());
+    let lacking = Settings::of(&agents.project, &agents.installation, |name| {
         (!["agents.subagents.most", "project.test_names"].contains(&name)).then(|| "a value".to_string())
     });
     let fill = |name: &str| Some(name.to_string());
@@ -218,14 +220,7 @@ fn a_tools_place_is_filled_from_its_own_file() {
     );
     let ways: Vec<&str> = run_tests.places["named_checks"].keys().map(String::as_str).collect();
     assert_eq!(ways, ["named", "none_named", "whole"]);
-    assert!(
-        !agents
-            .project
-            .installation
-            .names
-            .iter()
-            .any(|n| n.starts_with("github."))
-    );
+    assert!(!agents.installation.names.iter().any(|n| n.starts_with("github.")));
     let parts = system::parts(&agents, &flow, cells(&flow, "engineer")[0], project).unwrap();
     let returns = parts.iter().find(|p| p.of == Of::Returns).expect("how a cell returns");
     for words in run_tests.places["named_checks"].values() {

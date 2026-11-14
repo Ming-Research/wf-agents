@@ -1,0 +1,13 @@
+# What the texts beside the flows take from the installation, the same for every project: read once, as the engine
+# starts.
+
+# The installation's settings a text sent to an agent may name between backticks, whose values the engine fills in from
+# the installation's settings: not a project's, so they are named here and kept there.
+names = ["owner.language", "agents.subagents.most"]
+
+# What a tool's result says where nothing is run, the work's item belonging to no project the installation names:
+# `unnamed` where it belongs to one the installation does not name, `{project}` its name; `none` where it belongs to
+# none, as an item added before items had projects.
+[no_project]
+unnamed = "Nothing was run: your work's item belongs to the project {project}, which this installation does not name."
+none = "Nothing was run: your work's item belongs to no project, so there is no repository to run it in."

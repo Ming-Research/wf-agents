@@ -453,28 +453,42 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
 }
 
 /// What keeps the real carriers from carrying out the flows, every fault at once: what the acts need of a flow and of
-/// their words beside the flows; and of each project, its declaration in its repository, what the texts sent to its
-/// works' agents name and hold ([`carry::system::faults`]), and its files every system prompt holds, on its main where
-/// works branch from ([`carry::system::project_files`]), each said with the project's key.
+/// their words beside the flows; what the texts sent to the agents name and hold ([`carry::system::faults`]); and of each
+/// project, its declaration on its main and its files every system prompt holds there, where works branch from
+/// ([`carry::system::project_files`]), and two projects in one repository, each said with the projects' keys. The texts
+/// are the flows', the same for every project but for what a project's declaration gives them: a fault every project's
+/// texts have is said once, and one only some have is said with their keys.
 fn start_faults(settings: &carry::Settings, beside: &flow::agents::Agents, flows: &[Compiled]) -> Vec<String> {
     let mut faults: Vec<String> = (flows.iter())
         .flat_map(|flow| carry::faults(flow, &beside.acts.check.values))
         .collect();
     let words = carry::word_faults(&beside.acts.check).into_iter();
     faults.extend(words.map(|fault| format!("{}/{fault}", beside.root.display())));
-    let declared = match carry::projects::declared(settings, beside) {
-        Ok(declared) => declared,
-        Err(why) => {
-            faults.push(why);
-            return faults;
-        }
-    };
+    let (declared, wrong) = carry::projects::declared(settings, beside);
+    faults.extend(wrong);
+    let mut of_texts: Vec<(String, Vec<&str>)> = Vec::new();
     for (name, project) in &declared {
-        let of = flows
+        for fault in flows
             .iter()
-            .flat_map(|flow| carry::system::faults(settings, &project.beside, flow));
+            .flat_map(|flow| carry::system::faults(settings, &project.beside, flow))
+        {
+            match of_texts.iter_mut().find(|(said, _)| *said == fault) {
+                Some((_, names)) => names.push(name.as_str()),
+                None => of_texts.push((fault, vec![name.as_str()])),
+            }
+        }
+    }
+    for (fault, names) in of_texts {
+        if names.len() == declared.len() {
+            faults.push(fault);
+        } else {
+            let keys: Vec<String> = names.iter().map(|name| format!("projects.{name}")).collect();
+            faults.push(format!("{}: {fault}", keys.join(", ")));
+        }
+    }
+    for (name, project) in &declared {
         let files = carry::system::project_files(&project.settings, &project.beside);
-        faults.extend(of.chain(files).map(|fault| format!("projects.{name}: {fault}")));
+        faults.extend(files.into_iter().map(|fault| format!("projects.{name}: {fault}")));
     }
     faults
 }
@@ -586,6 +600,48 @@ mod tests {
         git(&repo, &["commit", "-q", "-m", "Files"]);
         settings.projects.get_mut("example").expect("the sample's project").repo = repo;
         settings
+    }
+
+    // Every project's faults are said at once: a declaration main does not hold does not keep the others from being
+    // looked at, and two projects that name one repository are refused.
+    #[test]
+    fn every_projects_fault_is_said_at_once_and_two_projects_in_one_repository_are_refused() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let mut settings = settings(dir.path());
+        let example = settings.projects["example"].clone();
+        let other = dir.path().join("other");
+        std::fs::create_dir_all(&other).unwrap();
+        git(&other, &["init", "-q", "-b", "main"]);
+        let who = [
+            "-c",
+            "user.name=Tester",
+            "-c",
+            "user.email=tester@example.com",
+            "-c",
+            "commit.gpgsign=false",
+        ];
+        git(
+            &other,
+            &[&who[..], &["commit", "-q", "--allow-empty", "-m", "Empty"][..]].concat(),
+        );
+        let mut undeclared = example.clone();
+        undeclared.repo = other;
+        settings.projects.insert("other".to_string(), undeclared);
+        settings.projects.insert("same".to_string(), example);
+        let beside = beside(&[flows().join("engineer")], &[]).expect("the files beside the flows");
+        let faults = start_faults(&settings, &beside, &[engineer()]);
+        assert_eq!(faults.len(), 2, "{faults:?}");
+        assert!(
+            faults[0].starts_with("projects.example, projects.same: name one repository, "),
+            "{faults:?}"
+        );
+        assert!(
+            faults[1].starts_with(
+                "projects.other: refs/heads/main:flow/project.toml, the project's declaration on main where works \
+                 branch from, cannot be read: "
+            ),
+            "{faults:?}"
+        );
     }
 
     // The flows given are beside one directory, whose files every flow shares; flows from two are refused.

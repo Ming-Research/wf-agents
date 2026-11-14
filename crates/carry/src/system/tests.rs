@@ -213,7 +213,7 @@ fn every_text_sent_naming_a_setting_with_no_value_is_refused_as_the_engine_start
     assert_eq!(faults(&settings(), &beside, &flow), Vec::<String>::new());
     // A setting the rules and two tasks name has no value.
     beside.project.project.remove("research");
-    beside.project.installation.names.push("project.research".to_string());
+    beside.installation.names.push("project.research".to_string());
     let lines = lines(&flow);
     assert_eq!(
         lines,
