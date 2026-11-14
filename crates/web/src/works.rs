@@ -1072,7 +1072,7 @@ pub struct ItemChanges {
     deny_unknown_fields
 )]
 pub enum ChangeAsked {
-    /// The item is given this title, which its merge will be named by.
+    /// The item is given this title, in the owner's language; its merge is named by a line its work writes.
     Title { item: u64, title: String },
     /// The item is put at this level, among those the settings name and at most the highest an item may be at.
     Level { item: u64, level: String },

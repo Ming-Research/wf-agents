@@ -26,6 +26,7 @@ made you say so is still there.
 triggered_by = ["on_change", "on_reply_review", "on_spoken"]
 context = [
   "code",
+  "title",
   "decisions",
   "evidence",
   "tests",
@@ -57,6 +58,7 @@ on_reply_review = """Look at what changed: accept each answer in `reply_review` 
 tree = "last_and_latest"
 review = "latest"
 code = "last_and_latest"
+title = "latest"
 decisions = "last_and_latest"
 evidence = "latest"
 plan_owner = "last_and_latest"

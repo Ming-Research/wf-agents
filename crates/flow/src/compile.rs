@@ -134,6 +134,8 @@ pub struct CellSpec {
     pub must_write: Vec<BlockId>,
     /// The blocks among those that run it that say what the work is where the host shows it, in the order written.
     pub describes: Vec<BlockId>,
+    /// The block whose first line names the work's merge where the host shows it; none where the cell names none.
+    pub named_by: Option<BlockId>,
     /// The blocks whose new version runs the cell, in the order it names them.
     pub runs_on: Vec<RunsOn>,
     /// The blocks the cell is given, its session kept supplied with their content, in the order it names them; none
@@ -1340,9 +1342,11 @@ impl<'a> Definition<'a> {
                 }
             }
             let takes = def.takes(id, file);
-            let named = (takes.runs_on.iter().map(|r| &r.block)).chain(takes.given.iter().map(|g| &g.block));
-            for block in named {
-                if let Some(u) = uses.get_mut(block.as_str())
+            let named =
+                (takes.runs_on.iter().map(|r| r.block.as_str())).chain(takes.given.iter().map(|g| g.block.as_str()));
+            // The act of a cell reads the block the cell names the work's merge by.
+            for block in named.chain(file.named_by.as_deref()) {
+                if let Some(u) = uses.get_mut(block)
                     && !u.readers.contains(&id)
                 {
                     u.readers.push(id);
@@ -1725,6 +1729,9 @@ impl<'a> Definition<'a> {
             let run_on = takes.runs_on.iter().any(|r| r.block.as_str() == block);
             self.trigger_only(block).or_else(|| (!run_on).then_some(what))
         }));
+        if let Some(what) = file.named_by.as_deref().and_then(with_content) {
+            found.push(("named_by".to_string(), what));
+        }
         for (block, how) in file.input.iter().filter(|_| takes.form == Form::Inputs) {
             if !file.inputs.iter().any(|i| i == block) {
                 let what = FaultKind::TakenNotRead { block: block.clone() };
@@ -1766,6 +1773,7 @@ impl<'a> Definition<'a> {
             act: file.act.clone(),
             must_write: file.must_write.iter().map(|b| BlockId(b.clone())).collect(),
             describes: file.describes.iter().map(|b| BlockId(b.clone())).collect(),
+            named_by: file.named_by.as_ref().map(|b| BlockId(b.clone())),
             runs_on: takes.runs_on,
             given: takes.given,
             tools: if flow_tools {

@@ -30,11 +30,13 @@ use crate::held::Stop;
 pub use github::GitHub;
 pub use local::Local;
 
-/// The work's branch, as a host is given it: with the work, the title of its item and what the work says of itself,
-/// which a host may show where it shows the branch.
+/// The work's branch, as a host is given it: with the work, the name of its merge and what the work says of itself,
+/// which a host may show where it shows the branch. A host is given nothing of the work's item.
 #[derive(Clone, Copy, Debug)]
 pub struct Branch<'a> {
     pub work: WorkNumber,
+    /// The name of the work's merge, which its pull request and the commit its merge makes take
+    /// ([`crate::acts::name`]).
     pub title: &'a str,
     /// What the work wrote of itself where the flow's check names it, in the flow's order; empty where it names nothing
     /// or nothing is written yet.
@@ -88,10 +90,10 @@ pub trait Host: Send + Sync + 'static {
         stop: &mut Stop,
     ) -> impl Future<Output = Result<Option<Verdict>, String>> + Send;
 
-    /// Merges the work's branch into main and gives the commit the merge made main's head with. Where `checked` names
-    /// the commit the check passed, only that commit is merged, and only onto a main it holds ([`NotMerged::Moved`]);
-    /// a merge made already, before the engine stopped, is found first and gives its commit. With none, the flow has
-    /// no check, and what the branch holds is merged.
+    /// Merges the work's branch into main, by a commit named by the branch's title, and gives the commit the merge made
+    /// main's head with. Where `checked` names the commit the check passed, only that commit is merged, and only onto
+    /// a main it holds ([`NotMerged::Moved`]); a merge made already, before the engine stopped, is found first and
+    /// gives its commit. With none, the flow has no check, and what the branch holds is merged.
     fn merge(
         &self,
         branch: &Branch<'_>,

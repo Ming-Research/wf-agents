@@ -110,8 +110,9 @@ enum Command {
         #[command(flatten)]
         at: At,
     },
-    /// Gives an item another title, which its merge will be named by. The title it had is kept, as every change of an
-    /// item is, with why: `wf-agents show` says each.
+    /// Gives an item another title, in the owner's language, as the page and the item's agents know it: its merge is
+    /// named by a line its work writes in the repository's language, never by its title. The title it had is kept, as
+    /// every change of an item is, with why: `wf-agents show` says each.
     SetTitle {
         item: u64,
         title: String,

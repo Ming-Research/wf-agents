@@ -107,12 +107,13 @@ impl<H: Host> ToolsTrait for Tools<H> {
                 }
             } else {
                 let place = git::place(&inner.data, &inner.tag, call.work);
-                // What the work says of itself, as the acts work it out, so that the pull request the tool brings up
-                // to date says what the check before the merge has it say.
+                // What the work says of itself and the name of its merge, as the acts work them out, so that the pull
+                // request the tool brings up to date says what the check before the merge has it say.
                 let about = crate::acts::about(&call.flow, &call.kept);
+                let name = crate::acts::name(&call.flow, &call.kept, call.work, &inner.project.commits);
                 let branch = Branch {
                     work: call.work,
-                    title: &call.item.title,
+                    title: &name,
                     about: &about,
                     place: &place,
                 };
@@ -281,7 +282,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::*;
-    use crate::git::tests::Repo;
+    use crate::git::tests::{Repo, TAG};
     use crate::host::Local;
     use crate::host::fake::{Asked, Fake};
 
@@ -437,6 +438,44 @@ mod tests {
         let (answer, ()) = tokio::join!(asked, withdrawing);
         assert!(matches!(answer, Answer::Withdrawn));
         assert!(began.elapsed() < Duration::from_secs(20), "the command was stopped");
+    }
+
+    // The pull request the tool brings up to date is named as the work's merge is: by the work's number before the work
+    // wrote a name for it, and never by the title of its item, which is in the owner's language.
+    #[tokio::test]
+    async fn the_host_is_given_the_name_of_the_works_merge_and_never_its_items_title() {
+        let repo = Repo::new("true");
+        git::start(&repo.project, &repo.place(WORK), "main").await.unwrap();
+        let host = Fake::new("unused").runs("The tests passed.");
+        let tools = Tools::new(host, repo.project.clone(), repo.data.clone(), TAG.to_string(), None);
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/real/flow");
+        let has = flow::Has {
+            sources: ["tree", "main"].map(str::to_string).into(),
+            acts: ["start", "check", "merge"].map(str::to_string).into(),
+            ..Default::default()
+        };
+        let flow = flow::compile(&flow::read(&dir).unwrap(), &has).unwrap();
+        let first = store::First {
+            title: "向用户问好".to_string(),
+            level: None,
+            project: None,
+            depends_on: Vec::new(),
+            tags: Vec::new(),
+        };
+        let call = ToolCall {
+            work: WORK,
+            flow: Arc::new(flow),
+            run: decide::RunId(1),
+            call: CallId(2),
+            name: RUN_TESTS.to_string(),
+            input: String::new(),
+            item: store::Item::new(store::ItemNumber(1), work::Time(0), first, Vec::new()),
+            kept: Arc::new(work::Work::default()),
+        };
+        let (to, mut said) = tokio::sync::mpsc::unbounded_channel();
+        tools.call(call, CallReply::new(WORK, CallId(2), to));
+        said.recv().await.expect("the call is answered");
+        assert_eq!(tools.inner.host.titles(), ["Work 1"]);
     }
 
     #[test]
