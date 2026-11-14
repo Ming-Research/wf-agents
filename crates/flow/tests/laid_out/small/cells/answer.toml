@@ -8,7 +8,7 @@ Answer the comments on the plan.
 Say what you changed for each.
 """
 when = { test = "has_comment" }
-requires = ["plan_confirmed"]
+requires = { test = "plan_confirmed" }
 triggered_by = ["on_comments", "on_plan"]
 context = ["comments", "plan"]
 outputs = ["reply"]

@@ -197,9 +197,13 @@ async fn each_agent_cell_of_the_repository_s_flow_is_sent_what_its_file_and_the_
             assert_eq!(part["kind"], json!(kind), "{id}: {block}");
             assert!(!text_of(part).is_empty(), "{id}: {block} is sent no words");
         }
-        // Its task, from its own file.
+        // Its task, from its own file, or the file it is written in.
         let task = (parts.iter()).find(|p| p["what"] == json!("task")).expect("the task");
-        assert_eq!(task["source"], json!(format!("flow/engineer/cells/{id}.toml")), "{id}");
+        let source = match cell["taskFile"].as_str() {
+            Some(file) => format!("flow/engineer/{file}"),
+            None => format!("flow/engineer/cells/{id}.toml"),
+        };
+        assert_eq!(task["source"], json!(source), "{id}");
         assert!(!text_of(task).is_empty(), "{id}: no task is sent");
     }
 }

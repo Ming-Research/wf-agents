@@ -285,13 +285,17 @@ impl<'a> Build<'a> {
         self.agents.source(path)
     }
 
-    /// The path of a cell's file, from the directory that holds the flows' directory.
-    fn cell_source(&self, cell: &CellSpec) -> String {
+    /// The path of the file a cell's task comes from, from the directory that holds the flows' directory: the file the
+    /// task is written in, where it has one of its own, else the cell's.
+    fn task_source(&self, cell: &CellSpec) -> String {
         let flow = (self.alike.flow.as_deref())
             .and_then(Path::file_name)
             .and_then(|n| n.to_str())
             .unwrap_or_default();
-        self.source(&format!("{flow}/cells/{}.toml", cell.id.as_str()))
+        match &cell.task_file {
+            Some(file) => self.source(&format!("{flow}/{file}")),
+            None => self.source(&format!("{flow}/cells/{}.toml", cell.id.as_str())),
+        }
     }
 
     /// The blocks a cell writes as blocks, leaving out a datum it writes through a field of the return.
@@ -424,7 +428,7 @@ impl<'a> Build<'a> {
                 PartIs::Task => {
                     let task = cell.task.as_deref().unwrap_or_default().trim_end();
                     let pieces = self.text(part, &[("task", task)]);
-                    out.push(made(What::Task, self.cell_source(cell), pieces));
+                    out.push(made(What::Task, self.task_source(cell), pieces));
                 }
             }
         }

@@ -35,6 +35,8 @@ pub struct Flow {
     /// The engine's tools every agent's cell of the flow may ask for, in the order the flow names them; none where it
     /// names none.
     pub tools: Vec<String>,
+    /// The groups of the flow's blocks, by name, each with its blocks as the flow names them.
+    pub groups: Vec<Group>,
     /// The cells, in the order of the walk.
     pub cells: Vec<Cell>,
     /// The blocks, by name.
@@ -111,16 +113,18 @@ pub struct Cell {
     pub line: Option<String>,
     /// What an agent's cell's agent is told to do, with its line breaks; an engine's cell has none.
     pub task: Option<String>,
+    /// The file the task is written in, from the flow's directory; none where it is written in place.
+    pub task_file: Option<String>,
     /// The act of the engine's own that carries out an engine's cell; an agent's cell has none.
     pub act: Option<String>,
     /// The reasoning effort an agent's cell's rounds run at; an engine's cell has none.
     pub effort: Option<String>,
     /// The work's branch takes the latest main in as each run of the cell starts.
     pub takes_main: bool,
-    /// When the cell runs at all; none is always.
-    pub condition: Option<Condition>,
-    /// What the work waits for before the cell.
-    pub preconditions: Vec<Test>,
+    /// When the cell runs at all: every key of its `when` holds, in the order written; none is always.
+    pub when: Vec<Condition>,
+    /// What the work waits for before the cell: every key of its `requires`, in the order written.
+    pub requires: Vec<Condition>,
     /// The blocks it names: those that run it, in the order it names them, then those it is only given.
     pub inputs: Vec<String>,
     /// The blocks whose new version runs it, in the order it names them.
@@ -145,6 +149,14 @@ pub struct Cell {
     pub limits: Limits,
 }
 
+/// A group of the flow's blocks, whose trigger fires for a new version of any of them.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Group {
+    pub name: String,
+    pub blocks: Vec<String>,
+}
+
 /// A trigger of a cell, as the definition writes it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -152,7 +164,10 @@ pub struct TriggerView {
     pub name: String,
     /// What it is, as its file writes it; none where it says nothing.
     pub what: Option<String>,
+    /// The block it stands on; of a group's trigger, the group's name.
     pub block: String,
+    /// Of a group's trigger, the group's blocks, each of which runs the cell; none of another.
+    pub group: Vec<String>,
     pub read: Vec<String>,
     #[serde(rename = "do")]
     pub does: Option<String>,
@@ -240,7 +255,7 @@ pub enum Kind {
     Engine,
 }
 
-/// When a cell runs.
+/// One key of a cell's `when` or `requires`: a block's value, or a named test.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "on", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Condition {
@@ -257,6 +272,8 @@ pub struct Block {
     pub name: String,
     /// The values of a choice; none for a block that is not one.
     pub values: Option<Vec<String>>,
+    /// Of a choice, the value it counts as before anyone has written it; none where it has none.
+    pub default: Option<String>,
     /// What the block is, in a sentence; none where the definition does not say.
     pub what: Option<String>,
     /// The field of a return a cell writes it through, where it is not written as a block; none where it is.
@@ -481,6 +498,39 @@ pub enum What {
         block: String,
         is: String,
     },
+    /// The file a cell's task is written in is not among the flow's files.
+    NoTaskFile {
+        file: String,
+    },
+    /// The file a cell's task is written in holds no words.
+    TaskFileEmpty {
+        file: String,
+    },
+    /// The file a cell's task is written in is named by a path that leaves the flow's directory.
+    TaskFileOutside {
+        file: String,
+    },
+    /// The block says what it counts as before it is written, and it is not a choice.
+    DefaultNotAChoice {
+        block: String,
+    },
+    /// The choice says what it counts as before it is written, and that is not one of its values.
+    DefaultNotAValue {
+        block: String,
+        default: String,
+    },
+    /// A block is named `test`, which a cell's `when` and `requires` take for a named test.
+    BlockNamedTest,
+    /// A cell's `when` or `requires` is a table of no keys.
+    EmptyCondition,
+    /// A group of blocks has the name of a block or a datum of the flow.
+    GroupNameTaken {
+        group: String,
+    },
+    /// A group of blocks names no block.
+    GroupEmpty {
+        group: String,
+    },
     ConditionOnOwnOutput {
         block: String,
     },
@@ -576,11 +626,12 @@ impl Flow {
                 kind: Kind::of(spec.kind),
                 line: spec.line.clone(),
                 task: spec.task.clone(),
+                task_file: spec.task_file.clone(),
                 act: spec.act.clone(),
                 effort: spec.effort.map(|effort| effort.name().to_string()),
                 takes_main: spec.takes_main,
-                condition: cell.applies.as_ref().map(|c| Condition::of(c, compiled)),
-                preconditions: cell.requires.iter().map(|t| Test::of(t, compiled)).collect(),
+                when: cell.applies.iter().map(|c| Condition::of(c, compiled)).collect(),
+                requires: cell.requires.iter().map(|c| Condition::of(c, compiled)).collect(),
                 inputs: (spec.runs_on.iter().map(|r| &r.block))
                     .chain(
                         (spec.given.iter().map(|g| &g.block)).filter(|b| !spec.runs_on.iter().any(|r| &r.block == *b)),
@@ -598,6 +649,7 @@ impl Flow {
                         name: t.name.clone(),
                         what: t.what.clone(),
                         block: t.block.to_string(),
+                        group: names(&t.group),
                         read: names(&t.read),
                         does: t.does.clone(),
                     })
@@ -615,6 +667,7 @@ impl Flow {
             .map(|(name, block)| Block {
                 name: name.to_string(),
                 values: block.values.clone(),
+                default: block.default.clone(),
                 what: block.what.clone(),
                 field: block.field.clone(),
                 trigger: block.trigger,
@@ -641,6 +694,12 @@ impl Flow {
             lines,
             tests: compiled.tests.keys().map(|name| Test::of(name, compiled)).collect(),
             tools: compiled.tools.clone(),
+            groups: (compiled.groups.iter())
+                .map(|(name, blocks)| Group {
+                    name: name.clone(),
+                    blocks: blocks.clone(),
+                })
+                .collect(),
             cells,
             blocks,
         }
@@ -760,6 +819,15 @@ impl What {
             F::NoReader { block } => What::NoReader { block },
             F::UnknownSource { block, source } => What::UnknownSource { block, source },
             F::NotAChoice { block } => What::NotAChoice { block },
+            F::NoTaskFile { file } => What::NoTaskFile { file },
+            F::TaskFileEmpty { file } => What::TaskFileEmpty { file },
+            F::TaskFileOutside { file } => What::TaskFileOutside { file },
+            F::DefaultNotAChoice { block } => What::DefaultNotAChoice { block },
+            F::DefaultNotAValue { block, default } => What::DefaultNotAValue { block, default },
+            F::BlockNamedTest => What::BlockNamedTest,
+            F::EmptyCondition => What::EmptyCondition,
+            F::GroupNameTaken { group } => What::GroupNameTaken { group },
+            F::GroupEmpty { group } => What::GroupEmpty { group },
             F::NotAValue { block, is } => What::NotAValue { block, is },
             F::ConditionOnOwnOutput { block } => What::ConditionOnOwnOutput { block },
             F::ConditionNotWrittenBefore { block } => What::ConditionNotWrittenBefore { block },

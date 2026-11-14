@@ -25,6 +25,7 @@ pub use compile::{
 };
 pub use decide::{Test, TestKind};
 pub use source::{
-    BLOCKS_DIR, CELLS_DIR, DATA_DIR, Effort, FLOW_FILE, GiveFile, InputKind, Kind, LINES_DIR, OF_A_CELL, OF_A_DATUM,
-    OWNER, RULES_DIR, RunFile, Source, TESTS_DIR, TRIGGERS_DIR, Texts, read, rules_file,
+    BLOCKS_DIR, CELLS_DIR, DATA_DIR, Effort, FLOW_FILE, GiveFile, InputKind, Keys, Kind, LINES_DIR, OF_A_CELL,
+    OF_A_DATUM, OF_A_GROUP, OWNER, RULES_DIR, RunFile, Source, TESTS_DIR, TRIGGERS_DIR, Task, Texts, WHEN_TEST, read,
+    rules_file,
 };

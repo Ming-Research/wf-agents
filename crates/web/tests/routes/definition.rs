@@ -25,7 +25,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
     let runs = json!({ "runs": { "why": null }, "given": null });
     let trigger = |block: &str, read: bool| {
         let read = if read { vec![block] } else { Vec::new() };
-        json!({ "name": block, "what": null, "block": block, "read": read, "do": null })
+        json!({ "name": block, "what": null, "block": block, "group": [], "read": read, "do": null })
     };
     assert_eq!(
         get_json(&router, "/api/v1/flow").await,
@@ -45,6 +45,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                 }],
                 "tests": [may_merge],
                 "tools": [],
+                "groups": [],
                 "cells": [
                     {
                         "id": "plan",
@@ -52,11 +53,12 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "kind": "agent",
                         "line": "engineer",
                         "task": "Write the plan from the request.",
+                        "taskFile": null,
                         "act": null,
                         "effort": "high",
                         "takesMain": false,
-                        "condition": null,
-                        "preconditions": [],
+                        "when": [],
+                        "requires": [],
                         "inputs": ["request", "opinions"],
                         "runsOn": ["request", "opinions"],
                         "given": ["request", "opinions"],
@@ -73,11 +75,12 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "kind": "agent",
                         "line": "engineer",
                         "task": "Review the plan.\nSay whether it is content.",
+                        "taskFile": null,
                         "act": null,
                         "effort": "high",
                         "takesMain": false,
-                        "condition": null,
-                        "preconditions": [],
+                        "when": [],
+                        "requires": [],
                         "inputs": ["plan"],
                         "runsOn": ["plan"],
                         "given": ["plan"],
@@ -94,11 +97,12 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                         "kind": "engine",
                         "line": null,
                         "task": null,
+                        "taskFile": null,
                         "act": "merge",
                         "effort": null,
                         "takesMain": false,
-                        "condition": null,
-                        "preconditions": [may_merge],
+                        "when": [],
+                        "requires": [{ "on": "test", "test": may_merge }],
                         "inputs": ["content"],
                         "runsOn": ["content"],
                         "given": [],
@@ -114,6 +118,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                     {
                         "name": "content",
                         "values": ["yes", "no"],
+                        "default": null,
                         "what": null,
                         "field": null,
                         "trigger": false,
@@ -124,6 +129,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                     {
                         "name": "go",
                         "values": ["yes", "no"],
+                        "default": null,
                         "what": null,
                         "field": null,
                         "trigger": false,
@@ -134,6 +140,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                     {
                         "name": "opinions",
                         "values": null,
+                        "default": null,
                         "what": null,
                         "field": null,
                         "trigger": false,
@@ -144,6 +151,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                     {
                         "name": "plan",
                         "values": null,
+                        "default": null,
                         "what": null,
                         "field": null,
                         "trigger": false,
@@ -154,6 +162,7 @@ async fn a_definition_that_compiles_is_given_whole_as_the_page_reads_it() {
                     {
                         "name": "request",
                         "values": null,
+                        "default": null,
                         "what": null,
                         "field": null,
                         "trigger": false,
@@ -182,13 +191,13 @@ async fn a_condition_is_given_with_its_block_and_value_or_with_its_test_as_decla
         r#"order = ["plan", "review", "merge"]"#,
         r#"order = ["plan", "review", "redo", "merge"]"#,
     );
-    let redo = "title = \"Redo\"\nkind = \"engine\"\nact = \"check\"\nwhen = { block = \"content\", is = \"no\" }\n";
+    let redo = "title = \"Redo\"\nkind = \"engine\"\nact = \"check\"\nwhen = { content = \"no\" }\n";
     source.cells.insert("redo".to_string(), redo.to_string());
     let router = serve(&Shared::new(Ok(source)));
     let answer = get_json(&router, "/api/v1/flow").await;
     assert_eq!(
-        answer["flow"]["cells"][1]["condition"],
-        json!({
+        answer["flow"]["cells"][1]["when"],
+        json!([{
             "on": "test",
             "test": {
                 "name": "may_merge",
@@ -198,11 +207,11 @@ async fn a_condition_is_given_with_its_block_and_value_or_with_its_test_as_decla
                 "reads": ["go"],
                 "is": "yes",
             },
-        })
+        }])
     );
     assert_eq!(
-        answer["flow"]["cells"][2]["condition"],
-        json!({ "on": "block", "block": "content", "value": "no" })
+        answer["flow"]["cells"][2]["when"],
+        json!([{ "on": "block", "block": "content", "value": "no" }])
     );
     assert_eq!(
         answer["flow"]["blocks"][0]["readBy"],
@@ -290,13 +299,13 @@ async fn the_faults_of_named_tests_and_of_sources_are_given_with_their_blocks() 
         source,
         Some("plan"),
         "kind = \"agent\"",
-        "kind = \"agent\"\nrequires = [\"may_merge\"]",
+        "kind = \"agent\"\nrequires = { test = \"may_merge\" }",
     );
     let source = edit(
         source,
         Some("review"),
         "kind = \"agent\"",
-        "kind = \"agent\"\nrequires = [\"may_merge\"]",
+        "kind = \"agent\"\nrequires = { test = \"may_merge\" }",
     );
     let router = serve(&Shared::new(Ok(source)));
     let read = |block: &str| json!({ "test": "may_merge", "block": block });
@@ -315,8 +324,8 @@ async fn the_faults_of_named_tests_and_of_sources_are_given_with_their_blocks() 
                     "field": "blocks.request.outside",
                     "what": { "kind": "unknownSource", "block": "request", "source": "mirror" },
                 },
-                { "file": "plan.toml", "field": "requires[0]", "what": not_before },
-                { "file": "review.toml", "field": "requires[0]", "what": own },
+                { "file": "plan.toml", "field": "requires.test", "what": not_before },
+                { "file": "review.toml", "field": "requires.test", "what": own },
             ],
         })
     );

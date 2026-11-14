@@ -1,8 +1,8 @@
 //! What a cell is run with: its line, its task or its act, and its limits.
 
-use flow::{FLOW_FILE, FaultKind::*, Has};
+use flow::{FLOW_FILE, FaultKind::*, Has, Source};
 
-use crate::support::{at, compiled, edit, faults, faults_with, has, valid};
+use crate::support::{at, compiled, edit, faults, faults_with, has, laid_out, set, valid};
 
 #[test]
 fn an_agent_cell_runs_in_a_declared_line() {
@@ -172,5 +172,59 @@ fn every_limit_is_a_positive_count() {
             at(FLOW_FILE, "limits.calls", out(4_294_967_296)),
             at("answer.toml", "limit", out(0)),
         ]
+    );
+}
+
+/// The small flow laid out one thing to a file, with the plan's task written in a file of the flow named so, which
+/// holds this text where it is there.
+fn plan_task_in(file: &str, text: Option<&str>) -> Source {
+    let source = edit(
+        laid_out(),
+        "cells/plan.toml",
+        "task = \"Write the plan from the request.\"",
+        &format!("task = {{ file = \"{file}\" }}"),
+    );
+    match text {
+        Some(text) => set(source, "tasks/plan.md", text),
+        None => source,
+    }
+}
+
+#[test]
+fn a_task_may_be_written_in_a_file_of_the_flow_and_is_read_as_if_written_in_place() {
+    let text = "Write the plan from the request.\nSay what it rests on.\n";
+    for file in ["tasks/plan.md", "./tasks/plan.md"] {
+        let compiled = compiled(&plan_task_in(file, Some(text)));
+        let plan = &compiled.cells[0];
+        assert_eq!(plan.task.as_deref(), Some(text), "{file}");
+        assert_eq!(plan.task_file.as_deref(), Some(file));
+    }
+    // A task written in place names no file.
+    assert_eq!(compiled(&laid_out()).cells[0].task_file, None);
+}
+
+#[test]
+fn a_task_s_file_is_one_of_the_flow_s_that_holds_words() {
+    let file = |f: &str| f.to_string();
+    let missing = NoTaskFile {
+        file: file("tasks/plan.md"),
+    };
+    assert_eq!(
+        faults(&plan_task_in("tasks/plan.md", None)),
+        [at("cells/plan.toml", "task.file", missing)]
+    );
+    let empty = TaskFileEmpty {
+        file: file("tasks/plan.md"),
+    };
+    assert_eq!(
+        faults(&plan_task_in("tasks/plan.md", Some(" \n"))),
+        [at("cells/plan.toml", "task.file", empty)]
+    );
+    let outside = TaskFileOutside {
+        file: file("../tasks/plan.md"),
+    };
+    assert_eq!(
+        faults(&plan_task_in("../tasks/plan.md", Some("Plan."))),
+        [at("cells/plan.toml", "task.file", outside)]
     );
 }

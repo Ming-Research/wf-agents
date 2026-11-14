@@ -27,6 +27,8 @@ fn a_directory_with_cells_is_read_laid_out_one_thing_to_a_file_with_what_it_may_
     write("blocks/judging/deep/opinions.toml", "from = \"owner\"");
     write("blocks/notes.md", "not a block");
     write("tests/settled.toml", "says = \"\"");
+    // Every Markdown file in the flow's directory, as deep as it is: a cell's task may be written in one.
+    write("tasks/better_way.md", "Look for a better way.");
     write("../data/request.toml", "from = \"owner\"");
     write("../data/more/answers.toml", "shown = true");
     write("../triggers/on_main.toml", "block = \"main\"");
@@ -58,8 +60,12 @@ fn a_directory_with_cells_is_read_laid_out_one_thing_to_a_file_with_what_it_may_
             "../triggers/of_a_datum/changed.toml",
             "../triggers/on_main.toml",
             "blocks/judging/deep/opinions.toml",
+            "blocks/notes.md",
             "blocks/plan.toml",
+            "cells/notes.md",
             "lines/engineer.toml",
+            "rules/general.md",
+            "tasks/better_way.md",
             "tests/settled.toml",
         ]
     );

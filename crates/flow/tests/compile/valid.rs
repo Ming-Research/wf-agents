@@ -24,15 +24,15 @@ fn a_valid_flow_compiles_to_its_cells_in_order_with_the_blocks_that_run_each_and
     judge.runs_on = blocks(&["plan"]);
     judge.outputs = blocks(&["needs_design", "opinions"]);
     let mut design = Cell::new("design");
-    design.applies = Some(Condition::Is {
+    design.applies = vec![Condition::Is {
         block: "needs_design".into(),
         value: "yes".to_string(),
-    });
+    }];
     design.runs_on = blocks(&["plan"]);
     design.outputs = blocks(&["design"]);
     let mut answer = Cell::new("answer");
-    answer.applies = Some(Condition::Test("has_comment".into()));
-    answer.requires = vec![TestName::from("plan_confirmed")];
+    answer.applies = vec![Condition::Test("has_comment".into())];
+    answer.requires = vec![Condition::Test(TestName::from("plan_confirmed"))];
     answer.runs_on = blocks(&["comments", "plan"]);
     answer.outputs = blocks(&["reply"]);
     answer.limit = 5;
@@ -40,7 +40,7 @@ fn a_valid_flow_compiles_to_its_cells_in_order_with_the_blocks_that_run_each_and
     check.runs_on = blocks(&["main", "design"]);
     check.outputs = blocks(&["ci"]);
     let mut merge = Cell::new("merge");
-    merge.requires = vec![TestName::from("may_merge")];
+    merge.requires = vec![Condition::Test(TestName::from("may_merge"))];
     merge.runs_on = blocks(&["ci"]);
     let expected = [plan, judge, design, answer, check, merge];
 
@@ -75,6 +75,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
         line: line.map(str::to_string),
         reads_only: false,
         task: None,
+        task_file: None,
         act: None,
         must_write: Vec::new(),
         describes: Vec::new(),
@@ -105,6 +106,7 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
                 name: b.to_string(),
                 what: None,
                 block: b.into(),
+                group: Vec::new(),
                 read: if read { vec![b.into()] } else { Vec::new() },
                 detail: None,
                 does: None,
@@ -177,7 +179,9 @@ fn a_valid_flow_compiles_to_what_the_engine_needs_of_its_cells_blocks_tests_and_
                  readers: &[&str],
                  conditions: &[&str]| {
         Block {
+            file: FLOW_FILE.to_string(),
             values: values.map(|v| v.iter().map(|s| s.to_string()).collect()),
+            default: None,
             what: None,
             field: None,
             trigger: false,

@@ -437,6 +437,9 @@ fn words(what: &FaultKind, field: &str) -> String {
         F::NoTask => {
             "an agent's cell has no task, or one of no words: its agent would be told nothing to do".to_string()
         }
+        F::NoTaskFile { file } => format!("the task is written in {file}, which the flow's directory does not hold"),
+        F::TaskFileEmpty { file } => format!("the task is written in {file}, which holds no words"),
+        F::TaskFileOutside { file } => format!("the task is written in {file}, which is outside the flow's directory"),
         F::EngineHasTask => "an engine's cell has a task, which no agent reads".to_string(),
         F::NoAct => "an engine's cell names no act to carry it out".to_string(),
         F::AgentHasAct { act } => format!("an agent carries the cell out, but the cell names the act \"{act}\""),
@@ -511,6 +514,18 @@ fn words(what: &FaultKind, field: &str) -> String {
         F::NotAValue { block, is } => {
             format!("a condition or a test waits for {block} to be {is}, which is not one of its values")
         }
+        F::DefaultNotAChoice { block } => {
+            format!("{block} says what it counts as before it is written, and it is not a choice")
+        }
+        F::DefaultNotAValue { block, default } => {
+            format!("{block} counts as {default} before it is written, which is not one of its values")
+        }
+        F::BlockNamedTest => {
+            "a block is named test, which a cell's when and requires take for a named test".to_string()
+        }
+        F::EmptyCondition => "a table of no keys says nothing that must hold".to_string(),
+        F::GroupNameTaken { group } => format!("the group {group} has the name of a block or a datum of the flow"),
+        F::GroupEmpty { group } => format!("the group {group} names no block"),
         F::ConditionOnOwnOutput { block } => format!(
             "the condition reads {block}, which the cell itself writes and another writes too: the cell would decide \
              by what it writes itself, beside another, whether it runs"
