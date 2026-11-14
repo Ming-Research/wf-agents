@@ -10,11 +10,9 @@ project's test files: where you think the implementation wrong, write a test tha
 Meet each condition of `acceptance` that a test can show by a test, the engineer's where it really tests it, else
 yours; then dig for corner cases. Each test of yours names the independent reference its verdict rests on, such as a
 specification or an established implementation; what you think should hold does not count. A new-behaviour test fails
-before the change; an old-behaviour test passes before and after. Run every test new in this work on the commit `code`
-names and on the code before the change; one of yours whose result before misfits its kind, fix and run again now,
-and one of the engineer's, say so in `testing`. One red
-after the change, check against its reference first; hand on only what stays red. Commit your tests on the work's
-branch.
+without the change; an old-behaviour test passes with it and without. Run every test new in this work on the commit
+`code` names. One red after the change, check against its reference first; hand on only what stays red. Commit your
+tests on the work's branch.
 
 Hand in `tests`, and what stays red or stays suspect in `testing`.
 '''
