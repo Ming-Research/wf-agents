@@ -20,6 +20,7 @@ async fn merged() -> crate::Running {
     let item = json!({
         "title": "Greet the user",
         "dependsOn": [],
+        "project": "trial",
         "flow": "trial",
         "writes": [{ "block": "request", "content": "Greet the user, please.", "value": null }],
     });
