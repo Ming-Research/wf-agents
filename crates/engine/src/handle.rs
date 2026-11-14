@@ -506,10 +506,22 @@ impl At {
     }
 }
 
-/// Asks the deciding code what follows, and does it, until the work has a round under way, waits or has ended.
+/// Asks the deciding code what follows, and does it, until the work has a round under way, waits or has ended. Each
+/// time round abandons a run, starts one, which then begins its round or rests, or goes on with one, which then
+/// finishes, makes a wait or rests at a limit: so no more often than twice the runs the work has started, and once
+/// for each cell besides. Going round more often, the deciding code decides without end, and that is said, with what
+/// it decides, rather than the engine holding the process for ever.
 fn advance(flow: &Compiled, work: &mut Work, at: At, effects: &mut Vec<Effect>) {
+    let bound = 2 * work.records.started.len() + flow.cells.len() + 2;
+    let mut passes = 0;
     loop {
         let decision = decide_in(&flow.flow, &work.records, at.room);
+        passes += 1;
+        assert!(
+            passes <= bound,
+            "the engine went round {passes} times for one thing that happened to a work, deciding {decision:?} at the \
+             last: the deciding code decides without end"
+        );
         let run = match decision {
             // A run of a cell whose rounds are held is not started: its first round could not begin.
             Decision::Run { cell, .. } if at.holds(flow, &cell) => return,
