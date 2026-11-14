@@ -57,6 +57,11 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         eprintln!("no flow is given: the engine runs on at least one");
         return ExitCode::FAILURE;
     };
+    // The settings' file, which the page shows and the owner changes there.
+    let settings_file = match &with {
+        With::Settings(file) => Some(file.clone()),
+        With::Script(_) => None,
+    };
     let Some((flows, with)) = read(data, dirs, &with) else {
         return ExitCode::FAILURE;
     };
@@ -128,10 +133,21 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         let mut main_name = String::new();
         // The copies of the database are kept where the real carriers are, as the settings say; a script keeps none.
         let mut copies: Option<Keeping> = None;
+        // The settings as the page shows them, beside those the engine runs with; a script has none.
+        let mut install: Option<web::settings::Install> = None;
         let (carriers, watch): (Carriers, Option<carry::Watch>) = match with {
             Read::Script(script) => (Scripted::new(script).carriers(), None),
             Read::Settings(settings, beside) => {
                 main_name = settings.project.main.clone();
+                if let Some(file) = settings_file {
+                    match installed(file, &settings) {
+                        Ok(made) => install = Some(made),
+                        Err(why) => {
+                            eprintln!("{why}");
+                            return ExitCode::FAILURE;
+                        }
+                    }
+                }
                 match keeping(data, settings.backup.as_ref()) {
                     Ok(keeping) => copies = Some(keeping),
                     Err(why) => {
@@ -181,6 +197,10 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
         };
         // The observations are read, and marked read, through connections of their own to the store's file.
         let router = router.merge(web::observations::router(service.handle(), data.join(store::FILE)));
+        let router = match install {
+            Some(install) => router.merge(web::settings::router(install)),
+            None => router,
+        };
         println!("The owner's pages are at {}", works_page(address));
         let held = web::works::Engine::of(service.driver()).paused.map(|paused| paused.by);
         if held == Some(web::works::Pauser::Engine) {
@@ -199,6 +219,26 @@ pub fn run(data: &Path, dirs: &[PathBuf], with: With, port: u16) -> ExitCode {
             }
         }
         ExitCode::FAILURE
+    })
+}
+
+/// The settings as the page shows them: their file, read as the engine reads it, beside those the engine runs with.
+fn installed(file: PathBuf, settings: &carry::Settings) -> Result<web::settings::Install, String> {
+    let running = serde_json::to_value(settings).map_err(|e| format!("the settings cannot be shown: {e}"))?;
+    Ok(web::settings::Install {
+        file,
+        read: Box::new(|text| {
+            let settings = carry::Settings::read(text)?;
+            settings.levels()?;
+            serde_json::to_value(&settings).map_err(|e| e.to_string())
+        }),
+        running,
+        git: &carry::git::SAFE,
+        program: web::settings::Program {
+            variable: carry::account::VARIABLE,
+            sign_in: carry::account::SIGN_IN,
+            signed_in_as: carry::account::signed_in_as,
+        },
     })
 }
 
@@ -555,6 +595,27 @@ mod tests {
                 "project.toml: the file tree_rules, design/README.md, is not on main, refs/heads/main, where works branch \
                  from"
             )
+        );
+    }
+
+    // The page reads a change of the file as the engine reads the file, and runs with the settings the engine read.
+    #[test]
+    fn the_page_reads_the_settings_as_the_engine_reads_them() {
+        let sample = include_str!("../../carry/install.sample.toml");
+        let settings = carry::Settings::read(sample).expect("the sample reads");
+        let install = installed(PathBuf::from("install.toml"), &settings).expect("it is made");
+        assert_eq!((install.read)(sample), Ok(install.running.clone()));
+        assert_eq!(install.running["agents"]["slots"], 2);
+        assert_eq!(
+            install.running["sessions"]["context_limit"], 500000,
+            "a key left out at its default"
+        );
+        let misspelt = sample.replace("slots = 2", "slots = 2\nslot = 3");
+        assert!((install.read)(&misspelt).expect_err("refused").contains("slot"));
+        let no_level = sample.replace("highest_level = \"3\"", "highest_level = \"9\"");
+        assert_eq!(
+            (install.read)(&no_level),
+            Err("items.highest_level: there is no level \"9\"".to_string())
         );
     }
 }

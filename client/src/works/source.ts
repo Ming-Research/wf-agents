@@ -2,8 +2,14 @@
 // (works-api.ts), or, when the page's address has `?fixtures`, the fixtures (fixtures.ts), so that the page can be
 // looked at before the interface serves the works. The page reaches it through a context, which a test sets to its
 // own source.
+//
+// The page is to stay quick with several hundred works, each change of any of them read again. So every part that
+// listens to the changes listens to one stream, the browser keeping only a few connections to the engine open at
+// once; a part reads again at most once at a time, and once more after a read where changes came while it was under
+// way; and the items, which the bar and the list of works both show, are read once for both, each item that did not
+// change kept as the very object it was, so that what draws it is not drawn again.
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import { usesFixtures } from '../mock-data';
 import * as api from '../works-api';
@@ -52,16 +58,7 @@ export const INTERFACE: Source = {
   actOnEngine: api.actOnEngine,
   changes(onChanged, onOpened) {
     if (typeof EventSource === 'undefined') return () => undefined;
-    const events = new EventSource('/api/v1/changes');
-    events.onopen = () => onOpened();
-    events.onmessage = (e: MessageEvent<string>) => {
-      try {
-        onChanged(JSON.parse(e.data) as Changed);
-      } catch {
-        // What cannot be read says nothing happened.
-      }
-    };
-    return () => events.close();
+    return listen({ onChanged, onOpened });
   },
 };
 
@@ -115,28 +112,191 @@ export function useChanges(onChanged: (changed: Changed) => void, onOpened: () =
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-/// What a view shows, read at once and again on `read`. A read that fails keeps what was shown and says why; an answer
-/// that comes after a newer one is dropped, so that the view never goes back to an older state.
+/// What listens to the interface's changes.
+interface Listener {
+  onChanged: (changed: Changed) => void;
+  onOpened: () => void;
+}
+
+/// Everything that listens, and the one stream they share while any listens.
+const listeners = new Set<Listener>();
+let stream: EventSource | null = null;
+
+/// Listens to the interface's one stream of changes, opening it for the first that listens and closing it after the
+/// last; gives the way to stop. One that begins to listen while the stream is open reads what it shows as it begins,
+/// and is told only of the changes and the openings after.
+function listen(listener: Listener): () => void {
+  listeners.add(listener);
+  if (stream === null) {
+    const events = new EventSource('/api/v1/changes');
+    events.onopen = () => [...listeners].forEach((l) => l.onOpened());
+    events.onmessage = (e: MessageEvent<string>) => {
+      let changed: Changed;
+      try {
+        changed = JSON.parse(e.data) as Changed;
+      } catch {
+        // What cannot be read says nothing happened.
+        return;
+      }
+      [...listeners].forEach((l) => l.onChanged(changed));
+    };
+    stream = events;
+  }
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0 && stream !== null) {
+      stream.close();
+      stream = null;
+    }
+  };
+}
+
+/// A read of one load under way, and whether it is to be read once more when it ends.
+interface Flight<T> {
+  load: () => Promise<T>;
+  going: boolean;
+  again: boolean;
+}
+
+/// What a view shows, read at once and again on `read`. A read that fails keeps what was shown and says why. One read
+/// is under way at a time: a read asked for meanwhile is made once, after it, however many were asked; and once the
+/// view reads something else (another `load`), what comes of the reads before is dropped, so that the view never goes
+/// back to an older state.
 export function useReading<T>(load: () => Promise<T>): { value: T | null; failed: string | null; read: () => void } {
   const [state, setState] = useState<{ value: T | null; failed: string | null }>({ value: null, failed: null });
-  const asked = useRef(0);
-  const shown = useRef(0);
+  const flight = useRef<Flight<T> | null>(null);
   const read = useCallback(() => {
-    asked.current += 1;
-    const n = asked.current;
-    load().then(
-      (value) => {
-        if (n < shown.current) return;
-        shown.current = n;
-        setState({ value, failed: null });
-      },
-      (e: unknown) => {
-        if (n < shown.current) return;
-        shown.current = n;
-        setState((s) => ({ value: s.value, failed: message(e) }));
-      },
-    );
+    if (flight.current === null || flight.current.load !== load) {
+      flight.current = { load, going: false, again: false };
+    }
+    const mine = flight.current;
+    if (mine.going) {
+      mine.again = true;
+      return;
+    }
+    const go = () => {
+      mine.going = true;
+      mine
+        .load()
+        .then(
+          (value) => {
+            if (flight.current === mine) setState({ value, failed: null });
+          },
+          (e: unknown) => {
+            if (flight.current === mine) setState((s) => ({ value: s.value, failed: message(e) }));
+          },
+        )
+        .finally(() => {
+          mine.going = false;
+          if (mine.again && flight.current === mine) {
+            mine.again = false;
+            go();
+          }
+        });
+    };
+    go();
   }, [load]);
   useEffect(read, [read]);
+  return { ...state, read };
+}
+
+/// The items as read for every part that shows them, and the parts to tell when they are read again.
+interface ItemsStore {
+  state: { value: Items | null; failed: string | null };
+  shown: Set<() => void>;
+  going: boolean;
+  again: boolean;
+  stop: (() => void) | null;
+}
+
+const itemsStores = new WeakMap<Source, ItemsStore>();
+
+function itemsStore(source: Source): ItemsStore {
+  let store = itemsStores.get(source);
+  if (store === undefined) {
+    store = { state: { value: null, failed: null }, shown: new Set(), going: false, again: false, stop: null };
+    itemsStores.set(source, store);
+  }
+  return store;
+}
+
+/// The items read anew, each that is as it was kept as the object it was, and the list kept whole where none changed:
+/// what draws an item that did not change is not drawn again.
+export function keptSame(before: Items, now: Items): Items {
+  const was = new Map(before.items.map((item) => [item.number, item]));
+  let changed = before.items.length !== now.items.length;
+  const items = now.items.map((item, i) => {
+    const old = was.get(item.number);
+    if (old !== undefined && JSON.stringify(old) === JSON.stringify(item)) {
+      if (before.items[i] !== old) changed = true;
+      return old;
+    }
+    changed = true;
+    return item;
+  });
+  const outage = JSON.stringify(before.outage ?? null) === JSON.stringify(now.outage ?? null) ? before.outage : now.outage;
+  if (!changed && outage === before.outage) return before;
+  return { ...now, items, outage };
+}
+
+/// Reads the items again for every part that shows them: at once, or once more after the read under way.
+function readItems(source: Source, store: ItemsStore) {
+  if (store.going) {
+    store.again = true;
+    return;
+  }
+  store.going = true;
+  const set = (state: ItemsStore['state']) => {
+    store.state = state;
+    [...store.shown].forEach((tell) => tell());
+  };
+  source
+    .loadItems()
+    .then(
+      (fresh) => {
+        const before = store.state.value;
+        set({ value: before === null ? fresh : keptSame(before, fresh), failed: null });
+      },
+      (e: unknown) => set({ value: store.state.value, failed: message(e) }),
+    )
+    .finally(() => {
+      store.going = false;
+      if (store.again) {
+        store.again = false;
+        readItems(source, store);
+      }
+    });
+}
+
+/// The items, read once for every part of the page that shows them, as the list of works and the bar both do: at
+/// once, again each time an item or a work changed and each time the stream of changes opens again, and on `read`.
+/// A read that fails keeps what was shown and says why.
+export function useItems(): { value: Items | null; failed: string | null; read: () => void } {
+  const source = useSource();
+  const store = itemsStore(source);
+  const subscribe = useCallback(
+    (tell: () => void) => {
+      store.shown.add(tell);
+      if (store.shown.size === 1) {
+        store.stop = source.changes(
+          (changed) => {
+            if (changed.items || changed.works.length > 0) readItems(source, store);
+          },
+          () => readItems(source, store),
+        );
+        readItems(source, store);
+      }
+      return () => {
+        store.shown.delete(tell);
+        if (store.shown.size === 0) {
+          store.stop?.();
+          store.stop = null;
+        }
+      };
+    },
+    [source, store],
+  );
+  const state = useSyncExternalStore(subscribe, () => store.state);
+  const read = useCallback(() => readItems(source, store), [source, store]);
   return { ...state, read };
 }

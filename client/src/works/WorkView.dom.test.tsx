@@ -230,7 +230,7 @@ describe('a work as it is read', () => {
     expect(page.querySelector('.read-failed')).toBeNull();
   });
 
-  it('drops an answer older than the one shown', async () => {
+  it('reads one at a time, and once more after a read that changes came during, so the newest is shown last', async () => {
     const answers: Deferred<WorkPage>[] = [];
     const source = fixtureSource({
       loadWork: () => {
@@ -244,10 +244,14 @@ describe('a work as it is read', () => {
     await settle();
     act(() => source.changed({ works: [41], items: false, copies: false }));
     act(() => source.changed({ works: [41], items: false, copies: false }));
-    answers[2].resolve({ ...fixtureWork(41), title: 'Newer' });
-    await settle();
+    act(() => source.changed({ works: [41], items: false, copies: false }));
+    expect(answers).toHaveLength(2);
     answers[1].resolve({ ...fixtureWork(41), title: 'Older' });
     await settle();
+    expect(answers).toHaveLength(3);
+    answers[2].resolve({ ...fixtureWork(41), title: 'Newer' });
+    await settle();
+    expect(answers).toHaveLength(3);
     expect(page.querySelector('.view-name')?.textContent).toBe('Newer');
   });
 

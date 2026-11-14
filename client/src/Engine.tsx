@@ -11,7 +11,7 @@ import { mocksShown } from './mock-data';
 import { Button, Switch } from './parts';
 import { whoGives } from './console/items';
 import type { Items, Now } from './works-api';
-import { useChanges, useReading, useSource } from './works/source';
+import { useChanges, useItems, useReading, useSource } from './works/source';
 
 /// Whether a work waits for the owner: for an answer, for a test only the owner can make hold, at a limit, or
 /// stopped by the engine or by a fault.
@@ -25,11 +25,9 @@ export function waitsForOwner(now: Now): boolean {
 /// The items read for the bar, and read again whenever something happened.
 export type BarItems = { items: Items | null; failed: string | null };
 
+/// The items the list of works reads too: read once for both (works/source.ts).
 export function useBarItems(): BarItems {
-  const source = useSource();
-  const load = useCallback(() => source.loadItems(), [source]);
-  const { value, failed, read } = useReading(load);
-  useChanges(read, read);
+  const { value, failed } = useItems();
   return { items: value, failed };
 }
 

@@ -23,7 +23,9 @@
 //! - [`tree`]: the design tree on a work's branch, as the data a source outside the work writes.
 //! - [`session`]: the sessions of each line of each work, worked out from the installation's id.
 //! - `held` and `process`: what a carrier holds while it carries something out, and the programs it runs to do so.
+//! - [`account`]: the account the agents' program makes its calls under, a directory of its own signed in by hand.
 
+pub mod account;
 mod acts;
 mod agents;
 pub mod catch_up;

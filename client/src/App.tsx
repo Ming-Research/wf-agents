@@ -16,10 +16,12 @@ import { chartOf } from './graph/model';
 import { matrix } from './matrix';
 import { ObservationsView } from './observations/ObservationsView';
 import { Bar, Drawer, Panel, Switch } from './parts';
-import { type Route, hashOf, tabOf, useRoute } from './route';
+import { type Route, hashOf, periodOf, tabOf, useRoute } from './route';
 import { type Serves, opensOnFlow, useServes } from './serves';
 import { WIDTH_KEYS } from './sizes';
 import { BlockPanel, CellPanel, Faults, GroupPanel, LinePanel, TestPanel, ToolPanel } from './Side';
+import { SettingsView } from './system/SettingsView';
+import { SystemView } from './system/SystemView';
 import { type Theme, useTheme } from './theme';
 import { WorkView } from './works/WorkView';
 import { WorksList } from './works/WorksList';
@@ -77,9 +79,8 @@ export function Views({
             <WorkView key={`${route.work}/${route.run ?? ''}`} work={route.work} run={route.run} />
           )}
           {route.view === 'observations' && <ObservationsView />}
-          {(route.view === 'system' || route.view === 'settings') && (
-            <p className="message muted">Nothing is shown here yet.</p>
-          )}
+          {route.view === 'system' && <SystemView period={periodOf(route)} />}
+          {route.view === 'settings' && <SettingsView />}
         </div>
       )}
       {flowShown && (
