@@ -33,6 +33,17 @@ describe('the order of the blocks', () => {
   });
 });
 
+/// The row of a trigger, or of a datum, of this name.
+const rowAt = (m: ReturnType<typeof matrix>, name: string, trigger = false) =>
+  m.blocks.findIndex((b) => b.name === name && (b.trigger !== undefined) === trigger);
+
+/// The mark of a cell on the row of a trigger, or of a datum, of this name.
+const markAt = (m: ReturnType<typeof matrix>, cellId: string, name: string, trigger = false) =>
+  m.spots[rowAt(m, name, trigger)][m.cells.findIndex((c) => c.id === cellId)].mark;
+
+/// A mark on a datum's row, which says the kind the cell is given the datum in.
+const datum = (mark: Partial<typeof NO_MARK>, kind: string | null = null) => ({ ...NO_MARK, ...mark, kind });
+
 describe('the marks of named tests', () => {
   const flow = flowOf(
     [
@@ -45,15 +56,16 @@ describe('the marks of named tests', () => {
     ],
     { x: { values: ['yes', 'no'] }, y: { values: ['yes', 'no'] }, go: { people: true, values: ['yes', 'no'] }, request: { people: true } },
   );
-  const at = (m: ReturnType<typeof matrix>, cellId: string, block: string) =>
-    m.spots[m.blocks.findIndex((b) => b.name === block)][m.cells.findIndex((c) => c.id === cellId)].mark;
 
-  it('put the condition’s mark on each block the test that is the condition reads, and a precondition’s on each its test reads', () => {
+  it('put the condition’s mark on each datum the test that is the condition reads, and a precondition’s on each its test reads', () => {
     const m = matrix({ after: flow }, 'after');
-    expect(at(m, 'more', 'x')).toEqual({ runs: true, given: true, write: false, condition: true, precondition: false });
-    expect(at(m, 'more', 'y')).toEqual({ runs: false, given: false, write: false, condition: true, precondition: false });
-    expect(at(m, 'more', 'go')).toEqual({ runs: false, given: false, write: false, condition: false, precondition: true });
-    expect(at(m, 'more', 'request')).toEqual({ runs: true, given: true, write: false, condition: false, precondition: false });
+    expect(markAt(m, 'more', 'x')).toEqual(datum({ given: true, condition: true }));
+    expect(markAt(m, 'more', 'y')).toEqual(datum({ condition: true }));
+    expect(markAt(m, 'more', 'go')).toEqual(datum({ precondition: true }));
+    expect(markAt(m, 'more', 'request')).toEqual(datum({ given: true }));
+    // What runs the cell is on its triggers' rows, and only there.
+    expect(markAt(m, 'more', 'x', true)).toEqual({ ...NO_MARK, runs: true });
+    expect(markAt(m, 'more', 'request', true)).toEqual({ ...NO_MARK, runs: true });
   });
 
   it('put a block no cell writes before its first reader: what the condition reads, then the preconditions, then the inputs', () => {
@@ -81,27 +93,38 @@ describe('two orders merged', () => {
 });
 
 describe('the marks', () => {
-  it('say where a cell reads a block, may write it, or reads its value in its condition', () => {
+  it('say on a trigger’s row which cells it runs and which write its block, and on a datum’s which are given it, write it or read its value', () => {
     const m = matrix({ after: small() }, 'after');
-    const at = (cellId: string, block: string) =>
-      m.spots[m.blocks.findIndex((b) => b.name === block)][m.cells.findIndex((c) => c.id === cellId)].mark;
-    expect(at('plan', 'request')).toEqual({ runs: true, given: true, write: false, condition: false, precondition: false });
-    expect(at('plan', 'plan')).toEqual({ runs: false, given: false, write: true, condition: false, precondition: false });
-    expect(at('design', 'needs_design')).toEqual({ runs: false, given: false, write: false, condition: true, precondition: false });
-    expect(at('merge', 'plan')).toEqual(NO_MARK);
-    // The cells run left to right in the order of the walk, the blocks down the rows.
+    expect(markAt(m, 'plan', 'request', true)).toEqual({ ...NO_MARK, runs: true });
+    expect(markAt(m, 'plan', 'request')).toEqual(datum({ given: true }));
+    expect(markAt(m, 'plan', 'plan', true)).toEqual({ ...NO_MARK, write: true });
+    expect(markAt(m, 'plan', 'plan')).toEqual(datum({ write: true }));
+    expect(markAt(m, 'design', 'needs_design')).toEqual(datum({ condition: true }));
+    expect(markAt(m, 'merge', 'plan')).toEqual(datum({}));
+    // The cells run left to right in the order of the walk; the triggers' rows stand first, by the blocks they stand
+    // on, then each datum's.
     expect(m.cells.map((c) => c.id)).toEqual(['plan', 'judge', 'design', 'answer', 'check', 'merge']);
-    expect(m.blocks.map((b) => b.name)).toEqual(blockOrder(small()));
+    expect(m.blocks.filter((b) => b.trigger !== undefined).map((b) => b.name)).toEqual([
+      'request',
+      'plan',
+      'opinions',
+      'design',
+      'comments',
+      'main',
+      'ci',
+    ]);
+    expect(m.blocks.filter((b) => b.trigger === undefined).map((b) => b.name)).toEqual(blockOrder(small()));
     expect(m.cells.every((c) => c.status === 'same')).toBe(true);
   });
 
-  it('draw a cell that reads and writes a block as both', () => {
+  it('draw a cell that is run by a block and writes it as both, on its trigger’s row', () => {
     const flow = flowOf([cell('a', { inputs: ['x'], outputs: ['x'] }), cell('b', { inputs: ['x'] })], { x: { people: true } });
     const m = matrix({ after: flow }, 'after');
-    expect(m.spots[0][0].mark).toEqual({ runs: true, given: true, write: true, condition: false, precondition: false });
+    expect(markAt(m, 'a', 'x', true)).toEqual({ ...NO_MARK, runs: true, write: true });
+    expect(markAt(m, 'a', 'x')).toEqual(datum({ given: true, write: true }));
     // A cell does not run for its own write: no way back.
     expect(m.waysBack).toBe(0);
-    expect(m.spots[0].map((spot) => spot.back)).toEqual(['none', 'none']);
+    expect(m.spots[rowAt(m, 'x', true)].map((spot) => spot.back)).toEqual(['none', 'none']);
   });
 });
 
@@ -115,19 +138,31 @@ describe('what runs a cell and what it is given', () => {
       { x: {}, record: { people: true }, ping: { people: true } },
     );
     const m = matrix({ after: flow }, 'after');
-    const at = (block: string) => m.spots[m.blocks.findIndex((b) => b.name === block)][0].mark;
-    expect(at('x')).toEqual({ runs: true, given: true, write: false, condition: false, precondition: false });
-    expect(at('ping')).toEqual({ runs: true, given: false, write: false, condition: false, precondition: false });
-    expect(at('record')).toEqual({ runs: false, given: true, write: true, condition: false, precondition: false });
+    expect(markAt(m, 'a', 'x', true)).toEqual({ ...NO_MARK, runs: true });
+    expect(markAt(m, 'a', 'x')).toEqual(datum({ given: true }));
+    expect(markAt(m, 'a', 'ping', true)).toEqual({ ...NO_MARK, runs: true });
+    expect(markAt(m, 'a', 'ping')).toEqual(datum({}));
+    expect(markAt(m, 'a', 'record')).toEqual(datum({ given: true, write: true }));
+    // No trigger stands on the record: nothing of it runs a cell.
+    expect(rowAt(m, 'record', true)).toBe(-1);
     // b's writes of x and of ping run a again; its write of the record does not.
     expect(m.waysBack).toBe(2);
+  });
+
+  it('give on a datum’s row the kind the cell is given it in, where the cell says one', () => {
+    const flow = flowOf(
+      [cell('a', { outputs: ['x'] }), cell('b', { inputs: ['x'], input: { x: { runs: { why: null }, given: { kind: 'all', why: null } } } })],
+      { x: {} },
+    );
+    const m = matrix({ after: flow }, 'after');
+    expect(markAt(m, 'b', 'x')).toEqual(datum({ given: true }, 'all'));
   });
 });
 
 describe('the ways back', () => {
-  const row = (m: ReturnType<typeof matrix>, block: string) => m.spots[m.blocks.findIndex((b) => b.name === block)];
+  const row = (m: ReturnType<typeof matrix>, block: string) => m.spots[rowAt(m, block, true)];
 
-  it('run left along a row from a later cell’s write to each read before it, which they point at', () => {
+  it('run left along a trigger’s row from a later cell’s write to each cell before it that it runs, which they point at', () => {
     const m = matrix({ after: small() }, 'after');
     expect(row(m, 'opinions').map((spot) => spot.back)).toEqual(['right', 'left', 'none', 'none', 'none', 'none']);
     expect(row(m, 'opinions').map((spot) => spot.backTo)).toEqual([true, false, false, false, false, false]);
@@ -141,10 +176,10 @@ describe('the ways back', () => {
   });
 
   it('leave the row\'s line out left of the first write, where the way back runs alone', () => {
-    // The opinions are read by the first cell and written by the second: nothing of them goes forward.
+    // The opinions run the first cell and the second writes them: nothing of them goes forward.
     const m = matrix({ after: small() }, 'after');
     expect(row(m, 'opinions').every((spot) => spot.line === 'none')).toBe(true);
-    // Read by a and b, written by c, read by d, written by e: the line runs from c on.
+    // Run a and b, written by c, run d, written by e: the line runs from c on.
     const flow = flowOf(
       [
         cell('a', { inputs: ['x'] }),
@@ -155,23 +190,25 @@ describe('the ways back', () => {
       ],
       { x: {} },
     );
-    const spots = matrix({ after: flow }, 'after').spots[0];
+    const spots = row(matrix({ after: flow }, 'after'), 'x');
     expect(spots.map((spot) => spot.line)).toEqual(['none', 'none', 'right', 'through', 'left']);
     expect(spots.map((spot) => spot.back)).toEqual(['right', 'through', 'through', 'through', 'left']);
   });
 
-  it('start the row\'s line at a mark left of the first write that no way back reaches, so that none stands alone', () => {
-    // A precondition of the first cell reads what people and a later cell write: no way back reaches a precondition.
+  it('draw no line and no way back on a datum’s row: a datum a cell is given, or whose value it reads, runs no cell', () => {
+    // A precondition of the first cell reads what people and a later cell write.
     const waits = test('ready', 'x is yes', 'all', ['x']);
     const flow = flowOf([cell('a', { preconditions: [waits] }), cell('b', { outputs: ['x'] }), cell('c', { inputs: ['x'] })], {
       x: { people: true, values: ['yes', 'no'] },
     });
-    const spots = matrix({ after: flow }, 'after').spots[0];
-    expect(spots.map((spot) => spot.line)).toEqual(['right', 'through', 'left']);
-    expect(spots.every((spot) => spot.back === 'none')).toBe(true);
+    const m = matrix({ after: flow }, 'after');
+    expect(m.spots[rowAt(m, 'x')].every((spot) => spot.line === 'none' && spot.back === 'none')).toBe(true);
+    expect(markAt(m, 'a', 'x')).toEqual(datum({ precondition: true }));
+    // On the trigger's row the line runs from b's write to c, which it runs.
+    expect(row(m, 'x').map((spot) => spot.line)).toEqual(['none', 'right', 'left']);
   });
 
-  it('count a read by a condition, and every pair of a read and a later write', () => {
+  it('count every pair of a cell a trigger runs and a later cell’s write of its block, and no read by a condition', () => {
     const flow = flowOf(
       [
         cell('a', { inputs: ['x'] }),
@@ -183,14 +220,15 @@ describe('the ways back', () => {
       { x: { people: true, values: ['yes', 'no'] } },
     );
     const m = matrix({ after: flow }, 'after');
-    expect(m.spots[0].map((spot) => spot.backTo)).toEqual([true, true, false, true, false]);
-    expect(m.spots[0].map((spot) => spot.back)).toEqual(['right', 'through', 'through', 'through', 'left']);
-    // a, b and d each read it with a write after: a and b twice, d once.
-    expect(m.waysBack).toBe(5);
+    expect(row(m, 'x').map((spot) => spot.backTo)).toEqual([true, false, false, true, false]);
+    expect(row(m, 'x').map((spot) => spot.back)).toEqual(['right', 'through', 'through', 'through', 'left']);
+    // a is run by x and written after twice, d once; b's condition reads it on the datum's row.
+    expect(m.waysBack).toBe(3);
+    expect(markAt(m, 'b', 'x')).toEqual(datum({ condition: true }));
   });
 });
 
-describe('what changed', () => {
+describe('both versions', () => {
   const before = flowOf(
     [cell('plan', { inputs: ['request'], outputs: ['plan'] }), cell('old', { inputs: ['plan'] }), cell('merge', { inputs: ['plan'] })],
     { request: { people: true }, plan: {} },
@@ -212,7 +250,7 @@ describe('what changed', () => {
     { kind: 'blockAdded', block: 'notes' },
   ];
 
-  it('holds the cells and blocks of both versions, each marked as put in, taken out, changed or the same', () => {
+  it('holds the cells of both, each marked as put in, taken out, changed or the same, and the data of both', () => {
     const m = matrix({ after, before, changes }, 'after');
     // What was taken out stands after what it followed, before what was put in there.
     expect(m.cells.map((c) => [c.id, c.status, c.cell !== undefined])).toEqual([
@@ -222,24 +260,9 @@ describe('what changed', () => {
       ['merge', 'same', true],
     ]);
     expect([...m.cells[0].changed]).toEqual(['title', 'runsOnAdded', 'givenAdded']);
-    expect(m.blocks.map((b) => [b.name, b.status])).toEqual([
-      ['request', 'same'],
-      ['notes', 'added'],
-      ['plan', 'same'],
-    ]);
-  });
-
-  it('marks what the change put in and took out at each crossing', () => {
-    const m = matrix({ after, before, changes }, 'after');
-    const notes = m.spots[m.blocks.findIndex((b) => b.name === 'notes')];
-    const plan = m.spots[m.blocks.findIndex((b) => b.name === 'plan')];
-    expect(notes[0].added).toEqual({ runs: true, given: true, write: false, condition: false, precondition: false });
-    expect(plan[2].added).toEqual({ runs: true, given: true, write: false, condition: false, precondition: false });
-    // The cell taken out is not in the version shown, and its read is drawn as taken out.
-    expect(plan[1].mark).toEqual(NO_MARK);
-    expect(plan[1].removed).toEqual({ runs: true, given: true, write: false, condition: false, precondition: false });
-    expect(plan[3].added).toEqual(NO_MARK);
-    expect(plan[3].removed).toEqual(NO_MARK);
+    expect(m.blocks.filter((b) => b.trigger === undefined).map((b) => b.name)).toEqual(['request', 'notes', 'plan']);
+    // The triggers' rows are the version shown's.
+    expect(m.blocks.filter((b) => b.trigger !== undefined).map((b) => b.name)).toEqual(['request', 'notes', 'plan']);
   });
 
   it('as it was, puts the rows in the order of the version compared against and shows its marks', () => {
@@ -251,9 +274,9 @@ describe('what changed', () => {
       ['merge', 'same', true],
     ]);
     expect(m.cells[0].cell?.title).toBe('plan');
-    const notes = m.spots[m.blocks.findIndex((b) => b.name === 'notes')];
-    expect(notes[0].mark).toEqual(NO_MARK);
-    expect(notes[0].added).toEqual({ runs: true, given: true, write: false, condition: false, precondition: false });
+    expect(m.blocks.filter((b) => b.trigger === undefined).map((b) => b.name)).toEqual(['request', 'notes', 'plan']);
+    expect(markAt(m, 'plan', 'notes')).toEqual(datum({}));
+    expect(rowAt(m, 'notes', true)).toBe(-1);
   });
 
   it('keeps a moved cell where the version shown has it', () => {

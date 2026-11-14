@@ -227,6 +227,8 @@ pub fn deliver() -> Compiled {
     let has = Has {
         sources: [DEPENDENCIES.to_string()].into(),
         acts: ["deliver".to_string()].into(),
+        // The triggers beside the flows are every flow's, and one says what happened by the files of the tree.
+        details: ["files".to_string()].into(),
         ..Default::default()
     };
     compile(&source, &has).expect("the deliver flow compiles")

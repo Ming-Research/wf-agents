@@ -206,6 +206,9 @@ fn compiled(on: On) -> Compiled {
     let has = Has {
         sources: names(&[driver::DEPENDENCIES, driver::SESSION]),
         acts: names(&["start", "check", "merge", "deliver"]),
+        // The triggers beside the repository's flows are every flow's, and one says what happened by the files of
+        // the tree.
+        details: names(&["files"]),
         ..Default::default()
     };
     flow::compile(&source, &has).expect("the flow compiles")

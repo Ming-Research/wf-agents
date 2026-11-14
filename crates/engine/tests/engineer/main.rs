@@ -69,8 +69,10 @@
 //! the owner resumes a paused work, lets the cell it waits at go on at its limit, and makes a precondition it waits on
 //! hold where a person or the outside can: writes a verdict whose refusal stands as a value that is not, and the
 //! outside writes what the first cell's precondition looks for. Where the precondition reads a choice that only cells
-//! write (the check's), the owner writes a few words in an input of the cell that writes it which only people write
-//! (an opinion for the check), so that the cell runs again; in the continuation the check then says yes.
+//! write (the check's), the owner writes a few words in an input of the cell that writes it which only people write,
+//! or, where that cell has none (the check is spoken to by no one), of the nearest cell before it that has one (the
+//! implementation, spoken to by the owner), so that the cell runs again, or the work goes on from the cell spoken to
+//! until it does; in the continuation the check then says yes.
 //!
 //! Every situation the properties are about is counted over all histories (`required`), and the test fails if one was
 //! never reached. A failing case prints its seed and its steps; `one_history(&flow, seed, ..)` replays it.
@@ -783,8 +785,9 @@ fn content_bound(d: &Driver) -> u64 {
 }
 
 /// The owner's few words to a cell, where the named test reads a block only cells write: in an input of a cell that
-/// writes it which only people write, so that the cell runs again and writes the block anew; none where no such cell
-/// or input is.
+/// writes it which only people write, so that the cell runs again and writes the block anew; where that cell has no
+/// such input, in one of the nearest cell before it that has one, whose run the work goes on from until the cell that
+/// writes the block runs again; none where no such cell or input is.
 fn ask_a_cell(d: &Driver, name: &TestName) -> Option<Event> {
     let test = &d.flow.flow.tests()[name];
     let only_cells = |b: &BlockId| {
@@ -796,10 +799,11 @@ fn ask_a_cell(d: &Driver, name: &TestName) -> Option<Event> {
         let w = &block.writers;
         w.people && w.cells.is_empty() && w.outside.is_none() && block.values.is_none()
     };
+    let spoken_to = |j: usize| d.flow.flow.cells()[j].runs_on.iter().find(|b| only_people(b));
     (test.reads.iter().filter(|b| only_cells(b)))
         .flat_map(|b| &d.flow.blocks[b].writers.cells)
         .filter_map(|c| d.flow.flow.place(c))
-        .find_map(|j| d.flow.flow.cells()[j].runs_on.iter().find(|b| only_people(b)))
+        .find_map(|j| (0..=j).rev().find_map(spoken_to))
         .map(|b| wrote(b, Outsider::Person, true, None))
 }
 
