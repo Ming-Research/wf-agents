@@ -6,23 +6,25 @@
 //!
 //! What happens next, at each state: the engine does what the walk says (starts a run, takes a return, goes on with a
 //! run, abandons one); a round under way returns; the outside writes. What a round returns (`model::Variant`): the
-//! return of a cell content with its work; or, spending one of the path's two, any other value of a choice it writes,
-//! its choices alone, its content with its opinions for the cells before it, a judge's refusal with its reasons, a
-//! return that is sent back, its content with a question that waits for the owner, and of the check's act a red check
-//! or a merge conflict. A return that sends work round (opinions, a refusal, a send-back, a red check) may be given at
-//! every round of its cell from then on, for the same one spent: the flow's limits must stop it. What the outside
-//! writes, spending one: the owner speaks to a cell, changes the background, answers a question or takes another option
-//! for one, lets a cell go on at its limit; main moves, a session is begun anew, the tree changes. It writes while the
-//! work waits or rests, on a path that spent at most one before, or while a round is under way on a path that spent
-//! nothing (the background, the owner's words to the cell, what runs it from outside); past a write from outside the
-//! cells give their content alone. The items the work depends on merging costs nothing.
+//! return of a cell content with its work; or, spending one of the path's two, every other set of values of the choices
+//! it writes, its choices alone, its content with its opinions for the cells before it (all, or each alone), a judge's
+//! refusal with its reasons, its content with a question that waits for the owner (with the content's choices, or with
+//! choices that skip the cell itself), of the check's act a red check or a merge conflict, and on a path that spent
+//! nothing a return that is sent back. A return that sends work round (opinions, a refusal, a send-back, a red check)
+//! may be given at every round of its cell from then on, for the same one spent: the flow's limits must stop it. What
+//! the outside writes, spending one: the owner speaks to a cell, changes the background, answers a question or takes
+//! another option for one, lets a cell go on at its limit; main moves, a session is begun anew, the tree changes. It
+//! writes while the work waits or rests, on a path that spent at most one before; while a round is under way, the owner
+//! speaks to its cell on such a path, and on a path that spent nothing the background or what runs the cell from
+//! outside is written too. The owner answers a question the work waits on whatever the path spent. Past a write from
+//! outside the cells give their content alone. The items the work depends on merging costs nothing.
 //!
 //! Two states that would go on alike are one (`explore::Explorer::key`), and one reached having spent no more is kept.
 //! A path of more than 200 decisions with nothing written from outside, or that comes back to a state it was in, breaks
 //! property 4.
 //!
-//! What it costs: the search is run once by each test's process, as nextest runs every test in a process of its own;
-//! its time is in each test's failure and in the coverage test's output.
+//! What it costs: a few thousand states, each a few decisions of the walk, in a few seconds; the coverage test prints
+//! the numbers. Nextest runs each test in a process of its own, so each test runs the search once.
 
 #[allow(dead_code)]
 #[path = "../../../decide/tests/support/mod.rs"]
