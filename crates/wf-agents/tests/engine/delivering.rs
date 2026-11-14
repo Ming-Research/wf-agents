@@ -62,7 +62,7 @@ fn a_deliverable_made_of_an_engineers_item_is_delivered_once_it_merges_and_lets_
     assert!(
         list.contains(
             "\nItem 2 \"Deliver it\" at level 1, work 2 on deliver, after 1: waits at V1 for the outside \
-             (dependencies): The items it is made of are merged\n"
+             (dependencies): dependencies = merged\n"
         ),
         "{list}"
     );
@@ -70,7 +70,7 @@ fn a_deliverable_made_of_an_engineers_item_is_delivered_once_it_merges_and_lets_
     assert!(
         list.contains(
             "\nItem 3 \"Build on it\" at level 1, work 3 on engineer, after 2: waits at S1 for the outside \
-             (dependencies): The items it depends on are merged\n"
+             (dependencies): dependencies = merged\n"
         ),
         "{list}"
     );
