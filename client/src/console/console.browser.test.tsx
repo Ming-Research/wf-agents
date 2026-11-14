@@ -51,16 +51,19 @@ const drew = async () => {
   await frame();
 };
 
-/// Waits until the columns stand still: three frames in a row in which nothing moved.
+/// Waits until the columns stand still: three frames in a row in which nothing moved, which they reach within a second
+/// of frames of what moved them. The bound is in frames, which the scene moves by, not in time, which a busy machine
+/// stretches.
 async function settle(scene: SnapScene) {
   let was = JSON.stringify(scene.place());
   let still = 0;
-  for (let k = 0; k < 400 && still < 3; k += 1) {
+  for (let k = 0; k < 60 && still < 3; k += 1) {
     await frame();
     const now = JSON.stringify(scene.place());
     still = now === was ? still + 1 : 0;
     was = now;
   }
+  expect(still, 'the columns still moved 60 frames on').toBe(3);
 }
 
 describe('the tree in columns', () => {
