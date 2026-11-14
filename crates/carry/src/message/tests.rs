@@ -673,3 +673,38 @@ fn a_message_built_again_is_the_same() {
     assert_eq!(small.told(), small.told());
     assert_eq!(small.told_as(true), small.told_as(true));
 }
+
+#[test]
+fn a_result_of_the_query_tool_longer_than_its_file_says_is_given_cut_and_the_records_keep_it_whole() {
+    let rows: Vec<serde_json::Value> = (1..=40)
+        .map(|n| serde_json::json!({ "id": n, "name": "thing" }))
+        .collect();
+    let whole = serde_json::json!({ "rows": rows }).to_string();
+    let input = serde_json::json!({ "sql": "SELECT id, name FROM things" }).to_string();
+    let mut small = objected();
+    small.back(Came::asks(vec![Ask::Tool {
+        name: "query".to_string(),
+        input: input.clone(),
+    }]));
+    small.done(&whole);
+    let given_bytes = words().tools["query"]
+        .given_bytes
+        .expect("the file says how much is given");
+    let told = small.told_as(true);
+    assert!(!told.contains(&whole), "{told}");
+    assert!(told.contains(&format!("\"bytes\":{}", whole.len())), "{told}");
+    assert!(told.contains("LIMIT -1 OFFSET "), "{told}");
+    assert!(told.contains("{\"id\":1,\"name\":\"thing\"}"), "{told}");
+    assert!(!told.contains("{\"id\":40,"), "{told}");
+    assert!(given_bytes < whole.len());
+    // The records hold what the tool answered, whole.
+    assert_eq!(small.work.results.values().last(), Some(&whole));
+    // A result of another tool is given as it is.
+    let mut other = objected();
+    other.back(Came::asks(vec![Ask::Tool {
+        name: "check".to_string(),
+        input,
+    }]));
+    other.done(&whole);
+    assert!(other.told_as(true).contains(&whole));
+}

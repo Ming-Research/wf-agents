@@ -1,5 +1,18 @@
 # One read-only query on the engine's records.
-words = "`query`: one read-only query on the engine's records."
+words = "`query`: one read-only query on the engine's records. {store}"
+given_bytes = 400
+
+[texts]
+closed = "The store is not open to agents yet."
+unreadable = "The request is not read."
+error = "The query failed: {why}"
+timeout = "The query was stopped after {ms} milliseconds."
+unavailable = "The store could not be read."
+row_too_long = "A row is over {bytes} bytes."
+hides_nothing = "The schema hides nothing from agents."
+store_table = "### {table}\n{columns}"
+store_column = "- {column}"
+store_column_commented = "- {column}: {comment}"
 
 [request]
 type = "object"

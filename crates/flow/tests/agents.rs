@@ -267,3 +267,32 @@ fn each_field_the_form_and_told_name_is_a_field_of_the_return_and_the_form_s_gro
         assert!(refused.contains(&returns.display().to_string()), "{name}: {refused}");
     }
 }
+
+#[test]
+fn a_tool_file_that_lacks_a_text_the_engine_says_or_names_one_it_does_not_is_refused() {
+    let dir = copy("texts");
+    let query = dir.join("agents/tools/query.toml");
+    let text = fs::read_to_string(&query).unwrap();
+    fs::write(&query, text.replace("timeout = ", "timeoutt = ")).unwrap();
+    let refused = agents::read(&dir).unwrap_err();
+    fs::remove_dir_all(&dir).unwrap();
+    assert!(refused.contains(&query.display().to_string()), "{refused}");
+    assert!(
+        refused.contains("lacks: timeout") && refused.contains("does not say: timeoutt"),
+        "{refused}"
+    );
+}
+
+#[test]
+fn the_files_of_the_real_flow_hold_every_text_the_engine_says_of_each_tool() {
+    let real = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow");
+    let read = agents::read(&real).expect("the real files beside the flows are read");
+    for (tool, known) in agents::TOOL_TEXTS {
+        let mut held: Vec<&str> = read.tools[*tool].texts.keys().map(String::as_str).collect();
+        let mut known = known.to_vec();
+        held.sort_unstable();
+        known.sort_unstable();
+        assert_eq!(held, known, "{tool}");
+    }
+    assert!(read.tools["query"].given_bytes.is_some());
+}

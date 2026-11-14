@@ -82,7 +82,7 @@ pub fn carry(mut settings: Settings, data: &Path, beside: flow::agents::Agents) 
     let installation = session::installation(&data)?;
     let project = settings.project.clone();
     let tag = git::tag(&installation);
-    let query = Querying::new(&settings.query, beside.tools.get(QUERY), &data, store::SCHEMA);
+    let query = querying(&settings, &beside, &data)?;
     let (acts, tools, watch, main) = match &settings.github {
         None => {
             let host = host::Local::new(project.clone()).giving(settings.agents.env.clone());
@@ -102,6 +102,20 @@ pub fn carry(mut settings: Settings, data: &Path, beside: flow::agents::Agents) 
         network: Arc::new(failure::Look),
     };
     Ok((carriers, watch))
+}
+
+/// The tool `query` as these settings and the files beside the flows say; or why the settings cannot open it.
+fn querying(settings: &Settings, beside: &flow::agents::Agents, data: &Path) -> Result<Querying, String> {
+    let tool = beside.tools.get(QUERY);
+    Querying::new(&settings.query, tool, data, store::SCHEMA).map_err(|why| format!("query.open: {why}"))
+}
+
+/// What fills `{store}` in the words of the tool `query`, which the line's system prompt holds: the store as the
+/// comments of its schema describe it where the settings open it to the agents, and the file's words that it is not
+/// open where they do not; or why the settings cannot open it. It is made outside the tools, which the loop holds as
+/// one trait object, so that the prompt, made from the same settings and files, can be given it.
+pub fn store(settings: &Settings, beside: &flow::agents::Agents) -> Result<String, String> {
+    querying(settings, beside, Path::new("")).map(|query| query.store())
 }
 
 /// The acts, the tools and the watch of main, on one host they share, and the reference that holds main's head as the

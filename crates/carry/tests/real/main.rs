@@ -17,6 +17,7 @@ mod going;
 mod left;
 mod levels;
 mod permissions;
+mod query;
 mod sessions;
 mod stopping;
 

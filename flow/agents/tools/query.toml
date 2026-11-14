@@ -4,19 +4,26 @@
 words = '''
 `query`: one read-only SQL query on the engine's records, as `{"sql": "..."}`. {store}
   It gives `{"rows": [...]}`, each row an object by the column names. Rows past the bounds of a query are left out, and
-  `cut` says how many are given and has the query that reads the rest; a result too large to give whole comes cut in
-  the same way, with its size in `bytes`.'''
+  `cut` says in `count` how many rows are given and has in `rest` the query that reads the rest; a result too large to
+  give whole comes cut in the same way, with its size in `bytes`, and `trimmed` where the first row alone was too long
+  and its long values were shortened (read them in parts with `substr`). No value of a query is longer than the engine
+  allows, however it is made.'''
 # How many bytes of a result a message gives, past which it is given cut.
 given_bytes = 12000
 
-# What the engine says of its own answers: `{why}` the reason, `{ms}` the milliseconds a query may take. The store is
-# described table by table where it is open: `store_table` (`{table}`, `{comment}` and `{columns}`, which are
-# `store_column`, or `store_column_commented` where a column has a comment, with `{column}`, `{type}` and `{comment}`).
+# What the engine says of its own answers: `{why}` the reason, `{ms}` the milliseconds a query may take, `{bytes}` the
+# bytes a row may take. `hides_nothing` is the fault at start of opening a store whose schema hides nothing from agents.
+# The store is described table by table where it is open: `store_table` (`{table}`, `{comment}` and `{columns}`, which
+# are `store_column`, or `store_column_commented` where a column has a comment, with `{column}`, `{type}` and
+# `{comment}`).
 [texts]
 closed = "The store is not open to agents yet: `query` answers nothing until the owner opens it."
-unreadable = "The request is not read: {why}. Ask as `{\"sql\": \"...\"}`."
+unreadable = "The request is not read: ask as `{\"sql\": \"...\"}`."
 error = "The query failed: {why}"
-timeout = "The query ran longer than {ms} milliseconds and was stopped."
+timeout = "The query ran longer than {ms} milliseconds, or was withdrawn, and was stopped."
+unavailable = "The store could not be read; ask again."
+row_too_long = "A row of the query is over {bytes} bytes, and is not given: ask for fewer or shorter columns, or part of a value with `substr`."
+hides_nothing = "The store cannot be opened to agents while its schema marks no table and no column \"hidden from agents\": the owner marks what agents may not see."
 store_table = '''
 ### `{table}`
 {comment}

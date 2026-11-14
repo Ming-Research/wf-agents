@@ -1,5 +1,6 @@
 //! The tools an agent may ask for: `read`, which answers with the blocks of the work as it is kept (the module
-//! `read`); `check`, which checks the work as the host checks it ([`Host::check`]): the project's check command run in
+//! `read`); `query`, one read-only SQL query on the store, run in a thread of its own and interrupted where it is
+//! withdrawn (the module `query`); `check`, which checks the work as the host checks it ([`Host::check`]): the project's check command run in
 //! the work's worktree where the local repository is the host, the CI of the last commit of the work's branch where
 //! GitHub is; and `check_before`, which checks in the same way the code before the work's change with the files its
 //! input names put on it, so that a test is seen red or green before the change as well as after it. A tool's result
@@ -90,11 +91,19 @@ impl<H: Host> ToolsTrait for Tools<H> {
             let answered = if call.name == READ {
                 Answer::Result(read::answer(&call.flow, &call.kept, &call.input))
             } else if call.name == QUERY {
-                // The query runs in a thread of its own, within its time limit: it blocks the one that asked.
+                // The query runs in a thread of its own, within its time limit; withdrawn, it is interrupted.
                 let asked = inner.clone();
                 let input = call.input.clone();
-                let said = tokio::task::spawn_blocking(move || asked.query.answer(&input)).await;
-                Answer::Result(said.unwrap_or_else(|e| format!("The query could not be run: {e}")))
+                let cancel = Arc::new(query::Cancel::default());
+                let told = cancel.clone();
+                let mut running = tokio::task::spawn_blocking(move || asked.query.answer(&input, &told));
+                tokio::select! {
+                    said = &mut running => Answer::Result(said.unwrap_or_else(|_| inner.query.unavailable())),
+                    () = stop.told() => {
+                        cancel.tell();
+                        Answer::Withdrawn
+                    }
+                }
             } else {
                 let place = git::place(&inner.data, &inner.tag, call.work);
                 // What the work says of itself, as the acts work it out, so that the pull request the tool brings up
@@ -134,7 +143,7 @@ impl<H> Tools<H> {
     }
 }
 
-/// Runs the tool named, other than `read`, on the work's branch, with this input, and gives its result.
+/// Runs the tool named, other than `read` and `query`, on the work's branch, with this input, and gives its result.
 async fn answer(
     host: &impl Host,
     project: &Project,
@@ -150,7 +159,7 @@ async fn answer(
         (CHECK_BEFORE, Ok(asked)) => before(host, project, branch, &asked, stop).await,
         _ => {
             return Answer::Result(format!(
-                "No such tool: {name}. The tools are: {READ}, {CHECK}, {CHECK_BEFORE}."
+                "No such tool: {name}. The tools are: {READ}, {QUERY}, {CHECK}, {CHECK_BEFORE}."
             ));
         }
     };
@@ -330,7 +339,7 @@ mod tests {
         let repo = Repo::new("true");
         assert_eq!(
             answered(&repo, "ci").await,
-            "No such tool: ci. The tools are: read, check, check_before."
+            "No such tool: ci. The tools are: read, query, check, check_before."
         );
     }
 

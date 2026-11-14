@@ -56,9 +56,14 @@ pub struct Query {
     /// The milliseconds a query may run before it is stopped.
     #[serde(default = "query_timeout_ms")]
     pub timeout_ms: u64,
-    /// The most bytes of rows a query is kept with, past which the rest is cut as past the row limit.
+    /// The most bytes of rows a query is kept with, past which the rest is cut as past the row limit; and the most
+    /// one row may take, a row over it being refused.
     #[serde(default = "query_bytes")]
     pub max_bytes: usize,
+    /// The longest a string or a blob may be in a query, however it is made: what one call of a function over very long
+    /// values may cost is held by it, which the time a query may run cannot hold.
+    #[serde(default = "query_value_bytes")]
+    pub max_value_bytes: usize,
 }
 
 impl Default for Query {
@@ -68,6 +73,7 @@ impl Default for Query {
             max_rows: query_rows(),
             timeout_ms: query_timeout_ms(),
             max_bytes: query_bytes(),
+            max_value_bytes: query_value_bytes(),
         }
     }
 }
@@ -82,6 +88,10 @@ fn query_timeout_ms() -> u64 {
 
 fn query_bytes() -> usize {
     1 << 20
+}
+
+fn query_value_bytes() -> usize {
+    1 << 16
 }
 
 /// The owner of the installation.
