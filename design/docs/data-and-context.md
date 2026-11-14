@@ -64,7 +64,8 @@ here: the conditions a cell runs under, the limits, the owner's pauses, when a w
     it, written on the cell for each trigger (`do`), or on the trigger for every cell. A round that is not told what
     ran it does not know what to do: the cell's task says what the cell is for, its triggers what to do now. Versions
     are no part of a trigger's line; what changed of a datum, and from which version, is the context's to say (17). A
-    trigger the cell has never dealt with is told without its `do`: the first time, the task says what to do.
+    trigger is told with its `do` the first time too: the task says what the cell is for, and may not say what a
+    trigger asks of it, nor when it is dealt with.
 
 ## The context manager
 
