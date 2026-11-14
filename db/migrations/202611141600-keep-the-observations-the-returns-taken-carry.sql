@@ -9,7 +9,7 @@ CREATE TABLE observations (
     run INTEGER NOT NULL,
     round INTEGER NOT NULL,
     n INTEGER NOT NULL,
-    UNIQUE (work, run, n),
+    UNIQUE (work, run, round, n),
     FOREIGN KEY (work, run, round) REFERENCES back (work, run, round)
 );
 CREATE TABLE observations_read (
