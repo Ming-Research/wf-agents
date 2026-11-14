@@ -100,7 +100,7 @@ async fn a_session_keeps_the_system_prompt_it_began_with() {
     real.until(|real| ended(&real.decision(work))).await;
     let calls = real.calls();
     let (plan, build) = (&calls[0], &calls[1]);
-    assert!(plan.stdin.contains("cell `plan`") && build.stdin.contains("cell `build`"));
+    assert!(plan.of("Plan") && build.of("Build"));
     assert!(
         build.args.iter().any(|a| a == "--resume"),
         "the build goes on in the plan's session"

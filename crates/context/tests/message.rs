@@ -4,7 +4,8 @@
 
 mod support;
 
-use context::{Main, Stands, Values};
+use context::text::as_written;
+use context::{Entered, Main, Stands, Values};
 use decide::Outsider;
 use decide::run::Unmet;
 use decide::{BlockId, Seq};
@@ -165,6 +166,49 @@ fn a_datum_the_session_holds_that_is_new_to_the_cell_is_sent_its_held_line() {
     assert_eq!(entered.text, expected);
     assert_eq!(entered.fills, []);
     assert_eq!(entered.situation.data["plan"], Stands::HoldsLatest);
+}
+
+#[test]
+fn a_datum_given_latest_is_sent_whole_where_the_session_lacks_it_and_its_held_line_where_it_holds_it_new() {
+    let mut sim = Sim::new();
+    sim.writes("request", "Greet the user.");
+    carry(&mut sim, &[("plan", "Greet by name.", None)]);
+    carry(&mut sim, &[("code", CODE, None)]);
+    let first = sim.version("request");
+    // The build worked from the first request; the plan, run by the new one, takes it into the line's session, while
+    // the review goes on beside it.
+    sim.writes("request", "Greet the user by name.");
+    let round = loop {
+        let round = sim.round().expect("a round is given");
+        match sim.cell(&round).id.as_str() {
+            "build" => break round,
+            "plan" => carry(&mut sim, &[("plan", "Greet by name, and say why.", None)]),
+            _ => carry(
+                &mut sim,
+                &[("opinions", "Fine.", None), ("verdict", "yes", Some("yes"))],
+            ),
+        };
+    };
+    let (lacking, holding) = (sim.enter(&round, true), sim.enter(&round, false));
+    let request = sim.version("request");
+    assert_eq!(lacking.situation.data["request"], Stands::Lacks);
+    assert_eq!(holding.situation.data["request"], Stands::HoldsLatest);
+    let sent = |entered: &Entered| {
+        (entered.sent.iter())
+            .find(|s| s.block.as_deref() == Some("request"))
+            .map(|s| as_written(&s.pieces))
+    };
+    assert_eq!(
+        sent(&lacking),
+        Some(format!("## `request`, version {request}\n\nGreet the user by name."))
+    );
+    assert_eq!(
+        sent(&holding),
+        Some(format!(
+            "## `request`, version {request}, in this session already; last worked from {first}"
+        ))
+    );
+    assert_ne!(lacking.text, holding.text);
 }
 
 #[test]

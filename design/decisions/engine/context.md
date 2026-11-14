@@ -33,3 +33,7 @@ Why: With no tool to read the blocks, nothing else shows the agent what it is to
 ### decision last-and-latest-whole-where-the-version-worked-from-is-lacking
 A datum given `last_and_latest` whose latest the session holds, and not the version the cell last worked from, while what is newer is new to the cell, is sent whole, as `given.toml` says where the session lacks that version.
 Why: The line of a datum held names the version last worked from, which the agent cannot see in such a session, so the change since it would stay unseen.
+
+### decision the-situations-written-stand-data-by-class
+`wf-agents flow situations` writes each situation an entry of a cell can be in with the data in two classes, each standing alike, those of the triggers that ran the cell and the rest, and counts every combination of each datum's own state without writing it.
+Why: The builder words a datum from its kind and how the session stands with it alone, so the product of every datum's states repeats the same texts, and runs to millions for a cell given ten data (`T1`, about 36 billion); by class every state of every datum is written, in a few hundred files a cell.

@@ -35,6 +35,19 @@ pub enum Stands {
     Holds,
 }
 
+impl Stands {
+    /// Its name, in the words the files use.
+    pub fn name(self) -> &'static str {
+        match self {
+            Stands::Unwritten => "unwritten",
+            Stands::Lacks => "lacks",
+            Stands::HoldsLast => "holds_last",
+            Stands::HoldsLatest => "holds_latest",
+            Stands::Holds => "holds",
+        }
+    }
+}
+
 /// The situation an entry of a cell is in, which decides what of the message is sent and in which form.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]

@@ -9,12 +9,14 @@
 //! - [`manager`]: the session a round runs in, what it holds, and what is filled into it.
 //! - [`message`]: the message, built from the flow's files for the situation an entry is in: by the engine with every
 //!   place filled, and for the page with the places of a run open.
+//! - [`situations`]: every situation an entry of a cell can be in, for whoever reads what it is sent in each.
 //! - [`diff`]: what changed between two versions, as a datum given `last_and_latest` is sent it.
 //! - [`text`]: a text of the files, its places apart from what is sent as written.
 
 pub mod diff;
 pub mod manager;
 pub mod message;
+pub mod situations;
 pub mod text;
 
 pub use manager::{Carried, Changes, Entered, For, enter};

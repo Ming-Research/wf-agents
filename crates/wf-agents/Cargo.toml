@@ -11,6 +11,7 @@ repository.workspace = true
 backup = { path = "../backup" }
 carry = { path = "../carry" }
 clap = { version = "4.6.7", features = ["derive"] }
+context = { path = "../context" }
 driver = { path = "../driver" }
 flow = { path = "../flow" }
 # The commands that talk to a running engine send their requests with the HTTP library the engine serves with.

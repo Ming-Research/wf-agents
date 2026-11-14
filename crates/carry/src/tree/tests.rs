@@ -173,6 +173,11 @@ fn given_the_tree() -> Compiled {
 name = "tiny"
 order = ["read"]
 
+[limits]
+runs = 10
+returns = 10
+calls = 10
+
 [lines.engineer]
 
 [blocks.tree]
