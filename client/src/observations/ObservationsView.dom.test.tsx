@@ -45,6 +45,7 @@ function engine(refuse?: string) {
   const works: Source = {
     loadCopies: never,
     loadItems: never,
+    loadProjects: never,
     loadWork: never,
     loadVersion: never,
     loadRound: never,
