@@ -650,7 +650,8 @@ describe('a group’s trigger', () => {
     expect(texts(panel, '.status-line')).toEqual([
       'on_plannedFires when one of the blocks of planned has a new version.',
     ]);
-    expect(items(panel)).toEqual(['a', 'b', 'r Review']);
+    // Its blocks, the cells it runs, and the way back through it: v writes b after r.
+    expect(items(panel)).toEqual(['a', 'b', 'r Review', 'v → r']);
     expect(row.className).toContain('chosen');
   });
 
@@ -665,6 +666,69 @@ describe('a group’s trigger', () => {
     click(rowOf(page, 'b').querySelector('.head-button'));
     const block = page.querySelector('aside[aria-label="Block b"]') as HTMLElement;
     expect(items(block)).toEqual(['v → r triggered_by [on_planned]']);
+  });
+});
+
+describe('a way back between two cells that never both run', () => {
+  // reader runs when deep is no; writer, which writes x after it, when deep is yes: the two never both run, and only
+  // both, which always runs, sends the work back to reader.
+  const deep = (value: string) => [{ on: 'block' as const, block: 'deep', value }];
+  const flow = () =>
+    flowOf(
+      [
+        cell('first', { outputs: ['x', 'deep'] }),
+        cell('reader', { inputs: ['x'], when: deep('no') }),
+        cell('writer', { outputs: ['x'], when: deep('yes') }),
+        cell('both', { outputs: ['x'] }),
+      ],
+      { x: {}, deep: { values: ['yes', 'no'] } },
+    );
+  /// A part of a panel, by its label.
+  const partOf = (panel: HTMLElement, label: string) =>
+    [...panel.querySelectorAll('.panel-part')].find((p) =>
+      p.querySelector('.panel-part-label')?.textContent?.startsWith(label),
+    ) as HTMLElement;
+
+  it('is neither counted in the legend nor listed in the block’s panel', () => {
+    const page = draw({ state: 'compiled', flow: flow() });
+    expect(page.querySelector('.legend')?.textContent).toContain('way back (1)');
+    expect(page.querySelectorAll('.arrow')).toHaveLength(1);
+    click(rowOf(page, 'x').querySelector('.head-button'));
+    const block = page.querySelector('aside[aria-label="Block x"]') as HTMLElement;
+    expect(items(block)).toEqual(['both → reader triggered_by [on_x]']);
+  });
+
+  it('is listed in neither cell’s panel', () => {
+    const page = draw({ state: 'compiled', flow: flow() });
+    const heads = page.querySelectorAll('thead .cell-head .head-button');
+    click(heads[1]);
+    const reader = page.querySelector('aside[aria-label="Cell reader"]') as HTMLElement;
+    expect(items(partOf(reader, 'triggered_by'))).toEqual([
+      '1 on_x block x written_by first, writer, both way_back [both]',
+    ]);
+    click(heads[2]);
+    const writer = page.querySelector('aside[aria-label="Cell writer"]') as HTMLElement;
+    expect(items(partOf(writer, 'outputs'))).toEqual(['x read_by cells reader']);
+    click(heads[3]);
+    const both = page.querySelector('aside[aria-label="Cell both"]') as HTMLElement;
+    expect(items(partOf(both, 'outputs'))).toEqual(['x read_by cells reader way_back [reader]']);
+  });
+
+  it('is not listed in a group’s panel', () => {
+    const planned = { name: 'on_planned', what: null, block: 'planned', group: ['a', 'b'], read: [], do: null };
+    const grouped = flowOf(
+      [
+        cell('first', { outputs: ['a', 'deep'] }),
+        cell('r', { runsOn: ['a', 'b'], triggers: [planned], when: deep('no') }),
+        cell('v', { outputs: ['b'], when: deep('yes') }),
+      ],
+      { a: {}, b: {}, deep: { values: ['yes', 'no'] } },
+    );
+    const page = draw({ state: 'compiled', flow: grouped });
+    click(rowOf(page, 'on_planned', true).querySelector('.head-button'));
+    const panel = page.querySelector('aside[aria-label="Group planned"]') as HTMLElement;
+    expect(texts(panel, '.panel-part-label')).toEqual(['blocks 2', 'triggered_by 1']);
+    expect(page.querySelector('.legend')?.textContent).toContain('way back (0)');
   });
 });
 

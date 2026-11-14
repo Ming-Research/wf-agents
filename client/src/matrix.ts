@@ -29,6 +29,17 @@ export const NO_MARK: Mark = {
 export const MARK_PARTS = ['runs', 'given', 'write', 'condition', 'precondition'] as const;
 export type MarkPart = (typeof MARK_PARTS)[number];
 
+/// Whether two cells can never both run in one work, by their conditions as written: each one's `when` names a block or
+/// a datum the other's names with another value. A named test, or keys on different blocks, can both hold. No way back
+/// is drawn, counted or listed between two such cells: a later cell's write cannot send the work back to a cell that
+/// cannot run where the later one did.
+export function exclusive(a: Cell | undefined, b: Cell | undefined): boolean {
+  if (!a || !b) return false;
+  return a.when.some(
+    (x) => x.on === 'block' && b.when.some((y) => y.on === 'block' && y.block === x.block && y.value !== x.value),
+  );
+}
+
 /// Whether a key of a `when` or a `requires` reads the block: names it, or is a named test that reads it.
 export function keyReads(key: Condition, block: string): boolean {
   return key.on === 'block' ? key.block === block : key.test.reads.includes(block);
@@ -118,8 +129,9 @@ export interface Spot {
   /// the first mark.
   line: Segment;
   /// The way back, on a trigger's row: from a later cell's write of the block the trigger stands on, or of one of the
-  /// group's, leftwards to the cells before it that the trigger runs. A block a cell is only given, or whose value its
-  /// condition reads, does not run it, so no way back reaches it.
+  /// group's, leftwards to the cells before it that the trigger runs and that can run where the writer does (not
+  /// `exclusive`). A block a cell is only given, or whose value its condition reads, does not run it, so no way back
+  /// reaches it.
   back: Segment;
   /// A cell that a write right of it sends the work back to.
   backTo: boolean;
@@ -179,7 +191,7 @@ export interface Matrix {
   /// The rows of the conditions the cells name, under the lines', each where the first cell that names it stands.
   conditions: ConditionRow[];
   /// How many ways back the flow has: pairs of a cell a trigger runs and a later cell's write of the block the trigger
-  /// stands on, or of one of its group's.
+  /// stands on, or of one of its group's, of two cells that can both run in one work.
   waysBack: number;
 }
 
@@ -253,8 +265,9 @@ export function matrix(flow: Flow): Matrix {
     const marked = marks.flatMap((m, c) => (hasMark(m) ? [c] : []));
     const reads = marks.flatMap((m, c) => (m.runs ? [c] : []));
     const writes = marks.flatMap((m, c) => (m.write ? [c] : []));
-    const lastWrite = writes[writes.length - 1];
-    const reached = reads.filter((c) => lastWrite !== undefined && c < lastWrite);
+    // Of a read, the later writes that send the work back to it: those of a cell that can run where it does.
+    const backFrom = (c: number) => writes.filter((w) => w > c && !exclusive(cells[c], cells[w]));
+    const reached = reads.filter((c) => backFrom(c).length > 0);
     paint(
       row,
       'line',
@@ -262,10 +275,9 @@ export function matrix(flow: Flow): Matrix {
       marked[marked.length - 1],
     );
     for (const c of reached) row[c].backTo = true;
-    waysBack += reads.reduce((n, c) => n + writes.filter((w) => w > c).length, 0);
+    waysBack += reads.reduce((n, c) => n + backFrom(c).length, 0);
     if (reached.length > 0) {
-      const first = reached[0];
-      paint(row, 'back', first, Math.max(...writes.filter((w) => w > first)));
+      paint(row, 'back', reached[0], Math.max(...reached.flatMap(backFrom)));
     }
   });
 

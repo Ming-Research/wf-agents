@@ -17,7 +17,7 @@ import type {
 } from './api';
 import type { Chosen } from './Chart';
 import { FormTree } from './FormTree';
-import { type ConditionRow, type LineRow, type Matrix, where } from './matrix';
+import { type ConditionRow, type LineRow, type Matrix, exclusive, where } from './matrix';
 import { Attr, ListRow, Panel, PanelPart, StatusLine } from './parts';
 import {
   charactersWords,
@@ -308,7 +308,10 @@ export function CellPanel(props: {
   const blocks = new Map(flow.blocks.map((b) => [b.name, b]));
   const onLine = cell.line ? (flow.lines.find((l) => l.name === cell.line)?.cells ?? []) : [];
   const sharing = onLine.filter((c) => c !== cell.id);
-  const later = (ids: string[]) => ids.filter((id) => where(flow, cell.id, id) === 'below');
+  const cellOf = (id: string) => flow.cells.find((c) => c.id === id);
+  // The cells after this one that can run where it does: a write of theirs sends the work back to it.
+  const later = (ids: string[]) =>
+    ids.filter((id) => where(flow, cell.id, id) === 'below' && !exclusive(cell, cellOf(id)));
   return (
     <Panel
       label={`Cell ${cell.id}`}
@@ -466,9 +469,14 @@ export function CellPanel(props: {
               {cell.outputs.map((name) => {
                 const block = blocks.get(name) as Block;
                 // A write of it sends the work back to each cell before this one that a trigger on it, or on a group
-                // of it, runs.
+                // of it, runs, and that can run where this one does.
                 const sendsBack = flow.cells
-                  .filter((c) => where(flow, cell.id, c.id) === 'above' && c.triggers.some((t) => fires(t, name)))
+                  .filter(
+                    (c) =>
+                      where(flow, cell.id, c.id) === 'above' &&
+                      c.triggers.some((t) => fires(t, name)) &&
+                      !exclusive(c, cell),
+                  )
                   .map((c) => c.id);
                 return (
                   <ListRow key={name}>
@@ -628,8 +636,8 @@ function Readers(props: { flow: Flow; from?: string; block: Block; alone?: boole
 
 /// Everything about a block: its values, who writes it, who reads it, and the ways back through it, as the chart draws
 /// them on its triggers' rows: each cell a trigger on it, or on a group of it, runs, with the later cells whose write
-/// of it runs that cell again. A cell given it, or whose condition reads it, is not run by it, and no way back reaches
-/// it.
+/// of it runs that cell again, of those that can run where it does (`exclusive`). A cell given it, or whose condition
+/// reads it, is not run by it, and no way back reaches it.
 export function BlockPanel(props: {
   block: Block;
   matrix: Matrix;
@@ -642,7 +650,9 @@ export function BlockPanel(props: {
   const backs = flow.cells.flatMap((reader, r) => {
     const triggers = reader.triggers.filter((t) => fires(t, block.name)).map((t) => t.name);
     if (triggers.length === 0) return [];
-    const writers = flow.cells.filter((w, i) => i > r && w.outputs.includes(block.name)).map((w) => w.id);
+    const writers = flow.cells
+      .filter((w, i) => i > r && w.outputs.includes(block.name) && !exclusive(reader, w))
+      .map((w) => w.id);
     return writers.length > 0 ? [{ reader: reader.id, writers, triggers }] : [];
   });
   return (
@@ -848,12 +858,20 @@ export function ToolPanel(props: {
 }
 
 /// Everything about a group of the flow's blocks: the file that names it, its trigger, its blocks as that file names
-/// them, each chosen by its name, and the cells its trigger runs.
+/// them, each chosen by its name, the cells its trigger runs, and the ways back through it.
 export function GroupPanel(props: { name: string; flow: Flow; onChoose: (c: Chosen) => void; fold: Fold }) {
   const { name, flow, onChoose, fold } = props;
   const blocks = flow.groups.find((g) => g.name === name)?.blocks ?? [];
   const runs = flow.cells.filter((c) => c.triggers.some((t) => t.block === name && t.group.length > 0));
   const trigger = runs[0]?.triggers.find((t) => t.block === name);
+  // Each cell the trigger runs, with the cells after it that write a block of the group and can run where it does.
+  const at = (id: string) => flow.cells.findIndex((c) => c.id === id);
+  const backs = runs.flatMap((reader) => {
+    const writers = flow.cells
+      .filter((w) => at(w.id) > at(reader.id) && blocks.some((b) => w.outputs.includes(b)) && !exclusive(reader, w))
+      .map((w) => w.id);
+    return writers.length > 0 ? [{ reader: reader.id, writers }] : [];
+  });
   return (
     <Panel
       label={`Group ${name}`}
@@ -880,6 +898,19 @@ export function GroupPanel(props: { name: string; flow: Flow; onChoose: (c: Chos
       <PanelPart label="triggered_by" count={runs.length}>
         <CellRows flow={flow} ids={runs.map((c) => c.id)} onChoose={onChoose} />
       </PanelPart>
+      {backs.length > 0 && (
+        <PanelPart label="way_back" count={backs.length}>
+          <ul className="uses">
+            {backs.map(({ reader, writers }) => (
+              <ListRow key={reader}>
+                <span className="way-back mono">
+                  {writers.join(', ')} → {reader}
+                </span>
+              </ListRow>
+            ))}
+          </ul>
+        </PanelPart>
+      )}
     </Panel>
   );
 }

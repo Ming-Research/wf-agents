@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { NO_MARK, blockOrder, matrix } from './matrix';
+import { NO_MARK, blockOrder, exclusive, matrix } from './matrix';
 import { cell, flowOf, small, test, tested } from './testing';
 
 describe('the order of the blocks', () => {
@@ -330,5 +330,67 @@ describe('a group’s trigger', () => {
     const spots = m.spots[m.blocks.findIndex((b) => b.trigger === 'on_planned')];
     expect(spots.map((s) => s.backTo)).toEqual([false, true, false]);
     expect(m.waysBack).toBe(1);
+  });
+});
+
+describe('a way back between two cells that never both run', () => {
+  /// A reader of x and a later writer of it, each with a `when` on `deep` as given.
+  const flow = (readerWhen: string | null, writerWhen: string | null) => {
+    const on = (value: string | null) => (value === null ? [] : [{ on: 'block' as const, block: 'deep', value }]);
+    return flowOf(
+      [
+        cell('first', { outputs: ['x', 'deep'] }),
+        cell('reader', { inputs: ['x'], when: on(readerWhen) }),
+        cell('writer', { outputs: ['x'], when: on(writerWhen) }),
+      ],
+      { x: {}, deep: { values: ['yes', 'no'] } },
+    );
+  };
+  const row = (m: ReturnType<typeof matrix>) => m.spots[m.blocks.findIndex((b) => b.trigger === 'on_x')];
+
+  it('is not drawn nor counted where their whens name one block with different values', () => {
+    const f = flow('no', 'yes');
+    expect(exclusive(f.cells[1], f.cells[2])).toBe(true);
+    const m = matrix(f);
+    expect(m.waysBack).toBe(0);
+    expect(row(m).some((spot) => spot.backTo || spot.back !== 'none')).toBe(false);
+  });
+
+  it('is drawn and counted where they can both run: the same value, no condition, or one on another block', () => {
+    for (const [r, w] of [
+      ['yes', 'yes'],
+      [null, 'yes'],
+      ['no', null],
+    ] as const) {
+      const f = flow(r, w);
+      expect(exclusive(f.cells[1], f.cells[2])).toBe(false);
+      const m = matrix(f);
+      expect(m.waysBack).toBe(1);
+      expect(row(m).map((spot) => spot.backTo)).toEqual([false, true, false]);
+    }
+    const other = flowOf(
+      [
+        cell('first', { outputs: ['x', 'deep', 'wide'] }),
+        cell('reader', { inputs: ['x'], when: [{ on: 'block', block: 'deep', value: 'no' }] }),
+        cell('writer', { outputs: ['x'], when: [{ on: 'block', block: 'wide', value: 'yes' }] }),
+      ],
+      { x: {}, deep: { values: ['yes', 'no'] }, wide: { values: ['yes', 'no'] } },
+    );
+    expect(matrix(other).waysBack).toBe(1);
+  });
+
+  it('counts only the writes of cells that can run where the reader does, drawing the way back to the last', () => {
+    const f = flowOf(
+      [
+        cell('first', { outputs: ['x', 'deep'] }),
+        cell('reader', { inputs: ['x'], when: [{ on: 'block', block: 'deep', value: 'no' }] }),
+        cell('both', { outputs: ['x'] }),
+        cell('deeper', { outputs: ['x'], when: [{ on: 'block', block: 'deep', value: 'yes' }] }),
+      ],
+      { x: {}, deep: { values: ['yes', 'no'] } },
+    );
+    const m = matrix(f);
+    expect(m.waysBack).toBe(1);
+    expect(row(m).map((spot) => spot.back)).toEqual(['none', 'right', 'left', 'none']);
   });
 });
