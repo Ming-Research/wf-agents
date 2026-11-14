@@ -1,3 +1,11 @@
+### principle the-console-is-where-the-owner-works
+The console is the owner's way in: everything the owner does day to day is done there. A question, an approval and a
+word to a line show on the item they belong to, where the owner opens them and answers; no other page holds them. No
+part of the owner's page is designed or changed without the owner's approval: an agent proposes, and nothing changes
+before the owner has said yes.
+Why: The owner works from one place and must find everything there. The page is judged by the owner's use (principle
+owner-taste-judges), and a change made without asking undid what the owner had settled. (Article 8)
+
 ### principle owner-taste-judges
 A design on the owner's page is judged by the owner's taste and use; user research and general design guidelines are no argument against them.
 Why: wf-agents serves only its owner; research and guidelines are the grounds of products made for the public. (Article 8)
