@@ -347,6 +347,12 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
             }
         }
     }
+    // What the driver and the watch of main write of a flow, whatever carries its works out, checked once the flows
+    // compiled: a text they fill that the flow does not give would be written empty.
+    for fault in (flows.iter()).flat_map(|flow| [driver::faults(flow), carry::main_faults(flow)].concat()) {
+        eprintln!("{fault}");
+        wrong = true;
+    }
     let read = match with {
         With::Script(script) => read_script(script, &flows, compiled_all, &mut wrong).map(Read::Script),
         With::Settings(settings) => {
@@ -354,11 +360,11 @@ fn read(data: &Path, dirs: &[PathBuf], with: &With) -> Option<(Vec<Compiled>, Re
             let root = dirs.first().and_then(|d| d.parent()).unwrap_or(Path::new("."));
             match (carry::Settings::load(settings), flow::agents::writes(root)) {
                 (Ok(settings), Ok(words)) => {
-                    // What the real acts need of a flow, checked once the flows compiled.
-                    let faults = (flows.iter()).flat_map(|flow| {
-                        [carry::faults(flow, &words.acts.check.values), driver::faults(flow)].concat()
-                    });
-                    for fault in faults {
+                    // What the real acts need of a flow, checked once the flows compiled, and of their words.
+                    let faults = (flows.iter()).flat_map(|flow| carry::faults(flow, &words.acts.check.values));
+                    let words_faults = carry::word_faults(&words.acts.check);
+                    let words_faults = words_faults.into_iter().map(|f| format!("{}/{f}", root.display()));
+                    for fault in faults.chain(words_faults) {
                         eprintln!("{fault}");
                         wrong = true;
                     }

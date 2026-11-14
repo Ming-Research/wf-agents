@@ -1,9 +1,10 @@
 //! The engine's own acts, as the rounds of the cells they carry out (`CellSpec.act`): `start` makes the work's branch
 //! and worktree, `check` checks the work before its merge, `merge` merges the commit the check passed, and `deliver`
 //! says that a deliverable item, made of the items it depends on, is delivered. An act hands in the cell's outputs with
-//! what it did, and only the check writes a choice ([`faults`] says what a flow needs for them); where git or the host
-//! fails, or the act cannot be done, the round fails and hands in nothing. A stopped act ends its round with nothing
-//! handed in. An act takes no cost and no tokens.
+//! what it did, and only the check writes a choice ([`faults`] says what a flow needs for them, [`main_faults`] what
+//! the watch of main needs, [`word_faults`] what the merge needs of the check's words); where git or the host fails,
+//! or the act cannot be done, the round fails and hands in nothing. A stopped act ends its round with nothing handed
+//! in. An act takes no cost and no tokens.
 //!
 //! What is done in the project's local repository is done the same whatever the host; the host gives the head of
 //! main, the verdict on the work's commit and the merge ([`Host`]).
@@ -409,22 +410,27 @@ pub(crate) async fn check(
     }))
 }
 
-/// What is wrong with the flow for the acts, each in words with the cell or the block: the block of [`MAIN`] says what
-/// is written there; the cell of `check` has one choice among its outputs, and it offers the values the check writes; the cells of `start`, `merge` and `deliver` have no choice
-/// among their outputs, since they have no outcome to choose. A flow with any of these is not run with the real
-/// carriers.
+/// What is wrong with the flow for the watch of main, each in words with the file that says what is written there: the
+/// block of [`MAIN`] gives in its `writes` the `text` the watch fills, so that none is written empty. A flow with any of
+/// these is not run, whatever carries its works out.
+pub fn main_faults(flow: &Compiled) -> Vec<String> {
+    (flow.blocks.iter())
+        .filter(|(_, block)| block.writers.outside.as_deref() == Some(MAIN) && block.writes.get("text").is_none())
+        .map(|(name, block)| {
+            format!(
+                "the flow {}, {}: the block {name} (from {MAIN}): its writes must give text",
+                flow.name, block.file
+            )
+        })
+        .collect()
+}
+
+/// What is wrong with the flow for the acts, each in words with the cell: the cell of `check` has one choice among its
+/// outputs, and it offers the values the check writes; the cells of `start`, `merge` and `deliver` have no choice among
+/// their outputs, since they have no outcome to choose. A flow with any of these is not run with the real carriers.
 pub fn faults(flow: &Compiled, values: &CheckValues) -> Vec<String> {
     let (passed, failed) = (&values.passed, &values.failed);
     let mut faults = Vec::new();
-    // The block the watch of main writes says what the engine writes there, in its `writes`.
-    for (name, block) in &flow.blocks {
-        if block.writers.outside.as_deref() == Some(MAIN) && block.writes.get("text").is_none() {
-            faults.push(format!(
-                "the flow {}, block {name} (from {MAIN}): its writes must give text",
-                flow.name
-            ));
-        }
-    }
     for cell in &flow.cells {
         let Some(act) = cell.act.as_deref() else {
             continue;
@@ -570,9 +576,34 @@ fn checked_with(work: &Work, check: &Finished, words: &CheckWords) -> Option<Str
     let value = words.values.passed.as_str();
     let write = check.writes.iter().find(|w| w.value.as_deref() == Some(value))?;
     let content = work.contents.get(&(write.block.clone(), check.at))?;
+    commit_in(content, words)
+}
+
+/// The commit a content the check wrote says on its first line, read back after what `first` writes before `{commit}`.
+/// The engine's words are read back so only where [`word_faults`] found nothing wrong with them.
+fn commit_in(content: &str, words: &CheckWords) -> Option<String> {
     let line = content.lines().next()?;
     let (before, _) = words.first.split_once("{commit}")?;
     line.strip_prefix(before).map(|commit| commit.trim().to_string())
+}
+
+/// What is wrong with the check's words for the merge, which reads back from the first line of the check's choice the
+/// commit it is to merge: `first`, filled as the check fills it, must give that commit back whole. The engine is not
+/// run with words that do not.
+pub fn word_faults(words: &CheckWords) -> Vec<String> {
+    let commit = "0123456789abcdef0123456789abcdef01234567";
+    let first = fill(
+        &words.first,
+        &[("commit", commit), ("main", "main"), ("head", "fedcba9876543210")],
+    );
+    if commit_in(&first, words).as_deref() == Some(commit) {
+        return Vec::new();
+    }
+    let file = format!("{}/{}/check.toml", flow::agents::AGENTS_DIR, flow::agents::ACTS_DIR);
+    vec![format!(
+        "{file}: its first must hold {{commit}} on its first line with nothing after it, so that the merge reads back \
+         the commit the check passed: it gives `{first}` for the commit {commit}"
+    )]
 }
 
 /// What the work says of itself where the host shows it: what it wrote in the blocks the flow's check names to
@@ -639,6 +670,60 @@ mod tests {
             took_in: false,
             notes: Vec::new(),
         }
+    }
+
+    #[test]
+    fn the_merge_reads_back_the_commit_the_check_wrote_in_the_repository_s_words() {
+        assert_eq!(word_faults(&words().check), Vec::<String>::new());
+        let handed = checked_in(&outputs(), &checked(None), "main", &words().check).unwrap();
+        assert_eq!(commit_in(&handed[0].content, &words().check).as_deref(), Some("c0ffee"));
+    }
+
+    #[test]
+    fn words_the_merge_cannot_read_the_commit_back_from_are_a_fault_of_their_file() {
+        for first in [
+            "Checked commit {commit} on main",
+            "Checked {main} at commit {commit}",
+            "Checked the work",
+        ] {
+            let mut check = words().check;
+            check.first = first.to_string();
+            let faults = word_faults(&check);
+            assert_eq!(faults.len(), 1, "{first}: {faults:?}");
+            assert!(faults[0].starts_with("agents/acts/check.toml: "), "{}", faults[0]);
+        }
+    }
+
+    #[test]
+    fn a_block_of_main_that_gives_no_words_for_the_watch_is_a_fault_of_its_file() {
+        let compiled = |main: &str| {
+            let source = flow::Source {
+                flow: format!(
+                    "name = \"watched\"\norder = [\"merge\"]\n[limits]\nruns = 1\nreturns = 1\ncalls = 1\n\
+                     [blocks.main]\noutside = \"main\"\n{main}[blocks.merged]\nshown = true\n"
+                ),
+                cells: [(
+                    "merge".to_string(),
+                    "title = \"Merge\"\nkind = \"engine\"\nact = \"merge\"\ninputs = [\"main\"]\noutputs = [\"merged\"]\n"
+                        .to_string(),
+                )]
+                .into(),
+                ..Default::default()
+            };
+            let has = flow::Has {
+                sources: ["main".to_string()].into(),
+                acts: ["merge".to_string()].into(),
+                ..Default::default()
+            };
+            flow::compile(&source, &has).expect("the flow compiles")
+        };
+        let given = compiled("writes = { text = \"Main is at {head}.\" }\n");
+        assert_eq!(main_faults(&given), Vec::<String>::new());
+        let faults = main_faults(&compiled(""));
+        assert_eq!(
+            faults,
+            ["the flow watched, flow.toml: the block main (from main): its writes must give text"]
+        );
     }
 
     #[test]

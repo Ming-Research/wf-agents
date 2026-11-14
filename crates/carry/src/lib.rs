@@ -49,7 +49,7 @@ use service::{Carriers, Rounds, Tools as ToolsTrait};
 use settings::Project;
 use tools::Tools;
 
-pub use acts::{MAIN, WATCH, Watch, Words, faults};
+pub use acts::{MAIN, WATCH, Watch, Words, faults, main_faults, word_faults};
 pub use agents::{Agents, PROTOCOL, ROUNDS};
 pub use flow::agents::Writes;
 pub use host::github::{GhOffsite, UPLOAD_RATE};
