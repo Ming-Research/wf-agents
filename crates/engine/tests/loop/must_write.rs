@@ -101,7 +101,7 @@ fn a_return_that_asks_for_calls_is_no_hand_in_and_its_calls_are_made() {
     let made = calls_of(&w.returns(judge, Came::asks(vec![tool("lint")])));
     assert_eq!(
         made.into_iter().map(|(_, run, what)| (run, what)).collect::<Vec<_>>(),
-        vec![(judge, Call::Asked(tool("lint")))]
+        vec![(judge, Call::Asked(tool("lint").into()))]
     );
 }
 

@@ -29,7 +29,7 @@ use std::collections::BTreeMap;
 
 use decide::run::{Limit, Unmet};
 use decide::{BlockId, CallId, Cause, Outsider, Pauser, RunId, Seq, Who};
-use engine::{Ask, Call, Came, Effect, Event, Given, Handed, Refused, Spent, Time, Work, handle, pending};
+use engine::{Ask, Call, Came, Effect, Event, Given, Handed, Refused, Spent, Time, Tool, Work, handle, pending};
 use flow::{Compiled, Has, Source, compile};
 
 /// A writer that reads a request, the outside's main and the opinions on what it wrote, which people write as a note
@@ -272,13 +272,14 @@ fn wanting_unmet() -> Vec<Unmet> {
     }]
 }
 
-fn tool(name: &str) -> Ask {
-    Ask::Tool {
+fn tool(name: &str) -> Tool {
+    Tool {
         name: name.to_string(),
         input: format!("what {name} is run on"),
     }
 }
 
+/// A question for a person, as one work's old records hold it.
 fn question(who: Who) -> Ask {
     Ask::Person {
         who,

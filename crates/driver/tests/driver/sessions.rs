@@ -7,7 +7,7 @@ use decide::BlockId;
 use driver::Policy;
 use driver::{FirstWrite, NewItem, SESSION};
 use engine::RanOn;
-use engine::{Ask, Handed, Session, Why};
+use engine::{Handed, Session, Tool, Why};
 use flow::{Compiled, Has};
 use work::Measures;
 use work::sessions::of_round;
@@ -379,7 +379,7 @@ impl S {
     }
 
     fn asks(&mut self, context: u64) {
-        let ask = Ask::Tool {
+        let ask = Tool {
             name: "read".to_string(),
             input: "request".to_string(),
         };
@@ -1520,7 +1520,7 @@ fn only_the_lines_the_work_can_come_back_to_and_none_while_a_round_of_it_is_unde
     assert!(kept_warm(&s).is_empty(), "a ping beside a round of its work");
     // The review waits on a tool's result: its line comes back, and the engineer's, which nothing the review writes
     // runs, does not.
-    let ask = Ask::Tool {
+    let ask = Tool {
         name: "read".to_string(),
         input: "code".to_string(),
     };

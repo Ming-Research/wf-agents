@@ -399,7 +399,7 @@ pub fn seen(flow: &Compiled, work: &Work, added: Added) -> Vec<Seen> {
     }
     for c in &r.called {
         let on = match work.calls.get(&c.call) {
-            Some(Call::Asked(Ask::Tool { .. })) => Wait::Tool,
+            Some(Call::Asked(Ask::Tool(_))) => Wait::Tool,
             Some(Call::AtLimit(_)) => Wait::Limit(None),
             Some(Call::Wait { .. }) => Wait::Retry,
             // No carrier makes a call of a person, a script asking the owner by its questions: a play's records hold

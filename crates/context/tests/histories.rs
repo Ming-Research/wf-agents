@@ -32,7 +32,7 @@ use context::text::as_written;
 use context::{Entered, Form, Piece, Stands};
 use decide::run::Unmet;
 use decide::{BlockId, CallId, CellId, RunId, Seq, Writer};
-use engine::{Ask, Back, Came, Fill, Given, Handed, Why};
+use engine::{Back, Came, Fill, Given, Handed, Tool, Why};
 use flow::InputKind;
 use flow::agents::Part;
 use support::{Given as Round, Sim};
@@ -294,7 +294,7 @@ impl History {
     /// otherwise each block the cell writes with a chance of seven in ten, those it must write every time.
     fn came(&mut self, round: &Round) -> Came {
         if self.rng.chance(10) {
-            let ask = Ask::Tool {
+            let ask = Tool {
                 name: "query".to_string(),
                 input: format!("{{\"n\": {}}}", self.count),
             };

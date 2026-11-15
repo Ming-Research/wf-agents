@@ -9,7 +9,7 @@ use context::{Entered, Main, Stands, Values};
 use decide::Outsider;
 use decide::run::Unmet;
 use decide::{BlockId, Seq};
-use engine::{Ask, Came, Event, Fill, Why};
+use engine::{Came, Event, Fill, Tool, Why};
 use flow::InputKind;
 use flow::agents::{MessagePart, Only, Part};
 use support::{Sim, carry, changed};
@@ -309,7 +309,7 @@ fn a_run_entered_for_the_results_of_its_calls_is_sent_them_once() {
     let round = sim.round().expect("the review is entered again");
     let entered = sim.enter(&round, false);
     sim.tries(&round, 1, entered.fills);
-    let ask = Ask::Tool {
+    let ask = Tool {
         name: "query".to_string(),
         input: "{\"sql\": \"select 1\"}".to_string(),
     };

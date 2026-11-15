@@ -541,7 +541,7 @@ fn carried(driver: &driver::Driver, todo: &Todo) -> Option<Unit> {
         }
         Effect::Call {
             call,
-            what: Call::Asked(Ask::Tool { .. }),
+            what: Call::Asked(Ask::Tool(_)),
             ..
         } => Some(Unit::Call(work, *call)),
         Effect::Call { .. } => None,
@@ -707,10 +707,10 @@ impl Tools for Recording {
         let effect = Effect::Call {
             call: call.call,
             run: call.run,
-            what: Call::Asked(Ask::Tool {
+            what: Call::Asked(Ask::Tool(work::Tool {
                 name: call.name.clone(),
                 input: call.input.clone(),
-            }),
+            })),
         };
         self.hand(call.work, effect, Unit::Call(call.work, call.call));
         self.scripted.call(call, reply);
