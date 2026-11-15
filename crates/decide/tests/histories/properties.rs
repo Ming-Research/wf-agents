@@ -639,7 +639,6 @@ fn givers<'f>(flow: &'f Flow, asks: &'f decide::Asks) -> impl Iterator<Item = (u
 fn result_waits(v: &mut Verdict, flow: &Flow, reading: &Reading, i: usize, on: &[Waited]) {
     let now = Seq(u64::MAX);
     let cell = &flow.cells()[i];
-    let records = reading.records;
     for waited in on {
         let Waited::Result { record, result, by } = waited else {
             continue;
