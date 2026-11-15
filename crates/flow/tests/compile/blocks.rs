@@ -472,8 +472,8 @@ fn a_record_of_what_is_said_with_no_text_for_the_owner_or_for_a_cell_is_refused(
         key: key.to_string(),
     };
     for (source, lacking) in [
-        (without_owner, vec![("owner")]),
-        (without_reply, vec![("reply")]),
+        (without_owner, vec!["owner"]),
+        (without_reply, vec!["reply"]),
         (without_both, vec!["owner", "reply"]),
     ] {
         let refused = flow::compile(&source, &has).expect_err("the record lacks a text");
@@ -503,4 +503,30 @@ fn a_record_of_what_is_said_with_a_text_that_has_no_place_for_the_words_is_refus
             at(DISCUSSION, "writes.reply", lacks("reply", "reply")),
         ]
     );
+}
+
+#[test]
+fn a_block_of_the_owner_s_words_that_no_trigger_has_its_agent_read_is_no_record_and_needs_no_texts() {
+    let (source, has) = engineers();
+    let source = crate::support::set(source, "blocks/heard.toml", "from = \"words\"\nshown = true\n");
+    let compiled = flow::compile(&source, &has).expect("a block of the words no trigger reads compiles");
+    assert!(compiled.blocks[&decide::BlockId::from("heard")].spoken.is_none());
+}
+
+#[test]
+fn the_faults_of_a_record_of_what_is_said_come_out_with_another_fault_of_the_flow() {
+    let (source, has) = engineers();
+    let source = edit(source, DISCUSSION, OWNERS, "");
+    let source = crate::support::set(
+        source,
+        "blocks/ghost.toml",
+        "from = \"owner\"\nshown = true\nvalues = []\n",
+    );
+    let refused = flow::compile(&source, &has).expect_err("two faults");
+    let lacks = SpokenWithoutText {
+        block: "discussion".to_string(),
+        key: "owner".to_string(),
+    };
+    assert!(refused.contains(&at(DISCUSSION, "writes.owner", lacks)), "{refused:?}");
+    assert!(refused.iter().any(|f| f.what == ValuesEmpty), "{refused:?}");
 }

@@ -193,6 +193,8 @@ pub(crate) fn heard(
     if began == ended || r.finished.iter().any(|f| f.run == run) {
         return Err(Refused::NoRoundUnderWay(run));
     }
+    // Not `Block::spoken`: the versions put into a round are also those of the block of each cell's trigger of the
+    // owner's words, which the source writes and which holds no entries of the record.
     for (block, version) in &versions {
         let words = (flow.blocks.get(block)).is_some_and(|b| b.writers.outside.as_deref() == Some(flow::WORDS));
         let written = r.written.iter().any(|w| w.block == *block && w.at == *version);
@@ -298,4 +300,47 @@ fn texts(record: &flow::Block) -> &flow::Spoken {
         .spoken
         .as_ref()
         .expect("the compile gives every record of what is said its two texts")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn engineers() -> Compiled {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../flow/engineer");
+        let source = flow::read(&dir).expect("the engineer's flow is read");
+        let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect();
+        let has = flow::Has {
+            sources: names(&[
+                "answer",
+                "asked",
+                "dependencies",
+                "main",
+                "session",
+                "start",
+                "head",
+                "tree",
+                "words",
+            ]),
+            acts: names(&["start", "check", "merge", "run_tests"]),
+            tools: names(&["query"]),
+            details: names(&["files"]),
+            ..Default::default()
+        };
+        flow::compile(&source, &has).expect("the engineer's flow compiles")
+    }
+
+    #[test]
+    fn a_cell_s_answer_is_the_reply_text_of_a_record_and_any_other_block_is_handed_in_as_it_is() {
+        let flow = engineers();
+        let record = BlockId::from("discussion");
+        assert_eq!(entry(&flow, &record, "Done.").as_ref(), "An agent:\n\nDone.");
+        // The block of a cell's trigger of the owner's words is of the same source, and no record.
+        let trigger = (flow.cells.iter())
+            .find_map(|c| c.triggers.iter().find_map(|t| t.of_source(&flow, flow::WORDS)))
+            .expect("a cell the owner's words run");
+        assert!(flow.blocks[trigger].spoken.is_none());
+        assert_eq!(entry(&flow, trigger, "Done.").as_ref(), "Done.");
+        assert_eq!(entry(&flow, &BlockId::from("q_and_a"), "Done.").as_ref(), "Done.");
+    }
 }
