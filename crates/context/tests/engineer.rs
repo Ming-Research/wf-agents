@@ -11,7 +11,7 @@ use context::message::{Called, Datum, Run, Version};
 use context::{Situation, Stands, Values};
 use decide::{BlockId, CellId, Outsider, Seq};
 use engine::spoken::{self, NoOne, To};
-use engine::{Came, Effect, Event, Handed};
+use engine::{Came, Effect, Event, Fill, Handed};
 use flow::agents::Agents;
 use flow::system::Settings;
 use flow::{CellSpec, Compiled, Has, Kind};
@@ -188,6 +188,18 @@ fn record_given(text: &str) -> Vec<&str> {
         rest = &from[end..];
     }
     given
+}
+
+/// Each version of `q_and_a` these fill into a session, in order.
+fn record_filled(fills: &[Fill]) -> Vec<decide::Seq> {
+    (fills.iter())
+        .filter_map(|f| match f {
+            Fill::Whole { block, version } | Fill::Change { block, version, .. } if block.as_str() == "q_and_a" => {
+                Some(*version)
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// Whether the text names any cell of the flow by its id.
@@ -527,10 +539,12 @@ fn naming() -> Question {
 }
 
 // Each question a cell asks and each answer of the owner's is an entry of the record of questions and answers, a
-// version of it the engine writes, which runs no cell; the answer runs the asking cell and no other; and every cell that
-// takes the record is given it whole, so that it reads the work's questions and an answer comes with its question.
+// version of it the engine writes, which runs no cell; the answer runs the asking cell and no other; and every session
+// of a cell that takes the record holds it whole, so that it reads the work's questions and an answer comes with its
+// question: the asking cell's holds the entry of its question as what its return handed in, and is given the answer
+// alone; another is given both.
 #[test]
-fn each_question_and_each_answer_is_an_entry_of_the_record_given_whole_and_the_answer_runs_the_asking_cell_alone() {
+fn each_question_and_each_answer_is_an_entry_of_the_record_held_whole_and_the_answer_runs_the_asking_cell_alone() {
     let (mut sim, round) = until("R2");
     tried(&mut sim, &round);
     let came = Came {
@@ -590,17 +604,31 @@ fn each_question_and_each_answer_is_an_entry_of_the_record_given_whole_and_the_a
         let (q, a) = (text.find(question.as_str()), text.find(answer.as_str()));
         q.is_some() && a.is_some() && q < a
     };
+    // R2's session holds the question its own return asked, as the entry the engine kept it as, which the message says
+    // after that return: R2 is given the answer alone.
     let entered = sim.enter(&round, sim.begins(&round));
-    assert!(given_with_its_question(&entered.text), "{}", entered.text);
+    let kept = format!("`q_and_a`, version {}", entries[0].0);
+    let first = entered.text.lines().next().unwrap_or_default();
+    assert!(
+        first.starts_with("What your last return handed in is kept as: ") && first.contains(&kept),
+        "{}",
+        entered.text
+    );
+    assert!(!entered.text.contains(question.as_str()), "{}", entered.text);
+    assert!(entered.text.contains(answer.as_str()), "{}", entered.text);
+    assert_eq!(record_filled(&entered.fills), [entries[1]], "{}", entered.text);
     sim.tries(&round, 1, entered.fills);
     sim.hands_in(&round, &[]);
-    // The code review, of a line of its own, takes the record too: it reads the question, and the answer with it.
+    // The code review, of a line of its own, takes the record too: it reads the question, and the answer with it. The
+    // implementation, after R2 on its line, holds both.
     let round = loop {
         let round = sim.round().expect("a round is given");
         if round.cell.as_str() == "T1" {
             break round;
         }
         assert_eq!(round.cell.as_str(), "I1", "only the implementation comes between");
+        let entered = sim.enter(&round, sim.begins(&round));
+        assert!(record_filled(&entered.fills).is_empty(), "{}", entered.text);
         tried(&mut sim, &round);
         sim.hands_in(&round, &[("code", "abc", None)]);
     };
