@@ -430,6 +430,7 @@ fn the_owners_words_a_work_kept_in_a_cells_block_of_them_are_carried_into_the_re
             matters: true,
             value: None,
             said_to: None,
+            read_by: None,
             empty: false,
             at,
         });

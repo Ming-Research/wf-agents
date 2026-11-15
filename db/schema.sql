@@ -183,8 +183,9 @@ CREATE TABLE put_in (
 );
 
 -- A person or the outside (`writer`) wrote a block: whether the change matters, its value where it is a choice, the
--- cell it is said to where it is said to one, as the owner's entry of the record of what is said is, and whether the
--- version holds nothing, with no value and the content kept of it empty or only whitespace.
+-- cell it is said to where it is said to one, as the owner's entry of the record of what is said is, whether the
+-- version holds nothing, with no value and the content kept of it empty or only whitespace, and the run whose round's
+-- carrier read what was written, where a round's did.
 CREATE TABLE written (
     work INTEGER NOT NULL REFERENCES works (number),
     at INTEGER NOT NULL,
@@ -194,6 +195,7 @@ CREATE TABLE written (
     value TEXT,
     said_to TEXT,
     empty INTEGER NOT NULL CHECK (empty IN (0, 1)),
+    read_by INTEGER,
     PRIMARY KEY (work, at)
 );
 

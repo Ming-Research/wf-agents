@@ -232,15 +232,10 @@ fn round_end(d: &mut Driver, roles: &Roles, branch: Branch, (run, i): (RunId, us
             value: None,
         }];
     } else if agent || start {
-        let _ = run;
-        let event = Event::Wrote {
-            block,
-            by: Outsider::Outside,
-            content,
-            matters: true,
-            value: None,
-        };
-        assert!(d.take(event), "the outside's read of the head was refused");
+        assert!(
+            d.take(Event::Read { run, block, content }),
+            "the outside's read of the head was refused"
+        );
     }
 }
 
@@ -260,12 +255,10 @@ fn gate(
 ) -> Option<(Failure, String)> {
     if i == roles.last {
         let (block, content) = read_head(d, roles, branch.get())?;
-        let read = Event::Wrote {
+        let read = Event::Read {
+            run,
             block,
-            by: Outsider::Outside,
             content: content.clone(),
-            matters: true,
-            value: None,
         };
         assert!(d.take(read), "the merge's read of the head was refused");
         let mut b = branch.get();

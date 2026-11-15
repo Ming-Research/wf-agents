@@ -13,6 +13,7 @@ fn a_persons_write_is_kept_with_its_content_and_the_first_cell_is_given_its_task
         matters: true,
         value: None,
         said_to: None,
+        read_by: None,
         empty: false,
         at,
     };
@@ -44,6 +45,7 @@ fn a_write_from_outside_is_kept_as_the_outside_wrote_it() {
         matters: false,
         value: None,
         said_to: None,
+        read_by: None,
         empty: false,
         at,
     };
@@ -290,4 +292,36 @@ fn a_write_for_the_round_of_a_run_abandoned_is_written_and_put_in_nowhere() {
         Some(&"Main is at c0ffee.".to_string())
     );
     assert_eq!(w.work.records.put_in, Vec::new());
+}
+
+// A read of the round from outside is no newer than a version the round never knew either; one over what the round
+// knew, its own earlier reads and what it was told of among it, is written, saying the run whose round read it.
+#[test]
+fn a_rounds_read_from_outside_is_written_over_what_the_round_knew_and_not_over_what_it_never_knew() {
+    let (mut w, write, _) = W::requested();
+    w.on(main_for(write, "Main is at a."));
+    let a = w.last_written();
+    let read = |content: &str| Event::Read {
+        run: write,
+        block: "main".into(),
+        content: content.to_string(),
+    };
+    w.on(read("Main is at b."));
+    let b = w.last_written();
+    w.on(read("Main is at c."));
+    let c = w.last_written();
+    assert!(a < b && b < c, "{a:?} {b:?} {c:?}");
+    assert_eq!(says(&w, "main"), "Main is at c.");
+    let by: Vec<Option<RunId>> = (w.work.records.written.iter()).map(|w| w.read_by).collect();
+    assert_eq!(
+        by,
+        [None, Some(write), Some(write), Some(write)],
+        "the request, then the round's three reads"
+    );
+    // The watch writes the head main moved to; the round's read after it, older, is not written over it.
+    w.on(main_moved("Main is at d."));
+    let written = w.work.records.written.len();
+    w.on(read("Main is at c2."));
+    assert_eq!(w.work.records.written.len(), written);
+    assert_eq!(says(&w, "main"), "Main is at d.");
 }

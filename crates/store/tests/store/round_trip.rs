@@ -141,6 +141,7 @@ fn a_write_said_to_a_cell_loads_back_said_to_it() {
             matters: true,
             value: None,
             said_to: said_to.map(Into::into),
+            read_by: None,
             empty: false,
             at,
         });
@@ -151,6 +152,32 @@ fn a_write_said_to_a_cell_loads_back_said_to_it() {
         .map(|w| w.said_to.as_ref().map(|c| c.as_str()))
         .collect();
     assert_eq!(said, [Some("judge"), None]);
+}
+
+#[test]
+fn a_write_of_what_a_round_read_loads_back_with_the_run_whose_round_read_it() {
+    // As main a check's round took in is kept, beside main the watch read for no round.
+    let mut store = Store::in_memory().expect("the store opens");
+    let number = first_work(&mut store);
+    let mut work = Work::default();
+    for read_by in [Some(decide::RunId(4)), None] {
+        let at = work.tick();
+        (work.contents).insert(("main".into(), at), format!("main at {}", at.0));
+        work.records.written.push(Written {
+            block: "main".into(),
+            by: Outsider::Outside,
+            matters: true,
+            value: None,
+            said_to: None,
+            read_by,
+            empty: false,
+            at,
+        });
+    }
+    store.save(number, &work).expect("the work is saved");
+    let loaded = store.load(number).expect("the work loads");
+    let read: Vec<Option<decide::RunId>> = loaded.records.written.iter().map(|w| w.read_by).collect();
+    assert_eq!(read, [Some(decide::RunId(4)), None]);
 }
 
 #[test]

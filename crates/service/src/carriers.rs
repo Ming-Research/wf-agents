@@ -605,14 +605,13 @@ impl Teller {
 
     /// The source outside the work that writes the block says this of it now: the carrier read it of what the round
     /// leaves, as the design tree on the work's branch after a round that committed to it. It is written as a new
-    /// version of the block, while the round is under way.
+    /// version of the block, while the round is under way, which the round does not take in; where the block says it
+    /// already, or a version written since the round began that the round never knew is the block's latest, none.
     pub fn outside_wrote(&self, block: BlockId, content: String) {
-        self.tell(Event::Wrote {
+        self.tell(Event::Read {
+            run: self.run,
             block,
-            by: Outsider::Outside,
             content,
-            matters: true,
-            value: None,
         });
     }
 

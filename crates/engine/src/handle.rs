@@ -257,6 +257,7 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                 value,
                 empty,
                 said_to: None,
+                read_by: None,
                 at,
             });
         }
@@ -264,22 +265,16 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
             if began(work, run) == ended(work, run) {
                 return Err(Refused::NoRoundUnderWay(run));
             }
-            // What the block says already is not written again: the round is told of the version that says it.
+            // What the block says already is not written again: the round is told of the version that says it. What
+            // the round read is no newer than a version it never knew: the latest version that says it is put in,
+            // where one does, and nothing is written (decision a-read-is-no-newer-than-a-version-the-round-never-knew).
             let version = match says_already(flow, work, &block, &content) {
                 Some(version) => version,
-                None => {
-                    let wrote = Event::Wrote {
-                        block: block.clone(),
-                        by: Outsider::Outside,
-                        content,
-                        matters: true,
-                        value: None,
-                    };
-                    take(flow, work, wrote, effects)?;
-                    (work.records.written.last())
-                        .map(|w| w.at)
-                        .expect("the version was written")
-                }
+                None if never_knew(work, run, &block) => match said_before(work, &block, &content) {
+                    Some(version) => version,
+                    None => return Ok(()),
+                },
+                None => read(flow, work, run, block.clone(), content, effects)?,
             };
             // A run abandoned while its round is under way consumes nothing, and a round told of the version already
             // is not told of it again.
@@ -293,6 +288,14 @@ fn take(flow: &Compiled, work: &mut Work, event: Event, effects: &mut Vec<Effect
                 version,
                 at,
             });
+        }
+        Event::Read { run, block, content } => {
+            if began(work, run) == ended(work, run) {
+                return Err(Refused::NoRoundUnderWay(run));
+            }
+            if says_already(flow, work, &block, &content).is_none() && !never_knew(work, run, &block) {
+                read(flow, work, run, block, content, effects)?;
+            }
         }
         Event::LetGo { cell } => {
             if flow.flow.place(&cell).is_none() {
@@ -1128,6 +1131,59 @@ fn says_already(flow: &Compiled, work: &Work, block: &BlockId, content: &str) ->
     }
     let latest = decide::versions(&work.records).get(block)?.last()?.at;
     (says_now(work, block) == Some(content)).then_some(latest)
+}
+
+/// Writes what the carrier of the run's round read of the block as a version from outside, of what the round knew, and
+/// gives its place.
+fn read(
+    flow: &Compiled,
+    work: &mut Work,
+    run: RunId,
+    block: BlockId,
+    content: String,
+    effects: &mut Vec<Effect>,
+) -> Result<Seq, Refused> {
+    let wrote = Event::Wrote {
+        block,
+        by: Outsider::Outside,
+        content,
+        matters: true,
+        value: None,
+    };
+    take(flow, work, wrote, effects)?;
+    let written = work.records.written.last_mut().expect("the version was written");
+    written.read_by = Some(run);
+    Ok(written.at)
+}
+
+/// Whether the block's latest version is one the run's round under way never knew: written since the round began, of
+/// what the round did not read itself, and never told to it. What the round read is then no newer than that version,
+/// as its way to the loop is its own and not the version's: written over it, a block would go back to what was read
+/// before it (decision a-read-is-no-newer-than-a-version-the-round-never-knew).
+fn never_knew(work: &Work, run: RunId, block: &BlockId) -> bool {
+    let r = &work.records;
+    let began = (r.rounds.iter())
+        .filter(|round| round.run == run)
+        .map(|round| round.at)
+        .max();
+    let latest = decide::versions(r)
+        .get(block)
+        .and_then(|versions| versions.last())
+        .map(|v| v.at);
+    let (Some(began), Some(latest)) = (began, latest) else {
+        return false;
+    };
+    let read = (r.written.iter()).any(|w| w.at == latest && w.read_by == Some(run));
+    let told = told_of(work, run, block).is_some_and(|told| told >= latest);
+    latest > began && !read && !told
+}
+
+/// The latest version of the block that says this content, where one does.
+fn said_before(work: &Work, block: &BlockId, content: &str) -> Option<Seq> {
+    let versions = decide::versions(&work.records).remove(block)?;
+    (versions.into_iter().rev())
+        .map(|version| version.at)
+        .find(|at| work.contents.get(&(block.clone(), *at)).map(String::as_str) == Some(content))
 }
 
 /// What the latest version of the block says, where it has one.

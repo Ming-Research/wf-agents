@@ -201,6 +201,7 @@ fn written(blocks: &[(&str, &str)]) -> Work {
             matters: true,
             value: None,
             said_to: None,
+            read_by: None,
             empty: false,
             at,
         });
@@ -438,6 +439,7 @@ fn merging(head: &str) -> Round {
         matters: true,
         value: None,
         said_to: None,
+        read_by: None,
         empty: false,
         at,
     });
@@ -460,13 +462,7 @@ fn written_from_outside(told: &mut tokio::sync::mpsc::UnboundedReceiver<service:
     let mut written = Vec::new();
     while let Ok(message) = told.try_recv() {
         if let service::Message::Happened {
-            event:
-                engine::Event::Wrote {
-                    block,
-                    by: Outsider::Outside,
-                    content,
-                    ..
-                },
+            event: engine::Event::Read { block, content, .. },
             ..
         } = message
         {

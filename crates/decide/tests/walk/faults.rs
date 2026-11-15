@@ -101,6 +101,7 @@ fn two_entries_at_one_place_are_a_fault() {
         matters: true,
         value: None,
         said_to: None,
+        read_by: None,
         empty: false,
         at,
     });

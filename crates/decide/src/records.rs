@@ -251,6 +251,11 @@ pub struct Written {
     /// said, the cell the words were given to. Records kept before an entry held its cell have none, and read so.
     #[serde(default)]
     pub said_to: Option<CellId>,
+    /// The run whose round's carrier read what was written, of the work's branch or of main, for the round or from
+    /// outside: a version of what that round knew. None of what no round read, as what a person writes and what the
+    /// watch of main reads, and of records kept before a write said it.
+    #[serde(default)]
+    pub read_by: Option<RunId>,
     pub at: Seq,
 }
 

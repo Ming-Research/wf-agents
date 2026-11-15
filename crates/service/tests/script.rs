@@ -902,6 +902,7 @@ fn written(mut work: Work, block: &str, content: &str) -> Work {
         value: None,
         empty: false,
         said_to: None,
+        read_by: None,
         at,
     });
     work
@@ -935,7 +936,7 @@ async fn an_acts_round_writes_what_it_read_for_its_round_or_from_outside_as_the_
     let merged = carried(&script, round(&flow, "M2", kept(&["M2"], 1, Work::default()))).await;
     assert!(
         matches!(&merged[..], [
-            Event::Wrote { block, by: Outsider::Outside, content, .. },
+            Event::Read { block, content, .. },
             Event::Failed { failure: Failure::Passing, .. },
         ] if block.as_str() == "head" && content == "9c0ffee"),
         "{merged:?}"
@@ -1165,7 +1166,7 @@ async fn a_round_of_a_line_that_only_reads_writes_what_it_read_from_outside_as_i
     let reviewed = carried(&script, round(&flow, "T1", kept(&["T1"], 1, Work::default()))).await;
     assert!(
         matches!(&reviewed[..], [
-            Event::Wrote { block, by: Outsider::Outside, content, .. },
+            Event::Read { block, content, .. },
             Event::Returned { came, .. },
         ] if block.as_str() == "head" && content == "9c0ffee" && came.read.is_empty()),
         "{reviewed:?}"

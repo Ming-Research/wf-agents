@@ -498,6 +498,7 @@ mod tests {
             value: Some(value.to_string()),
             empty: false,
             said_to: None,
+            read_by: None,
             at: Seq(at),
         });
     }
