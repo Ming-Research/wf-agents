@@ -236,7 +236,6 @@ function draw(
         item={item}
         page={{ page }}
         act={send}
-        waitsFor={[]}
         onTitle={() => undefined}
         wait={opens}
         actEngine={o.engine}

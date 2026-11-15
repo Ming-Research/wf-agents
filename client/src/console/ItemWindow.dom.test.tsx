@@ -115,7 +115,6 @@ function draw(
         item={item}
         page={page === undefined ? (asEngineer ? engineer(pageOf(item)) : pageOf(item)) : page}
         act={send}
-        waitsFor={[11]}
         onTitle={() => undefined}
       />,
     ),
@@ -185,8 +184,8 @@ describe('the panel of the item selected', () => {
     expect(text(el, '.drawer-title')).toEqual(['Show the cost of a work']);
     expect(text(el, '.drawer-belongs')).toEqual(['wf-agents']);
     const [itemLine, workLine] = lines(el);
-    // The items it waits for in the state's own word, each as an item's number is written.
-    expect(itemLine).toBe('Open Added 1.1d ago Waiting for the items it depends on: #11');
+    // The item's line says where it stands; what it waits for is its work's line's to say.
+    expect(itemLine).toBe('Open Added 1.1d ago');
     expect(workLine).toContain('Waiting for you review_plan Review the plan');
     expect(noKeys(el)).toBe(true);
     // What it waits for is its card, under the line, in the look of every stop: why, and the button that ends it.
@@ -195,6 +194,16 @@ describe('the panel of the item selected', () => {
     expect(text(card, '.cw-choice-q')).toEqual(['The cell ran 3 times in a row for what a cell after it wrote, its limit.']);
     expect(card.querySelector('button')?.title).toBe('Run the cell again past its limit');
     expect(el.querySelector('.cw-item > .status-line a.link.mono')?.getAttribute('href')).toBe('#/works/12');
+  });
+
+  it('says the items a work waits for once, on its line, as the engine gives them, one cancelled said so', () => {
+    const now: Now = { kind: 'waits', at: 'S1', on: [{ kind: 'items', items: [5, 7], cancelled: [7] }] };
+    const el = drawQuestions(now, [], answered([]));
+    const [itemLine, workLine] = lines(el);
+    expect(itemLine).not.toContain('#5');
+    expect(workLine).toContain('Waiting for the items it depends on');
+    expect(workLine).toContain('#5 and #7; it waits for good on #7, cancelled');
+    expect(el.textContent?.split('Waiting for the items it depends on').length).toBe(2);
   });
 
   it("names the item's project by its name alone, and nothing for an item added before items had projects", () => {
@@ -533,7 +542,6 @@ function drawAsking(
         item={item}
         page={{ page: { ...page.page, questions } }}
         act={send}
-        waitsFor={[]}
         onTitle={() => undefined}
       />,
     ),

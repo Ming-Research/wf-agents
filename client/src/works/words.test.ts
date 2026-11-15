@@ -11,7 +11,6 @@ import {
   duration,
   isOpen,
   isWayRound,
-  itemsWaited,
   itemsWords,
   nowTone,
   nowWords,
@@ -165,8 +164,6 @@ describe('what a work does now, in words', () => {
     expect(nowWords(doing({ kind: 'waits', at: 'S1', on: [forGood] }))).toBe(
       'Waiting for the items it depends on · S1 · #5 and #7; it waits for good on #7, cancelled',
     );
-    expect(itemsWaited([5, 7], [7])).toBe('Waiting for the items it depends on: #5 and #7; it waits for good on #7, cancelled');
-    expect(itemsWaited([5])).toBe('Waiting for the items it depends on: #5');
     expect(itemsWords([5])).toBe('#5');
     expect(itemsWords([5, 6, 7])).toBe('#5, #6 and #7');
     const main: Waited = { kind: 'outside', source: 'main', cell: 'M1', why: 'What fails also fails on main.' };

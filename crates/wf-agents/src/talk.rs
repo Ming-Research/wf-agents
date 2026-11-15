@@ -2132,7 +2132,7 @@ mod tests {
         );
         assert_eq!(
             waited(&items(vec![7])),
-            "the items it depends on to merge: #5 and #7, of which #7 cancelled, so that it waits for good"
+            "the items it depends on to merge: #5 and #7; it waits for good on #7, cancelled"
         );
     }
 
@@ -2156,11 +2156,16 @@ mod tests {
     fn a_list_by_tag_gives_the_items_that_carry_it_and_marks_one_that_waits_for_good() {
         let mut cancelled = item(1, false, &[], &[]);
         cancelled.work.now = Now::Cancelled;
-        let some = items(vec![
-            cancelled,
-            item(2, false, &[1], &["page"]),
-            item(3, true, &[], &["page"]),
-        ]);
+        // The engine says the item it waits for was cancelled; the list says what the engine says.
+        let mut waiting = item(2, false, &[1], &["page"]);
+        waiting.work.now = Now::Waits {
+            at: "S1".to_string(),
+            on: vec![Waited::Items {
+                items: vec![1],
+                cancelled: vec![1],
+            }],
+        };
+        let some = items(vec![cancelled, waiting, item(3, true, &[], &["page"])]);
         let page = |all: bool| Listing {
             tag: Some("page".to_string()),
             from: None,
@@ -2169,15 +2174,15 @@ mod tests {
         // What ended is left out, and counted, unless all are asked for.
         assert_eq!(
             list(&some, &page(false)),
-            "#2 \"item 2\" at level 1, project script, W2 on trial, after #1, tagged page: stalled at merge. Nothing \
-             new runs this last cell, and no cell can write what runs it. It waits for good on #1, cancelled.\nAnd 1 \
-             item that ended, merged or cancelled: wf-agents list --tag page --all"
+            "#2 \"item 2\" at level 1, project script, W2 on trial, after #1, tagged page: waits at S1 for the items \
+             it depends on to merge: #1; it waits for good on #1, cancelled\nAnd 1 item that ended, merged or \
+             cancelled: wf-agents list --tag page --all"
         );
         assert_eq!(
             list(&some, &page(true)),
-            "#2 \"item 2\" at level 1, project script, W2 on trial, after #1, tagged page: stalled at merge. Nothing \
-             new runs this last cell, and no cell can write what runs it. It waits for good on #1, cancelled.\n#3 \
-             \"item 3\" at level 1, project script, W3 on trial, tagged page: merged"
+            "#2 \"item 2\" at level 1, project script, W2 on trial, after #1, tagged page: waits at S1 for the items \
+             it depends on to merge: #1; it waits for good on #1, cancelled\n#3 \"item 3\" at level 1, project \
+             script, W3 on trial, tagged page: merged"
         );
         let none = Listing {
             tag: Some("none".to_string()),
